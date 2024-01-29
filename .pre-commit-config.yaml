@@ -1,7 +1,7 @@
 fail_fast: False
 
 default_language_version:
-  python: python3.11
+  python: python3.12
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -47,4 +47,5 @@ repos:
     rev: v1.8.0
     hooks:
       - id: mypy
-        additional_dependencies: [tokenize-rt==3.2.0]
+        additional_dependencies:
+          [pymongo==4.6.1, motor==3.3.2, pytest, Faker, hypothesis]

@@ -1,0 +1,35 @@
+[tool.poetry]
+name = "mongo-client-cache"
+version = "0.1.0"
+description = ""
+authors = ["Your Name <you@example.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.12"
+
+[tool.poetry.group.pymongo]
+optional = true
+
+[tool.poetry.group.pymongo.dependencies]
+pymongo = "^4.6.1"
+
+[tool.poetry.group.motor]
+optional = true
+
+[tool.poetry.group.motor.dependencies]
+motor = "^3.3.2"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.4.4"
+pytest-asyncio = "^0.23.3"
+pytest-timeout = "^2.2.0"
+pytest-memray = "^1.5.0"
+python-dotenv = "^1.0.0"
+tox = "^4.12.1"
+hypothesis = "^6.88.1"
+Faker = "^22.0.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
