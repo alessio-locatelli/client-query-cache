@@ -1,4 +1,5 @@
 services:
+
   mongo1:
     hostname: mongo1
     image: mongo:7.0.5
@@ -8,6 +9,9 @@ services:
       - 27017:27017
     restart: always
     command: mongod --replSet my-mongo-set
+    networks:
+      - mongoCluster
+
   mongo2:
     hostname: mongo2
     image: mongo:7.0.5
@@ -17,6 +21,9 @@ services:
       - 30002:27017
     restart: always
     command: mongod --replSet my-mongo-set
+    networks:
+      - mongoCluster
+
   mongo3:
     hostname: mongo3
     image: mongo:7.0.5
@@ -26,6 +33,8 @@ services:
       - 30003:27017
     restart: always
     command: mongod --replSet my-mongo-set
+    networks:
+      - mongoCluster
 
   mongoinit:
     image: mongo:7.0.5
@@ -44,17 +53,27 @@ services:
       "members" : [
         {
           "_id" : 0,
-          "host" : "mongo1:27017"
+          "host" : "mongo1:27017",
+          "prioriry": 1"
         },
         {
           "_id" : 1,
-          "host" : "mongo2:27017"
+          "host" : "mongo2:27017",
+          "prioriry": 0.5"
         },
         {
           "_id" : 2,
-          "host" : "mongo3:27017"
+          "host" : "mongo3:27017",
+          "prioriry": 0.5
         }
       ]
       };
       rs.initiate(config);
       '
+    networks:
+      - mongoCluster
+
+networks:
+  mongoCluster:
+    name: mongoCluster
+    external: true
