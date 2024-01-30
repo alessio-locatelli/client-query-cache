@@ -1,16 +1,13 @@
-from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
-import pymongo
+from collections.abc import Sequence
 from bson.codec_options import TypeRegistry
+
 from pymongo.typings import _DocumentType
+import pymongo
 
-from mongo_client_cache.backend.memory import CacheBackend
-
-client = pymongo.MongoClient()
-db = client.test_database
-collection = db.test_collection
-collection.find_one()
+from mongo_client_cache.backend.memory import MemoryCacheBackend
+from mongo_client_cache.database import CachedDatabase
 
 
 if TYPE_CHECKING:
@@ -29,18 +26,22 @@ class CacheMixin(MIXIN_BASE):
         connect: bool | None = None,
         type_registry: TypeRegistry | None = None,
         *,
-        cache: CacheBackend | None = None,
+        cache: MemoryCacheBackend | None = None,
         **kwargs: Any,
     ) -> None:
-        self.cache = cache or CacheBackend()
+        self._cache = cache or MemoryCacheBackend()
 
         super().__init__(
             host, port, document_class, tz_aware, connect, type_registry, **kwargs
         )
 
-    def find_one(
-        self, filter: Any | None = None, *args: Any, **kwargs: Any
-    ) -> _DocumentType | None: ...
+    def __getattr__(self, name: str) -> CachedDatabase:
+        assert not name.startswith("_")
+        return self.__getitem__(name)
+
+    def __getitem__(self, name: str) -> CachedDatabase:
+        return CachedDatabase(self, name)
 
 
-class CachedMongoClient(CacheMixin, pymongo.MongoClient): ...
+class CachedMongoClient(CacheMixin, pymongo.MongoClient):
+    ...

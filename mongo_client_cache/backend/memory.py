@@ -1,1 +1,1 @@
-CacheBackend = dict
+MemoryCacheBackend = dict
