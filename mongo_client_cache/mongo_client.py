@@ -1,14 +1,11 @@
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
-from collections.abc import Sequence
-from bson.codec_options import TypeRegistry
-
-from pymongo.typings import _DocumentType
 import pymongo
+from bson.codec_options import TypeRegistry
+from pymongo.typings import _DocumentType
 
-from mongo_client_cache.backend.memory import MemoryCacheBackend
 from mongo_client_cache.database import CachedDatabase
-
 
 if TYPE_CHECKING:
     MIXIN_BASE = pymongo.MongoClient
@@ -26,10 +23,10 @@ class CacheMixin(MIXIN_BASE):
         connect: bool | None = None,
         type_registry: TypeRegistry | None = None,
         *,
-        cache: MemoryCacheBackend | None = None,
+        cache: dict | None = None,
         **kwargs: Any,
     ) -> None:
-        self._cache = cache or MemoryCacheBackend()
+        self._cache = cache or {}
 
         super().__init__(
             host, port, document_class, tz_aware, connect, type_registry, **kwargs
@@ -43,5 +40,4 @@ class CacheMixin(MIXIN_BASE):
         return CachedDatabase(self, name)
 
 
-class CachedMongoClient(CacheMixin, pymongo.MongoClient):
-    ...
+class CachedMongoClient(CacheMixin, pymongo.MongoClient): ...

@@ -1,8 +1,6 @@
 from pymongo import database
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from mongo_client_cache.collection import CachedCollection
+from mongo_client_cache.collection import CachedCollection
 
 
 class CachedDatabase(database.Database):
