@@ -15,17 +15,17 @@ logging.basicConfig(level=logging.DEBUG)
 
 @pytest.fixture
 def database() -> Database:
-    client = MongoClient(
-        # "localhost", 27017, replicaset="my-mongo-set", directConnection=True
-        "localhost",
-        27017,
-        replicaset="my-mongo-set",
-    )
-    # client = CachedMongoClient(
-    #    "mongodb://localhost:27017,localhost:30002,localhost:30003/?replicaSet=my-mongo-set"
+    # client = MongoClient(
+    # "localhost", 27017, replicaset="myReplicaSet", directConnection=True
+    #    replicaset="myReplicaSet",
     # )
+    client = MongoClient(
+        # "mongodb://localhost:27017,localhost:27018,localhost:27019/?replicaSet=myReplicaSet"
+        # "mongodb://mongo1:27017,mongo2:27017,mongo3:27017/?replicaSet=myReplicaSet"
+        "mongodb://mongo1,mongo2,mongo3/myDB?replicaSet=myReplicaSet",
+    )
     config = {
-        "_id": "my-mongo-set",
+        "_id": "myReplicaSet",
         "members": [
             {"_id": 0, "host": "mongo1:27017", "priority": 1},
             {"_id": 1, "host": "mongo2:27017", "priority": 0.5},
@@ -33,14 +33,16 @@ def database() -> Database:
         ],
     }
     try:
-        client.admin.command("replSetInitiate", config)
+        ...
+        # client.admin.command("replSetInitiate", config)
     except pymongo.errors.OperationFailure as error:
         if "AlreadyInitialized" not in str(error):
             raise
+        logger.info(repr(error))
 
     logger.info(f"{client = }, {client.nodes = }, {client.topology_description = }")
     db = client.test_database
-    db.command("ping")
+    # db.command("ping")
     logger.info(f"Connected to {db}.")
     return db
 
@@ -52,3 +54,17 @@ def test_mongo_client(database: CachedDatabase, faker: Faker) -> None:
 
     cached_post = posts.find_one({"_id": post_id})
     assert cached_post == post
+
+
+async def test_motor() -> None:
+    import motor.motor_asyncio
+
+    client = motor.motor_asyncio.AsyncIOMotorClient(
+        # "mongodb://mongo1,mongo2,mongo3/?replicaSet=myReplicaSet",
+        "mongodb://mongo1,mongo2,mongo3/?replicaSet=myReplicaSet&appName=mongosh+2.1.1"
+    )
+    db = client.test
+    assert await db.test.find_one({})
+    document = {"key": "value"}
+    result = await db.test.insert_one(document)
+    assert result

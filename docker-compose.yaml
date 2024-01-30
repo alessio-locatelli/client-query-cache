@@ -8,7 +8,7 @@ services:
     ports:
       - 27017:27017
     restart: always
-    command: mongod --replSet my-mongo-set
+    command: mongod --replSet myReplicaSet --bind_ip localhost,mongo1
     networks:
       - mongoCluster
 
@@ -20,7 +20,7 @@ services:
     ports:
       - 30002:27017
     restart: always
-    command: mongod --replSet my-mongo-set
+    command: mongod --replSet myReplicaSet --bind_ip localhost,mongo2
     networks:
       - mongoCluster
 
@@ -32,7 +32,7 @@ services:
     ports:
       - 30003:27017
     restart: always
-    command: mongod --replSet my-mongo-set
+    command: mongod --replSet myReplicaSet --bind_ip localhost,mongo3
     networks:
       - mongoCluster
 
