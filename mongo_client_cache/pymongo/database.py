@@ -1,6 +1,6 @@
 from pymongo import database
 
-from mongo_client_cache.collection import CachedCollection
+from mongo_client_cache.pymongo.collection import CachedCollection
 
 
 class CachedDatabase(database.Database):

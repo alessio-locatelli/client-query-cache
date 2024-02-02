@@ -149,6 +149,9 @@ select = [
     "T10",
 ]
 
+[flake8-builtins]
+builtins-ignorelist = ["filter",]
+
 [flake8-pytest-style]
 parametrize-names-type = "csv"
 

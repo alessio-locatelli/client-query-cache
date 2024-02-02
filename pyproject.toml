@@ -7,6 +7,7 @@ readme = "README.md"
 
 [tool.poetry.dependencies]
 python = "^3.12"
+pandas = {version = ">=2", extras = ["performance"]}
 
 [tool.poetry.group.pymongo]
 optional = true
