@@ -33,10 +33,6 @@ class CacheMixin(MIXIN_BASE):
             host, port, document_class, tz_aware, connect, type_registry, **kwargs
         )
 
-    def __getattr__(self, name: str) -> CachedDatabase:
-        assert not name.startswith("_")
-        return self.__getitem__(name)
-
     def __getitem__(self, name: str) -> CachedDatabase:
         return CachedDatabase(self, name)
 

@@ -15,7 +15,10 @@ class CachedCollection(Collection):
         projection: list[str] | dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> Mapping[str, Any] | None:
-        cache_backend = cast(MemoryBackend, self._Collection__database.cache_backend)
+        cache_backend = cast(
+            MemoryBackend, self._Collection__database.client.cache_backend
+        )
+
         if cache_backend.collection_can_be_cached(self.name):
             try:
                 return cache_backend.get_one(

@@ -32,6 +32,7 @@ def example_database(collection_name: str) -> CachedDatabase:
     db = client.test_database
     db.command("ping")
     logger.info(f"Connected to {db}.")
+    assert isinstance(db, CachedDatabase)
     return db
 
 
@@ -39,4 +40,6 @@ def example_database(collection_name: str) -> CachedDatabase:
 def example_collection(
     example_database: CachedDatabase, collection_name: str
 ) -> CachedCollection:
-    return example_database[collection_name]
+    collection = example_database[collection_name]
+    assert isinstance(collection, CachedCollection)
+    return collection

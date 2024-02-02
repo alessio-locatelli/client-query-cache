@@ -1,1 +1,1 @@
-from base import BaseBackend, CollectionConfig
+from .base import BaseBackend, CollectionConfig
