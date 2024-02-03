@@ -9,7 +9,9 @@ from faker import Faker
 
 logger = logging.getLogger(__name__)
 
-logging.getLogger("faker.factory").setLevel("WARNING")
+logging.getLogger("faker.factory").setLevel("INFO")
+logging.getLogger("pymongo.ocsp_support").setLevel("INFO")
+logging.getLogger("pymongo.connectionpool").setLevel("INFO")
 
 
 @pytest.fixture(autouse=True)

@@ -21,5 +21,22 @@ def test_collection_find_one(
     document_id: int,
     example_document: dict[str, Any],
 ) -> None:
-    cached_document = example_collection.find_one({"_id": document_id})
+    filter = {"_id": document_id}
+
+    # Uncached call.
+    cached_document = example_collection.find_one(filter)
+    assert cached_document == example_document
+    cache_backend = example_collection._Collection__database.client.cache_backend
+    assert not cache_backend._quieries[example_collection.name].empty
+    assert not cache_backend._collections[example_collection.name].empty
+
+    # Cached call.
+    cached_document = example_collection.find_one(filter)
+    assert cached_document == example_document
+
+    # Remove the document from MongoDB to ensure
+    # that the document was previously cached.
+    example_collection.delete_one(filter)
+    cached_document = example_collection.find_one(filter)
+    # We still have the document in the memory.
     assert cached_document == example_document
