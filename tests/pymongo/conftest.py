@@ -14,11 +14,6 @@ logging.basicConfig(level=logging.DEBUG)
 
 
 @pytest.fixture
-def collection_name() -> str:
-    return "example"
-
-
-@pytest.fixture
 def example_database(collection_name: str) -> CachedDatabase:
     client = CachedMongoClient(
         f"mongodb+srv://{os.environ['MONGO_NAME']}:{os.environ['MONGO_PASSWORD']}@{os.environ['MONGO_HOST']}/?retryWrites=true&w=majority",

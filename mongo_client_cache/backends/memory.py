@@ -2,6 +2,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from mongo_client_cache.backends.base import BaseBackend, CollectionConfig, MongoCommand
+from mongo_client_cache.logger import logger
 
 
 class NotCachedError(Exception): ...
@@ -33,7 +34,10 @@ class MemoryBackend(BaseBackend):
         try:
             document_id = query.iloc[(0, -1)]
         except IndexError as e:
+            logger.debug(f"Not found in cache: {mongo_command}, {collection_name=}.")
             raise NotCachedError from e
+
+        logger.debug(f"Found in cache: {mongo_command}, {collection_name=}.")
         return self._collections[collection_name][document_id]["document"]
 
     def set_one(
@@ -49,8 +53,12 @@ class MemoryBackend(BaseBackend):
             # The query found no documents so we have `None` instead of a document.
             document_id = None
         else:
-            self._collections[collection_name].iloc[0] = [document_id, document]
-        self._quieries[collection_name].iloc[0] = [
+            df_collection = self._collections[collection_name]
+            df_collection.loc[len(df_collection)] = [document_id, document]
+
+        df_queries = self._quieries[collection_name]
+        df_queries.loc[len(df_queries)] = [
+            collection_name,
             mongo_command.name,
             mongo_command.filter,
             mongo_command.projection,
