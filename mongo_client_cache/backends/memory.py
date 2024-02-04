@@ -5,8 +5,7 @@ from mongo_client_cache.backends.base import BaseBackend, CollectionConfig, Mong
 from mongo_client_cache.logger import logger
 
 
-class NotCachedError(Exception):
-    ...
+class NotCachedError(Exception): ...
 
 
 class MemoryBackend(BaseBackend):
@@ -26,7 +25,7 @@ class MemoryBackend(BaseBackend):
     def get_one(
         self, *, collection_name: str, mongo_command: MongoCommand
     ) -> Mapping[str, Any]:
-        queries = self._quieries[collection_name]
+        queries = self._queries[collection_name]
         query = queries[
             (queries["command"] == mongo_command.name)
             & (
@@ -43,16 +42,14 @@ class MemoryBackend(BaseBackend):
         try:
             document_id = query.iloc[(0, -1)]
         except IndexError as e:
-            logger.debug(
-                f"Not found in cache: {mongo_command}, {collection_name=}, {queries=}"
-            )
+            logger.debug(f"Not found in cache: {mongo_command}, {collection_name=}.")
             raise NotCachedError from e
 
         cached_document = self._collections[collection_name].loc[document_id][
             "document"
         ]
         logger.debug(
-            f"Found in cache: {mongo_command}, {collection_name=}, {document_id=}, {cached_document=}, {self._collections=}"
+            f"Found in cache: {mongo_command}, {collection_name=}, {document_id=}"
         )
         return cached_document
 
@@ -69,15 +66,12 @@ class MemoryBackend(BaseBackend):
             # The query found no documents so we have `None` instead of a document.
             document_id = None
         else:
-            logger.debug(f"Caching {document=} from {collection_name=}.")
+            logger.debug(f"Caching {document_id=} from {collection_name=}.")
             df_collection = self._collections[collection_name]
             df_collection.loc[document_id] = [document]
-            assert isinstance(
-                df_collection.loc[document_id]["document"], dict
-            ), df_collection
 
         logger.info(f"Saving {mongo_command}, {collection_name=}.")
-        df_queries = self._quieries[collection_name]
+        df_queries = self._queries[collection_name]
         df_queries.loc[len(df_queries)] = [
             collection_name,
             mongo_command.name,

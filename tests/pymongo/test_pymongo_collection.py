@@ -1,6 +1,7 @@
 from collections.abc import Iterator
-from typing import Any
+from typing import Any, cast
 
+import pandas as pd
 import pytest
 
 from mongo_client_cache.pymongo.collection import CachedCollection
@@ -27,8 +28,12 @@ def test_collection_find_one(
     cached_document = example_collection.find_one(filter)
     assert cached_document == example_document
     cache_backend = example_collection._Collection__database.client.cache_backend
-    assert not cache_backend._quieries[example_collection.name].empty
-    assert not cache_backend._collections[example_collection.name].empty
+    queries_df = cast(pd.DataFrame, cache_backend._queries[example_collection.name])
+    assert not queries_df.empty
+    collection_df = cast(
+        pd.DataFrame, cache_backend._collections[example_collection.name]
+    )
+    assert not collection_df.empty
 
     # Cached call.
     cached_document = example_collection.find_one(filter)

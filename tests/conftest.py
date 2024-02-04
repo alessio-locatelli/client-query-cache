@@ -1,10 +1,12 @@
 import logging
 import os
+from copy import copy
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
 import pytest
+from bson import Decimal128
 from faker import Faker
 
 logger = logging.getLogger(__name__)
@@ -44,24 +46,22 @@ def example_document(faker: Faker, document_id: int) -> dict[str, Any]:
     document = faker.pydict()
     document["_id"] = document_id
 
-    mongo_compatible_document = {}
+    mongo_compatible_document: dict[str, Any] = {}
     for k, v in document.items():
         if isinstance(v, datetime):
             # MongoDB rounds microseconds to the nearest millisecond.
             # If we want to get back the same object, we must round
             # all `datetime` instances before storing them in MongoDB.
-            mongo_compatible_document[k] = v.replace(microsecond=0)
-        if isinstance(v, Decimal):
-            continue
+            mongo_compatible_document[k] = copy(v).replace(microsecond=0)
+        elif isinstance(v, Decimal):
             # `Decimal` must be converted before storing as BSON.
             # Otherwise you will get:
             # ```
             # bson.errors.InvalidDocument: cannot encode object [...]
             # [...] of type: <class 'decimal.Decimal'>
             # ````
-            # mongo_compatible_document[k] = Decimal128(
-            #     faker.pydecimal(left_digits=10, right_digits=10)
-            # )
-        mongo_compatible_document[k] = v
+            mongo_compatible_document[k] = Decimal128(v)
+        else:
+            mongo_compatible_document[k] = v
 
     return mongo_compatible_document

@@ -49,7 +49,7 @@ class CollectionConfig:
 
 def _initialize_empty_collection_df() -> pd.DataFrame:
     collection_df = pd.DataFrame(columns=["_id", "document"])
-    collection_df.set_index("_id", inplace=True)
+    collection_df.set_index("_id", inplace=True)  # noqa: PD002
     return collection_df
 
 
@@ -57,7 +57,7 @@ class BaseBackend:
     __slots__ = (
         "_cache_only_collections",
         "_collections",
-        "_quieries",
+        "_queries",
         "_config_per_collection",
         "_do_not_cache_collections",
     )
@@ -82,7 +82,7 @@ class BaseBackend:
         self._collections: dict[CollectionName, pd.DataFrame] = defaultdict(
             _initialize_empty_collection_df
         )
-        self._quieries: dict[CollectionName, pd.DataFrame] = defaultdict(
+        self._queries: dict[CollectionName, pd.DataFrame] = defaultdict(
             partial(
                 pd.DataFrame,
                 columns=[
