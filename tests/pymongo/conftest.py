@@ -17,6 +17,8 @@ logging.basicConfig(level=logging.DEBUG)
 def example_database(collection_name: str) -> CachedDatabase:
     client = CachedMongoClient(
         f"mongodb+srv://{os.environ['MONGO_NAME']}:{os.environ['MONGO_PASSWORD']}@{os.environ['MONGO_HOST']}/?retryWrites=true&w=majority",
+        # For local setup:
+        # f"mongodb://{os.environ['MONGO_HOST']}:{os.environ['MONGO_PORT']}/?retryWrites=true&w=majority",
         cache_backend=MemoryBackend(
             config_per_collection=[
                 CollectionConfig(name=collection_name, watch_change_stream=False)
