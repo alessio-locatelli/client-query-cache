@@ -31,7 +31,7 @@ def faker_seed() -> str | int:
     return seed
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def collection_name() -> str:
     return "example"
 

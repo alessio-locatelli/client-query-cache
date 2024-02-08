@@ -6,6 +6,8 @@ from typing import Any, Literal
 
 import pandas as pd
 
+from mongo_client_cache.types import CollectionName
+
 
 @dataclass(slots=True)
 class MongoCommand:
@@ -18,13 +20,12 @@ class MongoCommand:
         yield from [self.collection, self.name, self.filter, self.projection]
 
 
-class NotCachedError(Exception): ...
+class NotCachedError(Exception):
+    ...
 
 
-class NotAPositiveNumberError(Exception): ...
-
-
-CollectionName = str
+class NotAPositiveNumberError(Exception):
+    ...
 
 
 @dataclass(slots=True)
