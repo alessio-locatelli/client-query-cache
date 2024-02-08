@@ -1,4 +1,5 @@
 from collections import defaultdict
+from collections.abc import Iterator
 from dataclasses import dataclass
 from functools import partial
 from typing import Any, Literal
@@ -8,13 +9,19 @@ import pandas as pd
 
 @dataclass(slots=True)
 class MongoCommand:
+    collection: str
     name: Literal["findOne", "find"]
     filter: Any = None
     projection: list[str] | dict[str, Any] | None = None
 
+    def __iter__(self) -> Iterator[Any]:
+        yield from [self.collection, self.name, self.filter, self.projection]
 
-class NotAPositiveNumberError(Exception):
-    pass
+
+class NotCachedError(Exception): ...
+
+
+class NotAPositiveNumberError(Exception): ...
 
 
 CollectionName = str
@@ -36,6 +43,9 @@ class CollectionConfig:
     enable_client_side_cache: bool = True
 
     def __post_init__(self) -> None:
+        assert self.name, "Collection name must be a non-empty string."
+        assert isinstance(self.watch_change_stream, bool)
+        assert isinstance(self.enable_client_side_cache, bool)
         if self.pause_change_stream_if_idle and self.pause_change_stream_if_idle <= 0:
             raise NotAPositiveNumberError(f"{self.pause_change_stream_if_idle=}")
         if (
@@ -68,6 +78,8 @@ class BaseBackend:
         cache_only_collections: set[str] | None = None,
         config_per_collection: list[CollectionConfig] | None = None,
     ) -> None:
+        if cache_only_collections:
+            assert all(name for name in cache_only_collections)
         self._cache_only_collections = cache_only_collections
         self._config_per_collection = config_per_collection
         if config_per_collection:
