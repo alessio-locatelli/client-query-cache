@@ -8,4 +8,4 @@ type BsonValue = (  # type: ignore[valid-type]
 )
 type BsonDict = dict[str, BsonValue]  # type: ignore[valid-type]
 
-type CollectionName = str
+type CollectionName = str  # type: ignore[valid-type]

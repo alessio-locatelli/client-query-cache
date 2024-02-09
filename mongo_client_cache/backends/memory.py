@@ -1,3 +1,5 @@
+from typing import cast
+
 import pandas as pd
 
 from mongo_client_cache.backends.base import BaseBackend, MongoCommand, NotCachedError
@@ -8,7 +10,7 @@ from mongo_client_cache.types import BsonDict, BsonValue
 class MemoryBackend(BaseBackend):
     __slots__ = ()
 
-    def _find_cached_documents_ids(self, mongo_command: MongoCommand) -> set[BsonValue]:
+    def _find_cached_documents_ids(self, mongo_command: MongoCommand) -> set[BsonValue]:  # type: ignore[valid-type]
         queries = self._queries[mongo_command.collection]
         query = queries[
             (queries["command"] == mongo_command.name)
@@ -29,22 +31,19 @@ class MemoryBackend(BaseBackend):
             logger.debug(f"Not found in cache: {mongo_command}")
             raise NotCachedError from e
 
-    def _find_cached_document_id(self, mongo_command: MongoCommand) -> BsonValue:
-        return self._find_cached_documents_ids(mongo_command)
+    def _find_cached_document_id(self, mongo_command: MongoCommand) -> BsonValue:  # type: ignore[valid-type]
+        return cast(BsonValue, self._find_cached_documents_ids(mongo_command))  # type: ignore[valid-type]
 
     def get_one(self, mongo_command: MongoCommand) -> BsonDict | None:
         document_id = self._find_cached_document_id(mongo_command)
         if document_id is None:
             return None
-        logger.debug(f"Found in cache: {mongo_command}, {document_id=}")
+        logger.debug(f"Found in cache: {mongo_command}, {document_id=}")  # type: ignore[unreachable]
         df_collection = self._collections[mongo_command.collection]
         return df_collection.loc[document_id]["document"]
 
     def set_one(
-        self,
-        *,
-        document: BsonDict | None,
-        mongo_command: MongoCommand,
+        self, *, document: BsonDict | None, mongo_command: MongoCommand
     ) -> None:
         try:
             document_id = document["_id"]  # type: ignore[index]

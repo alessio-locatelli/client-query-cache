@@ -20,12 +20,10 @@ class MongoCommand:
         yield from [self.collection, self.name, self.filter, self.projection]
 
 
-class NotCachedError(Exception):
-    ...
+class NotCachedError(Exception): ...
 
 
-class NotAPositiveNumberError(Exception):
-    ...
+class NotAPositiveNumberError(Exception): ...
 
 
 @dataclass(slots=True)

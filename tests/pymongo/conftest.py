@@ -25,11 +25,9 @@ def mongo_client(
     if request.param == "standalone":
         url = f"mongodb://{os.environ['STANDALONE_MONGO_HOST']}:{os.environ['STANDALONE_MONGO_PORT']}/?retryWrites=true&w=majority"
     if request.param == "replica":
-        url = (
-            f"mongodb+srv://{os.environ['REPLICA_MONGO_NAME']}:{os.environ['REPLICA_MONGO_PASSWORD']}@{os.environ['REPLICA_MONGO_HOST']}/?retryWrites=true&w=majority",
-        )
+        url = f"mongodb+srv://{os.environ['REPLICA_MONGO_NAME']}:{os.environ['REPLICA_MONGO_PASSWORD']}@{os.environ['REPLICA_MONGO_HOST']}/?retryWrites=true&w=majority"
     else:
-        raise ValueError("Invalid internal test config.")
+        raise ValueError("Invalid internal test config.")  # noqa: TRY003
 
     client = CachedMongoClient(
         url,

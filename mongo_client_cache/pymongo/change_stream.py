@@ -1,17 +1,24 @@
+from collections.abc import Mapping
+from typing import Any
+
+from pymongo import MongoClient
+from pymongo.collection import Collection
+from pymongo.database import Database
 from pymongo.errors import PyMongoError
+
 from mongo_client_cache.logger import logger
 
 
-class WatchCollection:
+class Watch:
     """
     https://github.com/mongodb/specifications/blob/master/source/change-streams/change-streams.rst
     """
 
-    __slots__ = ("_collection", "_resume_token", "_watch")
+    __slots__ = ("_target", "_resume_token", "_watch")
 
-    def __call__(self, collection) -> None:
-        self._collection = collection
-        self._resume_token = None
+    def __call__(self, target: MongoClient | Database | Collection) -> None:
+        self._target = target
+        self._resume_token: Mapping[str, Any] | None = None
 
         retry_count = 3
         while True:
@@ -27,16 +34,14 @@ class WatchCollection:
                     logger.error(
                         "There is no usable resume token because there was a "
                         + "failure during ChangeStream initialization. "
-                        + f"Collection: {collection.name}, {error!r}"
+                        + f"Target: {target}, {error!r}"
                     )
 
     def _watch(self) -> None:
-        pipeline = [{"$match": {"operationType": "insert"}}]
-        with self._collection.watch(
-            pipeline, resume_after=self._resume_token
-        ) as stream:
-            for insert_change in stream:
-                print(insert_change)
+        # https://www.mongodb.com/docs/manual/reference/change-events/#change-events
+        with self._target.watch(resume_after=self._resume_token) as stream:
+            for event in stream:
+                logger.debug(f"Event: {event}.")
 
                 # Use the interrupted ChangeStream's resume token to create
                 # a new ChangeStream. The new stream will continue from the

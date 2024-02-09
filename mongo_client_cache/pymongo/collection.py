@@ -36,7 +36,7 @@ class CachedCollection(Collection):
             )
             return document
 
-    def find(self, *args: Any, **kwargs: Any) -> Iterator[BsonDict]:
+    def find(self, *args: Any, **kwargs: Any) -> Iterator[BsonDict]:  # type: ignore[override]
         cache_backend = cast(
             MemoryBackend, self._Collection__database.client.cache_backend
         )

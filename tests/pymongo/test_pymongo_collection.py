@@ -56,9 +56,8 @@ def test_collection_find(
     filter = {"_id": document_id}
 
     # Uncached call.
-    cached_document = next(iter(example_collection.find(filter)))
-    assert cached_document == example_document
-    return
+    uncached_document = next(iter(example_collection.find(filter)))
+    assert uncached_document == example_document
     cache_backend = example_collection._Collection__database.client.cache_backend
     queries_df = cast(pd.DataFrame, cache_backend._queries[example_collection.name])
     assert not queries_df.empty
