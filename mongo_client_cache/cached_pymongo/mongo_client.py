@@ -1,4 +1,5 @@
 from collections.abc import Sequence
+from threading import Thread
 from typing import TYPE_CHECKING, Any
 
 import pymongo
@@ -6,7 +7,8 @@ from bson.codec_options import TypeRegistry
 from pymongo.typings import _DocumentType
 
 from mongo_client_cache.backends.memory import MemoryBackend
-from mongo_client_cache.pymongo.database import CachedDatabase
+from mongo_client_cache.cached_pymongo.change_stream import Watch
+from mongo_client_cache.cached_pymongo.database import CachedDatabase
 
 if TYPE_CHECKING:
     MIXIN_BASE = pymongo.MongoClient
@@ -27,11 +29,11 @@ class CacheMixin(MIXIN_BASE):
         cache_backend: MemoryBackend,
         **kwargs: Any,
     ) -> None:
-        self.cache_backend = cache_backend
-
         super().__init__(
             host, port, document_class, tz_aware, connect, type_registry, **kwargs
         )
+        self.cache_backend = cache_backend
+        Thread(target=Watch, args=[self], daemon=True).start()
 
     def __getitem__(self, name: str) -> CachedDatabase:
         return CachedDatabase(self, name)
