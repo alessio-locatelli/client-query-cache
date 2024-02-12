@@ -1,15 +1,12 @@
 from collections.abc import Sequence
-from threading import Thread
 from typing import TYPE_CHECKING, Any
 
 import pymongo
 from bson.codec_options import TypeRegistry
 from pymongo.typings import _DocumentType
+
 from mongo_client_cache.backends.base import CollectionConfig
 from mongo_client_cache.backends.exceptions import ReservedAttributeError
-
-from mongo_client_cache.backends.memory import MemoryBackend
-from mongo_client_cache.cached_pymongo.change_stream import Watch
 from mongo_client_cache.cached_pymongo.database import CachedDatabase
 
 if TYPE_CHECKING:
@@ -48,5 +45,4 @@ class CacheMixin(MIXIN_BASE):
         )
 
 
-class CachedMongoClient(CacheMixin, pymongo.MongoClient):
-    ...
+class CachedMongoClient(CacheMixin, pymongo.MongoClient): ...

@@ -1,11 +1,11 @@
 import bson
 from pymongo import MongoClient, WriteConcern, database
 from pymongo.read_concern import ReadConcern
-from pymongo.typings import _DocumentType, _DocumentTypeArg
 from pymongo.read_preferences import _ServerMode
+from pymongo.typings import _DocumentType, _DocumentTypeArg
+
 from mongo_client_cache.backends.base import ClientSideDatabase, CollectionConfig
 from mongo_client_cache.backends.exceptions import ReservedAttributeError
-
 from mongo_client_cache.cached_pymongo.collection import CachedCollection
 
 
