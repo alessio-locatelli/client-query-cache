@@ -7,5 +7,3 @@ type BsonValue = (  # type: ignore[valid-type]
     int | float | str | bool | None | list["BsonValue"] | "BsonDict" | datetime | bytes  # type: ignore[valid-type]
 )
 type BsonDict = dict[str, BsonValue]  # type: ignore[valid-type]
-
-type CollectionName = str  # type: ignore[valid-type]

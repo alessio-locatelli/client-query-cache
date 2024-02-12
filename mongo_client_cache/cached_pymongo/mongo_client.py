@@ -5,6 +5,8 @@ from typing import TYPE_CHECKING, Any
 import pymongo
 from bson.codec_options import TypeRegistry
 from pymongo.typings import _DocumentType
+from mongo_client_cache.backends.base import CollectionConfig
+from mongo_client_cache.backends.exceptions import ReservedAttributeError
 
 from mongo_client_cache.backends.memory import MemoryBackend
 from mongo_client_cache.cached_pymongo.change_stream import Watch
@@ -26,17 +28,25 @@ class CacheMixin(MIXIN_BASE):
         connect: bool | None = None,  # noqa: FBT001
         type_registry: TypeRegistry | None = None,
         *,
-        cache_backend: MemoryBackend,
+        cache_config_per_collection: list[CollectionConfig] | None = None,
         **kwargs: Any,
     ) -> None:
+        """
+        By default, all collections are cached and watched for changes.
+        Use `CollectionConfig` to change options for specific collections.
+        """
         super().__init__(
             host, port, document_class, tz_aware, connect, type_registry, **kwargs
         )
-        self.cache_backend = cache_backend
-        Thread(target=Watch, args=[self], daemon=True).start()
+        self.cache_config_per_collection = cache_config_per_collection
 
     def __getitem__(self, name: str) -> CachedDatabase:
-        return CachedDatabase(self, name)
+        if name == "cache_config_per_collection":
+            raise ReservedAttributeError(name)
+        return CachedDatabase(
+            self, name, config_per_collection=self.cache_config_per_collection
+        )
 
 
-class CachedMongoClient(CacheMixin, pymongo.MongoClient): ...
+class CachedMongoClient(CacheMixin, pymongo.MongoClient):
+    ...

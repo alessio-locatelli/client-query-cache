@@ -2,16 +2,16 @@ from typing import cast
 
 import pandas as pd
 
-from mongo_client_cache.backends.base import BaseBackend, MongoCommand, NotCachedError
+from mongo_client_cache.backends.base import MongoCommand
 from mongo_client_cache.logger import logger
 from mongo_client_cache.types import BsonDict, BsonValue
 
 
-class MemoryBackend(BaseBackend):
-    __slots__ = ()
+class MemoryBackend:
+    __slots__ = ("config_per_collection",)
 
     def _find_cached_documents_ids(self, mongo_command: MongoCommand) -> set[BsonValue]:  # type: ignore[valid-type]
-        queries = self._queries[mongo_command.collection]
+        queries = self.cached_queries[mongo_command.collection]
         query = queries[
             (queries["command"] == mongo_command.name)
             & (
@@ -39,7 +39,7 @@ class MemoryBackend(BaseBackend):
         if document_id is None:
             return None
         logger.debug(f"Found in cache: {mongo_command}, {document_id=}")  # type: ignore[unreachable]
-        df_collection = self._collections[mongo_command.collection]
+        df_collection = self.collections[mongo_command.collection]
         return df_collection.loc[document_id]["document"]
 
     def set_one(
@@ -51,11 +51,11 @@ class MemoryBackend(BaseBackend):
             # The query found no documents so we have `None` instead of a document.
             document_id = None
         else:
-            df_collection = self._collections[mongo_command.collection]
+            df_collection = self.collections[mongo_command.collection]
             df_collection.loc[document_id] = [document]
 
         logger.debug(f"{mongo_command}, {document_id=}.")
-        df_queries = self._queries[mongo_command.collection]
+        df_queries = self.queries[mongo_command.collection]
         df_queries.loc[len(df_queries)] = [*list(mongo_command), document_id]
 
     def set_many(
@@ -67,18 +67,18 @@ class MemoryBackend(BaseBackend):
         logger.debug(f"{mongo_command}, {documents=}")
         if not documents:
             return
-        df_collection = self._collections[mongo_command.collection]
+        df_collection = self.collections[mongo_command.collection]
         df_documents = pd.DataFrame(documents)
         df_documents.set_index("_id", inplace=True)  # noqa: PD002
         df_collection = df_collection.combine_first(df_documents)
 
-        df_queries = self._queries[mongo_command.collection]
+        df_queries = self.queries[mongo_command.collection]
         df_queries.loc[len(df_queries)] = [
             *list(mongo_command),
-            {document["_id"] for document in documents},
+            [document["_id"] for document in documents],
         ]
 
     def get_many(self, mongo_command: MongoCommand) -> list[BsonDict]:
         documets_ids = self._find_cached_documents_ids(mongo_command)
-        df_collection = self._collections[mongo_command.collection]
+        df_collection = self.collections[mongo_command.collection]
         return df_collection.loc[df_collection["_id"] in documets_ids]
