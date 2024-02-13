@@ -7,7 +7,7 @@ from mongo_client_cache.logger import logger
 from mongo_client_cache.types import BsonDict, BsonValue
 
 
-class MemoryBackend:
+class MemoryCache:
     __slots__ = ("config_per_collection",)
 
     def _find_cached_documents_ids(self, mongo_command: MongoCommand) -> set[BsonValue]:  # type: ignore[valid-type]

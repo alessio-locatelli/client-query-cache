@@ -18,6 +18,7 @@ from pymongo.results import (
 from pymongo.typings import _CollationIn, _Pipeline
 
 from mongo_client_cache.backends.base import MongoCommand
+from mongo_client_cache.backends.exceptions import NotCachedError
 from mongo_client_cache.backends.memory import MemoryBackend
 from mongo_client_cache.types import BsonDict
 
@@ -192,8 +193,8 @@ class CachedCollection(Collection):
     ) -> BsonDict | None:
         local_database = cast(MemoryBackend, self.__Collection__database.local_database)
 
-        # if self.name in local_database.:  # TODO
-        #    return super().find_one(filter, *args, **kwargs)
+        if self.name in local_database.
+            return super().find_one(filter, *args, **kwargs)
 
         try:
             return cache_backend.get_one(
