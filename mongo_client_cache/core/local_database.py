@@ -1,20 +1,18 @@
-from collections import defaultdict
+from collections import UserDict, defaultdict
 from collections.abc import Iterator
 from dataclasses import dataclass
 from functools import partial
-from typing import Any, Literal
-from typing import cast
+from typing import Any, Literal, cast
 
 import pandas as pd
-from mongo_client_cache.core.exceptions import DocumentIdMissingError, NotCachedError
 
+from mongo_client_cache.core.exceptions import (
+    DocumentIdMissingError,
+    NotAPositiveNumberError,
+    NotCachedError,
+)
 from mongo_client_cache.logger import logger
 from mongo_client_cache.types import BsonDict, BsonValue
-
-
-import pandas as pd
-
-from mongo_client_cache.core.exceptions import NotAPositiveNumberError
 
 
 @dataclass(slots=True)
@@ -28,32 +26,29 @@ class MongoCommand:
         yield from [self.collection, self.name, self.filter, self.projection]
 
 
+type DatabaseName = str
+type ClientSideCacheConfig = dict[DatabaseName, list[CollectionConfig]]
+
+
 @dataclass(slots=True)
 class CollectionConfig:
     """
     :param watch_change_stream: use `False` if you are not adding or modifying documents in this collection
-    :param change_stream_watch_interval_seconds: the default value is used
     :param enable_client_side_cache: use `False` to exclude the collection from caching
     """  # noqa: E501
 
-    database_name: str
     collection_name: str
     watch_change_stream: bool = True
-    change_stream_watch_interval_seconds: float | None = None
     enable_client_side_cache: bool = True
 
     def __post_init__(self) -> None:
-        assert self.database_name, "Database name must be a non-empty string."
         assert self.collection_name, "Collection name must be a non-empty string."
         assert isinstance(self.watch_change_stream, bool)
         assert isinstance(self.enable_client_side_cache, bool)
-        if (
-            self.change_stream_watch_interval_seconds
-            and self.change_stream_watch_interval_seconds <= 0
-        ):
-            raise NotAPositiveNumberError(
-                f"{self.change_stream_watch_interval_seconds=}"
-            )
+
+
+class LocalClient(UserDict):
+    ...
 
 
 class ClientSideDatabase:
@@ -63,7 +58,6 @@ class ClientSideDatabase:
         "cached_queries",
         "static_collections",
         "excluded_collections",
-        "subscribed_for_change_stream",
     )
 
     def __init__(
@@ -102,7 +96,6 @@ class ClientSideDatabase:
                 ],
             )
         )
-        self.subscribed_for_change_stream = False
 
     def _find_cached_documents_ids(self, mongo_command: MongoCommand) -> set[BsonValue]:  # type: ignore[valid-type]
         queries = self.cached_queries[mongo_command.collection]
@@ -151,7 +144,7 @@ class ClientSideDatabase:
             df_collection.loc[document_id] = [document]
 
         logger.debug(f"{mongo_command}, {document_id=}.")
-        df_queries = self.queries[mongo_command.collection]
+        df_queries = self.cached_queries[mongo_command.collection]
         df_queries.loc[len(df_queries)] = [*list(mongo_command), document_id]
 
     def set_many(
@@ -168,7 +161,7 @@ class ClientSideDatabase:
         df_documents.set_index("_id", inplace=True)  # noqa: PD002
         df_collection = df_collection.combine_first(df_documents)
 
-        df_queries = self.queries[mongo_command.collection]
+        df_queries = self.cached_queries[mongo_command.collection]
         try:
             documents_ids = [document["_id"] for document in documents]
         except KeyError:

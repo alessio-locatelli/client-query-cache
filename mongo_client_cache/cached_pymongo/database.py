@@ -4,9 +4,9 @@ from pymongo.read_concern import ReadConcern
 from pymongo.read_preferences import _ServerMode
 from pymongo.typings import _DocumentType, _DocumentTypeArg
 
-from mongo_client_cache.backends.base import ClientSideDatabase, CollectionConfig
-from mongo_client_cache.backends.exceptions import ReservedAttributeError
 from mongo_client_cache.cached_pymongo.collection import CachedCollection
+from mongo_client_cache.core.exceptions import ReservedAttributeError
+from mongo_client_cache.core.local_database import ClientSideDatabase
 
 
 class CachedDatabase(database.Database):
@@ -18,15 +18,14 @@ class CachedDatabase(database.Database):
         read_preference: _ServerMode | None = None,
         write_concern: WriteConcern | None = None,
         read_concern: ReadConcern | None = None,
-        *,
-        cache_config_per_collection: list[CollectionConfig] | None = None,
     ) -> None:
         super().__init__(
             client, name, codec_options, read_preference, write_concern, read_concern
         )
-        self.local_database = ClientSideDatabase(name, cache_config_per_collection)
+        collection = self.__Collection__collection
+        collection.client_side_databases[name] = ClientSideDatabase(
+            name, collection.client_side_cache_config.get(name)
+        )
 
     def __getitem__(self, name: str) -> CachedCollection:
-        if name == "local_database":
-            raise ReservedAttributeError(name)
         return CachedCollection(self, name)

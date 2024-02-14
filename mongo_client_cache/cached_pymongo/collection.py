@@ -16,10 +16,12 @@ from pymongo.results import (
     UpdateResult,
 )
 from pymongo.typings import _CollationIn, _Pipeline
+from mongo_client_cache.core.exceptions import (
+    CannotEditImmutableCollectionError,
+    NotCachedError,
+)
+from mongo_client_cache.core.local_database import ClientSideDatabase, MongoCommand
 
-from mongo_client_cache.backends.base import MongoCommand
-from mongo_client_cache.backends.exceptions import NotCachedError
-from mongo_client_cache.backends.memory import MemoryBackend
 from mongo_client_cache.types import BsonDict
 
 
@@ -33,6 +35,12 @@ class CachedCollection(Collection):
         comment: Any | None = None,
         let: Mapping | None = None,
     ) -> BulkWriteResult:
+        if __debug__:
+            db = self.__Collection__database
+            cache = cast(ClientSideDatabase, db.client.client_side_databases[db.name])
+            if self.name in cache.static_collections:
+                raise CannotEditImmutableCollectionError(self.name)
+
         return super().bulk_write(
             requests, ordered, bypass_document_validation, session, comment, let
         )
@@ -44,6 +52,12 @@ class CachedCollection(Collection):
         session: ClientSession | None = None,
         comment: Any | None = None,
     ) -> InsertOneResult:
+        if __debug__:
+            db = self.__Collection__database
+            cache = cast(ClientSideDatabase, db.client.client_side_databases[db.name])
+            if self.name in cache.static_collections:
+                raise CannotEditImmutableCollectionError(self.name)
+
         return super().insert_one(
             document, bypass_document_validation, session, comment
         )
@@ -56,6 +70,12 @@ class CachedCollection(Collection):
         session: ClientSession | None = None,
         comment: Any | None = None,
     ) -> InsertManyResult:
+        if __debug__:
+            db = self.__Collection__database
+            cache = cast(ClientSideDatabase, db.client.client_side_databases[db.name])
+            if self.name in cache.static_collections:
+                raise CannotEditImmutableCollectionError(self.name)
+
         return super().insert_many(
             documents, ordered, bypass_document_validation, session, comment
         )
@@ -72,6 +92,12 @@ class CachedCollection(Collection):
         let: Mapping[str, Any] | None = None,
         comment: Any | None = None,
     ) -> UpdateResult:
+        if __debug__:
+            db = self.__Collection__database
+            cache = cast(ClientSideDatabase, db.client.client_side_databases[db.name])
+            if self.name in cache.static_collections:
+                raise CannotEditImmutableCollectionError(self.name)
+
         return super().replace_one(
             filter,
             replacement,
@@ -97,6 +123,12 @@ class CachedCollection(Collection):
         let: Mapping[str, Any] | None = None,
         comment: Any | None = None,
     ) -> UpdateResult:
+        if __debug__:
+            db = self.__Collection__database
+            cache = cast(ClientSideDatabase, db.client.client_side_databases[db.name])
+            if self.name in cache.static_collections:
+                raise CannotEditImmutableCollectionError(self.name)
+
         return super().update_one(
             filter,
             update,
@@ -123,6 +155,12 @@ class CachedCollection(Collection):
         let: Mapping[str, Any] | None = None,
         comment: Any | None = None,
     ) -> UpdateResult:
+        if __debug__:
+            db = self.__Collection__database
+            cache = cast(ClientSideDatabase, db.client.client_side_databases[db.name])
+            if self.name in cache.static_collections:
+                raise CannotEditImmutableCollectionError(self.name)
+
         return super().update_many(
             filter,
             update,
@@ -145,6 +183,12 @@ class CachedCollection(Collection):
         let: Mapping[str, Any] | None = None,
         comment: Any | None = None,
     ) -> DeleteResult:
+        if __debug__:
+            db = self.__Collection__database
+            cache = cast(ClientSideDatabase, db.client.client_side_databases[db.name])
+            if self.name in cache.static_collections:
+                raise CannotEditImmutableCollectionError(self.name)
+
         return super().delete_one(filter, collation, hint, session, let, comment)
 
     def delete_many(
@@ -156,14 +200,18 @@ class CachedCollection(Collection):
         let: Mapping[str, Any] | None = None,
         comment: Any | None = None,
     ) -> DeleteResult:
+        db = self.__Collection__database
+        cache = cast(ClientSideDatabase, db.client.client_side_databases[db.name])
+        if self.name in cache.static_collections:
+            raise CannotEditImmutableCollectionError(self.name)
+
         return super().delete_many(filter, collation, hint, session, let, comment)
 
     def find(self, *args: Any, **kwargs: Any) -> Iterator[BsonDict]:  # type: ignore[override]
-        cache_backend = cast(
-            MemoryBackend, self._Collection__database.client.cache_backend
-        )
+        db = self.__Collection__database
+        cache = cast(ClientSideDatabase, db.client.client_side_databases[db.name])
 
-        if not cache_backend.collection_can_be_cached(self.name):
+        if self.name in cache.excluded_collections:
             return super().find(*args, **kwargs)
 
         mongo_command = MongoCommand(
@@ -173,14 +221,14 @@ class CachedCollection(Collection):
             projection=kwargs.pop("projection"),
         )
         try:
-            cached_documents = cache_backend.get_many(mongo_command=mongo_command)
+            cached_documents = cache.get_many(mongo_command=mongo_command)
         except NotCachedError:
             documents = []
             for document in Cursor(self, *args, **kwargs):
                 documents.append(document)
                 yield document
 
-            cache_backend.set_many(documents=documents, mongo_command=mongo_command)
+            cache.set_many(documents=documents, mongo_command=mongo_command)
         else:
             yield from cached_documents
 
@@ -191,18 +239,19 @@ class CachedCollection(Collection):
         projection: list[str] | dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> BsonDict | None:
-        local_database = cast(MemoryBackend, self.__Collection__database.local_database)
+        db = self.__Collection__database
+        cache = cast(ClientSideDatabase, db.client.client_side_databases[db.name])
 
-        if self.name in local_database.
+        if self.name in cache.excluded_collections:
             return super().find_one(filter, *args, **kwargs)
 
         try:
-            return cache_backend.get_one(
+            return cache.get_one(
                 mongo_command=MongoCommand(self.name, "findOne", filter, projection),
             )
         except NotCachedError:
             document = super().find_one(filter, *args, **kwargs)
-            cache_backend.set_one(
+            cache.set_one(
                 document=document,
                 mongo_command=MongoCommand(self.name, "findOne", filter, projection),
             )
@@ -219,6 +268,12 @@ class CachedCollection(Collection):
         comment: Any | None = None,
         **kwargs: Any,
     ) -> _DocumentType:
+        if __debug__:
+            db = self.__Collection__database
+            cache = cast(ClientSideDatabase, db.client.client_side_databases[db.name])
+            if self.name in cache.static_collections:
+                raise CannotEditImmutableCollectionError(self.name)
+
         return super().find_one_and_delete(
             filter, projection, sort, hint, session, let, comment, **kwargs
         )
@@ -237,6 +292,12 @@ class CachedCollection(Collection):
         comment: Any | None = None,
         **kwargs: Any,
     ) -> _DocumentType:
+        if __debug__:
+            db = self.__Collection__database
+            cache = cast(ClientSideDatabase, db.client.client_side_databases[db.name])
+            if self.name in cache.static_collections:
+                raise CannotEditImmutableCollectionError(self.name)
+
         return super().find_one_and_replace(
             filter,
             replacement,
@@ -266,6 +327,12 @@ class CachedCollection(Collection):
         comment: Any | None = None,
         **kwargs: Any,
     ) -> _DocumentType:
+        if __debug__:
+            db = self.__Collection__database
+            cache = cast(ClientSideDatabase, db.client.client_side_databases[db.name])
+            if self.name in cache.static_collections:
+                raise CannotEditImmutableCollectionError(self.name)
+
         return super().find_one_and_update(
             filter,
             update,
@@ -311,6 +378,12 @@ class CachedCollection(Collection):
         comment: Any | None = None,
         encrypted_fields: Mapping[str, Any] | None = None,
     ) -> None:
+        if __debug__:
+            db = self.__Collection__database
+            cache = cast(ClientSideDatabase, db.client.client_side_databases[db.name])
+            if self.name in cache.static_collections:
+                raise CannotEditImmutableCollectionError(self.name)
+
         return super().drop(session, comment, encrypted_fields)
 
     def rename(
@@ -320,4 +393,10 @@ class CachedCollection(Collection):
         comment: Any | None = None,
         **kwargs: Any,
     ) -> MutableMapping[str, Any]:
+        if __debug__:
+            db = self.__Collection__database
+            cache = cast(ClientSideDatabase, db.client.client_side_databases[db.name])
+            if self.name in cache.static_collections:
+                raise CannotEditImmutableCollectionError(self.name)
+
         return super().rename(new_name, session, comment, **kwargs)

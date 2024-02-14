@@ -5,9 +5,9 @@ import pymongo
 from bson.codec_options import TypeRegistry
 from pymongo.typings import _DocumentType
 
-from mongo_client_cache.backends.base import CollectionConfig
-from mongo_client_cache.backends.exceptions import ReservedAttributeError
 from mongo_client_cache.cached_pymongo.database import CachedDatabase
+from mongo_client_cache.core.exceptions import ReservedAttributeError
+from mongo_client_cache.core.local_database import ClientSideCacheConfig, LocalClient
 
 if TYPE_CHECKING:
     MIXIN_BASE = pymongo.MongoClient
@@ -25,7 +25,7 @@ class CacheMixin(MIXIN_BASE):
         connect: bool | None = None,  # noqa: FBT001
         type_registry: TypeRegistry | None = None,
         *,
-        cache_config_per_collection: list[CollectionConfig] | None = None,
+        client_side_cache_config: ClientSideCacheConfig | None = None,
         **kwargs: Any,
     ) -> None:
         """
@@ -35,14 +35,14 @@ class CacheMixin(MIXIN_BASE):
         super().__init__(
             host, port, document_class, tz_aware, connect, type_registry, **kwargs
         )
-        self.cache_config_per_collection = cache_config_per_collection
+        self.client_side_databases = LocalClient()
+        self.client_side_cache_config = client_side_cache_config
 
     def __getitem__(self, name: str) -> CachedDatabase:
-        if name == "cache_config_per_collection":
+        if name in {"client_side_databases", "client_side_cache_config"}:
             raise ReservedAttributeError(name)
-        return CachedDatabase(
-            self, name, config_per_collection=self.cache_config_per_collection
-        )
+        return CachedDatabase(self, name)
 
 
-class CachedMongoClient(CacheMixin, pymongo.MongoClient): ...
+class CachedMongoClient(CacheMixin, pymongo.MongoClient):
+    ...
