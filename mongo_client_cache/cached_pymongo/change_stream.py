@@ -2,8 +2,6 @@ from collections.abc import Mapping
 from typing import Any
 
 from pymongo import MongoClient
-from pymongo.collection import Collection
-from pymongo.database import Database
 from pymongo.errors import PyMongoError
 
 from mongo_client_cache.logger import logger
@@ -12,12 +10,16 @@ from mongo_client_cache.logger import logger
 class Watch:
     """
     https://github.com/mongodb/specifications/blob/master/source/change-streams/change-streams.rst
+    https://www.mongodb.com/docs/manual/reference/change-events/#change-events
     """
 
-    __slots__ = ("_target", "_resume_token", "_watch")
+    __slots__ = ("_target", "_resume_token", "_collections")
 
-    def __call__(self, target: MongoClient | Database | Collection) -> None:
+    def __call__(
+        self, target: MongoClient, collections: list[str] | None = None
+    ) -> None:
         self._target = target
+        self._collections = collections
         self._resume_token: Mapping[str, Any] | None = None
 
         retry_count = 3
@@ -38,10 +40,39 @@ class Watch:
                     )
 
     def _watch(self) -> None:
-        # https://www.mongodb.com/docs/manual/reference/change-events/#change-events
-        with self._target.watch(resume_after=self._resume_token) as stream:
-            for event in stream:
-                logger.debug(f"Event: {event}.")
+        pipeline = [
+            {
+                "$match": {
+                    # "ns.coll": {"$in": ["example", "foobar"]},
+                    "operationType": {
+                        "$in": [
+                            "insert",
+                            "update",
+                            "replace",
+                            "delete",
+                            "drop",
+                            "dropDatabase",
+                            "rename",
+                        ]
+                    },
+                }
+            },
+            {
+                "$project": {
+                    "operationType": True,
+                    "ns": True,
+                    "fullDocument": True,
+                    "documentKey": True,
+                }
+            },
+        ]
+        if self._collections:
+            pipeline[0]["$match"]["$ns.coll"] = {"$in": self._collections}
+        with self._target.watch(
+            pipeline, full_document="updateLookup", resume_after=self._resume_token
+        ) as stream:
+            for change in stream:
+                logger.debug(f"{change = }")
 
                 # Use the interrupted ChangeStream's resume token to create
                 # a new ChangeStream. The new stream will continue from the
