@@ -1,5 +1,7 @@
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypedDict
+
+from bson import ObjectId
 
 
 if TYPE_CHECKING:
@@ -17,3 +19,11 @@ type BsonDict = dict[str, BsonValue]  # type: ignore[valid-type]
 type CollectionName = str
 type DatabaseName = str
 type ClientSideCacheConfig = dict[DatabaseName, list[CollectionConfig]]
+
+
+class ChangeStreamDocument(TypedDict):
+    _id: dict[str, str]
+    operationType: str
+    fullDocument: BsonDict
+    ns: dict[str, str]
+    documentKey: dict[str, ObjectId]

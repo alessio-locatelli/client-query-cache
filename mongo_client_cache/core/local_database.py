@@ -18,7 +18,12 @@ from mongo_client_cache.core.exceptions import (
 )
 from mongo_client_cache.core.misc import CollectionConfig, MongoCommand
 from mongo_client_cache.logger import logger
-from mongo_client_cache.types import BsonDict, BsonValue, CollectionName
+from mongo_client_cache.types import (
+    BsonDict,
+    BsonValue,
+    ChangeStreamDocument,
+    CollectionName,
+)
 
 
 class DatabaseCache:
@@ -30,6 +35,7 @@ class DatabaseCache:
         "excluded_collections_names",
         "_collections_names_with_cached_documents",
         "_resume_token",
+        "pending_documents_for_insert_per_collection",
     )
 
     def __init__(
@@ -68,6 +74,7 @@ class DatabaseCache:
                 ],
             )
         )
+        self.pending_documents_for_insert_per_collection = defaultdict(list)
         Thread(target=self.watch).start()
 
     def _find_cached_documents_ids(self, mongo_command: MongoCommand) -> set[BsonValue]:  # type: ignore[valid-type]
@@ -232,10 +239,15 @@ class DatabaseCache:
                         )
                         break
 
-    def _insert(self, change: BsonDict) -> None:
-        ...
+    def _insert(self, change: ChangeStreamDocument) -> None:
+        collection_name = change["ns"]["coll"]
+        self.pending_documents_for_insert_per_collection[collection_name].append(
+            change["fullDocument"]
+        )
+        df_cached_queries = self.cached_queries[collection_name]
+        self.cached_queries[collection_name] = df_cached_queries[0:0]
 
-    def _process_change_stream(self, change: BsonDict) -> None:
+    def _process_change_stream(self, change: ChangeStreamDocument) -> None:
         match change["operationType"]:
             case "insert":
                 ...
