@@ -16,12 +16,12 @@ from pymongo.results import (
     UpdateResult,
 )
 from pymongo.typings import _CollationIn, _Pipeline
+
 from mongo_client_cache.core.exceptions import (
     CannotEditImmutableCollectionError,
     NotCachedError,
 )
 from mongo_client_cache.core.local_database import ClientSideDatabase, MongoCommand
-
 from mongo_client_cache.types import BsonDict
 
 
@@ -37,6 +37,7 @@ class CachedCollection(Collection):
     ) -> BulkWriteResult:
         if __debug__:
             db = self.__Collection__database
+
             cache = cast(ClientSideDatabase, db.client.client_side_databases[db.name])
             if self.name in cache.static_collections:
                 raise CannotEditImmutableCollectionError(self.name)
@@ -207,24 +208,28 @@ class CachedCollection(Collection):
 
         return super().delete_many(filter, collation, hint, session, let, comment)
 
-    def find(self, *args: Any, **kwargs: Any) -> Iterator[BsonDict]:  # type: ignore[override]
+    def find(
+        self,
+        filter: Any | None = None,
+        *,
+        projection: list[str] | dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> Iterator[BsonDict]:  # type: ignore[override]
         db = self.__Collection__database
-        cache = cast(ClientSideDatabase, db.client.client_side_databases[db.name])
+        client = db.__Database__client
+        cache = cast(ClientSideDatabase, client.client_side_databases[db.name])
 
         if self.name in cache.excluded_collections:
-            return super().find(*args, **kwargs)
+            return super().find(filter, projection=projection, **kwargs)
 
         mongo_command = MongoCommand(
-            self.name,
-            "find",
-            filter=args[0] if args else kwargs.pop("filter"),
-            projection=kwargs.pop("projection"),
+            self.name, "find", filter=filter, projection=projection
         )
         try:
             cached_documents = cache.get_many(mongo_command=mongo_command)
         except NotCachedError:
             documents = []
-            for document in Cursor(self, *args, **kwargs):
+            for document in Cursor(self, filter, projection=projection, **kwargs):
                 documents.append(document)
                 yield document
 
@@ -235,7 +240,7 @@ class CachedCollection(Collection):
     def find_one(
         self,
         filter: Any | None = None,
-        *args: Any,
+        *,
         projection: list[str] | dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> BsonDict | None:

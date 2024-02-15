@@ -1,3 +1,4 @@
+from collections.abc import Callable
 import logging
 import os
 from copy import copy
@@ -11,6 +12,7 @@ from faker import Faker
 
 logger = logging.getLogger(__name__)
 
+logging.basicConfig(level=logging.DEBUG)
 logging.getLogger("faker.factory").setLevel("INFO")
 logging.getLogger("pymongo.ocsp_support").setLevel("INFO")
 logging.getLogger("pymongo.connectionpool").setLevel("INFO")
@@ -31,9 +33,22 @@ def faker_seed() -> str | int:
     return seed
 
 
-@pytest.fixture(scope="session")
-def collection_name() -> str:
-    return "example"
+@pytest.fixture()
+def persistent_collection_name() -> str:
+    return "persistent_collection"
+
+
+@pytest.fixture()
+def nonpersistent_collection_name() -> str:
+    return "nonpersistent_collection"
+
+
+@pytest.fixture
+def database_name() -> Callable[[str], str]:
+    def _database_name(database_name_suffix: str) -> str:
+        return f"db_{database_name_suffix}"
+
+    return _database_name
 
 
 @pytest.fixture

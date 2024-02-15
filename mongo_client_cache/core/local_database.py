@@ -1,86 +1,53 @@
-from collections import UserDict, defaultdict
-from collections.abc import Iterator
-from dataclasses import dataclass
+from collections import defaultdict
+from collections.abc import Mapping
 from functools import partial
-from typing import Any, Literal, cast
+from threading import Thread
+from typing import Any, cast
 
 import pandas as pd
+from pymongo.database import Database
+from pymongo.errors import PyMongoError
 
 from mongo_client_cache.core.exceptions import (
     DocumentIdMissingError,
-    NotAPositiveNumberError,
     NotCachedError,
 )
+from mongo_client_cache.core.misc import CollectionConfig, MongoCommand
 from mongo_client_cache.logger import logger
-from mongo_client_cache.types import BsonDict, BsonValue
-
-
-@dataclass(slots=True)
-class MongoCommand:
-    collection: str
-    name: Literal["findOne", "find"]
-    filter: Any = None
-    projection: list[str] | dict[str, Any] | None = None
-
-    def __iter__(self) -> Iterator[Any]:
-        yield from [self.collection, self.name, self.filter, self.projection]
-
-
-type DatabaseName = str
-type ClientSideCacheConfig = dict[DatabaseName, list[CollectionConfig]]
-
-
-@dataclass(slots=True)
-class CollectionConfig:
-    """
-    :param watch_change_stream: use `False` if you are not adding or modifying documents in this collection
-    :param enable_client_side_cache: use `False` to exclude the collection from caching
-    """  # noqa: E501
-
-    collection_name: str
-    watch_change_stream: bool = True
-    enable_client_side_cache: bool = True
-
-    def __post_init__(self) -> None:
-        assert self.collection_name, "Collection name must be a non-empty string."
-        assert isinstance(self.watch_change_stream, bool)
-        assert isinstance(self.enable_client_side_cache, bool)
-
-
-class LocalClient(UserDict):
-    ...
+from mongo_client_cache.types import BsonDict, BsonValue, CollectionName
 
 
 class ClientSideDatabase:
     __slots__ = (
-        "name",
-        "collections",
+        "mongo_database",
+        "local_collections",
         "cached_queries",
-        "static_collections",
-        "excluded_collections",
+        "static_collections_names",
+        "excluded_collections_names",
+        "_resume_token",
     )
 
     def __init__(
-        self, name: str, config_per_collection: list[CollectionConfig] | None
+        self, database: Database, config_per_collection: list[CollectionConfig] | None
     ) -> None:
-        self.name = name
+        self.mongo_database = database
         if config_per_collection:
-            self.excluded_collections = {
+            self.excluded_collections_names = {
                 collection_config.collection_name
                 for collection_config in config_per_collection
                 if collection_config.enable_client_side_cache is False
             }
-            self.static_collections = {
+            self.static_collections_names = {
                 collection_config.collection_name
                 for collection_config in config_per_collection
                 if collection_config.watch_change_stream is False
             }
 
         else:
-            self.excluded_collections = set()
-            self.static_collections = set()
+            self.excluded_collections_names = set()
+            self.static_collections_names = set()
 
-        self.collections: dict[str, pd.DataFrame] = defaultdict(
+        self.local_collections: dict[CollectionName, pd.DataFrame] = defaultdict(
             lambda: pd.DataFrame(columns=["_id", "document"]).set_index("_id")
         )
         self.cached_queries: dict[str, pd.DataFrame] = defaultdict(
@@ -96,6 +63,7 @@ class ClientSideDatabase:
                 ],
             )
         )
+        Thread(target=self.watch).start()
 
     def _find_cached_documents_ids(self, mongo_command: MongoCommand) -> set[BsonValue]:  # type: ignore[valid-type]
         queries = self.cached_queries[mongo_command.collection]
@@ -172,3 +140,66 @@ class ClientSideDatabase:
         documets_ids = self._find_cached_documents_ids(mongo_command)
         df_collection = self.collections[mongo_command.collection]
         return df_collection.loc[df_collection["_id"] in documets_ids]
+
+    def watch(self) -> None:
+        """
+        https://github.com/mongodb/specifications/blob/master/source/change-streams/change-streams.rst
+        https://www.mongodb.com/docs/manual/reference/change-events/#change-events
+        """
+        self._resume_token: Mapping[str, Any] | None = None
+
+        retry_count = 3
+        while True:
+            try:
+                self._watch()
+            except PyMongoError as error:
+                # The ChangeStream encountered an unrecoverable error or the
+                # resume attempt failed to recreate the cursor.
+                if self._resume_token is None:
+                    if retry_count == 0:
+                        raise
+                    retry_count -= 1
+                    logger.error(
+                        "There is no usable resume token because there was a "
+                        + "failure during ChangeStream initialization. "
+                        + f"Target: {target}, {error!r}"
+                    )
+
+    def _watch(self) -> None:
+        pipeline = [
+            {
+                "$match": {
+                    "operationType": {
+                        "$in": [
+                            "insert",
+                            "update",
+                            "replace",
+                            "delete",
+                            "drop",
+                            "dropDatabase",
+                            "rename",
+                        ]
+                    },
+                }
+            },
+            {
+                "$project": {
+                    "operationType": True,
+                    "ns": True,
+                    "fullDocument": True,
+                    "documentKey": True,
+                }
+            },
+        ]
+        if self._collections:
+            pipeline[0]["$match"]["$ns.coll"] = {"$in": self._collections}
+        with self.database.watch(
+            pipeline, full_document="updateLookup", resume_after=self._resume_token
+        ) as stream:
+            for change in stream:
+                logger.debug(f"{change = }")
+
+                # Use the interrupted ChangeStream's resume token to create
+                # a new ChangeStream. The new stream will continue from the
+                # last seen insert change without missing any events.
+                self._resume_token = stream.resume_token
