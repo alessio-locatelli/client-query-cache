@@ -7,7 +7,8 @@ from pymongo.typings import _DocumentType
 
 from mongo_client_cache.cached_pymongo.database import CachedDatabase
 from mongo_client_cache.core.exceptions import ReservedAttributeError
-from mongo_client_cache.core.local_database import ClientSideCacheConfig, LocalClient
+from mongo_client_cache.core.misc import LocalClient
+from mongo_client_cache.types import ClientSideCacheConfig
 
 if TYPE_CHECKING:
     MIXIN_BASE = pymongo.MongoClient

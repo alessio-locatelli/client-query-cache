@@ -1,8 +1,11 @@
 from collections import defaultdict
 from collections.abc import Mapping
 from functools import partial
+from itertools import count
 from threading import Thread
 from typing import Any, cast
+import time
+from bson import BSON
 
 import pandas as pd
 from pymongo.database import Database
@@ -11,19 +14,21 @@ from pymongo.errors import PyMongoError
 from mongo_client_cache.core.exceptions import (
     DocumentIdMissingError,
     NotCachedError,
+    UnexpectedChangeOperationTypeError,
 )
 from mongo_client_cache.core.misc import CollectionConfig, MongoCommand
 from mongo_client_cache.logger import logger
 from mongo_client_cache.types import BsonDict, BsonValue, CollectionName
 
 
-class ClientSideDatabase:
+class DatabaseCache:
     __slots__ = (
         "mongo_database",
         "local_collections",
         "cached_queries",
         "static_collections_names",
         "excluded_collections_names",
+        "_collections_names_with_cached_documents",
         "_resume_token",
     )
 
@@ -66,7 +71,7 @@ class ClientSideDatabase:
         Thread(target=self.watch).start()
 
     def _find_cached_documents_ids(self, mongo_command: MongoCommand) -> set[BsonValue]:  # type: ignore[valid-type]
-        queries = self.cached_queries[mongo_command.collection]
+        queries = self.cached_queries[mongo_command.collection_name]
         query = queries[
             (queries["command"] == mongo_command.name)
             & (
@@ -94,8 +99,13 @@ class ClientSideDatabase:
         if document_id is None:
             return None
         logger.debug(f"Found in cache: {mongo_command}, {document_id=}")  # type: ignore[unreachable]
-        df_collection = self.collections[mongo_command.collection]
+        df_collection = self.local_collections[mongo_command.collection_name]
         return df_collection.loc[document_id]["document"]
+
+    def get_many(self, mongo_command: MongoCommand) -> list[BsonDict]:
+        documets_ids = self._find_cached_documents_ids(mongo_command)
+        df_collection = self.local_collections[mongo_command.collection_name]
+        return df_collection.loc[df_collection["_id"] in documets_ids]
 
     def set_one(
         self, *, document: BsonDict | None, mongo_command: MongoCommand
@@ -108,11 +118,12 @@ class ClientSideDatabase:
         except KeyError:
             raise DocumentIdMissingError from KeyError
         else:
-            df_collection = self.collections[mongo_command.collection]
+            df_collection = self.local_collections[mongo_command.collection_name]
             df_collection.loc[document_id] = [document]
+            self._collections_names_with_cached_documents.add(mongo_command.collection)
 
         logger.debug(f"{mongo_command}, {document_id=}.")
-        df_queries = self.cached_queries[mongo_command.collection]
+        df_queries = self.cached_queries[mongo_command.collection_name]
         df_queries.loc[len(df_queries)] = [*list(mongo_command), document_id]
 
     def set_many(
@@ -124,22 +135,18 @@ class ClientSideDatabase:
         logger.debug(f"{mongo_command}, {documents=}")
         if not documents:
             return
-        df_collection = self.collections[mongo_command.collection]
+        df_collection = self.local_collections[mongo_command.collection_name]
         df_documents = pd.DataFrame(documents)
         df_documents.set_index("_id", inplace=True)  # noqa: PD002
         df_collection = df_collection.combine_first(df_documents)
 
-        df_queries = self.cached_queries[mongo_command.collection]
+        df_queries = self.cached_queries[mongo_command.collection_name]
         try:
             documents_ids = [document["_id"] for document in documents]
         except KeyError:
             raise DocumentIdMissingError from KeyError
         df_queries.loc[len(df_queries)] = [*list(mongo_command), documents_ids]
-
-    def get_many(self, mongo_command: MongoCommand) -> list[BsonDict]:
-        documets_ids = self._find_cached_documents_ids(mongo_command)
-        df_collection = self.collections[mongo_command.collection]
-        return df_collection.loc[df_collection["_id"] in documets_ids]
+        self._collections_names_with_cached_documents.add(mongo_command.collection_name)
 
     def watch(self) -> None:
         """
@@ -148,58 +155,101 @@ class ClientSideDatabase:
         """
         self._resume_token: Mapping[str, Any] | None = None
 
-        retry_count = 3
-        while True:
+        max_retries = 3
+        for retry_attempt in count():
             try:
                 self._watch()
             except PyMongoError as error:
                 # The ChangeStream encountered an unrecoverable error or the
                 # resume attempt failed to recreate the cursor.
                 if self._resume_token is None:
-                    if retry_count == 0:
+                    if retry_attempt == max_retries:
                         raise
-                    retry_count -= 1
                     logger.error(
                         "There is no usable resume token because there was a "
                         + "failure during ChangeStream initialization. "
-                        + f"Target: {target}, {error!r}"
+                        + f"Target: {self.mongo_database}, {retry_attempt=}, {error!r}."
                     )
 
     def _watch(self) -> None:
-        pipeline = [
-            {
-                "$match": {
-                    "operationType": {
-                        "$in": [
-                            "insert",
-                            "update",
-                            "replace",
-                            "delete",
-                            "drop",
-                            "dropDatabase",
-                            "rename",
-                        ]
-                    },
-                }
-            },
-            {
-                "$project": {
-                    "operationType": True,
-                    "ns": True,
-                    "fullDocument": True,
-                    "documentKey": True,
-                }
-            },
-        ]
-        if self._collections:
-            pipeline[0]["$match"]["$ns.coll"] = {"$in": self._collections}
-        with self.database.watch(
-            pipeline, full_document="updateLookup", resume_after=self._resume_token
-        ) as stream:
-            for change in stream:
-                logger.debug(f"{change = }")
+        while True:
+            collections_names_with_cached_documents = (
+                self._collections_names_with_cached_documents
+            )
+            if not collections_names_with_cached_documents:
+                time.sleep(1)
+                continue
+            pipeline = [
+                {
+                    "$match": {
+                        "operationType": {
+                            "$in": [
+                                "insert",
+                                "update",
+                                "replace",
+                                "delete",
+                                "drop",
+                                "dropDatabase",
+                                "rename",
+                            ]
+                        },
+                    }
+                },
+                {
+                    "$project": {
+                        "operationType": True,
+                        "ns": True,
+                        "fullDocument": True,
+                        "documentKey": True,
+                    }
+                },
+            ]
+            pipeline[0]["$match"]["$ns.coll"] = {
+                "$in": collections_names_with_cached_documents
+            }
+            logger.debug(
+                f"Watching collections: {collections_names_with_cached_documents}."
+            )
+            with self.mongo_database.watch(
+                pipeline, full_document="updateLookup", resume_after=self._resume_token
+            ) as stream:
+                for change in stream:
+                    logger.debug(f"{change=}, {stream.resume_token=}")
 
-                # Use the interrupted ChangeStream's resume token to create
-                # a new ChangeStream. The new stream will continue from the
-                # last seen insert change without missing any events.
-                self._resume_token = stream.resume_token
+                    # Use the interrupted ChangeStream's resume token to create
+                    # a new ChangeStream. The new stream will continue from the
+                    # last seen insert change without missing any events.
+                    self._resume_token = stream.resume_token
+
+                    if (
+                        collections_names_with_cached_documents
+                        != self._collections_names_with_cached_documents
+                    ):
+                        logger.info(
+                            "Restarting 'watch'."
+                            + f"Previously watched collections: {collections_names_with_cached_documents}, "
+                            + f"Currenct collections with cached documents: {self._collections_names_with_cached_documents}."
+                        )
+                        break
+
+    def _insert(self, change: BsonDict) -> None:
+        ...
+
+    def _process_change_stream(self, change: BsonDict) -> None:
+        match change["operationType"]:
+            case "insert":
+                ...
+            case "update":
+                ...
+            case "replace":
+                ...
+            case "delete":
+                ...
+            case "drop":
+                ...
+            case "dropDatabase":
+                ...
+            case "rename":
+                ...
+            case _:
+                raise UnexpectedChangeOperationTypeError(change["operationType"])

@@ -6,13 +6,18 @@ from typing import Any, Literal
 
 @dataclass(slots=True)
 class MongoCommand:
-    collection: str
+    collection_name: str
     name: Literal["findOne", "find"]
     filter: Any = None
     projection: list[str] | dict[str, Any] | None = None
 
     def __iter__(self) -> Iterator[Any]:
-        yield from [self.collection, self.name, self.filter, self.projection]
+        yield from [
+            self.collection_name,
+            self.name,
+            self.filter,
+            self.projection,
+        ]
 
 
 @dataclass(slots=True)

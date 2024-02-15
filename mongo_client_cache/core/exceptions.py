@@ -1,7 +1,5 @@
-class NotCachedError(Exception): ...
-
-
-class NotAPositiveNumberError(Exception): ...
+class NotAPositiveNumberError(Exception):
+    ...
 
 
 class ReservedAttributeError(Exception):
@@ -28,3 +26,11 @@ class CannotEditImmutableCollectionError(Exception):
             + "become outdated. You must disable cache for this collection or enable "
             + "watching changes if you are going to change documents in the collection."
         )
+
+
+class NotCachedError(Exception):
+    ...
+
+
+class UnexpectedChangeOperationTypeError(Exception):
+    ...
