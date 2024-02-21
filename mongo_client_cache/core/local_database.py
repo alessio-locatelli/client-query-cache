@@ -245,23 +245,40 @@ class DatabaseCache:
             change["fullDocument"]
         )
         df_cached_queries = self.cached_queries[collection_name]
+        # Invalidate all cached queries.
         self.cached_queries[collection_name] = df_cached_queries[0:0]
 
+    def _update(self, change: ChangeStreamDocument) -> None:
+        collection_name = change["ns"]["coll"]
+        df_cached_queries = self.cached_queries[collection_name]
+        # Invalidate all cached queries.
+        self.cached_queries[collection_name] = df_cached_queries[0:0]
+
+    def _replace(self, change: ChangeStreamDocument) -> None:
+        collection_name = change["ns"]["coll"]
+        df_cached_queries = self.cached_queries[collection_name]
+        # Invalidate all cached queries.
+        self.cached_queries[collection_name] = df_cached_queries[0:0]
+
+    def _delete(self, change: ChangeStreamDocument) -> None:
+        collection_name = change["ns"]["coll"]
+        del self.cached_queries[collection_name]
+
     def _process_change_stream(self, change: ChangeStreamDocument) -> None:
-        match change["operationType"]:
-            case "insert":
-                ...
-            case "update":
-                ...
-            case "replace":
-                ...
-            case "delete":
-                ...
-            case "drop":
-                ...
-            case "dropDatabase":
-                ...
-            case "rename":
-                ...
-            case _:
-                raise UnexpectedChangeOperationTypeError(change["operationType"])
+        operation_type = change["operationType"]
+        if operation_type == "insert":
+            self._insert(change)
+        elif operation_type == "update":
+            self._update(change)
+        elif operation_type == "replace":
+            self._replace(change)
+        elif operation_type == "delete":
+            self._delete(change)
+        elif operation_type == "drop":
+            self._drop(change)
+        elif operation_type == "dropDatabase":
+            self._drop_database(change)
+        elif operation_type == "rename":
+            self._rename(change)
+        else:
+            raise UnexpectedChangeOperationTypeError(change["operationType"])

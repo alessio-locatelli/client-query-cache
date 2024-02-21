@@ -13,13 +13,13 @@ pandas = {version = ">=2", extras = ["performance"]}
 optional = true
 
 [tool.poetry.group.pymongo.dependencies]
-pymongo = {version = "^4.6.1", extras = ["gssapi","ocsp","snappy","zstd","encryption"] }
+pymongo = ">=4.6.1"
 
 [tool.poetry.group.motor]
 optional = true
 
 [tool.poetry.group.motor.dependencies]
-motor = {version = "^3.3.2", extras = ["gssapi","ocsp","snappy","srv","zstd","encryption"] }
+motor = ">=3.3.2"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.4.4"
