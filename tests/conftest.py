@@ -1,6 +1,6 @@
-from collections.abc import Callable
 import logging
 import os
+from collections.abc import Callable
 from copy import copy
 from datetime import UTC, datetime
 from decimal import Decimal

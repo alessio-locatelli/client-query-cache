@@ -3,7 +3,6 @@ from typing import TYPE_CHECKING, TypedDict
 
 from bson import ObjectId
 
-
 if TYPE_CHECKING:
     from mongo_client_cache.core.misc import CollectionConfig
 
@@ -16,9 +15,9 @@ type BsonValue = (  # type: ignore[valid-type]
 type BsonDict = dict[str, BsonValue]  # type: ignore[valid-type]
 
 
-type CollectionName = str
-type DatabaseName = str
-type ClientSideCacheConfig = dict[DatabaseName, list[CollectionConfig]]
+type CollectionName = str  # type: ignore[valid-type]
+type DatabaseName = str  # type: ignore[valid-type]
+type ClientSideCacheConfig = dict[DatabaseName, list[CollectionConfig]]  # type: ignore[valid-type]
 
 
 class ChangeStreamDocument(TypedDict):

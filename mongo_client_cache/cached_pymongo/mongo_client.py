@@ -45,5 +45,4 @@ class CacheMixin(MIXIN_BASE):
         return CachedDatabase(self, name)
 
 
-class CachedMongoClient(CacheMixin, pymongo.MongoClient):
-    ...
+class CachedMongoClient(CacheMixin, pymongo.MongoClient): ...

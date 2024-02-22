@@ -1,11 +1,10 @@
+import time
 from collections import defaultdict
 from collections.abc import Mapping
 from functools import partial
 from itertools import count
 from threading import Thread
 from typing import Any, cast
-import time
-from bson import BSON
 
 import pandas as pd
 from pymongo.database import Database
@@ -23,18 +22,19 @@ from mongo_client_cache.types import (
     BsonValue,
     ChangeStreamDocument,
     CollectionName,
+    JsonDict,
 )
 
 
 class _DatabaseCache:
     __slots__ = (
-        "mongo_database",
-        "local_collections",
-        "cached_queries",
-        "static_collections_names",
-        "excluded_collections_names",
         "_collections_names_with_cached_documents",
         "_resume_token",
+        "cached_queries",
+        "excluded_collections_names",
+        "local_collections",
+        "mongo_database",
+        "static_collections_names",
     )
 
     def __init__(
@@ -73,6 +73,7 @@ class _DatabaseCache:
                 ],
             )
         )
+        self._collections_names_with_cached_documents: set[str] = set()
 
     def _find_cached_documents_ids(self, mongo_command: MongoCommand) -> set[BsonValue]:  # type: ignore[valid-type]
         queries = self.cached_queries[mongo_command.collection_name]
@@ -124,7 +125,9 @@ class _DatabaseCache:
         else:
             df_collection = self.local_collections[mongo_command.collection_name]
             df_collection.loc[document_id] = [document]
-            self._collections_names_with_cached_documents.add(mongo_command.collection)
+            self._collections_names_with_cached_documents.add(
+                mongo_command.collection_name
+            )
 
         logger.debug(f"{mongo_command}, {document_id=}.")
         df_queries = self.cached_queries[mongo_command.collection_name]
@@ -154,13 +157,15 @@ class _DatabaseCache:
 
 
 class DatabaseCache(_DatabaseCache):
-    __slots__ = ()
+    __slots__ = ("change_stream_documents",)
 
     def __init__(
         self, database: Database, config_per_collection: list[CollectionConfig] | None
     ) -> None:
         super().__init__(database, config_per_collection)
-        self.change_stream_documents = defaultdict(list)
+        self.change_stream_documents: dict[
+            str, list[ChangeStreamDocument]
+        ] = defaultdict(list)
         Thread(target=self.watch).start()
 
     def watch(self) -> None:
@@ -194,7 +199,7 @@ class DatabaseCache(_DatabaseCache):
             if not collections_names_with_cached_documents:
                 time.sleep(1)
                 continue
-            pipeline = [
+            pipeline: list[JsonDict] = [
                 {
                     "$match": {
                         "operationType": {
@@ -219,7 +224,7 @@ class DatabaseCache(_DatabaseCache):
                     }
                 },
             ]
-            pipeline[0]["$match"]["$ns.coll"] = {
+            pipeline[0]["$match"]["$ns.coll"] = {  # type: ignore[index]
                 "$in": collections_names_with_cached_documents
             }
             logger.debug(
@@ -243,7 +248,7 @@ class DatabaseCache(_DatabaseCache):
                         logger.info(
                             "Restarting 'watch'."
                             + f"Previously watched collections: {collections_names_with_cached_documents}, "
-                            + f"Currenct collections with cached documents: {self._collections_names_with_cached_documents}."
+                            + f"Current collections with cached documents: {self._collections_names_with_cached_documents}."
                         )
                         break
 
@@ -283,7 +288,7 @@ class DatabaseCache(_DatabaseCache):
         self.cached_queries.clear()
 
     def _rename(self, change: ChangeStreamDocument) -> None:
-        # TODO: What is renamed? Collection? Database?
+        # TODO: What is renamed? Collection? Database?  # noqa: TD003
         raise NotImplementedError
 
     def _process_change_stream(self, change: ChangeStreamDocument) -> None:

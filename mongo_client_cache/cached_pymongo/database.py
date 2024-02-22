@@ -1,4 +1,5 @@
 from typing import cast
+
 import bson
 from pymongo import MongoClient, WriteConcern, database
 from pymongo.read_concern import ReadConcern
@@ -6,11 +7,11 @@ from pymongo.read_preferences import _ServerMode
 from pymongo.typings import _DocumentType, _DocumentTypeArg
 
 from mongo_client_cache.cached_pymongo.collection import CachedCollection
-from mongo_client_cache.core.local_database import ClientSideDatabase
+from mongo_client_cache.core.local_database import DatabaseCache
 
 
 class CachedDatabase(database.Database):
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         client: MongoClient[_DocumentType],
         name: str,
@@ -23,7 +24,7 @@ class CachedDatabase(database.Database):
             client, name, codec_options, read_preference, write_concern, read_concern
         )
         client = cast(MongoClient, self.__Database__client)
-        client.client_side_databases[name] = ClientSideDatabase(
+        client.client_side_databases[name] = DatabaseCache(
             self, client.client_side_cache_config.get(name)
         )
 

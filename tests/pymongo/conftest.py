@@ -1,14 +1,13 @@
 import logging
 import os
-from typing import Callable
+from collections.abc import Callable
 
 import pytest
+
 from mongo_client_cache.cached_pymongo.collection import CachedCollection
 from mongo_client_cache.cached_pymongo.database import CachedDatabase
-
 from mongo_client_cache.cached_pymongo.mongo_client import CachedMongoClient
 from mongo_client_cache.core.misc import CollectionConfig
-
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +19,7 @@ def mongo_client(
     database_name: Callable[[str], str],
 ) -> CachedMongoClient:
     client = CachedMongoClient(
-        f"mongodb+srv://{os.environ['REPLICA_MONGO_NAME']}:{os.environ['REPLICA_MONGO_PASSWORD']}@{os.environ['REPLICA_MONGO_HOST']}/?retryWrites=true&w=majority",
+        f"mongodb+srv://{os.environ["REPLICA_MONGO_NAME"]}:{os.environ["REPLICA_MONGO_PASSWORD"]}@{os.environ["REPLICA_MONGO_HOST"]}/?retryWrites=true&w=majority",
         client_side_cache_config={
             database_name("one"): [
                 CollectionConfig(
@@ -60,7 +59,7 @@ def mongo_database(mongo_client: CachedMongoClient) -> Callable[[str], CachedDat
 def mongo_collection(
     mongo_client: CachedMongoClient,
 ) -> Callable[[str, str], CachedCollection]:
-    def _mongo_collection(database_name, collection_name) -> CachedCollection:
+    def _mongo_collection(database_name: str, collection_name: str) -> CachedCollection:
         collection = mongo_client[database_name][collection_name]
         assert isinstance(collection, CachedCollection)
         return collection

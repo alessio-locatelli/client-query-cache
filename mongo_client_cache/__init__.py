@@ -1,5 +1,4 @@
-from .core import CollectionConfig
 from .cached_pymongo import CachedMongoClient
-from .core import 
+from .core import CollectionConfig
 
-__all__ = ["CollectionConfig", "CachedMongoClient"]
+__all__ = ["CachedMongoClient", "CollectionConfig"]

@@ -1,13 +1,13 @@
 import logging
 import os
-import pymongo
+
 from pymongo.mongo_client import MongoClient
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.DEBUG)
 
-url = f"mongodb+srv://{os.environ['REPLICA_MONGO_NAME']}:{os.environ['REPLICA_MONGO_PASSWORD']}@{os.environ['REPLICA_MONGO_HOST']}/?retryWrites=true&w=majority"
-client = MongoClient(url)
+url = f"mongodb+srv://{os.environ["REPLICA_MONGO_NAME"]}:{os.environ["REPLICA_MONGO_PASSWORD"]}@{os.environ["REPLICA_MONGO_HOST"]}/?retryWrites=true&w=majority"
+client: MongoClient = MongoClient(url)
 logger.info(f"{client = }, {client.nodes = }, {client.topology_description = }")
 
 # db = client.test_database

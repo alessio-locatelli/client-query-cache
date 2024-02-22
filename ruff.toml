@@ -9,7 +9,7 @@ extend-exclude = [
     "resources",
     "pdoc",
 ]
-ignore = [
+lint.ignore = [
     # Missing copyright notice at top of file
     "CPY001",
     # whitespace-before-punctuation (disabled because it is not stable, better enable this rule later)
@@ -65,7 +65,7 @@ ignore = [
     # We do not use SQL, so injection is not possible.
     "S608"
 ]
-select = [
+lint.select = [
     # Pyflakes
     "F",
     # pycodestyle (E, W)
@@ -149,17 +149,17 @@ select = [
     "T10",
 ]
 
-[flake8-builtins]
+[lint.flake8-builtins]
 builtins-ignorelist = ["filter",]
 
-[flake8-pytest-style]
+[lint.flake8-pytest-style]
 parametrize-names-type = "csv"
 
-[isort]
+[lint.isort]
 combine-as-imports = true
 
 
-[per-file-ignores]
+[lint.per-file-ignores]
 "__init__.py" = ["F401"]
 "tests/**/__init__.py" = ["F401"]
 "tests/**" = ["ARG001", "ARG004", "PLR6301", "FBT001"]
