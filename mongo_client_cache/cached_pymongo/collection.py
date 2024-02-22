@@ -26,11 +26,11 @@ from mongo_client_cache.types import BsonDict
 
 
 class CachedCollection(Collection):
-    def bulk_write(  # noqa: PLR0913
+    def bulk_write(  # noqa: PLR0913,PLR0917
         self,
         requests: Sequence[_WriteOp[_DocumentType]],
-        ordered: bool = True,  # noqa: FBT001
-        bypass_document_validation: bool = False,  # noqa: FBT001
+        ordered: bool = True,  # noqa: FBT001,FBT002
+        bypass_document_validation: bool = False,  # noqa: FBT001,FBT002
         session: ClientSession | None = None,
         comment: Any | None = None,
         let: Mapping | None = None,
@@ -48,7 +48,7 @@ class CachedCollection(Collection):
     def insert_one(
         self,
         document: _DocumentType | RawBSONDocument,
-        bypass_document_validation: bool = False,  # noqa: FBT001
+        bypass_document_validation: bool = False,  # noqa: FBT001,FBT002
         session: ClientSession | None = None,
         comment: Any | None = None,
     ) -> InsertOneResult:
@@ -65,8 +65,8 @@ class CachedCollection(Collection):
     def insert_many(  # noqa: PLR0913
         self,
         documents: Iterable[_DocumentType | RawBSONDocument],
-        ordered: bool = True,  # noqa: FBT001
-        bypass_document_validation: bool = False,  # noqa: FBT001
+        ordered: bool = True,  # noqa: FBT001,FBT002
+        bypass_document_validation: bool = False,  # noqa: FBT001,FBT002
         session: ClientSession | None = None,
         comment: Any | None = None,
     ) -> InsertManyResult:
@@ -80,12 +80,12 @@ class CachedCollection(Collection):
             documents, ordered, bypass_document_validation, session, comment
         )
 
-    def replace_one(  # noqa: PLR0913
+    def replace_one(  # noqa: PLR0913,PLR0917
         self,
         filter: Mapping[str, Any],
         replacement: Mapping[str, Any],
-        upsert: bool = False,  # noqa: FBT001
-        bypass_document_validation: bool = False,  # noqa: FBT001
+        upsert: bool = False,  # noqa: FBT001,FBT002
+        bypass_document_validation: bool = False,  # noqa: FBT001,FBT002
         collation: _CollationIn | None = None,
         hint: _IndexKeyHint | None = None,
         session: ClientSession | None = None,
@@ -110,12 +110,12 @@ class CachedCollection(Collection):
             comment,
         )
 
-    def update_one(  # noqa: PLR0913
+    def update_one(  # noqa: PLR0913,PLR0917
         self,
         filter: Mapping[str, Any],
         update: Mapping[str, Any] | _Pipeline,
-        upsert: bool = False,  # noqa: FBT001
-        bypass_document_validation: bool = False,  # noqa: FBT001
+        upsert: bool = False,  # noqa: FBT001,FBT002
+        bypass_document_validation: bool = False,  # noqa: FBT001,FBT002
         collation: _CollationIn | None = None,
         array_filters: Sequence[Mapping[str, Any]] | None = None,
         hint: _IndexKeyHint | None = None,
@@ -146,9 +146,9 @@ class CachedCollection(Collection):
         self,
         filter: Mapping[str, Any],
         update: Mapping[str, Any] | _Pipeline,
-        upsert: bool = False,  # noqa: FBT001
+        upsert: bool = False,  # noqa: FBT001,FBT002
         array_filters: Sequence[Mapping[str, Any]] | None = None,
-        bypass_document_validation: bool | None = None,
+        bypass_document_validation: bool | None = None,  # noqa: FBT001
         collation: _CollationIn | None = None,
         hint: _IndexKeyHint | None = None,
         session: ClientSession | None = None,
@@ -174,7 +174,7 @@ class CachedCollection(Collection):
             comment,
         )
 
-    def delete_one(  # noqa: PLR0913
+    def delete_one(  # noqa: PLR0913,PLR0917
         self,
         filter: Mapping[str, Any],
         collation: _CollationIn | None = None,
@@ -191,7 +191,7 @@ class CachedCollection(Collection):
 
         return super().delete_one(filter, collation, hint, session, let, comment)
 
-    def delete_many(  # noqa: PLR0913
+    def delete_many(  # noqa: PLR0913,PLR0917
         self,
         filter: Mapping[str, Any],
         collation: _CollationIn | None = None,
@@ -259,7 +259,7 @@ class CachedCollection(Collection):
             )
             return document
 
-    def find_one_and_delete(  # noqa: PLR0913
+    def find_one_and_delete(  # noqa: PLR0913,PLR0917
         self,
         filter: Mapping[str, Any],
         projection: Mapping[str, Any] | Iterable[str] | None = None,
@@ -280,7 +280,7 @@ class CachedCollection(Collection):
             filter, projection, sort, hint, session, let, comment, **kwargs
         )
 
-    def find_one_and_replace(  # noqa: PLR0913
+    def find_one_and_replace(  # noqa: PLR0913,PLR0917
         self,
         filter: Mapping[str, Any],
         replacement: Mapping[str, Any],
@@ -314,13 +314,13 @@ class CachedCollection(Collection):
             **kwargs,
         )
 
-    def find_one_and_update(  # noqa: PLR0913
+    def find_one_and_update(  # noqa: PLR0913,PLR0917
         self,
         filter: Mapping[str, Any],
         update: Mapping[str, Any] | _Pipeline,
         projection: Mapping[str, Any] | Iterable[str] | None = None,
         sort: _IndexList | None = None,
-        upsert: bool = False,  # noqa: FBT001
+        upsert: bool = False,  # noqa: FBT001,FBT002
         return_document: bool = ReturnDocument.BEFORE,  # noqa: FBT001
         array_filters: Sequence[Mapping[str, Any]] | None = None,
         hint: _IndexKeyHint | None = None,

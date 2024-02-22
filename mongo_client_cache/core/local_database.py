@@ -163,9 +163,9 @@ class DatabaseCache(_DatabaseCache):
         self, database: Database, config_per_collection: list[CollectionConfig] | None
     ) -> None:
         super().__init__(database, config_per_collection)
-        self.change_stream_documents: dict[
-            str, list[ChangeStreamDocument]
-        ] = defaultdict(list)
+        self.change_stream_documents: dict[str, list[ChangeStreamDocument]] = (
+            defaultdict(list)
+        )
         Thread(target=self.watch).start()
 
     def watch(self) -> None:
@@ -247,8 +247,8 @@ class DatabaseCache(_DatabaseCache):
                     ):
                         logger.info(
                             "Restarting 'watch'."
-                            + f"Previously watched collections: {collections_names_with_cached_documents}, "
-                            + f"Current collections with cached documents: {self._collections_names_with_cached_documents}."
+                            + f"Previously watched collections: {collections_names_with_cached_documents}, "  # noqa: E501
+                            + f"Current collections with cached documents: {self._collections_names_with_cached_documents}."  # noqa: E501
                         )
                         break
 

@@ -11,7 +11,7 @@ from mongo_client_cache.core.local_database import DatabaseCache
 
 
 class CachedDatabase(database.Database):
-    def __init__(  # noqa: PLR0913
+    def __init__(  # noqa: PLR0913,PLR0917
         self,
         client: MongoClient[_DocumentType],
         name: str,
