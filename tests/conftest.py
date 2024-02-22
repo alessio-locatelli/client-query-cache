@@ -52,14 +52,14 @@ def database_name() -> Callable[[str], str]:
 
 
 @pytest.fixture
-def document_id(faker: Faker) -> int:
+def random_document_id(faker: Faker) -> int:
     return faker.pyint()
 
 
 @pytest.fixture
-def example_document(faker: Faker, document_id: int) -> dict[str, Any]:
+def example_document(faker: Faker, random_document_id: int) -> dict[str, Any]:
     document = faker.pydict()
-    document["_id"] = document_id
+    document["_id"] = random_document_id
 
     mongo_compatible_document: dict[str, Any] = {}
     for k, v in document.items():

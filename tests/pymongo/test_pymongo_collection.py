@@ -4,7 +4,7 @@ from typing import Any, cast
 import pandas as pd
 import pytest
 
-from mongo_client_cache.pymongo.collection import CachedCollection
+from mongo_client_cache.cached_pymongo.collection import CachedCollection
 
 
 @pytest.fixture
