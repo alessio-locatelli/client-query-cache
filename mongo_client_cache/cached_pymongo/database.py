@@ -23,9 +23,9 @@ class CachedDatabase(database.Database):
         super().__init__(
             client, name, codec_options, read_preference, write_concern, read_concern
         )
-        client = cast(MongoClient, self.__Database__client)
-        client.client_side_databases[name] = DatabaseCache(
-            self, client.client_side_cache_config.get(name)
+        client = cast(MongoClient, self._Database__client)
+        client._client_side_databases[name] = DatabaseCache(
+            self, client._client_side_cache_config.get(name)
         )
 
     def __getitem__(self, name: str) -> CachedCollection:

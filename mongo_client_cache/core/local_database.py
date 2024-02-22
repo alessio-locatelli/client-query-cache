@@ -163,10 +163,11 @@ class DatabaseCache(_DatabaseCache):
         self, database: Database, config_per_collection: list[CollectionConfig] | None
     ) -> None:
         super().__init__(database, config_per_collection)
+        logger.debug(f'Connected to local database "{database.name}".')
         self.change_stream_documents: dict[str, list[ChangeStreamDocument]] = (
             defaultdict(list)
         )
-        Thread(target=self.watch).start()
+        Thread(target=self.watch, daemon=True).start()
 
     def watch(self) -> None:
         """

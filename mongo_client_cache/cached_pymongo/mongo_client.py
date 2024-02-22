@@ -36,11 +36,27 @@ class CacheMixin(MIXIN_BASE):
         super().__init__(
             host, port, document_class, tz_aware, connect, type_registry, **kwargs
         )
-        self.client_side_databases = LocalClient()
-        self.client_side_cache_config = client_side_cache_config
+        self._client_side_databases = LocalClient()
+        self._client_side_cache_config = client_side_cache_config or {}
+
+    def __getattr__(self, name: str) -> Any:
+        if name == "_client_side_databases":
+            return self._client_side_databases
+        if name == "_client_side_cache_config":
+            return self._client_side_cache_config
+
+        # NOTE: The error and the message are copied from
+        # the `MongoClient` to have a consistent interface.
+        if name.startswith("_"):
+            raise AttributeError(  # noqa: TRY003
+                f"MongoClient has no attribute {name!r}. To access the {name}"
+                f" database, use client[{name!r}]."
+            )
+
+        return self.__getitem__(name)
 
     def __getitem__(self, name: str) -> CachedDatabase:
-        if name in {"client_side_databases", "client_side_cache_config"}:
+        if name in {"_client_side_databases", "_client_side_cache_config"}:
             raise ReservedAttributeError(name)
         return CachedDatabase(self, name)
 
