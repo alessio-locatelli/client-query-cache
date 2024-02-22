@@ -26,7 +26,7 @@ from mongo_client_cache.types import (
 )
 
 
-class DatabaseCache:
+class _DatabaseCache:
     __slots__ = (
         "mongo_database",
         "local_collections",
@@ -35,7 +35,6 @@ class DatabaseCache:
         "excluded_collections_names",
         "_collections_names_with_cached_documents",
         "_resume_token",
-        "pending_documents_for_insert_per_collection",
     )
 
     def __init__(
@@ -74,8 +73,6 @@ class DatabaseCache:
                 ],
             )
         )
-        self.pending_documents_for_insert_per_collection = defaultdict(list)
-        Thread(target=self.watch).start()
 
     def _find_cached_documents_ids(self, mongo_command: MongoCommand) -> set[BsonValue]:  # type: ignore[valid-type]
         queries = self.cached_queries[mongo_command.collection_name]
@@ -154,6 +151,17 @@ class DatabaseCache:
             raise DocumentIdMissingError from KeyError
         df_queries.loc[len(df_queries)] = [*list(mongo_command), documents_ids]
         self._collections_names_with_cached_documents.add(mongo_command.collection_name)
+
+
+class DatabaseCache(_DatabaseCache):
+    __slots__ = ()
+
+    def __init__(
+        self, database: Database, config_per_collection: list[CollectionConfig] | None
+    ) -> None:
+        super().__init__(database, config_per_collection)
+        self.change_stream_documents = defaultdict(list)
+        Thread(target=self.watch).start()
 
     def watch(self) -> None:
         """
@@ -241,28 +249,42 @@ class DatabaseCache:
 
     def _insert(self, change: ChangeStreamDocument) -> None:
         collection_name = change["ns"]["coll"]
-        self.pending_documents_for_insert_per_collection[collection_name].append(
-            change["fullDocument"]
-        )
-        df_cached_queries = self.cached_queries[collection_name]
+        self.change_stream_documents[collection_name].append(change)
         # Invalidate all cached queries.
-        self.cached_queries[collection_name] = df_cached_queries[0:0]
+        del self.cached_queries[collection_name]
 
     def _update(self, change: ChangeStreamDocument) -> None:
         collection_name = change["ns"]["coll"]
-        df_cached_queries = self.cached_queries[collection_name]
+        self.change_stream_documents[collection_name].append(change)
         # Invalidate all cached queries.
-        self.cached_queries[collection_name] = df_cached_queries[0:0]
+        del self.cached_queries[collection_name]
 
     def _replace(self, change: ChangeStreamDocument) -> None:
         collection_name = change["ns"]["coll"]
-        df_cached_queries = self.cached_queries[collection_name]
+        self.change_stream_documents[collection_name].append(change)
         # Invalidate all cached queries.
-        self.cached_queries[collection_name] = df_cached_queries[0:0]
+        del self.cached_queries[collection_name]
 
     def _delete(self, change: ChangeStreamDocument) -> None:
         collection_name = change["ns"]["coll"]
+        self.change_stream_documents[collection_name].append(change)
         del self.cached_queries[collection_name]
+
+    def _drop(self, change: ChangeStreamDocument) -> None:
+        collection_name = change["ns"]["coll"]
+        # Drop cached and pending documents.
+        del self.local_collections[collection_name]
+        del self.change_stream_documents[collection_name]
+        # Invalidate all cached queries.
+        del self.cached_queries[collection_name]
+
+    def _drop_database(self, change: ChangeStreamDocument) -> None:
+        self.local_collections.clear()
+        self.cached_queries.clear()
+
+    def _rename(self, change: ChangeStreamDocument) -> None:
+        # TODO: What is renamed? Collection? Database?
+        raise NotImplementedError
 
     def _process_change_stream(self, change: ChangeStreamDocument) -> None:
         operation_type = change["operationType"]

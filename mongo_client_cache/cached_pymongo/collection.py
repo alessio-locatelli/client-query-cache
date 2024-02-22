@@ -37,7 +37,6 @@ class CachedCollection(Collection):
     ) -> BulkWriteResult:
         if __debug__:
             db = self.__Collection__database
-
             cache = cast(ClientSideDatabase, db.client.client_side_databases[db.name])
             if self.name in cache.static_collections:
                 raise CannotEditImmutableCollectionError(self.name)
@@ -222,9 +221,7 @@ class CachedCollection(Collection):
         if self.name in cache.excluded_collections:
             return super().find(filter, projection=projection, **kwargs)
 
-        mongo_command = MongoCommand(
-            self.name, "find", filter=filter, projection=projection
-        )
+        mongo_command = MongoCommand(self.name, "find", filter, projection)
         try:
             cached_documents = cache.get_many(mongo_command=mongo_command)
         except NotCachedError:
@@ -248,14 +245,14 @@ class CachedCollection(Collection):
         cache = cast(ClientSideDatabase, db.client.client_side_databases[db.name])
 
         if self.name in cache.excluded_collections:
-            return super().find_one(filter, *args, **kwargs)
+            return super().find_one(filter, **kwargs)
 
         try:
             return cache.get_one(
-                mongo_command=MongoCommand(self.name, "findOne", filter, projection),
+                mongo_command=MongoCommand(self.name, "findOne", filter, projection)
             )
         except NotCachedError:
-            document = super().find_one(filter, *args, **kwargs)
+            document = super().find_one(filter, **kwargs)
             cache.set_one(
                 document=document,
                 mongo_command=MongoCommand(self.name, "findOne", filter, projection),
