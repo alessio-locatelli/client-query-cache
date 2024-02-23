@@ -23,6 +23,7 @@ from mongo_client_cache.core.exceptions import (
 )
 from mongo_client_cache.core.local_database import DatabaseCache, MongoCommand
 from mongo_client_cache.types import BsonDict
+from mongo_client_cache.logger import logger
 
 
 class CachedCollection(Collection):
@@ -36,8 +37,10 @@ class CachedCollection(Collection):
         let: Mapping | None = None,
     ) -> BulkWriteResult:
         if __debug__:
-            db = self.__Collection__database
-            cache = cast(DatabaseCache, db.client.client_side_databases[db.name])
+            db = self._Collection__database
+            cache = cast(
+                DatabaseCache, db._Database__client._client_side_databases[db.name]
+            )
             if self.name in cache.static_collections_names:
                 raise CannotEditImmutableCollectionError(self.name)
 
@@ -53,8 +56,10 @@ class CachedCollection(Collection):
         comment: Any | None = None,
     ) -> InsertOneResult:
         if __debug__:
-            db = self.__Collection__database
-            cache = cast(DatabaseCache, db.client.client_side_databases[db.name])
+            db = self._Collection__database
+            cache = cast(
+                DatabaseCache, db._Database__client._client_side_databases[db.name]
+            )
             if self.name in cache.static_collections_names:
                 raise CannotEditImmutableCollectionError(self.name)
 
@@ -71,8 +76,10 @@ class CachedCollection(Collection):
         comment: Any | None = None,
     ) -> InsertManyResult:
         if __debug__:
-            db = self.__Collection__database
-            cache = cast(DatabaseCache, db.client.client_side_databases[db.name])
+            db = self._Collection__database
+            cache = cast(
+                DatabaseCache, db._Database__client._client_side_databases[db.name]
+            )
             if self.name in cache.static_collections_names:
                 raise CannotEditImmutableCollectionError(self.name)
 
@@ -93,8 +100,10 @@ class CachedCollection(Collection):
         comment: Any | None = None,
     ) -> UpdateResult:
         if __debug__:
-            db = self.__Collection__database
-            cache = cast(DatabaseCache, db.client.client_side_databases[db.name])
+            db = self._Collection__database
+            cache = cast(
+                DatabaseCache, db._Database__client._client_side_databases[db.name]
+            )
             if self.name in cache.static_collections_names:
                 raise CannotEditImmutableCollectionError(self.name)
 
@@ -124,8 +133,10 @@ class CachedCollection(Collection):
         comment: Any | None = None,
     ) -> UpdateResult:
         if __debug__:
-            db = self.__Collection__database
-            cache = cast(DatabaseCache, db.client.client_side_databases[db.name])
+            db = self._Collection__database
+            cache = cast(
+                DatabaseCache, db._Database__client._client_side_databases[db.name]
+            )
             if self.name in cache.static_collections_names:
                 raise CannotEditImmutableCollectionError(self.name)
 
@@ -156,8 +167,10 @@ class CachedCollection(Collection):
         comment: Any | None = None,
     ) -> UpdateResult:
         if __debug__:
-            db = self.__Collection__database
-            cache = cast(DatabaseCache, db.client.client_side_databases[db.name])
+            db = self._Collection__database
+            cache = cast(
+                DatabaseCache, db._Database__client._client_side_databases[db.name]
+            )
             if self.name in cache.static_collections_names:
                 raise CannotEditImmutableCollectionError(self.name)
 
@@ -184,8 +197,10 @@ class CachedCollection(Collection):
         comment: Any | None = None,
     ) -> DeleteResult:
         if __debug__:
-            db = self.__Collection__database
-            cache = cast(DatabaseCache, db.client.client_side_databases[db.name])
+            db = self._Collection__database
+            cache = cast(
+                DatabaseCache, db._Database__client._client_side_databases[db.name]
+            )
             if self.name in cache.static_collections_names:
                 raise CannotEditImmutableCollectionError(self.name)
 
@@ -200,23 +215,25 @@ class CachedCollection(Collection):
         let: Mapping[str, Any] | None = None,
         comment: Any | None = None,
     ) -> DeleteResult:
-        db = self.__Collection__database
-        cache = cast(DatabaseCache, db.client.client_side_databases[db.name])
+        db = self._Collection__database
+        cache = cast(
+            DatabaseCache, db._Database__client._client_side_databases[db.name]
+        )
         if self.name in cache.static_collections_names:
             raise CannotEditImmutableCollectionError(self.name)
 
         return super().delete_many(filter, collation, hint, session, let, comment)
 
-    def find(  # type: ignore[override]
+    def find_(  # type: ignore[override]
         self,
         filter: Any | None = None,
         *,
         projection: list[str] | dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> Iterator[BsonDict]:
-        db = self.__Collection__database
-        client = db.__Database__client
-        cache = cast(DatabaseCache, client.client_side_databases[db.name])
+        db = self._Collection__database
+        client = db._Database__client
+        cache = cast(DatabaseCache, client._client_side_databases[db.name])
 
         if self.name in cache.excluded_collections_names:
             return super().find(filter, projection=projection, **kwargs)
@@ -241,8 +258,10 @@ class CachedCollection(Collection):
         projection: list[str] | dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> BsonDict | None:
-        db = self.__Collection__database
-        cache = cast(DatabaseCache, db.client.client_side_databases[db.name])
+        db = self._Collection__database
+        cache = cast(
+            DatabaseCache, db._Database__client._client_side_databases[db.name]
+        )
 
         if self.name in cache.excluded_collections_names:
             return super().find_one(filter, **kwargs)
@@ -271,8 +290,10 @@ class CachedCollection(Collection):
         **kwargs: Any,
     ) -> Mapping[str, Any]:
         if __debug__:
-            db = self.__Collection__database
-            cache = cast(DatabaseCache, db.client.client_side_databases[db.name])
+            db = self._Collection__database
+            cache = cast(
+                DatabaseCache, db._Database__client._client_side_databases[db.name]
+            )
             if self.name in cache.static_collections_names:
                 raise CannotEditImmutableCollectionError(self.name)
 
@@ -295,8 +316,10 @@ class CachedCollection(Collection):
         **kwargs: Any,
     ) -> Mapping[str, Any]:
         if __debug__:
-            db = self.__Collection__database
-            cache = cast(DatabaseCache, db.client.client_side_databases[db.name])
+            db = self._Collection__database
+            cache = cast(
+                DatabaseCache, db._Database__client._client_side_databases[db.name]
+            )
             if self.name in cache.static_collections_names:
                 raise CannotEditImmutableCollectionError(self.name)
 
@@ -330,8 +353,10 @@ class CachedCollection(Collection):
         **kwargs: Any,
     ) -> Mapping[str, Any]:
         if __debug__:
-            db = self.__Collection__database
-            cache = cast(DatabaseCache, db.client.client_side_databases[db.name])
+            db = self._Collection__database
+            cache = cast(
+                DatabaseCache, db._Database__client._client_side_databases[db.name]
+            )
             if self.name in cache.static_collections_names:
                 raise CannotEditImmutableCollectionError(self.name)
 
@@ -381,8 +406,10 @@ class CachedCollection(Collection):
         encrypted_fields: Mapping[str, Any] | None = None,
     ) -> None:
         if __debug__:
-            db = self.__Collection__database
-            cache = cast(DatabaseCache, db.client.client_side_databases[db.name])
+            db = self._Collection__database
+            cache = cast(
+                DatabaseCache, db._Database__client._client_side_databases[db.name]
+            )
             if self.name in cache.static_collections_names:
                 raise CannotEditImmutableCollectionError(self.name)
 
@@ -396,8 +423,10 @@ class CachedCollection(Collection):
         **kwargs: Any,
     ) -> MutableMapping[str, Any]:
         if __debug__:
-            db = self.__Collection__database
-            cache = cast(DatabaseCache, db.client.client_side_databases[db.name])
+            db = self._Collection__database
+            cache = cast(
+                DatabaseCache, db._Database__client._client_side_databases[db.name]
+            )
             if self.name in cache.static_collections_names:
                 raise CannotEditImmutableCollectionError(self.name)
 

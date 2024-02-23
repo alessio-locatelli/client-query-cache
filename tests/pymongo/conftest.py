@@ -14,14 +14,12 @@ logger = logging.getLogger(__name__)
 
 @pytest.fixture(scope="session")
 def mongo_client(
-    persistent_collection_name: str,
-    nonpersistent_collection_name: str,
-    create_database_name: Callable[[str], str],
+    persistent_collection_name: str, nonpersistent_collection_name: str
 ) -> CachedMongoClient:
     client = CachedMongoClient(
         f"mongodb+srv://{os.environ["REPLICA_MONGO_NAME"]}:{os.environ["REPLICA_MONGO_PASSWORD"]}@{os.environ["REPLICA_MONGO_HOST"]}/?retryWrites=true&w=majority",
         client_side_cache_config={
-            create_database_name("one"): [
+            "db_one": [
                 CollectionConfig(
                     collection_name=persistent_collection_name,
                     watch_change_stream=False,
@@ -31,7 +29,7 @@ def mongo_client(
                     watch_change_stream=True,
                 ),
             ],
-            create_database_name("two"): [
+            "db_two": [
                 CollectionConfig(
                     collection_name=persistent_collection_name,
                     enable_client_side_cache=False,
@@ -43,7 +41,7 @@ def mongo_client(
     return client
 
 
-@pytest.fixture()
+@pytest.fixture
 def mongo_database(mongo_client: CachedMongoClient) -> Callable[[str], CachedDatabase]:
     def _mongo_database(database_name: str) -> CachedDatabase:
         db = mongo_client[database_name]

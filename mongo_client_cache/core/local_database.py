@@ -60,11 +60,10 @@ class _DatabaseCache:
         self.local_collections: dict[CollectionName, pd.DataFrame] = defaultdict(
             lambda: pd.DataFrame(columns=["_id", "document"]).set_index("_id")
         )
-        self.cached_queries: dict[str, pd.DataFrame] = defaultdict(
+        self.cached_queries: dict[CollectionName, pd.DataFrame] = defaultdict(
             partial(
                 pd.DataFrame,
                 columns=[
-                    "database_name",
                     "collection_name",
                     "command",
                     "filter",
@@ -163,10 +162,13 @@ class DatabaseCache(_DatabaseCache):
         self, database: Database, config_per_collection: list[CollectionConfig] | None
     ) -> None:
         super().__init__(database, config_per_collection)
-        logger.debug(f'Connected to local database "{database.name}".')
-        self.change_stream_documents: dict[str, list[ChangeStreamDocument]] = (
-            defaultdict(list)
+        logger.debug(
+            f'Connected to local database "{database.name}".'
+            + f"{self.excluded_collections_names=}, {self.static_collections_names=}"
         )
+        self.change_stream_documents: dict[
+            str, list[ChangeStreamDocument]
+        ] = defaultdict(list)
         Thread(target=self.watch, daemon=True).start()
 
     def watch(self) -> None:

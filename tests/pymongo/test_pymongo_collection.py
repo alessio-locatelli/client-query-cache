@@ -2,23 +2,31 @@ from collections.abc import Callable, Iterator
 from typing import Any, cast
 
 import pandas as pd
+from pymongo.errors import DuplicateKeyError
 import pytest
 
 from mongo_client_cache.cached_pymongo.collection import CachedCollection
+from mongo_client_cache.cached_pymongo.database import CachedDatabase
 from mongo_client_cache.core.local_database import DatabaseCache
 
 
 @pytest.fixture
 def fill_collection(
-    example_collection: CachedCollection, example_document: dict[str, Any]
+    create_cached_mongo_collection: Callable[[str, str], CachedCollection],
+    example_document: dict[str, Any],
 ) -> Iterator[None]:
-    document_id = example_collection.insert_one(example_document).inserted_id
+    collection = create_cached_mongo_collection("db_one", "persistent_collection_name")
+    try:
+        document_id = collection.insert_one(example_document).inserted_id
+    except DuplicateKeyError:
+        pass
     yield
-    example_collection.delete_one({"_id": document_id})
+    collection.delete_one({"_id": example_document["_id"]})
 
 
 class TestCachedCollection:
-    def test_bulk_write(self) -> None: ...
+    def test_bulk_write(self) -> None:
+        ...
 
     @pytest.mark.usefixtures("fill_collection")
     def test_find_one(
@@ -35,8 +43,10 @@ class TestCachedCollection:
         # Uncached call.
         cached_document = collection.find_one(filter)
         assert cached_document == example_document
-        db = collection.__Collection__database
-        cache = cast(DatabaseCache, db.client.client_side_databases[db.name])
+        db = collection._Collection__database
+        cache = cast(
+            DatabaseCache, db._Database__client._client_side_databases[db.name]
+        )
         queries_df = cache.cached_queries[collection.name]
         assert not queries_df.empty
         collection_df = cache.local_collections[collection.name]
@@ -65,11 +75,14 @@ class TestCachedCollection:
         # Uncached call.
         uncached_document = next(iter(example_collection.find(filter)))
         assert uncached_document == example_document
-        cache_backend = example_collection._Collection__database.client.cache_backend
-        queries_df = cast(pd.DataFrame, cache_backend._queries[example_collection.name])
+        cache = cast(
+            CachedDatabase,
+            example_collection._Collection__database._Database__client._client_side_databases,
+        )
+        queries_df = cast(pd.DataFrame, cache.cached_queries[example_collection.name])
         assert not queries_df.empty
         collection_df = cast(
-            pd.DataFrame, cache_backend._collections[example_collection.name]
+            pd.DataFrame, cache.local_collections[example_collection.name]
         )
         assert not collection_df.empty
 

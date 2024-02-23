@@ -1,3 +1,4 @@
+import decimal
 import logging
 import os
 from collections.abc import Callable
@@ -33,12 +34,12 @@ def faker_seed() -> str | int:
     return seed
 
 
-@pytest.fixture()
+@pytest.fixture(scope="session")
 def persistent_collection_name() -> str:
     return "persistent_collection"
 
 
-@pytest.fixture()
+@pytest.fixture(scope="session")
 def nonpersistent_collection_name() -> str:
     return "nonpersistent_collection"
 
@@ -75,7 +76,10 @@ def example_document(faker: Faker, random_document_id: int) -> dict[str, Any]:
             # bson.errors.InvalidDocument: cannot encode object [...]
             # [...] of type: <class 'decimal.Decimal'>
             # ````
-            mongo_compatible_document[k] = Decimal128(v)
+            try:
+                mongo_compatible_document[k] = Decimal128(v)
+            except decimal.Inexact:
+                continue
         else:
             mongo_compatible_document[k] = v
 
