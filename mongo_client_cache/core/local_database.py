@@ -28,12 +28,12 @@ from mongo_client_cache.types import (
 
 class _DatabaseCache:
     __slots__ = (
-        "_collections_names_with_cached_documents",
-        "_resume_token",
         "cached_queries",
+        "collections_names_with_cached_documents",
         "excluded_collections_names",
         "local_collections",
         "mongo_database",
+        "resume_token",
         "static_collections_names",
     )
 
@@ -73,7 +73,7 @@ class _DatabaseCache:
                 ],
             )
         )
-        self._collections_names_with_cached_documents: set[str] = set()
+        self.collections_names_with_cached_documents: set[str] = set()
 
     def _find_cached_documents_ids(self, mongo_command: MongoCommand) -> set[BsonValue]:  # type: ignore[valid-type]
         queries = self.cached_queries[mongo_command.collection_name]
@@ -125,7 +125,7 @@ class _DatabaseCache:
         else:
             df_collection = self.local_collections[mongo_command.collection_name]
             df_collection.loc[document_id] = [document]
-            self._collections_names_with_cached_documents.add(
+            self.collections_names_with_cached_documents.add(
                 mongo_command.collection_name
             )
 
@@ -153,7 +153,7 @@ class _DatabaseCache:
         except KeyError:
             raise DocumentIdMissingError from KeyError
         df_queries.loc[len(df_queries)] = [*list(mongo_command), documents_ids]
-        self._collections_names_with_cached_documents.add(mongo_command.collection_name)
+        self.collections_names_with_cached_documents.add(mongo_command.collection_name)
 
 
 class DatabaseCache(_DatabaseCache):
@@ -174,7 +174,7 @@ class DatabaseCache(_DatabaseCache):
         https://github.com/mongodb/specifications/blob/master/source/change-streams/change-streams.rst
         https://www.mongodb.com/docs/manual/reference/change-events/#change-events
         """
-        self._resume_token: Mapping[str, Any] | None = None
+        self.resume_token: Mapping[str, Any] | None = None
 
         max_retries = 3
         for retry_attempt in count():
@@ -183,7 +183,7 @@ class DatabaseCache(_DatabaseCache):
             except PyMongoError as error:
                 # The ChangeStream encountered an unrecoverable error or the
                 # resume attempt failed to recreate the cursor.
-                if self._resume_token is None:
+                if self.resume_token is None:
                     if retry_attempt == max_retries:
                         raise
                     logger.error(
@@ -195,7 +195,7 @@ class DatabaseCache(_DatabaseCache):
     def _watch(self) -> None:
         while True:
             collections_names_with_cached_documents = (
-                self._collections_names_with_cached_documents
+                self.collections_names_with_cached_documents
             )
             if not collections_names_with_cached_documents:
                 time.sleep(1)
@@ -232,7 +232,7 @@ class DatabaseCache(_DatabaseCache):
                 f"Watching collections: {collections_names_with_cached_documents}."
             )
             with self.mongo_database.watch(
-                pipeline, full_document="updateLookup", resume_after=self._resume_token
+                pipeline, full_document="updateLookup", resume_after=self.resume_token
             ) as stream:
                 for change in stream:
                     logger.debug(f"{change=}, {stream.resume_token=}")
@@ -240,16 +240,16 @@ class DatabaseCache(_DatabaseCache):
                     # Use the interrupted ChangeStream's resume token to create
                     # a new ChangeStream. The new stream will continue from the
                     # last seen insert change without missing any events.
-                    self._resume_token = stream.resume_token
+                    self.resume_token = stream.resume_token
 
                     if (
                         collections_names_with_cached_documents
-                        != self._collections_names_with_cached_documents
+                        != self.collections_names_with_cached_documents
                     ):
                         logger.info(
                             "Restarting 'watch'."
                             + f"Previously watched collections: {collections_names_with_cached_documents}, "  # noqa: E501
-                            + f"Current collections with cached documents: {self._collections_names_with_cached_documents}."  # noqa: E501
+                            + f"Current collections with cached documents: {self.collections_names_with_cached_documents}."  # noqa: E501
                         )
                         break
 

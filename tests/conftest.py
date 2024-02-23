@@ -44,11 +44,11 @@ def nonpersistent_collection_name() -> str:
 
 
 @pytest.fixture
-def database_name() -> Callable[[str], str]:
-    def _database_name(database_name_suffix: str) -> str:
+def create_database_name() -> Callable[[str], str]:
+    def _create_database_name(database_name_suffix: str) -> str:
         return f"db_{database_name_suffix}"
 
-    return _database_name
+    return _create_database_name
 
 
 @pytest.fixture
