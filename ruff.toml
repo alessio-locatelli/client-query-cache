@@ -63,7 +63,9 @@ lint.ignore = [
     # unspecified-encoding
     "PLW1514",
     # We do not use SQL, so injection is not possible.
-    "S608"
+    "S608",
+    # try/except:pass is a little faster inside functions
+    "SIM105"
 ]
 lint.select = [
     # Pyflakes

@@ -1,4 +1,3 @@
-import time
 from collections import defaultdict
 from collections.abc import Mapping
 from functools import partial
@@ -92,7 +91,7 @@ class _DatabaseCache:
         try:
             return query.iloc[(0, -1)]
         except IndexError as e:
-            logger.debug(f"Not found in cache: {mongo_command}")
+            logger.debug(f"Not found in cache: {mongo_command}, {query=}, {e!r}")
             raise NotCachedError from e
 
     def _find_cached_document_id(self, mongo_command: MongoCommand) -> BsonValue:  # type: ignore[valid-type]
@@ -144,7 +143,9 @@ class _DatabaseCache:
         df_collection = self.local_collections[mongo_command.collection_name]
         df_documents = pd.DataFrame(documents)
         df_documents.set_index("_id", inplace=True)  # noqa: PD002
-        df_collection = df_collection.combine_first(df_documents)
+        self.local_collections[
+            mongo_command.collection_name
+        ] = df_collection.combine_first(df_documents)
 
         df_queries = self.cached_queries[mongo_command.collection_name]
         try:
@@ -196,12 +197,12 @@ class DatabaseCache(_DatabaseCache):
 
     def _watch(self) -> None:
         while True:
-            collections_names_with_cached_documents = (
-                self.collections_names_with_cached_documents
-            )
-            if not collections_names_with_cached_documents:
-                time.sleep(1)
-                continue
+            # collections_names_with_cached_documents = list(
+            #    self.collections_names_with_cached_documents
+            # )
+            # if not collections_names_with_cached_documents:
+            #    time.sleep(1)
+            #    continue
             pipeline: list[JsonDict] = [
                 {
                     "$match": {
@@ -227,12 +228,13 @@ class DatabaseCache(_DatabaseCache):
                     }
                 },
             ]
-            pipeline[0]["$match"]["$ns.coll"] = {  # type: ignore[index]
-                "$in": collections_names_with_cached_documents
-            }
-            logger.debug(
-                f"Watching collections: {collections_names_with_cached_documents}."
-            )
+            # pipeline[0]["$match"]["ns.coll"] = {  # type: ignore[index]
+            #    "$in": collections_names_with_cached_documents
+            # }
+            # logger.debug(
+            #    f"Watching collections: {collections_names_with_cached_documents}."
+            # )
+            logger.info(f'Watching Change Stream for "{self.mongo_database.name}".')
             with self.mongo_database.watch(
                 pipeline, full_document="updateLookup", resume_after=self.resume_token
             ) as stream:
@@ -243,7 +245,7 @@ class DatabaseCache(_DatabaseCache):
                     # a new ChangeStream. The new stream will continue from the
                     # last seen insert change without missing any events.
                     self.resume_token = stream.resume_token
-
+                    continue
                     if (
                         collections_names_with_cached_documents
                         != self.collections_names_with_cached_documents

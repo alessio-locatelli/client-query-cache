@@ -16,6 +16,7 @@ from pymongo.results import (
     UpdateResult,
 )
 from pymongo.typings import _CollationIn, _Pipeline
+from mongo_client_cache.cached_pymongo.cursor import CachedCursor
 
 from mongo_client_cache.core.exceptions import (
     CannotEditImmutableCollectionError,
@@ -23,7 +24,6 @@ from mongo_client_cache.core.exceptions import (
 )
 from mongo_client_cache.core.local_database import DatabaseCache, MongoCommand
 from mongo_client_cache.types import BsonDict
-from mongo_client_cache.logger import logger
 
 
 class CachedCollection(Collection):
@@ -224,7 +224,7 @@ class CachedCollection(Collection):
 
         return super().delete_many(filter, collation, hint, session, let, comment)
 
-    def find_(  # type: ignore[override]
+    def find(  # type: ignore[override]
         self,
         filter: Any | None = None,
         *,
@@ -236,18 +236,20 @@ class CachedCollection(Collection):
         cache = cast(DatabaseCache, client._client_side_databases[db.name])
 
         if self.name in cache.excluded_collections_names:
-            return super().find(filter, projection=projection, **kwargs)
+            yield from super().find(filter, projection=projection, **kwargs)
+            return
 
         mongo_command = MongoCommand(self.name, "find", filter, projection)
         try:
             cached_documents = cache.get_many(mongo_command=mongo_command)
         except NotCachedError:
-            documents = []
-            for document in Cursor(self, filter, projection=projection, **kwargs):
-                documents.append(document)
-                yield document
-
-            cache.set_many(documents=documents, mongo_command=mongo_command)
+            yield from CachedCursor(
+                self,
+                filter,
+                projection=projection,
+                mongo_command=mongo_command,
+                **kwargs,
+            )
         else:
             yield from cached_documents
 

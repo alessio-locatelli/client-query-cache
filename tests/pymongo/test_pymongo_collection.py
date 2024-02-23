@@ -2,11 +2,10 @@ from collections.abc import Callable, Iterator
 from typing import Any, cast
 
 import pandas as pd
-from pymongo.errors import DuplicateKeyError
 import pytest
+from pymongo.errors import DuplicateKeyError
 
 from mongo_client_cache.cached_pymongo.collection import CachedCollection
-from mongo_client_cache.cached_pymongo.database import CachedDatabase
 from mongo_client_cache.core.local_database import DatabaseCache
 
 
@@ -17,7 +16,7 @@ def fill_collection(
 ) -> Iterator[None]:
     collection = create_cached_mongo_collection("db_one", "persistent_collection_name")
     try:
-        document_id = collection.insert_one(example_document).inserted_id
+        collection.insert_one(example_document)
     except DuplicateKeyError:
         pass
     yield
@@ -66,33 +65,36 @@ class TestCachedCollection:
     @pytest.mark.usefixtures("fill_collection")
     def test_find(
         self,
-        example_collection: CachedCollection,
-        document_id: int,
+        create_cached_mongo_collection: Callable[[str, str], CachedCollection],
+        random_document_id: int,
         example_document: dict[str, Any],
     ) -> None:
-        filter = {"_id": document_id}
+        collection = create_cached_mongo_collection(
+            "db_one", "persistent_collection_name"
+        )
+        filter = {"_id": random_document_id}
 
         # Uncached call.
-        uncached_document = next(iter(example_collection.find(filter)))
-        assert uncached_document == example_document
+        assert collection.count_documents(filter) == 1
+        uncached_document = next(iter(collection.find(filter)))
+        assert uncached_document
+
+        db = collection._Collection__database
         cache = cast(
-            CachedDatabase,
-            example_collection._Collection__database._Database__client._client_side_databases,
+            DatabaseCache, db._Database__client._client_side_databases[db.name]
         )
-        queries_df = cast(pd.DataFrame, cache.cached_queries[example_collection.name])
+        queries_df = cache.cached_queries[collection.name]
         assert not queries_df.empty
-        collection_df = cast(
-            pd.DataFrame, cache.local_collections[example_collection.name]
-        )
+        collection_df = cast(pd.DataFrame, cache.local_collections[collection.name])
         assert not collection_df.empty
 
         # Cached call.
-        cached_document = example_collection.find_one(filter)
+        cached_document = next(iter(collection.find(filter)))
         assert cached_document == example_document
 
         # Remove the document from MongoDB to ensure
         # that the document was previously cached.
-        example_collection.delete_one(filter)
-        cached_document = example_collection.find_one(filter)
+        collection.delete_one(filter)
+        cached_document = next(iter(collection.find(filter)))
         # We still have the document in the memory.
         assert cached_document == example_document
