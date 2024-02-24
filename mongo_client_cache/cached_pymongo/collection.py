@@ -1,12 +1,11 @@
-from collections.abc import Iterable, Iterator, Mapping, MutableMapping, Sequence
-from typing import Any, cast
+from collections.abc import Iterable, Mapping, MutableMapping, Sequence
+from typing import Any, cast, override
 
 from bson.raw_bson import RawBSONDocument
 from bson.typings import _DocumentType
 from pymongo import ReturnDocument
 from pymongo.client_session import ClientSession
 from pymongo.collection import Collection, _WriteOp
-from pymongo.cursor import Cursor
 from pymongo.operations import _IndexKeyHint, _IndexList
 from pymongo.results import (
     BulkWriteResult,
@@ -16,8 +15,8 @@ from pymongo.results import (
     UpdateResult,
 )
 from pymongo.typings import _CollationIn, _Pipeline
-from mongo_client_cache.cached_pymongo.cursor import CachedCursor
 
+from mongo_client_cache.cached_pymongo.cursor import CachedCursor
 from mongo_client_cache.core.exceptions import (
     CannotEditImmutableCollectionError,
     NotCachedError,
@@ -27,11 +26,12 @@ from mongo_client_cache.types import BsonDict
 
 
 class CachedCollection(Collection):
-    def bulk_write(  # noqa: PLR0913,PLR0917
+    @override
+    def bulk_write(
         self,
         requests: Sequence[_WriteOp[_DocumentType]],
-        ordered: bool = True,  # noqa: FBT001,FBT002
-        bypass_document_validation: bool = False,  # noqa: FBT001,FBT002
+        ordered: bool = True,
+        bypass_document_validation: bool = False,
         session: ClientSession | None = None,
         comment: Any | None = None,
         let: Mapping | None = None,
@@ -48,10 +48,11 @@ class CachedCollection(Collection):
             requests, ordered, bypass_document_validation, session, comment, let
         )
 
+    @override
     def insert_one(
         self,
         document: _DocumentType | RawBSONDocument,
-        bypass_document_validation: bool = False,  # noqa: FBT001,FBT002
+        bypass_document_validation: bool = False,
         session: ClientSession | None = None,
         comment: Any | None = None,
     ) -> InsertOneResult:
@@ -67,11 +68,12 @@ class CachedCollection(Collection):
             document, bypass_document_validation, session, comment
         )
 
-    def insert_many(  # noqa: PLR0913
+    @override
+    def insert_many(
         self,
         documents: Iterable[_DocumentType | RawBSONDocument],
-        ordered: bool = True,  # noqa: FBT001,FBT002
-        bypass_document_validation: bool = False,  # noqa: FBT001,FBT002
+        ordered: bool = True,
+        bypass_document_validation: bool = False,
         session: ClientSession | None = None,
         comment: Any | None = None,
     ) -> InsertManyResult:
@@ -87,12 +89,13 @@ class CachedCollection(Collection):
             documents, ordered, bypass_document_validation, session, comment
         )
 
-    def replace_one(  # noqa: PLR0913,PLR0917
+    @override
+    def replace_one(
         self,
         filter: Mapping[str, Any],
         replacement: Mapping[str, Any],
-        upsert: bool = False,  # noqa: FBT001,FBT002
-        bypass_document_validation: bool = False,  # noqa: FBT001,FBT002
+        upsert: bool = False,
+        bypass_document_validation: bool = False,
         collation: _CollationIn | None = None,
         hint: _IndexKeyHint | None = None,
         session: ClientSession | None = None,
@@ -119,12 +122,13 @@ class CachedCollection(Collection):
             comment,
         )
 
-    def update_one(  # noqa: PLR0913,PLR0917
+    @override
+    def update_one(
         self,
         filter: Mapping[str, Any],
         update: Mapping[str, Any] | _Pipeline,
-        upsert: bool = False,  # noqa: FBT001,FBT002
-        bypass_document_validation: bool = False,  # noqa: FBT001,FBT002
+        upsert: bool = False,
+        bypass_document_validation: bool = False,
         collation: _CollationIn | None = None,
         array_filters: Sequence[Mapping[str, Any]] | None = None,
         hint: _IndexKeyHint | None = None,
@@ -153,13 +157,14 @@ class CachedCollection(Collection):
             comment,
         )
 
-    def update_many(  # noqa: PLR0913,PLR0917
+    @override
+    def update_many(
         self,
         filter: Mapping[str, Any],
         update: Mapping[str, Any] | _Pipeline,
-        upsert: bool = False,  # noqa: FBT001,FBT002
+        upsert: bool = False,
         array_filters: Sequence[Mapping[str, Any]] | None = None,
-        bypass_document_validation: bool | None = None,  # noqa: FBT001
+        bypass_document_validation: bool | None = None,
         collation: _CollationIn | None = None,
         hint: _IndexKeyHint | None = None,
         session: ClientSession | None = None,
@@ -187,7 +192,8 @@ class CachedCollection(Collection):
             comment,
         )
 
-    def delete_one(  # noqa: PLR0913,PLR0917
+    @override
+    def delete_one(
         self,
         filter: Mapping[str, Any],
         collation: _CollationIn | None = None,
@@ -206,7 +212,8 @@ class CachedCollection(Collection):
 
         return super().delete_one(filter, collation, hint, session, let, comment)
 
-    def delete_many(  # noqa: PLR0913,PLR0917
+    @override
+    def delete_many(
         self,
         filter: Mapping[str, Any],
         collation: _CollationIn | None = None,
@@ -224,35 +231,11 @@ class CachedCollection(Collection):
 
         return super().delete_many(filter, collation, hint, session, let, comment)
 
-    def find(  # type: ignore[override]
-        self,
-        filter: Any | None = None,
-        *,
-        projection: list[str] | dict[str, Any] | None = None,
-        **kwargs: Any,
-    ) -> Iterator[BsonDict]:
-        db = self._Collection__database
-        client = db._Database__client
-        cache = cast(DatabaseCache, client._client_side_databases[db.name])
+    @override
+    def find(self, *args: Any, **kwargs: Any) -> CachedCursor:
+        return CachedCursor(self, *args, **kwargs)
 
-        if self.name in cache.excluded_collections_names:
-            yield from super().find(filter, projection=projection, **kwargs)
-            return
-
-        mongo_command = MongoCommand(self.name, "find", filter, projection)
-        try:
-            cached_documents = cache.get_many(mongo_command=mongo_command)
-        except NotCachedError:
-            yield from CachedCursor(
-                self,
-                filter,
-                projection=projection,
-                mongo_command=mongo_command,
-                **kwargs,
-            )
-        else:
-            yield from cached_documents
-
+    @override
     def find_one(
         self,
         filter: Any | None = None,
@@ -275,12 +258,12 @@ class CachedCollection(Collection):
         except NotCachedError:
             document = super().find_one(filter, **kwargs)
             cache.set_one(
-                document=document,
-                mongo_command=MongoCommand(self.name, "findOne", filter, projection),
+                document, MongoCommand(self.name, "findOne", filter, projection)
             )
             return document
 
-    def find_one_and_delete(  # noqa: PLR0913,PLR0917
+    @override
+    def find_one_and_delete(
         self,
         filter: Mapping[str, Any],
         projection: Mapping[str, Any] | Iterable[str] | None = None,
@@ -303,14 +286,15 @@ class CachedCollection(Collection):
             filter, projection, sort, hint, session, let, comment, **kwargs
         )
 
-    def find_one_and_replace(  # noqa: PLR0913,PLR0917
+    @override
+    def find_one_and_replace(
         self,
         filter: Mapping[str, Any],
         replacement: Mapping[str, Any],
         projection: Mapping[str, Any] | Iterable[str] | None = None,
         sort: _IndexList | None = None,
-        upsert: bool = False,  # noqa: FBT001,FBT002
-        return_document: bool = ReturnDocument.BEFORE,  # noqa: FBT001
+        upsert: bool = False,
+        return_document: bool = ReturnDocument.BEFORE,
         hint: _IndexKeyHint | None = None,
         session: ClientSession | None = None,
         let: Mapping[str, Any] | None = None,
@@ -339,14 +323,15 @@ class CachedCollection(Collection):
             **kwargs,
         )
 
-    def find_one_and_update(  # noqa: PLR0913,PLR0917
+    @override
+    def find_one_and_update(
         self,
         filter: Mapping[str, Any],
         update: Mapping[str, Any] | _Pipeline,
         projection: Mapping[str, Any] | Iterable[str] | None = None,
         sort: _IndexList | None = None,
-        upsert: bool = False,  # noqa: FBT001,FBT002
-        return_document: bool = ReturnDocument.BEFORE,  # noqa: FBT001
+        upsert: bool = False,
+        return_document: bool = ReturnDocument.BEFORE,
         array_filters: Sequence[Mapping[str, Any]] | None = None,
         hint: _IndexKeyHint | None = None,
         session: ClientSession | None = None,
@@ -377,6 +362,7 @@ class CachedCollection(Collection):
             **kwargs,
         )
 
+    @override
     def count_documents(
         self,
         filter: Mapping[str, Any],
@@ -386,11 +372,13 @@ class CachedCollection(Collection):
     ) -> int:
         return super().count_documents(filter, session, comment, **kwargs)
 
+    @override
     def estimated_document_count(
         self, comment: Any | None = None, **kwargs: Any
     ) -> int:
         return super().estimated_document_count(comment, **kwargs)
 
+    @override
     def distinct(
         self,
         key: str,
@@ -401,6 +389,7 @@ class CachedCollection(Collection):
     ) -> list:
         return super().distinct(key, filter, session, comment, **kwargs)
 
+    @override
     def drop(
         self,
         session: ClientSession | None = None,
@@ -417,6 +406,7 @@ class CachedCollection(Collection):
 
         return super().drop(session, comment, encrypted_fields)
 
+    @override
     def rename(
         self,
         new_name: str,

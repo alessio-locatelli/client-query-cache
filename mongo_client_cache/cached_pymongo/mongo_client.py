@@ -1,5 +1,5 @@
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, override
 
 import pymongo
 from bson.codec_options import TypeRegistry
@@ -17,13 +17,14 @@ else:
 
 
 class CacheMixin(MIXIN_BASE):
-    def __init__(  # noqa: PLR0913,PLR0917
+    @override
+    def __init__(
         self,
         host: str | Sequence[str] | None = None,
         port: int | None = None,
         document_class: type[_DocumentType] | None = None,
-        tz_aware: bool | None = None,  # noqa: FBT001
-        connect: bool | None = None,  # noqa: FBT001
+        tz_aware: bool | None = None,
+        connect: bool | None = None,
         type_registry: TypeRegistry | None = None,
         *,
         client_side_cache_config: ClientSideCacheConfig | None = None,
@@ -39,6 +40,7 @@ class CacheMixin(MIXIN_BASE):
         self._client_side_databases = LocalClient()
         self._client_side_cache_config = client_side_cache_config or {}
 
+    @override
     def __getattr__(self, name: str) -> Any:
         if name == "_client_side_databases":
             return self._client_side_databases
@@ -55,6 +57,7 @@ class CacheMixin(MIXIN_BASE):
 
         return self.__getitem__(name)
 
+    @override
     def __getitem__(self, name: str) -> CachedDatabase:
         if name in {"_client_side_databases", "_client_side_cache_config"}:
             raise ReservedAttributeError(name)

@@ -1,4 +1,4 @@
-from typing import cast
+from typing import cast, override
 
 import bson
 from pymongo import MongoClient, WriteConcern, database
@@ -11,7 +11,8 @@ from mongo_client_cache.core.local_database import DatabaseCache
 
 
 class CachedDatabase(database.Database):
-    def __init__(  # noqa: PLR0913,PLR0917
+    @override
+    def __init__(
         self,
         client: MongoClient[_DocumentType],
         name: str,
@@ -28,5 +29,6 @@ class CachedDatabase(database.Database):
             self, client._client_side_cache_config.get(name)
         )
 
+    @override
     def __getitem__(self, name: str) -> CachedCollection:
         return CachedCollection(self, name)

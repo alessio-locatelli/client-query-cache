@@ -24,8 +24,7 @@ def fill_collection(
 
 
 class TestCachedCollection:
-    def test_bulk_write(self) -> None:
-        ...
+    def test_bulk_write(self) -> None: ...
 
     @pytest.mark.usefixtures("fill_collection")
     def test_find_one(

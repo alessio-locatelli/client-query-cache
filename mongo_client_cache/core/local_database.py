@@ -1,4 +1,4 @@
-from collections import defaultdict
+from collections import defaultdict, deque
 from collections.abc import Mapping
 from functools import partial
 from itertools import count
@@ -105,14 +105,12 @@ class _DatabaseCache:
         df_collection = self.local_collections[mongo_command.collection_name]
         return df_collection.loc[document_id]["document"]
 
-    def get_many(self, mongo_command: MongoCommand) -> list[BsonDict]:
+    def get_many(self, mongo_command: MongoCommand) -> deque[BsonDict]:
         documets_ids = self._find_cached_documents_ids(mongo_command)
         df_collection = self.local_collections[mongo_command.collection_name]
-        return df_collection.loc[df_collection["_id"] in documets_ids]
+        return deque(df_collection.loc[df_collection["_id"] in documets_ids])
 
-    def set_one(
-        self, *, document: BsonDict | None, mongo_command: MongoCommand
-    ) -> None:
+    def set_one(self, document: BsonDict | None, mongo_command: MongoCommand) -> None:
         try:
             document_id = document["_id"]  # type: ignore[index]
         except TypeError:
@@ -131,21 +129,16 @@ class _DatabaseCache:
         df_queries = self.cached_queries[mongo_command.collection_name]
         df_queries.loc[len(df_queries)] = [*list(mongo_command), document_id]
 
-    def set_many(
-        self,
-        *,
-        documents: list[BsonDict],
-        mongo_command: MongoCommand,
-    ) -> None:
+    def set_many(self, documents: list[BsonDict], mongo_command: MongoCommand) -> None:
         logger.debug(f"{mongo_command}, {documents=}")
         if not documents:
             return
         df_collection = self.local_collections[mongo_command.collection_name]
         df_documents = pd.DataFrame(documents)
         df_documents.set_index("_id", inplace=True)  # noqa: PD002
-        self.local_collections[
-            mongo_command.collection_name
-        ] = df_collection.combine_first(df_documents)
+        self.local_collections[mongo_command.collection_name] = (
+            df_collection.combine_first(df_documents)
+        )
 
         df_queries = self.cached_queries[mongo_command.collection_name]
         try:
@@ -167,9 +160,9 @@ class DatabaseCache(_DatabaseCache):
             f'Connected to local database "{database.name}".'
             + f"{self.excluded_collections_names=}, {self.static_collections_names=}"
         )
-        self.change_stream_documents: dict[
-            str, list[ChangeStreamDocument]
-        ] = defaultdict(list)
+        self.change_stream_documents: dict[str, list[ChangeStreamDocument]] = (
+            defaultdict(list)
+        )
         Thread(target=self.watch, daemon=True).start()
 
     def watch(self) -> None:

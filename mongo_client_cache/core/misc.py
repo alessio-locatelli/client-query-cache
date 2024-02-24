@@ -1,7 +1,9 @@
 from collections import UserDict
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from typing import Any, Literal
+
+from pymongo.cursor import _Sort
 
 
 @dataclass(slots=True)
@@ -9,7 +11,10 @@ class MongoCommand:
     collection_name: str
     name: Literal["findOne", "find"]
     filter: Any = None
-    projection: list[str] | dict[str, Any] | None = None
+    projection: Iterable[str] | Mapping[str, Any] | None = None
+    skip: int = 0
+    limit: int = 0
+    sort: _Sort | None = None
 
     def __iter__(self) -> Iterator[Any]:
         yield from [
@@ -17,6 +22,9 @@ class MongoCommand:
             self.name,
             self.filter,
             self.projection,
+            self.skip,
+            self.limit,
+            self.sort,
         ]
 
 
