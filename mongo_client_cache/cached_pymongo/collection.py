@@ -237,30 +237,14 @@ class CachedCollection(Collection):
 
     @override
     def find_one(
-        self,
-        filter: Any | None = None,
-        *,
-        projection: list[str] | dict[str, Any] | None = None,
-        **kwargs: Any,
+        self, filter: Any | None = None, *args: Any, **kwargs: Any
     ) -> BsonDict | None:
-        db = self._Collection__database
-        cache = cast(
-            DatabaseCache, db._Database__client._client_side_databases[db.name]
-        )
-
-        if self.name in cache.excluded_collections_names:
-            return super().find_one(filter, **kwargs)
-
-        try:
-            return cache.get_one(
-                mongo_command=MongoCommand(self.name, "findOne", filter, projection)
-            )
-        except NotCachedError:
-            document = super().find_one(filter, **kwargs)
-            cache.set_one(
-                document, MongoCommand(self.name, "findOne", filter, projection)
-            )
-            return document
+        if filter is not None and not isinstance(filter, Mapping):
+            filter = {"_id": filter}
+        cursor = self.find(filter, *args, **kwargs)
+        for result in cursor.limit(-1):
+            return result
+        return None
 
     @override
     def find_one_and_delete(
