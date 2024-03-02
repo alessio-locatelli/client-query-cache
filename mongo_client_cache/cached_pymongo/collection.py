@@ -21,7 +21,8 @@ from mongo_client_cache.core.exceptions import (
     CannotEditImmutableCollectionError,
     NotCachedError,
 )
-from mongo_client_cache.core.local_database import DatabaseCache, MongoCommand
+from mongo_client_cache.core.local_database import DatabaseCache
+from mongo_client_cache.core.misc import MongoCommand
 from mongo_client_cache.types import BsonDict
 
 
@@ -258,17 +259,18 @@ class CachedCollection(Collection):
         comment: Any | None = None,
         **kwargs: Any,
     ) -> Mapping[str, Any]:
-        if __debug__:
-            db = self._Collection__database
-            cache = cast(
-                DatabaseCache, db._Database__client._client_side_databases[db.name]
-            )
-            if self.name in cache.static_collections_names:
-                raise CannotEditImmutableCollectionError(self.name)
+        db = self._Collection__database
+        cache = cast(
+            DatabaseCache, db._Database__client._client_side_databases[db.name]
+        )
+        if self.name in cache.static_collections_names:
+            raise CannotEditImmutableCollectionError(self.name)
 
-        return super().find_one_and_delete(
+        document = super().find_one_and_delete(
             filter, projection, sort, hint, session, let, comment, **kwargs
         )
+        cache.set_one(document, MongoCommand(self.name, "find", filter, projection))
+        return document
 
     @override
     def find_one_and_replace(
@@ -285,15 +287,14 @@ class CachedCollection(Collection):
         comment: Any | None = None,
         **kwargs: Any,
     ) -> Mapping[str, Any]:
-        if __debug__:
-            db = self._Collection__database
-            cache = cast(
-                DatabaseCache, db._Database__client._client_side_databases[db.name]
-            )
-            if self.name in cache.static_collections_names:
-                raise CannotEditImmutableCollectionError(self.name)
+        db = self._Collection__database
+        cache = cast(
+            DatabaseCache, db._Database__client._client_side_databases[db.name]
+        )
+        if self.name in cache.static_collections_names:
+            raise CannotEditImmutableCollectionError(self.name)
 
-        return super().find_one_and_replace(
+        document = super().find_one_and_replace(
             filter,
             replacement,
             projection,
@@ -306,6 +307,8 @@ class CachedCollection(Collection):
             comment,
             **kwargs,
         )
+        cache.set_one(document, MongoCommand(self.name, "find", filter, projection))
+        return document
 
     @override
     def find_one_and_update(
@@ -323,15 +326,14 @@ class CachedCollection(Collection):
         comment: Any | None = None,
         **kwargs: Any,
     ) -> Mapping[str, Any]:
-        if __debug__:
-            db = self._Collection__database
-            cache = cast(
-                DatabaseCache, db._Database__client._client_side_databases[db.name]
-            )
-            if self.name in cache.static_collections_names:
-                raise CannotEditImmutableCollectionError(self.name)
+        db = self._Collection__database
+        cache = cast(
+            DatabaseCache, db._Database__client._client_side_databases[db.name]
+        )
+        if self.name in cache.static_collections_names:
+            raise CannotEditImmutableCollectionError(self.name)
 
-        return super().find_one_and_update(
+        document = super().find_one_and_update(
             filter,
             update,
             projection,
@@ -345,6 +347,8 @@ class CachedCollection(Collection):
             comment,
             **kwargs,
         )
+        cache.set_one(document, MongoCommand(self.name, "find", filter, projection))
+        return document
 
     @override
     def count_documents(
@@ -354,7 +358,17 @@ class CachedCollection(Collection):
         comment: Any | None = None,
         **kwargs: Any,
     ) -> int:
-        return super().count_documents(filter, session, comment, **kwargs)
+        db = self._Collection__database
+        cache = cast(
+            DatabaseCache, db._Database__client._client_side_databases[db.name]
+        )
+        try:
+            documents_count = cache.get_one(MongoCommand())
+        except NotCachedError:
+            documents_count = super().count_documents(
+                filter, session, comment, **kwargs
+            )
+            cache.set_one()
 
     @override
     def estimated_document_count(

@@ -33,6 +33,7 @@ python-dotenv = {version = "^1.0.0", extras = ["cli"]}
 tox = "^4.12.1"
 hypothesis = "^6.88.1"
 Faker = "^22.0.0"
+slotscheck = "^0.17.3"
 
 [build-system]
 requires = ["poetry-core"]

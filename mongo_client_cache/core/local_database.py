@@ -34,6 +34,8 @@ class _DatabaseCache:
         "mongo_database",
         "resume_token",
         "static_collections_names",
+        "document_count_per_collection",
+        "estimated_document_count_per_collection",
     )
 
     def __init__(
@@ -72,6 +74,10 @@ class _DatabaseCache:
             )
         )
         self.collections_names_with_cached_documents: set[str] = set()
+        self.document_count_per_collection: dict[CollectionName, int] = defaultdict(int)
+        self.estimated_document_count_per_collection: dict[
+            CollectionName, int
+        ] = defaultdict(int)
 
     def _find_cached_documents_ids(self, mongo_command: MongoCommand) -> set[BsonValue]:  # type: ignore[valid-type]
         queries = self.cached_queries[mongo_command.collection_name]
@@ -136,9 +142,9 @@ class _DatabaseCache:
         df_collection = self.local_collections[mongo_command.collection_name]
         df_documents = pd.DataFrame(documents)
         df_documents.set_index("_id", inplace=True)  # noqa: PD002
-        self.local_collections[mongo_command.collection_name] = (
-            df_collection.combine_first(df_documents)
-        )
+        self.local_collections[
+            mongo_command.collection_name
+        ] = df_collection.combine_first(df_documents)
 
         df_queries = self.cached_queries[mongo_command.collection_name]
         try:
@@ -147,6 +153,15 @@ class _DatabaseCache:
             raise DocumentIdMissingError from KeyError
         df_queries.loc[len(df_queries)] = [*list(mongo_command), documents_ids]
         self.collections_names_with_cached_documents.add(mongo_command.collection_name)
+
+    def collection_estimated_document_count(
+        self, collection_name: CollectionName
+    ) -> int:
+        # TODO
+        ...
+
+    def collection_count_documents(self, mongo_command: MongoCommand) -> int:
+        df_queries = self.cached_queries[mongo_command.collection_name]
 
 
 class DatabaseCache(_DatabaseCache):
@@ -160,9 +175,9 @@ class DatabaseCache(_DatabaseCache):
             f'Connected to local database "{database.name}".'
             + f"{self.excluded_collections_names=}, {self.static_collections_names=}"
         )
-        self.change_stream_documents: dict[str, list[ChangeStreamDocument]] = (
-            defaultdict(list)
-        )
+        self.change_stream_documents: dict[
+            str, list[ChangeStreamDocument]
+        ] = defaultdict(list)
         Thread(target=self.watch, daemon=True).start()
 
     def watch(self) -> None:
