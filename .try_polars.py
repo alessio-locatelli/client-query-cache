@@ -1,7 +1,6 @@
-import polars as pl
 from datetime import datetime
 
-from polars.datatypes import Object
+import polars as pl
 
 df = pl.DataFrame(
     {
@@ -23,13 +22,11 @@ df = pl.DataFrame(
 print(df)
 
 
-df2 = pl.DataFrame(
-    {
-        "_id": [4],
-        "a": [2],
-        "d": [4],
-    }
-)
+df2 = pl.DataFrame({
+    "_id": [4],
+    "a": [2],
+    "d": [4],
+})
 
 df_concat = pl.concat([df, df2], how="diagonal")
 print(df_concat)
