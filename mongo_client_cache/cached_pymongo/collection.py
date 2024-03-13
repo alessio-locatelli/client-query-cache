@@ -362,19 +362,34 @@ class CachedCollection(Collection):
         cache = cast(
             DatabaseCache, db._Database__client._client_side_databases[db.name]
         )
+        query = MongoCommand(
+            self.name,
+            "count_documents",
+            filter,
+            skip=kwargs.get("skip", 0),
+            limit=kwargs.get("limit", 0),
+        )
         try:
-            documents_count = cache.get_one(MongoCommand())
+            return cache.get_document_count(query)
         except NotCachedError:
-            documents_count = super().count_documents(
-                filter, session, comment, **kwargs
-            )
-            cache.set_one()
+            document_count = super().count_documents(filter, session, comment, **kwargs)
+            cache.set_document_count(document_count, query)
+            return document_count
 
     @override
     def estimated_document_count(
         self, comment: Any | None = None, **kwargs: Any
     ) -> int:
-        return super().estimated_document_count(comment, **kwargs)
+        db = self._Collection__database
+        cache = cast(
+            DatabaseCache, db._Database__client._client_side_databases[db.name]
+        )
+        try:
+            return cache.estimated_document_count_per_collection[self.name]
+        except KeyError:
+            document_count = super().estimated_document_count(comment, **kwargs)
+            cache.estimated_document_count_per_collection[self.name] = document_count
+            return document_count
 
     @override
     def distinct(
@@ -385,6 +400,11 @@ class CachedCollection(Collection):
         comment: Any | None = None,
         **kwargs: Any,
     ) -> list:
+        db = self._Collection__database
+        cache = cast(
+            DatabaseCache, db._Database__client._client_side_databases[db.name]
+        )
+
         return super().distinct(key, filter, session, comment, **kwargs)
 
     @override

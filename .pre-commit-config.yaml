@@ -49,3 +49,10 @@ repos:
       - id: mypy
         additional_dependencies:
           [pymongo==4.6.1, motor==3.3.2, pytest, Faker, hypothesis]
+
+  - repo: https://github.com/ariebovenberg/slotscheck
+    rev: v0.17.3
+    hooks:
+      - id: slotscheck
+        language: system
+        args: [--require-subclass, --verbose]

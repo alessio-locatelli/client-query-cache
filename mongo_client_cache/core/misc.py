@@ -1,15 +1,14 @@
 from collections import UserDict
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any
 
 from pymongo.cursor import _Sort
 
 
 @dataclass(slots=True)
-class MongoCommand:
+class CommandFind:
     collection_name: str
-    name: Literal["findOne", "find"]
     filter: Any = None
     projection: Iterable[str] | Mapping[str, Any] | None = None
     skip: int = 0
@@ -17,15 +16,28 @@ class MongoCommand:
     sort: _Sort | None = None
 
     def __iter__(self) -> Iterator[Any]:
-        yield from [
-            self.collection_name,
-            self.name,
-            self.filter,
-            self.projection,
-            self.skip,
-            self.limit,
-            self.sort,
-        ]
+        yield from [self.filter, self.projection, self.skip, self.limit, self.sort]
+
+
+@dataclass(slots=True)
+class CommandCount:
+    collection_name: str
+    filter: Any = None
+    skip: int = 0
+    limit: int = 0
+
+    def __iter__(self) -> Iterator[Any]:
+        yield from [self.filter, self.skip, self.limit]
+
+
+@dataclass(slots=True)
+class CommandDistinct:
+    collection_name: str
+    key: str
+    filter: Any = None
+
+    def __iter__(self) -> Iterator[Any]:
+        yield from [self.key, self.filter]
 
 
 @dataclass(slots=True)
@@ -45,4 +57,5 @@ class CollectionConfig:
         assert isinstance(self.enable_client_side_cache, bool)
 
 
-class LocalClient(UserDict): ...
+class LocalClient(UserDict):
+    ...
