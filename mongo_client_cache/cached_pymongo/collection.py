@@ -22,7 +22,7 @@ from mongo_client_cache.core.exceptions import (
     NotCachedError,
 )
 from mongo_client_cache.core.local_database import DatabaseCache
-from mongo_client_cache.core.misc import MongoCommand
+from mongo_client_cache.core.misc import CommandCount, CommandDistinct
 from mongo_client_cache.types import BsonDict
 
 
@@ -259,18 +259,17 @@ class CachedCollection(Collection):
         comment: Any | None = None,
         **kwargs: Any,
     ) -> Mapping[str, Any]:
-        db = self._Collection__database
-        cache = cast(
-            DatabaseCache, db._Database__client._client_side_databases[db.name]
-        )
-        if self.name in cache.static_collections_names:
-            raise CannotEditImmutableCollectionError(self.name)
+        if __debug__:
+            db = self._Collection__database
+            cache = cast(
+                DatabaseCache, db._Database__client._client_side_databases[db.name]
+            )
+            if self.name in cache.static_collections_names:
+                raise CannotEditImmutableCollectionError(self.name)
 
-        document = super().find_one_and_delete(
+        return super().find_one_and_delete(
             filter, projection, sort, hint, session, let, comment, **kwargs
         )
-        cache.set_one(document, MongoCommand(self.name, "find", filter, projection))
-        return document
 
     @override
     def find_one_and_replace(
@@ -287,14 +286,15 @@ class CachedCollection(Collection):
         comment: Any | None = None,
         **kwargs: Any,
     ) -> Mapping[str, Any]:
-        db = self._Collection__database
-        cache = cast(
-            DatabaseCache, db._Database__client._client_side_databases[db.name]
-        )
-        if self.name in cache.static_collections_names:
-            raise CannotEditImmutableCollectionError(self.name)
+        if __debug__:
+            db = self._Collection__database
+            cache = cast(
+                DatabaseCache, db._Database__client._client_side_databases[db.name]
+            )
+            if self.name in cache.static_collections_names:
+                raise CannotEditImmutableCollectionError(self.name)
 
-        document = super().find_one_and_replace(
+        return super().find_one_and_replace(
             filter,
             replacement,
             projection,
@@ -307,8 +307,6 @@ class CachedCollection(Collection):
             comment,
             **kwargs,
         )
-        cache.set_one(document, MongoCommand(self.name, "find", filter, projection))
-        return document
 
     @override
     def find_one_and_update(
@@ -326,14 +324,15 @@ class CachedCollection(Collection):
         comment: Any | None = None,
         **kwargs: Any,
     ) -> Mapping[str, Any]:
-        db = self._Collection__database
-        cache = cast(
-            DatabaseCache, db._Database__client._client_side_databases[db.name]
-        )
-        if self.name in cache.static_collections_names:
-            raise CannotEditImmutableCollectionError(self.name)
+        if __debug__:
+            db = self._Collection__database
+            cache = cast(
+                DatabaseCache, db._Database__client._client_side_databases[db.name]
+            )
+            if self.name in cache.static_collections_names:
+                raise CannotEditImmutableCollectionError(self.name)
 
-        document = super().find_one_and_update(
+        return super().find_one_and_update(
             filter,
             update,
             projection,
@@ -347,8 +346,6 @@ class CachedCollection(Collection):
             comment,
             **kwargs,
         )
-        cache.set_one(document, MongoCommand(self.name, "find", filter, projection))
-        return document
 
     @override
     def count_documents(
@@ -362,9 +359,8 @@ class CachedCollection(Collection):
         cache = cast(
             DatabaseCache, db._Database__client._client_side_databases[db.name]
         )
-        query = MongoCommand(
+        query = CommandCount(
             self.name,
-            "count_documents",
             filter,
             skip=kwargs.get("skip", 0),
             limit=kwargs.get("limit", 0),
@@ -404,8 +400,13 @@ class CachedCollection(Collection):
         cache = cast(
             DatabaseCache, db._Database__client._client_side_databases[db.name]
         )
-
-        return super().distinct(key, filter, session, comment, **kwargs)
+        query = CommandDistinct(self.name, key, filter)
+        try:
+            return cache.get_distinct(query)
+        except NotCachedError:
+            distinct_values = super().distinct(key, filter, session, comment, **kwargs)
+            cache.set_distinct(distinct_values, query)
+            return distinct_values
 
     @override
     def drop(

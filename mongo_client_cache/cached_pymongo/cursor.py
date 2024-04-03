@@ -9,7 +9,7 @@ from pymongo.typings import _CollationIn
 
 from mongo_client_cache.core.exceptions import NotCachedError
 from mongo_client_cache.core.local_database import DatabaseCache
-from mongo_client_cache.core.misc import MongoCommand
+from mongo_client_cache.core.misc import CommandFind
 from mongo_client_cache.logger import logger
 from mongo_client_cache.types import BsonDict
 
@@ -76,8 +76,8 @@ class CachedCursor(Cursor):
         db = collection._Collection__database
         client = db._Database__client
         cache = cast(DatabaseCache, client._client_side_databases[db.name])
-        self._mongo_command = MongoCommand(
-            collection.name, "find", filter, projection, skip, limit, sort
+        self._mongo_command = CommandFind(
+            collection.name, filter, projection, skip, limit, sort
         )
         try:
             self._cached_documents: deque | None = cache.get_many(self._mongo_command)

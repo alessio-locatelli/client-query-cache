@@ -57,5 +57,4 @@ class CollectionConfig:
         assert isinstance(self.enable_client_side_cache, bool)
 
 
-class LocalClient(UserDict):
-    ...
+class LocalClient(UserDict): ...
