@@ -7,22 +7,18 @@ readme = "README.md"
 
 [tool.poetry.dependencies]
 python = "^3.12"
-pandas = {version = ">=2", extras = ["performance"]}
-pyarrow = ">=15.0.0"
-# polars = "^0.20.10"
-polars-lts-cpu = "^0.20.10"
 
 [tool.poetry.group.pymongo]
 optional = true
 
 [tool.poetry.group.pymongo.dependencies]
-pymongo = ">=4.6.1"
+pymongo = ">=4.8.0"
 
 [tool.poetry.group.motor]
 optional = true
 
 [tool.poetry.group.motor.dependencies]
-motor = ">=3.3.2"
+motor = ">=3.5.1"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.4.4"
