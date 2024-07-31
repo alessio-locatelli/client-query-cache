@@ -56,3 +56,8 @@ repos:
       - id: slotscheck
         language: system
         args: [--require-subclass, --verbose]
+
+  - repo: https://github.com/crate-ci/typos
+    rev: v1.23.6
+    hooks:
+      - id: typos
