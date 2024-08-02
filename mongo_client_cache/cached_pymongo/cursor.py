@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from collections import deque
 from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING, Any, cast, override
@@ -36,8 +38,8 @@ class CachedCursor(Cursor):
         hint: _Hint | None = None,
         max_scan: int | None = None,
         max_time_ms: int | None = None,
-        max: _Sort | None = None,  # noqa: A002
-        min: _Sort | None = None,  # noqa: A002
+        max: _Sort | None = None,
+        min: _Sort | None = None,
         return_key: bool | None = None,
         show_record_id: bool | None = None,
         snapshot: bool | None = None,

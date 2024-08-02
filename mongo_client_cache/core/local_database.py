@@ -1,11 +1,11 @@
+from __future__ import annotations
+
 from collections import defaultdict, deque
 from collections.abc import Mapping
-from functools import partial
 from itertools import count
 from threading import Thread
 from typing import Any, cast
 
-import pandas as pd
 from pymongo.database import Database
 from pymongo.errors import PyMongoError
 
@@ -64,30 +64,12 @@ class _DatabaseCache:
             self.excluded_collections_names = set()
             self.static_collections_names = set()
 
-        self.local_collections: dict[CollectionName, pd.DataFrame] = defaultdict(
-            lambda: pd.DataFrame(columns=["_id", "document"]).set_index("_id")
-        )
-        self.cached_find: dict[CollectionName, pd.DataFrame] = defaultdict(
-            partial(
-                pd.DataFrame,
-                columns=[
-                    "filter",
-                    "projection",
-                    "skip",
-                    "limit",
-                    "sort",
-                    "documents_ids",
-                ],
-            )
-        )
+        self.local_collections: dict[CollectionName, dict[str, BsonDict]] = {}
+        self.cached_find: dict[CollectionName, dict[str, BsonDict]] = {}
         self.collections_names_with_cached_documents: set[str] = set()
-        self.document_count_per_collection: dict[CollectionName, pd.DataFrame] = (
-            defaultdict(
-                partial(pd.DataFrame, columns=["filter", "skip", "limit", "count"])
-            )
-        )
+        self.document_count_per_collection: dict[CollectionName, dict[str, Any]] = {}
         self.estimated_document_count_per_collection: dict[CollectionName, int] = {}
-        self.distinct_per_collection: dict[CollectionName, pd.DataFrame] = {}
+        self.distinct_per_collection: dict[CollectionName, dict[str, BsonDict]] = {}
 
     def _find_cached_documents_ids(self, mongo_command: CommandFind) -> set[BsonValue]:  # type: ignore[valid-type]
         queries = self.cached_find[mongo_command.collection_name]
@@ -164,35 +146,19 @@ class _DatabaseCache:
         self.collections_names_with_cached_documents.add(mongo_command.collection_name)
 
     def get_document_count(self, mongo_command: CommandCount) -> int:
-        df_cached_commands = self.document_count_per_collection[
-            mongo_command.collection_name
-        ]
-        query = df_cached_commands[
-            (
-                df_cached_commands["filter"].isna()
-                if mongo_command.filter is None
-                else df_cached_commands["filter"] == mongo_command.filter
-            )
-            & df_cached_commands["skip"]
-            == mongo_command.skip & df_cached_commands["limit"]
-            == mongo_command.limit
-        ]
         try:
-            return query.iloc[(0, -1)]
-        except IndexError as e:
-            logger.debug(f"Not found in cache: {mongo_command}, {query=}, {e!r}")
+            return self.document_count_per_collection[mongo_command.collection_name][
+                mongo_command.filter
+            ][mongo_command.skip][mongo_command.limit]
+        except KeyError as e:
             raise NotCachedError from e
 
     def set_document_count(
         self, document_count: int, mongo_command: CommandCount
     ) -> None:
-        df_cached_commands = self.document_count_per_collection[
-            mongo_command.collection_name
-        ]
-        df_cached_commands.loc[len(df_cached_commands)] = [
-            *list(mongo_command),
-            document_count,
-        ]
+        self.document_count_per_collection[mongo_command.collection_name][
+            mongo_command.filter
+        ][mongo_command.skip][mongo_command.limit] = document_count
 
     def get_distinct(self, mongo_command: CommandDistinct) -> list[BsonValue]:
         df_cached_commands = self.distinct_per_collection[mongo_command.collection_name]

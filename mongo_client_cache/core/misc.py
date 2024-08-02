@@ -1,15 +1,25 @@
+from __future__ import annotations
+
 from collections import UserDict
 from collections.abc import Iterable, Iterator, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from pymongo.cursor import _Sort
 
 
 @dataclass(slots=True)
-class CommandFind:
+class _Command:
     collection_name: str
     filter: Any = None
+
+    def __post_init__(self) -> None:
+        if self.filter:
+            self.filter = tuple(sorted(self.filter.items()))
+
+
+@dataclass(slots=True)
+class CommandFind(_Command):
     projection: Iterable[str] | Mapping[str, Any] | None = None
     skip: int = 0
     limit: int = 0
@@ -20,9 +30,7 @@ class CommandFind:
 
 
 @dataclass(slots=True)
-class CommandCount:
-    collection_name: str
-    filter: Any = None
+class CommandCount(_Command):
     skip: int = 0
     limit: int = 0
 
@@ -31,10 +39,10 @@ class CommandCount:
 
 
 @dataclass(slots=True)
-class CommandDistinct:
-    collection_name: str
-    key: str
-    filter: Any = None
+class CommandDistinct(_Command):
+    key: str = field(
+        kw_only=True
+    )  # "TypeError: non-default argument 'key' follows default argument".
 
     def __iter__(self) -> Iterator[Any]:
         yield from [self.key, self.filter]
