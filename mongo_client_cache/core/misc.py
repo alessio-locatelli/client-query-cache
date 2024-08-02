@@ -25,8 +25,11 @@ class CommandFind(_Command):
     limit: int = 0
     sort: _Sort | None = None
 
-    def __iter__(self) -> Iterator[Any]:
-        yield from [self.filter, self.projection, self.skip, self.limit, self.sort]
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        if self.projection is None:
+            return        
+        self.projection = tuple(sorted(self.projection)) if isinstance(self.projection, Iterable) else dict(sorted(self.projection.items()))
 
 
 @dataclass(slots=True)
@@ -34,18 +37,12 @@ class CommandCount(_Command):
     skip: int = 0
     limit: int = 0
 
-    def __iter__(self) -> Iterator[Any]:
-        yield from [self.filter, self.skip, self.limit]
-
 
 @dataclass(slots=True)
 class CommandDistinct(_Command):
     key: str = field(
-        kw_only=True
-    )  # "TypeError: non-default argument 'key' follows default argument".
-
-    def __iter__(self) -> Iterator[Any]:
-        yield from [self.key, self.filter]
+        kw_only=True  # "TypeError: non-default argument 'key' follows default argument".
+    )
 
 
 @dataclass(slots=True)

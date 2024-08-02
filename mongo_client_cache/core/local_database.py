@@ -6,6 +6,7 @@ from itertools import count
 from threading import Thread
 from typing import Any, cast
 
+from bson import ObjectId
 from pymongo.database import Database
 from pymongo.errors import PyMongoError
 
@@ -64,7 +65,7 @@ class _DatabaseCache:
             self.excluded_collections_names = set()
             self.static_collections_names = set()
 
-        self.local_collections: dict[CollectionName, dict[str, BsonDict]] = {}
+        self.local_collections: dict[CollectionName, dict[ObjectId, BsonDict]] = {}
         self.cached_find: dict[CollectionName, dict[str, BsonDict]] = {}
         self.collections_names_with_cached_documents: set[str] = set()
         self.document_count_per_collection: dict[CollectionName, dict[str, Any]] = {}
@@ -116,18 +117,12 @@ class _DatabaseCache:
         except KeyError:
             raise DocumentIdMissingError from KeyError
         else:
-            df_collection = self.local_collections[mongo_command.collection_name]
-            df_collection.loc[document_id] = [document]
-            self.collections_names_with_cached_documents.add(
-                mongo_command.collection_name
-            )
+            self.local_collections[mongo_command.collection_name][document_id] = document
+            self.collections_names_with_cached_documents.add(mongo_command.collection_name)
 
-        logger.debug(f"{mongo_command}, {document_id=}.")
-        df_queries = self.cached_find[mongo_command.collection_name]
-        df_queries.loc[len(df_queries)] = [*list(mongo_command), document_id]
+        self.cached_find[mongo_command.collection_name][str(mongo_command)] = document_id
 
     def set_many(self, documents: list[BsonDict], mongo_command: CommandFind) -> None:
-        logger.debug(f"{mongo_command}, {documents=}")
         if not documents:
             return
         df_collection = self.local_collections[mongo_command.collection_name]
