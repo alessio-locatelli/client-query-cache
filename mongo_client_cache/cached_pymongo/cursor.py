@@ -78,11 +78,9 @@ class CachedCursor(Cursor):
         db = collection._Collection__database
         client = db._Database__client
         cache = cast(DatabaseCache, client._client_side_databases[db.name])
-        self._mongo_command = CommandFind(
-            collection.name, filter, projection, skip, limit, sort
-        )
+        self._mongo_command = CommandFind(filter, projection, skip, limit, sort)
         try:
-            self._cached_documents: deque | None = cache.get_many(self._mongo_command)
+            self._cached_documents: deque | None = cache.get_many(collection.name, self._mongo_command)
         except NotCachedError:
             self._cached_documents = None
 
@@ -122,5 +120,5 @@ class CachedCursor(Cursor):
             db = collection._Collection__database
             client = db._Database__client
             cache = cast(DatabaseCache, client._client_side_databases[db.name])
-            cache.set_many(self._queried_documents, self._mongo_command)
+            cache.set_many(self._queried_documents, collection.name, self._mongo_command)
         return super().__del__()

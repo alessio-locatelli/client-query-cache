@@ -225,12 +225,13 @@ class CachedCollection(Collection):
         let: Mapping[str, Any] | None = None,
         comment: Any | None = None,
     ) -> DeleteResult:
-        db = self._Collection__database
-        cache = cast(
-            DatabaseCache, db._Database__client._client_side_databases[db.name]
-        )
-        if self.name in cache.static_collections_names:
-            raise CannotEditImmutableCollectionError(self.name)
+        if __debug__:
+            db = self._Collection__database
+            cache = cast(
+                DatabaseCache, db._Database__client._client_side_databases[db.name]
+            )
+            if self.name in cache.static_collections_names:
+                raise CannotEditImmutableCollectionError(self.name)
 
         return super().delete_many(filter, collation, hint, session, let, comment)
 
@@ -362,16 +363,15 @@ class CachedCollection(Collection):
             DatabaseCache, db._Database__client._client_side_databases[db.name]
         )
         query = CommandCount(
-            self.name,
             filter,
             skip=kwargs.get("skip", 0),
             limit=kwargs.get("limit", 0),
         )
         try:
-            return cache.get_document_count(query)
+            return cache.get_document_count(self.name, query)
         except NotCachedError:
             document_count = super().count_documents(filter, session, comment, **kwargs)
-            cache.set_document_count(document_count, query)
+            cache.set_document_count(document_count, self.name, query)
             return document_count
 
     @override
@@ -402,12 +402,12 @@ class CachedCollection(Collection):
         cache = cast(
             DatabaseCache, db._Database__client._client_side_databases[db.name]
         )
-        query = CommandDistinct(self.name, key, filter)
+        query = CommandDistinct(filter, key=key)
         try:
-            return cache.get_distinct(query)
+            return cache.get_distinct(self.name, query)
         except NotCachedError:
             distinct_values = super().distinct(key, filter, session, comment, **kwargs)
-            cache.set_distinct(distinct_values, query)
+            cache.set_distinct(distinct_values, self.name, query)
             return distinct_values
 
     @override

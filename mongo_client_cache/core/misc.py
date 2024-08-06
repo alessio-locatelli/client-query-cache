@@ -10,13 +10,12 @@ from pymongo.cursor import _Sort
 
 @dataclass(slots=True)
 class _Command:
-    collection_name: str
     filter: Any = None
 
     def __post_init__(self) -> None:
         if self.filter:
             self.filter = tuple(sorted(self.filter.items()))
-
+    
 
 @dataclass(slots=True)
 class CommandFind(_Command):
@@ -31,11 +30,17 @@ class CommandFind(_Command):
             return        
         self.projection = tuple(sorted(self.projection)) if isinstance(self.projection, Iterable) else dict(sorted(self.projection.items()))
 
+    def __str__(self) -> str:
+        return f"{self.filter},{self.skip},{self.limit},{self.sort}"
+
 
 @dataclass(slots=True)
 class CommandCount(_Command):
     skip: int = 0
     limit: int = 0
+
+    def __str__(self) -> str:
+        return f"{self.filter},{self.skip},{self.limit}"
 
 
 @dataclass(slots=True)
@@ -43,6 +48,9 @@ class CommandDistinct(_Command):
     key: str = field(
         kw_only=True  # "TypeError: non-default argument 'key' follows default argument".
     )
+
+    def __str__(self) -> str:
+        return f"{self.filter},{self.key}"
 
 
 @dataclass(slots=True)

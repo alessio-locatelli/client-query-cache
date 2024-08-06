@@ -70,10 +70,10 @@ class _DatabaseCache:
         self.collections_names_with_cached_documents: set[str] = set()
         self.document_count_per_collection: dict[CollectionName, dict[str, Any]] = {}
         self.estimated_document_count_per_collection: dict[CollectionName, int] = {}
-        self.distinct_per_collection: dict[CollectionName, dict[str, BsonDict]] = {}
+        self.distinct_per_collection: dict[CollectionName, dict[str, list[BsonValue]]] = {}
 
-    def _find_cached_documents_ids(self, mongo_command: CommandFind) -> set[BsonValue]:  # type: ignore[valid-type]
-        queries = self.cached_find[mongo_command.collection_name]
+    def _find_cached_documents_ids(self, collection_name: str, mongo_command: CommandFind) -> set[BsonValue]:  # type: ignore[valid-type]
+        queries = self.cached_find[collection_name]
         query = queries[
             (
                 queries["filter"].isna()
@@ -95,20 +95,20 @@ class _DatabaseCache:
     def _find_cached_document_id(self, mongo_command: CommandFind) -> BsonValue:  # type: ignore[valid-type]
         return cast(BsonValue, self._find_cached_documents_ids(mongo_command))  # type: ignore[valid-type]
 
-    def get_one(self, mongo_command: CommandFind) -> BsonDict | None:
+    def get_one(self, collection_name: str, mongo_command: CommandFind) -> BsonDict | None:
         document_id = self._find_cached_document_id(mongo_command)
         if document_id is None:
             return None
         logger.debug(f"Found in cache: {mongo_command}, {document_id=}")  # type: ignore[unreachable]
-        df_collection = self.local_collections[mongo_command.collection_name]
+        df_collection = self.local_collections[collection_name]
         return df_collection.loc[document_id]["document"]
 
-    def get_many(self, mongo_command: CommandFind) -> deque[BsonDict]:
+    def get_many(self, collection_name: str, mongo_command: CommandFind) -> deque[BsonDict]:
         documets_ids = self._find_cached_documents_ids(mongo_command)
-        df_collection = self.local_collections[mongo_command.collection_name]
+        df_collection = self.local_collections[collection_name]
         return deque(df_collection.loc[df_collection["_id"] in documets_ids])
 
-    def set_one(self, document: BsonDict | None, mongo_command: CommandFind) -> None:
+    def set_one(self, document: BsonDict | None, collection_name: str, mongo_command: CommandFind) -> None:
         try:
             document_id = document["_id"]  # type: ignore[index]
         except TypeError:
@@ -117,18 +117,18 @@ class _DatabaseCache:
         except KeyError:
             raise DocumentIdMissingError from KeyError
         else:
-            self.local_collections[mongo_command.collection_name][document_id] = document
-            self.collections_names_with_cached_documents.add(mongo_command.collection_name)
+            self.local_collections[collection_name][document_id] = document
+            self.collections_names_with_cached_documents.add(collection_name)
 
-        self.cached_find[mongo_command.collection_name][str(mongo_command)] = document_id
+        self.cached_find[collection_name][str(mongo_command)] = document_id
 
-    def set_many(self, documents: list[BsonDict], mongo_command: CommandFind) -> None:
+    def set_many(self, documents: list[BsonDict], collection_name: str, mongo_command: CommandFind) -> None:
         if not documents:
             return
-        df_collection = self.local_collections[mongo_command.collection_name]
+        df_collection = self.local_collections[collection_name]
         df_documents = pd.DataFrame(documents)
         df_documents.set_index("_id", inplace=True)  # noqa: PD002
-        self.local_collections[mongo_command.collection_name] = (
+        self.local_collections[collection_name] = (
             df_collection.combine_first(df_documents)
         )
 
@@ -140,7 +140,7 @@ class _DatabaseCache:
         df_queries.loc[len(df_queries)] = [*list(mongo_command), documents_ids]
         self.collections_names_with_cached_documents.add(mongo_command.collection_name)
 
-    def get_document_count(self, mongo_command: CommandCount) -> int:
+    def get_document_count(self, collection_name: str, mongo_command: CommandCount) -> int:
         try:
             return self.document_count_per_collection[mongo_command.collection_name][
                 mongo_command.filter
@@ -149,14 +149,14 @@ class _DatabaseCache:
             raise NotCachedError from e
 
     def set_document_count(
-        self, document_count: int, mongo_command: CommandCount
+        self, document_count: int, collection_name: str, mongo_command: CommandCount
     ) -> None:
-        self.document_count_per_collection[mongo_command.collection_name][
+        self.document_count_per_collection[collection_name][
             mongo_command.filter
         ][mongo_command.skip][mongo_command.limit] = document_count
 
-    def get_distinct(self, mongo_command: CommandDistinct) -> list[BsonValue]:
-        df_cached_commands = self.distinct_per_collection[mongo_command.collection_name]
+    def get_distinct(self, collection_name: str, mongo_command: CommandDistinct) -> list[BsonValue]:
+        df_cached_commands = self.distinct_per_collection[collection_name]
         query = df_cached_commands[
             (df_cached_commands["key"] == mongo_command.key)
             & (
@@ -172,13 +172,9 @@ class _DatabaseCache:
             raise NotCachedError from e
 
     def set_distinct(
-        self, distinct_values: list[BsonValue], mongo_command: CommandDistinct
+        self, distinct_values: list[BsonValue], collection_name: str, mongo_command: CommandDistinct
     ) -> None:
-        df_cached_commands = self.distinct_per_collection[mongo_command.collection_name]
-        df_cached_commands.loc[len(df_cached_commands)] = [
-            *list(mongo_command),
-            distinct_values,
-        ]
+        self.distinct_per_collection[collection_name][mongo_command] = distinct_values
 
 
 class DatabaseCache(_DatabaseCache):
