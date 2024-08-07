@@ -368,10 +368,10 @@ class CachedCollection(Collection):
             limit=kwargs.get("limit", 0),
         )
         try:
-            return cache.get_document_count(self.name, query)
-        except NotCachedError:
+            return cache.document_count_per_collection[self.name][str(query)]
+        except KeyError:
             document_count = super().count_documents(filter, session, comment, **kwargs)
-            cache.set_document_count(document_count, self.name, query)
+            cache.document_count_per_collection[self.name][str(query)] = document_count
             return document_count
 
     @override

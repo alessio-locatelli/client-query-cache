@@ -75,13 +75,15 @@ class CachedCursor(Cursor):
             let,
         )
         self._queried_documents: list[BsonDict] = []
+        self._iterated_all_query_results: bool = False
+
         db = collection._Collection__database
         client = db._Database__client
         cache = cast(DatabaseCache, client._client_side_databases[db.name])
         self._mongo_command = CommandFind(filter, projection, skip, limit, sort)
         try:
-            self._cached_documents: deque | None = cache.get_many(collection.name, self._mongo_command)
-        except NotCachedError:
+            self._cached_documents = cache.query_to_ids_map[collection.name][str(self._mongo_command)]
+        except KeyError:
             self._cached_documents = None
 
     @override
@@ -96,12 +98,13 @@ class CachedCursor(Cursor):
 
         if self._cached_documents is None:
             if self._Cursor__empty:  # type: ignore[attr-defined]
+                self._iterated_all_query_results = True
                 raise StopIteration
             if len(self._Cursor__data) or self._refresh():  # type: ignore[attr-defined]
                 doc = self._Cursor__data.popleft()  # type: ignore[attr-defined]
-                logger.debug(f"Found {doc}")
                 self._queried_documents.append(doc)
                 return doc
+            self._iterated_all_query_results = True
             raise StopIteration
 
         try:
@@ -113,12 +116,19 @@ class CachedCursor(Cursor):
 
     @override
     def __del__(self) -> None:
-        logger.debug(f"Destroying {self}...")
+        super().__del__()
+
+        collection = self._Cursor__collection  # type: ignore[attr-defined]
+        db = collection._Collection__database
+        client = db._Database__client
+        cache = cast(DatabaseCache, client._client_side_databases[db.name])
+        
         if self._queried_documents:
-            logger.debug(f"Saving {len(self._queried_documents)} found documents.")
-            collection = self._Cursor__collection  # type: ignore[attr-defined]
-            db = collection._Collection__database
-            client = db._Database__client
-            cache = cast(DatabaseCache, client._client_side_databases[db.name])
-            cache.set_many(self._queried_documents, collection.name, self._mongo_command)
-        return super().__del__()
+            cache.local_collections[collection.name].update({doc["_id"]: doc for doc in self._queried_documents})
+
+        if self._iterated_all_query_results:
+            documents_ids = tuple(document["_id"] for document in self._queried_documents)
+            cache.query_to_ids_map[collection.name][str(self._mongo_command)] = documents_ids
+            if documents_ids:
+                cache.collections_names_with_cached_documents.add(collection.name)
+
