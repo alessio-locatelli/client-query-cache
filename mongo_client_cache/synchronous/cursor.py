@@ -1,22 +1,20 @@
 from __future__ import annotations
 
-from collections import deque
 from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING, Any, cast, override
 
 from pymongo import CursorType
 from pymongo.client_session import ClientSession
-from pymongo.cursor import Cursor, _Hint, _Sort
+from pymongo.cursor import Cursor
+from pymongo.cursor_shared import _Hint, _Sort
 from pymongo.typings import _CollationIn
 
-from mongo_client_cache.core.exceptions import NotCachedError
 from mongo_client_cache.core.local_database import DatabaseCache
 from mongo_client_cache.core.misc import CommandFind
-from mongo_client_cache.logger import logger
 from mongo_client_cache.types import BsonDict
 
 if TYPE_CHECKING:
-    from mongo_client_cache.cached_pymongo.collection import CachedCollection
+    from mongo_client_cache.synchronous.collection import CachedCollection
 
 
 class CachedCursor(Cursor):
@@ -79,10 +77,12 @@ class CachedCursor(Cursor):
 
         db = collection._Collection__database
         client = db._Database__client
-        cache = cast(DatabaseCache, client._client_side_databases[db.name])
-        self._mongo_command = CommandFind(filter, projection, skip, limit, sort)
+        cache = client._client_side_databases[db.name]
+        self._mongo_command = str(CommandFind(filter, projection, skip, limit, sort))
         try:
-            self._cached_documents = cache.query_to_ids_map[collection.name][str(self._mongo_command)]
+            self._cached_documents = cache.query_to_ids_map[collection.name][
+                self._mongo_command
+            ]
         except KeyError:
             self._cached_documents = None
 
@@ -91,7 +91,7 @@ class CachedCursor(Cursor):
         collection = self._Cursor__collection  # type: ignore[attr-defined]
         db = collection._Collection__database
         client = db._Database__client
-        cache = cast(DatabaseCache, client._client_side_databases[db.name])
+        cache = client._client_side_databases[db.name]
 
         if collection.name in cache.excluded_collections_names:
             return super().next()
@@ -122,13 +122,18 @@ class CachedCursor(Cursor):
         db = collection._Collection__database
         client = db._Database__client
         cache = cast(DatabaseCache, client._client_side_databases[db.name])
-        
+
         if self._queried_documents:
-            cache.local_collections[collection.name].update({doc["_id"]: doc for doc in self._queried_documents})
+            cache.local_collections[collection.name].update({
+                doc["_id"]: doc for doc in self._queried_documents
+            })
 
         if self._iterated_all_query_results:
-            documents_ids = tuple(document["_id"] for document in self._queried_documents)
-            cache.query_to_ids_map[collection.name][str(self._mongo_command)] = documents_ids
+            documents_ids = tuple(
+                document["_id"] for document in self._queried_documents
+            )
+            cache.query_to_ids_map[collection.name][str(self._mongo_command)] = (
+                documents_ids
+            )
             if documents_ids:
                 cache.collections_names_with_cached_documents.add(collection.name)
-

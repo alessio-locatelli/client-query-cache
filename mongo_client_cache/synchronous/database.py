@@ -8,8 +8,8 @@ from pymongo.read_concern import ReadConcern
 from pymongo.read_preferences import _ServerMode
 from pymongo.typings import _DocumentType, _DocumentTypeArg
 
-from mongo_client_cache.cached_pymongo.collection import CachedCollection
 from mongo_client_cache.core.local_database import DatabaseCache
+from mongo_client_cache.synchronous.collection import CachedCollection
 
 
 class CachedDatabase(database.Database):

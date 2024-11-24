@@ -6,8 +6,8 @@ from typing import Any, cast, override
 from bson.raw_bson import RawBSONDocument
 from bson.typings import _DocumentType
 from pymongo import ReturnDocument
-from pymongo.client_session import ClientSession
-from pymongo.collection import Collection, _WriteOp
+from pymongo.synchronous.client_session import ClientSession
+from pymongo.synchronous.collection import Collection, _WriteOp
 from pymongo.operations import _IndexKeyHint, _IndexList
 from pymongo.results import (
     BulkWriteResult,
@@ -18,13 +18,13 @@ from pymongo.results import (
 )
 from pymongo.typings import _CollationIn, _Pipeline
 
-from mongo_client_cache.cached_pymongo.cursor import CachedCursor
 from mongo_client_cache.core.exceptions import (
     CannotEditImmutableCollectionError,
     NotCachedError,
 )
 from mongo_client_cache.core.local_database import DatabaseCache
 from mongo_client_cache.core.misc import CommandCount, CommandDistinct
+from mongo_client_cache.synchronous.cursor import CachedCursor
 from mongo_client_cache.types import BsonDict
 
 
@@ -359,19 +359,17 @@ class CachedCollection(Collection):
         **kwargs: Any,
     ) -> int:
         db = self._Collection__database
-        cache = cast(
-            DatabaseCache, db._Database__client._client_side_databases[db.name]
-        )
-        query = CommandCount(
+        cache = db._Database__client._client_side_databases[db.name]
+        query = str(CommandCount(
             filter,
             skip=kwargs.get("skip", 0),
             limit=kwargs.get("limit", 0),
-        )
+        ))
         try:
-            return cache.document_count_per_collection[self.name][str(query)]
+            return cache.document_count_per_collection[self.name][query]
         except KeyError:
             document_count = super().count_documents(filter, session, comment, **kwargs)
-            cache.document_count_per_collection[self.name][str(query)] = document_count
+            cache.document_count_per_collection[self.name][query] = document_count
             return document_count
 
     @override
@@ -379,9 +377,7 @@ class CachedCollection(Collection):
         self, comment: Any | None = None, **kwargs: Any
     ) -> int:
         db = self._Collection__database
-        cache = cast(
-            DatabaseCache, db._Database__client._client_side_databases[db.name]
-        )
+        cache = db._Database__client._client_side_databases[db.name]
         try:
             return cache.estimated_document_count_per_collection[self.name]
         except KeyError:
@@ -399,15 +395,13 @@ class CachedCollection(Collection):
         **kwargs: Any,
     ) -> list:
         db = self._Collection__database
-        cache = cast(
-            DatabaseCache, db._Database__client._client_side_databases[db.name]
-        )
-        query = CommandDistinct(filter, key=key)
+        cache = db._Database__client._client_side_databases[db.name]
+        query = str(CommandDistinct(filter, key=key))
         try:
-            return cache.get_distinct(self.name, query)
-        except NotCachedError:
+            return cache.distinct_per_collection[self.name][query]
+        except KeyError:
             distinct_values = super().distinct(key, filter, session, comment, **kwargs)
-            cache.set_distinct(distinct_values, self.name, query)
+            cache.distinct_per_collection[self.name][query] = distinct_values
             return distinct_values
 
     @override

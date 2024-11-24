@@ -1,4 +1,4 @@
-target-version = "py312"
+target-version = "py313"
 
 extend-exclude = [
     ".cache",
@@ -40,8 +40,6 @@ lint.ignore = [
     "D415",
     # Use @pytest.fixture{expected} over @pytest.fixture{actual}
     "PT001",
-    # Fixture {function} does not return anything, add leading underscore
-    "PT004",
     # Missing explicit return at the end of function able to return non-None value
     "RET503",
     # Use of assert detected

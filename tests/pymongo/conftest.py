@@ -17,7 +17,7 @@ def mongo_client(
     persistent_collection_name: str, nonpersistent_collection_name: str
 ) -> CachedMongoClient:
     client = CachedMongoClient(
-        f"mongodb+srv://{os.environ["REPLICA_MONGO_NAME"]}:{os.environ["REPLICA_MONGO_PASSWORD"]}@{os.environ["REPLICA_MONGO_HOST"]}/?retryWrites=true&w=majority",
+        f"mongodb+srv://{os.environ['REPLICA_MONGO_NAME']}:{os.environ['REPLICA_MONGO_PASSWORD']}@{os.environ['REPLICA_MONGO_HOST']}/?retryWrites=true&w=majority",
         client_side_cache_config={
             "db_one": [
                 CollectionConfig(

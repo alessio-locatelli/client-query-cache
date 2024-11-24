@@ -7,9 +7,9 @@ import pymongo
 from bson.codec_options import TypeRegistry
 from pymongo.typings import _DocumentType
 
-from mongo_client_cache.cached_pymongo.database import CachedDatabase
 from mongo_client_cache.core.exceptions import ReservedAttributeError
 from mongo_client_cache.core.misc import LocalClient
+from mongo_client_cache.synchronous.database import CachedDatabase
 from mongo_client_cache.types import ClientSideCacheConfig
 
 if TYPE_CHECKING:
@@ -34,7 +34,7 @@ class CacheMixin(MIXIN_BASE):
     ) -> None:
         """
         By default, all collections are cached and watched for changes.
-        Use `CollectionConfig` to change options for specific collections.
+        Use `CollectionConfig` to change the options for specific collections.
         """
         super().__init__(
             host, port, document_class, tz_aware, connect, type_registry, **kwargs

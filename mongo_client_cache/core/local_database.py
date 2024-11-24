@@ -10,15 +10,8 @@ from bson import ObjectId
 from pymongo.database import Database
 from pymongo.errors import PyMongoError
 
-from mongo_client_cache.core.exceptions import (
-    NotCachedError,
-    UnexpectedChangeOperationTypeError
-)
-from mongo_client_cache.core.misc import (
-    CollectionConfig,
-    CommandCount,
-    CommandDistinct
-)
+from mongo_client_cache.core.exceptions import UnexpectedChangeOperationTypeError
+from mongo_client_cache.core.misc import CollectionConfig
 from mongo_client_cache.logger import logger
 from mongo_client_cache.types import (
     BsonDict,
@@ -29,7 +22,7 @@ from mongo_client_cache.types import (
 )
 
 
-class _DatabaseCache:
+class DatabaseCache:
     __slots__ = (
         "collections_names_with_cached_documents",
         "distinct_per_collection",
@@ -38,9 +31,10 @@ class _DatabaseCache:
         "excluded_collections_names",
         "local_collections",
         "mongo_database",
+        "query_to_ids_map",
         "resume_token",
         "static_collections_names",
-        "query_to_ids_map"
+        "change_stream_documents"
     )
 
     def __init__(
@@ -68,37 +62,10 @@ class _DatabaseCache:
         self.collections_names_with_cached_documents: set[str] = set()
         self.document_count_per_collection: dict[CollectionName, dict[str, Any]] = {}
         self.estimated_document_count_per_collection: dict[CollectionName, int] = {}
-        self.distinct_per_collection: dict[CollectionName, dict[str, list[BsonValue]]] = {}
+        self.distinct_per_collection: dict[
+            CollectionName, dict[str, list[BsonValue]]
+        ] = {}
 
-    def get_distinct(self, collection_name: str, mongo_command: CommandDistinct) -> list[BsonValue]:
-        df_cached_commands = self.distinct_per_collection[collection_name]
-        query = df_cached_commands[
-            (df_cached_commands["key"] == mongo_command.key)
-            & (
-                df_cached_commands["filter"].isna()
-                if mongo_command.filter is None
-                else df_cached_commands["filter"] == mongo_command.filter
-            )
-        ]
-        try:
-            return query.iloc[(0, -1)]
-        except IndexError as e:
-            logger.debug(f"Not found in cache: {mongo_command}, {query=}, {e!r}")
-            raise NotCachedError from e
-
-    def set_distinct(
-        self, distinct_values: list[BsonValue], collection_name: str, mongo_command: CommandDistinct
-    ) -> None:
-        self.distinct_per_collection[collection_name][mongo_command] = distinct_values
-
-
-class DatabaseCache(_DatabaseCache):
-    __slots__ = ("change_stream_documents",)
-
-    def __init__(
-        self, database: Database, config_per_collection: list[CollectionConfig] | None
-    ) -> None:
-        super().__init__(database, config_per_collection)
         logger.debug(
             f'Connected to local database "{database.name}".'
             + f"{self.excluded_collections_names=}, {self.static_collections_names=}"

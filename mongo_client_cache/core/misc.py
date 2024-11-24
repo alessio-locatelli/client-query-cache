@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from collections import UserDict
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
-from pymongo.cursor import _Sort
+from pymongo.cursor_shared import _Sort
 
 
 @dataclass(slots=True)
@@ -15,7 +15,7 @@ class _Command:
     def __post_init__(self) -> None:
         if self.filter:
             self.filter = tuple(sorted(self.filter.items()))
-    
+
 
 @dataclass(slots=True)
 class CommandFind(_Command):
@@ -27,8 +27,12 @@ class CommandFind(_Command):
     def __post_init__(self) -> None:
         super().__post_init__()
         if self.projection is None:
-            return        
-        self.projection = tuple(sorted(self.projection)) if isinstance(self.projection, Iterable) else dict(sorted(self.projection.items()))
+            return
+        self.projection = (
+            tuple(sorted(self.projection))
+            if isinstance(self.projection, Iterable)
+            else dict(sorted(self.projection.items()))
+        )
 
     def __str__(self) -> str:
         return f"{self.filter},{self.skip},{self.limit},{self.sort}"
