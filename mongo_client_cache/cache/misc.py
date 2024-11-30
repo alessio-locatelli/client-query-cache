@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections import UserDict
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
@@ -71,5 +70,3 @@ class CollectionConfig:
         assert self.collection_name, "Collection name must be a non-empty string."
         assert isinstance(self.watch_change_stream, bool)
 
-
-class Cache(UserDict): ...

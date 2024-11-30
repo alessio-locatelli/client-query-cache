@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from typing import TYPE_CHECKING, Any, cast, override
+from typing import TYPE_CHECKING, Any, override
 
 from pymongo import CursorType
 from pymongo.client_session import ClientSession
@@ -9,8 +9,7 @@ from pymongo.cursor import Cursor
 from pymongo.cursor_shared import _Hint, _Sort
 from pymongo.typings import _CollationIn
 
-from mongo_client_cache.core.local_database import DatabaseCache
-from mongo_client_cache.core.misc import CommandFind
+from mongo_client_cache.cache import CommandFind
 from mongo_client_cache.types import BsonDict
 
 if TYPE_CHECKING:
@@ -118,7 +117,7 @@ class CachedCursor(Cursor):
         collection = self._Cursor__collection  # type: ignore[attr-defined]
         db = collection._Collection__database
         client = db._Database__client
-        cache = cast(DatabaseCache, client._client_side_databases[db.name])
+        cache = client._client_side_databases[db.name]
 
         if self._queried_documents:
             cache.local_collections[collection.name].update({
