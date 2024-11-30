@@ -28,7 +28,6 @@ class DatabaseCache:
         "distinct_per_collection",
         "document_count_per_collection",
         "estimated_document_count_per_collection",
-        "excluded_collections_names",
         "local_collections",
         "mongo_database",
         "query_to_ids_map",
@@ -42,11 +41,6 @@ class DatabaseCache:
     ) -> None:
         self.mongo_database = database
         if config_per_collection:
-            self.excluded_collections_names = {
-                collection_config.collection_name
-                for collection_config in config_per_collection
-                if collection_config.enable_client_side_cache is False
-            }
             self.static_collections_names = {
                 collection_config.collection_name
                 for collection_config in config_per_collection
@@ -54,7 +48,6 @@ class DatabaseCache:
             }
 
         else:
-            self.excluded_collections_names = set()
             self.static_collections_names = set()
 
         self.local_collections: dict[CollectionName, dict[ObjectId, BsonDict]] = {}
@@ -67,8 +60,7 @@ class DatabaseCache:
         ] = {}
 
         logger.debug(
-            f'Connected to local database "{database.name}".'
-            + f"{self.excluded_collections_names=}, {self.static_collections_names=}"
+            f"Connected to the '{database.name}' database. {self.static_collections_names=}"
         )
         self.change_stream_documents: dict[str, list[ChangeStreamDocument]] = (
             defaultdict(list)

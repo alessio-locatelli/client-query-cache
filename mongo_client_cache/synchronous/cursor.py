@@ -93,9 +93,6 @@ class CachedCursor(Cursor):
         client = db._Database__client
         cache = client._client_side_databases[db.name]
 
-        if collection.name in cache.excluded_collections_names:
-            return super().next()
-
         if self._cached_documents is None:
             if self._Cursor__empty:  # type: ignore[attr-defined]
                 self._iterated_all_query_results = True

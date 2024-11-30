@@ -66,12 +66,10 @@ class CollectionConfig:
 
     collection_name: str
     watch_change_stream: bool = True
-    enable_client_side_cache: bool = True
 
     def __post_init__(self) -> None:
         assert self.collection_name, "Collection name must be a non-empty string."
         assert isinstance(self.watch_change_stream, bool)
-        assert isinstance(self.enable_client_side_cache, bool)
 
 
-class LocalClient(UserDict): ...
+class Cache(UserDict): ...

@@ -1,7 +1,7 @@
 services:
   mongo1:
     hostname: mongo1
-    image: mongo:7.0.5
+    image: mongo:8.0.3@sha256:3984cf5a234e525253619060fcbff12449db0597d62a6d4e18991a18f2365c36
     expose:
       - 27017
     ports:
@@ -13,7 +13,7 @@ services:
 
   mongo2:
     hostname: mongo2
-    image: mongo:7.0.5
+    image: mongo:8.0.3@sha256:3984cf5a234e525253619060fcbff12449db0597d62a6d4e18991a18f2365c36
     expose:
       - 27017
     ports:
@@ -25,7 +25,7 @@ services:
 
   mongo3:
     hostname: mongo3
-    image: mongo:7.0.5
+    image: mongo:8.0.3@sha256:3984cf5a234e525253619060fcbff12449db0597d62a6d4e18991a18f2365c36
     expose:
       - 27017
     ports:
@@ -36,7 +36,7 @@ services:
       - mongoCluster
 
   mongoinit:
-    image: mongo:7.0.5
+    image: mongo:8.0.3@sha256:3984cf5a234e525253619060fcbff12449db0597d62a6d4e18991a18f2365c36
     # this container will exit after executing the command
     restart: "no"
     depends_on:

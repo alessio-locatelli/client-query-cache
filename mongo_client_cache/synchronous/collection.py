@@ -19,8 +19,7 @@ from pymongo.results import (
 from pymongo.typings import _CollationIn, _Pipeline
 
 from mongo_client_cache.core.exceptions import (
-    CannotEditImmutableCollectionError,
-    NotCachedError,
+    CannotEditImmutableCollectionError
 )
 from mongo_client_cache.core.local_database import DatabaseCache
 from mongo_client_cache.core.misc import CommandCount, CommandDistinct
