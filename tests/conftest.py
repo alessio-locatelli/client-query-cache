@@ -58,7 +58,7 @@ def random_document_id(faker: Faker) -> int:
 
 
 @pytest.fixture
-def example_document(faker: Faker, random_document_id: int) -> dict[str, Any]:
+def fake_document(faker: Faker, random_document_id: int) -> dict[str, Any]:
     document = faker.pydict()
     document["_id"] = random_document_id
 

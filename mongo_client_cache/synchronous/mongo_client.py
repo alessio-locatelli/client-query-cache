@@ -29,7 +29,7 @@ class CacheMixin(MIXIN_BASE):
         connect: bool | None = None,
         type_registry: TypeRegistry | None = None,
         *,
-        client_side_cache_config: ClientSideCacheConfig | None = None,
+        cache_config: ClientSideCacheConfig | None = None,
         **kwargs: Any,
     ) -> None:
         """
@@ -39,8 +39,8 @@ class CacheMixin(MIXIN_BASE):
         super().__init__(
             host, port, document_class, tz_aware, connect, type_registry, **kwargs
         )
-        self._client_side_databases = LocalClient()
-        self._client_side_cache_config = client_side_cache_config or {}
+        self._cache_per_database = LocalClient()
+        self._cache_config = cache_config or {}
 
     @override
     def __getattr__(self, name: str) -> Any:
