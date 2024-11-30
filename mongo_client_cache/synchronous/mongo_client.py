@@ -7,9 +7,9 @@ import pymongo
 from bson.codec_options import TypeRegistry
 from pymongo.typings import _DocumentType
 
-from mongo_client_cache.cache.exceptions import ReservedAttributeError
+from mongo_client_cache.cache import DatabaseCache, ReservedAttributeError
 from mongo_client_cache.synchronous.database import CachedDatabase
-from mongo_client_cache.types import ClientSideCacheConfig
+from mongo_client_cache.types import ClientSideCacheConfig, DatabaseName
 
 if TYPE_CHECKING:
     MIXIN_BASE = pymongo.MongoClient
@@ -38,7 +38,9 @@ class CacheMixin(MIXIN_BASE):
         super().__init__(
             host, port, document_class, tz_aware, connect, type_registry, **kwargs
         )
-        self._client_side_databases = {}  # Rename to `_cache_per_database`?
+        self._client_side_databases: dict[
+            DatabaseName, DatabaseCache
+        ] = {}  # Rename to `_cache_per_database`?
         self._cache_config = cache_config or {}
 
     @override

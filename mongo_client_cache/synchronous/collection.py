@@ -6,8 +6,6 @@ from typing import Any, override
 from bson.raw_bson import RawBSONDocument
 from bson.typings import _DocumentType
 from pymongo import ReturnDocument
-from pymongo.synchronous.client_session import ClientSession
-from pymongo.synchronous.collection import Collection, _WriteOp
 from pymongo.operations import _IndexKeyHint, _IndexList
 from pymongo.results import (
     BulkWriteResult,
@@ -16,12 +14,15 @@ from pymongo.results import (
     InsertOneResult,
     UpdateResult,
 )
+from pymongo.synchronous.client_session import ClientSession
+from pymongo.synchronous.collection import Collection, _WriteOp
 from pymongo.typings import _CollationIn, _Pipeline
 
 from mongo_client_cache.cache import (
-    CannotEditImmutableCollectionError
+    CannotEditImmutableCollectionError,
+    CommandCount,
+    CommandDistinct,
 )
-from mongo_client_cache.cache import CommandCount, CommandDistinct
 from mongo_client_cache.synchronous.cursor import CachedCursor
 from mongo_client_cache.types import BsonDict
 
@@ -336,11 +337,13 @@ class CachedCollection(Collection):
     ) -> int:
         db = self._Collection__database
         cache = db._Database__client._client_side_databases[db.name]
-        query = str(CommandCount(
-            filter,
-            skip=kwargs.get("skip", 0),
-            limit=kwargs.get("limit", 0),
-        ))
+        query = str(
+            CommandCount(
+                filter,
+                skip=kwargs.get("skip", 0),
+                limit=kwargs.get("limit", 0),
+            )
+        )
         try:
             return cache.document_count_per_collection[self.name][query]
         except KeyError:

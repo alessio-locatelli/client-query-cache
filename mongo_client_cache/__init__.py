@@ -1,7 +1,4 @@
-from .synchronous import CachedMongoClient
 from .cache import CollectionConfig
+from .synchronous import CachedMongoClient
 
-__all__ = [
-    "CachedMongoClient",
-    "CollectionConfig"
-]
+__all__ = ["CachedMongoClient", "CollectionConfig"]

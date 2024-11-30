@@ -9,7 +9,6 @@ from mongo_client_cache.synchronous.collection import CachedCollection
 from mongo_client_cache.synchronous.database import CachedDatabase
 from mongo_client_cache.synchronous.mongo_client import CachedMongoClient
 
-
 logger = logging.getLogger(__name__)
 
 

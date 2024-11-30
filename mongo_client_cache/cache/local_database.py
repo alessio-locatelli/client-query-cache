@@ -24,7 +24,7 @@ from mongo_client_cache.types import (
 
 class DatabaseCache:
     __slots__ = (
-        "collections_names_with_cached_documents",
+        "change_stream_documents",
         "distinct_per_collection",
         "document_count_per_collection",
         "estimated_document_count_per_collection",
@@ -33,26 +33,20 @@ class DatabaseCache:
         "query_to_ids_map",
         "resume_token",
         "static_collections_names",
-        "change_stream_documents"
     )
 
     def __init__(
-        self, database: Database, config_per_collection: list[CollectionConfig] | None
+        self, database: Database, config_per_collection: list[CollectionConfig]
     ) -> None:
         self.mongo_database = database
-        if config_per_collection:
-            self.static_collections_names = {
-                collection_config.collection_name
-                for collection_config in config_per_collection
-                if collection_config.watch_change_stream is False
-            }
-
-        else:
-            self.static_collections_names = set()
+        self.static_collections_names = {
+            collection_config.collection_name
+            for collection_config in config_per_collection
+            if collection_config.watch_change_stream is False
+        }
 
         self.local_collections: dict[CollectionName, dict[ObjectId, BsonDict]] = {}
         self.query_to_ids_map: dict[CollectionName, dict[str, BsonDict]] = {}
-        self.collections_names_with_cached_documents: set[str] = set()
         self.document_count_per_collection: dict[CollectionName, dict[str, Any]] = {}
         self.estimated_document_count_per_collection: dict[CollectionName, int] = {}
         self.distinct_per_collection: dict[
@@ -65,7 +59,14 @@ class DatabaseCache:
         self.change_stream_documents: dict[str, list[ChangeStreamDocument]] = (
             defaultdict(list)
         )
-        Thread(target=self.watch, daemon=True).start()
+        
+        if len({
+                collection_config.collection_name
+                for collection_config in config_per_collection
+                if collection_config.watch_change_stream is False
+            }
+               ):
+            Thread(target=self.watch, daemon=True).start()
 
     def watch(self) -> None:
         """
@@ -92,12 +93,6 @@ class DatabaseCache:
 
     def _watch(self) -> None:
         while True:
-            # collections_names_with_cached_documents = list(
-            #    self.collections_names_with_cached_documents
-            # )
-            # if not collections_names_with_cached_documents:
-            #    time.sleep(1)
-            #    continue
             pipeline: list[JsonDict] = [
                 {
                     "$match": {
@@ -123,40 +118,27 @@ class DatabaseCache:
                     }
                 },
             ]
-            # pipeline[0]["$match"]["ns.coll"] = {  # type: ignore[index]
-            #    "$in": collections_names_with_cached_documents
-            # }
-            # logger.debug(
-            #    f"Watching collections: {collections_names_with_cached_documents}."
-            # )
             logger.info(f'Watching Change Stream for "{self.mongo_database.name}".')
             with self.mongo_database.watch(
                 pipeline, full_document="updateLookup", resume_after=self.resume_token
             ) as stream:
                 for change in stream:
-                    logger.debug(f"{change=}, {stream.resume_token=}")
+                    if __debug__:
+                        logger.debug(f"{change=}, {stream.resume_token=}")
 
                     # Use the interrupted ChangeStream's resume token to create
                     # a new ChangeStream. The new stream will continue from the
                     # last seen insert change without missing any events.
                     self.resume_token = stream.resume_token
                     continue
-                    if (
-                        collections_names_with_cached_documents
-                        != self.collections_names_with_cached_documents
-                    ):
-                        logger.info(
-                            "Restarting 'watch'."
-                            + f"Previously watched collections: {collections_names_with_cached_documents}, "  # noqa: E501
-                            + f"Current collections with cached documents: {self.collections_names_with_cached_documents}."  # noqa: E501
-                        )
-                        break
 
     def _insert(self, change: ChangeStreamDocument) -> None:
         collection_name = change["ns"]["coll"]
         self.change_stream_documents[collection_name].append(change)
+        self.estimated_document_count_per_collection[collection_name] += 1
+        self.document_count_per_collection[collection_name][]
         # Invalidate all cached queries.
-        del self.cached_find[collection_name]
+        del self.
 
     def _update(self, change: ChangeStreamDocument) -> None:
         collection_name = change["ns"]["coll"]
