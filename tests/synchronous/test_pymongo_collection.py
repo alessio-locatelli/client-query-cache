@@ -1,12 +1,11 @@
 from collections.abc import Callable, Iterator
 from typing import Any, cast
 
-import pandas as pd
 import pytest
 from pymongo.errors import DuplicateKeyError
 
-from mongo_client_cache.cached_pymongo.collection import CachedCollection
-from mongo_client_cache.core.local_database import DatabaseCache
+from mongo_client_cache.synchronous.collection import CachedCollection
+from mongo_client_cache.cache.local_database import DatabaseCache
 
 
 @pytest.fixture

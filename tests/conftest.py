@@ -1,6 +1,7 @@
 import decimal
 import logging
 import os
+import uuid
 from collections.abc import Callable
 from copy import copy
 from datetime import UTC, datetime
@@ -15,8 +16,7 @@ logger = logging.getLogger(__name__)
 
 logging.basicConfig(level=logging.DEBUG)
 logging.getLogger("faker.factory").setLevel("INFO")
-logging.getLogger("pymongo.ocsp_support").setLevel("INFO")
-logging.getLogger("pymongo.connectionpool").setLevel("INFO")
+logging.getLogger("pymongo").setLevel("INFO")
 
 
 @pytest.fixture(autouse=True)
@@ -53,8 +53,8 @@ def create_database_name() -> Callable[[str], str]:
 
 
 @pytest.fixture
-def random_document_id(faker: Faker) -> int:
-    return faker.pyint()
+def random_document_id() -> str:
+    return str(uuid.uuid4())
 
 
 @pytest.fixture

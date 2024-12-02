@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any, override
 
 import pymongo
 from bson.codec_options import TypeRegistry
+from pymongo.synchronous.database import Database
 from pymongo.typings import _DocumentType
 
 from mongo_client_cache.cache import DatabaseCache, ReservedAttributeError
@@ -28,7 +29,7 @@ class CacheMixin(MIXIN_BASE):
         connect: bool | None = None,
         type_registry: TypeRegistry | None = None,
         *,
-        cache_config: ClientSideCacheConfig | None = None,
+        cache_config: ClientSideCacheConfig,
         **kwargs: Any,
     ) -> None:
         """
@@ -38,32 +39,26 @@ class CacheMixin(MIXIN_BASE):
         super().__init__(
             host, port, document_class, tz_aware, connect, type_registry, **kwargs
         )
-        self._client_side_databases: dict[
-            DatabaseName, DatabaseCache
-        ] = {}  # Rename to `_cache_per_database`?
-        self._cache_config = cache_config or {}
+        self.__cache_config = cache_config
+        # Rename to `__cache_per_database`?
+        self.__client_side_databases: dict[DatabaseName, DatabaseCache] = {}
+    
+    @property
+    def _client_side_databases(self):
+        return self.__client_side_databases
+
+    # @_client_side_databases.setter
+    # def _client_side_databases(self, value):
+    #    self.__client_side_databases[]
+
+    @property
+    def _cache_config(self):
+        return self.__cache_config
 
     @override
-    def __getattr__(self, name: str) -> Any:
-        if name == "_client_side_databases":
-            return self._client_side_databases
-        if name == "_client_side_cache_config":
-            return self._client_side_cache_config
-
-        # NOTE: The error and the message are copied from
-        # the `MongoClient` to have a consistent interface.
-        if name.startswith("_"):
-            raise AttributeError(  # noqa: TRY003
-                f"MongoClient has no attribute {name!r}. To access the {name}"
-                f" database, use client[{name!r}]."
-            )
-
-        return self.__getitem__(name)
-
-    @override
-    def __getitem__(self, name: str) -> CachedDatabase:
-        if name in {"_client_side_databases", "_client_side_cache_config"}:
-            raise ReservedAttributeError(name)
+    def __getitem__(self, name: str) -> CachedDatabase | Database:
+        if name not in self._cache_config:
+            return Database(self, name)
         return CachedDatabase(self, name)
 
 

@@ -10,9 +10,8 @@ from bson import ObjectId
 from pymongo.database import Database
 from pymongo.errors import PyMongoError
 
-from mongo_client_cache.cache.misc import CommandCount
-from mongo_client_cache.core.exceptions import UnexpectedChangeOperationTypeError
-from mongo_client_cache.core.misc import CollectionConfig
+from mongo_client_cache.cache.exceptions import UnexpectedChangeOperationTypeError
+from mongo_client_cache.cache.misc import CollectionConfig, CommandCount
 from mongo_client_cache.logger import logger
 from mongo_client_cache.types import (
     BsonDict,

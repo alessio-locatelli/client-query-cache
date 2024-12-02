@@ -1,6 +1,6 @@
 import logging
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 
 import pytest
 
@@ -12,10 +12,10 @@ from mongo_client_cache.synchronous.mongo_client import CachedMongoClient
 logger = logging.getLogger(__name__)
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def mongo_client(
     persistent_collection_name: str, nonpersistent_collection_name: str
-) -> CachedMongoClient:
+) -> Iterator[CachedMongoClient]:
     client = CachedMongoClient(
         "mongodb+srv://"
         + f"{os.environ['REPLICA_MONGO_NAME']}:{os.environ['REPLICA_MONGO_PASSWORD']}"
@@ -39,7 +39,8 @@ def mongo_client(
         },
     )
     logger.info(f"{client = }, {client.nodes = }, {client.topology_description = }")
-    return client
+    yield client
+    client.close()
 
 
 @pytest.fixture

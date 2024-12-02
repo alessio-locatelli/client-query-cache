@@ -13,6 +13,6 @@ MongoDB client-side cache
 - Latest Python release support
 
 
-## Limitation
+## Limitations
 
 You cannot remove the `_id` field from the results by setting it to `0` in the projection. We use the `_id` field to manage cached documents.

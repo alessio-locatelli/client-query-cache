@@ -44,7 +44,7 @@ services:
       - mongo2
       - mongo3
     command: >
-      mongo --host mongo1:27017 --eval 
+      mongosh --host mongo1:27017 --eval 
       '
       db = (new Mongo("localhost:27017")).getDB("test");
       config = {
