@@ -10,6 +10,7 @@ from bson import ObjectId
 from pymongo.database import Database
 from pymongo.errors import PyMongoError
 
+from mongo_client_cache.cache.misc import CommandCount
 from mongo_client_cache.core.exceptions import UnexpectedChangeOperationTypeError
 from mongo_client_cache.core.misc import CollectionConfig
 from mongo_client_cache.logger import logger
@@ -136,27 +137,33 @@ class DatabaseCache:
         collection_name = change["ns"]["coll"]
         self.change_stream_documents[collection_name].append(change)
         self.estimated_document_count_per_collection[collection_name] += 1
-        self.document_count_per_collection[collection_name][]
+        self.document_count_per_collection[collection_name][str(CommandCount({}))] += 1
         # Invalidate all cached queries.
-        del self.
+        del self.query_to_ids_map[collection_name]
+        del self.distinct_per_collection[collection_name]
 
     def _update(self, change: ChangeStreamDocument) -> None:
         collection_name = change["ns"]["coll"]
         self.change_stream_documents[collection_name].append(change)
         # Invalidate all cached queries.
-        del self.cached_find[collection_name]
+        del self.query_to_ids_map[collection_name]
+        del self.distinct_per_collection[collection_name]
 
     def _replace(self, change: ChangeStreamDocument) -> None:
         collection_name = change["ns"]["coll"]
         self.change_stream_documents[collection_name].append(change)
         # Invalidate all cached queries.
-        del self.cached_find[collection_name]
+        del self.query_to_ids_map[collection_name]
+        del self.distinct_per_collection[collection_name]
 
     def _delete(self, change: ChangeStreamDocument) -> None:
         collection_name = change["ns"]["coll"]
         self.change_stream_documents[collection_name].append(change)
+        self.estimated_document_count_per_collection[collection_name] -= 1
+        self.document_count_per_collection[collection_name][str(CommandCount({}))] -= 1
         # Invalidate all cached queries.
-        del self.cached_find[collection_name]
+        del self.query_to_ids_map[collection_name]
+        del self.distinct_per_collection[collection_name]
 
     def _drop(self, change: ChangeStreamDocument) -> None:
         collection_name = change["ns"]["coll"]
@@ -164,11 +171,13 @@ class DatabaseCache:
         del self.local_collections[collection_name]
         del self.change_stream_documents[collection_name]
         # Invalidate all cached queries.
-        del self.cached_find[collection_name]
+        del self.query_to_ids_map[collection_name]
+        del self.distinct_per_collection[collection_name]
 
-    def _drop_database(self, change: ChangeStreamDocument) -> None:
+    def _drop_database(self) -> None:
         self.local_collections.clear()
-        self.cached_find.clear()
+        self.query_to_ids_map.clear()
+        self.distinct_per_collection.clear()
 
     def _rename(self, change: ChangeStreamDocument) -> None:
         # TODO: What is renamed? Collection? Database?  # noqa: TD003
@@ -187,7 +196,7 @@ class DatabaseCache:
         elif operation_type == "drop":
             self._drop(change)
         elif operation_type == "dropDatabase":
-            self._drop_database(change)
+            self._drop_database()
         elif operation_type == "rename":
             self._rename(change)
         else:
