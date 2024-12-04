@@ -32,6 +32,7 @@ def faker_seed() -> str | int:
     logger.info(f"Starting pytest session with `Faker.seed` value: {seed}")
     return seed
 
+
 @pytest.fixture(scope="session")
 def cached_database_name() -> str:
     return "db_one"

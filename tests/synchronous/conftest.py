@@ -1,12 +1,10 @@
 import logging
 import os
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 
 import pytest
 
 from mongo_client_cache.cache.misc import CollectionConfig
-from mongo_client_cache.synchronous.collection import CachedCollection
-from mongo_client_cache.synchronous.database import CachedDatabase
 from mongo_client_cache.synchronous.mongo_client import CachedMongoClient
 
 logger = logging.getLogger(__name__)
@@ -14,7 +12,9 @@ logger = logging.getLogger(__name__)
 
 @pytest.fixture(scope="module")
 def cached_mongo_client(
-    persistent_collection_name: str, nonpersistent_collection_name: str, cached_database_name: str
+    persistent_collection_name: str,
+    nonpersistent_collection_name: str,
+    cached_database_name: str,
 ) -> Iterator[CachedMongoClient]:
     client = CachedMongoClient(
         "mongodb+srv://"
@@ -41,4 +41,3 @@ def cached_mongo_client(
     logger.info(f"{client = }, {client.nodes = }, {client.topology_description = }")
     yield client
     client.close()
-
