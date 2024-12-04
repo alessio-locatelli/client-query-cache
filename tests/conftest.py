@@ -2,7 +2,6 @@ import decimal
 import logging
 import os
 import uuid
-from collections.abc import Callable
 from copy import copy
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -33,6 +32,10 @@ def faker_seed() -> str | int:
     logger.info(f"Starting pytest session with `Faker.seed` value: {seed}")
     return seed
 
+@pytest.fixture(scope="session")
+def cached_database_name() -> str:
+    return "db_one"
+
 
 @pytest.fixture(scope="session")
 def persistent_collection_name() -> str:
@@ -42,14 +45,6 @@ def persistent_collection_name() -> str:
 @pytest.fixture(scope="session")
 def nonpersistent_collection_name() -> str:
     return "nonpersistent_collection"
-
-
-@pytest.fixture
-def create_database_name() -> Callable[[str], str]:
-    def _create_database_name(database_name_suffix: str) -> str:
-        return f"db_{database_name_suffix}"
-
-    return _create_database_name
 
 
 @pytest.fixture
