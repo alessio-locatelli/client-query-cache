@@ -8,7 +8,7 @@ from bson.codec_options import TypeRegistry
 from pymongo.synchronous.database import Database
 from pymongo.typings import _DocumentType
 
-from mongo_client_cache.cache import DatabaseCache, ReservedAttributeError
+from mongo_client_cache.cache import DatabaseCache
 from mongo_client_cache.synchronous.database import CachedDatabase
 from mongo_client_cache.types import ClientSideCacheConfig, DatabaseName
 
@@ -41,7 +41,7 @@ class CacheMixin(MIXIN_BASE):
         )
         self.__cache_config = cache_config
         self.__client_side_databases: dict[DatabaseName, DatabaseCache] = {}
-    
+
     @property
     def _client_side_databases(self):
         return self.__client_side_databases

@@ -28,11 +28,11 @@ class CachedDatabase(database.Database):
             client, name, codec_options, read_preference, write_concern, read_concern
         )
         db_cache_config = client._cache_config[name]
-        self.client._client_side_databases[name] = DatabaseCache(
-            self, db_cache_config
-        )
-        self.__cached_collections = {collection_config.collection_name for collection_config in db_cache_config}
-    
+        self.client._client_side_databases[name] = DatabaseCache(self, db_cache_config)
+        self.__cached_collections = {
+            collection_config.collection_name for collection_config in db_cache_config
+        }
+
     @property
     def _cached_collections(self) -> set[str]:
         return self.__cached_collections

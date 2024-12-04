@@ -51,7 +51,9 @@ class DatabaseCache:
             collection_config.collection_name: {}
             for collection_config in config_per_collection
         }
-        self.estimated_document_count_per_collection: dict[CollectionName, dict[str, int]] = {
+        self.estimated_document_count_per_collection: dict[
+            CollectionName, dict[str, int]
+        ] = {
             collection_config.collection_name: {}
             for collection_config in config_per_collection
         }
@@ -59,7 +61,7 @@ class DatabaseCache:
             CollectionName, dict[str, list[BsonValue]]
         ] = {
             collection_config.collection_name: {}
-            for collection_config in config_per_collection            
+            for collection_config in config_per_collection
         }
 
         logger.debug(
@@ -68,13 +70,12 @@ class DatabaseCache:
         self.change_stream_documents: dict[str, list[ChangeStreamDocument]] = (
             defaultdict(list)
         )
-        
-        if len({
-                collection_config.collection_name
-                for collection_config in config_per_collection
-                if collection_config.watch_change_stream is False
-            }
-               ):
+
+        if {
+            collection_config.collection_name
+            for collection_config in config_per_collection
+            if collection_config.watch_change_stream is False
+        }:
             Thread(target=self.watch, daemon=True).start()
 
     def watch(self) -> None:

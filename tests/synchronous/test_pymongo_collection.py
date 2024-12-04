@@ -4,8 +4,8 @@ from typing import Any, cast
 import pytest
 from pymongo.errors import DuplicateKeyError
 
-from mongo_client_cache.synchronous.collection import CachedCollection
 from mongo_client_cache.cache.local_database import DatabaseCache
+from mongo_client_cache.synchronous.collection import CachedCollection
 
 
 @pytest.fixture
