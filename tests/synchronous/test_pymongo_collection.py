@@ -8,14 +8,17 @@ from mongo_client_cache.synchronous.collection import CachedCollection
 from mongo_client_cache.synchronous.mongo_client import CachedMongoClient
 
 
+DOCUMENT_COUNT = 42
+
+
 @pytest.fixture(autouse=True)
 def fill_collection(
     cached_collection: CachedCollection,
-    fake_document: dict[str, Any],
+    make_fake_document: Callable[..., dict[str, Any]],
 ) -> Iterator[None]:
-    cached_collection.insert_one(fake_document)
+    cached_collection.insert_many((make_fake_document() for _ in range(DOCUMENT_COUNT)))
     yield
-    cached_collection.delete_one({"_id": fake_document["_id"]})
+    cached_collection.delete_many({})
 
 
 @pytest.fixture
@@ -95,6 +98,11 @@ def test_find(
     assert cached_document == example_document
 
 
-def test_count_documents(cached_collection: CachedCollection) -> None:
+def test_count_documents(cached_collection: CachedCollection, make_fake_document: Callable[..., dict[str, Any]]) -> None:
     for _ in range(3):
-        assert cached_collection.count_documents({}) == 1
+        assert cached_collection.count_documents({}) == DOCUMENT_COUNT
+    cached_collection.insert_one(doc := make_fake_document())
+    assert cached_collection.count_documents({}) == DOCUMENT_COUNT + 1
+    cached_collection.delete_one({"_id": doc["_id"]})
+    assert cached_collection.count_documents({}) == DOCUMENT_COUNT
+

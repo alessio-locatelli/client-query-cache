@@ -4,6 +4,7 @@ from collections import defaultdict
 from collections.abc import Mapping
 from itertools import count
 from threading import Thread
+import time
 from typing import Any
 
 from bson import ObjectId
@@ -141,6 +142,7 @@ class DatabaseCache:
                     # last seen insert change without missing any events.
                     self.resume_token = stream.resume_token
                     continue
+            time.sleep(1)
 
     def _insert(self, change: ChangeStreamDocument) -> None:
         collection_name = change["ns"]["coll"]

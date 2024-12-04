@@ -1,3 +1,4 @@
+from collections.abc import Callable
 import decimal
 import logging
 import os
@@ -54,29 +55,32 @@ def random_document_id() -> str:
 
 
 @pytest.fixture
-def fake_document(faker: Faker, random_document_id: int) -> dict[str, Any]:
-    document = faker.pydict()
-    document["_id"] = random_document_id
+def make_fake_document(faker: Faker) -> Callable[..., dict[str, Any]]:
+    def _make_fake_document() -> dict[str, Any]:
+        document = faker.pydict()
+        document["_id"] = str(uuid.uuid4())
 
-    mongo_compatible_document: dict[str, Any] = {}
-    for k, v in document.items():
-        if isinstance(v, datetime):
-            # MongoDB rounds microseconds to the nearest millisecond.
-            # If we want to get back the same object, we must round
-            # all `datetime` instances before storing them in MongoDB.
-            mongo_compatible_document[k] = copy(v).replace(microsecond=0)
-        elif isinstance(v, Decimal):
-            # `Decimal` must be converted before storing as BSON.
-            # Otherwise you will get:
-            # ```
-            # bson.errors.InvalidDocument: cannot encode object [...]
-            # [...] of type: <class 'decimal.Decimal'>
-            # ````
-            try:
-                mongo_compatible_document[k] = Decimal128(v)
-            except decimal.Inexact:
-                continue
-        else:
-            mongo_compatible_document[k] = v
+        mongo_compatible_document: dict[str, Any] = {}
+        for k, v in document.items():
+            if isinstance(v, datetime):
+                # MongoDB rounds microseconds to the nearest millisecond.
+                # If we want to get back the same object, we must round
+                # all `datetime` instances before storing them in MongoDB.
+                mongo_compatible_document[k] = copy(v).replace(microsecond=0)
+            elif isinstance(v, Decimal):
+                # `Decimal` must be converted before storing as BSON.
+                # Otherwise you will get:
+                # ```
+                # bson.errors.InvalidDocument: cannot encode object [...]
+                # [...] of type: <class 'decimal.Decimal'>
+                # ````
+                try:
+                    mongo_compatible_document[k] = Decimal128(v)
+                except decimal.Inexact:
+                    continue
+            else:
+                mongo_compatible_document[k] = v
 
-    return mongo_compatible_document
+        return mongo_compatible_document
+    
+    return _make_fake_document
