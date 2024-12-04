@@ -8,6 +8,7 @@ import pytest
 
 from mongo_client_cache import CachedMongoClient
 from mongo_client_cache.cache.exceptions import ReservedAttributeError
+from mongo_client_cache.synchronous.collection import CachedCollection
 from mongo_client_cache.synchronous.database import CachedDatabase
 
 
@@ -30,7 +31,6 @@ def client_with_cached_database_without_cached_collections(mongo_host: str) -> I
 
 
 def test_cached_mongo_client_without_cache_config(client_without_cache_config: MongoClient) -> None:
-    # MongoClient` can be used without cache config.
     for database, collection in (
         (client_without_cache_config.db_test, client_without_cache_config.db_test.test),
         (client_without_cache_config["db_test"], client_without_cache_config["db_test"]["test"]),
@@ -41,7 +41,7 @@ def test_cached_mongo_client_without_cache_config(client_without_cache_config: M
         assert collection.count_documents({}) == 0
 
 
-def test_cached_mongo_client_without_cache_config(client_with_cached_database_without_cached_collections: MongoClient) -> None:
+def test_cached_mongo_client_with_cache_config_no_cached_collections(client_with_cached_database_without_cached_collections: MongoClient) -> None:
     client = client_with_cached_database_without_cached_collections
     for database, collection in (
         (client.db_test, client.db_test.test),
@@ -52,3 +52,11 @@ def test_cached_mongo_client_without_cache_config(client_with_cached_database_wi
         assert isinstance(collection, pymongo.synchronous.collection.Collection)
         assert collection.count_documents({}) == 0
 
+
+def test_cached_mongo_client(cached_mongo_client: MongoClient, persistent_collection_name: str) -> None:
+    assert isinstance(cached_mongo_client.db_one, CachedDatabase)
+    assert cached_mongo_client.db_one.command("ping")["ok"] == 1
+    collection = cached_mongo_client.db_one[persistent_collection_name]
+    assert isinstance(collection, CachedCollection)
+    assert collection.count_documents({}) == 0
+   

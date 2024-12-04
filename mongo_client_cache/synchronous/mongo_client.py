@@ -40,16 +40,11 @@ class CacheMixin(MIXIN_BASE):
             host, port, document_class, tz_aware, connect, type_registry, **kwargs
         )
         self.__cache_config = cache_config
-        # Rename to `__cache_per_database`?
         self.__client_side_databases: dict[DatabaseName, DatabaseCache] = {}
     
     @property
     def _client_side_databases(self):
         return self.__client_side_databases
-
-    # @_client_side_databases.setter
-    # def _client_side_databases(self, value):
-    #    self.__client_side_databases[]
 
     @property
     def _cache_config(self):

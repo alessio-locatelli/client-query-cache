@@ -47,11 +47,20 @@ class DatabaseCache:
 
         self.local_collections: dict[CollectionName, dict[ObjectId, BsonDict]] = {}
         self.query_to_ids_map: dict[CollectionName, dict[str, BsonDict]] = {}
-        self.document_count_per_collection: dict[CollectionName, dict[str, Any]] = {}
-        self.estimated_document_count_per_collection: dict[CollectionName, int] = {}
+        self.document_count_per_collection: dict[CollectionName, dict[str, int]] = {
+            collection_config.collection_name: {}
+            for collection_config in config_per_collection
+        }
+        self.estimated_document_count_per_collection: dict[CollectionName, dict[str, int]] = {
+            collection_config.collection_name: {}
+            for collection_config in config_per_collection
+        }
         self.distinct_per_collection: dict[
             CollectionName, dict[str, list[BsonValue]]
-        ] = {}
+        ] = {
+            collection_config.collection_name: {}
+            for collection_config in config_per_collection            
+        }
 
         logger.debug(
             f"Connected to the '{database.name}' database. {self.static_collections_names=}"

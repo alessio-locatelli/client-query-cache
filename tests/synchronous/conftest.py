@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 @pytest.fixture(scope="module")
-def mongo_client(
+def cached_mongo_client(
     persistent_collection_name: str, nonpersistent_collection_name: str
 ) -> Iterator[CachedMongoClient]:
     client = CachedMongoClient(

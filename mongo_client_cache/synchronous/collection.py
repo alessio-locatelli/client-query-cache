@@ -335,8 +335,7 @@ class CachedCollection(Collection):
         comment: Any | None = None,
         **kwargs: Any,
     ) -> int:
-        db = self._Collection__database
-        cache = db._Database__client._client_side_databases[db.name]
+        cache = self.database.client._client_side_databases[self.database.name]
         query = str(
             CommandCount(
                 filter,
