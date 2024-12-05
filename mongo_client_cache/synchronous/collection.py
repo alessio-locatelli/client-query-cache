@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, MutableMapping, Sequence
+from datetime import UTC, datetime
 from typing import Any, override
 
 from bson.raw_bson import RawBSONDocument
@@ -381,19 +382,20 @@ class CachedCollection(Collection):
         except KeyError:
             document_count = super().count_documents(filter, session, comment, **kwargs)
             cache.document_count_per_collection[self.name][query] = document_count
+            cache.document_count_per_collection[self.name]["update_datetime"] = datetime.now(UTC).replace(tzinfo=None)
             return document_count
 
     @override
     def estimated_document_count(
         self, comment: Any | None = None, **kwargs: Any
     ) -> int:
-        db = self._Collection__database
-        cache = db._Database__client._client_side_databases[db.name]
+        cache = self.database.client._client_side_databases[self.database.name]
         try:
             return cache.estimated_document_count_per_collection[self.name]
         except KeyError:
             document_count = super().estimated_document_count(comment, **kwargs)
             cache.estimated_document_count_per_collection[self.name] = document_count
+            cache.estimated_document_count_per_collection[self.name]["update_datetime"] = datetime.now(UTC).replace(tzinfo=None)            
             return document_count
 
     @override
@@ -405,8 +407,7 @@ class CachedCollection(Collection):
         comment: Any | None = None,
         **kwargs: Any,
     ) -> list:
-        db = self._Collection__database
-        cache = db._Database__client._client_side_databases[db.name]
+        cache = self.database.client._client_side_databases[self.database.name]
         query = str(CommandDistinct(filter, key=key))
         try:
             return cache.distinct_per_collection[self.name][query]

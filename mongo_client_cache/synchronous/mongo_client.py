@@ -55,6 +55,11 @@ class CacheMixin(MIXIN_BASE):
         if name not in self._cache_config:
             return Database(self, name)
         return CachedDatabase(self, name)
-
+    
+    @override
+    def close(self):
+        for db in self._client_side_databases.values():
+            db.stop_watching = True
+        super().close()
 
 class CachedMongoClient(CacheMixin, pymongo.MongoClient): ...
