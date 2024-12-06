@@ -26,7 +26,7 @@ def client_without_cache_config(mongo_host: str) -> Iterator[MongoClient]:
 def client_with_cached_database_without_cached_collections(
     mongo_host: str,
 ) -> Iterator[MongoClient]:
-    with CachedMongoClient(mongo_host, cache_config={"db_test": []}) as client:
+    with CachedMongoClient(mongo_host, cache_config={"db_test": {}}) as client:
         yield client
 
 

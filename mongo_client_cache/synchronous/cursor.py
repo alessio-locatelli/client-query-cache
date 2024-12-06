@@ -9,10 +9,10 @@ from pymongo.cursor import Cursor
 from pymongo.cursor_shared import _Hint, _Sort
 from pymongo.typings import _CollationIn
 
-from mongo_client_cache._types import BsonDict
 from mongo_client_cache.cache import CommandFind
 
 if TYPE_CHECKING:
+    from mongo_client_cache._types import BsonDict
     from mongo_client_cache.synchronous.collection import CachedCollection
 
 
@@ -87,11 +87,6 @@ class CachedCursor(Cursor):
 
     @override
     def next(self) -> BsonDict:
-        collection = self._Cursor__collection  # type: ignore[attr-defined]
-        db = collection._Collection__database
-        client = db._Database__client
-        cache = client._client_side_databases[db.name]
-
         if self._cached_documents is None:
             if self._Cursor__empty:  # type: ignore[attr-defined]
                 self._iterated_all_query_results = True

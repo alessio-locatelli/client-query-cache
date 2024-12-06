@@ -23,3 +23,10 @@ slotscheck = "*"
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.slotscheck]
+exclude-classes = """
+(
+    mongo_client_cache.synchronous.mongo_client:CacheMixin
+)
+"""

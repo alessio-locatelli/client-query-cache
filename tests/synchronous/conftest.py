@@ -4,7 +4,7 @@ from collections.abc import Iterator
 
 import pytest
 
-from mongo_client_cache.cache.misc import CollectionConfig
+from mongo_client_cache import CollectionConfig
 from mongo_client_cache.synchronous.mongo_client import CachedMongoClient
 
 logger = logging.getLogger(__name__)
@@ -21,21 +21,13 @@ def cached_mongo_client(
         + f"{os.environ['REPLICA_MONGO_NAME']}:{os.environ['REPLICA_MONGO_PASSWORD']}"
         + f"@{os.environ['REPLICA_MONGO_HOST']}/?retryWrites=true&w=majority",
         cache_config={
-            cached_database_name: [
-                CollectionConfig(
-                    collection_name=persistent_collection_name,
-                    watch_change_stream=False,
+            cached_database_name: {
+                persistent_collection_name: CollectionConfig(watch_change_stream=False),
+                nonpersistent_collection_name: CollectionConfig(
+                    watch_change_stream=True
                 ),
-                CollectionConfig(
-                    collection_name=nonpersistent_collection_name,
-                    watch_change_stream=True,
-                ),
-            ],
-            "db_two": [
-                CollectionConfig(
-                    collection_name=persistent_collection_name,
-                )
-            ],
+            },
+            "db_two": {persistent_collection_name: CollectionConfig()},
         },
     )
     logger.info(f"{client = }, {client.nodes = }, {client.topology_description = }")

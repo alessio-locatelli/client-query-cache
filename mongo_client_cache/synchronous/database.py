@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable
-from functools import partial
-from typing import cast, override
+from typing import override
 
 import bson
 from pymongo import MongoClient, WriteConcern, database
@@ -13,7 +11,6 @@ from pymongo.typings import _DocumentType, _DocumentTypeArg
 
 from mongo_client_cache._types import CollectionName
 from mongo_client_cache.synchronous.collection import CachedCollection
-from mongo_client_cache.synchronous.mongo_client import CachedMongoClient
 
 
 class CachedDatabase(database.Database):
@@ -30,27 +27,22 @@ class CachedDatabase(database.Database):
         super().__init__(
             client, name, codec_options, read_preference, write_concern, read_concern
         )
-        self.__cached_collections: dict[
-            CollectionName, Callable[..., CachedCollection]
-        ] = {
-            collection_config.collection_name: partial(
-                CachedCollection,
-                self,
-                name,
-                watch_change_stream=collection_config.watch_change_stream,
-            )
-            for collection_config in cast(CachedMongoClient, client)._cache_config[name]
-        }
+        self.__cached_collections: dict[CollectionName, CachedCollection] = {}
 
     @property
-    def _cached_collections(
-        self,
-    ) -> dict[CollectionName, Callable[..., CachedCollection]]:
+    def _cached_collections(self) -> dict[CollectionName, CachedCollection]:
         return self.__cached_collections
 
     @override
     def __getitem__(self, name: str) -> CachedCollection | Collection:
         try:
-            return self._cached_collections[name]()
+            self._cached_collections[name] = CachedCollection(
+                self,
+                name,
+                watch_change_stream=self.client._cache_config[self.name][
+                    name
+                ].watch_change_stream,
+            )
+            return self._cached_collections[name]
         except KeyError:
             return Collection(self, name)

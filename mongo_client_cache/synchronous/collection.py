@@ -57,7 +57,7 @@ class CachedCollection(Collection):
             read_concern,
             session,
         )
-        self.__cache = CollCache(watch_change_stream=watch_change_stream)
+        self.__cache = CollCache(self, watch_change_stream=watch_change_stream)
 
     @property
     def _cache(self) -> CollCache:
@@ -381,7 +381,7 @@ class CachedCollection(Collection):
         except KeyError:
             distinct_values = super().distinct(key, filter, session, comment, **kwargs)
             cache.distinct_per_collection[self.name][query] = distinct_values
-            return distinct_values
+            return distinct_values  # type: ignore[unreachable]
 
     @override
     def drop(

@@ -1,18 +1,18 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Any, cast, override
+from typing import TYPE_CHECKING, Any, override
 
 import pymongo
 from bson.codec_options import TypeRegistry
 from pymongo.synchronous.database import Database
 from pymongo.typings import _DocumentType
 
-from mongo_client_cache._types import ClientSideCacheConfig, DatabaseName
-from mongo_client_cache.synchronous.collection import CachedCollection
 from mongo_client_cache.synchronous.database import CachedDatabase
 
 if TYPE_CHECKING:
+    from mongo_client_cache._types import ClientSideCacheConfig, DatabaseName
+
     MIXIN_BASE = pymongo.MongoClient
 else:
     MIXIN_BASE = object
@@ -49,7 +49,7 @@ class CacheMixin(MIXIN_BASE):
         return self.__cached_databases
 
     @property
-    def _cache_config(self):
+    def _cache_config(self) -> ClientSideCacheConfig:
         return self.__cache_config
 
     @override
@@ -60,10 +60,10 @@ class CacheMixin(MIXIN_BASE):
             return Database(self, name)
 
     @override
-    def close(self):
+    def close(self) -> None:
         for db in self._cached_databases.values():
-            for coll in db._cached_collections:
-                cast(CachedCollection, coll)._cache.stop_watching = True
+            for coll in db._cached_collections.values():
+                coll._cache.stop_watching = True  # type: ignore[attr-defined]
         super().close()
 
 

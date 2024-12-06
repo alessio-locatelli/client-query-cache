@@ -2,19 +2,24 @@ from collections.abc import Callable, Iterator
 from typing import Any, cast
 
 import pytest
+from faker import Faker
 
 from mongo_client_cache.synchronous.collection import CachedCollection
 from mongo_client_cache.synchronous.mongo_client import CachedMongoClient
 
-DOCUMENT_COUNT = 42
+@pytest.fixture
+def document_count(faker: Faker) -> int:
+    # return faker.pyint(min_value=0, max_value=42)
+    return 3
 
 
 @pytest.fixture(autouse=True)
 def fill_collection(
     cached_collection: CachedCollection,
     make_fake_document: Callable[..., dict[str, Any]],
+    document_count: int,
 ) -> Iterator[None]:
-    cached_collection.insert_many(make_fake_document() for _ in range(DOCUMENT_COUNT))
+    cached_collection.insert_many(make_fake_document() for _ in range(document_count))
     yield
     cached_collection.delete_many({})
 
@@ -43,10 +48,11 @@ def test_find() -> None: ...
 def test_count_documents(
     cached_collection: CachedCollection,
     make_fake_document: Callable[..., dict[str, Any]],
+    document_count: int,
 ) -> None:
     for _ in range(3):
-        assert cached_collection.count_documents({}) == DOCUMENT_COUNT
+        assert cached_collection.count_documents({}) == document_count
     cached_collection.insert_one(doc := make_fake_document())
-    assert cached_collection.count_documents({}) == DOCUMENT_COUNT + 1
+    assert cached_collection.count_documents({}) == document_count + 1
     cached_collection.delete_one({"_id": doc["_id"]})
-    assert cached_collection.count_documents({}) == DOCUMENT_COUNT
+    assert cached_collection.count_documents({}) == document_count

@@ -47,20 +47,7 @@ class CommandDistinct:
     key: str = field(
         kw_only=True  # "TypeError: non-default argument 'key' follows default argument".
     )
+    filter: Mapping[str, Any] | None = None
 
     def __str__(self) -> str:
         return f"{self.filter},{self.key}"
-
-
-@dataclass(slots=True)
-class CollectionConfig:
-    """
-    :param watch_change_stream: Use `False` if you are not adding or modifying documents in this collection.
-    """  # noqa: E501
-
-    collection_name: str
-    watch_change_stream: bool = True
-
-    def __post_init__(self) -> None:
-        assert self.collection_name, "Collection name must be a non-empty string."
-        assert isinstance(self.watch_change_stream, bool)
