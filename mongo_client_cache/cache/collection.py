@@ -15,7 +15,7 @@ from mongo_client_cache._types import (
     JsonDict,
 )
 from mongo_client_cache.cache.exceptions import UnexpectedChangeOperationTypeError
-from mongo_client_cache.cache.misc import CommandCount
+from mongo_client_cache.cache.misc import command_count_empty_filter
 from mongo_client_cache.logger import logger
 
 
@@ -127,7 +127,7 @@ class CollCache:
         ):
             logger.debug(f"{change['wallTime']=}, {self.client_side_refresh_time=}")
             self.estimated_document_count += 1
-            self.document_count[str(CommandCount({}))] += 1
+            self.document_count[command_count_empty_filter] += 1
         # Invalidate all cached queries.
         self.query_to_ids_map.clear()
         self.distinct.clear()
@@ -145,7 +145,7 @@ class CollCache:
             pass
         if self.estimated_document_count is not None:
             self.estimated_document_count -= 1
-        self.document_count[str(CommandCount({}))] -= 1
+        self.document_count[command_count_empty_filter] -= 1
         # Invalidate all cached queries.
         self.query_to_ids_map.clear()
         self.distinct.clear()
