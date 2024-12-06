@@ -1,8 +1,8 @@
-from collections.abc import Callable
 import decimal
 import logging
 import os
 import uuid
+from collections.abc import Callable
 from copy import copy
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -82,5 +82,5 @@ def make_fake_document(faker: Faker) -> Callable[..., dict[str, Any]]:
                 mongo_compatible_document[k] = v
 
         return mongo_compatible_document
-    
+
     return _make_fake_document

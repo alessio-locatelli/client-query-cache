@@ -4,10 +4,13 @@ from collections.abc import Iterable, Mapping, MutableMapping, Sequence
 from datetime import UTC, datetime
 from typing import Any, override
 
+from bson.codec_options import CodecOptions
 from bson.raw_bson import RawBSONDocument
-from bson.typings import _DocumentType
-from pymongo import ReturnDocument
+from bson.typings import _DocumentType, _DocumentTypeArg
+from pymongo import ReturnDocument, WriteConcern
 from pymongo.operations import _IndexKeyHint, _IndexList
+from pymongo.read_concern import ReadConcern
+from pymongo.read_preferences import _ServerMode
 from pymongo.results import (
     BulkWriteResult,
     DeleteResult,
@@ -17,18 +20,49 @@ from pymongo.results import (
 )
 from pymongo.synchronous.client_session import ClientSession
 from pymongo.synchronous.collection import Collection, _WriteOp
+from pymongo.synchronous.database import Database
 from pymongo.typings import _CollationIn, _Pipeline
 
+from mongo_client_cache._types import BsonDict
 from mongo_client_cache.cache import (
     CannotEditImmutableCollectionError,
     CommandCount,
     CommandDistinct,
 )
+from mongo_client_cache.cache.collection import CollCache
 from mongo_client_cache.synchronous.cursor import CachedCursor
-from mongo_client_cache.types import BsonDict
 
 
 class CachedCollection(Collection):
+    def __init__(
+        self,
+        database: Database[_DocumentType],
+        name: str,
+        *,
+        watch_change_stream: bool,
+        create: bool | None = False,
+        codec_options: CodecOptions[_DocumentTypeArg] | None = None,
+        read_preference: _ServerMode | None = None,
+        write_concern: WriteConcern | None = None,
+        read_concern: ReadConcern | None = None,
+        session: ClientSession | None = None,
+    ) -> None:
+        super().__init__(
+            database,
+            name,
+            create,
+            codec_options,
+            read_preference,
+            write_concern,
+            read_concern,
+            session,
+        )
+        self.__cache = CollCache(watch_change_stream=watch_change_stream)
+
+    @property
+    def _cache(self) -> CollCache:
+        return self.__cache
+
     @override
     def bulk_write(
         self,
@@ -39,14 +73,8 @@ class CachedCollection(Collection):
         comment: Any | None = None,
         let: Mapping | None = None,
     ) -> BulkWriteResult:
-        if __debug__:
-            if (
-                self.name
-                in self.database.client._client_side_databases[
-                    self.database.name
-                ].static_collections_names
-            ):
-                raise CannotEditImmutableCollectionError(self.name)
+        if __debug__ and not self._cache.watch_change_stream:
+            raise CannotEditImmutableCollectionError(self.name)
 
         return super().bulk_write(
             requests, ordered, bypass_document_validation, session, comment, let
@@ -60,14 +88,8 @@ class CachedCollection(Collection):
         session: ClientSession | None = None,
         comment: Any | None = None,
     ) -> InsertOneResult:
-        if __debug__:
-            if (
-                self.name
-                in self.database.client._client_side_databases[
-                    self.database.name
-                ].static_collections_names
-            ):
-                raise CannotEditImmutableCollectionError(self.name)
+        if __debug__ and not self._cache.watch_change_stream:
+            raise CannotEditImmutableCollectionError(self.name)
 
         return super().insert_one(
             document, bypass_document_validation, session, comment
@@ -82,14 +104,8 @@ class CachedCollection(Collection):
         session: ClientSession | None = None,
         comment: Any | None = None,
     ) -> InsertManyResult:
-        if __debug__:
-            if (
-                self.name
-                in self.database.client._client_side_databases[
-                    self.database.name
-                ].static_collections_names
-            ):
-                raise CannotEditImmutableCollectionError(self.name)
+        if __debug__ and not self._cache.watch_change_stream:
+            raise CannotEditImmutableCollectionError(self.name)
 
         return super().insert_many(
             documents, ordered, bypass_document_validation, session, comment
@@ -108,14 +124,8 @@ class CachedCollection(Collection):
         let: Mapping[str, Any] | None = None,
         comment: Any | None = None,
     ) -> UpdateResult:
-        if __debug__:
-            if (
-                self.name
-                in self.database.client._client_side_databases[
-                    self.database.name
-                ].static_collections_names
-            ):
-                raise CannotEditImmutableCollectionError(self.name)
+        if __debug__ and not self._cache.watch_change_stream:
+            raise CannotEditImmutableCollectionError(self.name)
 
         return super().replace_one(
             filter,
@@ -143,14 +153,8 @@ class CachedCollection(Collection):
         let: Mapping[str, Any] | None = None,
         comment: Any | None = None,
     ) -> UpdateResult:
-        if __debug__:
-            if (
-                self.name
-                in self.database.client._client_side_databases[
-                    self.database.name
-                ].static_collections_names
-            ):
-                raise CannotEditImmutableCollectionError(self.name)
+        if __debug__ and not self._cache.watch_change_stream:
+            raise CannotEditImmutableCollectionError(self.name)
 
         return super().update_one(
             filter,
@@ -179,14 +183,8 @@ class CachedCollection(Collection):
         let: Mapping[str, Any] | None = None,
         comment: Any | None = None,
     ) -> UpdateResult:
-        if __debug__:
-            if (
-                self.name
-                in self.database.client._client_side_databases[
-                    self.database.name
-                ].static_collections_names
-            ):
-                raise CannotEditImmutableCollectionError(self.name)
+        if __debug__ and not self._cache.watch_change_stream:
+            raise CannotEditImmutableCollectionError(self.name)
 
         return super().update_many(
             filter,
@@ -211,14 +209,8 @@ class CachedCollection(Collection):
         let: Mapping[str, Any] | None = None,
         comment: Any | None = None,
     ) -> DeleteResult:
-        if __debug__:
-            if (
-                self.name
-                in self.database.client._client_side_databases[
-                    self.database.name
-                ].static_collections_names
-            ):
-                raise CannotEditImmutableCollectionError(self.name)
+        if __debug__ and not self._cache.watch_change_stream:
+            raise CannotEditImmutableCollectionError(self.name)
 
         return super().delete_one(filter, collation, hint, session, let, comment)
 
@@ -232,14 +224,8 @@ class CachedCollection(Collection):
         let: Mapping[str, Any] | None = None,
         comment: Any | None = None,
     ) -> DeleteResult:
-        if __debug__:
-            if (
-                self.name
-                in self.database.client._client_side_databases[
-                    self.database.name
-                ].static_collections_names
-            ):
-                raise CannotEditImmutableCollectionError(self.name)
+        if __debug__ and not self._cache.watch_change_stream:
+            raise CannotEditImmutableCollectionError(self.name)
 
         return super().delete_many(filter, collation, hint, session, let, comment)
 
@@ -270,14 +256,8 @@ class CachedCollection(Collection):
         comment: Any | None = None,
         **kwargs: Any,
     ) -> Mapping[str, Any]:
-        if __debug__:
-            if (
-                self.name
-                in self.database.client._client_side_databases[
-                    self.database.name
-                ].static_collections_names
-            ):
-                raise CannotEditImmutableCollectionError(self.name)
+        if __debug__ and not self._cache.watch_change_stream:
+            raise CannotEditImmutableCollectionError(self.name)
 
         return super().find_one_and_delete(
             filter, projection, sort, hint, session, let, comment, **kwargs
@@ -298,14 +278,8 @@ class CachedCollection(Collection):
         comment: Any | None = None,
         **kwargs: Any,
     ) -> Mapping[str, Any]:
-        if __debug__:
-            if (
-                self.name
-                in self.database.client._client_side_databases[
-                    self.database.name
-                ].static_collections_names
-            ):
-                raise CannotEditImmutableCollectionError(self.name)
+        if __debug__ and not self._cache.watch_change_stream:
+            raise CannotEditImmutableCollectionError(self.name)
 
         return super().find_one_and_replace(
             filter,
@@ -337,14 +311,8 @@ class CachedCollection(Collection):
         comment: Any | None = None,
         **kwargs: Any,
     ) -> Mapping[str, Any]:
-        if __debug__:
-            if (
-                self.name
-                in self.database.client._client_side_databases[
-                    self.database.name
-                ].static_collections_names
-            ):
-                raise CannotEditImmutableCollectionError(self.name)
+        if __debug__ and not self._cache.watch_change_stream:
+            raise CannotEditImmutableCollectionError(self.name)
 
         return super().find_one_and_update(
             filter,
@@ -369,7 +337,6 @@ class CachedCollection(Collection):
         comment: Any | None = None,
         **kwargs: Any,
     ) -> int:
-        cache = self.database.client._client_side_databases[self.database.name]
         query = str(
             CommandCount(
                 filter,
@@ -378,25 +345,25 @@ class CachedCollection(Collection):
             )
         )
         try:
-            return cache.document_count_per_collection[self.name][query]
+            return self._cache.document_count[query]
         except KeyError:
             document_count = super().count_documents(filter, session, comment, **kwargs)
-            cache.document_count_per_collection[self.name][query] = document_count
-            cache.document_count_per_collection[self.name]["update_datetime"] = datetime.now(UTC).replace(tzinfo=None)
+            self._cache.document_count[query] = document_count
+            self._cache.client_side_refresh_time = datetime.now(UTC).replace(
+                tzinfo=None
+            )
             return document_count
 
     @override
     def estimated_document_count(
         self, comment: Any | None = None, **kwargs: Any
     ) -> int:
-        cache = self.database.client._client_side_databases[self.database.name]
-        try:
-            return cache.estimated_document_count_per_collection[self.name]
-        except KeyError:
-            document_count = super().estimated_document_count(comment, **kwargs)
-            cache.estimated_document_count_per_collection[self.name] = document_count
-            cache.estimated_document_count_per_collection[self.name]["update_datetime"] = datetime.now(UTC).replace(tzinfo=None)            
-            return document_count
+        if self._cache.estimated_document_count is not None:
+            return self._cache.estimated_document_count
+        document_count = super().estimated_document_count(comment, **kwargs)
+        self._cache.estimated_document_count = document_count
+        self._cache.client_side_refresh_time = datetime.now(UTC).replace(tzinfo=None)
+        return document_count
 
     @override
     def distinct(
@@ -423,14 +390,8 @@ class CachedCollection(Collection):
         comment: Any | None = None,
         encrypted_fields: Mapping[str, Any] | None = None,
     ) -> None:
-        if __debug__:
-            if (
-                self.name
-                in self.database.client._client_side_databases[
-                    self.database.name
-                ].static_collections_names
-            ):
-                raise CannotEditImmutableCollectionError(self.name)
+        if __debug__ and not self._cache.watch_change_stream:
+            raise CannotEditImmutableCollectionError(self.name)
 
         return super().drop(session, comment, encrypted_fields)
 
@@ -442,13 +403,7 @@ class CachedCollection(Collection):
         comment: Any | None = None,
         **kwargs: Any,
     ) -> MutableMapping[str, Any]:
-        if __debug__:
-            if (
-                self.name
-                in self.database.client._client_side_databases[
-                    self.database.name
-                ].static_collections_names
-            ):
-                raise CannotEditImmutableCollectionError(self.name)
+        if __debug__ and self._cache.watch_change_stream:
+            raise CannotEditImmutableCollectionError(self.name)
 
         return super().rename(new_name, session, comment, **kwargs)

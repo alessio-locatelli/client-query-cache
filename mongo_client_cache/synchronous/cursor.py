@@ -9,8 +9,8 @@ from pymongo.cursor import Cursor
 from pymongo.cursor_shared import _Hint, _Sort
 from pymongo.typings import _CollationIn
 
+from mongo_client_cache._types import BsonDict
 from mongo_client_cache.cache import CommandFind
-from mongo_client_cache.types import BsonDict
 
 if TYPE_CHECKING:
     from mongo_client_cache.synchronous.collection import CachedCollection

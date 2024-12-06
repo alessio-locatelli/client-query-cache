@@ -55,8 +55,7 @@ class CommandDistinct:
 @dataclass(slots=True)
 class CollectionConfig:
     """
-    :param watch_change_stream: use `False` if you are not adding or modifying documents in this collection
-    :param enable_client_side_cache: use `False` to exclude the collection from caching
+    :param watch_change_stream: Use `False` if you are not adding or modifying documents in this collection.
     """  # noqa: E501
 
     collection_name: str
