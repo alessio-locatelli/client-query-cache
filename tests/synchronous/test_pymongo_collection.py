@@ -49,10 +49,15 @@ def test_count_documents(
     cached_collection: CachedCollection,
     make_fake_document: Callable[..., dict[str, Any]],
     document_count: int,
+    faker: Faker
 ) -> None:
-    for _ in range(3):
+    for _ in range(faker.pyint(min_value=1, max_value=10)):
         assert cached_collection.count_documents({}) == document_count
+
     cached_collection.insert_one(doc := make_fake_document())
-    assert cached_collection.count_documents({}) == document_count + 1
+    for _ in range(faker.pyint(min_value=1, max_value=10)):
+        assert cached_collection.count_documents({}) == document_count + 1
+
     cached_collection.delete_one({"_id": doc["_id"]})
-    assert cached_collection.count_documents({}) == document_count
+    for _ in range(faker.pyint(min_value=1, max_value=10)):
+        assert cached_collection.count_documents({}) == document_count

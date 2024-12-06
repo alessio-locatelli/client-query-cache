@@ -1,6 +1,6 @@
 from .collection import CollCache
 from .exceptions import CannotEditImmutableCollectionError
-from .misc import CommandCount, CommandDistinct, CommandFind
+from .misc import CommandCount, CommandDistinct, CommandFind, command_count_empty_filter
 
 __all__ = [
     "CannotEditImmutableCollectionError",
@@ -8,4 +8,5 @@ __all__ = [
     "CommandCount",
     "CommandDistinct",
     "CommandFind",
+    "command_count_empty_filter"
 ]

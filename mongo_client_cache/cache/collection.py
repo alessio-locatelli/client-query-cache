@@ -44,7 +44,7 @@ class CollCache:
         self.estimated_document_count: int | None = None
         self.distinct: dict[str, list[BsonValue]] = {}
         self.documents: dict[ObjectId, BsonDict] = {}
-        self.client_side_refresh_time: datetime = datetime.now(UTC).replace(tzinfo=None)
+        self.client_side_refresh_time: datetime = datetime.now(UTC).replace(tzinfo=None, microsecond=0)
 
         self.watch_change_stream = watch_change_stream
         if watch_change_stream:
@@ -99,7 +99,7 @@ class CollCache:
                 }
             },
         ]
-        logger.info(f'Watching Change Stream for "{self._collection.name}" collection.')
+        logger.debug(f'Watching Change Stream for "{self._collection.name}" collection.')
         with self._collection.watch(
             pipeline, resume_after=self._resume_token
         ) as stream:
@@ -123,10 +123,9 @@ class CollCache:
             change["wallTime"] > self.client_side_refresh_time
             and self.estimated_document_count is not None
         ):
+            logger.debug(f"{change['wallTime']=}, {self.client_side_refresh_time=}")
             self.estimated_document_count += 1
             self.document_count[str(CommandCount({}))] += 1
-        elif __debug__:
-            logger.debug(f"{change['wallTime']=} < {self.client_side_refresh_time=}")
         # Invalidate all cached queries.
         self.query_to_ids_map.clear()
         self.distinct.clear()

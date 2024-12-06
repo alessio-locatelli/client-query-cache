@@ -28,6 +28,7 @@ from mongo_client_cache.cache import (
     CannotEditImmutableCollectionError,
     CommandCount,
     CommandDistinct,
+    command_count_empty_filter
 )
 from mongo_client_cache.cache.collection import CollCache
 from mongo_client_cache.synchronous.cursor import CachedCursor
@@ -90,10 +91,21 @@ class CachedCollection(Collection):
     ) -> InsertOneResult:
         if __debug__ and not self._cache.watch_change_stream:
             raise CannotEditImmutableCollectionError(self.name)
-
-        return super().insert_one(
+        
+        refresh_time = datetime.now(UTC).replace(tzinfo=None, microsecond=0)
+        insert_one_result = super().insert_one(
             document, bypass_document_validation, session, comment
         )
+        document_count_query_all = str(CommandCount({}))
+        try:
+            self._cache.document_count[document_count_query_all]
+        except KeyError:
+            pass
+        else:
+            self._cache.document_count[document_count_query_all] += 1
+            self._cache.estimated_document_count += 1
+            self._cache.client_side_refresh_time = refresh_time
+        return insert_one_result
 
     @override
     def insert_many(
@@ -211,8 +223,18 @@ class CachedCollection(Collection):
     ) -> DeleteResult:
         if __debug__ and not self._cache.watch_change_stream:
             raise CannotEditImmutableCollectionError(self.name)
-
-        return super().delete_one(filter, collation, hint, session, let, comment)
+        
+        refresh_time = datetime.now(UTC).replace(tzinfo=None, microsecond=0)
+        delete_one_result = super().delete_one(filter, collation, hint, session, let, comment)
+        try:
+            self._cache.document_count[command_count_empty_filter]
+        except KeyError:
+            pass
+        else:
+            self._cache.document_count[command_count_empty_filter] -= 1
+            self._cache.estimated_document_count -= 1
+            self._cache.client_side_refresh_time = refresh_time
+        return delete_one_result
 
     @override
     def delete_many(
@@ -347,11 +369,12 @@ class CachedCollection(Collection):
         try:
             return self._cache.document_count[query]
         except KeyError:
+            refresh_time = datetime.now(UTC).replace(tzinfo=None, microsecond=0)
             document_count = super().count_documents(filter, session, comment, **kwargs)
             self._cache.document_count[query] = document_count
-            self._cache.client_side_refresh_time = datetime.now(UTC).replace(
-                tzinfo=None
-            )
+            if query == command_count_empty_filter:
+                self._cache.estimated_document_count = document_count
+            self._cache.client_side_refresh_time = refresh_time
             return document_count
 
     @override
@@ -362,7 +385,7 @@ class CachedCollection(Collection):
             return self._cache.estimated_document_count
         document_count = super().estimated_document_count(comment, **kwargs)
         self._cache.estimated_document_count = document_count
-        self._cache.client_side_refresh_time = datetime.now(UTC).replace(tzinfo=None)
+        self._cache.client_side_refresh_time = datetime.now(UTC).replace(tzinfo=None, microsecond=0)
         return document_count
 
     @override
