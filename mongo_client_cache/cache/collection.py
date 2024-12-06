@@ -110,7 +110,9 @@ class CollCache:
                 raise _StopWatchingError
             for change in stream:
                 if __debug__:
-                    logger.debug(f"{change=}")
+                    logger.debug(
+                        f"operationType={change['operationType']}, wallTime={change['wallTime']}, documentKey={change['documentKey']['_id']}"
+                    )
                 self._process_change_stream(change)
 
                 # Use the interrupted ChangeStream's resume token to create
