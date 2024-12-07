@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from itertools import count
-from threading import Thread
+from threading import Event, Thread
 
 from bson import ObjectId
 from pymongo.errors import PyMongoError
@@ -26,12 +25,13 @@ class CollCache:
     __slots__ = (
         "_collection",
         "_resume_token",
-        "client_side_refresh_time",
+        "change_stream_refreshed",
         "distinct",
         "distinct_per_collection",
         "document_count",
         "documents",
         "estimated_document_count",
+        "local_change_stream",
         "query_to_ids_map",
         "stop_watching",
         "watch_change_stream",
@@ -44,7 +44,14 @@ class CollCache:
         self.estimated_document_count: int | None = None
         self.distinct: dict[str, list[BsonValue]] = {}
         self.documents: dict[ObjectId, BsonDict] = {}
-        self.client_side_refresh_time: datetime = datetime.now(UTC).replace(tzinfo=None, microsecond=0)
+        self.local_change_stream = {
+            "insert": {},
+            "update": {},
+            "delete": {},
+            "replace": {},
+        }
+        self.change_stream_refreshed = Event()
+        self.change_stream_refreshed.set()
 
         self.watch_change_stream = watch_change_stream
         if watch_change_stream:
@@ -99,7 +106,9 @@ class CollCache:
                 }
             },
         ]
-        logger.debug(f'Watching Change Stream for "{self._collection.name}" collection.')
+        logger.debug(
+            f'Watching Change Stream for "{self._collection.name}" collection.'
+        )
         with self._collection.watch(
             pipeline, resume_after=self._resume_token
         ) as stream:
@@ -109,10 +118,6 @@ class CollCache:
                 )
                 raise _StopWatchingError
             for change in stream:
-                if __debug__:
-                    logger.debug(
-                        f"operationType={change['operationType']}, wallTime={change['wallTime']}, documentKey={change['documentKey']['_id']}"
-                    )
                 self._process_change_stream(change)
 
                 # Use the interrupted ChangeStream's resume token to create
@@ -120,12 +125,8 @@ class CollCache:
                 # last seen insert change without missing any events.
                 self._resume_token = stream.resume_token
 
-    def _insert(self, change: ChangeStreamDocument) -> None:
-        if (
-            change["wallTime"] > self.client_side_refresh_time
-            and self.estimated_document_count is not None
-        ):
-            logger.debug(f"{change['wallTime']=}, {self.client_side_refresh_time=}")
+    def _insert(self, document_key: ObjectId) -> None:  # ObjectId or str?
+        if self.estimated_document_count is not None:
             self.estimated_document_count += 1
             self.document_count[command_count_empty_filter] += 1
         # Invalidate all cached queries.
@@ -145,7 +146,10 @@ class CollCache:
             pass
         if self.estimated_document_count is not None:
             self.estimated_document_count -= 1
-        self.document_count[command_count_empty_filter] -= 1
+        try:
+            self.document_count[command_count_empty_filter] -= 1
+        except KeyError:
+            pass
         # Invalidate all cached queries.
         self.query_to_ids_map.clear()
         self.distinct.clear()
@@ -161,8 +165,26 @@ class CollCache:
 
     def _process_change_stream(self, change: ChangeStreamDocument) -> None:
         operation_type = change["operationType"]
+        document_key = change["documentKey"]["_id"]
+        if __debug__:
+            logger.debug(f"{self.local_change_stream=}")
+        try:
+            del self.local_change_stream[operation_type][document_key]
+        except KeyError:
+            if __debug__:
+                logger.debug(
+                    f"Processing: operationType={change['operationType']}, wallTime={change['wallTime']}, documentKey={change['documentKey']['_id']}"
+                )
+        else:
+            # NOTE: Compare wallTime?
+            if __debug__:
+                logger.debug(
+                    f"Already processed locally: operationType={change['operationType']}, wallTime={change['wallTime']}, documentKey={change['documentKey']['_id']}"
+                )
+            return
+
         if operation_type == "insert":
-            self._insert(change)
+            self._insert(document_key)
         elif operation_type == "update":
             self._update(change)
         elif operation_type == "replace":
@@ -175,6 +197,8 @@ class CollCache:
             self._rename(change)
         else:
             raise UnexpectedChangeOperationTypeError(change["operationType"])
+
+        self.change_stream_refreshed.set()
 
     def clear(self) -> None:
         self.query_to_ids_map.clear()

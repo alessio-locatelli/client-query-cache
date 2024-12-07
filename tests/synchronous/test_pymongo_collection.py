@@ -7,10 +7,10 @@ from faker import Faker
 from mongo_client_cache.synchronous.collection import CachedCollection
 from mongo_client_cache.synchronous.mongo_client import CachedMongoClient
 
+
 @pytest.fixture
 def document_count(faker: Faker) -> int:
-    # return faker.pyint(min_value=0, max_value=42)
-    return 3
+    return faker.pyint(min_value=0, max_value=42)
 
 
 @pytest.fixture(autouse=True)
@@ -49,7 +49,7 @@ def test_count_documents(
     cached_collection: CachedCollection,
     make_fake_document: Callable[..., dict[str, Any]],
     document_count: int,
-    faker: Faker
+    faker: Faker,
 ) -> None:
     for _ in range(faker.pyint(min_value=1, max_value=10)):
         assert cached_collection.count_documents({}) == document_count

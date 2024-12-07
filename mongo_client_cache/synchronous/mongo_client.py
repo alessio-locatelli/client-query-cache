@@ -63,7 +63,7 @@ class CacheMixin(MIXIN_BASE):
     def close(self) -> None:
         for db in self._cached_databases.values():
             for coll in db._cached_collections.values():
-                coll._cache.stop_watching = True  # type: ignore[attr-defined]
+                coll._cache.stop_watching = True
         super().close()
 
 

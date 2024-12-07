@@ -41,6 +41,7 @@ class CommandCount:
     def __str__(self) -> str:
         return f"{self.filter or tuple(sorted(self.filter.items()))},{self.skip},{self.limit}"
 
+
 command_count_empty_filter = str(CommandCount({}))
 
 

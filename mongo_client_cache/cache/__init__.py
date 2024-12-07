@@ -8,5 +8,5 @@ __all__ = [
     "CommandCount",
     "CommandDistinct",
     "CommandFind",
-    "command_count_empty_filter"
+    "command_count_empty_filter",
 ]

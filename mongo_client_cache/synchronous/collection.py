@@ -28,7 +28,7 @@ from mongo_client_cache.cache import (
     CannotEditImmutableCollectionError,
     CommandCount,
     CommandDistinct,
-    command_count_empty_filter
+    command_count_empty_filter,
 )
 from mongo_client_cache.cache.collection import CollCache
 from mongo_client_cache.synchronous.cursor import CachedCursor
@@ -61,6 +61,10 @@ class CachedCollection(Collection):
         self.__cache = CollCache(self, watch_change_stream=watch_change_stream)
 
     @property
+    def _max_change_stream_await_time_s(self) -> float:
+        return 10
+
+    @property
     def _cache(self) -> CollCache:
         return self.__cache
 
@@ -89,10 +93,6 @@ class CachedCollection(Collection):
         session: ClientSession | None = None,
         comment: Any | None = None,
     ) -> InsertOneResult:
-        if __debug__ and not self._cache.watch_change_stream:
-            raise CannotEditImmutableCollectionError(self.name)
-        
-        refresh_time = datetime.now(UTC).replace(tzinfo=None, microsecond=0)
         insert_one_result = super().insert_one(
             document, bypass_document_validation, session, comment
         )
@@ -104,7 +104,9 @@ class CachedCollection(Collection):
         else:
             self._cache.document_count[document_count_query_all] += 1
             self._cache.estimated_document_count += 1
-            self._cache.client_side_refresh_time = refresh_time
+            self._cache.local_change_stream["insert"][insert_one_result.inserted_id] = (
+                datetime.now(UTC).replace(tzinfo=None)
+            )
         return insert_one_result
 
     @override
@@ -221,20 +223,10 @@ class CachedCollection(Collection):
         let: Mapping[str, Any] | None = None,
         comment: Any | None = None,
     ) -> DeleteResult:
-        if __debug__ and not self._cache.watch_change_stream:
-            raise CannotEditImmutableCollectionError(self.name)
-        
-        refresh_time = datetime.now(UTC).replace(tzinfo=None, microsecond=0)
-        delete_one_result = super().delete_one(filter, collation, hint, session, let, comment)
-        try:
-            self._cache.document_count[command_count_empty_filter]
-        except KeyError:
-            pass
-        else:
-            self._cache.document_count[command_count_empty_filter] -= 1
-            self._cache.estimated_document_count -= 1
-            self._cache.client_side_refresh_time = refresh_time
-        return delete_one_result
+        # NOTE: We cannot update the cache immediately because `DeleteResult` does not include the `_id` of a deleted document.
+        self._cache.change_stream_refreshed.clear()
+
+        return super().delete_one(filter, collation, hint, session, let, comment)
 
     @override
     def delete_many(
@@ -366,15 +358,14 @@ class CachedCollection(Collection):
                 limit=kwargs.get("limit", 0),
             )
         )
+        self._cache.change_stream_refreshed.wait(self._max_change_stream_await_time_s)
         try:
             return self._cache.document_count[query]
         except KeyError:
-            refresh_time = datetime.now(UTC).replace(tzinfo=None, microsecond=0)
             document_count = super().count_documents(filter, session, comment, **kwargs)
             self._cache.document_count[query] = document_count
             if query == command_count_empty_filter:
                 self._cache.estimated_document_count = document_count
-            self._cache.client_side_refresh_time = refresh_time
             return document_count
 
     @override
@@ -385,7 +376,9 @@ class CachedCollection(Collection):
             return self._cache.estimated_document_count
         document_count = super().estimated_document_count(comment, **kwargs)
         self._cache.estimated_document_count = document_count
-        self._cache.client_side_refresh_time = datetime.now(UTC).replace(tzinfo=None, microsecond=0)
+        self._cache.client_side_refresh_time = datetime.now(UTC).replace(
+            tzinfo=None, microsecond=0
+        )
         return document_count
 
     @override
