@@ -70,10 +70,6 @@ class CollCache:
                 logger.debug(f"Stopping watching changes on {self._collection.name} collection.")
                 self.watch_stopped.set()
                 break
-            if self._collection.database.client._closed:
-                logger.warning("Cannot use MongoClient after close")
-                self.watch_stopped.set()
-                break
             try:
                 self._watch()
             except PyMongoError as error:
