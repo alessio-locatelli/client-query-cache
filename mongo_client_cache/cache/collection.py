@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from itertools import count
 from threading import Event, Thread
 
-from bson import ObjectId
+from bson import ObjectId, Timestamp
 from pymongo.errors import PyMongoError
 from pymongo.synchronous.collection import Collection
 
@@ -23,6 +24,8 @@ class _StopWatchingError(Exception): ...
 
 class CollCache:
     __slots__ = (
+        "watch_stopped",
+        "_start_at_operation_time",
         "_collection",
         "_resume_token",
         "change_stream_refreshed",
@@ -37,14 +40,17 @@ class CollCache:
     )
 
     def __init__(self, /, collection: Collection, *, watch_change_stream: bool) -> None:
+        self._start_at_operation_time = datetime.now(UTC)
         self._collection = collection
         self.query_to_ids_map: dict[str, BsonDict] = {}
         self.document_count: dict[str, int] = {}
         self.estimated_document_count: int | None = None
         self.distinct: dict[str, list[BsonValue]] = {}
         self.documents: dict[ObjectId, BsonDict] = {}
+
         self.change_stream_refreshed = {"insert": Event(), "delete": Event()}
         [e.set() for e in self.change_stream_refreshed.values()]
+        self.watch_stopped = Event()
 
         self.watch_change_stream = watch_change_stream
         if watch_change_stream:
@@ -60,8 +66,13 @@ class CollCache:
 
         max_retries = 3
         for retry_attempt in count():
+            if self.stop_watching:
+                logger.debug(f"Stopping watching changes on {self._collection.name} collection.")
+                self.watch_stopped.set()
+                break
             if self._collection.database.client._closed:
                 logger.warning("Cannot use MongoClient after close")
+                self.watch_stopped.set()
                 break
             try:
                 self._watch()
@@ -76,7 +87,10 @@ class CollCache:
                         + "failure during ChangeStream initialization. "
                         + f"Target: '{self._collection}', {retry_attempt=}, {error!r}."
                     )
-                logger.error(repr(error))
+                raise
+                # logger.error(repr(error))
+            except _StopWatchingError:
+                break
 
     def _watch(self) -> None:
         pipeline: list[JsonDict] = [
@@ -106,14 +120,15 @@ class CollCache:
             f'Watching Change Stream for "{self._collection.name}" collection.'
         )
         with self._collection.watch(
-            pipeline, resume_after=self._resume_token
+            pipeline, resume_after=self._resume_token, start_at_operation_time=Timestamp(self._start_at_operation_time, 0)
         ) as stream:
-            if self.stop_watching:
-                logger.debug(
-                    f"Stopping watching changes on {self._collection.name} collection."
-                )
-                raise _StopWatchingError
             for change in stream:
+                if self.stop_watching:
+                    logger.debug(
+                        f"Stopping watching changes on {self._collection.name} collection."
+                    )
+                    self.watch_stopped.set()
+                    raise _StopWatchingError                
                 self._process_change_stream(change)
 
                 # Use the interrupted ChangeStream's resume token to create
@@ -166,7 +181,7 @@ class CollCache:
         operation_type = change['operationType']
         if __debug__:
             logger.debug(
-                f"operationType={operation_type}, wallTime={change['wallTime']}, documentKey={change['documentKey']['_id']}"
+                f"operationType={operation_type}, wallTime={change['wallTime']}, documentKey={change['documentKey']['_id']}, {self.change_stream_refreshed}"
             )
 
         if operation_type == "insert":

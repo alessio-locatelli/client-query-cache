@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, MutableMapping, Sequence
-from datetime import UTC, datetime
 from typing import Any, override
 
 from bson.codec_options import CodecOptions
@@ -63,7 +62,7 @@ class CachedCollection(Collection):
 
     @property
     def _max_change_stream_await_time_s(self) -> float:
-        return 10
+        return 15
 
     @property
     def _cache(self) -> CollCache:
@@ -340,6 +339,7 @@ class CachedCollection(Collection):
                 limit=kwargs.get("limit", 0),
             )
         )
+        logger.debug(f"count_documents, {query}, {self._cache.change_stream_refreshed}")
         if (
             self._cache.change_stream_refreshed["insert"].wait(self._max_change_stream_await_time_s) is False
             or self._cache.change_stream_refreshed["delete"].wait(self._max_change_stream_await_time_s) is False

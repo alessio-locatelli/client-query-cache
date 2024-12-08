@@ -8,6 +8,7 @@ from bson.codec_options import TypeRegistry
 from pymongo.synchronous.database import Database
 from pymongo.typings import _DocumentType
 
+from mongo_client_cache.logger import logger
 from mongo_client_cache.synchronous.database import CachedDatabase
 
 if TYPE_CHECKING:
@@ -61,9 +62,12 @@ class CacheMixin(MIXIN_BASE):
 
     @override
     def close(self) -> None:
+        logger.debug(f"Closing '{self}'...")
         for db in self._cached_databases.values():
             for coll in db._cached_collections.values():
+                logger.debug(f"Asking '{coll._cache._collection.name}' to stop watching the change stream...")
                 coll._cache.stop_watching = True
+                coll._cache.watch_stopped.wait(5)
         super().close()
 
 
