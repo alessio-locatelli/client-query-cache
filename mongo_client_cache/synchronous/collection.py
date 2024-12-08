@@ -23,6 +23,7 @@ from pymongo.synchronous.collection import Collection, _WriteOp
 from pymongo.synchronous.database import Database
 from pymongo.typings import _CollationIn, _Pipeline
 
+from mongo_client_cache.logger import logger
 from mongo_client_cache._types import BsonDict
 from mongo_client_cache.cache import (
     CannotEditImmutableCollectionError,
@@ -78,9 +79,6 @@ class CachedCollection(Collection):
         comment: Any | None = None,
         let: Mapping | None = None,
     ) -> BulkWriteResult:
-        if __debug__ and not self._cache.watch_change_stream:
-            raise CannotEditImmutableCollectionError(self.name)
-
         return super().bulk_write(
             requests, ordered, bypass_document_validation, session, comment, let
         )
@@ -96,17 +94,7 @@ class CachedCollection(Collection):
         insert_one_result = super().insert_one(
             document, bypass_document_validation, session, comment
         )
-        document_count_query_all = str(CommandCount({}))
-        try:
-            self._cache.document_count[document_count_query_all]
-        except KeyError:
-            pass
-        else:
-            self._cache.document_count[document_count_query_all] += 1
-            self._cache.estimated_document_count += 1
-            self._cache.local_change_stream["insert"][insert_one_result.inserted_id] = (
-                datetime.now(UTC).replace(tzinfo=None)
-            )
+        self._cache.change_stream_refreshed["insert"].clear()        
         return insert_one_result
 
     @override
@@ -118,9 +106,7 @@ class CachedCollection(Collection):
         session: ClientSession | None = None,
         comment: Any | None = None,
     ) -> InsertManyResult:
-        if __debug__ and not self._cache.watch_change_stream:
-            raise CannotEditImmutableCollectionError(self.name)
-
+        self._cache.change_stream_refreshed["insert"].clear()        
         return super().insert_many(
             documents, ordered, bypass_document_validation, session, comment
         )
@@ -223,9 +209,7 @@ class CachedCollection(Collection):
         let: Mapping[str, Any] | None = None,
         comment: Any | None = None,
     ) -> DeleteResult:
-        # NOTE: We cannot update the cache immediately because `DeleteResult` does not include the `_id` of a deleted document.
-        self._cache.change_stream_refreshed.clear()
-
+        self._cache.change_stream_refreshed["delete"].clear()        
         return super().delete_one(filter, collation, hint, session, let, comment)
 
     @override
@@ -238,9 +222,7 @@ class CachedCollection(Collection):
         let: Mapping[str, Any] | None = None,
         comment: Any | None = None,
     ) -> DeleteResult:
-        if __debug__ and not self._cache.watch_change_stream:
-            raise CannotEditImmutableCollectionError(self.name)
-
+        self._cache.change_stream_refreshed["delete"].clear()        
         return super().delete_many(filter, collation, hint, session, let, comment)
 
     @override
@@ -358,7 +340,18 @@ class CachedCollection(Collection):
                 limit=kwargs.get("limit", 0),
             )
         )
-        self._cache.change_stream_refreshed.wait(self._max_change_stream_await_time_s)
+        if (
+            self._cache.change_stream_refreshed["insert"].wait(self._max_change_stream_await_time_s) is False
+            or self._cache.change_stream_refreshed["delete"].wait(self._max_change_stream_await_time_s) is False
+        ):
+            raise Exception(
+                f"{self._max_change_stream_await_time_s} seconds timeout exceeded while waiting for a change stream."
+            )
+            logger.warning(
+                f"{self._max_change_stream_await_time_s} seconds timeout exceeded while waiting for a change stream. "
+                + "Clearing the local cache to retrieve the fresh result."
+            )
+            self._cache.document_count.pop(query, None)
         try:
             return self._cache.document_count[query]
         except KeyError:
@@ -372,13 +365,20 @@ class CachedCollection(Collection):
     def estimated_document_count(
         self, comment: Any | None = None, **kwargs: Any
     ) -> int:
+        if (
+            self._cache.change_stream_refreshed["insert"].wait(self._max_change_stream_await_time_s) is False
+            or self._cache.change_stream_refreshed["delete"].wait(self._max_change_stream_await_time_s) is False
+        ):
+            logger.warning(
+                f"{self._max_change_stream_await_time_s} seconds timeout exceeded while waiting for a change stream. "
+                + "Clearing the local cache to retrieve the fresh result."
+            )
+            self._cache.estimated_document_count = None
+
         if self._cache.estimated_document_count is not None:
             return self._cache.estimated_document_count
         document_count = super().estimated_document_count(comment, **kwargs)
         self._cache.estimated_document_count = document_count
-        self._cache.client_side_refresh_time = datetime.now(UTC).replace(
-            tzinfo=None, microsecond=0
-        )
         return document_count
 
     @override

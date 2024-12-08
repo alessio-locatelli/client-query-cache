@@ -31,7 +31,6 @@ class CollCache:
         "document_count",
         "documents",
         "estimated_document_count",
-        "local_change_stream",
         "query_to_ids_map",
         "stop_watching",
         "watch_change_stream",
@@ -44,14 +43,8 @@ class CollCache:
         self.estimated_document_count: int | None = None
         self.distinct: dict[str, list[BsonValue]] = {}
         self.documents: dict[ObjectId, BsonDict] = {}
-        self.local_change_stream = {
-            "insert": {},
-            "update": {},
-            "delete": {},
-            "replace": {},
-        }
-        self.change_stream_refreshed = Event()
-        self.change_stream_refreshed.set()
+        self.change_stream_refreshed = {"insert": Event(), "delete": Event()}
+        [e.set() for e in self.change_stream_refreshed.values()]
 
         self.watch_change_stream = watch_change_stream
         if watch_change_stream:
@@ -67,6 +60,9 @@ class CollCache:
 
         max_retries = 3
         for retry_attempt in count():
+            if self._collection.database.client._closed:
+                logger.warning("Cannot use MongoClient after close")
+                break
             try:
                 self._watch()
             except PyMongoError as error:
@@ -125,10 +121,13 @@ class CollCache:
                 # last seen insert change without missing any events.
                 self._resume_token = stream.resume_token
 
-    def _insert(self, document_key: ObjectId) -> None:  # ObjectId or str?
+    def _insert(self) -> None:  # ObjectId or str?
         if self.estimated_document_count is not None:
             self.estimated_document_count += 1
+        try:
             self.document_count[command_count_empty_filter] += 1
+        except KeyError:
+            pass
         # Invalidate all cached queries.
         self.query_to_ids_map.clear()
         self.distinct.clear()
@@ -164,32 +163,21 @@ class CollCache:
         raise NotImplementedError
 
     def _process_change_stream(self, change: ChangeStreamDocument) -> None:
-        operation_type = change["operationType"]
-        document_key = change["documentKey"]["_id"]
+        operation_type = change['operationType']
         if __debug__:
-            logger.debug(f"{self.local_change_stream=}")
-        try:
-            del self.local_change_stream[operation_type][document_key]
-        except KeyError:
-            if __debug__:
-                logger.debug(
-                    f"Processing: operationType={change['operationType']}, wallTime={change['wallTime']}, documentKey={change['documentKey']['_id']}"
-                )
-        else:
-            # NOTE: Compare wallTime?
-            if __debug__:
-                logger.debug(
-                    f"Already processed locally: operationType={change['operationType']}, wallTime={change['wallTime']}, documentKey={change['documentKey']['_id']}"
-                )
-            return
+            logger.debug(
+                f"operationType={operation_type}, wallTime={change['wallTime']}, documentKey={change['documentKey']['_id']}"
+            )
 
         if operation_type == "insert":
-            self._insert(document_key)
+            self.change_stream_refreshed["insert"].set()
+            self._insert()
         elif operation_type == "update":
             self._update(change)
         elif operation_type == "replace":
             self._replace(change)
         elif operation_type == "delete":
+            self.change_stream_refreshed["delete"].set()
             self._delete(change)
         elif operation_type == "drop":
             self._drop(change)
@@ -197,8 +185,6 @@ class CollCache:
             self._rename(change)
         else:
             raise UnexpectedChangeOperationTypeError(change["operationType"])
-
-        self.change_stream_refreshed.set()
 
     def clear(self) -> None:
         self.query_to_ids_map.clear()

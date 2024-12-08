@@ -61,3 +61,21 @@ def test_count_documents(
     cached_collection.delete_one({"_id": doc["_id"]})
     for _ in range(faker.pyint(min_value=1, max_value=10)):
         assert cached_collection.count_documents({}) == document_count
+
+def test_estimated_document_count(
+    cached_collection: CachedCollection,
+    make_fake_document: Callable[..., dict[str, Any]],
+    document_count: int,
+    faker: Faker,
+) -> None:
+    for _ in range(faker.pyint(min_value=1, max_value=10)):
+        assert cached_collection.estimated_document_count({}) == document_count
+
+    cached_collection.insert_one(doc := make_fake_document())
+    for _ in range(faker.pyint(min_value=1, max_value=10)):
+        assert cached_collection.estimated_document_count({}) == document_count + 1
+
+    cached_collection.delete_one({"_id": doc["_id"]})
+    for _ in range(faker.pyint(min_value=1, max_value=10)):
+        assert cached_collection.estimated_document_count({}) == document_count
+
