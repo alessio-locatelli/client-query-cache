@@ -39,7 +39,7 @@ class CachedDatabase(database.Database):
             self._cached_collections[name] = CachedCollection(
                 self,
                 name,
-                watch_change_stream=self.client._cache_config[self.name][
+                watch_change_stream=self.client._cache_config[self.name][  # type: ignore[arg-type]
                     name
                 ].watch_change_stream,
             )

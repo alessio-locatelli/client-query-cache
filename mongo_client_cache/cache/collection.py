@@ -23,11 +23,12 @@ class _StopWatchingError(Exception): ...
 
 
 class CollCache:
+    _change_stream_max_retries = 3
+
     __slots__ = (
-        "watch_stopped",
-        "_start_at_operation_time",
         "_collection",
         "_resume_token",
+        "_start_at_operation_time",
         "change_stream_refreshed",
         "distinct",
         "distinct_per_collection",
@@ -37,23 +38,27 @@ class CollCache:
         "query_to_ids_map",
         "stop_watching",
         "watch_change_stream",
+        "watch_stopped",
     )
 
     def __init__(self, /, collection: Collection, *, watch_change_stream: bool) -> None:
-        self._start_at_operation_time = datetime.now(UTC)
         self._collection = collection
+
+        # Local in-memory storage (MongoDB collection cache).
         self.query_to_ids_map: dict[str, BsonDict] = {}
         self.document_count: dict[str, int] = {}
         self.estimated_document_count: int | None = None
         self.distinct: dict[str, list[BsonValue]] = {}
         self.documents: dict[ObjectId, BsonDict] = {}
 
-        self.change_stream_refreshed = {"insert": Event(), "delete": Event()}
-        [e.set() for e in self.change_stream_refreshed.values()]
-        self.watch_stopped = Event()
-
-        self.watch_change_stream = watch_change_stream
+        # Change stream.
         if watch_change_stream:
+            self._start_at_operation_time = datetime.now(UTC)
+            self.change_stream_refreshed = {"insert": Event(), "delete": Event()}
+            for e in self.change_stream_refreshed.values():
+                e.set()
+            self.watch_stopped = Event()
+            self.watch_change_stream = watch_change_stream
             self.stop_watching = False
             Thread(target=self.watch, daemon=True).start()
 
@@ -64,10 +69,11 @@ class CollCache:
         """
         self._resume_token: dict[str, str] | None = None
 
-        max_retries = 3
         for retry_attempt in count():
             if self.stop_watching:
-                logger.debug(f"Stopping watching changes on {self._collection.name} collection.")
+                logger.debug(
+                    f"Stopping watching changes on {self._collection.name} collection."
+                )
                 self.watch_stopped.set()
                 break
             try:
@@ -76,7 +82,7 @@ class CollCache:
                 # The ChangeStream encountered an unrecoverable error or the
                 # resume attempt failed to recreate the cursor.
                 if self._resume_token is None:
-                    if retry_attempt == max_retries:
+                    if retry_attempt == self._change_stream_max_retries:
                         raise
                     logger.error(
                         "There is no usable resume token because there was a "
@@ -116,15 +122,17 @@ class CollCache:
             f'Watching Change Stream for "{self._collection.name}" collection.'
         )
         with self._collection.watch(
-            pipeline, resume_after=self._resume_token, start_at_operation_time=Timestamp(self._start_at_operation_time, 0)
+            pipeline,
+            resume_after=self._resume_token,
+            start_at_operation_time=Timestamp(self._start_at_operation_time, 0),
         ) as stream:
             for change in stream:
                 if self.stop_watching:
                     logger.debug(
-                        f"Stopping watching changes on {self._collection.name} collection."
+                        f"Stopping watching changes on {self._collection.name} collection."  # noqa: E501
                     )
                     self.watch_stopped.set()
-                    raise _StopWatchingError                
+                    raise _StopWatchingError
                 self._process_change_stream(change)
 
                 # Use the interrupted ChangeStream's resume token to create
@@ -174,10 +182,11 @@ class CollCache:
         raise NotImplementedError
 
     def _process_change_stream(self, change: ChangeStreamDocument) -> None:
-        operation_type = change['operationType']
+        operation_type = change["operationType"]
         if __debug__:
             logger.debug(
-                f"operationType={operation_type}, wallTime={change['wallTime']}, documentKey={change['documentKey']['_id']}, {self.change_stream_refreshed}"
+                f"operationType={operation_type}, wallTime={change['wallTime']}, "
+                + f"documentKey={change['documentKey']['_id']}, {self.change_stream_refreshed}"  # noqa: E501
             )
 
         if operation_type == "insert":

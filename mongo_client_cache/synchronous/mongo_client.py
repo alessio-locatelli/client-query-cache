@@ -65,7 +65,10 @@ class CacheMixin(MIXIN_BASE):
         logger.debug(f"Closing '{self}'...")
         for db in self._cached_databases.values():
             for coll in db._cached_collections.values():
-                logger.debug(f"Asking '{coll._cache._collection.name}' to stop watching the change stream...")
+                logger.debug(
+                    f"Asking '{coll._cache._collection.name}' "
+                    + "to stop watching the change stream..."
+                )
                 coll._cache.stop_watching = True
                 coll._cache.watch_stopped.wait(5)
         super().close()

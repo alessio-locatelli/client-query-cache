@@ -39,7 +39,7 @@ class CommandCount:
     limit: int = 0
 
     def __str__(self) -> str:
-        return f"{self.filter or tuple(sorted(self.filter.items()))},{self.skip},{self.limit}"
+        return f"{self.filter or tuple(sorted(self.filter.items()))},{self.skip},{self.limit}"  # noqa: E501
 
 
 command_count_empty_filter = str(CommandCount({}))
@@ -48,7 +48,7 @@ command_count_empty_filter = str(CommandCount({}))
 @dataclass(slots=True)
 class CommandDistinct:
     key: str = field(
-        kw_only=True  # "TypeError: non-default argument 'key' follows default argument".
+        kw_only=True  # "TypeError: non-default argument 'key' follows default argument".  # noqa: E501
     )
     filter: Mapping[str, Any] | None = None
 
