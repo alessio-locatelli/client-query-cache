@@ -27,7 +27,7 @@ def fill_collection(
     cached_collection.delete_many({})
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def cached_collection(
     cached_mongo_client: CachedMongoClient,
     cached_database_name: str,
