@@ -63,7 +63,7 @@ class CachedCollection(Collection):
 
     @property
     def _max_change_stream_await_time_s(self) -> float:
-        return 15
+        return 20
 
     @property
     def _cache(self) -> CollCache:
@@ -95,6 +95,7 @@ class CachedCollection(Collection):
             document, bypass_document_validation, session, comment
         )
         self._cache.change_stream_refreshed["insert"].clear()
+        # logger.debug(f"insert_one, {document['_id']}, {self._cache.change_stream_refreshed}")        
         return insert_one_result
 
     @override
@@ -210,6 +211,7 @@ class CachedCollection(Collection):
         comment: Any | None = None,
     ) -> DeleteResult:
         self._cache.change_stream_refreshed["delete"].clear()
+        # logger.debug(f"delete_one, {filter}, {self._cache.change_stream_refreshed}")        
         return super().delete_one(filter, collation, hint, session, let, comment)
 
     @override
