@@ -91,12 +91,10 @@ class CachedCollection(Collection):
         session: ClientSession | None = None,
         comment: Any | None = None,
     ) -> InsertOneResult:
-        insert_one_result = super().insert_one(
+        self._cache.change_stream_refreshed["insert"].clear()
+        return super().insert_one(
             document, bypass_document_validation, session, comment
         )
-        self._cache.change_stream_refreshed["insert"].clear()
-        # logger.debug(f"insert_one, {document['_id']}, {self._cache.change_stream_refreshed}")        
-        return insert_one_result
 
     @override
     def insert_many(
