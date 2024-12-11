@@ -83,7 +83,11 @@ class CachedCursor(Cursor):
         if self._cached_documents_ids is None:
             doc = super().next()  # type: ignore[unreachable]
             id_ = doc["_id"]
-            self.collection._cache.query_to_ids_map[self._query].append(id_)
+            try:
+                self.collection._cache.query_to_ids_map[self._query].append(id_)
+            except KeyError:
+                self.collection._cache.query_to_ids_map[self._query] = []
+                self.collection._cache.query_to_ids_map[self._query].append(id_)
             self.collection._cache.documents[id_] = doc
             return doc
         try:

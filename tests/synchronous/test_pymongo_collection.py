@@ -68,10 +68,10 @@ def test_find(
     expected_count: Callable[[int], int],
 ) -> None:
     for _ in range(faker.pyint(min_value=1, max_value=5)):
-        assert list(cached_collection.find(**kwargs)) == expected_count(document_count)
+        assert len(list(cached_collection.find(**kwargs))) == expected_count(document_count)
 
     for _ in range(faker.pyint(min_value=1, max_value=5)):
-        assert cached_collection.find(**kwargs).to_list() == expected_count(
+        assert len(cached_collection.find(**kwargs).to_list()) == expected_count(
             document_count
         )
 
