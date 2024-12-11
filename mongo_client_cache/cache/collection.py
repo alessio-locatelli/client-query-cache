@@ -16,7 +16,7 @@ from mongo_client_cache._types import (
     JsonDict,
 )
 from mongo_client_cache.cache.exceptions import UnexpectedChangeOperationTypeError
-from mongo_client_cache.cache.misc import command_count_empty_filter
+from mongo_client_cache.cache.misc import CommandKwargs, command_count_empty_filter
 from mongo_client_cache.logger import logger
 
 
@@ -46,11 +46,11 @@ class CollCache:
         self._collection = collection
 
         # Local in-memory storage (MongoDB collection cache).
-        self.query_to_ids_map: dict[str, deque[ObjectId]] = {}
-        self.document_count: dict[str, int] = {}
+        self.query_to_ids_map: dict[CommandKwargs, deque[ObjectId | str]] = {}
+        self.document_count: dict[CommandKwargs, int] = {}
         self.estimated_document_count: int | None = None
-        self.distinct: dict[str, list[BsonValue]] = {}
-        self.documents: dict[ObjectId, BsonDict] = {}  # TODO: What is a key?
+        self.distinct: dict[CommandKwargs, list[BsonValue]] = {}
+        self.documents: dict[ObjectId | str, BsonDict] = {}  # NOTE: What is a key?
 
         # Change stream.
         if watch_change_stream:
@@ -139,7 +139,7 @@ class CollCache:
                 # Use the interrupted ChangeStream's resume token to create
                 # a new ChangeStream. The new stream will continue from the
                 # last seen insert change without missing any events.
-                self._resume_token = stream.resume_token
+                self._resume_token = stream.resume_token  # type: ignore[assignment]
 
     def _insert(self) -> None:  # ObjectId or str?
         if self.estimated_document_count is not None:

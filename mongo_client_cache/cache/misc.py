@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from pymongo.cursor_shared import _Sort
@@ -17,7 +17,7 @@ class CommandFind:
 
     def __post_init__(self) -> None:
         if self.filter:
-            self.filter = tuple(sorted(self.filter.items()))
+            self.filter = tuple(sorted(self.filter.items()))  # type: ignore[assignment]
         elif self.filter is None:
             self.filter = {}
         if self.projection is None:
@@ -25,7 +25,7 @@ class CommandFind:
         self.projection = (
             tuple(sorted(self.projection))
             if isinstance(self.projection, Iterable)
-            else dict(sorted(self.projection.items()))
+            else dict(sorted(self.projection.items()))  # type: ignore[attr-defined]
         )
 
     def __str__(self) -> str:
@@ -47,10 +47,11 @@ command_count_empty_filter = str(CommandCount({}))
 
 @dataclass(slots=True)
 class CommandDistinct:
-    key: str = field(
-        kw_only=True  # "TypeError: non-default argument 'key' follows default argument".  # noqa: E501
-    )
+    key: str
     filter: Mapping[str, Any] | None = None
 
     def __str__(self) -> str:
         return f"{self.filter},{self.key}"
+
+
+type CommandKwargs = str

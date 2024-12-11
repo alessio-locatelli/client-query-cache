@@ -76,12 +76,12 @@ class CachedCursor(Cursor):
         try:
             self._cached_documents_ids = collection._cache.query_to_ids_map[self._query]
         except KeyError:
-            self._cached_documents_ids = None
+            self._cached_documents_ids = None  # type: ignore[assignment]
 
     @override
     def next(self) -> BsonDict:
         if self._cached_documents_ids is None:
-            doc = super().next()
+            doc = super().next()  # type: ignore[unreachable]
             _id = doc["_id"]
             self.collection._cache.query_to_ids_map[self._query].append(_id)
             self.collection._cache.documents[_id] = doc
@@ -89,14 +89,17 @@ class CachedCursor(Cursor):
         try:
             _id = self._cached_documents_ids.pop()
         except IndexError:
-            raise StopIteration
+            raise StopIteration from None
         else:
-            return self.collection._cache.documents[_id]
+            return self.collection._cache.documents[_id]  # type: ignore[return-value,index]
 
     @override
     def to_list(self, length: int | None = None) -> list[_DocumentType]:
         if self._cached_documents_ids is None:
-            docs = super().to_list(length)
+            docs = super().to_list(length)  # type: ignore[unreachable]
             self.collection._cache.documents.update({d["_id"]: d for d in docs})
             return docs
-        return [self.collection._cache.documents[_id] for _id in self._cached_documents_ids]
+        return [
+            self.collection._cache.documents[_id]  # type: ignore[misc,index]
+            for _id in self._cached_documents_ids
+        ]

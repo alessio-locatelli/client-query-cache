@@ -209,7 +209,7 @@ class CachedCollection(Collection):
         comment: Any | None = None,
     ) -> DeleteResult:
         self._cache.change_stream_refreshed["delete"].clear()
-        # logger.debug(f"delete_one, {filter}, {self._cache.change_stream_refreshed}")        
+        # logger.debug(f"delete_one, {filter}, {self._cache.change_stream_refreshed}")
         return super().delete_one(filter, collation, hint, session, let, comment)
 
     @override
@@ -256,7 +256,7 @@ class CachedCollection(Collection):
             is False
         ):
             raise WaitingForChangeStreamError(self._max_change_stream_await_time_s)
-        
+
         if filter is not None and not isinstance(filter, Mapping):
             filter = {"_id": filter}
         cursor = self.find(filter, *args, **kwargs)
@@ -417,14 +417,13 @@ class CachedCollection(Collection):
         comment: Any | None = None,
         **kwargs: Any,
     ) -> list:
-        cache = self.database.client._client_side_databases[self.database.name]
-        query = str(CommandDistinct(filter, key=key))
+        query = str(CommandDistinct(key=key, filter=filter))
         try:
-            return cache.distinct_per_collection[self.name][query]
+            return self._cache.distinct[query]
         except KeyError:
             distinct_values = super().distinct(key, filter, session, comment, **kwargs)
-            cache.distinct_per_collection[self.name][query] = distinct_values
-            return distinct_values  # type: ignore[unreachable]
+            self._cache.distinct[query] = distinct_values
+            return distinct_values
 
     @override
     def drop(

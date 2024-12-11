@@ -3,9 +3,9 @@ from typing import Any, TypedDict, cast
 
 import pytest
 from faker import Faker
-
 from pymongo.cursor_shared import _Sort
-from mongo_client_cache._types import BsonDict, JsonDict
+
+from mongo_client_cache._types import JsonDict
 from mongo_client_cache.synchronous.collection import CachedCollection
 from mongo_client_cache.synchronous.mongo_client import CachedMongoClient
 
@@ -58,20 +58,22 @@ class FindCommandKwargs(TypedDict):
     "kwargs,expected_count",
     [
         ({"filter": None}, lambda all_documents: all_documents),
-    ]
+    ],
 )
 def test_find(
     cached_collection: CachedCollection,
     document_count: int,
     faker: Faker,
     kwargs: FindCommandKwargs,
-    expected_count: Callable[[int], int]
+    expected_count: Callable[[int], int],
 ) -> None:
     for _ in range(faker.pyint(min_value=1, max_value=5)):
         assert list(cached_collection.find(**kwargs)) == expected_count(document_count)
 
     for _ in range(faker.pyint(min_value=1, max_value=5)):
-        assert cached_collection.find(**kwargs).to_list() == expected_count(document_count)
+        assert cached_collection.find(**kwargs).to_list() == expected_count(
+            document_count
+        )
 
     for _ in range(faker.pyint(min_value=1, max_value=5)):
         cursor = cached_collection.find(**kwargs)
@@ -89,19 +91,19 @@ class CountDocumentsKwargs(TypedDict):
     [
         ({}, {}, None),
         ({fake.pystr(): fake.pystr()}, {}, 0),
-        # ({}, {"limit": fake.pyint(min_value=1, max_value=100), "skip": fake.pyint(min_value=1, max_value=100)}),  # TODO
+        # ({}, {"limit": fake.pyint(min_value=1, max_value=100), "skip": fake.pyint(min_value=1, max_value=100)}),  # TODO:  # noqa: TD003,E501
         ({}, {"limit": 1, "skip": 1}, 1),
-        # ({}, {"limit": 1, "skip": 99999}, 0),  # TODO
-    ]
+        # ({}, {"limit": 1, "skip": 99999}, 0),  # TODO:  # noqa: TD003
+    ],
 )
-def test_count_documents(
+def test_count_documents(  # noqa: PLR0913,PLR0917
     cached_collection: CachedCollection,
     make_fake_document: Callable[..., dict[str, Any]],
     document_count: int,
     faker: Faker,
     filter: JsonDict,
     kwargs: CountDocumentsKwargs,
-    expected_count: int | None
+    expected_count: int | None,
 ) -> None:
     if expected_count is None:
         expected_count = document_count

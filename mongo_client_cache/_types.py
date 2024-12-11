@@ -39,5 +39,5 @@ class ChangeStreamDocument(TypedDict):
     operationType: str
     fullDocument: BsonDict
     ns: dict[str, str]
-    documentKey: dict[str, ObjectId]
+    documentKey: dict[str, ObjectId | str]
     wallTime: datetime
