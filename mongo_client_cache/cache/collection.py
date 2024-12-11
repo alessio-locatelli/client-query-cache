@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import deque
 from datetime import UTC, datetime
 from itertools import count
 from threading import Event, Thread
@@ -45,11 +46,11 @@ class CollCache:
         self._collection = collection
 
         # Local in-memory storage (MongoDB collection cache).
-        self.query_to_ids_map: dict[str, BsonDict] = {}
+        self.query_to_ids_map: dict[str, deque[ObjectId]] = {}
         self.document_count: dict[str, int] = {}
         self.estimated_document_count: int | None = None
         self.distinct: dict[str, list[BsonValue]] = {}
-        self.documents: dict[ObjectId, BsonDict] = {}
+        self.documents: dict[ObjectId, BsonDict] = {}  # TODO: What is a key?
 
         # Change stream.
         if watch_change_stream:

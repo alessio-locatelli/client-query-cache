@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING, Any, override
 
+from bson.typings import _DocumentType
 from pymongo import CursorType
 from pymongo.client_session import ClientSession
 from pymongo.cursor import Cursor
@@ -71,60 +72,31 @@ class CachedCursor(Cursor):
             allow_disk_use,
             let,
         )
-        self._queried_documents: list[BsonDict] = []
-        self._iterated_all_query_results: bool = False
-
-        db = collection._Collection__database
-        client = db._Database__client
-        cache = client._client_side_databases[db.name]
-        self._mongo_command = str(CommandFind(filter, projection, skip, limit, sort))
+        self._query = str(CommandFind(filter, projection, skip, limit, sort))
         try:
-            self._cached_documents = cache.query_to_ids_map[collection.name][
-                self._mongo_command
-            ]
+            self._cached_documents_ids = collection._cache.query_to_ids_map[self._query]
         except KeyError:
-            self._cached_documents = None
+            self._cached_documents_ids = None
 
     @override
     def next(self) -> BsonDict:
-        if self._cached_documents is None:
-            if self._Cursor__empty:  # type: ignore[attr-defined]
-                self._iterated_all_query_results = True
-                raise StopIteration
-            if len(self._Cursor__data) or self._refresh():  # type: ignore[attr-defined]
-                doc = self._Cursor__data.popleft()  # type: ignore[attr-defined]
-                self._queried_documents.append(doc)
-                return doc
-            self._iterated_all_query_results = True
-            raise StopIteration
-
+        if self._cached_documents_ids is None:
+            doc = super().next()
+            _id = doc["_id"]
+            self.collection._cache.query_to_ids_map[self._query].append(_id)
+            self.collection._cache.documents[_id] = doc
+            return doc
         try:
-            return self._cached_documents.popleft()
-        except IndexError as e:
-            raise StopIteration from e
-
-    __next__ = next
+            _id = self._cached_documents_ids.pop()
+        except IndexError:
+            raise StopIteration
+        else:
+            return self.collection._cache.documents[_id]
 
     @override
-    def __del__(self) -> None:
-        super().__del__()
-
-        collection = self._Cursor__collection  # type: ignore[attr-defined]
-        db = collection._Collection__database
-        client = db._Database__client
-        cache = client._client_side_databases[db.name]
-
-        if self._queried_documents:
-            cache.local_collections[collection.name].update({
-                doc["_id"]: doc for doc in self._queried_documents
-            })
-
-        if self._iterated_all_query_results:
-            documents_ids = tuple(
-                document["_id"] for document in self._queried_documents
-            )
-            cache.query_to_ids_map[collection.name][str(self._mongo_command)] = (
-                documents_ids
-            )
-            if documents_ids:
-                cache.collections_names_with_cached_documents.add(collection.name)
+    def to_list(self, length: int | None = None) -> list[_DocumentType]:
+        if self._cached_documents_ids is None:
+            docs = super().to_list(length)
+            self.collection._cache.documents.update({d["_id"]: d for d in docs})
+            return docs
+        return [self.collection._cache.documents[_id] for _id in self._cached_documents_ids]

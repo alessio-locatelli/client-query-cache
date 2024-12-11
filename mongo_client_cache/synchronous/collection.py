@@ -227,12 +227,36 @@ class CachedCollection(Collection):
 
     @override
     def find(self, *args: Any, **kwargs: Any) -> CachedCursor:
+        if (
+            self._cache.change_stream_refreshed["insert"].wait(
+                self._max_change_stream_await_time_s
+            )
+            is False
+            or self._cache.change_stream_refreshed["delete"].wait(
+                self._max_change_stream_await_time_s
+            )
+            is False
+        ):
+            raise WaitingForChangeStreamError(self._max_change_stream_await_time_s)
+
         return CachedCursor(self, *args, **kwargs)
 
     @override
     def find_one(
         self, filter: Any | None = None, *args: Any, **kwargs: Any
     ) -> BsonDict | None:
+        if (
+            self._cache.change_stream_refreshed["insert"].wait(
+                self._max_change_stream_await_time_s
+            )
+            is False
+            or self._cache.change_stream_refreshed["delete"].wait(
+                self._max_change_stream_await_time_s
+            )
+            is False
+        ):
+            raise WaitingForChangeStreamError(self._max_change_stream_await_time_s)
+        
         if filter is not None and not isinstance(filter, Mapping):
             filter = {"_id": filter}
         cursor = self.find(filter, *args, **kwargs)
