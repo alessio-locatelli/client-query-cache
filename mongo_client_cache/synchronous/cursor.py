@@ -11,6 +11,7 @@ from pymongo.cursor_shared import _Hint, _Sort
 from pymongo.typings import _CollationIn
 
 from mongo_client_cache.cache import CommandFind
+from mongo_client_cache.logger import logger
 
 if TYPE_CHECKING:
     from mongo_client_cache._types import BsonDict
@@ -74,9 +75,16 @@ class CachedCursor(Cursor):
         )
         self._query = str(CommandFind(filter, projection, skip, limit, sort))
         try:
-            self._cached_documents_ids = collection._cache.query_to_ids_map[self._query]
+            self._cached_documents_ids = collection._cache.query_to_ids_map[
+                self._query
+            ].copy()
         except KeyError:
             self._cached_documents_ids = None  # type: ignore[assignment]
+            logger.debug(f"{self._query}: no cached documents.")
+        else:
+            logger.debug(
+                f"{self._query}: {len(self._cached_documents_ids)} cached documents."
+            )
 
     @override
     def next(self) -> BsonDict:
