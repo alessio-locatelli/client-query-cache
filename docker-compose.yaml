@@ -1,78 +1,21 @@
 services:
-  mongo1:
-    hostname: mongo1
-    image: mongo:8.0.3@sha256:3984cf5a234e525253619060fcbff12449db0597d62a6d4e18991a18f2365c36
-    expose:
-      - 27017
+  mongo:
+    image: mongo:8.0.4
+    command: ["--replSet", "rs0", "--bind_ip_all", "--quiet"]
     ports:
       - 27017:27017
-    restart: always
-    command: mongod --replSet myReplicaSet --bind_ip localhost,mongo1
-    networks:
-      - mongoCluster
+    healthcheck:
+      test: mongosh --eval 'db.runCommand("ping")'
+      interval: 1s
+      timeout: 5s
+      retries: 5
 
-  mongo2:
-    hostname: mongo2
-    image: mongo:8.0.3@sha256:3984cf5a234e525253619060fcbff12449db0597d62a6d4e18991a18f2365c36
-    expose:
-      - 27017
-    ports:
-      - 30002:27017
-    restart: always
-    command: mongod --replSet myReplicaSet --bind_ip localhost,mongo2
-    networks:
-      - mongoCluster
-
-  mongo3:
-    hostname: mongo3
-    image: mongo:8.0.3@sha256:3984cf5a234e525253619060fcbff12449db0597d62a6d4e18991a18f2365c36
-    expose:
-      - 27017
-    ports:
-      - 30003:27017
-    restart: always
-    command: mongod --replSet myReplicaSet --bind_ip localhost,mongo3
-    networks:
-      - mongoCluster
-
-  mongoinit:
-    image: mongo:8.0.3@sha256:3984cf5a234e525253619060fcbff12449db0597d62a6d4e18991a18f2365c36
-    # this container will exit after executing the command
-    restart: "no"
+  mongo_helper:
+    image: mongo:8.0.4
+    entrypoint: ["/bin/sh","-c"]
+    command: 
+      - | 
+         mongosh --host mongo --eval 'rs.initiate({_id:"rs0", members: [{_id:0,host:"localhost:27017"}]})'
     depends_on:
-      - mongo1
-      - mongo2
-      - mongo3
-    command: >
-      mongosh --host mongo1:27017 --eval 
-      '
-      db = (new Mongo("localhost:27017")).getDB("test");
-      config = {
-      "_id" : "my-mongo-set",
-      "members" : [
-        {
-          "_id" : 0,
-          "host" : "mongo1:27017",
-          "prioriry": 1"
-        },
-        {
-          "_id" : 1,
-          "host" : "mongo2:27017",
-          "prioriry": 0.5"
-        },
-        {
-          "_id" : 2,
-          "host" : "mongo3:27017",
-          "prioriry": 0.5
-        }
-      ]
-      };
-      rs.initiate(config);
-      '
-    networks:
-      - mongoCluster
-
-networks:
-  mongoCluster:
-    name: mongoCluster
-    external: true
+      mongo:
+        condition: service_healthy
