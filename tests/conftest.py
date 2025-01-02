@@ -34,17 +34,17 @@ def faker_seed() -> str | int:
     return seed
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture
 def cached_database_name() -> str:
     return "db_one"
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture
 def persistent_collection_name() -> str:
     return "persistent_collection"
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture
 def nonpersistent_collection_name() -> str:
     return "nonpersistent_collection"
 

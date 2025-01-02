@@ -10,7 +10,7 @@ from mongo_client_cache.synchronous.mongo_client import CachedMongoClient
 logger = logging.getLogger(__name__)
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def cached_mongo_client(
     persistent_collection_name: str,
     nonpersistent_collection_name: str,
