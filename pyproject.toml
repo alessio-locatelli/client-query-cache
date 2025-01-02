@@ -16,11 +16,11 @@ pymongo = ">=4.10.1"
 pytest = "*"
 pytest-asyncio = "*"
 pytest-timeout = "*"
-python-dotenv = {version = "*", extras = ["cli"]}
 tox = "*"
 hypothesis = "*"
 Faker = "*"
 slotscheck = "*"
+coverage = "*"
 
 [tool.poetry.group.telemetry]
 optional = true
