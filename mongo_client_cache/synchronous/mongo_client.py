@@ -69,6 +69,8 @@ class CacheMixin(MIXIN_BASE):
                     f"Asking '{coll._cache._collection.name}' "
                     + "to stop watching the change stream..."
                 )
+                if not coll._cache.watch_change_stream:
+                    continue
                 coll._cache.stop_watching = True
                 coll._cache.watch_stopped.wait(5)
         super().close()

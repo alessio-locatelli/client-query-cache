@@ -31,7 +31,6 @@ from mongo_client_cache.cache import (
 )
 from mongo_client_cache.cache.collection import CollCache
 from mongo_client_cache.cache.exceptions import WaitingForChangeStreamError
-from mongo_client_cache.logger import logger
 from mongo_client_cache.synchronous.cursor import CachedCursor
 
 
@@ -227,7 +226,7 @@ class CachedCollection(Collection):
 
     @override
     def find(self, *args: Any, **kwargs: Any) -> CachedCursor:
-        if (
+        if self._cache.watch_change_stream and (
             self._cache.change_stream_refreshed["insert"].wait(
                 self._max_change_stream_await_time_s
             )
@@ -245,7 +244,7 @@ class CachedCollection(Collection):
     def find_one(
         self, filter: Any | None = None, *args: Any, **kwargs: Any
     ) -> BsonDict | None:
-        if (
+        if self._cache.watch_change_stream and (
             self._cache.change_stream_refreshed["insert"].wait(
                 self._max_change_stream_await_time_s
             )
@@ -364,8 +363,7 @@ class CachedCollection(Collection):
                 limit=kwargs.get("limit", 0),
             )
         )
-        logger.debug(f"count_documents, {query}, {self._cache.change_stream_refreshed}")
-        if (
+        if self._cache.watch_change_stream and (
             self._cache.change_stream_refreshed["insert"].wait(
                 self._max_change_stream_await_time_s
             )
@@ -390,7 +388,7 @@ class CachedCollection(Collection):
     def estimated_document_count(
         self, comment: Any | None = None, **kwargs: Any
     ) -> int:
-        if (
+        if self._cache.watch_change_stream and (
             self._cache.change_stream_refreshed["insert"].wait(
                 self._max_change_stream_await_time_s
             )

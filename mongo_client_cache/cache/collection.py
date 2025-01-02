@@ -53,6 +53,7 @@ class CollCache:
         self.documents: dict[ObjectId | str, BsonDict] = {}  # NOTE: What is a key?
 
         # Change stream.
+        self.watch_change_stream = watch_change_stream
         if watch_change_stream:
             self._start_at_operation_time = datetime.now(UTC)
             self.change_stream_refreshed = {"insert": Event(), "delete": Event()}
