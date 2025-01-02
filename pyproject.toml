@@ -1,3 +1,6 @@
+[project]
+requires-python = ">=3.12"
+
 [tool.poetry]
 name = "mongo-client-cache"
 version = "0.1.0"
@@ -6,19 +9,26 @@ authors = ["Alessio Locatelli <software.development@secure.mailbox.org>"]
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = "^3.12"
+python = ">=3.12"
 pymongo = ">=4.10.1"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "*"
 pytest-asyncio = "*"
 pytest-timeout = "*"
-pytest-memray = "*"
 python-dotenv = {version = "*", extras = ["cli"]}
 tox = "*"
 hypothesis = "*"
 Faker = "*"
 slotscheck = "*"
+
+[tool.poetry.group.telemetry]
+optional = true
+
+[tool.poetry.group.telemetry.dependencies]
+opentelemetry-exporter-prometheus = "*"
+opentelemetry-instrumentation-pymongo = "*"
+opentelemetry-exporter-otlp-proto-grpc = "*"
 
 [build-system]
 requires = ["poetry-core"]

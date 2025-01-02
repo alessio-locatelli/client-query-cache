@@ -17,9 +17,7 @@ def cached_mongo_client(
     cached_database_name: str,
 ) -> Iterator[CachedMongoClient]:
     client = CachedMongoClient(
-        "mongodb+srv://"
-        + f"{os.environ['REPLICA_MONGO_NAME']}:{os.environ['REPLICA_MONGO_PASSWORD']}"
-        + f"@{os.environ['REPLICA_MONGO_HOST']}/?retryWrites=true&w=majority",
+        os.getenv("MONGODB_HOST", "localhost:27017"),
         cache_config={
             cached_database_name: {
                 persistent_collection_name: CollectionConfig(watch_change_stream=False),
