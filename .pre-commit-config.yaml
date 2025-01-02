@@ -19,7 +19,7 @@ repos:
       - id: check-merge-conflict
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.8.2
+    rev: v0.8.5
     hooks:
       - id: ruff
         args: ["--fix", "--exit-non-zero-on-fix", "--preview"]
@@ -32,17 +32,17 @@ repos:
       - id: codespell
 
   - repo: https://github.com/python-poetry/poetry
-    rev: "1.8.0"
+    rev: "1.8.5"
     hooks:
       - id: poetry-check
         files: pyproject.toml
 
   - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.13.0
+    rev: v1.14.1
     hooks:
       - id: mypy
         additional_dependencies:
-          [pymongo==4.10.1, pytest, Faker, hypothesis]
+          [pymongo, pytest, Faker, hypothesis]
 
   - repo: https://github.com/ariebovenberg/slotscheck
     rev: v0.19.1
@@ -52,6 +52,6 @@ repos:
         args: [--require-subclass, --verbose]
 
   - repo: https://github.com/crate-ci/typos
-    rev: typos-dict-v0.11.37
+    rev: v1.29.0
     hooks:
       - id: typos
