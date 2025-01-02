@@ -13,7 +13,7 @@ from mongo_client_cache.synchronous.database import CachedDatabase
 
 @pytest.fixture()
 def mongo_host() -> str:
-    return f"mongodb+srv://{os.environ['REPLICA_MONGO_NAME']}:{os.environ['REPLICA_MONGO_PASSWORD']}@{os.environ['REPLICA_MONGO_HOST']}/?retryWrites=true&w=majority"
+    return os.getenv("MONGODB_HOST", "localhost:27017")
 
 
 @pytest.fixture()
