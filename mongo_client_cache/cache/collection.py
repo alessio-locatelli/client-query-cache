@@ -5,8 +5,8 @@ from datetime import UTC, datetime
 from itertools import count
 from threading import Event, Thread
 
-from bson import ObjectId, Timestamp
 import pymongo
+from bson import ObjectId, Timestamp
 from pymongo.errors import PyMongoError
 from pymongo.synchronous.collection import Collection
 
@@ -32,6 +32,7 @@ class CollCache:
         "_resume_token",
         "_start_at_operation_time",
         "change_stream_refreshed",
+        "connected_to_stream",
         "distinct",
         "distinct_per_collection",
         "document_count",
@@ -41,7 +42,6 @@ class CollCache:
         "stop_watching",
         "watch_change_stream",
         "watch_stopped",
-        "connected_to_stream"
     )
 
     def __init__(self, /, collection: Collection, *, watch_change_stream: bool) -> None:
@@ -101,7 +101,7 @@ class CollCache:
     def _watch(self) -> None:
         if self.stop_watching:
             logger.debug(
-                f"Stopping watching changes on {self._collection.name} collection."  # noqa: E501
+                f"Stopping watching changes on {self._collection.name} collection."
             )
             self.watch_stopped.set()
             raise _StopWatchingError
@@ -132,10 +132,10 @@ class CollCache:
         start_at_operation_time = Timestamp(
             # NOTE: For some reason we need to start watching a few seconds earlier.
             int(self._start_at_operation_time.timestamp()) - 5,
-            0
+            0,
         )
         logger.debug(
-            f'Watching Change Stream for "{self._collection.name}" collection. {start_at_operation_time=}'
+            f'Watching Change Stream for "{self._collection.name}" collection. {start_at_operation_time=}'  # noqa: E501
         )
         with self._collection.watch(
             pipeline,
@@ -147,7 +147,7 @@ class CollCache:
             try:
                 for change in stream:
                     if self.stop_watching:
-                        logger.debug(
+                        logger.debug(  # type: ignore[unreachable]
                             f"Stopping watching changes on {self._collection.name} collection."  # noqa: E501
                         )
                         self.watch_stopped.set()
@@ -157,14 +157,14 @@ class CollCache:
                     # Use the interrupted ChangeStream's resume token to create
                     # a new ChangeStream. The new stream will continue from the
                     # last seen insert change without missing any events.
-                    if __debug__ and self._resume_token is None:
-                        logger.debug(
-                            f"Assigning a new 'resumeAfter': '{stream.resume_token['_data'][:5]}[...]'"
+                    if self._resume_token is None:
+                        logger_debug(
+                            f"Assigning a new 'resumeAfter': '{stream.resume_token['_data'][:5]}[...]'"  # type: ignore[index]  # noqa: E501
                         )
-                    self._resume_token = stream.resume_token["_data"]  # type: ignore[assignment]
+                    self._resume_token = stream.resume_token["_data"]  # type: ignore[index]
             except pymongo.synchronous.pool._PoolClosedError as e:
                 logger.debug(e)
-                raise _StopWatchingError
+                raise _StopWatchingError from e
 
     def _insert(self) -> None:  # ObjectId or str?
         if self.estimated_document_count is not None:
@@ -210,12 +210,11 @@ class CollCache:
 
     def _process_change_stream(self, change: ChangeStreamDocument) -> None:
         operation_type = change["operationType"]
-        if __debug__:
-            logger.debug(
-                f"operationType={operation_type}, wallTime={change['wallTime']}, "
-                + f"documentKey={change['documentKey']['_id']}, "
-                + f"{ {k: v.is_set() for k, v in self.change_stream_refreshed.items()} }"
-            )
+        logger_debug(
+            f"operationType={operation_type}, wallTime={change['wallTime']}, "
+            + f"documentKey={change['documentKey']['_id']}, "
+            + f"{ {k: v.is_set() for k, v in self.change_stream_refreshed.items()} }"
+        )
 
         if operation_type == "insert":
             self.change_stream_refreshed["insert"].set()

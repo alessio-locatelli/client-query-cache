@@ -31,8 +31,8 @@ from mongo_client_cache.cache import (
 )
 from mongo_client_cache.cache.collection import CollCache
 from mongo_client_cache.cache.exceptions import WaitingForChangeStreamError
-from mongo_client_cache.synchronous.cursor import CachedCursor
 from mongo_client_cache.logger import logger, logger_debug
+from mongo_client_cache.synchronous.cursor import CachedCursor
 
 
 class CachedCollection(Collection):
@@ -61,7 +61,9 @@ class CachedCollection(Collection):
         )
         self.__cache = CollCache(self, watch_change_stream=watch_change_stream)
         if watch_change_stream:
-            assert self._cache.connected_to_stream.wait(self._max_change_stream_await_time_s)
+            assert self._cache.connected_to_stream.wait(
+                self._max_change_stream_await_time_s
+            )
 
     @property
     def _max_change_stream_await_time_s(self) -> float:
@@ -242,7 +244,10 @@ class CachedCollection(Collection):
             )
             is False
         ):
-            raise WaitingForChangeStreamError(self._max_change_stream_await_time_s, self._cache.change_stream_refreshed)
+            raise WaitingForChangeStreamError(
+                self._max_change_stream_await_time_s,
+                self._cache.change_stream_refreshed,
+            )
 
         return CachedCursor(self, *args, **kwargs)
 
@@ -260,7 +265,10 @@ class CachedCollection(Collection):
             )
             is False
         ):
-            raise WaitingForChangeStreamError(self._max_change_stream_await_time_s, self._cache.change_stream_refreshed)
+            raise WaitingForChangeStreamError(
+                self._max_change_stream_await_time_s,
+                self._cache.change_stream_refreshed,
+            )
 
         if filter is not None and not isinstance(filter, Mapping):
             filter = {"_id": filter}
@@ -380,7 +388,10 @@ class CachedCollection(Collection):
             )
             is False
         ):
-            raise WaitingForChangeStreamError(self._max_change_stream_await_time_s, self._cache.change_stream_refreshed)
+            raise WaitingForChangeStreamError(
+                self._max_change_stream_await_time_s,
+                self._cache.change_stream_refreshed,
+            )
 
         try:
             return self._cache.document_count[query]
@@ -406,7 +417,10 @@ class CachedCollection(Collection):
             )
             is False
         ):
-            raise WaitingForChangeStreamError(self._max_change_stream_await_time_s, self._cache.change_stream_refreshed)
+            raise WaitingForChangeStreamError(
+                self._max_change_stream_await_time_s,
+                self._cache.change_stream_refreshed,
+            )
 
         if self._cache.estimated_document_count is not None:
             return self._cache.estimated_document_count
