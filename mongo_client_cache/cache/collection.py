@@ -10,14 +10,10 @@ from bson import ObjectId, Timestamp
 from pymongo.errors import PyMongoError
 from pymongo.synchronous.collection import Collection
 
-from mongo_client_cache._types import (
-    BsonDict,
-    BsonValue,
-    ChangeStreamDocument,
-    JsonDict,
-)
+from mongo_client_cache._types import BsonDict, BsonValue, ChangeStreamDocument
+from mongo_client_cache.cache.change_stream import pipeline
+from mongo_client_cache.cache.commands import CommandKwargs, command_count_empty_filter
 from mongo_client_cache.cache.exceptions import UnexpectedChangeOperationTypeError
-from mongo_client_cache.cache.misc import CommandKwargs, command_count_empty_filter
 from mongo_client_cache.logger import logger, logger_debug
 
 
@@ -106,29 +102,6 @@ class CollCache:
             self.watch_stopped.set()
             raise _StopWatchingError
 
-        pipeline: list[JsonDict] = [
-            {
-                "$match": {
-                    "operationType": {
-                        "$in": [
-                            "insert",
-                            "update",
-                            "replace",
-                            "delete",
-                            "drop",
-                            "rename",
-                        ]
-                    },
-                }
-            },
-            {
-                "$project": {
-                    "operationType": True,
-                    "documentKey": True,
-                    "wallTime": True,
-                }
-            },
-        ]
         start_at_operation_time = Timestamp(
             # NOTE: For some reason we need to start watching a few seconds earlier.
             int(self._start_at_operation_time.timestamp()) - 5,
