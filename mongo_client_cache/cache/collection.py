@@ -6,6 +6,7 @@ from itertools import count
 from threading import Event, Thread
 
 from bson import ObjectId, Timestamp
+import pymongo
 from pymongo.errors import PyMongoError
 from pymongo.synchronous.collection import Collection
 
@@ -40,6 +41,7 @@ class CollCache:
         "stop_watching",
         "watch_change_stream",
         "watch_stopped",
+        "connected_to_stream"
     )
 
     def __init__(self, /, collection: Collection, *, watch_change_stream: bool) -> None:
@@ -59,6 +61,7 @@ class CollCache:
             self.change_stream_refreshed = {"insert": Event(), "delete": Event()}
             for e in self.change_stream_refreshed.values():
                 e.set()
+            self.connected_to_stream = Event()
             self.watch_stopped = Event()
             self.watch_change_stream = watch_change_stream
             self.stop_watching = False
@@ -97,6 +100,13 @@ class CollCache:
                 break
 
     def _watch(self) -> None:
+        if self.stop_watching:
+            logger.debug(
+                f"Stopping watching changes on {self._collection.name} collection."  # noqa: E501
+            )
+            self.watch_stopped.set()
+            raise _StopWatchingError
+
         pipeline: list[JsonDict] = [
             {
                 "$match": {
@@ -120,27 +130,40 @@ class CollCache:
                 }
             },
         ]
+        start_at_operation_time = Timestamp(
+            # NOTE: For some reason we need to start watching a few seconds earlier.
+            int(self._start_at_operation_time.timestamp()) - 5,
+            0
+        )
         logger.debug(
-            f'Watching Change Stream for "{self._collection.name}" collection.'
+            f'Watching Change Stream for "{self._collection.name}" collection. {start_at_operation_time=}'
         )
         with self._collection.watch(
             pipeline,
             resume_after=self._resume_token,
-            start_at_operation_time=Timestamp(self._start_at_operation_time, 0),
+            start_at_operation_time=start_at_operation_time,
         ) as stream:
-            for change in stream:
-                if self.stop_watching:
-                    logger.debug(
-                        f"Stopping watching changes on {self._collection.name} collection."  # noqa: E501
-                    )
-                    self.watch_stopped.set()
-                    raise _StopWatchingError
-                self._process_change_stream(change)
+            self.connected_to_stream.set()
+            logger.debug(f"Connected to the '{self._collection.name}' change stream.")
+            try:
+                for change in stream:
+                    if self.stop_watching:
+                        logger.debug(
+                            f"Stopping watching changes on {self._collection.name} collection."  # noqa: E501
+                        )
+                        self.watch_stopped.set()
+                        raise _StopWatchingError
+                    self._process_change_stream(change)
 
-                # Use the interrupted ChangeStream's resume token to create
-                # a new ChangeStream. The new stream will continue from the
-                # last seen insert change without missing any events.
-                self._resume_token = stream.resume_token  # type: ignore[assignment]
+                    # Use the interrupted ChangeStream's resume token to create
+                    # a new ChangeStream. The new stream will continue from the
+                    # last seen insert change without missing any events.
+                    if __debug__ and self._resume_token is None:
+                        logger.debug(f"Assigning a new 'resumeAfter': {stream.resume_token}.")
+                    self._resume_token = stream.resume_token  # type: ignore[assignment]
+            except pymongo.synchronous.pool._PoolClosedError as e:
+                logger.debug(e)
+                raise _StopWatchingError
 
     def _insert(self) -> None:  # ObjectId or str?
         if self.estimated_document_count is not None:

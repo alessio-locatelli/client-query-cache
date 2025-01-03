@@ -1,4 +1,6 @@
 from collections.abc import Callable, Iterable, Iterator
+import logging
+import threading
 from typing import Any, TypedDict, cast
 
 import pytest
@@ -10,6 +12,7 @@ from mongo_client_cache.synchronous.collection import CachedCollection
 from mongo_client_cache.synchronous.mongo_client import CachedMongoClient
 
 fake = Faker()
+logger = logging.getLogger(__name__)
 
 
 @pytest.fixture
@@ -24,8 +27,10 @@ def fill_collection(
     document_count: int,
 ) -> Iterator[None]:
     cached_collection.insert_many(make_fake_document() for _ in range(document_count))
+    logger.debug(f"[SETUP] Filled {cached_collection.name} with {document_count} documents.")
     yield
     cached_collection.delete_many({})
+    logger.debug(f"[TEARDOWN] Deleted all documents in {cached_collection.name}.")
 
 
 @pytest.fixture

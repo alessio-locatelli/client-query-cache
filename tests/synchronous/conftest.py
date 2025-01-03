@@ -28,6 +28,7 @@ def cached_mongo_client(
             "db_two": {persistent_collection_name: CollectionConfig()},
         },
     )
-    logger.info(f"{client = }, {client.nodes = }, {client.topology_description = }")
+    logger.debug(f"[SETUP] {client = }, {client.nodes = }, {client.topology_description = }")
     yield client
+    logger.debug(f"[TEARDOWN] Closing {client}.")
     client.close()

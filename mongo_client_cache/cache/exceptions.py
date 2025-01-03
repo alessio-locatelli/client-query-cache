@@ -1,4 +1,5 @@
 from __future__ import annotations
+from threading import Event
 
 
 class CannotEditImmutableCollectionError(Exception):
@@ -15,8 +16,8 @@ class UnexpectedChangeOperationTypeError(Exception): ...
 
 
 class WaitingForChangeStreamError(Exception):
-    def __init__(self, max_change_stream_await_time_s: float) -> None:
+    def __init__(self, max_change_stream_await_time_s: float, events: dict[str, Event]) -> None:
         super().__init__(
             f"{max_change_stream_await_time_s} seconds timeout "
-            + "exceeded while waiting for a change stream."
+            + f"exceeded while waiting for a change stream. {events=}"
         )

@@ -12,9 +12,12 @@ import pytest
 from bson import Decimal128
 from faker import Faker
 
+from mongo_client_cache.logger import _logger_debug
+
 logger = logging.getLogger(__name__)
 
 logging.basicConfig(level=logging.DEBUG)
+_logger_debug.setLevel(logging.DEBUG)
 logging.getLogger("faker.factory").setLevel("INFO")
 logging.getLogger("pymongo").setLevel("INFO")
 
