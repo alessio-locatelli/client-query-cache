@@ -18,7 +18,7 @@ from mongo_client_cache._types import (
 )
 from mongo_client_cache.cache.exceptions import UnexpectedChangeOperationTypeError
 from mongo_client_cache.cache.misc import CommandKwargs, command_count_empty_filter
-from mongo_client_cache.logger import logger
+from mongo_client_cache.logger import logger, logger_debug
 
 
 class _StopWatchingError(Exception): ...
@@ -95,7 +95,6 @@ class CollCache:
                         + f"Target: '{self._collection}', {retry_attempt=}, {error!r}."
                     )
                 raise
-                # logger.error(repr(error))
             except _StopWatchingError:
                 break
 
@@ -159,8 +158,10 @@ class CollCache:
                     # a new ChangeStream. The new stream will continue from the
                     # last seen insert change without missing any events.
                     if __debug__ and self._resume_token is None:
-                        logger.debug(f"Assigning a new 'resumeAfter': {stream.resume_token}.")
-                    self._resume_token = stream.resume_token  # type: ignore[assignment]
+                        logger.debug(
+                            f"Assigning a new 'resumeAfter': '{stream.resume_token['_data'][:5]}[...]'"
+                        )
+                    self._resume_token = stream.resume_token["_data"]  # type: ignore[assignment]
             except pymongo.synchronous.pool._PoolClosedError as e:
                 logger.debug(e)
                 raise _StopWatchingError
@@ -170,6 +171,7 @@ class CollCache:
             self.estimated_document_count += 1
         try:
             self.document_count[command_count_empty_filter] += 1
+            logger_debug(f"document_count={self.document_count}")
         except KeyError:
             pass
         # Invalidate all cached queries.
@@ -211,7 +213,8 @@ class CollCache:
         if __debug__:
             logger.debug(
                 f"operationType={operation_type}, wallTime={change['wallTime']}, "
-                + f"documentKey={change['documentKey']['_id']}, {self.change_stream_refreshed}"  # noqa: E501
+                + f"documentKey={change['documentKey']['_id']}, "
+                + f"{ {k: v.is_set() for k, v in self.change_stream_refreshed.items()} }"
             )
 
         if operation_type == "insert":
