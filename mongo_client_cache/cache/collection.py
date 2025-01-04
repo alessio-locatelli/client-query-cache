@@ -139,7 +139,7 @@ class CollCache:
                 logger.debug(e)
                 raise _StopWatchingError from e
 
-    def _insert(self) -> None:  # ObjectId or str?
+    def _insert(self, change: ChangeStreamDocument) -> None:  # ObjectId or str?
         if self.estimated_document_count is not None:
             self.estimated_document_count += 1
         try:
@@ -191,7 +191,7 @@ class CollCache:
 
         if operation_type == "insert":
             self.change_stream_refreshed["insert"].set()
-            self._insert()
+            self._insert(change)
         elif operation_type == "update":
             self._update(change)
         elif operation_type == "replace":
