@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import time
 from collections.abc import Iterable, Mapping, MutableMapping, Sequence
-from typing import Any, override
+from datetime import datetime
+from typing import Any, Literal, override
 
 from bson.codec_options import CodecOptions
 from bson.raw_bson import RawBSONDocument
@@ -22,6 +24,7 @@ from pymongo.synchronous.collection import Collection, _WriteOp
 from pymongo.synchronous.database import Database
 from pymongo.typings import _CollationIn, _Pipeline
 
+from mongo_client_cache._misc import dt_now
 from mongo_client_cache._types import BsonDict
 from mongo_client_cache.cache import (
     CannotEditImmutableCollectionError,
@@ -64,6 +67,27 @@ class CachedCollection(Collection):
             assert self._cache.connected_to_stream.wait(
                 self._max_change_stream_await_time_s
             )
+        self.__sleep_duration_s = 0.001
+        self.__waiting_retry_count = int(
+            self._max_change_stream_await_time_s / self.__sleep_duration_s
+        )
+
+    def _wait_for_change_stream(
+        self, after_dt: datetime, operation_type: Literal["insert", "delete"]
+    ) -> None:
+        for _ in range(self.__waiting_retry_count):
+            if self._cache.pending_change_stream[operation_type][after_dt] == 0:
+                logger_debug(
+                    f"Finished waiting for change stream after {_ * self.__sleep_duration_s} seconds."
+                )
+                break
+            time.sleep(self.__sleep_duration_s)
+            continue
+        else:
+            raise WaitingForChangeStreamError(
+                self._max_change_stream_await_time_s,
+                self._cache.pending_change_stream,
+            )
 
     @property
     def _max_change_stream_await_time_s(self) -> float:
@@ -95,10 +119,13 @@ class CachedCollection(Collection):
         session: ClientSession | None = None,
         comment: Any | None = None,
     ) -> InsertOneResult:
-        self._cache.change_stream_refreshed["insert"].clear()
-        return super().insert_one(
+        dt = dt_now()
+        insert_one_result = super().insert_one(
             document, bypass_document_validation, session, comment
         )
+        self._cache.pending_change_stream["insert"][dt] = 1
+        self._wait_for_change_stream(dt, "insert")
+        return insert_one_result
 
     @override
     def insert_many(
@@ -109,10 +136,15 @@ class CachedCollection(Collection):
         session: ClientSession | None = None,
         comment: Any | None = None,
     ) -> InsertManyResult:
-        self._cache.change_stream_refreshed["insert"].clear()
-        return super().insert_many(
+        dt = dt_now()
+        insert_many_result = super().insert_many(
             documents, ordered, bypass_document_validation, session, comment
         )
+        self._cache.pending_change_stream["insert"][dt] = len(
+            insert_many_result.inserted_ids
+        )
+        self._wait_for_change_stream(dt, "insert")
+        return insert_many_result
 
     @override
     def replace_one(
@@ -213,9 +245,15 @@ class CachedCollection(Collection):
         comment: Any | None = None,
     ) -> DeleteResult:
         logger.debug(f"delete_one, {filter=}")
-        self._cache.change_stream_refreshed["delete"].clear()
-        # logger.debug(f"delete_one, {filter}, {self._cache.change_stream_refreshed}")
-        return super().delete_one(filter, collation, hint, session, let, comment)
+        dt = dt_now()
+        delete_one_result = super().delete_one(
+            filter, collation, hint, session, let, comment
+        )
+        if (deleted_count := delete_one_result.deleted_count) == 0:
+            return delete_one_result
+        self._cache.pending_change_stream["delete"][dt] = deleted_count
+        self._wait_for_change_stream(dt, "delete")
+        return delete_one_result
 
     @override
     def delete_many(
@@ -228,48 +266,24 @@ class CachedCollection(Collection):
         comment: Any | None = None,
     ) -> DeleteResult:
         logger.debug(f"delete, {filter=}")
-        self._cache.change_stream_refreshed["delete"].clear()
-        return super().delete_many(filter, collation, hint, session, let, comment)
+        dt = dt_now()
+        delete_many_result = super().delete_many(
+            filter, collation, hint, session, let, comment
+        )
+        if (deleted_count := delete_many_result.deleted_count) == 0:
+            return delete_many_result
+        self._cache.pending_change_stream["delete"][dt] = deleted_count
+        self._wait_for_change_stream(dt, "delete")
+        return delete_many_result
 
     @override
     def find(self, *args: Any, **kwargs: Any) -> CachedCursor:
-        logger.debug(f"find, {args=}, {kwargs=}")
-        if self._cache.watch_change_stream and (
-            self._cache.change_stream_refreshed["insert"].wait(
-                self._max_change_stream_await_time_s
-            )
-            is False
-            or self._cache.change_stream_refreshed["delete"].wait(
-                self._max_change_stream_await_time_s
-            )
-            is False
-        ):
-            raise WaitingForChangeStreamError(
-                self._max_change_stream_await_time_s,
-                self._cache.change_stream_refreshed,
-            )
-
         return CachedCursor(self, *args, **kwargs)
 
     @override
     def find_one(
         self, filter: Any | None = None, *args: Any, **kwargs: Any
     ) -> BsonDict | None:
-        if self._cache.watch_change_stream and (
-            self._cache.change_stream_refreshed["insert"].wait(
-                self._max_change_stream_await_time_s
-            )
-            is False
-            or self._cache.change_stream_refreshed["delete"].wait(
-                self._max_change_stream_await_time_s
-            )
-            is False
-        ):
-            raise WaitingForChangeStreamError(
-                self._max_change_stream_await_time_s,
-                self._cache.change_stream_refreshed,
-            )
-
         if filter is not None and not isinstance(filter, Mapping):
             filter = {"_id": filter}
         cursor = self.find(filter, *args, **kwargs)
@@ -378,21 +392,6 @@ class CachedCollection(Collection):
                 limit=kwargs.get("limit", 0),
             )
         )
-        if self._cache.watch_change_stream and (
-            self._cache.change_stream_refreshed["insert"].wait(
-                self._max_change_stream_await_time_s
-            )
-            is False
-            or self._cache.change_stream_refreshed["delete"].wait(
-                self._max_change_stream_await_time_s
-            )
-            is False
-        ):
-            raise WaitingForChangeStreamError(
-                self._max_change_stream_await_time_s,
-                self._cache.change_stream_refreshed,
-            )
-
         try:
             return self._cache.document_count[query]
         except KeyError:
@@ -407,21 +406,6 @@ class CachedCollection(Collection):
         self, comment: Any | None = None, **kwargs: Any
     ) -> int:
         logger_debug(f"'estimated_document_count', {filter=}.")
-        if self._cache.watch_change_stream and (
-            self._cache.change_stream_refreshed["insert"].wait(
-                self._max_change_stream_await_time_s
-            )
-            is False
-            or self._cache.change_stream_refreshed["delete"].wait(
-                self._max_change_stream_await_time_s
-            )
-            is False
-        ):
-            raise WaitingForChangeStreamError(
-                self._max_change_stream_await_time_s,
-                self._cache.change_stream_refreshed,
-            )
-
         if self._cache.estimated_document_count is not None:
             return self._cache.estimated_document_count
         document_count = super().estimated_document_count(comment, **kwargs)

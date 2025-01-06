@@ -27,13 +27,13 @@ class CollCache:
         "_collection",
         "_resume_token",
         "_start_at_operation_time",
-        "change_stream_refreshed",
         "connected_to_stream",
         "distinct",
         "distinct_per_collection",
         "document_count",
         "documents",
         "estimated_document_count",
+        "pending_change_stream",
         "query_to_ids_map",
         "stop_watching",
         "watch_change_stream",
@@ -53,10 +53,11 @@ class CollCache:
         # Change stream.
         self.watch_change_stream = watch_change_stream
         if watch_change_stream:
+            self.pending_change_stream: dict[str, dict[datetime, int]] = {
+                "insert": {},
+                "delete": {},
+            }
             self._start_at_operation_time = datetime.now(UTC)
-            self.change_stream_refreshed = {"insert": Event(), "delete": Event()}
-            for e in self.change_stream_refreshed.values():
-                e.set()
             self.connected_to_stream = Event()
             self.watch_stopped = Event()
             self.watch_change_stream = watch_change_stream
@@ -140,6 +141,11 @@ class CollCache:
                 raise _StopWatchingError from e
 
     def _insert(self, change: ChangeStreamDocument) -> None:  # ObjectId or str?
+        for dt in self.pending_change_stream["insert"]:
+            if change["wallTime"] >= dt:
+                self.pending_change_stream["insert"][dt] -= 1
+                assert self.pending_change_stream["insert"][dt] >= 0
+
         if self.estimated_document_count is not None:
             self.estimated_document_count += 1
         try:
@@ -158,6 +164,11 @@ class CollCache:
         raise NotImplementedError
 
     def _delete(self, change: ChangeStreamDocument) -> None:
+        for dt in self.pending_change_stream["delete"]:
+            if change["wallTime"] >= dt:
+                self.pending_change_stream["delete"][dt] -= 1
+                assert self.pending_change_stream["delete"][dt] >= 0
+
         try:
             del self.documents[change["documentKey"]["_id"]]
         except KeyError:
@@ -186,18 +197,16 @@ class CollCache:
         logger_debug(
             f"operationType={operation_type}, wallTime={change['wallTime']}, "
             + f"documentKey={change['documentKey']['_id']}, "
-            + f"{ {k: v.is_set() for k, v in self.change_stream_refreshed.items()} }"
+            + f"{self.pending_change_stream}"
         )
 
         if operation_type == "insert":
-            self.change_stream_refreshed["insert"].set()
             self._insert(change)
         elif operation_type == "update":
             self._update(change)
         elif operation_type == "replace":
             self._replace(change)
         elif operation_type == "delete":
-            self.change_stream_refreshed["delete"].set()
             self._delete(change)
         elif operation_type == "drop":
             self._drop(change)
