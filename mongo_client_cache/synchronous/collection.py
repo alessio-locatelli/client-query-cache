@@ -75,10 +75,18 @@ class CachedCollection(Collection):
     def _wait_for_change_stream(
         self, after_dt: datetime, operation_type: Literal["insert", "delete"]
     ) -> None:
+        if self._cache.stop_watching or self._cache.watch_stopped:
+            logger.debug("Skipped waiting for the change streame because the client is closing.")
+            return
+        logger_debug(
+            f"Waiting for change stream uppdate. "
+            + f"{operation_type=}, {after_dt=}"
+        )
         for _ in range(self.__waiting_retry_count):
             if self._cache.pending_change_stream[operation_type][after_dt] == 0:
                 logger_debug(
                     f"Finished waiting for change stream after {_ * self.__sleep_duration_s} seconds."
+                    + f"{operation_type=}, {after_dt=}"
                 )
                 break
             time.sleep(self.__sleep_duration_s)
@@ -91,7 +99,7 @@ class CachedCollection(Collection):
 
     @property
     def _max_change_stream_await_time_s(self) -> float:
-        return 20
+        return 10
 
     @property
     def _cache(self) -> CollCache:
