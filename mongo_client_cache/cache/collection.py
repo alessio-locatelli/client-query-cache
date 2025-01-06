@@ -137,14 +137,19 @@ class CollCache:
                         )
                     self._resume_token = stream.resume_token["_data"]  # type: ignore[index]
             except pymongo.synchronous.pool._PoolClosedError as e:
-                logger.debug(e)
+                try:
+                    logger.debug(repr(e))
+                except ValueError as value_error:
+                    # https://github.com/pytest-dev/pytest/issues/5502
+                    print(repr(value_error))
+                    print(repr(e))
                 raise _StopWatchingError from e
 
     def _insert(self, change: ChangeStreamDocument) -> None:  # ObjectId or str?
-        for dt in self.pending_change_stream["insert"]:
-            if change["wallTime"] >= dt:
+        for dt, i in self.pending_change_stream["insert"].items():
+            if change["wallTime"] >= dt and i > 0:
                 self.pending_change_stream["insert"][dt] -= 1
-                assert self.pending_change_stream["insert"][dt] >= 0
+                break
 
         if self.estimated_document_count is not None:
             self.estimated_document_count += 1
@@ -164,10 +169,10 @@ class CollCache:
         raise NotImplementedError
 
     def _delete(self, change: ChangeStreamDocument) -> None:
-        for dt in self.pending_change_stream["delete"]:
-            if change["wallTime"] >= dt:
+        for dt, i in self.pending_change_stream["delete"].items():
+            if change["wallTime"] >= dt and i > 0:
                 self.pending_change_stream["delete"][dt] -= 1
-                assert self.pending_change_stream["delete"][dt] >= 0
+                break
 
         try:
             del self.documents[change["documentKey"]["_id"]]

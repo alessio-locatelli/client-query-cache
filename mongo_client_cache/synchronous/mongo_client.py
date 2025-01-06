@@ -72,7 +72,7 @@ class CacheMixin(MIXIN_BASE):
                 if not coll._cache.watch_change_stream:
                     continue
                 coll._cache.stop_watching = True
-                coll._cache.watch_stopped.wait(5)
+                coll._cache.watch_stopped.wait(3)
         super().close()
 
 

@@ -75,27 +75,31 @@ class CachedCollection(Collection):
     def _wait_for_change_stream(
         self, after_dt: datetime, operation_type: Literal["insert", "delete"]
     ) -> None:
-        if self._cache.stop_watching or self._cache.watch_stopped:
-            logger.debug("Skipped waiting for the change streame because the client is closing.")
-            return
         logger_debug(
             f"Waiting for change stream uppdate. "
             + f"{operation_type=}, {after_dt=}"
         )
-        for _ in range(self.__waiting_retry_count):
+        for _ in range(self.__waiting_retry_count):            
             if self._cache.pending_change_stream[operation_type][after_dt] == 0:
+                del self._cache.pending_change_stream[operation_type][after_dt]
                 logger_debug(
                     f"Finished waiting for change stream after {_ * self.__sleep_duration_s} seconds."
                     + f"{operation_type=}, {after_dt=}"
                 )
-                break
+                return
             time.sleep(self.__sleep_duration_s)
+            if self._cache.stop_watching or self._cache.watch_stopped.is_set():
+                logger.debug("Skipped waiting for the change streame because the client is closing.")
+                return
             continue
-        else:
-            raise WaitingForChangeStreamError(
-                self._max_change_stream_await_time_s,
-                self._cache.pending_change_stream,
-            )
+
+        if self._cache.stop_watching or self._cache.watch_stopped.is_set():
+            logger.debug("Skipped waiting for the change streame because the client is closing.")
+            return        
+        # raise WaitingForChangeStreamError(
+        #     self._max_change_stream_await_time_s,
+        #     self._cache.pending_change_stream,
+        # )
 
     @property
     def _max_change_stream_await_time_s(self) -> float:
@@ -127,6 +131,7 @@ class CachedCollection(Collection):
         session: ClientSession | None = None,
         comment: Any | None = None,
     ) -> InsertOneResult:
+        logger_debug(f"'insert_one', {document.get('_id')=}")
         dt = dt_now()
         insert_one_result = super().insert_one(
             document, bypass_document_validation, session, comment
@@ -144,6 +149,7 @@ class CachedCollection(Collection):
         session: ClientSession | None = None,
         comment: Any | None = None,
     ) -> InsertManyResult:
+        logger_debug('insert_many' + f", {len(documents)=}" if hasattr(documents, "__len__") else "")
         dt = dt_now()
         insert_many_result = super().insert_many(
             documents, ordered, bypass_document_validation, session, comment
