@@ -67,7 +67,7 @@ class CachedCollection(Collection):
             assert self._cache.connected_to_stream.wait(
                 self._max_change_stream_await_time_s
             )
-        self.__sleep_duration_s = 0.0001
+        self.__sleep_duration_s = 0.001
         self.__waiting_retry_count = int(
             self._max_change_stream_await_time_s / self.__sleep_duration_s
         )
