@@ -67,7 +67,7 @@ class CachedCollection(Collection):
             assert self._cache.connected_to_stream.wait(
                 self._max_change_stream_await_time_s
             )
-        self.__sleep_duration_s = 0.001
+        self.__sleep_duration_s = 0.0001
         self.__waiting_retry_count = int(
             self._max_change_stream_await_time_s / self.__sleep_duration_s
         )
@@ -76,30 +76,34 @@ class CachedCollection(Collection):
         self, after_dt: datetime, operation_type: Literal["insert", "delete"]
     ) -> None:
         logger_debug(
-            f"Waiting for change stream uppdate. "
-            + f"{operation_type=}, {after_dt=}"
+            "Waiting for change stream uppdate. " + f"{operation_type=}, {after_dt=}"
         )
-        for _ in range(self.__waiting_retry_count):            
-            if self._cache.pending_change_stream[operation_type][after_dt] == 0:
+        for _ in range(self.__waiting_retry_count):
+            if self._cache.pending_change_stream[operation_type][after_dt] <= 0:
                 del self._cache.pending_change_stream[operation_type][after_dt]
                 logger_debug(
-                    f"Finished waiting for change stream after {_ * self.__sleep_duration_s} seconds."
+                    "Finished waiting for change stream after "
+                    + f"{_ * self.__sleep_duration_s} seconds."
                     + f"{operation_type=}, {after_dt=}"
                 )
                 return
             time.sleep(self.__sleep_duration_s)
             if self._cache.stop_watching or self._cache.watch_stopped.is_set():
-                logger.debug("Skipped waiting for the change streame because the client is closing.")
+                logger.debug(
+                    "Skipped waiting for the change stream because the client is closing."  # noqa: E501
+                )
                 return
             continue
 
         if self._cache.stop_watching or self._cache.watch_stopped.is_set():
-            logger.debug("Skipped waiting for the change streame because the client is closing.")
-            return        
-        # raise WaitingForChangeStreamError(
-        #     self._max_change_stream_await_time_s,
-        #     self._cache.pending_change_stream,
-        # )
+            logger.debug(
+                "Skipped waiting for the change streame because the client is closing."
+            )
+            return
+        raise WaitingForChangeStreamError(
+            self._max_change_stream_await_time_s,
+            self._cache.pending_change_stream,
+        )
 
     @property
     def _max_change_stream_await_time_s(self) -> float:
@@ -133,10 +137,11 @@ class CachedCollection(Collection):
     ) -> InsertOneResult:
         logger_debug(f"'insert_one', {document.get('_id')=}")
         dt = dt_now()
+        self._cache.pending_change_stream["insert"][dt] = 0
         insert_one_result = super().insert_one(
             document, bypass_document_validation, session, comment
         )
-        self._cache.pending_change_stream["insert"][dt] = 1
+        self._cache.pending_change_stream["insert"][dt] += 1
         self._wait_for_change_stream(dt, "insert")
         return insert_one_result
 
@@ -149,12 +154,16 @@ class CachedCollection(Collection):
         session: ClientSession | None = None,
         comment: Any | None = None,
     ) -> InsertManyResult:
-        logger_debug('insert_many' + f", {len(documents)=}" if hasattr(documents, "__len__") else "")
+        logger_debug(
+            "insert_many"
+            + (f", {len(documents)=}" if hasattr(documents, "__len__") else "")  # type: ignore[arg-type]
+        )
         dt = dt_now()
+        self._cache.pending_change_stream["insert"][dt] = 0
         insert_many_result = super().insert_many(
             documents, ordered, bypass_document_validation, session, comment
         )
-        self._cache.pending_change_stream["insert"][dt] = len(
+        self._cache.pending_change_stream["insert"][dt] += len(
             insert_many_result.inserted_ids
         )
         self._wait_for_change_stream(dt, "insert")
@@ -263,9 +272,10 @@ class CachedCollection(Collection):
         delete_one_result = super().delete_one(
             filter, collation, hint, session, let, comment
         )
+        self._cache.pending_change_stream["delete"][dt] = 0
         if (deleted_count := delete_one_result.deleted_count) == 0:
             return delete_one_result
-        self._cache.pending_change_stream["delete"][dt] = deleted_count
+        self._cache.pending_change_stream["delete"][dt] += deleted_count
         self._wait_for_change_stream(dt, "delete")
         return delete_one_result
 
@@ -284,9 +294,13 @@ class CachedCollection(Collection):
         delete_many_result = super().delete_many(
             filter, collation, hint, session, let, comment
         )
+        logger_debug(
+            f"delete, {filter=}, deleted_count={delete_many_result.deleted_count}"
+        )
+        self._cache.pending_change_stream["delete"][dt] = 0
         if (deleted_count := delete_many_result.deleted_count) == 0:
             return delete_many_result
-        self._cache.pending_change_stream["delete"][dt] = deleted_count
+        self._cache.pending_change_stream["delete"][dt] += deleted_count
         self._wait_for_change_stream(dt, "delete")
         return delete_many_result
 

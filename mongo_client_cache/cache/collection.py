@@ -2,12 +2,10 @@ from __future__ import annotations
 
 from collections import deque
 from datetime import UTC, datetime
-from itertools import count
 from threading import Event, Thread
 
 import pymongo
 from bson import ObjectId, Timestamp
-from pymongo.errors import PyMongoError
 from pymongo.synchronous.collection import Collection
 
 from mongo_client_cache._types import BsonDict, BsonValue, ChangeStreamDocument
@@ -17,15 +15,9 @@ from mongo_client_cache.cache.exceptions import UnexpectedChangeOperationTypeErr
 from mongo_client_cache.logger import logger, logger_debug
 
 
-class _StopWatchingError(Exception): ...
-
-
 class CollCache:
-    _change_stream_max_retries = 3
-
     __slots__ = (
         "_collection",
-        "_resume_token",
         "_start_at_operation_time",
         "connected_to_stream",
         "distinct",
@@ -69,81 +61,32 @@ class CollCache:
         https://github.com/mongodb/specifications/blob/master/source/change-streams/change-streams.rst
         https://www.mongodb.com/docs/manual/reference/change-events/#change-events
         """
-        self._resume_token: dict[str, str] | None = None
-
-        for retry_attempt in count():
-            if self.stop_watching:
-                logger.debug(
-                    f"Stopping watching changes on {self._collection.name} collection."
-                )
-                self.watch_stopped.set()
-                break
-            try:
-                self._watch()
-            except PyMongoError as error:
-                # The ChangeStream encountered an unrecoverable error or the
-                # resume attempt failed to recreate the cursor.
-                if self._resume_token is None:
-                    if retry_attempt == self._change_stream_max_retries:
-                        raise
-                    logger.error(
-                        "There is no usable resume token because there was a "
-                        + "failure during ChangeStream initialization. "
-                        + f"Target: '{self._collection}', {retry_attempt=}, {error!r}."
-                    )
-                raise
-            except _StopWatchingError:
-                break
-
-    def _watch(self) -> None:
-        if self.stop_watching:
-            logger.debug(
-                f"Stopping watching changes on {self._collection.name} collection."
-            )
-            self.watch_stopped.set()
-            raise _StopWatchingError
-
         start_at_operation_time = Timestamp(
             # NOTE: For some reason we need to start watching a few seconds earlier.
             int(self._start_at_operation_time.timestamp()) - 5,
             0,
         )
         logger.debug(
-            f'Watching Change Stream for "{self._collection.name}" collection. {start_at_operation_time=}'  # noqa: E501
+            f'Watching Change Stream for "{self._collection.name}" collection.'
+            + f"{start_at_operation_time=}"
         )
         with self._collection.watch(
-            pipeline,
-            resume_after=self._resume_token,
-            start_at_operation_time=start_at_operation_time,
+            pipeline, start_at_operation_time=start_at_operation_time
         ) as stream:
             self.connected_to_stream.set()
-            logger.debug(f"Connected to the '{self._collection.name}' change stream.")
+            logger_debug(f"Connected to the '{self._collection.name}' change stream.")
             try:
                 for change in stream:
                     if self.stop_watching:
-                        logger.debug(  # type: ignore[unreachable]
+                        logger.debug(
                             f"Stopping watching changes on {self._collection.name} collection."  # noqa: E501
                         )
                         self.watch_stopped.set()
-                        raise _StopWatchingError
+                        break
                     self._process_change_stream(change)
-
-                    # Use the interrupted ChangeStream's resume token to create
-                    # a new ChangeStream. The new stream will continue from the
-                    # last seen insert change without missing any events.
-                    if self._resume_token is None:
-                        logger_debug(
-                            f"Assigning a new 'resumeAfter': '{stream.resume_token['_data'][:5]}[...]'"  # type: ignore[index]  # noqa: E501
-                        )
-                    self._resume_token = stream.resume_token["_data"]  # type: ignore[index]
-            except pymongo.synchronous.pool._PoolClosedError as e:
-                try:
-                    logger.debug(repr(e))
-                except ValueError as value_error:
-                    # https://github.com/pytest-dev/pytest/issues/5502
-                    print(repr(value_error))
-                    print(repr(e))
-                raise _StopWatchingError from e
+            except pymongo.synchronous.pool._PoolClosedError as error:
+                logger.debug(repr(error))
+                return
 
     def _insert(self, change: ChangeStreamDocument) -> None:  # ObjectId or str?
         for dt, i in self.pending_change_stream["insert"].items():
