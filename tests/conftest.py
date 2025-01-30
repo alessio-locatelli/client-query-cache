@@ -12,7 +12,7 @@ import pytest
 from bson import Decimal128
 from faker import Faker
 
-from mongo_client_cache.logger import _logger_debug  # noqa: PLC2701
+from mongo_client_cache.logger import _logger_debug
 
 logger = logging.getLogger(__name__)
 

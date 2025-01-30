@@ -108,7 +108,7 @@ class CountDocumentsKwargs(TypedDict):
         # ({}, {"limit": 1, "skip": 99999}, 0),  # TODO:  # noqa: TD003
     ],
 )
-def test_count_documents(  # noqa: PLR0913,PLR0917
+def test_count_documents(  # noqa: PLR0913
     cached_collection: CachedCollection,
     make_fake_document: Callable[..., dict[str, Any]],
     document_count: int,

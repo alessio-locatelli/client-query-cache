@@ -11,18 +11,18 @@ from mongo_client_cache.synchronous.collection import CachedCollection
 from mongo_client_cache.synchronous.database import CachedDatabase
 
 
-@pytest.fixture()
+@pytest.fixture
 def mongo_host() -> str:
     return os.getenv("MONGODB_HOST", "localhost:27017")
 
 
-@pytest.fixture()
+@pytest.fixture
 def client_without_cache_config(mongo_host: str) -> Iterator[MongoClient]:
     with CachedMongoClient(mongo_host, cache_config={}) as client:
         yield client
 
 
-@pytest.fixture()
+@pytest.fixture
 def client_with_cached_database_without_cached_collections(
     mongo_host: str,
 ) -> Iterator[MongoClient]:
