@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import TypedDict
+from typing import TYPE_CHECKING, TypedDict
 
-from bson import ObjectId
+if TYPE_CHECKING:
+    from bson import ObjectId
 
 type JsonValue = int | float | str | bool | list["JsonValue"] | "JsonDict" | None
 type JsonDict = dict[str, JsonValue]

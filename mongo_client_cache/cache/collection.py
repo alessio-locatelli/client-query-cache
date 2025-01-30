@@ -1,18 +1,23 @@
 from __future__ import annotations
 
-from collections import deque
 from datetime import UTC, datetime
 from threading import Event, Thread
+from typing import TYPE_CHECKING
 
 import pymongo
 from bson import ObjectId, Timestamp
-from pymongo.synchronous.collection import Collection
 
-from mongo_client_cache._types import BsonDict, BsonValue, ChangeStreamDocument
 from mongo_client_cache.cache.change_stream import pipeline
 from mongo_client_cache.cache.commands import CommandKwargs, command_count_empty_filter
 from mongo_client_cache.cache.exceptions import UnexpectedChangeOperationTypeError
 from mongo_client_cache.logger import logger, logger_debug
+
+if TYPE_CHECKING:
+    from collections import deque
+
+    from pymongo.synchronous.collection import Collection
+
+    from mongo_client_cache._types import BsonDict, BsonValue, ChangeStreamDocument
 
 
 class CollCache:

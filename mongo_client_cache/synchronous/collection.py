@@ -2,30 +2,12 @@ from __future__ import annotations
 
 import time
 from collections.abc import Iterable, Mapping, MutableMapping, Sequence
-from datetime import datetime
-from typing import Any, Literal, override
+from typing import TYPE_CHECKING, Any, Literal, override
 
-from bson.codec_options import CodecOptions
-from bson.raw_bson import RawBSONDocument
-from bson.typings import _DocumentType, _DocumentTypeArg
 from pymongo import ReturnDocument, WriteConcern
-from pymongo.operations import _IndexKeyHint, _IndexList
-from pymongo.read_concern import ReadConcern
-from pymongo.read_preferences import _ServerMode
-from pymongo.results import (
-    BulkWriteResult,
-    DeleteResult,
-    InsertManyResult,
-    InsertOneResult,
-    UpdateResult,
-)
-from pymongo.synchronous.client_session import ClientSession
 from pymongo.synchronous.collection import Collection, _WriteOp
-from pymongo.synchronous.database import Database
-from pymongo.typings import _CollationIn, _Pipeline
 
 from mongo_client_cache._misc import dt_now
-from mongo_client_cache._types import BsonDict
 from mongo_client_cache.cache import (
     CannotEditImmutableCollectionError,
     CommandCount,
@@ -36,6 +18,28 @@ from mongo_client_cache.cache.collection import CollCache
 from mongo_client_cache.cache.exceptions import WaitingForChangeStreamError
 from mongo_client_cache.logger import logger, logger_debug
 from mongo_client_cache.synchronous.cursor import CachedCursor
+
+if TYPE_CHECKING:
+    from datetime import datetime
+
+    from bson.codec_options import CodecOptions
+    from bson.raw_bson import RawBSONDocument
+    from bson.typings import _DocumentType, _DocumentTypeArg
+    from pymongo.operations import _IndexKeyHint, _IndexList
+    from pymongo.read_concern import ReadConcern
+    from pymongo.read_preferences import _ServerMode
+    from pymongo.results import (
+        BulkWriteResult,
+        DeleteResult,
+        InsertManyResult,
+        InsertOneResult,
+        UpdateResult,
+    )
+    from pymongo.synchronous.client_session import ClientSession
+    from pymongo.synchronous.database import Database
+    from pymongo.typings import _CollationIn, _Pipeline
+
+    from mongo_client_cache._types import BsonDict
 
 
 class CachedCollection(Collection):

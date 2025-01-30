@@ -1,17 +1,19 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, override
 
 import pymongo
-from bson.codec_options import TypeRegistry
 from pymongo.synchronous.database import Database
-from pymongo.typings import _DocumentType
 
 from mongo_client_cache.logger import logger
 from mongo_client_cache.synchronous.database import CachedDatabase
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from bson.codec_options import TypeRegistry
+    from pymongo.typings import _DocumentType
+
     from mongo_client_cache._types import ClientSideCacheConfig, DatabaseName
 
     MIXIN_BASE = pymongo.MongoClient

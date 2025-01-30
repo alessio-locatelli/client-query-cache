@@ -1,19 +1,21 @@
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING, Any, override
 
-from bson.typings import _DocumentType
 from pymongo import CursorType
-from pymongo.client_session import ClientSession
 from pymongo.cursor import Cursor
-from pymongo.cursor_shared import _Hint, _Sort
-from pymongo.typings import _CollationIn
 
 from mongo_client_cache.cache import CommandFind
 from mongo_client_cache.logger import logger
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable, Mapping
+
+    from bson.typings import _DocumentType
+    from pymongo.client_session import ClientSession
+    from pymongo.cursor_shared import _Hint, _Sort
+    from pymongo.typings import _CollationIn
+
     from mongo_client_cache._types import BsonDict
     from mongo_client_cache.synchronous.collection import CachedCollection
 

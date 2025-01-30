@@ -65,7 +65,7 @@ class FindCommandKwargs(TypedDict):
 
 
 @pytest.mark.parametrize(
-    "kwargs,expected_count",
+    ("kwargs", "expected_count"),
     [
         ({"filter": None}, lambda all_documents: all_documents),
     ],
@@ -99,7 +99,7 @@ class CountDocumentsKwargs(TypedDict):
 
 
 @pytest.mark.parametrize(
-    "filter,kwargs,expected_count",
+    ("filter", "kwargs", "expected_count"),
     [
         ({}, {}, None),
         ({fake.pystr(): fake.pystr()}, {}, 0),

@@ -1,16 +1,19 @@
 from __future__ import annotations
 
-from typing import override
+from typing import TYPE_CHECKING, override
 
-import bson
 from pymongo import MongoClient, WriteConcern, database
-from pymongo.read_concern import ReadConcern
-from pymongo.read_preferences import _ServerMode
 from pymongo.synchronous.collection import Collection
-from pymongo.typings import _DocumentType, _DocumentTypeArg
 
-from mongo_client_cache._types import CollectionName
 from mongo_client_cache.synchronous.collection import CachedCollection
+
+if TYPE_CHECKING:
+    import bson
+    from pymongo.read_concern import ReadConcern
+    from pymongo.read_preferences import _ServerMode
+    from pymongo.typings import _DocumentType, _DocumentTypeArg
+
+    from mongo_client_cache._types import CollectionName
 
 
 class CachedDatabase(database.Database):

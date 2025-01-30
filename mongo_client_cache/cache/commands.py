@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from pymongo.cursor_shared import _Sort
+if TYPE_CHECKING:
+    from pymongo.cursor_shared import _Sort
 
 
 @dataclass(slots=True)
