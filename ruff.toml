@@ -24,7 +24,8 @@ lint.ignore = [
     # NOTE: Maybe enable this later:
     "D",
     "ERA001",
-    "FIX002"
+    "FIX002",
+    "SLF001"
 ]
 lint.select = ["ALL"]
 
