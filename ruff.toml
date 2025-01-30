@@ -1,53 +1,14 @@
 target-version = "py313"
 
-extend-exclude = [
-    ".cache",
-    ".pytest_cache",
-    ".vscode",
-    "data",
-    "docs",
-    "resources",
-    "pdoc",
-]
 lint.ignore = [
     # Missing copyright notice at top of file
     "CPY001",
-    # whitespace-before-punctuation (disabled because it is not stable, better enable this rule later)
-    "E203",
-    # Missing docstring in [...] 
-    "D1",
-    # One-line docstring should fit on one line
-    "D200",
-    # 1 blank line required before class docstring
-    "D203",
-    # 1 blank line required between summary line and description
-    "D205",
-    # Multi-line docstring summary should start at the first line
-    "D212",
-    # Multi-line docstring summary should start at the second line
-    "D213",
-    # First line should end with a period
-    "D400",
-    # Section name should end with a newline ("{name}")
-    "D406",
-    # Missing dashed underline after section ("{name}")
-    "D407",
-    # Missing blank line before section ("{name}")
-    "D411",
-    # Missing blank line after last section ("{name}")
-    "D413",
-    # First line should end with a period, question mark, or exclamation point
-    "D415",
-    # Use @pytest.fixture{expected} over @pytest.fixture{actual}
-    "PT001",
     # Missing explicit return at the end of function able to return non-None value
     "RET503",
     # Use of assert detected
     "S101",
     # Standard pseudo-random generators are not suitable for cryptographic purposes
     "S311",
-    # Avoid assignment expressions in assert statements
-    "RUF018",
     # Missing author in TODO; try: # TODO(<author_name>): ... or # TODO @<author_name>: ...
     "TD002",
     # Explicitly concatenated string should be implicitly concatenated
@@ -56,111 +17,23 @@ lint.ignore = [
     "TRY400",
     # missing-trailing-comma
     "COM812",
-    # unused-method-argument
-    "ARG002",
-    # unspecified-encoding
-    "PLW1514",
     # We do not use SQL, so injection is not possible.
     "S608",
     # try/except:pass is a little faster inside functions
-    "SIM105"
-]
-lint.select = [
-    # Pyflakes
-    "F",
-    # pycodestyle (E, W)
-    "E",
-    "W",
-    # mccabe
-    "C90",
-    # isort
-    "I",
-    # pep8-naming
-    "N",
-    # pydocstyle
+    "SIM105",
+    # NOTE: Maybe enable this later:
     "D",
-    # pyupgrade
-    "UP",
-    # flake8-async
-    "ASYNC",
-    # flake8-bandit
-    "S",
-    # flake8-boolean-trap
-    "FBT",
-    # flake8-bugbear
-    "B",
-    # flake8-builtins
-    "A",
-    # flake8-commas
-    "COM",
-    # flake8-copyright
-    "CPY",
-    # flake8-comprehensions
-    "C4",
-    # flake8-datetimez
-    "DTZ",
-    # flake8-executable
-    "EXE",
-    # flake8-future-annotations
-    "FA",
-    # flake8-implicit-str-concat
-    "ISC",
-    # flake8-pie
-    "PIE",
-    # flake8-pytest-style
-    "PT",
-    # flake8-raise
-    "RSE",
-    # flake8-return
-    "RET",
-    # flake8-slots
-    "SLOT",
-    # flake8-simplify
-    "SIM",
-    # flake8-unused-arguments
-    "ARG",
-    # flake8-use-pathlib
-    "PTH",
-    # flake8-todos
-    "TD",
-    # pandas-vet
-    "PD",
-    # pygrep-hooks
-    "PGH",
-    # Pylint
-    "PL",
-    # tryceratops
-    "TRY",
-    # flynt
-    "FLY",
-    # NumPy-specific rules
-    "NPY",
-    # Perflint
-    "PERF",
-    # refurb
-    "FURB",
-    # flake8-logging
-    "LOG",
-    # Ruff-specific rules
-    "RUF",
-    # flake8-quotes
-    "Q",
-    # flake8-debugger
-    "T10",
+    "ERA001",
+    "FIX002"
 ]
+lint.select = ["ALL"]
 
 [lint.flake8-builtins]
 builtins-ignorelist = ["filter",]
-
-[lint.flake8-pytest-style]
-parametrize-names-type = "csv"
 
 [lint.isort]
 combine-as-imports = true
 
 
 [lint.per-file-ignores]
-"__init__.py" = ["F401"]
-"tests/**/__init__.py" = ["F401"]
-"tests/**" = ["ARG001", "ARG004", "PLR6301", "FBT001"]
-"**/testing/**" = ["ARG001", "ARG004"]
+"tests/**" = ["ARG001", "ARG004", "PLR6301", "FBT001", "PLC2701", "D103"]

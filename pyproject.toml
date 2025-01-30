@@ -18,6 +18,7 @@ pytest-timeout = "*"
 tox = "*"
 hypothesis = "*"
 Faker = "*"
+slotscheck = "*"
 coverage = "*"
 
 [build-system]
