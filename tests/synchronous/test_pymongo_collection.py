@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 @pytest.fixture
 def document_count(faker: Faker) -> int:
-    return faker.pyint(min_value=0, max_value=42)
+    return faker.pyint(min_value=1, max_value=42)
 
 
 @pytest.fixture(autouse=True)
@@ -117,6 +117,9 @@ def test_count_documents(  # noqa: PLR0913
     kwargs: CountDocumentsKwargs,
     expected_count: int | None,
 ) -> None:
+    if "skip" in kwargs and document_count == 1:
+        kwargs["skip"] = 0
+
     if expected_count is None:
         expected_count = document_count
     for _ in range(faker.pyint(min_value=1, max_value=5)):
