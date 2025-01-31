@@ -41,15 +41,20 @@ repos:
     rev: v1.14.1
     hooks:
       - id: mypy
-        additional_dependencies:
-          [pymongo, pytest, Faker, hypothesis]
+        additional_dependencies: [pymongo, pytest, Faker, hypothesis]
 
   - repo: https://github.com/ariebovenberg/slotscheck
     rev: v0.19.1
     hooks:
       - id: slotscheck
         language: system
-        args: [--require-subclass, --verbose]
+        args:
+          [
+            --require-subclass,
+            --verbose,
+            --require-superclass,
+            --exclude-classes=:CacheMixin,
+          ]
 
   - repo: https://github.com/crate-ci/typos
     rev: dictgen-v0.3.1

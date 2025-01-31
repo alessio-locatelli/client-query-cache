@@ -12,7 +12,6 @@ MongoDB client-side cache
 - Latest Python and `pymongo`
 - Lightweight: pure Python, not bloated with external dependencies.
 
-
 ## Limitations
 
 You cannot remove the `_id` field from the results by setting it to `0` in the projection. We use the `_id` field to manage cached documents.
@@ -21,5 +20,5 @@ You cannot remove the `_id` field from the results by setting it to `0` in the p
 
 ```py
 # Bad:
-collection.find()  
+collection.find()
 ```
