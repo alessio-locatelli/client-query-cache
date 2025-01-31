@@ -1,4 +1,5 @@
 import logging
+import uuid
 from collections.abc import Callable, Iterable, Iterator
 from typing import Any, TypedDict, cast
 
@@ -53,7 +54,30 @@ def cached_collection(
 def test_bulk_write() -> None: ...
 
 
-def test_find_one() -> None: ...
+class FindOneCommandKwargs(TypedDict):
+    filter: dict[str, Any] | None
+    projection: dict[str, Any] | Iterable[str] | None
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "expected_result"),
+    [
+        ({"filter": None}, dict),
+        ({"filter": {"_id": str(uuid.uuid4())}}, None),
+    ],
+)
+def test_find_one(
+    cached_collection: CachedCollection,
+    faker: Faker,
+    kwargs: FindOneCommandKwargs,
+    expected_result: dict | None,
+) -> None:
+    for _ in range(faker.pyint(min_value=1, max_value=5)):
+        result = cached_collection.find_one(**kwargs)
+        if expected_result is None:
+            assert result is None
+        else:
+            assert isinstance(result, expected_result)  # type: ignore[arg-type]
 
 
 class FindCommandKwargs(TypedDict):
