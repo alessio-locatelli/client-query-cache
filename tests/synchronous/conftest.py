@@ -29,8 +29,8 @@ def cached_mongo_client(
         },
     )
     logger.debug(
-        f"[SETUP] {client = }, {client.nodes = }, {client.topology_description = }"
+        f"[SETUP] {client = }, {client.nodes = }, {client.topology_description = }"  # noqa: G004
     )
     yield client
-    logger.debug(f"[TEARDOWN] Closing {client}.")
+    logger.debug("[TEARDOWN] Closing %s.", client)
     client.close()

@@ -80,15 +80,16 @@ class CachedCollection(Collection):
         self, after_dt: datetime, operation_type: Literal["insert", "delete"]
     ) -> None:
         logger_debug(
-            "Waiting for change stream uppdate. " + f"{operation_type=}, {after_dt=}"
+            "Waiting for change stream uppdate.",
+            extra={"operation_type": operation_type, "after_dt": after_dt},
         )
         for _ in range(self.__waiting_retry_count):
             if self._cache.pending_change_stream[operation_type][after_dt] <= 0:
                 del self._cache.pending_change_stream[operation_type][after_dt]
                 logger_debug(
-                    "Finished waiting for change stream after "
-                    + f"{_ * self.__sleep_duration_s} seconds."
-                    + f"{operation_type=}, {after_dt=}"
+                    "Finished waiting for change stream after %s seconds.",
+                    _ * self.__sleep_duration_s,
+                    extra={"operation_type": operation_type, "after_dt": after_dt},
                 )
                 return
             time.sleep(self.__sleep_duration_s)
@@ -139,7 +140,7 @@ class CachedCollection(Collection):
         session: ClientSession | None = None,
         comment: Any | None = None,
     ) -> InsertOneResult:
-        logger_debug(f"'insert_one', {document.get('_id')=}")
+        logger_debug("INSERT_ONE", extra={"_id": document.get("_id")})
         dt = dt_now()
         self._cache.pending_change_stream["insert"][dt] = 0
         insert_one_result = super().insert_one(
@@ -159,8 +160,10 @@ class CachedCollection(Collection):
         comment: Any | None = None,
     ) -> InsertManyResult:
         logger_debug(
-            "insert_many"
-            + (f", {len(documents)=}" if hasattr(documents, "__len__") else "")  # type: ignore[arg-type]
+            "INSERT_MANY",
+            extra={"document_count": len(documents)}  # type: ignore[arg-type]
+            if hasattr(documents, "__len__")
+            else {},
         )
         dt = dt_now()
         self._cache.pending_change_stream["insert"][dt] = 0
@@ -271,7 +274,7 @@ class CachedCollection(Collection):
         let: Mapping[str, Any] | None = None,
         comment: Any | None = None,
     ) -> DeleteResult:
-        logger.debug(f"delete_one, {filter=}")
+        logger.debug("DELETE_ONE", extra={"filter": filter})
         dt = dt_now()
         delete_one_result = super().delete_one(
             filter, collation, hint, session, let, comment
@@ -293,13 +296,14 @@ class CachedCollection(Collection):
         let: Mapping[str, Any] | None = None,
         comment: Any | None = None,
     ) -> DeleteResult:
-        logger.debug(f"delete, {filter=}")
+        logger.debug("DELETE", extra={"filter": filter})
         dt = dt_now()
         delete_many_result = super().delete_many(
             filter, collation, hint, session, let, comment
         )
         logger_debug(
-            f"delete, {filter=}, deleted_count={delete_many_result.deleted_count}"
+            "DELETE",
+            extra={"filter": filter, "deleted_count": delete_many_result.deleted_count},
         )
         self._cache.pending_change_stream["delete"][dt] = 0
         if (deleted_count := delete_many_result.deleted_count) == 0:
@@ -416,7 +420,7 @@ class CachedCollection(Collection):
         comment: Any | None = None,
         **kwargs: Any,
     ) -> int:
-        logger_debug(f"'count', {filter=}.")
+        logger_debug("COUNT", extra={"filter": filter})
         query = str(
             CommandCount(
                 filter,
@@ -437,7 +441,7 @@ class CachedCollection(Collection):
     def estimated_document_count(
         self, comment: Any | None = None, **kwargs: Any
     ) -> int:
-        logger_debug(f"'estimated_document_count', {filter=}.")
+        logger_debug("ESTIMATED_DOCUMENT_COUNT", extra={"filter": filter})
         if self._cache.estimated_document_count is not None:
             return self._cache.estimated_document_count
         document_count = super().estimated_document_count(comment, **kwargs)

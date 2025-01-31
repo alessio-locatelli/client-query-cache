@@ -25,7 +25,7 @@ logging.getLogger("pymongo").setLevel("INFO")
 @pytest.fixture(autouse=True)
 def log_when_test_starts(request: pytest.FixtureRequest) -> None:
     cls_ = f"{request.cls}." if request.cls else ""
-    logger.debug(f"Starting '{cls_}{request.node.name}'...")
+    logger.debug(f"Starting '{cls_}{request.node.name}'...")  # noqa: G004
 
 
 @pytest.fixture(autouse=True)
@@ -33,7 +33,7 @@ def faker_seed() -> str | int:
     ci_pipeline_id = os.getenv("CI_PIPELINE_ID") or os.getenv("GITHUB_JOB")
     default_seed = datetime.now(UTC).day  # Any random value.
     seed = ci_pipeline_id or default_seed
-    logger.info(f"Starting pytest session with `Faker.seed` value: {seed}")
+    logger.info("Starting pytest session with `Faker.seed` value: %s", seed)
     return seed
 
 

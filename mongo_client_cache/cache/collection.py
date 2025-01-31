@@ -72,19 +72,21 @@ class CollCache:
             0,
         )
         logger.debug(
-            f'Watching Change Stream for "{self._collection.name}" collection.'
-            + f"{start_at_operation_time=}"
+            "Watching Change Stream for '%s' collection.",
+            self._collection.name,
+            extra={"start_at_operation_time": start_at_operation_time},
         )
         with self._collection.watch(
             pipeline, start_at_operation_time=start_at_operation_time
         ) as stream:
             self.connected_to_stream.set()
-            logger_debug(f"Connected to the '{self._collection.name}' change stream.")
+            logger_debug("Connected to the '%s' change stream.", self._collection.name)
             try:
                 for change in stream:
                     if self.stop_watching:
                         logger.debug(
-                            f"Stopping watching changes on {self._collection.name} collection."  # noqa: E501
+                            "Stopping watching changes on '%s' collection.",
+                            self._collection.name,
                         )
                         self.watch_stopped.set()
                         break
@@ -103,17 +105,17 @@ class CollCache:
             self.estimated_document_count += 1
         try:
             self.document_count[command_count_empty_filter] += 1
-            logger_debug(f"document_count={self.document_count}")
+            logger_debug("document_count=%s,", self.document_count)
         except KeyError:
             pass
         # Invalidate all cached queries.
         self.query_to_ids_map.clear()
         self.distinct.clear()
 
-    def _update(self, change: ChangeStreamDocument) -> None:
+    def _update(self, _: ChangeStreamDocument) -> None:
         raise NotImplementedError
 
-    def _replace(self, change: ChangeStreamDocument) -> None:
+    def _replace(self, _: ChangeStreamDocument) -> None:
         raise NotImplementedError
 
     def _delete(self, change: ChangeStreamDocument) -> None:
@@ -136,21 +138,23 @@ class CollCache:
         self.query_to_ids_map.clear()
         self.distinct.clear()
 
-    def _drop(self, change: ChangeStreamDocument) -> None:
+    def _drop(self, _: ChangeStreamDocument) -> None:
         self.query_to_ids_map.clear()
         self.document_count.clear()
         self.estimated_document_count = None
         self.distinct.clear()
 
-    def _rename(self, change: ChangeStreamDocument) -> None:
+    def _rename(self, _: ChangeStreamDocument) -> None:
         raise NotImplementedError
 
     def _process_change_stream(self, change: ChangeStreamDocument) -> None:
         operation_type = change["operationType"]
         logger_debug(
-            f"operationType={operation_type}, wallTime={change['wallTime']}, "
-            + f"documentKey={change['documentKey']['_id']}, "
-            + f"{self.pending_change_stream}"
+            "operationType=%s, wallTime=%s, documentKey=%s",
+            operation_type,
+            change["wallTime"],
+            change["documentKey"]["_id"],
+            extra=self.pending_change_stream,
         )
 
         if operation_type == "insert":

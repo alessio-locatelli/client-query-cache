@@ -8,7 +8,8 @@ def test_dt_now() -> None:
     dt_with_milliseconds_precision = dt_now()
     microsecond = dt_with_milliseconds_precision.microsecond
     assert str(microsecond).endswith("000")
-    assert floor(log10(microsecond)) + 1 == 6
+    digit_count = 6
+    assert floor(log10(microsecond)) + 1 == digit_count
 
     dt = datetime.now(UTC)
     assert dt_with_milliseconds_precision.hour == dt.hour

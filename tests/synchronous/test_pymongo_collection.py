@@ -26,16 +26,16 @@ def fill_collection(
     document_count: int,
 ) -> Iterator[None]:
     logger.debug(
-        f"[SETUP] Filling {cached_collection.name} with {document_count} documents."
+        "[SETUP] Filling %s with %s documents.", cached_collection.name, document_count
     )
     cached_collection.insert_many(make_fake_document() for _ in range(document_count))
     logger.debug(
-        f"[SETUP] Filled {cached_collection.name} with {document_count} documents."
+        "[SETUP] Filled %s with %s documents.", cached_collection.name, document_count
     )
     yield
-    logger.debug(f"[TEARDOWN] Deleteding all documents in {cached_collection.name}.")
+    logger.debug("[TEARDOWN] Deleteding all documents in %s", cached_collection.name)
     cached_collection.delete_many({})
-    logger.debug(f"[TEARDOWN] Deleteded all documents in {cached_collection.name}.")
+    logger.debug("[TEARDOWN] Deleteded all documents in %s", cached_collection.name)
 
 
 @pytest.fixture
