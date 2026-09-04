@@ -3,24 +3,41 @@ name = "mongo-client-cache"
 version = "0.1.0"
 description = ""
 authors = [
-  {name="Alessio Locatelli", email="<software.development@secure.mailbox.org>"},
+  { name = "Alessio Locatelli", email = "<software.development@secure.mailbox.org>" },
 ]
 readme = "README.md"
 requires-python = ">=3.13"
-dependencies = [
-  "pymongo>=4.10.1"
+dependencies = ["pymongo>=4.18,<5"]
+
+[dependency-groups]
+test = [
+  "coverage>=7.16.0",
+  "faker>=40.38.0",
+  "hypothesis>=6.167.1",
+  "pytest>=9.1.1",
+  "pytest-asyncio>=1.4.0",
+  "pytest-timeout>=2.4.0",
+  "slotscheck>=0.20.1",
+  "tox>=4.61.2",
+  "tox-uv>=1.36.0",
 ]
 
-[tool.poetry.group.test.dependencies]
-pytest = "*"
-pytest-asyncio = "*"
-pytest-timeout = "*"
-tox = "*"
-hypothesis = "*"
-Faker = "*"
-slotscheck = "*"
-coverage = "*"
-
 [build-system]
-requires = ["poetry-core>=2.0.0,<3.0.0"]
-build-backend = "poetry.core.masonry.api"
+requires = ["uv_build>=0.12.9,<0.13.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-root = ""
+
+[tool.vulture]
+paths = ["mongo_client_cache", "tests"]
+ignore_names = [
+  "operationType",
+  "fullDocument",
+  "ns",
+  "documentKey",
+  "wallTime",
+  "log_when_test_starts",
+  "faker_seed",
+  "fill_collection",
+]
