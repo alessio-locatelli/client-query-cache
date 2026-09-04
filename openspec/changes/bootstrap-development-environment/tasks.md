@@ -1,0 +1,10 @@
+## 1. Establish uv project management
+
+- [ ] 1.1 Replace Poetry metadata, lockfile, and build backend with PEP 621 metadata, dependency groups, `uv_build`, and `uv.lock`; verify `uv sync --all-groups --locked` and `uv build` succeed.
+- [ ] 1.2 Align Python-version declarations and development dependencies with CPython 3.13+; verify package build and type-check configuration use the declared baseline.
+
+## 2. Add local quality gates
+
+- [ ] 2.1 Add pinned Prek hooks for hygiene, Ruff, Ruff-extra, Vulture, mypy, slotscheck, Prettier, and secret detection; verify `prek run --all-files` invokes every hook.
+- [ ] 2.2 Configure the isolated Python 3.14 Ruff-extra hook without raising the package runtime floor; verify it runs while `requires-python` remains 3.13+.
+- [ ] 2.3 Correct all existing quality findings and document narrow exclusions; verify the complete Prek run succeeds without broad suppressions.
