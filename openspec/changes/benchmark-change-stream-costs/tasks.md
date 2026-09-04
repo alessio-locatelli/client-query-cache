@@ -10,8 +10,8 @@
 
 ## 3. Measure comparable workloads
 
-- [ ] 3.1 Implement paired raw/cache idle, read-heavy, balanced, and write-dominant workloads over small, medium, and large BSON data; prime every cache workload/data-size variant through normal admissions and verify positive admission and hit counter deltas for each variant before sampling, identical workload parameters, and correct returned data.
-- [ ] 3.2 Record wall time, benchmark-process CPU, mandatory controlled container CPU, per-variant warmup counter deltas, logical metrics, and optional direct-path bytes with their limitations; verify unavailable container CPU fails controlled runs and reports never relabel logical or proxy bytes as universal wire traffic.
+- [ ] 3.1 Implement paired raw/cache idle, read-heavy, balanced, and write-dominant workloads over small, medium, and large BSON data; prime every cache workload/data-size variant through normal admissions and verify positive admission and hit counter deltas for each variant before sampling, identical workload parameters, correct returned data, exactly one consolidated stream across at least two cached collections in one database, and separately identified relevant and unrelated writes in that same database.
+- [ ] 3.2 Record aggregate wall time, per-variant latency distributions with cache-outcome labels for operation-bearing variants, an explicit zero-operation/no-latency-samples marker for idle variants, benchmark-process CPU, mandatory controlled container CPU, per-variant warmup counter deltas, logical metrics, and optional direct-path bytes with their limitations; verify unavailable container CPU fails controlled runs and reports never relabel logical or proxy bytes as universal wire traffic.
 
 ## 4. Publish evidence without timing gates
 

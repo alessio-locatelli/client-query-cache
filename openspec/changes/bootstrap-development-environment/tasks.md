@@ -5,6 +5,6 @@
 
 ## 2. Add local quality gates
 
-- [ ] 2.1 Add pinned Prek hooks for hygiene, Ruff, Ruff-extra, Vulture, mypy, slotscheck, Prettier, and secret detection; verify `prek run --all-files` invokes every hook.
+- [ ] 2.1 Add pinned Prek hooks for hygiene, Ruff, Ruff-extra, Vulture, mypy, slotscheck, Prettier, and secret detection; replace the existing Poetry-specific project check with a local hook running `uv lock --check` with `pass_filenames: false`; verify the complete quality workflow invokes every hook and rejects an out-of-date `uv.lock`.
 - [ ] 2.2 Configure the isolated Python 3.14 Ruff-extra hook without raising the package runtime floor; verify it runs while `requires-python` remains 3.13+.
 - [ ] 2.3 Correct all existing quality findings and document narrow exclusions; verify the complete Prek run succeeds without broad suppressions.

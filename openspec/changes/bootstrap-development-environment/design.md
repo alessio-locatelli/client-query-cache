@@ -1,6 +1,6 @@
 ## Context
 
-The repository currently uses Poetry metadata, has no hook configuration, and configures mypy for Python 3.12 despite declaring Python 3.13+. See [proposal.md](proposal.md).
+The repository currently uses Poetry metadata and already has a `.pre-commit-config.yaml` with pinned hygiene, Ruff, mypy, slotscheck, codespell, and typos hooks. It also configures mypy for Python 3.12 despite declaring Python 3.13+. See [proposal.md](proposal.md).
 
 ## Goals / Non-Goals
 
@@ -11,7 +11,7 @@ The repository currently uses Poetry metadata, has no hook configuration, and co
 ## Decisions
 
 - Use PEP 621 metadata, dependency groups, `uv.lock`, and `uv_build` for the existing pure-Python flat layout. Configure `[tool.uv.build-backend]` with `module-root = ""` so `uv_build` discovers the repository's `mongo_client_cache/` package. Poetry is removed so resolution has one authority. Declare `pymongo>=4.13,<5` because [PyMongo 4.13 makes its native async API generally available](https://www.mongodb.com/docs/languages/python/pymongo-driver/current/reference/release-notes/); verify the lower bound rather than assuming a lockfile's latest resolution proves it.
-- Make Prek the local quality entry point. The requested Ruff-extra hook uses an isolated Python 3.14 environment; package tests and type checks retain Python 3.13+.
+- Make Prek the local quality entry point by migrating the existing hook configuration. Preserve its hygiene, Ruff, mypy, slotscheck, codespell, and typos coverage; replace the Poetry-specific validation with equivalent `uv` project validation because Poetry is removed. The requested Ruff-extra hook uses an isolated Python 3.14 environment; package tests and type checks retain Python 3.13+.
 - Correct existing quality violations instead of broad exemptions. Tool-specific exclusions require a narrow documented reason.
 
 ## Risks / Trade-offs
