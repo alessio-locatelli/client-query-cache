@@ -6,7 +6,7 @@
 ## 2. Document architecture and operations
 
 - [ ] 2.1 Add system requirements, capacity estimation, HLD/LLD, retry/error, observability, security, connection-pool, and recovery guidance; verify internal and external references resolve.
-- [ ] 2.2 Add workload-selection and performance guidance linked to retained benchmark reports; verify it makes no universal or unsupported performance claim.
+- [ ] 2.2 Add workload-selection and performance guidance linked to the retained reports from `benchmark-change-stream-costs`; verify it makes no universal or unsupported performance claim.
 
 ## 3. Verify public documentation
 
