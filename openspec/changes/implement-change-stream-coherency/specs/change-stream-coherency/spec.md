@@ -5,7 +5,7 @@ This capability keeps a process-local cache safe to use only while a database-sc
 ## ADDED Requirements
 
 ### Requirement: A manager owns one database-scoped invalidation stream
-For every active cached database, the manager SHALL use one database-scoped stream opened with `show_expanded_events=True` to route insert, update, replace, delete, drop, `dropDatabase`, rename, and invalidation events to all affected cache namespaces. The manager SHALL require MongoDB server version 6.0 or newer and SHALL fail closed during startup when the server cannot support the expanded-events option. The stream projection SHALL retain the resume token and fields required for routing while omitting unnecessary full documents and update descriptions.
+For every active cached database, the manager SHALL use exactly one database-scoped stream opened with `show_expanded_events=True` to route insert, update, replace, delete, drop, `dropDatabase`, rename, and invalidation events to all affected cache namespaces. The manager SHALL require MongoDB server version 6.0 or newer and SHALL fail closed during startup when the server cannot support the expanded-events option. The stream projection SHALL retain the resume token and fields required for routing while omitting unnecessary full documents and update descriptions.
 
 #### Scenario: An external update is received
 - **WHEN** an independent writer updates a cached document and the manager processes the corresponding change event
@@ -22,6 +22,10 @@ For every active cached database, the manager SHALL use one database-scoped stre
 #### Scenario: The server cannot provide expanded events
 - **WHEN** the manager starts against a MongoDB server older than 6.0 or a server that rejects `show_expanded_events=True`
 - **THEN** startup fails closed and the manager does not mark the cache eligible for hits or admission
+
+#### Scenario: A client caches multiple databases
+- **WHEN** a caller activates cached collections in more than one database through the same client
+- **THEN** the manager maintains one independent database-scoped stream for each active cached database, and an event in one database cannot be routed as an invalidation for another database
 
 ### Requirement: Cache use fails closed during stream uncertainty
 The manager SHALL permit cache use only after stream startup establishes the documented healthy state. During recovery it SHALL bypass cache admission and hits. If continuity cannot be resumed, it SHALL clear the affected cache before re-establishing the stream.

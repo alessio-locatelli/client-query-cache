@@ -1,6 +1,6 @@
 ## 1. Route minimal change events
 
-- [ ] 1.1 Implement the MongoDB 6.0+ database-scoped projected stream with `show_expanded_events=True` and an event router for insert, update, replace, delete, drop, `dropDatabase`, rename, and invalidation; verify fixture tests retain every required routing and resume field and startup fails closed when expanded events are unavailable.
+- [ ] 1.1 Implement exactly one MongoDB 6.0+ database-scoped projected stream per active cached database with `show_expanded_events=True` and an event router for insert, update, replace, delete, drop, `dropDatabase`, rename, and invalidation; verify fixture tests retain every required routing and resume field, multiple cached databases each have a stream, and startup fails closed when expanded events are unavailable.
 - [ ] 1.2 Connect router outcomes to cache-core aliases and namespace generations; verify external writes invalidate document and derived-result entries.
 
 ## 2. Implement synchronous recovery

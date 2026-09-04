@@ -10,7 +10,7 @@ The cache-core manager supplies invalidation hooks but no MongoDB source of trut
 
 ## Decisions
 
-- Own one database-scoped stream per manager to avoid per-document or per-collection watcher proliferation.
+- Own exactly one database-scoped stream per active cached database. The shared manager owns the cache backend and budget, while each database-scoped supervisor routes events for its database to all of that database's collections; this avoids per-document or per-collection watcher proliferation without leaving other active databases unwatched.
 - Require MongoDB server version 6.0 or newer, open the database-scoped stream with `show_expanded_events=True`, and fail closed if the server rejects that option. Project only `_id`, operation type, namespace, document key, rename destination, cluster time, and wall time. Preserve the unmodified resume token and resume with identical options, including the expanded-events option.
 - Treat stream health as a continuity state, not a per-write catch-up barrier. A cache hit concurrent with an independent write can be stale until the worker processes that event; after event processing, invalidation is required.
 - Handle stream lifecycle explicitly: healthy permits caching; reconnecting bypasses; unresumable loss clears, then reopens. For an invalidate event caused by a drop, rename, or database drop, clear affected namespaces and use [`startAfter` rather than `resumeAfter`](https://www.mongodb.com/docs/manual/reference/operator/aggregation/changeStream/) to open from a safe post-invalidation position.

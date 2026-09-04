@@ -5,7 +5,7 @@ This capability gives every contributor a reproducible local build, dependency, 
 ## ADDED Requirements
 
 ### Requirement: Contributors use a locked uv project
-The repository SHALL use `uv` for dependency resolution, environments, and package builds, SHALL commit `uv.lock`, and SHALL support CPython 3.13+. Its published PyMongo dependency SHALL be `>=4.13,<5` so the declared runtime supports the generally available native async API. Published runtime dependencies SHALL remain distinct from development tooling.
+The repository SHALL use `uv` for dependency resolution, environments, and package builds, SHALL configure `uv_build` with `module-root = ""` for the existing flat `mongo_client_cache/` package, SHALL commit `uv.lock`, and SHALL support CPython 3.13+. Its published PyMongo dependency SHALL be `>=4.13,<5` so the declared runtime supports the generally available native async API. Published runtime dependencies SHALL remain distinct from development tooling.
 
 #### Scenario: A clean checkout is synchronized
 - **WHEN** a contributor synchronizes all declared development groups with the locked command
