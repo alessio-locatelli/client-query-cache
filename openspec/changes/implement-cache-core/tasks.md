@@ -1,7 +1,7 @@
 ## 1. Define manager primitives
 
 - [ ] 1.1 Implement driver-neutral manager contracts, lifecycle states, cache errors, request canonicalization, and identity declarations; verify focused unit tests reject unsupported admissions.
-- [ ] 1.2 Implement document and derived-result identity records with namespace generation guards; verify an invalidation cannot admit an older in-flight result.
+- [ ] 1.2 Implement document and derived-result identity records with namespace generation guards; verify generation comparison and cache insertion are serialized with invalidation and lookups reject older-generation entries.
 
 ## 2. Add bounded BSON storage
 

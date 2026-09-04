@@ -16,8 +16,12 @@ The repository SHALL use `uv` for dependency resolution, environments, and packa
 - **THEN** it installs PyMongo 4.13, imports `AsyncMongoClient`, and runs the supported minimum-version checks successfully
 
 ### Requirement: Contributors can run complete local quality checks
-The repository SHALL provide a pinned Prek configuration that checks repository hygiene, formatting, linting, dead code, static types, slots, supported text formats, and secrets. The configuration SHALL retain the Python 3.13 package baseline when a check uses an isolated newer interpreter.
+The repository SHALL provide a pinned Prek configuration that checks repository hygiene, formatting, linting, dead code, static types, slots, supported text formats, and secrets. The configuration SHALL retain the Python 3.13 package baseline when a check uses an isolated newer interpreter. The complete local quality workflow SHALL also validate `pyproject.toml` and the committed `uv.lock` with equivalent `uv` locked-project checks in place of the existing Poetry-specific project check, without passing matched filenames to a filename-insensitive `uv` command.
 
 #### Scenario: A complete quality run finds a violation
 - **WHEN** a contributor runs the documented full quality command on a violating tracked file
 - **THEN** the responsible check reports the violation and the command fails
+
+#### Scenario: The locked project is out of date
+- **WHEN** a contributor runs the complete local quality workflow after changing dependency metadata without regenerating `uv.lock`
+- **THEN** the `uv` locked-project validation reports the mismatch and the workflow fails
