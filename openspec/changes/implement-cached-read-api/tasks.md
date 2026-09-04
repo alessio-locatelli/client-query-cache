@@ -10,5 +10,5 @@
 
 ## 3. Implement asyncio parity
 
-- [ ] 3.1 Add native asyncio facades with the same supported reads and bypass rules; verify parity against PyMongo AsyncMongoClient.
+- [ ] 3.1 Add native asyncio facades with the same supported reads and bypass rules; verify parity against PyMongo 4.13 `AsyncMongoClient`, the declared runtime minimum.
 - [ ] 3.2 Verify ownership, close, context-manager, error, and caller-value-isolation behavior in both execution models.

@@ -12,12 +12,14 @@ The cache-core manager supplies invalidation hooks but no MongoDB source of trut
 
 - Own one database-scoped stream per manager to avoid per-document or per-collection watcher proliferation.
 - Project only `_id`, operation type, namespace, document key, rename destination, cluster time, and wall time. Preserve the unmodified resume token and resume with identical options.
-- Handle stream lifecycle explicitly: healthy permits caching; reconnecting bypasses; unresumable loss clears, then reopens.
+- Treat stream health as a continuity state, not a per-write catch-up barrier. A cache hit concurrent with an independent write can be stale until the worker processes that event; after event processing, invalidation is required.
+- Handle stream lifecycle explicitly: healthy permits caching; reconnecting bypasses; unresumable loss clears, then reopens. For an invalidate event caused by a drop, rename, or database drop, clear affected namespaces and use [`startAfter` rather than `resumeAfter`](https://www.mongodb.com/docs/manual/reference/operator/aggregation/changeStream/) to open from a safe post-invalidation position.
 - Use capped exponential backoff with jitter and propagate terminal startup failure instead of silently serving cached data.
 
 ## Risks / Trade-offs
 
 - [Broader stream sees unrelated writes] → Route and ignore them locally; projection minimizes payload.
+- [A write is committed before its event reaches a healthy worker] → Document bounded/eventual coherency and test post-event invalidation rather than promising a per-read write barrier.
 - [Resume token is lost] → Clear rather than assert stale entries are safe.
 
 ## Migration Plan

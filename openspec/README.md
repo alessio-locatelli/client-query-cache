@@ -11,8 +11,8 @@ This repository treats the existing Python package as a proof of concept. Start 
 5. [`implement-cache-core`](changes/implement-cache-core/) adds bounded local cache primitives.
 6. [`implement-change-stream-coherency`](changes/implement-change-stream-coherency/) makes cache use safe through database-scoped invalidation and recovery.
 7. [`implement-cached-read-api`](changes/implement-cached-read-api/) exposes supported synchronous and asyncio cached reads.
-8. [`document-public-library`](changes/document-public-library/) documents the implemented public interface and operations model.
-9. [`benchmark-change-stream-costs`](changes/benchmark-change-stream-costs/) measures the completed cache under controlled workloads.
+8. [`benchmark-change-stream-costs`](changes/benchmark-change-stream-costs/) measures the completed cache under controlled workloads.
+9. [`document-public-library`](changes/document-public-library/) documents the implemented public interface and operations model, including guidance linked to those reports.
 10. [`add-release-verification`](changes/add-release-verification/) verifies distributable artifacts without publishing them.
 
 Each change owns one outcome. A later change may rely on an earlier change, but it must not reimplement its tooling, test topology, public contract, or benchmark protocol.

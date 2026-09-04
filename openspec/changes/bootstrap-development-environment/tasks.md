@@ -1,7 +1,7 @@
 ## 1. Establish uv project management
 
 - [ ] 1.1 Replace Poetry metadata, lockfile, and build backend with PEP 621 metadata, dependency groups, `uv_build`, and `uv.lock`; verify `uv sync --all-groups --locked` and `uv build` succeed.
-- [ ] 1.2 Align Python-version declarations and development dependencies with CPython 3.13+; verify package build and type-check configuration use the declared baseline.
+- [ ] 1.2 Set the published dependency range to `pymongo>=4.13,<5`, align Python-version declarations and development dependencies with CPython 3.13+, and verify an environment pinned to PyMongo 4.13 imports `AsyncMongoClient` successfully.
 
 ## 2. Add local quality gates
 
