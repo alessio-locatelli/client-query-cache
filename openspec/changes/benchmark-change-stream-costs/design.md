@@ -12,7 +12,7 @@ Generic benchmark execution is part of the test bootstrap. This change starts on
 
 - Keep logical manager counters separate from network and server metrics.
 - Use a dedicated local replica-set benchmark topology, resource limits, and client; make unavailable cgroup/runtime evidence an explicit setup failure.
-- Compare paired raw and cache variants over idle, read-heavy, balanced, and write-dominant workloads with small/medium/large BSON data.
+- Compare paired raw and cache variants over idle, read-heavy, balanced, and write-dominant workloads with small/medium/large BSON data. Prime each coherent-cache workload/data-size variant through normal reads, require positive admission and hit counter deltas for that variant before collecting its samples, and retain those deltas with the corresponding report row.
 - Use an optional dedicated TCP proxy only when TLS, compression, discovery, and shared connections are disabled; call its result path bytes, not universal wire bytes.
 - Upload reports in opt-in CI without timing regression gates.
 

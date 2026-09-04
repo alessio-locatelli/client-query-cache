@@ -19,8 +19,12 @@ The facades SHALL cache identity lookups and fully materialized bounded `find`, 
 - **THEN** the facade does not admit its incomplete result to the cache
 
 ### Requirement: Cached reads retain database consistency boundaries
-Cache-admitted reads SHALL use primary read preference and majority read concern. Session-bound reads and cache use during manager recovery SHALL bypass the cache. Returned values SHALL remain isolated from caller mutation.
+Cache-admitted reads SHALL use primary read preference and majority read concern. A caller-selected read preference other than primary or read concern other than majority SHALL bypass both cache lookup and admission, and the facade SHALL delegate that read without rewriting the caller's PyMongo read options. Session-bound reads and cache use during manager recovery SHALL bypass the cache. Returned values SHALL remain isolated from caller mutation.
 
 #### Scenario: A session-bound read is requested
 - **WHEN** a caller supplies a PyMongo session to a supported read
 - **THEN** the facade delegates directly to PyMongo without a cache hit or admission
+
+#### Scenario: A caller selects an incompatible read profile
+- **WHEN** a caller configures the wrapped collection or read operation with a secondary or non-majority read profile
+- **THEN** the facade delegates directly to PyMongo with that profile, without a cache hit or admission and without forcing primary or majority semantics

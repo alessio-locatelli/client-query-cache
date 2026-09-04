@@ -1,6 +1,6 @@
 ## 1. Implement synchronous cached reads
 
-- [ ] 1.1 Add synchronous collection/database facades with raw-PyMongo fallback, primary/majority routing, and session bypass; verify spies observe the required delegation.
+- [ ] 1.1 Add synchronous collection/database facades with raw-PyMongo fallback, primary/majority routing, session bypass, and bypass for caller-selected secondary or non-majority profiles; verify spies observe direct delegation with the original read options.
 - [ ] 1.2 Add `_id` and declared unique-key identity caching with external-write eviction; verify an independent raw client drives the invalidation.
 
 ## 2. Implement bounded generic results

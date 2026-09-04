@@ -11,7 +11,7 @@ CI proves source-tree behavior, but the old plan also required proof that artifa
 ## Decisions
 
 - Build both sdist and wheel from a clean checkout.
-- Install the wheel into an isolated environment and import the supported public surfaces.
+- Install the sdist and wheel into separate isolated environments and import the supported public surfaces from each installation. The validation environment SHALL not use the source checkout as an import fallback.
 - Validate version/tag consistency when a tag is supplied, but keep the workflow non-publishing.
 
 ## Risks / Trade-offs

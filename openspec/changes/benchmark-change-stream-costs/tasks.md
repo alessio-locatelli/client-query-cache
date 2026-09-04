@@ -6,12 +6,12 @@
 ## 2. Build controlled measurement infrastructure
 
 - [ ] 2.1 Add benchmark configuration, seeded BSON generators, versioned JSON schema, and a report validator; verify incomplete identity, environment, workload, or limitation data is rejected.
-- [ ] 2.2 Add isolated replica-set setup, resource limits, a dedicated benchmark client, and optional direct-path proxy; verify unavailable Docker, cgroup, TLS, compression, discovery, or shared-connection conditions fail clearly.
+- [ ] 2.2 Add isolated replica-set setup, resource limits, a dedicated benchmark client, and optional direct-path proxy; verify unavailable Docker, cgroup/runtime CPU evidence, TLS, compression, discovery, or shared-connection conditions fail clearly.
 
 ## 3. Measure comparable workloads
 
-- [ ] 3.1 Implement paired raw/cache idle, read-heavy, balanced, and write-dominant workloads over small, medium, and large BSON data; verify variants have identical workload parameters and correct returned data.
-- [ ] 3.2 Record wall time, benchmark-process CPU, controlled container CPU, logical metrics, and optional direct-path bytes with their limitations; verify reports never relabel logical or proxy bytes as universal wire traffic.
+- [ ] 3.1 Implement paired raw/cache idle, read-heavy, balanced, and write-dominant workloads over small, medium, and large BSON data; prime every cache workload/data-size variant through normal admissions and verify positive admission and hit counter deltas for each variant before sampling, identical workload parameters, and correct returned data.
+- [ ] 3.2 Record wall time, benchmark-process CPU, mandatory controlled container CPU, per-variant warmup counter deltas, logical metrics, and optional direct-path bytes with their limitations; verify unavailable container CPU fails controlled runs and reports never relabel logical or proxy bytes as universal wire traffic.
 
 ## 4. Publish evidence without timing gates
 
