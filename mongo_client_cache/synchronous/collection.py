@@ -123,7 +123,7 @@ class CachedCollection(Collection):
         self,
         requests: Sequence[_WriteOp[_DocumentType]],
         ordered: bool = True,
-        bypass_document_validation: bool = False,
+        bypass_document_validation: bool | None = None,
         session: ClientSession | None = None,
         comment: Any | None = None,
         let: Mapping | None = None,
@@ -136,12 +136,12 @@ class CachedCollection(Collection):
     def insert_one(
         self,
         document: _DocumentType | RawBSONDocument,
-        bypass_document_validation: bool = False,
+        bypass_document_validation: bool | None = None,
         session: ClientSession | None = None,
         comment: Any | None = None,
     ) -> InsertOneResult:
         logger_debug("INSERT_ONE", extra={"_id": document.get("_id")})
-        dt = dt_now()
+        dt = dt_now()  # pytriage: TR5
         self._cache.pending_change_stream["insert"][dt] = 0
         insert_one_result = super().insert_one(
             document, bypass_document_validation, session, comment
@@ -155,7 +155,7 @@ class CachedCollection(Collection):
         self,
         documents: Iterable[_DocumentType | RawBSONDocument],
         ordered: bool = True,
-        bypass_document_validation: bool = False,
+        bypass_document_validation: bool | None = None,
         session: ClientSession | None = None,
         comment: Any | None = None,
     ) -> InsertManyResult:
@@ -165,7 +165,7 @@ class CachedCollection(Collection):
             if hasattr(documents, "__len__")
             else {},
         )
-        dt = dt_now()
+        dt = dt_now()  # pytriage: TR5
         self._cache.pending_change_stream["insert"][dt] = 0
         insert_many_result = super().insert_many(
             documents, ordered, bypass_document_validation, session, comment
@@ -182,11 +182,12 @@ class CachedCollection(Collection):
         filter: Mapping[str, Any],
         replacement: Mapping[str, Any],
         upsert: bool = False,
-        bypass_document_validation: bool = False,
+        bypass_document_validation: bool | None = None,
         collation: _CollationIn | None = None,
         hint: _IndexKeyHint | None = None,
         session: ClientSession | None = None,
         let: Mapping[str, Any] | None = None,
+        sort: Mapping[str, Any] | None = None,
         comment: Any | None = None,
     ) -> UpdateResult:
         if __debug__ and not self._cache.watch_change_stream:
@@ -201,6 +202,7 @@ class CachedCollection(Collection):
             hint,
             session,
             let,
+            sort,
             comment,
         )
 
@@ -210,12 +212,13 @@ class CachedCollection(Collection):
         filter: Mapping[str, Any],
         update: Mapping[str, Any] | _Pipeline,
         upsert: bool = False,
-        bypass_document_validation: bool = False,
+        bypass_document_validation: bool | None = None,
         collation: _CollationIn | None = None,
         array_filters: Sequence[Mapping[str, Any]] | None = None,
         hint: _IndexKeyHint | None = None,
         session: ClientSession | None = None,
         let: Mapping[str, Any] | None = None,
+        sort: Mapping[str, Any] | None = None,
         comment: Any | None = None,
     ) -> UpdateResult:
         if __debug__ and not self._cache.watch_change_stream:
@@ -231,6 +234,7 @@ class CachedCollection(Collection):
             hint,
             session,
             let,
+            sort,
             comment,
         )
 
@@ -275,7 +279,7 @@ class CachedCollection(Collection):
         comment: Any | None = None,
     ) -> DeleteResult:
         logger.debug("DELETE_ONE", extra={"filter": filter})
-        dt = dt_now()
+        dt = dt_now()  # pytriage: TR5
         delete_one_result = super().delete_one(
             filter, collation, hint, session, let, comment
         )
@@ -297,7 +301,7 @@ class CachedCollection(Collection):
         comment: Any | None = None,
     ) -> DeleteResult:
         logger.debug("DELETE", extra={"filter": filter})
-        dt = dt_now()
+        dt = dt_now()  # pytriage: TR5
         delete_many_result = super().delete_many(
             filter, collation, hint, session, let, comment
         )
@@ -338,7 +342,7 @@ class CachedCollection(Collection):
         let: Mapping[str, Any] | None = None,
         comment: Any | None = None,
         **kwargs: Any,
-    ) -> Mapping[str, Any]:
+    ) -> Mapping[str, Any] | None:
         if __debug__ and not self._cache.watch_change_stream:
             raise CannotEditImmutableCollectionError(self.name)
 
@@ -360,7 +364,7 @@ class CachedCollection(Collection):
         let: Mapping[str, Any] | None = None,
         comment: Any | None = None,
         **kwargs: Any,
-    ) -> Mapping[str, Any]:
+    ) -> Mapping[str, Any] | None:
         if __debug__ and not self._cache.watch_change_stream:
             raise CannotEditImmutableCollectionError(self.name)
 
@@ -393,7 +397,7 @@ class CachedCollection(Collection):
         let: Mapping[str, Any] | None = None,
         comment: Any | None = None,
         **kwargs: Any,
-    ) -> Mapping[str, Any]:
+    ) -> Mapping[str, Any] | None:
         if __debug__ and not self._cache.watch_change_stream:
             raise CannotEditImmutableCollectionError(self.name)
 
@@ -455,13 +459,16 @@ class CachedCollection(Collection):
         filter: Mapping[str, Any] | None = None,
         session: ClientSession | None = None,
         comment: Any | None = None,
+        hint: _IndexKeyHint | None = None,
         **kwargs: Any,
     ) -> list:
         query = str(CommandDistinct(key=key, filter=filter))
         try:
             return self._cache.distinct[query]
         except KeyError:
-            distinct_values = super().distinct(key, filter, session, comment, **kwargs)
+            distinct_values = super().distinct(
+                key, filter, session, comment, hint, **kwargs
+            )
             self._cache.distinct[query] = distinct_values
             return distinct_values
 
