@@ -12,7 +12,7 @@ The composed recovery seam, cache core, and change-stream manager provide the pr
 
 - Wrap supplied PyMongo collections; expose raw collections for unsupported operations.
 - Treat `_id` and declared simple/compound unique keys as document aliases. Cache other fully materialized results behind database generations so writes conservatively invalidate membership and ordering.
-- Force cache-admitted reads to primary plus majority and bypass sessions.
+- Force eligible cache-admitted reads to primary plus majority. If the caller selected a secondary or non-majority read profile on the wrapped collection or operation, bypass both cache lookup and admission and preserve the caller's PyMongo read options.
 - Admit `find`/aggregate only after complete materialization and capacity validation. Sync and asyncio share behavioral tests but use native driver APIs.
 
 ## Risks / Trade-offs
