@@ -1,0 +1,6 @@
+{
+  "globs": ["README.md"],
+  "config": {
+    "line-length": false,
+  },
+}

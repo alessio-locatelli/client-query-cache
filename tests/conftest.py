@@ -53,11 +53,6 @@ def nonpersistent_collection_name() -> str:
 
 
 @pytest.fixture
-def random_document_id() -> str:
-    return str(uuid.uuid4())
-
-
-@pytest.fixture
 def make_fake_document(faker: Faker) -> Callable[..., dict[str, Any]]:
     def _make_fake_document() -> dict[str, Any]:
         document = faker.pydict()

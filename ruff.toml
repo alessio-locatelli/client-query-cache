@@ -1,36 +1,36 @@
 target-version = "py313"
 
 lint.ignore = [
-    # Missing copyright notice at top of file
-    "CPY001",
-    # Missing explicit return at the end of function able to return non-None value
-    "RET503",
-    # Use of assert detected
-    "S101",
-    # Standard pseudo-random generators are not suitable for cryptographic purposes
-    "S311",
-    # Missing author in TODO; try: # TODO(<author_name>): ... or # TODO @<author_name>: ...
-    "TD002",
-    # Explicitly concatenated string should be implicitly concatenated
-    "ISC003",
-    # Use `logging.exception` instead of `logging.error`
-    "TRY400",
-    # missing-trailing-comma
-    "COM812",
-    # We do not use SQL, so injection is not possible.
-    "S608",
-    # try/except:pass is a little faster inside functions
-    "SIM105",
-    # NOTE: Maybe enable this later:
-    "D",
-    "ERA001",
-    "FIX002",
-    "SLF001"
+  # Missing copyright notice at top of file
+  "CPY001",
+  # Missing explicit return at the end of function able to return non-None value
+  "RET503",
+  # Use of assert detected
+  "S101",
+  # Standard pseudo-random generators are not suitable for cryptographic purposes
+  "S311",
+  # Missing author in TODO; try: # TODO(<author_name>): ... or # TODO @<author_name>: ...
+  "TD002",
+  # Explicitly concatenated string should be implicitly concatenated
+  "ISC003",
+  # Use `logging.exception` instead of `logging.error`
+  "TRY400",
+  # missing-trailing-comma
+  "COM812",
+  # We do not use SQL, so injection is not possible.
+  "S608",
+  # try/except:pass is a little faster inside functions
+  "SIM105",
+  # NOTE: Maybe enable this later:
+  "D",
+  "ERA001",
+  "FIX002",
+  "SLF001",
 ]
 lint.select = ["ALL"]
 
 [lint.flake8-builtins]
-builtins-ignorelist = ["filter",]
+builtins-ignorelist = ["filter"]
 
 [lint.isort]
 combine-as-imports = true

@@ -26,7 +26,7 @@ class CommandFind:
         self.projection = (
             tuple(sorted(self.projection))
             if isinstance(self.projection, Iterable)
-            else dict(sorted(self.projection.items()))  # type: ignore[attr-defined]
+            else dict(sorted(self.projection.items()))
         )
 
     def __str__(self) -> str:
