@@ -1,7 +1,7 @@
 fail_fast: False
 
 default_language_version:
-  python: python3.13
+  python: python3.14
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -30,7 +30,6 @@ repos:
     rev: v0.3.0
     hooks:
       - id: ruff-extra-rules
-        language_version: python3.14
         args: ["--fix"]
 
   - repo: https://github.com/jendrikseipp/vulture
