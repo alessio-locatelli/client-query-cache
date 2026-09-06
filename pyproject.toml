@@ -6,8 +6,13 @@ authors = [
   { name = "Alessio Locatelli", email = "<software.development@secure.mailbox.org>" },
 ]
 readme = "README.md"
-requires-python = ">=3.13"
-dependencies = ["pymongo>=4.18,<5"]
+requires-python = ">=3.14"
+dependencies = [
+  # No upper bound: exclude only releases known to be incompatible, never pin
+  # speculatively against versions that do not exist yet.
+  # https://iscinumpy.dev/post/bound-version-constraints/#pinning-the-python-version-is-special
+  "pymongo>=4.18",
+]
 
 [dependency-groups]
 test = [

@@ -8,7 +8,7 @@ This capability gives every contributor a reproducible local build, dependency, 
 
 ### Requirement: Contributors use a locked uv project
 
-The repository SHALL use `uv` for dependency resolution, environments, and package builds, SHALL configure `uv_build` with `module-root = ""` for the existing flat `mongo_client_cache/` package, SHALL commit `uv.lock`, and SHALL support CPython 3.14+. Its published PyMongo dependency SHALL be `>=4.18,<5`, the latest published PyMongo release at the time of this greenfield project, which also supports the generally available native async API. Published runtime dependencies SHALL remain distinct from development tooling.
+The repository SHALL use `uv` for dependency resolution, environments, and package builds, SHALL configure `uv_build` with `module-root = ""` for the existing flat `mongo_client_cache/` package, SHALL commit `uv.lock`, and SHALL support CPython 3.14+. Its published PyMongo dependency SHALL be `>=4.18`, the latest published PyMongo release at the time of this greenfield project, which also supports the generally available native async API. Published runtime dependencies SHALL NOT declare a speculative upper bound: a dependency floor SHALL exclude only versions with a known, documented incompatibility, never versions that merely do not exist yet, per [the standard guidance against pinning a library's dependency ceiling](https://iscinumpy.dev/post/bound-version-constraints/#pinning-the-python-version-is-special). Published runtime dependencies SHALL remain distinct from development tooling.
 
 #### Scenario: A clean checkout is synchronized
 
