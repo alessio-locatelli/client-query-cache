@@ -6,7 +6,7 @@ The proof of concept has no single, reproducible developer setup and mixes Poetr
 
 - Replace Poetry with `uv`, a committed lockfile, dependency groups, the pure-Python `uv_build` backend, and the supported `pymongo>=4.18,<5` runtime range.
 - Add Prek quality hooks for repository hygiene, Ruff, Ruff-extra, Vulture, mypy, slotscheck, Prettier, and secret detection.
-- Align tooling with the CPython 3.13+ support policy while isolating the Python 3.14 Ruff-extra hook.
+- Align tooling with the CPython 3.14+ support policy.
 
 ## Capabilities
 

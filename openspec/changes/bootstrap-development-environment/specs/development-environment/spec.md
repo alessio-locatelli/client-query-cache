@@ -6,7 +6,7 @@ This capability gives every contributor a reproducible local build, dependency, 
 
 ### Requirement: Contributors use a locked uv project
 
-The repository SHALL use `uv` for dependency resolution, environments, and package builds, SHALL configure `uv_build` with `module-root = ""` for the existing flat `mongo_client_cache/` package, SHALL commit `uv.lock`, and SHALL support CPython 3.13+. Its published PyMongo dependency SHALL be `>=4.18,<5`, the latest published PyMongo release at the time of this greenfield project, which also supports the generally available native async API. Published runtime dependencies SHALL remain distinct from development tooling.
+The repository SHALL use `uv` for dependency resolution, environments, and package builds, SHALL configure `uv_build` with `module-root = ""` for the existing flat `mongo_client_cache/` package, SHALL commit `uv.lock`, and SHALL support CPython 3.14+. Its published PyMongo dependency SHALL be `>=4.18,<5`, the latest published PyMongo release at the time of this greenfield project, which also supports the generally available native async API. Published runtime dependencies SHALL remain distinct from development tooling.
 
 #### Scenario: A clean checkout is synchronized
 
@@ -20,7 +20,7 @@ The repository SHALL use `uv` for dependency resolution, environments, and packa
 
 ### Requirement: Contributors can run complete local quality checks
 
-The repository SHALL provide a pinned Prek configuration that checks repository hygiene, formatting, linting, dead code, static types, slots, supported text formats, and secrets. The configuration SHALL retain the Python 3.13 package baseline when a check uses an isolated newer interpreter. The complete local quality workflow SHALL also validate `pyproject.toml` and the committed `uv.lock` with equivalent `uv` locked-project checks in place of the existing Poetry-specific project check, without passing matched filenames to a filename-insensitive `uv` command.
+The repository SHALL provide a pinned Prek configuration that checks repository hygiene, formatting, linting, dead code, static types, slots, supported text formats, and secrets. The configuration SHALL run every check, including Ruff-extra, under the CPython 3.14 package baseline. The complete local quality workflow SHALL also validate `pyproject.toml` and the committed `uv.lock` with equivalent `uv` locked-project checks in place of the existing Poetry-specific project check, without passing matched filenames to a filename-insensitive `uv` command.
 
 #### Scenario: A complete quality run finds a violation
 

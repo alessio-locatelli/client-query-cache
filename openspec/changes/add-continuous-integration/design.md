@@ -12,7 +12,7 @@ The development and test bootstrap changes provide the commands that CI must exe
 
 - Use separate fail-fast quality/build, unit/coverage, and Docker integration/e2e jobs to make failures attributable.
 - Run `uv sync --locked`; a lockfile mutation is a failure, not an automatic update.
-- Test the package on 3.13 and 3.14. The quality job also provides 3.14 for the isolated Ruff-extra environment.
+- Test the package on CPython 3.14, matching the package baseline and the Ruff-extra hook interpreter.
 - Upload coverage and failure diagnostics that exclude documents, credentials, queries, and resume tokens.
 
 ## Risks / Trade-offs

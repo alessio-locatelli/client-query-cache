@@ -11,12 +11,12 @@ The repository currently uses Poetry metadata and already has a `.pre-commit-con
 ## Decisions
 
 - Use PEP 621 metadata, dependency groups, `uv.lock`, and `uv_build` for the existing pure-Python flat layout. Configure `[tool.uv.build-backend]` with `module-root = ""` so `uv_build` discovers the repository's `mongo_client_cache/` package. Poetry is removed so resolution has one authority. Declare `pymongo>=4.18,<5`: this project starts from scratch, so its lower bound is the latest published PyMongo release rather than the oldest version that happens to work, while [PyMongo 4.13 already made its native async API generally available](https://www.mongodb.com/docs/languages/python/pymongo-driver/current/reference/release-notes/); verify the lower bound rather than assuming a lockfile's latest resolution proves it.
-- Make Prek the local quality entry point by migrating the existing hook configuration. Preserve its hygiene, Ruff, mypy, slotscheck, codespell, and typos coverage; replace the Poetry-specific validation with equivalent `uv` project validation because Poetry is removed. The requested Ruff-extra hook uses an isolated Python 3.14 environment; package tests and type checks retain Python 3.13+.
+- Make Prek the local quality entry point by migrating the existing hook configuration. Preserve its hygiene, Ruff, mypy, slotscheck, codespell, and typos coverage; replace the Poetry-specific validation with equivalent `uv` project validation because Poetry is removed. The Ruff-extra hook, package tests, and type checks all run under the same CPython 3.14 baseline, so no isolated interpreter is needed.
 - Correct existing quality violations instead of broad exemptions. Tool-specific exclusions require a narrow documented reason.
 
 ## Risks / Trade-offs
 
-- [A local machine lacks Python 3.14 for the Ruff-extra hook] → Document the preflight and provision it only for the isolated hook environment.
+- [A local machine lacks Python 3.14] → Document the preflight so contributors provision the interpreter before running the local quality workflow.
 - [Tool upgrades change results] → Pin hooks and commit the `uv` lockfile.
 
 ## Migration Plan

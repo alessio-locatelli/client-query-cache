@@ -6,7 +6,7 @@ This capability gives external contributors hosted, repeatable evidence that the
 
 ### Requirement: CI verifies the locked package and local gates
 
-GitHub Actions SHALL synchronize the committed `uv.lock` without modification, run the established quality checks, build source and wheel distributions, and install the wheel in an isolated environment. It SHALL test CPython 3.13 and 3.14.
+GitHub Actions SHALL synchronize the committed `uv.lock` without modification, run the established quality checks, build source and wheel distributions, and install the wheel in an isolated environment. It SHALL test CPython 3.14.
 
 #### Scenario: Dependency metadata is unlocked
 

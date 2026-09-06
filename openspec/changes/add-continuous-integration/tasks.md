@@ -1,7 +1,7 @@
 ## 1. Add hosted quality and package validation
 
 - [ ] 1.1 Add GitHub Actions quality/build jobs that use `uv sync --locked`, validate the lockfile, build distributions, and install the wheel in isolation; verify workflow syntax and local command equivalents.
-- [ ] 1.2 Add CPython 3.13 and 3.14 coverage to the appropriate jobs, including the Ruff-extra hook interpreter; verify the rendered matrix has both versions.
+- [ ] 1.2 Add CPython 3.14 coverage to the appropriate jobs, including the Ruff-extra hook interpreter; verify the rendered matrix has that version.
 
 ## 2. Add database-backed verification
 
