@@ -6,6 +6,12 @@
 - You must follow SOLID, DRY principles, and maintain high-quality scalable and extendable architecture.
 - Performance is critical, and you must fight for every micro- and macro-optimization. For each major change, you must record profiling and benchmark measurements in the commit body.
 
+### OpenSpec completion
+
+- After an OpenSpec change is fully applied and has passed review, proactively run `openspec-sync-specs`, run `openspec-archive-change`, and commit every file that belongs to the completed change. Treat these as one continuous completion sequence and do not ask for confirmation between steps.
+- The review may come from a subagent or an external Codex session. Any substantive edit made after that review requires another review.
+- Stop the completion sequence only for a concrete blocker: incomplete artifacts or tasks, blocking review findings, failed validation, an unresolved delta-to-main-spec conflict, an existing archive target, unrelated working-tree changes that cannot be separated safely, or a commit failure that requires user judgment. Report the blocker instead of silently skipping or weakening a lifecycle step.
+
 ### Writing tests
 
 - Use `@pytest.mark.parametrize` when the same test logic should be run against multiple input/output cases. Prefer it over duplicating nearly identical test functions.
@@ -80,4 +86,4 @@ just coverage
 
 ### Writing Commit Messages
 
-The commit body should communicate the "why," not just the "what." Include the rationale behind the changes, non-trivial decisions, and any other information that may be useful for future developers.
+Commit proactively during the work after completing each dedicated part of a larger task. The commit body should communicate the "why," not just the "what." Include the rationale behind the changes, non-trivial decisions, and any other information that may be useful for future developers.
