@@ -18,6 +18,8 @@ test = [
   "pytest-asyncio>=1.4.0",
   "pytest-timeout>=2.4.0",
   "slotscheck>=0.20.1",
+  "strict-no-cover>=0.1.1",
+  "testcontainers[mongodb]>=4.15.0",
   "tox>=4.61.2",
   "tox-uv>=1.36.0",
 ]
@@ -28,6 +30,18 @@ build-backend = "uv_build"
 
 [tool.uv.build-backend]
 module-root = ""
+
+[tool.coverage.run]
+branch = true
+source = ["mongo_client_cache"]
+
+[tool.coverage.report]
+fail_under = 81.10
+precision = 2
+show_missing = true
+
+[tool.coverage.xml]
+output = "coverage.xml"
 
 [tool.vulture]
 paths = ["mongo_client_cache", "tests"]
@@ -40,4 +54,5 @@ ignore_names = [
   "log_when_test_starts",
   "faker_seed",
   "fill_collection",
+  "pytestmark",
 ]

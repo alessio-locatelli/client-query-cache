@@ -41,6 +41,7 @@ repos:
     rev: v2.4.3
     hooks:
       - id: codespell
+        args: ["--skip=package-lock.json"]
 
   - repo: https://github.com/astral-sh/uv-pre-commit
     rev: 0.12.9

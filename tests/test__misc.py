@@ -1,18 +1,20 @@
 from datetime import UTC, datetime
-from math import floor, log10
+from unittest.mock import Mock
 
-from mongo_client_cache._misc import dt_now
+import pytest
+
+from mongo_client_cache import _misc
+
+pytestmark = pytest.mark.unit
 
 
-def test_dt_now() -> None:
-    dt_with_milliseconds_precision = dt_now()
-    microsecond = dt_with_milliseconds_precision.microsecond
-    assert str(microsecond).endswith("000")
-    digit_count = 6
-    assert floor(log10(microsecond)) + 1 == digit_count
+def test_dt_now(monkeypatch: pytest.MonkeyPatch) -> None:
+    current_datetime = datetime(2026, 9, 6, 12, 34, 56, 4_567, tzinfo=UTC)
+    monkeypatch.setattr(
+        _misc,
+        "datetime",
+        Mock(now=Mock(return_value=current_datetime)),
+    )
 
-    dt = datetime.now(UTC)
-    assert dt_with_milliseconds_precision.hour == dt.hour
-    assert dt_with_milliseconds_precision.minute == dt.minute
-    if dt.second > dt_with_milliseconds_precision.second:
-        assert dt.microsecond < dt_with_milliseconds_precision.microsecond
+    expected_datetime = current_datetime.replace(tzinfo=None, microsecond=4_000)
+    assert _misc.dt_now() == expected_datetime

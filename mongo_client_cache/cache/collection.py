@@ -4,7 +4,6 @@ from datetime import UTC, datetime
 from threading import Event, Thread
 from typing import TYPE_CHECKING
 
-import pymongo
 from bson import ObjectId, Timestamp
 
 from mongo_client_cache.cache.change_stream import pipeline
@@ -26,7 +25,6 @@ class CollCache:
         "_start_at_operation_time",
         "connected_to_stream",
         "distinct",
-        "distinct_per_collection",
         "document_count",
         "documents",
         "estimated_document_count",
@@ -39,15 +37,11 @@ class CollCache:
 
     def __init__(self, /, collection: Collection, *, watch_change_stream: bool) -> None:
         self._collection = collection
-
-        # Local in-memory storage (MongoDB collection cache).
         self.query_to_ids_map: dict[CommandKwargs, deque[ObjectId | str]] = {}
         self.document_count: dict[CommandKwargs, int] = {}
         self.estimated_document_count: int | None = None
         self.distinct: dict[CommandKwargs, list[BsonValue]] = {}
-        self.documents: dict[ObjectId | str, BsonDict] = {}  # NOTE: What is a key?
-
-        # Change stream.
+        self.documents: dict[ObjectId | str, BsonDict] = {}
         self.watch_change_stream = watch_change_stream
         if watch_change_stream:
             self.pending_change_stream: dict[str, dict[datetime, int]] = {
@@ -57,17 +51,11 @@ class CollCache:
             self._start_at_operation_time = datetime.now(UTC)
             self.connected_to_stream = Event()
             self.watch_stopped = Event()
-            self.watch_change_stream = watch_change_stream
             self.stop_watching = False
             Thread(target=self.watch, daemon=True).start()
 
     def watch(self) -> None:
-        """
-        https://github.com/mongodb/specifications/blob/master/source/change-streams/change-streams.rst
-        https://www.mongodb.com/docs/manual/reference/change-events/#change-events
-        """
         start_at_operation_time = Timestamp(
-            # NOTE: For some reason we need to start watching a few seconds earlier.
             int(self._start_at_operation_time.timestamp()) - 5,
             0,
         )
@@ -77,25 +65,23 @@ class CollCache:
             extra={"start_at_operation_time": start_at_operation_time},
         )
         with self._collection.watch(
-            pipeline, start_at_operation_time=start_at_operation_time
+            pipeline,
+            start_at_operation_time=start_at_operation_time,
+            max_await_time_ms=1_000,
         ) as stream:
             self.connected_to_stream.set()
             logger_debug("Connected to the '%s' change stream.", self._collection.name)
-            try:
-                for change in stream:
-                    if self.stop_watching:
-                        logger.debug(
-                            "Stopping watching changes on '%s' collection.",
-                            self._collection.name,
-                        )
-                        self.watch_stopped.set()
-                        break
+            while not self.stop_watching:
+                change = stream.try_next()
+                if change is not None:
                     self._process_change_stream(change)
-            except pymongo.synchronous.pool._PoolClosedError as error:
-                logger.debug(repr(error))
-                return
+            logger.debug(
+                "Stopping watching changes on '%s' collection.",
+                self._collection.name,
+            )
+            self.watch_stopped.set()
 
-    def _insert(self, change: ChangeStreamDocument) -> None:  # ObjectId or str?
+    def _insert(self, change: ChangeStreamDocument) -> None:
         for dt, i in self.pending_change_stream["insert"].items():
             if change["wallTime"] >= dt and i > 0:
                 self.pending_change_stream["insert"][dt] -= 1
@@ -108,7 +94,6 @@ class CollCache:
             logger_debug("document_count=%s,", self.document_count)
         except KeyError:
             pass
-        # Invalidate all cached queries.
         self.query_to_ids_map.clear()
         self.distinct.clear()
 
@@ -134,7 +119,6 @@ class CollCache:
             self.document_count[command_count_empty_filter] -= 1
         except KeyError:
             pass
-        # Invalidate all cached queries.
         self.query_to_ids_map.clear()
         self.distinct.clear()
 

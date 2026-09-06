@@ -1,11 +1,13 @@
 import logging
 import uuid
 from collections.abc import Callable, Iterable, Iterator
+from time import monotonic, sleep
 from typing import Any, TypedDict, cast
 
 import pytest
 from faker import Faker
 from pymongo.cursor_shared import _Sort
+from pymongo.synchronous.collection import Collection
 
 from mongo_client_cache._types import JsonDict
 from mongo_client_cache.synchronous.collection import CachedCollection
@@ -13,6 +15,7 @@ from mongo_client_cache.synchronous.mongo_client import CachedMongoClient
 
 fake = Faker()
 logger = logging.getLogger(__name__)
+pytestmark = pytest.mark.integration
 
 
 @pytest.fixture
@@ -51,33 +54,31 @@ def cached_collection(
     )
 
 
-def test_bulk_write() -> None: ...
-
-
 class FindOneCommandKwargs(TypedDict):
     filter: dict[str, Any] | None
     projection: dict[str, Any] | Iterable[str] | None
 
 
 @pytest.mark.parametrize(
-    ("kwargs", "expected_result"),
+    ("kwargs", "should_find_document"),
     [
-        ({"filter": None}, dict),
-        ({"filter": {"_id": str(uuid.uuid4())}}, None),
+        ({"filter": None}, True),
+        ({"filter": {"_id": str(uuid.uuid4())}}, False),
     ],
+    ids=["existing", "missing"],
 )
 def test_find_one(
     cached_collection: CachedCollection,
     faker: Faker,
     kwargs: FindOneCommandKwargs,
-    expected_result: dict | None,
+    should_find_document: bool,
 ) -> None:
     for _ in range(faker.pyint(min_value=1, max_value=5)):
-        result = cached_collection.find_one(**kwargs)
-        if expected_result is None:
-            assert result is None
+        found_document = cached_collection.find_one(**kwargs)
+        if should_find_document:
+            assert found_document is not None
         else:
-            assert isinstance(result, expected_result)  # type: ignore[arg-type]
+            assert found_document is None
 
 
 class FindCommandKwargs(TypedDict):
@@ -123,13 +124,11 @@ class CountDocumentsKwargs(TypedDict):
 
 
 @pytest.mark.parametrize(
-    ("filter", "kwargs", "expected_count"),
+    ("document_filter", "kwargs", "expected_count"),
     [
         ({}, {}, None),
         ({fake.pystr(): fake.pystr()}, {}, 0),
-        # ({}, {"limit": fake.pyint(min_value=1, max_value=100), "skip": fake.pyint(min_value=1, max_value=100)}),  # TODO:  # noqa: TD003,E501
         ({}, {"limit": 1, "skip": 1}, 1),
-        # ({}, {"limit": 1, "skip": 99999}, 0),  # TODO:  # noqa: TD003
     ],
 )
 def test_count_documents(  # noqa: PLR0913, PLR0917
@@ -137,7 +136,7 @@ def test_count_documents(  # noqa: PLR0913, PLR0917
     make_fake_document: Callable[..., dict[str, Any]],
     document_count: int,
     faker: Faker,
-    filter: JsonDict,
+    document_filter: JsonDict,
     kwargs: CountDocumentsKwargs,
     expected_count: int | None,
 ) -> None:
@@ -147,7 +146,10 @@ def test_count_documents(  # noqa: PLR0913, PLR0917
     if expected_count is None:
         expected_count = document_count
     for _ in range(faker.pyint(min_value=1, max_value=5)):
-        assert cached_collection.count_documents(filter, **kwargs) == expected_count
+        assert (
+            cached_collection.count_documents(document_filter, **kwargs)
+            == expected_count
+        )
 
     cached_collection.insert_one(doc := make_fake_document())
     for _ in range(faker.pyint(min_value=1, max_value=5)):
@@ -155,7 +157,10 @@ def test_count_documents(  # noqa: PLR0913, PLR0917
 
     cached_collection.delete_one({"_id": doc["_id"]})
     for _ in range(faker.pyint(min_value=1, max_value=5)):
-        assert cached_collection.count_documents(filter, **kwargs) == expected_count
+        assert (
+            cached_collection.count_documents(document_filter, **kwargs)
+            == expected_count
+        )
 
 
 def test_estimated_document_count(
@@ -174,3 +179,21 @@ def test_estimated_document_count(
     cached_collection.delete_one({"_id": doc["_id"]})
     for _ in range(faker.pyint(min_value=1, max_value=5)):
         assert cached_collection.estimated_document_count() == document_count
+
+
+def test_independent_raw_write_updates_cached_count(
+    cached_collection: CachedCollection,
+    raw_collection: Collection,
+    make_fake_document: Callable[..., dict[str, Any]],
+    document_count: int,
+) -> None:
+    assert cached_collection.count_documents({}) == document_count
+    raw_collection.insert_one(make_fake_document())
+
+    deadline = monotonic() + 5
+    while monotonic() < deadline:
+        if cached_collection.count_documents({}) == document_count + 1:
+            return
+        sleep(0.01)
+
+    pytest.fail("The cache did not observe an independent raw write within 5 seconds.")

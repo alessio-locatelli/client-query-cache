@@ -42,11 +42,12 @@ _Note that ignore comments that suppress false-positives (e.g., `# noqa`, `# typ
 
 ## Commands
 
+Run project commands through the recipes documented in [`docs/development.md`](docs/development.md).
+
 ### Setup
 
 ```bash
-uv sync         # creates .venv, installs dependencies
-prek install    # installs this repo's own hooks (dogfooding); prek is a standalone binary, not a uv dependency
+just setup
 ```
 
 ### Python package and project manager
@@ -58,26 +59,23 @@ Use [`uv`](https://docs.astral.sh/uv/).
 ### Lint
 
 ```bash
-ruff check --fix .
-ruff format .
-uv run mypy mongo_client_cache/ tests/
-taplo fmt pyproject.toml
-npm run format --silent
-uv run -- python -m slotscheck src tests
+just lint
+just format
 ```
 
 If edited CI:
 
 ```bash
-ZIZMOR_OFFLINE=true zizmor --fix=all --persona=auditor --collect=all .
+just ci-lint
 ```
 
 ### Test
 
 ```bash
-uv run -- coverage run -m pytest -qq
-uv run -- coverage report
-strict-no-cover
+just test
+just test-integration
+just test-e2e
+just coverage
 ```
 
 ### Writing Commit Messages
