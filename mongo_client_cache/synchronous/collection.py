@@ -80,7 +80,7 @@ class CachedCollection(Collection):
         self, after_dt: datetime, operation_type: Literal["insert", "delete"]
     ) -> None:
         logger_debug(
-            "Waiting for change stream uppdate.",
+            "Waiting for change stream update.",
             extra={"operation_type": operation_type, "after_dt": after_dt},
         )
         for _ in range(self.__waiting_retry_count):
@@ -102,7 +102,7 @@ class CachedCollection(Collection):
 
         if self._cache.stop_watching or self._cache.watch_stopped.is_set():
             logger.debug(
-                "Skipped waiting for the change streame because the client is closing."
+                "Skipped waiting for the change stream because the client is closing."
             )
             return
         raise WaitingForChangeStreamError(
@@ -445,7 +445,7 @@ class CachedCollection(Collection):
     def estimated_document_count(
         self, comment: Any | None = None, **kwargs: Any
     ) -> int:
-        logger_debug("ESTIMATED_DOCUMENT_COUNT", extra={"filter": filter})
+        logger_debug("ESTIMATED_DOCUMENT_COUNT")
         if self._cache.estimated_document_count is not None:
             return self._cache.estimated_document_count
         document_count = super().estimated_document_count(comment, **kwargs)

@@ -1,18 +1,26 @@
 import decimal
 import logging
-import os
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from copy import copy
-from datetime import UTC, datetime
+from datetime import datetime
 from decimal import Decimal
-from typing import Any
+from time import monotonic, sleep
+from typing import Any, NewType
 
 import pytest
 from bson import Decimal128
+from docker.errors import DockerException
 from faker import Faker
+from pymongo import MongoClient
+from pymongo.errors import ConnectionFailure, OperationFailure
+from testcontainers.core.container import DockerContainer, Reaper
 
 from mongo_client_cache.logger import _logger_debug
+
+MongoDbUri = NewType("MongoDbUri", str)
+DatabaseName = NewType("DatabaseName", str)
+CollectionName = NewType("CollectionName", str)
 
 logger = logging.getLogger(__name__)
 
@@ -29,27 +37,81 @@ def log_when_test_starts(request: pytest.FixtureRequest) -> None:
 
 
 @pytest.fixture(autouse=True)
-def faker_seed() -> str | int:
-    ci_pipeline_id = os.getenv("CI_PIPELINE_ID") or os.getenv("GITHUB_JOB")
-    default_seed = datetime.now(UTC).day  # Any random value.
-    seed = ci_pipeline_id or default_seed
+def faker_seed() -> int:
+    seed = 0
     logger.info("Starting pytest session with `Faker.seed` value: %s", seed)
     return seed
 
 
 @pytest.fixture
-def cached_database_name() -> str:
-    return "db_one"
+def cached_database_name() -> DatabaseName:
+    return DatabaseName(f"test_{uuid.uuid4().hex}")
 
 
 @pytest.fixture
-def persistent_collection_name() -> str:
-    return "persistent_collection"
+def persistent_collection_name() -> CollectionName:
+    return CollectionName("persistent_collection")
 
 
 @pytest.fixture
-def nonpersistent_collection_name() -> str:
-    return "nonpersistent_collection"
+def nonpersistent_collection_name() -> CollectionName:
+    return CollectionName("nonpersistent_collection")
+
+
+@pytest.fixture(scope="session")
+def mongodb_uri() -> Iterator[MongoDbUri]:
+    container = DockerContainer("mongo:8.0.4-noble")
+    container.with_command(["--replSet", "rs0", "--bind_ip_all"])
+    container.with_exposed_ports(27017)
+
+    try:
+        container.start()
+    except DockerException as error:
+        pytest.fail(
+            "A Docker-compatible container runtime is required for integration "
+            "and end-to-end tests. Start Docker or a rootless Podman socket and "
+            f"try again. Container startup failed: {error}"
+        )
+
+    host = container.get_container_host_ip()
+    port = container.get_exposed_port(27017)
+    uri = MongoDbUri(f"mongodb://{host}:{port}/?directConnection=true")
+    client: MongoClient[dict[str, Any]] = MongoClient(
+        uri, serverSelectionTimeoutMS=1_000
+    )
+
+    try:
+        deadline = monotonic() + 30
+        while monotonic() < deadline:
+            try:
+                client.admin.command("ping")
+                break
+            except ConnectionFailure:
+                sleep(0.1)
+        else:
+            pytest.fail("MongoDB did not accept connections within 30 seconds.")
+
+        client.admin.command(
+            "replSetInitiate",
+            {
+                "_id": "rs0",
+                "members": [{"_id": 0, "host": "localhost:27017"}],
+            },
+        )
+
+        while monotonic() < deadline:
+            try:
+                if client.admin.command("hello")["isWritablePrimary"]:
+                    yield uri
+                    return
+            except (ConnectionFailure, OperationFailure):
+                pass
+            sleep(0.1)
+        pytest.fail("MongoDB did not elect a writable primary within 30 seconds.")
+    finally:
+        client.close()
+        container.stop()
+        Reaper.delete_instance()
 
 
 @pytest.fixture
@@ -61,17 +123,8 @@ def make_fake_document(faker: Faker) -> Callable[..., dict[str, Any]]:
         mongo_compatible_document: dict[str, Any] = {}
         for k, v in document.items():
             if isinstance(v, datetime):
-                # MongoDB rounds microseconds to the nearest millisecond.
-                # If we want to get back the same object, we must round
-                # all `datetime` instances before storing them in MongoDB.
                 mongo_compatible_document[k] = copy(v).replace(microsecond=0)
             elif isinstance(v, Decimal):
-                # `Decimal` must be converted before storing as BSON.
-                # Otherwise you will get:
-                # ```
-                # bson.errors.InvalidDocument: cannot encode object [...]
-                # [...] of type: <class 'decimal.Decimal'>
-                # ````
                 try:
                     mongo_compatible_document[k] = Decimal128(v)
                 except decimal.Inexact:

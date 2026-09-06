@@ -16,12 +16,17 @@ The repository SHALL provide a `justfile` at the repository root with named reci
 
 ### Requirement: Contributors get a reproducible container-based toolchain
 
-The repository SHALL provide a container image definition declaring the pinned contributor toolchain (Python 3.14 via `uv`, Node.js, npm, `prek`, `taplo`, `zizmor`, and `just` itself), buildable and usable as a toolbx or Distrobox container image on any Linux host with rootless Podman and the corresponding `toolbox` or `distrobox` CLI installed, since Podman alone does not provide either container frontend. Every declared tool SHALL be pinned to an explicit version, and the base image SHALL be pinned to an exact digest rather than a tag, so that rebuilding the image from the same definition reproduces the same toolchain. The image SHALL provide every in-container tool a documented `just` recipe depends on; a recipe SHALL NOT depend on an in-container tool that is undefined or unpinned in the image. This pinning obligation does NOT extend to the host itself or to the host-execution bridge (`flatpak-spawn`, `distrobox-host-exec`) and the host commands reached through it (`podman`, `systemctl --user`), since those run outside the image by design; recipes that depend on them SHALL document the host prerequisite instead and SHALL fail with an actionable message when it is unavailable.
+The repository SHALL provide a container image definition declaring the pinned contributor toolchain (Python 3.14 via `uv`, Node.js, npm, `prek`, `taplo`, `zizmor`, and `just` itself), buildable and usable as a toolbx or Distrobox container image on any Linux host with rootless Podman and the corresponding `toolbox` or `distrobox` CLI installed, since Podman alone does not provide either container frontend. Every declared tool SHALL be pinned to an explicit version, and the base image SHALL be pinned to an exact digest rather than a tag, so that rebuilding the image from the same definition reproduces the same toolchain. The initial host bootstrap SHALL use Podman and the selected container frontend directly and SHALL NOT require `just` on the host. The image SHALL provide every in-container tool a documented `just` recipe depends on; a recipe SHALL NOT depend on an in-container tool that is undefined or unpinned in the image. This pinning obligation does NOT extend to the host itself or to the host-execution bridge (`flatpak-spawn`, `distrobox-host-exec`) and the host commands reached through it (`podman`, `systemctl --user`), since those run outside the image by design; recipes that depend on them SHALL document the host prerequisite instead and SHALL fail with an actionable message when it is unavailable.
 
 #### Scenario: A contributor builds the dev container image
 
 - **WHEN** a contributor builds the container image from the documented definition
 - **THEN** the resulting container has `uv`, Node.js, npm, `prek`, `taplo`, `zizmor`, and `just` available on `PATH`, each at the pinned version, without further manual installation
+
+#### Scenario: A contributor bootstraps from an immutable host
+
+- **WHEN** a contributor follows the documented host bootstrap on Fedora Silverblue or another supported immutable host
+- **THEN** the contributor builds and idempotently creates the development container with the host's existing Podman and container-frontend commands without installing `just` on the host
 
 ### Requirement: Container-based contributors reach a container runtime without nesting
 

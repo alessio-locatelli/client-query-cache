@@ -4,7 +4,7 @@ Contributor setup and daily commands are currently a flat list of separate CLI i
 
 ## What Changes
 
-- Add a `justfile` at the repository root exposing named recipes for every setup and quality-check command currently listed in `AGENTS.md`, so contributors run one verb (`just setup`, `just lint`, `just test`) instead of memorizing a multi-tool sequence.
+- Add a `justfile` at the repository root exposing named recipes for every project setup and quality-check command currently listed in `AGENTS.md`, so contributors use one command surface after entering the development container.
 - Add a `Containerfile` defining the pinned contributor toolchain (Python 3.14 via `uv`, Node.js/npm, `prek`, `taplo`) so a toolbx or Distrobox container can be built and created from it on any Linux host, instead of each contributor installing tools ad hoc.
 - Document how that container reaches a container runtime for Testcontainers-backed tests without nesting Podman inside itself: forward the host's rootless `podman.socket` for the Docker-API clients that need it, and alias interactive `podman` CLI use to `flatpak-spawn --host podman` (toolbx) or the native passthrough (Distrobox). Nesting a second Podman daemon inside the contributor container is explicitly out because it can corrupt the host's `~/.config/containers` state through the shared home-directory mount.
 - Update `AGENTS.md` command references to point at the `just` recipes instead of the raw multi-tool sequence. `README.md` currently has no setup or command instructions to replace; it gets at most a one-line pointer to the contributor setup docs, since implementation-level mechanics (toolbx, Podman sockets, task runners) don't belong in a user-facing README.
@@ -22,5 +22,6 @@ Contributor setup and daily commands are currently a flat list of separate CLI i
 ## Impact
 
 - Affected: repository root (`justfile`, `Containerfile`), `AGENTS.md`, `README.md`.
+- The initial image build and container creation use the host's existing Podman and toolbx/Distrobox commands directly. They do not require `just` on the immutable host; the resulting image provides it for repository work.
 - Depends on `bootstrap-test-environment` being applied first: the `test`/`coverage`/`test-integration`/`test-e2e` recipes select its unit/integration/end-to-end pytest markers by name, and the container-backed recipes drive its Testcontainers fixture over the forwarded Podman socket. This change does not redefine test-tier semantics; it wraps what `bootstrap-test-environment` already establishes. It does not add a `benchmark` recipe: `benchmark-change-stream-costs` owns that marker's invocation when it lands, since no cache implementation exists yet to benchmark.
 - No production code, published dependencies, or runtime behavior changes.
