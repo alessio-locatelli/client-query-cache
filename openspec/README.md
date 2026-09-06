@@ -4,7 +4,7 @@ This repository treats the existing Python package as a proof of concept. Start 
 
 ## Execution order
 
-1. [`bootstrap-development-environment`](changes/bootstrap-development-environment/) establishes `uv`, locked dependencies, formatting, linting, and type checking.
+1. [`bootstrap-development-environment`](changes/archive/2026-09-06-bootstrap-development-environment/) establishes `uv`, locked dependencies, formatting, linting, and type checking. (Archived; see [its main spec](specs/development-environment/spec.md).)
 2. [`bootstrap-test-environment`](changes/bootstrap-test-environment/) creates the unit, integration, end-to-end, and coverage foundation.
 3. [`add-continuous-integration`](changes/add-continuous-integration/) runs those completed local gates on GitHub Actions.
 4. [`recover-proof-of-concept`](changes/recover-proof-of-concept/) replaces the experimental inheritance-based boundary with supported composition.
