@@ -54,6 +54,5 @@ ignore_names = [
   "log_when_test_starts",
   "faker_seed",
   "fill_collection",
-  "_generous_change_stream_wait_on_ci",
   "pytestmark",
 ]
