@@ -13,6 +13,7 @@ setup:
 
 lint:
     uv run --locked --all-groups -- prek run --all-files
+    uv run -- mypy --install-types .
 
 ci-lint:
     ZIZMOR_OFFLINE=true zizmor --fix=all --persona=auditor .
