@@ -1,4 +1,3 @@
-from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -6,21 +5,24 @@ from pymongo import AsyncMongoClient
 
 from mongo_client_cache.asynchronous.collection import CachedCollection
 from mongo_client_cache.asynchronous.manager import CacheManager
-from tests.conftest import CollectionName, DatabaseName, MongoDbUri
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from pymongo.asynchronous.collection import AsyncCollection
+
+    from tests.conftest import CollectionName, DatabaseName, MongoDbUri
 
 pytestmark = pytest.mark.integration
 
 
 @pytest.fixture
-def client() -> AsyncMongoClient:
+def client() -> AsyncMongoClient[dict[str, Any]]:
     return AsyncMongoClient("mongodb://localhost:27017", connect=False)
 
 
 def test_collection_retains_access_to_the_caller_owned_raw_collection(
-    client: AsyncMongoClient,
+    client: AsyncMongoClient[dict[str, Any]],
 ) -> None:
     manager = CacheManager(client)
     raw_collection = client["example"]["items"]
@@ -33,7 +35,7 @@ def test_collection_retains_access_to_the_caller_owned_raw_collection(
 
 
 async def test_raw_collection_is_a_fully_functional_pymongo_escape_hatch(
-    cache_manager: CacheManager,
+    cache_manager: CacheManager[dict[str, Any]],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
     make_fake_document: Callable[..., dict[str, Any]],
@@ -48,7 +50,7 @@ async def test_raw_collection_is_a_fully_functional_pymongo_escape_hatch(
 
 
 async def test_composed_facade_and_direct_client_access_can_mix_incrementally(
-    cache_manager: CacheManager,
+    cache_manager: CacheManager[dict[str, Any]],
     cached_database_name: DatabaseName,
     persistent_collection_name: CollectionName,
     nonpersistent_collection_name: CollectionName,
@@ -57,9 +59,9 @@ async def test_composed_facade_and_direct_client_access_can_mix_incrementally(
     migrated_collection = cache_manager[cached_database_name][
         nonpersistent_collection_name
     ]
-    unmigrated_collection: AsyncCollection = cache_manager.client[cached_database_name][
-        persistent_collection_name
-    ]
+    unmigrated_collection: AsyncCollection[dict[str, Any]] = cache_manager.client[
+        cached_database_name
+    ][persistent_collection_name]
     migrated_document = make_fake_document()
     unmigrated_document = make_fake_document()
 

@@ -1,20 +1,23 @@
 import decimal
 import logging
 import uuid
-from collections.abc import Callable, Iterator
 from copy import copy
 from datetime import datetime
 from decimal import Decimal
 from time import monotonic, sleep
-from typing import Any, NewType
+from typing import TYPE_CHECKING, Any, NewType
 
 import pytest
 from bson import Decimal128
 from docker.errors import DockerException
-from faker import Faker
 from pymongo import MongoClient
 from pymongo.errors import ConnectionFailure, OperationFailure
 from testcontainers.core.container import DockerContainer, Reaper
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterator
+
+    from faker import Faker
 
 MongoDbUri = NewType("MongoDbUri", str)
 DatabaseName = NewType("DatabaseName", str)
@@ -101,7 +104,7 @@ def mongodb_uri() -> Iterator[MongoDbUri]:
                 if client.admin.command("hello")["isWritablePrimary"]:
                     yield uri
                     return
-            except (ConnectionFailure, OperationFailure):
+            except ConnectionFailure, OperationFailure:
                 pass
             sleep(0.1)
         pytest.fail("MongoDB did not elect a writable primary within 30 seconds.")
