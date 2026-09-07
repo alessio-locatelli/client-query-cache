@@ -1,3 +1,5 @@
+from typing import Any
+
 import pytest
 from pymongo import AsyncMongoClient
 from pymongo.asynchronous.collection import AsyncCollection
@@ -10,17 +12,17 @@ pytestmark = pytest.mark.unit
 
 
 @pytest.fixture
-def client() -> AsyncMongoClient:
+def client() -> AsyncMongoClient[dict[str, Any]]:
     return AsyncMongoClient("mongodb://localhost:27017", connect=False)
 
 
 @pytest.fixture
-def manager(client: AsyncMongoClient) -> CacheManager:
+def manager(client: AsyncMongoClient[dict[str, Any]]) -> CacheManager[dict[str, Any]]:
     return CacheManager(client)
 
 
 def test_database_retains_access_to_the_caller_owned_raw_database(
-    manager: CacheManager, client: AsyncMongoClient
+    manager: CacheManager[dict[str, Any]], client: AsyncMongoClient[dict[str, Any]]
 ) -> None:
     raw_database = client["example"]
 
@@ -31,7 +33,7 @@ def test_database_retains_access_to_the_caller_owned_raw_database(
 
 
 def test_database_builds_a_collection_facade_around_its_raw_database(
-    manager: CacheManager,
+    manager: CacheManager[dict[str, Any]],
 ) -> None:
     collection = manager["example"]["items"]
 

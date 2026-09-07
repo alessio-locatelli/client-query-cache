@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Any
 
 from mongo_client_cache.synchronous.collection import CachedCollection
 
@@ -10,15 +11,17 @@ if TYPE_CHECKING:
     from mongo_client_cache.synchronous.manager import CacheManager
 
 
-class CachedDatabase:
+class CachedDatabase[DocumentType: Mapping[str, Any]]:
     __slots__ = ("_database", "_manager")
 
-    def __init__(self, manager: CacheManager, database: Database) -> None:
+    def __init__(
+        self, manager: CacheManager[DocumentType], database: Database[DocumentType]
+    ) -> None:
         self._manager = manager
         self._database = database
 
     @property
-    def manager(self) -> CacheManager:
+    def manager(self) -> CacheManager[DocumentType]:
         return self._manager
 
     @property
@@ -26,8 +29,8 @@ class CachedDatabase:
         return self._database.name
 
     @property
-    def raw(self) -> Database:
+    def raw(self) -> Database[DocumentType]:
         return self._database
 
-    def __getitem__(self, name: str) -> CachedCollection:
+    def __getitem__(self, name: str) -> CachedCollection[DocumentType]:
         return CachedCollection(self, self._database[name])

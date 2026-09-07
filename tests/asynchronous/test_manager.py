@@ -1,3 +1,5 @@
+from typing import Any
+
 import pytest
 from pymongo import AsyncMongoClient
 from pymongo.asynchronous.database import AsyncDatabase
@@ -9,19 +11,19 @@ pytestmark = pytest.mark.unit
 
 
 @pytest.fixture
-def client() -> AsyncMongoClient:
+def client() -> AsyncMongoClient[dict[str, Any]]:
     return AsyncMongoClient("mongodb://localhost:27017", connect=False)
 
 
 def test_manager_does_not_subclass_or_replace_the_caller_client(
-    client: AsyncMongoClient,
+    client: AsyncMongoClient[dict[str, Any]],
 ) -> None:
     assert not issubclass(CacheManager, AsyncMongoClient)
     assert CacheManager(client).client is client
 
 
 def test_manager_builds_a_database_facade_around_the_caller_client(
-    client: AsyncMongoClient,
+    client: AsyncMongoClient[dict[str, Any]],
 ) -> None:
     database = CacheManager(client)["example"]
 
