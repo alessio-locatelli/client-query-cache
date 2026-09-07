@@ -39,3 +39,13 @@ just coverage
 `just test` is the container-free unit tier. The integration, end-to-end, and coverage recipes require the host Podman API socket. Run `just enable-podman-socket` once inside the contributor container before using them.
 
 Run `just ci-lint` after changing CI configuration. Run host Podman commands from the contributor container with `just podman -- <arguments>`.
+
+## Continuous integration
+
+Every pull request runs three GitHub Actions jobs in sequence, each gating the next so a cheap failure stops before an expensive one starts:
+
+1. **Quality, packaging, and isolated install** — the same checks as `just lint`, plus building the source and wheel distributions and importing the wheel in an isolated environment.
+2. **Unit tests** — the same tests as `just test`.
+3. **Docker-backed integration, end-to-end, and coverage** — the same tests as `just coverage` and `just test-e2e`, run against a disposable MongoDB replica set. Coverage and failure diagnostics are uploaded as short-lived build artifacts.
+
+A pull request limited to documentation or OpenSpec planning files does not trigger CI.
