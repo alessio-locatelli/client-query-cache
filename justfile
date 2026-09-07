@@ -15,7 +15,7 @@ lint:
     uv run --locked --all-groups -- prek run --all-files
 
 ci-lint:
-    ZIZMOR_OFFLINE=true zizmor --fix=all --persona=auditor --collect=all .
+    ZIZMOR_OFFLINE=true zizmor --fix=all --persona=auditor .
 
 format:
     npm run format --silent
