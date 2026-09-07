@@ -1,3 +1,5 @@
+from typing import Any
+
 import pytest
 from pymongo import MongoClient
 from pymongo.synchronous.database import Database
@@ -9,19 +11,19 @@ pytestmark = pytest.mark.unit
 
 
 @pytest.fixture
-def client() -> MongoClient:
+def client() -> MongoClient[dict[str, Any]]:
     return MongoClient("mongodb://localhost:27017", connect=False)
 
 
 def test_manager_does_not_subclass_or_replace_the_caller_client(
-    client: MongoClient,
+    client: MongoClient[dict[str, Any]],
 ) -> None:
     assert not issubclass(CacheManager, MongoClient)
     assert CacheManager(client).client is client
 
 
 def test_manager_builds_a_database_facade_around_the_caller_client(
-    client: MongoClient,
+    client: MongoClient[dict[str, Any]],
 ) -> None:
     database = CacheManager(client)["example"]
 
