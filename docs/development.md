@@ -42,10 +42,10 @@ Run `just ci-lint` after changing CI configuration. Run host Podman commands fro
 
 ## Continuous integration
 
-Every pull request runs three GitHub Actions jobs in sequence, each gating the next so a cheap failure stops before an expensive one starts:
+Every pull request runs GitHub Actions jobs in sequence, each gating the next so a cheap failure stops before an expensive one starts:
 
 1. **Quality, packaging, and isolated install** — the same checks as `just lint`, plus building the source and wheel distributions and importing the wheel in an isolated environment.
 2. **Unit tests** — the same tests as `just test`.
-3. **Docker-backed integration, end-to-end, and coverage** — the same tests as `just coverage` and `just test-e2e`, run against a disposable MongoDB replica set. Coverage and failure diagnostics are uploaded as short-lived build artifacts.
+3. **Docker-backed integration, end-to-end, and coverage** — the same tests as `just coverage` and `just test-e2e`, run against a disposable MongoDB replica set, uploading coverage and failure diagnostics as short-lived build artifacts. Disabled on hosted CI pending [issue #37](https://github.com/alessio-locatelli/mongodb-client-cache/issues/37); run these locally with `just coverage` and `just test-e2e` in the meantime.
 
 A pull request limited to documentation or OpenSpec planning files does not trigger CI.

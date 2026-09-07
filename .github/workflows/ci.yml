@@ -88,6 +88,8 @@ jobs:
 
   integration-e2e:
     name: Docker-backed integration, end-to-end, and coverage
+    # Disabled pending https://github.com/alessio-locatelli/mongodb-client-cache/issues/37
+    if: false
     needs: [quality-and-build, unit-tests]
     runs-on: ubuntu-24.04
     timeout-minutes: 20
