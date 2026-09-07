@@ -1,4 +1,5 @@
 import logging
+import os
 from collections.abc import Iterator
 from typing import Any
 
@@ -7,10 +8,23 @@ from pymongo import MongoClient
 from pymongo.synchronous.collection import Collection
 
 from mongo_client_cache import CollectionConfig
+from mongo_client_cache.synchronous.collection import CachedCollection
 from mongo_client_cache.synchronous.mongo_client import CachedMongoClient
 from tests.conftest import CollectionName, DatabaseName, MongoDbUri
 
 logger = logging.getLogger(__name__)
+
+CI_CHANGE_STREAM_AWAIT_TIME_S = 30
+
+
+@pytest.fixture(autouse=True)
+def _generous_change_stream_wait_on_ci(monkeypatch: pytest.MonkeyPatch) -> None:
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        monkeypatch.setattr(
+            CachedCollection,
+            "_max_change_stream_await_time_s",
+            CI_CHANGE_STREAM_AWAIT_TIME_S,
+        )
 
 
 @pytest.fixture
