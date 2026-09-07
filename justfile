@@ -91,56 +91,73 @@ test-integration:
     #!/usr/bin/env bash
     set -euo pipefail
 
-    uid="$(id -u)"
-    export TESTCONTAINERS_RYUK_PRIVILEGED=true
-    if command -v distrobox-host-exec >/dev/null 2>&1 && [[ ! -e /run/.toolboxenv ]]; then
-        export DOCKER_HOST="unix:///run/host/run/user/${uid}/podman/podman.sock"
-        export TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE="/run/user/${uid}/podman/podman.sock"
-    elif [[ -e /run/.toolboxenv ]]; then
-        export DOCKER_HOST="unix:///run/user/${uid}/podman/podman.sock"
+    pytest_log_args=()
+    if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
+        # Hosted runs persist pytest.log as a diagnostic artifact; keep it free
+        # of the DEBUG-level query/document logging local debugging relies on.
+        pytest_log_args=(--log-file-level=WARNING)
     else
-        printf 'Run this recipe inside a Toolbx or Distrobox container.\n' >&2
-        exit 1
+        uid="$(id -u)"
+        export TESTCONTAINERS_RYUK_PRIVILEGED=true
+        if command -v distrobox-host-exec >/dev/null 2>&1 && [[ ! -e /run/.toolboxenv ]]; then
+            export DOCKER_HOST="unix:///run/host/run/user/${uid}/podman/podman.sock"
+            export TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE="/run/user/${uid}/podman/podman.sock"
+        elif [[ -e /run/.toolboxenv ]]; then
+            export DOCKER_HOST="unix:///run/user/${uid}/podman/podman.sock"
+        else
+            printf 'Run this recipe inside a Toolbx or Distrobox container, or on GitHub Actions.\n' >&2
+            exit 1
+        fi
     fi
-    uv run --locked --all-groups -- pytest -m integration
+    uv run --locked --all-groups -- pytest -m integration "${pytest_log_args[@]}"
 
 test-e2e:
     #!/usr/bin/env bash
     set -euo pipefail
 
-    uid="$(id -u)"
-    export TESTCONTAINERS_RYUK_PRIVILEGED=true
-    if command -v distrobox-host-exec >/dev/null 2>&1 && [[ ! -e /run/.toolboxenv ]]; then
-        export DOCKER_HOST="unix:///run/host/run/user/${uid}/podman/podman.sock"
-        export TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE="/run/user/${uid}/podman/podman.sock"
-    elif [[ -e /run/.toolboxenv ]]; then
-        export DOCKER_HOST="unix:///run/user/${uid}/podman/podman.sock"
+    pytest_log_args=()
+    if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
+        pytest_log_args=(--log-file-level=WARNING)
     else
-        printf 'Run this recipe inside a Toolbx or Distrobox container.\n' >&2
-        exit 1
+        uid="$(id -u)"
+        export TESTCONTAINERS_RYUK_PRIVILEGED=true
+        if command -v distrobox-host-exec >/dev/null 2>&1 && [[ ! -e /run/.toolboxenv ]]; then
+            export DOCKER_HOST="unix:///run/host/run/user/${uid}/podman/podman.sock"
+            export TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE="/run/user/${uid}/podman/podman.sock"
+        elif [[ -e /run/.toolboxenv ]]; then
+            export DOCKER_HOST="unix:///run/user/${uid}/podman/podman.sock"
+        else
+            printf 'Run this recipe inside a Toolbx or Distrobox container, or on GitHub Actions.\n' >&2
+            exit 1
+        fi
     fi
-    uv run --locked --all-groups -- pytest -m e2e
+    uv run --locked --all-groups -- pytest -m e2e "${pytest_log_args[@]}"
 
 coverage:
     #!/usr/bin/env bash
     set -euo pipefail
 
-    uid="$(id -u)"
     coverage_workspace="$(mktemp -d /tmp/mongodb-client-cache-coverage.XXXXXX)"
     export COVERAGE_FILE="${coverage_workspace}/.coverage"
-    export TESTCONTAINERS_RYUK_PRIVILEGED=true
-    if command -v distrobox-host-exec >/dev/null 2>&1 && [[ ! -e /run/.toolboxenv ]]; then
-        export DOCKER_HOST="unix:///run/host/run/user/${uid}/podman/podman.sock"
-        export TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE="/run/user/${uid}/podman/podman.sock"
-    elif [[ -e /run/.toolboxenv ]]; then
-        export DOCKER_HOST="unix:///run/user/${uid}/podman/podman.sock"
+    pytest_log_args=()
+    if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
+        pytest_log_args=(--log-file-level=WARNING)
     else
-        printf 'Run this recipe inside a Toolbx or Distrobox container.\n' >&2
-        exit 1
+        uid="$(id -u)"
+        export TESTCONTAINERS_RYUK_PRIVILEGED=true
+        if command -v distrobox-host-exec >/dev/null 2>&1 && [[ ! -e /run/.toolboxenv ]]; then
+            export DOCKER_HOST="unix:///run/host/run/user/${uid}/podman/podman.sock"
+            export TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE="/run/user/${uid}/podman/podman.sock"
+        elif [[ -e /run/.toolboxenv ]]; then
+            export DOCKER_HOST="unix:///run/user/${uid}/podman/podman.sock"
+        else
+            printf 'Run this recipe inside a Toolbx or Distrobox container, or on GitHub Actions.\n' >&2
+            exit 1
+        fi
     fi
     uv run --locked --all-groups -- coverage erase
-    uv run --locked --all-groups -- coverage run -p -m pytest -m unit
-    uv run --locked --all-groups -- coverage run -p -m pytest -m integration
+    uv run --locked --all-groups -- coverage run -p -m pytest -m unit "${pytest_log_args[@]}"
+    uv run --locked --all-groups -- coverage run -p -m pytest -m integration "${pytest_log_args[@]}"
     uv run --locked --all-groups -- coverage combine
     uv run --locked --all-groups -- coverage report --fail-under=81.10
     uv run --locked --all-groups -- coverage xml
