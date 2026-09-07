@@ -4,11 +4,12 @@ import subprocess
 import sys
 import uuid
 from pathlib import Path
-from typing import NewType
+from typing import TYPE_CHECKING, NewType
 
 import pytest
 
-from tests.conftest import MongoDbUri
+if TYPE_CHECKING:
+    from tests.conftest import MongoDbUri
 
 pytestmark = pytest.mark.e2e
 

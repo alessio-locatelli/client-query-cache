@@ -1,13 +1,17 @@
 import logging
-from collections.abc import AsyncIterator
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from pymongo import AsyncMongoClient
-from pymongo.asynchronous.collection import AsyncCollection
 
 from mongo_client_cache.asynchronous.manager import CacheManager
-from tests.conftest import CollectionName, DatabaseName, MongoDbUri
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
+    from pymongo.asynchronous.collection import AsyncCollection
+
+    from tests.conftest import CollectionName, DatabaseName, MongoDbUri
 
 logger = logging.getLogger(__name__)
 
@@ -25,11 +29,13 @@ def raw_collection(
     raw_mongo_client: AsyncMongoClient[dict[str, Any]],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
-) -> AsyncCollection:
+) -> AsyncCollection[dict[str, Any]]:
     return raw_mongo_client[cached_database_name][nonpersistent_collection_name]
 
 
 @pytest.fixture
-def cache_manager(raw_mongo_client: AsyncMongoClient[dict[str, Any]]) -> CacheManager:
+def cache_manager(
+    raw_mongo_client: AsyncMongoClient[dict[str, Any]],
+) -> CacheManager[dict[str, Any]]:
     logger.debug("[SETUP] %s wrapping %s.", CacheManager.__name__, raw_mongo_client)
     return CacheManager(raw_mongo_client)
