@@ -45,14 +45,4 @@ output = "coverage.xml"
 
 [tool.vulture]
 paths = ["mongo_client_cache", "tests"]
-ignore_names = [
-  "operationType",
-  "fullDocument",
-  "ns",
-  "documentKey",
-  "wallTime",
-  "log_when_test_starts",
-  "faker_seed",
-  "fill_collection",
-  "pytestmark",
-]
+ignore_names = ["log_when_test_starts", "faker_seed", "pytestmark"]

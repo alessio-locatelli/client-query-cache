@@ -3,15 +3,15 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from pymongo.synchronous.collection import Collection
+    from pymongo.asynchronous.collection import AsyncCollection
 
-    from mongo_client_cache.synchronous.database import CachedDatabase
+    from mongo_client_cache.asynchronous.database import CachedDatabase
 
 
 class CachedCollection:
     __slots__ = ("_collection", "_database")
 
-    def __init__(self, database: CachedDatabase, collection: Collection) -> None:
+    def __init__(self, database: CachedDatabase, collection: AsyncCollection) -> None:
         self._database = database
         self._collection = collection
 
@@ -24,5 +24,5 @@ class CachedCollection:
         return self._collection.name
 
     @property
-    def raw(self) -> Collection:
+    def raw(self) -> AsyncCollection:
         return self._collection

@@ -63,7 +63,7 @@ jobs:
         run: >-
           uv run --isolated --no-project --python ${PYTHON_VERSION}
           --with "$(ls dist/*.whl)"
-          -- python -I -c "from mongo_client_cache import CachedMongoClient, ClientSideCacheConfig, CollectionConfig"
+          -- python -I -c "from mongo_client_cache import CacheManager, CachedCollection, CachedDatabase"
 
   unit-tests:
     name: Unit tests
@@ -88,8 +88,6 @@ jobs:
 
   integration-e2e:
     name: Docker-backed integration, end-to-end, and coverage
-    # Disabled pending https://github.com/alessio-locatelli/mongodb-client-cache/issues/37
-    if: false
     needs: [quality-and-build, unit-tests]
     runs-on: ubuntu-24.04
     timeout-minutes: 20

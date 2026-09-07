@@ -16,8 +16,6 @@ from pymongo import MongoClient
 from pymongo.errors import ConnectionFailure, OperationFailure
 from testcontainers.core.container import DockerContainer, Reaper
 
-from mongo_client_cache.logger import _logger_debug
-
 MongoDbUri = NewType("MongoDbUri", str)
 DatabaseName = NewType("DatabaseName", str)
 CollectionName = NewType("CollectionName", str)
@@ -25,7 +23,6 @@ CollectionName = NewType("CollectionName", str)
 logger = logging.getLogger(__name__)
 
 logging.basicConfig(level=logging.DEBUG)
-_logger_debug.setLevel(logging.DEBUG)
 logging.getLogger("faker.factory").setLevel("INFO")
 logging.getLogger("pymongo").setLevel("INFO")
 

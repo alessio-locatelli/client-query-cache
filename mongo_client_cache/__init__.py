@@ -1,4 +1,3 @@
-from ._types import ClientSideCacheConfig, CollectionConfig
-from .synchronous import CachedMongoClient
+from .synchronous import CachedCollection, CachedDatabase, CacheManager
 
-__all__ = ["CachedMongoClient", "ClientSideCacheConfig", "CollectionConfig"]
+__all__ = ["CacheManager", "CachedCollection", "CachedDatabase"]
