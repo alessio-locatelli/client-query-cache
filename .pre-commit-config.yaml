@@ -60,13 +60,7 @@ repos:
     hooks:
       - id: slotscheck
         language: system
-        args:
-          [
-            --require-subclass,
-            --verbose,
-            --require-superclass,
-            --exclude-classes=:CacheMixin,
-          ]
+        args: [--require-subclass, --verbose, --require-superclass]
 
   - repo: https://github.com/crate-ci/typos
     rev: v1.50.1

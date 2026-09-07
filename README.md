@@ -1,18 +1,25 @@
 # mongodb-client-cache
 
-MongoDB client-side cache
+A MongoDB client-side cache for `pymongo`, in early development.
 
 ---
 
-## Features
+## Status
 
-- Easy to use: add to your existing project with a single line of code
-- Latest Python and `pymongo`
-- Lightweight: pure Python, not bloated with external dependencies.
+This is a pre-release library with no cached reads or writes implemented yet. `CacheManager` wraps a `pymongo.MongoClient` you construct and own, and its database/collection facades expose the wrapped PyMongo object through `.raw` for every operation:
 
-## Limitations
+```python
+from pymongo import MongoClient
 
-You cannot remove the `_id` field from the results by setting it to `0` in the projection. We use the `_id` field to manage cached documents.
+from mongo_client_cache import CacheManager
+
+with MongoClient("mongodb://localhost:27017") as client:
+    manager = CacheManager(client)
+    collection = manager["my_database"]["my_collection"]
+    collection.raw.insert_one({"_id": "example", "value": 42})
+```
+
+See [`docs/migration.md`](docs/migration.md) for what changed since the earlier prototype.
 
 ## Development
 

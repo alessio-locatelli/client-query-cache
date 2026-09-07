@@ -2,18 +2,18 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from mongo_client_cache.synchronous.collection import CachedCollection
+from mongo_client_cache.asynchronous.collection import CachedCollection
 
 if TYPE_CHECKING:
-    from pymongo.synchronous.database import Database
+    from pymongo.asynchronous.database import AsyncDatabase
 
-    from mongo_client_cache.synchronous.manager import CacheManager
+    from mongo_client_cache.asynchronous.manager import CacheManager
 
 
 class CachedDatabase:
     __slots__ = ("_database", "_manager")
 
-    def __init__(self, manager: CacheManager, database: Database) -> None:
+    def __init__(self, manager: CacheManager, database: AsyncDatabase) -> None:
         self._manager = manager
         self._database = database
 
@@ -26,7 +26,7 @@ class CachedDatabase:
         return self._database.name
 
     @property
-    def raw(self) -> Database:
+    def raw(self) -> AsyncDatabase:
         return self._database
 
     def __getitem__(self, name: str) -> CachedCollection:

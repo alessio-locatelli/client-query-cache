@@ -65,25 +65,18 @@ import os
 
 from pymongo import MongoClient
 
-from mongo_client_cache import CachedMongoClient, CollectionConfig
+from mongo_client_cache import CacheManager
 
 uri = os.environ["MONGODB_TEST_URI"]
 database_name = os.environ["MONGODB_TEST_DATABASE"]
 collection_name = os.environ["MONGODB_TEST_COLLECTION"]
-cache_config = {
-    database_name: {collection_name: CollectionConfig(watch_change_stream=False)}
-}
-with MongoClient(uri) as writer, CachedMongoClient(
-    uri, cache_config=cache_config
-) as cached_client:
-    writer[database_name][collection_name].insert_one(
-        {"_id": "independent-write", "value": 42}
-    )
-    document = cached_client[database_name][collection_name].find_one(
-        {"_id": "independent-write"}
-    )
+with MongoClient(uri) as client:
+    manager = CacheManager(client)
+    collection = manager[database_name][collection_name]
+    collection.raw.insert_one({"_id": "independent-write", "value": 42})
+    document = collection.raw.find_one({"_id": "independent-write"})
     assert document == {"_id": "independent-write", "value": 42}
-    writer.drop_database(database_name)
+    client.drop_database(database_name)
 """
 
     run_command(
