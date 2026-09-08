@@ -1,1 +1,4 @@
 schema: spec-driven
+
+context: |
+  Leverage the [Generic Development Workflow](openspec/generic_development_workflow.md) when planning designs and tasks.
