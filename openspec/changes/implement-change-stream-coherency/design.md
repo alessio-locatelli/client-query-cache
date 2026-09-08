@@ -16,6 +16,51 @@ The cache-core manager supplies invalidation hooks but no MongoDB source of trut
 - Handle stream lifecycle explicitly: healthy permits caching; reconnecting bypasses; unresumable loss clears, then reopens. For an invalidate event caused by a drop, rename, or database drop, clear affected namespaces and use [`startAfter` rather than `resumeAfter`](https://www.mongodb.com/docs/manual/reference/operator/aggregation/changeStream/) to open from a safe post-invalidation position.
 - Use capped exponential backoff with jitter and propagate terminal startup failure instead of silently serving cached data.
 
+## Resource and Complexity Costs
+
+```text
+per received change event (insert / update / replace / delete on a single document)
+  -> deserialize projected event        O(event size); projected fields are small but
+                                         not fixed-size — `documentKey` can carry a
+                                         compound shard-key value and namespace/rename
+                                         fields are variable-length strings
+  -> route to affected namespace(s)     O(1) expected, dispatch keyed by namespace
+  -> invalidate namespace generation    O(1)
+  -> invalidate aliases for identity    O(k), k = aliases for that identity
+
+bulk invalidation event (collection drop, rename, dropDatabase)
+  -> route to affected namespace(s)     O(1), dispatch keyed by namespace/database
+  -> clear affected namespace(s)        O(m), m = number of namespaces (drop/rename),
+                                         or, for dropDatabase, O(number of namespaces)
+                                         if clearing only bumps generations, or
+                                         O(total cached entries in the database) if
+                                         clearing also physically reclaims entries —
+                                         this depends on the namespace-clear
+                                         reclamation strategy, which
+                                         `implement-cache-core` leaves undecided
+  -> this is bulk work proportional to cached state, not the constant-cost path
+     that individual document events take
+
+per active cached database
+  -> exactly one change-stream cursor   one server-side change-stream cursor kept
+                                         open via periodic getMore calls; each getMore
+                                         checks out a connection from the driver's
+                                         pool for the duration of that call rather than
+                                         holding a connection reserved for the cursor's
+                                         entire lifetime (outside session-pinning cases)
+  -> every event in that database is received and inspected, including events
+     for uncached collections, before being routed or discarded
+```
+
+## Likely Bottlenecks
+
+Per-document-event routing and dispatch is O(1), but deserialization scales with event size (compound `documentKey` values, variable-length namespace/rename fields) and alias invalidation scales with alias count. If a single serial consumer routes all events for a database, as currently described, it must inspect every event in that database, including events for collections that are never cached, before deciding whether to route or discard it — a database with heavy write volume on uncached collections would then make this router a serialization point that can delay invalidation delivery to the cached collections sharing that database. Whether a single serial consumer is the chosen design is still open (see Open Questions); if a partitioned or concurrent router is chosen instead, this specific bottleneck does not apply in the same way. Separately, `dropDatabase` triggers bulk invalidation across every namespace in that database (see Resource and Complexity Costs), so a `dropDatabase` event is expected to be materially more expensive than an ordinary document event and to briefly compete with the router for cache-manager access while it clears every affected namespace; the exact severity depends on the reclamation strategy `implement-cache-core` still needs to decide.
+
+## Open Questions
+
+- Router serialization: is a single serial consumer per database sufficient, or does heavy irrelevant write traffic on a shared database require partitioning or backpressure? The "consolidated-stream" workload in `benchmark-change-stream-costs` is expected to produce evidence, but the router's own scaling strategy is not chosen yet. Needs a deep dive with a coding agent.
+- Multi-process deployment cost: because the cache is process-local, every application process that activates a cached database opens its own independent database-scoped change-stream cursor. N processes against the same database means N concurrent change-stream cursors held open against the replica set, and this cost is currently unanalyzed and undocumented. Needs a decision on whether this is an accepted trade-off, a documented deployment limit, or grounds for a future shared out-of-process invalidation channel.
+
 ## Risks / Trade-offs
 
 - [Broader stream sees unrelated writes] → Route and ignore them locally; projection minimizes payload.

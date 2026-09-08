@@ -1,12 +1,12 @@
 ## 1. Define manager primitives
 
-- [ ] 1.1 Implement driver-neutral manager contracts, lifecycle states, cache errors, request canonicalization, and identity declarations; verify focused unit tests reject unsupported admissions.
-- [ ] 1.2 Implement document and derived-result identity records with namespace generation guards; verify generation comparison and cache insertion are serialized with invalidation and lookups reject older-generation entries.
+- [ ] 1.1 Resolve the locking-granularity open question in `design.md`, then implement driver-neutral manager contracts, lifecycle states, cache errors, request canonicalization, and identity declarations; verify focused unit tests reject unsupported admissions.
+- [ ] 1.2 Resolve the namespace-granularity open question in `design.md`, then implement document and derived-result identity records with namespace generation guards; verify generation comparison and cache insertion are serialized with invalidation and lookups reject older-generation entries.
 
 ## 2. Add bounded BSON storage
 
-- [ ] 2.1 Implement the configurable shared weighted BSON LRU with the 64 MiB default and 1 MiB maximum entry; verify eviction, oversize rejection, and shared-budget tests.
-- [ ] 2.2 Implement aliases, namespace clearing, and BSON encode/decode value isolation; verify a caller mutation cannot change a later hit.
+- [ ] 2.1 Implement the configurable shared weighted BSON LRU with the 64 MiB default and 1 MiB maximum entry, per the locking-granularity decision from task 1.1; verify eviction, oversize rejection, and shared-budget tests.
+- [ ] 2.2 Resolve the namespace-clear reclamation and indexing open questions in `design.md`, then implement aliases, namespace clearing, and BSON encode/decode value isolation; verify a caller mutation cannot change a later hit.
 
 ## 3. Add safe inspection
 
