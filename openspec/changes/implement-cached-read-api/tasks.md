@@ -5,7 +5,7 @@
 
 ## 2. Implement bounded generic results
 
-- [ ] 2.1 Add fully materialized bounded `find`, aggregate, count, estimated-count, and distinct caching; verify membership, ordering, projection, limit, and aggregation invalidation cases.
+- [ ] 2.1 Resolve the generation-scope and result-envelope open questions in `design.md`, then add fully materialized bounded `find`, aggregate, count, estimated-count, and distinct caching; verify membership, ordering, projection, limit, and aggregation invalidation cases.
 - [ ] 2.2 Reject partial, tailable, exhaust, oversize, and unsupported cursor results; verify no rejected result is admitted.
 
 ## 3. Implement asyncio parity
