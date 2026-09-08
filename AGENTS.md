@@ -3,6 +3,7 @@
 ### General
 
 - Use the OpenSpec workflow for all non-trivial work.
+- Leverage the [Generic Development Workflow](openspec/generic_development_workflow.md) when planning designs and tasks.
 - You must follow SOLID, DRY principles, and maintain high-quality scalable and extendable architecture.
 - Performance is critical, and you must fight for every micro- and macro-optimization. For each major change, you must record profiling and benchmark measurements in the commit body.
 
