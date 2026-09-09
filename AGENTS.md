@@ -1,3 +1,11 @@
+## Project Description
+
+A high-performance, process-local caching layer for PyMongo (sync and asyncio), designed to invalidate cached reads via MongoDB change streams rather than relying primarily on time-based expiry.
+
+The project targets realistic mixed workloads, including collections that rarely change alongside collections with frequent writes. Its intended design is to cache only operations whose results can be kept coherent safely and predictably, while falling back to direct MongoDB access for unsupported or ambiguous cases.
+
+Writes are expected to participate in cache coherence, typically by invalidating affected cached entries; populating the cache from writes should occur only when the authoritative post-write document is available or when explicitly supported. MongoDB views and other operations whose invalidation semantics cannot be determined safely should bypass caching unless dedicated support is implemented.
+
 ## Development Guidelines
 
 ### General
