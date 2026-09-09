@@ -15,7 +15,7 @@ The library SHALL provide composed synchronous and native asyncio facades for su
 
 ### Requirement: Only fully materialized supported reads are cached
 
-The facades SHALL cache identity lookups and fully materialized bounded `find`, aggregation, count, estimated-count, and distinct results when the manager is healthy. They SHALL not admit partial, tailable, exhaust, oversize, session-bound, or otherwise unsupported reads. An aggregation pipeline containing a `$lookup`, `$unionWith`, or `$graphLookup` stage SHALL NOT be admitted, because its result depends on a namespace the cache cannot track invalidation for. An aggregation pipeline containing an `$out` or `$merge` stage SHALL NOT be admitted, because caching its result would skip that stage's write side effect on a later hit. An aggregation pipeline containing a `$sample` stage or a nondeterministic or time-dependent expression at any nesting depth (`$rand`, `$$NOW`, `$$CLUSTER_TIME`) SHALL NOT be admitted, because its result can differ between executions with no collection write to invalidate the cached value against. A `find`, `count_documents`, or `distinct` read whose filter contains `$where`, or an `$expr` embedding one of these same nondeterministic or time-dependent expressions, SHALL NOT be admitted, for the same reason. A collection backed by a MongoDB view SHALL NOT have any of its reads admitted once the manager has processed the change-stream event establishing that the collection is view-backed. A facade SHALL re-verify whether a collection is view-backed whenever the namespace epoch it last checked against is stale, so a collection dropped and recreated as a view after being wrapped, or a namespace created as a view after being wrapped while absent, does not remain cache-eligible indefinitely. As with every other invalidation in this system, this guarantee is scoped to after the triggering event is processed, not to the instant the underlying DDL runs on the server; a read racing ahead of event delivery may still observe the prior eligibility determination, consistent with the bounded/eventual coherency documented in `implement-change-stream-coherency`.
+The facades SHALL cache identity lookups and fully materialized bounded `find`, aggregation, count, estimated-count, and distinct results when the manager is healthy. They SHALL not admit partial, tailable, exhaust, oversize, session-bound, or otherwise unsupported reads. An aggregation pipeline containing a `$lookup`, `$unionWith`, or `$graphLookup` stage SHALL NOT be admitted, because its result depends on a namespace the cache cannot track invalidation for. An aggregation pipeline containing an `$out` or `$merge` stage SHALL NOT be admitted, because caching its result would skip that stage's write side effect on a later hit. An aggregation pipeline containing a `$sample` stage, an expression that executes caller-supplied JavaScript (`$function`, `$accumulator`), or a nondeterministic or time-dependent expression at any nesting depth (`$rand`, `$$NOW`, `$$CLUSTER_TIME`) SHALL NOT be admitted, because its result can differ between executions with no collection write to invalidate the cached value against; `$function`/`$accumulator` are rejected unconditionally on presence, not by attempting to analyze their JavaScript body, since no static check can prove an opaque script deterministic. A `find`, `count_documents`, or `distinct` read whose filter contains `$where`, or an `$expr` embedding one of these same nondeterministic or time-dependent expressions, SHALL NOT be admitted, for the same reason. A collection backed by a MongoDB view SHALL NOT have any of its reads admitted once the manager has processed the change-stream event establishing that the collection is view-backed. A facade SHALL re-verify whether a collection is view-backed whenever the namespace epoch it last checked against is stale, so a collection dropped and recreated as a view after being wrapped, or a namespace created as a view after being wrapped while absent, does not remain cache-eligible indefinitely. As with every other invalidation in this system, this guarantee is scoped to after the triggering event is processed, not to the instant the underlying DDL runs on the server; a read racing ahead of event delivery may still observe the prior eligibility determination, consistent with the bounded/eventual coherency documented in `implement-change-stream-coherency`.
 
 #### Scenario: A previously ordinary collection becomes a view
 
@@ -57,6 +57,11 @@ The facades SHALL cache identity lookups and fully materialized bounded `find`, 
 - **WHEN** a caller runs a `find`, `count_documents`, or `distinct` read whose filter contains `$where`, or an `$expr` embedding `$rand`, `$$NOW`, or `$$CLUSTER_TIME`
 - **THEN** the facade executes the read and returns its result without admitting it to the cache, so a later call is not frozen to the first result
 
+#### Scenario: An aggregation pipeline executes caller-supplied JavaScript
+
+- **WHEN** a caller runs an aggregation pipeline containing a `$function` or `$accumulator` expression
+- **THEN** the facade executes the pipeline and returns its result without admitting it to the cache, regardless of what the JavaScript body does
+
 #### Scenario: A caller reads from a view
 
 - **WHEN** a caller performs a supported read against a collection that is backed by a MongoDB view
@@ -90,6 +95,20 @@ A unique-key read whose alias has not yet been resolved to a document identity S
 
 - **WHEN** a caller reads by an unresolved unique key with an exclusion-style projection that excludes `_id` alongside another field (e.g. `{"_id": 0, "secret": 0}`)
 - **THEN** the facade omits the caller's `_id: 0` from the server-side projection rather than adding `_id: 1`, since `_id` is included by default once its exclusion is omitted and adding `_id: 1` would make the projection invalid
+
+### Requirement: A resolved unique-key read re-verifies against its original predicate on a cache miss
+
+A read of a key value with a resolved alias SHALL first attempt a cache lookup keyed by the resolved identity and the read's shape. On a cache miss, the facade SHALL query the database by the caller's original unique-key predicate (field and value), and SHALL NOT query by the resolved identity alone, because a write to the resolved document could have changed the field the alias was resolved from, or, after the namespace was dropped and recreated, the same identity value could now belong to an unrelated document. The facade SHALL compare the identity of the response (or its absence) against the identity the alias recorded. When they agree, the facade SHALL capture the document's current identity generation and admit or refresh the identity-guarded entry. When they disagree — a different document matched, or none did — the facade SHALL treat the alias as stale, discard or re-resolve it, and admit the result the same way an unresolved unique-key read would.
+
+#### Scenario: A resolved alias is still accurate
+
+- **WHEN** a cache miss occurs for a key value with a resolved alias, and a database query by the original predicate matches the same document identity the alias recorded
+- **THEN** the facade admits or refreshes the identity-guarded entry for that document, confirming the alias remains valid
+
+#### Scenario: A resolved alias has gone stale
+
+- **WHEN** a cache miss occurs for a key value with a resolved alias, and a database query by the original predicate matches a different document identity than the alias recorded, or matches no document at all
+- **THEN** the facade does not return or cache a value based on the stale alias's identity; it discards or re-resolves the alias and admits the result according to the query's actual outcome
 
 ### Requirement: Cached reads retain database consistency boundaries
 
