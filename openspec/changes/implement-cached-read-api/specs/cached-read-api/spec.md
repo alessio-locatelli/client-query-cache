@@ -15,7 +15,7 @@ The library SHALL provide composed synchronous and native asyncio facades for su
 
 ### Requirement: Only fully materialized supported reads are cached
 
-The facades SHALL cache identity lookups and fully materialized bounded `find`, aggregation, count, estimated-count, and distinct results when the manager is healthy. They SHALL not admit partial, tailable, exhaust, oversize, session-bound, or otherwise unsupported reads. An aggregation pipeline containing a `$lookup`, `$unionWith`, or `$graphLookup` stage SHALL NOT be admitted, because its result depends on a namespace the cache cannot track invalidation for. An aggregation pipeline containing an `$out` or `$merge` stage SHALL NOT be admitted, because caching its result would skip that stage's write side effect on a later hit. An aggregation pipeline containing a `$sample` stage or a `$rand` expression at any nesting depth SHALL NOT be admitted, because its result can differ between executions with no collection write to invalidate the cached value against. A collection backed by a MongoDB view SHALL NOT have any of its reads admitted once the manager has processed the change-stream event establishing that the collection is view-backed. A facade SHALL re-verify whether a collection is view-backed whenever the namespace epoch it last checked against is stale, so a collection dropped and recreated as a view after being wrapped, or a namespace created as a view after being wrapped while absent, does not remain cache-eligible indefinitely. As with every other invalidation in this system, this guarantee is scoped to after the triggering event is processed, not to the instant the underlying DDL runs on the server; a read racing ahead of event delivery may still observe the prior eligibility determination, consistent with the bounded/eventual coherency documented in `implement-change-stream-coherency`.
+The facades SHALL cache identity lookups and fully materialized bounded `find`, aggregation, count, estimated-count, and distinct results when the manager is healthy. They SHALL not admit partial, tailable, exhaust, oversize, session-bound, or otherwise unsupported reads. An aggregation pipeline containing a `$lookup`, `$unionWith`, or `$graphLookup` stage SHALL NOT be admitted, because its result depends on a namespace the cache cannot track invalidation for. An aggregation pipeline containing an `$out` or `$merge` stage SHALL NOT be admitted, because caching its result would skip that stage's write side effect on a later hit. An aggregation pipeline containing a `$sample` stage or a nondeterministic or time-dependent expression at any nesting depth (`$rand`, `$$NOW`, `$$CLUSTER_TIME`) SHALL NOT be admitted, because its result can differ between executions with no collection write to invalidate the cached value against. A collection backed by a MongoDB view SHALL NOT have any of its reads admitted once the manager has processed the change-stream event establishing that the collection is view-backed. A facade SHALL re-verify whether a collection is view-backed whenever the namespace epoch it last checked against is stale, so a collection dropped and recreated as a view after being wrapped, or a namespace created as a view after being wrapped while absent, does not remain cache-eligible indefinitely. As with every other invalidation in this system, this guarantee is scoped to after the triggering event is processed, not to the instant the underlying DDL runs on the server; a read racing ahead of event delivery may still observe the prior eligibility determination, consistent with the bounded/eventual coherency documented in `implement-change-stream-coherency`.
 
 #### Scenario: A previously ordinary collection becomes a view
 
@@ -47,6 +47,11 @@ The facades SHALL cache identity lookups and fully materialized bounded `find`, 
 - **WHEN** a caller runs an aggregation pipeline containing a `$sample` stage or a `$rand` expression
 - **THEN** the facade executes the pipeline and returns its result without admitting it to the cache, so a later call is not frozen to the first random result
 
+#### Scenario: An aggregation pipeline is time-dependent
+
+- **WHEN** a caller runs an aggregation pipeline using the `$$NOW` or `$$CLUSTER_TIME` system variable
+- **THEN** the facade executes the pipeline and returns its result without admitting it to the cache, so a later call is not frozen to the first computed timestamp
+
 #### Scenario: A caller reads from a view
 
 - **WHEN** a caller performs a supported read against a collection that is backed by a MongoDB view
@@ -54,7 +59,7 @@ The facades SHALL cache identity lookups and fully materialized bounded `find`, 
 
 ### Requirement: Unresolved and negative unique-key reads are guarded conservatively
 
-A unique-key read whose alias has not yet been resolved to a document identity SHALL capture only the namespace generation before the database read, since the document identity is unknown until the read responds, and SHALL admit a namespace-guarded entry keyed by the unique-key definition, value, and read shape. On a match, the facade SHALL resolve and record the alias for that key value; if the caller's own projection excludes `_id`, the facade SHALL still fetch `_id` from the server for resolution and SHALL NOT expose it in the returned or cached value. On no match, the facade SHALL admit a negative result guarded by the captured namespace generation, not by a document identity generation. A subsequent read of a key value with a resolved alias, and every `_id` read, SHALL capture that document's identity generation and the namespace epoch before the read and SHALL admit an identity-guarded entry keyed by that identity and the read's shape, not by the namespace generation.
+A unique-key read whose alias has not yet been resolved to a document identity SHALL capture only the namespace generation before the database read, since the document identity is unknown until the read responds, and SHALL admit a namespace-guarded entry keyed by the unique-key definition, value, and read shape. On a match, the facade SHALL resolve and record the alias for that key value; if the caller's own projection excludes `_id`, the facade SHALL still fetch `_id` from the server for resolution — by overriding `_id: 0` to `_id: 1` for an inclusion-style caller projection, or by omitting the caller's `_id: 0` for an exclusion-style one, never by adding `_id: 1` to an exclusion-style projection, which MongoDB rejects as a mixed inclusion/exclusion projection — and SHALL NOT expose `_id` in the returned or cached value. On no match, the facade SHALL admit a negative result guarded by the captured namespace generation, not by a document identity generation. A subsequent read of a key value with a resolved alias, and every `_id` read, SHALL capture that document's identity generation and the namespace epoch before the read and SHALL admit an identity-guarded entry keyed by that identity and the read's shape, not by the namespace generation.
 
 #### Scenario: A unique-key value is looked up for the first time
 
@@ -70,6 +75,11 @@ A unique-key read whose alias has not yet been resolved to a document identity S
 
 - **WHEN** a caller reads by an unresolved unique key with a projection that excludes `_id`, and the read matches a document
 - **THEN** the facade resolves and records the alias using the document's `_id` fetched from the server, and neither the value returned to the caller nor the value admitted to the cache includes `_id`
+
+#### Scenario: A unique-key match uses an exclusion-style projection
+
+- **WHEN** a caller reads by an unresolved unique key with an exclusion-style projection that excludes `_id` alongside another field (e.g. `{"_id": 0, "secret": 0}`)
+- **THEN** the facade omits the caller's `_id: 0` from the server-side projection rather than adding `_id: 1`, since `_id` is included by default once its exclusion is omitted and adding `_id: 1` would make the projection invalid
 
 ### Requirement: Cached reads retain database consistency boundaries
 
