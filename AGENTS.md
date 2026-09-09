@@ -88,3 +88,7 @@ just coverage
 ### Writing Commit Messages
 
 Commit proactively during the work after completing each dedicated part of a larger task. The commit body should communicate the "why," not just the "what." Include the rationale behind the changes, non-trivial decisions, and any other information that may be useful for future developers.
+
+## References
+
+- [MongoDB Specifications](https://specifications.readthedocs.io/en/latest/) (local clone is a sibling directory at `../specifications`).
