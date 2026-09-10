@@ -286,6 +286,50 @@ def test_concurrent_start_and_stop_never_crash_or_leave_healthy(
     assert errors == []
 
 
+def test_concurrent_starts_let_only_one_caller_publish_a_worker(
+    make_supervisor: Callable[..., DatabaseStreamSupervisor],
+) -> None:
+    database = _FakeDatabase("db", [_ScriptedStream([])])
+    supervisor = make_supervisor(_as_database(database), Mock())
+    outcomes: list[str] = []
+    outcomes_lock = threading.Lock()
+    caller_count = 5
+
+    def run_start() -> None:
+        try:
+            supervisor.start()
+        except StreamLifecycleError:
+            with outcomes_lock:
+                outcomes.append("rejected")
+        else:
+            with outcomes_lock:
+                outcomes.append("started")
+
+    threads = [threading.Thread(target=run_start) for _ in range(caller_count)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert outcomes.count("started") == 1
+    assert outcomes.count("rejected") == caller_count - 1
+    assert len(database.watch_calls) == 1
+
+
+def test_coordinator_rejects_activation_after_close(
+    make_coordinator: Callable[..., ChangeStreamCoordinator],
+) -> None:
+    databases = {"first": _FakeDatabase("first", [_ScriptedStream([])])}
+    client = Mock()
+    client.__getitem__ = Mock(side_effect=databases.__getitem__)
+    coordinator = make_coordinator(client, Mock())
+    coordinator.activate_database("first")
+    coordinator.close()
+
+    with pytest.raises(StreamLifecycleError):
+        coordinator.activate_database("first")
+
+
 def test_start_becomes_healthy_and_routes_events(
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
 ) -> None:

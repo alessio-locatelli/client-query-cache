@@ -263,6 +263,41 @@ async def test_start_raises_and_closes_the_stream_when_stop_races_it(
     assert supervisor.healthy is False
 
 
+async def test_concurrent_starts_let_only_one_caller_publish_a_worker(
+    make_supervisor: Callable[..., DatabaseStreamSupervisor],
+) -> None:
+    database = _FakeDatabase("db", [_ScriptedStream([])])
+    supervisor = make_supervisor(_as_database(database), Mock())
+    caller_count = 5
+
+    async def run_start() -> str:
+        try:
+            await supervisor.start()
+        except StreamLifecycleError:
+            return "rejected"
+        return "started"
+
+    outcomes = await asyncio.gather(*(run_start() for _ in range(caller_count)))
+
+    assert outcomes.count("started") == 1
+    assert outcomes.count("rejected") == caller_count - 1
+    assert len(database.watch_calls) == 1
+
+
+async def test_coordinator_rejects_activation_after_close(
+    make_coordinator: Callable[..., ChangeStreamCoordinator],
+) -> None:
+    databases = {"first": _FakeDatabase("first", [_ScriptedStream([])])}
+    client = Mock()
+    client.__getitem__ = Mock(side_effect=databases.__getitem__)
+    coordinator = make_coordinator(client, Mock())
+    await coordinator.activate_database("first")
+    await coordinator.close()
+
+    with pytest.raises(StreamLifecycleError):
+        await coordinator.activate_database("first")
+
+
 async def test_start_becomes_healthy_and_routes_events(
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
 ) -> None:

@@ -71,13 +71,19 @@ class DatabaseStreamSupervisor:
             return self._health is StreamHealth.HEALTHY
 
     def start(self) -> None:
-        if self._health is not StreamHealth.STARTING:
-            message = "start() may only be called once per supervisor instance"
-            raise StreamLifecycleError(message)
+        with self._lifecycle_lock:
+            if self._health is not StreamHealth.STARTING:
+                message = "start() may only be called once per supervisor instance"
+                raise StreamLifecycleError(message)
+            self._set_health(StreamHealth.CONNECTING)
         try:
             self._ensure_server_supports_expanded_events()
             self._open_stream(resume_token=None, use_start_after=False)
+        except StreamStartupError:
+            self._set_health(StreamHealth.CLOSED)
+            raise
         except PyMongoError as exc:
+            self._set_health(StreamHealth.CLOSED)
             message = (
                 f"failed to open change stream for database {self._database.name!r}"
             )
@@ -198,16 +204,20 @@ class DatabaseStreamSupervisor:
 
 
 class ChangeStreamCoordinator:
-    __slots__ = ("_cache", "_client", "_lock", "_supervisors")
+    __slots__ = ("_cache", "_client", "_closed", "_lock", "_supervisors")
 
     def __init__(self, client: MongoClient[Any], cache: CacheCore) -> None:
         self._client = client
         self._cache = cache
         self._supervisors: dict[str, DatabaseStreamSupervisor] = {}
+        self._closed = False
         self._lock = threading.Lock()
 
     def activate_database(self, name: str) -> DatabaseStreamSupervisor:
         with self._lock:
+            if self._closed:
+                message = "coordinator is closed"  # pytriage: TR5
+                raise StreamLifecycleError(message)
             supervisor = self._supervisors.get(name)
             if supervisor is None:
                 supervisor = DatabaseStreamSupervisor(self._client[name], self._cache)
@@ -217,6 +227,7 @@ class ChangeStreamCoordinator:
 
     def close(self) -> None:
         with self._lock:
+            self._closed = True
             supervisors = list(self._supervisors.values())
             self._supervisors.clear()
         for supervisor in supervisors:
