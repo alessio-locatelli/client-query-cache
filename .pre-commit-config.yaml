@@ -27,7 +27,7 @@ repos:
       - id: ruff-format
 
   - repo: https://github.com/alessio-locatelli/ruff-extra-rules
-    rev: v0.4.2
+    rev: v0.4.4
     hooks:
       - id: ruff-extra-rules
         args: ["--fix"]
@@ -44,13 +44,13 @@ repos:
         args: ["--skip=package-lock.json"]
 
   - repo: https://github.com/astral-sh/uv-pre-commit
-    rev: 0.12.9
+    rev: 0.12.12
     hooks:
       - id: uv-lock
         args: ["--check"]
 
   - repo: https://github.com/ariebovenberg/slotscheck
-    rev: v0.20.1
+    rev: v0.21.0
     hooks:
       - id: slotscheck
         language: system
