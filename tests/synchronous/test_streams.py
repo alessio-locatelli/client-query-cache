@@ -250,6 +250,42 @@ def test_start_raises_and_closes_the_stream_when_stop_races_it(
     assert supervisor.healthy is False
 
 
+def test_concurrent_start_and_stop_never_crash_or_leave_healthy(
+    make_supervisor: Callable[..., DatabaseStreamSupervisor],
+) -> None:
+    errors: list[BaseException] = []
+    iterations = 50
+
+    for _ in range(iterations):
+        database = _FakeDatabase("db", [_ScriptedStream([])])
+        supervisor = make_supervisor(_as_database(database), Mock())
+
+        def run_start(supervisor: DatabaseStreamSupervisor = supervisor) -> None:
+            try:
+                supervisor.start()
+            except StreamStartupError, StreamLifecycleError:  # pragma: lax no cover
+                pass
+            except BaseException as exc:  # noqa: BLE001  # pragma: lax no cover
+                errors.append(exc)
+
+        def run_stop(supervisor: DatabaseStreamSupervisor = supervisor) -> None:
+            try:
+                supervisor.stop()
+            except BaseException as exc:  # noqa: BLE001  # pragma: lax no cover
+                errors.append(exc)
+
+        start_thread = threading.Thread(target=run_start)
+        stop_thread = threading.Thread(target=run_stop)
+        start_thread.start()
+        stop_thread.start()
+        start_thread.join()
+        stop_thread.join()
+
+        assert supervisor.healthy is False
+
+    assert errors == []
+
+
 def test_start_becomes_healthy_and_routes_events(
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
 ) -> None:
