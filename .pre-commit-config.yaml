@@ -30,7 +30,6 @@ repos:
     rev: v0.4.4
     hooks:
       - id: ruff-extra-rules
-        args: ["--fix"]
 
   - repo: https://github.com/jendrikseipp/vulture
     rev: v2.16

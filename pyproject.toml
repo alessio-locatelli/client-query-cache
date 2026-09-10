@@ -55,3 +55,15 @@ output = "coverage.xml"
 [tool.vulture]
 paths = ["mongo_client_cache", "tests"]
 ignore_names = ["log_when_test_starts", "faker_seed", "pytestmark"]
+
+[tool.ruff-extra-rules]
+fix = true
+extend-select = ["unused-pytriage"]
+[tool.ruff-extra-rules.meaningless-vars]
+level = "aggressive"
+[tool.ruff-extra-rules.redundant-assignment]
+level = "aggressive"
+[tool.ruff-extra-rules.redundant-type-conversion]
+level = "aggressive"
+[tool.ruff-extra-rules.redundant-dict-get]
+level = "aggressive"
