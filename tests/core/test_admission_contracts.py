@@ -107,9 +107,9 @@ def test_a_racing_fresher_admission_wins_regardless_of_when_it_lands(
     outcome = core.admit_identity(capture_stale, read_shape, {"v": "stale"})
 
     assert outcome is AdmissionOutcome.DECLINED_STALE
-    result = core.lookup_identity(namespace, identity, read_shape)
-    assert result.hit
-    assert result.value == {"v": "fresh"}
+    lookup_result = core.lookup_identity(namespace, identity, read_shape)
+    assert lookup_result.hit
+    assert lookup_result.value == {"v": "fresh"}
 
 
 @pytest.mark.parametrize(
@@ -146,9 +146,9 @@ def test_a_racing_fresher_namespace_admission_wins_regardless_of_when_it_lands(
     outcome = core.admit_namespace(capture_stale, discriminator, ["stale"])
 
     assert outcome is AdmissionOutcome.DECLINED_STALE
-    result = core.lookup_namespace(namespace, discriminator)
-    assert result.hit
-    assert result.value == ["fresh"]
+    lookup_result = core.lookup_namespace(namespace, discriminator)
+    assert lookup_result.hit
+    assert lookup_result.value == ["fresh"]
 
 
 _BEGIN_AND_ADMIT_BY_KIND = [
@@ -173,16 +173,12 @@ def test_an_entry_evicted_before_publication_is_not_indexed_as_a_ghost(
     begin: Callable[[CacheCore, NamespaceId], object],
     admit: Callable[[CacheCore, object], AdmissionOutcome],
 ) -> None:
-    capture = begin(core, namespace)
-
     def hook(key: CacheKey, entry: CacheEntry) -> None:
         core._lru.remove_exact(key, entry)
 
     _patch_conditional_put_hook(monkeypatch, core, hook)
 
-    outcome = admit(core, capture)
-
-    assert outcome is AdmissionOutcome.DECLINED_STALE
+    assert admit(core, begin(core, namespace)) is AdmissionOutcome.DECLINED_STALE
     state = core._namespace(namespace)
     assert len(state.entry_index) == 0
 
@@ -195,8 +191,6 @@ def test_an_entry_evicted_between_the_residency_check_and_publication_is_reclaim
     begin: Callable[[CacheCore, NamespaceId], object],
     admit: Callable[[CacheCore, object], AdmissionOutcome],
 ) -> None:
-    capture = begin(core, namespace)
-
     lru_class = type(core._lru)
     original_contains_exact = lru_class.contains_exact
     triggered = False
@@ -205,19 +199,17 @@ def test_an_entry_evicted_between_the_residency_check_and_publication_is_reclaim
         self: WeightedLru, key: CacheKey, entry: CacheEntry
     ) -> bool:
         nonlocal triggered
-        result = original_contains_exact(self, key, entry)
-        if not triggered and result:
+        is_resident = original_contains_exact(self, key, entry)
+        if not triggered and is_resident:
             triggered = True
             # Simulate a concurrent admission's capacity eviction landing
             # exactly between this residency check and publication.
             self.remove_exact(key, entry)
-        return result
+        return is_resident
 
     monkeypatch.setattr(lru_class, "contains_exact", patched_contains_exact)
 
-    outcome = admit(core, capture)
-
-    assert outcome is AdmissionOutcome.DECLINED_STALE
+    assert admit(core, begin(core, namespace)) is AdmissionOutcome.DECLINED_STALE
     state = core._namespace(namespace)
     assert len(state.entry_index) == 0
 
@@ -226,11 +218,10 @@ def test_a_replaced_entry_does_not_leak_its_index_token(
     core: CacheCore, namespace: NamespaceId
 ) -> None:
     identity = "doc-1"
-    read_shape = "full"
 
     for iteration in range(10):
         capture = core.begin_identity_admission(namespace, identity)
-        outcome = core.admit_identity(capture, read_shape, {"v": iteration})
+        outcome = core.admit_identity(capture, "full", {"v": iteration})
         assert outcome is AdmissionOutcome.ADMITTED
         core.record_write(namespace, identity)
 
@@ -246,8 +237,7 @@ def test_cancelled_admission_is_rejected_at_lookup_but_not_physically_reclaimed(
     capture = core.begin_identity_admission(namespace, identity)
 
     canonical_identity = capture.identity
-    canonical_shape = canonicalize(read_shape)
-    key = IdentityCacheKey(namespace, canonical_identity, canonical_shape)
+    key = IdentityCacheKey(namespace, canonical_identity, canonicalize(read_shape))
     encoded = encode_value({"v": "orphaned"})
     entry = CacheEntry(
         generation_key=capture.generation_key,
@@ -265,8 +255,8 @@ def test_cancelled_admission_is_rejected_at_lookup_but_not_physically_reclaimed(
     _used_bytes, entry_count = core._lru.snapshot_usage()
     assert entry_count == 1
 
-    result = core.lookup_identity(namespace, identity, read_shape)
-    assert result.hit is False
+    lookup_result = core.lookup_identity(namespace, identity, read_shape)
+    assert lookup_result.hit is False
 
 
 def test_an_orphaned_entry_is_not_revalidated_by_a_later_admission_for_the_identity(
@@ -323,8 +313,7 @@ def test_a_pruned_high_generation_identity_does_not_block_future_admissions(
     # publish step.
     orphan_capture = core.begin_identity_admission(namespace, identity)
     canonical_identity = orphan_capture.identity
-    canonical_shape = canonicalize(read_shape)
-    key = IdentityCacheKey(namespace, canonical_identity, canonical_shape)
+    key = IdentityCacheKey(namespace, canonical_identity, canonicalize(read_shape))
     encoded = encode_value({"v": "orphan"})
     orphaned_entry = CacheEntry(
         generation_key=orphan_capture.generation_key,
@@ -347,9 +336,9 @@ def test_a_pruned_high_generation_identity_does_not_block_future_admissions(
     outcome = core.admit_identity(fresh_capture, read_shape, {"v": "fresh"})
     assert outcome is AdmissionOutcome.ADMITTED
 
-    result = core.lookup_identity(namespace, identity, read_shape)
-    assert result.hit
-    assert result.value == {"v": "fresh"}
+    lookup_result = core.lookup_identity(namespace, identity, read_shape)
+    assert lookup_result.hit
+    assert lookup_result.value == {"v": "fresh"}
 
 
 def test_a_namespace_clear_reclaims_a_normally_completed_admission(

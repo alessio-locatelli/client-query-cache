@@ -446,8 +446,7 @@ class _CacheCoreLookup(_CacheCoreBase):
     ) -> LookupResult:
         self._ensure_active()
         canonical_identity = canonicalize(identity)
-        canonical_shape = canonicalize(read_shape)
-        key = IdentityCacheKey(namespace, canonical_identity, canonical_shape)
+        key = IdentityCacheKey(namespace, canonical_identity, canonicalize(read_shape))
         entry = self._lru.peek(key)
         if entry is None:
             self._statistics.record_miss()
@@ -514,8 +513,7 @@ class _CacheCoreLookup(_CacheCoreBase):
         if identity is None:
             self._statistics.record_miss()
             return LookupResult(hit=False)
-        canonical_shape = canonicalize(read_shape)
-        key = IdentityCacheKey(namespace, identity, canonical_shape)
+        key = IdentityCacheKey(namespace, identity, canonicalize(read_shape))
         entry = self._lru.peek(key)
         if entry is None:
             self._statistics.record_miss()

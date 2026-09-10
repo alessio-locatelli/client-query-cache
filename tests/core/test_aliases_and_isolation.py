@@ -25,11 +25,11 @@ def test_caller_mutation_does_not_affect_a_later_hit(
     core.admit_identity(capture, "full", original)
     original["a"].append(4)
 
-    result = core.lookup_identity(namespace, identity, "full")
-    assert result.value == {"a": [1, 2, 3]}
+    lookup_result = core.lookup_identity(namespace, identity, "full")
+    assert lookup_result.value == {"a": [1, 2, 3]}
 
-    assert isinstance(result.value, dict)
-    result.value["a"].append(999)
+    assert isinstance(lookup_result.value, dict)
+    lookup_result.value["a"].append(999)
     second_result = core.lookup_identity(namespace, identity, "full")
     assert second_result.value == {"a": [1, 2, 3]}
 
@@ -62,15 +62,13 @@ def test_clearing_discards_aliases_and_budget_for_a_racing_rolled_back_admission
 def test_a_stale_pre_clear_alias_cannot_reach_a_post_clear_entry(
     core: CacheCore, namespace: NamespaceId
 ) -> None:
-    old_identity = "doc-old"
-    old_capture = core.begin_identity_admission(namespace, old_identity)
+    old_capture = core.begin_identity_admission(namespace, "doc-old")
     alias = canonical_alias_key("email", "shared@example.com", None)
     core.admit_identity(old_capture, "full", {"v": "old"}, alias=alias)
 
     core.clear_namespace(namespace)
 
-    new_identity = "doc-new"
-    new_capture = core.begin_identity_admission(namespace, new_identity)
+    new_capture = core.begin_identity_admission(namespace, "doc-new")
     core.admit_identity(new_capture, "full", {"v": "new"})
 
     assert core.resolve_alias(namespace, "email", "shared@example.com", None) is None
@@ -153,19 +151,21 @@ def test_lookup_by_alias_returns_the_cached_value_for_a_valid_resolution(
     alias = canonical_alias_key("email", "a@example.com", None)
     core.admit_identity(capture, "full", {"v": "current"}, alias=alias)
 
-    result = core.lookup_by_alias(namespace, "email", "a@example.com", None, "full")
+    lookup_result = core.lookup_by_alias(
+        namespace, "email", "a@example.com", None, "full"
+    )
 
-    assert result.hit
-    assert result.value == {"v": "current"}
+    assert lookup_result.hit
+    assert lookup_result.value == {"v": "current"}
 
 
 def test_lookup_by_alias_misses_when_no_alias_is_resolved(
     core: CacheCore, namespace: NamespaceId
 ) -> None:
-    result = core.lookup_by_alias(
+    lookup_result = core.lookup_by_alias(
         namespace, "email", "missing@example.com", None, "full"
     )
-    assert result.hit is False
+    assert lookup_result.hit is False
 
 
 def test_lookup_by_alias_does_not_return_a_document_the_alias_no_longer_matches(
@@ -182,9 +182,11 @@ def test_lookup_by_alias_does_not_return_a_document_the_alias_no_longer_matches(
     fresh_capture = core.begin_identity_admission(namespace, identity)
     core.admit_identity(fresh_capture, "full", {"v": "new-email-value"})
 
-    result = core.lookup_by_alias(namespace, "email", "a@example.com", None, "full")
+    lookup_result = core.lookup_by_alias(
+        namespace, "email", "a@example.com", None, "full"
+    )
 
-    assert result.hit is False
+    assert lookup_result.hit is False
 
 
 def test_a_write_racing_between_resolve_alias_and_lookup_identity_is_not_masked(
@@ -209,8 +211,10 @@ def test_a_write_racing_between_resolve_alias_and_lookup_identity_is_not_masked(
     stale_composition = core.lookup_identity(namespace, resolved_identity, "full")
     assert stale_composition.hit
 
-    result = core.lookup_by_alias(namespace, "email", "a@example.com", None, "full")
-    assert result.hit is False
+    lookup_result = core.lookup_by_alias(
+        namespace, "email", "a@example.com", None, "full"
+    )
+    assert lookup_result.hit is False
 
 
 def test_repointing_an_alias_to_a_new_identity_survives_the_old_owners_cleanup(
@@ -249,9 +253,9 @@ def test_a_mapping_identity_resolved_via_alias_still_matches_lookup_identity(
     resolved_identity = core.resolve_alias(namespace, "email", "a@example.com", None)
     assert resolved_identity is not None
 
-    result = core.lookup_identity(namespace, resolved_identity, "full")
-    assert result.hit
-    assert result.value == {"v": "value"}
+    lookup_result = core.lookup_identity(namespace, resolved_identity, "full")
+    assert lookup_result.hit
+    assert lookup_result.value == {"v": "value"}
 
 
 def test_lookup_by_alias_misses_when_the_resolved_identity_has_no_matching_shape(
@@ -261,11 +265,11 @@ def test_lookup_by_alias_misses_when_the_resolved_identity_has_no_matching_shape
     alias = canonical_alias_key("email", "a@example.com", None)
     core.admit_identity(capture, "full", {"v": "x"}, alias=alias)
 
-    result = core.lookup_by_alias(
+    lookup_result = core.lookup_by_alias(
         namespace, "email", "a@example.com", None, "different-shape"
     )
 
-    assert result.hit is False
+    assert lookup_result.hit is False
 
 
 def test_lookup_by_alias_misses_a_stale_entry_under_a_still_current_alias(
@@ -285,6 +289,8 @@ def test_lookup_by_alias_misses_a_stale_entry_under_a_still_current_alias(
     fresh_capture = core.begin_identity_admission(namespace, identity)
     core.admit_identity(fresh_capture, "other-shape", {"v": "new"}, alias=alias)
 
-    result = core.lookup_by_alias(namespace, "email", "a@example.com", None, read_shape)
+    lookup_result = core.lookup_by_alias(
+        namespace, "email", "a@example.com", None, read_shape
+    )
 
-    assert result.hit is False
+    assert lookup_result.hit is False

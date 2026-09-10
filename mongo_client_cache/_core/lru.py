@@ -84,8 +84,7 @@ class WeightedLru:
 
     def remove_exact(self, key: CacheKey, entry: CacheEntry) -> bool:
         with self._guard.lru_section(), self._lock:
-            current = self._order.get(key)
-            if current is entry:
+            if self._order.get(key) is entry:
                 del self._order[key]
                 self._used_bytes -= entry.weight
                 return True

@@ -79,7 +79,7 @@ async def test_manager_never_takes_ownership_of_the_caller_client_lifecycle(
     make_fake_document: Callable[..., dict[str, Any]],
 ) -> None:
     client: AsyncMongoClient[dict[str, Any]] = AsyncMongoClient(mongodb_uri)
-    manager = CacheManager(client)  # pytriage: TR5
+    manager = CacheManager(client)
     collection = manager[cached_database_name][nonpersistent_collection_name]
     await collection.raw.insert_one(make_fake_document())
     del manager, collection

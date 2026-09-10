@@ -46,8 +46,8 @@ def patch_conditional_put_hook(
         if trigger_before_insert:
             hook(key, entry)
             return original_conditional_put(self, key, entry)
-        result = original_conditional_put(self, key, entry)
+        put_result = original_conditional_put(self, key, entry)
         hook(key, entry)
-        return result
+        return put_result
 
     monkeypatch.setattr(lru_class, "conditional_put", patched_conditional_put)

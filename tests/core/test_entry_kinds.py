@@ -62,13 +62,11 @@ def test_admission_captured_before_a_write_is_rejected_by_compare_and_decide(
     begin: Callable[[CacheCore, NamespaceId], object],
     admit: Callable[[CacheCore, object], AdmissionOutcome],
 ) -> None:
-    capture = begin(core, namespace)
+    capture = begin(core, namespace)  # pytriage: TR5
 
     core.record_write(namespace, "doc-1")
 
-    outcome = admit(core, capture)
-
-    assert outcome is AdmissionOutcome.DECLINED_STALE
+    assert admit(core, capture) is AdmissionOutcome.DECLINED_STALE
 
 
 def test_identity_state_is_bounded_by_cache_capacity_not_write_history(
