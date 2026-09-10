@@ -9,5 +9,5 @@ def encode_value(value: object) -> bytes:
     return bson.encode({_ENVELOPE_FIELD: value})
 
 
-def decode_value(data: bytes) -> object:
-    return bson.decode(data)[_ENVELOPE_FIELD]
+def decode_value(encoded: bytes) -> object:
+    return bson.decode(encoded)[_ENVELOPE_FIELD]

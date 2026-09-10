@@ -89,8 +89,8 @@ def test_the_shared_budget_is_shared_across_namespaces(
         capture = core.begin_identity_admission(other_namespace, f"doc-flood-{index}")
         core.admit_identity(capture, "full", {"v": "x" * 100})
 
-    result = core.lookup_identity(namespace, "doc-a", "full")
-    assert result.hit is False
+    lookup_result = core.lookup_identity(namespace, "doc-a", "full")
+    assert lookup_result.hit is False
 
 
 @pytest.mark.parametrize(
