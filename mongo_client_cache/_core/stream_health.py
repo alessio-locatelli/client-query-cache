@@ -26,15 +26,21 @@ class RetryBackoff:
     max_seconds: float = DEFAULT_MAX_DELAY_SECONDS
     multiplier: float = DEFAULT_MULTIPLIER
     _attempt: int = field(default=0, init=False)
+    _saturated: bool = field(default=False, init=False)
 
     def reset(self) -> None:
         self._attempt = 0
+        self._saturated = False
 
     def next_delay(
         self, random_uniform: Callable[[float, float], float] = random.uniform
     ) -> float:
-        cap = min(
-            self.max_seconds, self.base_seconds * (self.multiplier**self._attempt)
-        )
-        self._attempt += 1
+        if self._saturated:
+            return random_uniform(0.0, self.max_seconds)
+        cap = self.base_seconds * (self.multiplier**self._attempt)
+        if cap >= self.max_seconds:
+            self._saturated = True
+            cap = self.max_seconds
+        else:
+            self._attempt += 1
         return random_uniform(0.0, cap)

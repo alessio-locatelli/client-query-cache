@@ -40,9 +40,6 @@ class _FixedDelayBackoff:
 
 
 def _long_backoff(delay: float = 5.0) -> RetryBackoff:
-    # RetryBackoff.next_delay() jitters uniformly over [0, cap], so a large
-    # base_seconds does not reliably produce a large actual delay; tests that
-    # need to reliably catch a supervisor mid-wait use a fixed delay instead.
     return cast("RetryBackoff", _FixedDelayBackoff(delay))
 
 
@@ -134,8 +131,6 @@ def _as_database(fake: _FakeDatabase) -> AsyncDatabase[Any]:
 
 
 def _is_healthy(supervisor: DatabaseStreamSupervisor) -> bool:
-    # See the sync test module's `_is_healthy` for why this indirection
-    # avoids a false-positive mypy "unreachable" on a later opposite assert.
     return supervisor.healthy
 
 
@@ -362,9 +357,6 @@ async def test_stop_interrupts_an_in_progress_backoff_wait(
 
     await supervisor.start()
     await _wait_until(entered_backoff.is_set)
-    # Setting the stop event directly (instead of calling stop(), which also
-    # cancels the task) lets `_interruptible_sleep` observe the event and
-    # return normally, rather than racing task cancellation.
     supervisor._stop_event.set()
 
     await _wait_until(lambda: supervisor._task is not None and supervisor._task.done())

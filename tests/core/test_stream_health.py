@@ -27,6 +27,30 @@ def test_reset_returns_to_the_base_delay() -> None:
     assert backoff.next_delay(random_uniform=lambda _low, high: high) == 1.0
 
 
+def test_reset_clears_saturation_after_the_cap_was_reached() -> None:
+    backoff = RetryBackoff(base_seconds=1.0, max_seconds=4.0, multiplier=2.0)
+    for _ in range(10):
+        backoff.next_delay(random_uniform=lambda _low, high: high)
+
+    backoff.reset()
+
+    assert backoff.next_delay(random_uniform=lambda _low, high: high) == 1.0
+
+
+def test_delay_stays_capped_after_saturating_without_overflowing() -> None:
+    max_seconds = 4.0
+    backoff = RetryBackoff(base_seconds=1.0, max_seconds=max_seconds, multiplier=2.0)
+
+    attempts = 2000
+    delays = [
+        backoff.next_delay(random_uniform=lambda _low, high: high)
+        for _ in range(attempts)
+    ]
+
+    assert delays[-1] == max_seconds
+    assert max(delays) == max_seconds
+
+
 def test_delay_is_drawn_from_a_uniform_range_starting_at_zero() -> None:
     backoff = RetryBackoff(base_seconds=1.0, max_seconds=4.0, multiplier=2.0)
     seen_bounds: list[tuple[float, float]] = []
