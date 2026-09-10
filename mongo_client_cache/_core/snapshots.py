@@ -36,8 +36,6 @@ class CacheStatistics:
             self._misses += 1
 
     def record_evictions(self, count: int) -> None:
-        if count <= 0:
-            return
         with self._lock:
             self._evictions += count
 

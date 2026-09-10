@@ -7,11 +7,11 @@ import pytest
 from mongo_client_cache._core.entries import AdmissionOutcome
 from mongo_client_cache._core.keys import canonical_alias_key
 from mongo_client_cache._core.manager import CacheCore, CacheCoreConfig
+from tests.core.conftest import patch_conditional_put_hook
 
 if TYPE_CHECKING:
     from mongo_client_cache._core.entries import CacheEntry
     from mongo_client_cache._core.keys import CacheKey, NamespaceId
-    from mongo_client_cache._core.lru import WeightedLru
 
 pytestmark = pytest.mark.unit
 
@@ -39,22 +39,16 @@ def test_clearing_discards_aliases_and_budget_for_a_racing_rolled_back_admission
 ) -> None:
     capture = core.begin_identity_admission(namespace, "doc-1")
     alias = canonical_alias_key("email", "a@example.com", None)
-
-    lru_class = type(core._lru)
-    original_conditional_put = lru_class.conditional_put
     triggered = False
 
-    def racing_conditional_put(
-        self: WeightedLru, key: CacheKey, entry: CacheEntry
-    ) -> object:
+    def hook(_key: CacheKey, entry: CacheEntry) -> None:
         nonlocal triggered
-        result = original_conditional_put(self, key, entry)
-        if not triggered and entry.generation_key == capture.generation_key:
-            triggered = True
-            core.clear_namespace(namespace)
-        return result
+        if triggered or entry.generation_key != capture.generation_key:
+            return
+        triggered = True
+        core.clear_namespace(namespace)
 
-    monkeypatch.setattr(lru_class, "conditional_put", racing_conditional_put)
+    patch_conditional_put_hook(monkeypatch, core, hook)
 
     outcome = core.admit_identity(capture, "full", {"v": 1}, alias=alias)
 
@@ -258,3 +252,39 @@ def test_a_mapping_identity_resolved_via_alias_still_matches_lookup_identity(
     result = core.lookup_identity(namespace, resolved_identity, "full")
     assert result.hit
     assert result.value == {"v": "value"}
+
+
+def test_lookup_by_alias_misses_when_the_resolved_identity_has_no_matching_shape(
+    core: CacheCore, namespace: NamespaceId
+) -> None:
+    capture = core.begin_identity_admission(namespace, "doc-1")
+    alias = canonical_alias_key("email", "a@example.com", None)
+    core.admit_identity(capture, "full", {"v": "x"}, alias=alias)
+
+    result = core.lookup_by_alias(
+        namespace, "email", "a@example.com", None, "different-shape"
+    )
+
+    assert result.hit is False
+
+
+def test_lookup_by_alias_misses_a_stale_entry_under_a_still_current_alias(
+    core: CacheCore, namespace: NamespaceId
+) -> None:
+    identity = "doc-1"
+    read_shape = "full"
+    alias = canonical_alias_key("email", "a@example.com", None)
+
+    capture = core.begin_identity_admission(namespace, identity)
+    core.admit_identity(capture, read_shape, {"v": "old"}, alias=alias)
+
+    # The write drops the alias; republishing it for a different read shape
+    # leaves the *original* shape's entry stale under an alias that is
+    # otherwise still current for the identity.
+    core.record_write(namespace, identity)
+    fresh_capture = core.begin_identity_admission(namespace, identity)
+    core.admit_identity(fresh_capture, "other-shape", {"v": "new"}, alias=alias)
+
+    result = core.lookup_by_alias(namespace, "email", "a@example.com", None, read_shape)
+
+    assert result.hit is False

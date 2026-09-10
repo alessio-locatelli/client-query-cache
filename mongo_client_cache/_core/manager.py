@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
     from mongo_client_cache._core.canonical import Canonical
-    from mongo_client_cache._core.keys import AliasKey, NamespaceId
+    from mongo_client_cache._core.keys import AliasKey, CacheKey, NamespaceId
 
 DEFAULT_SHARED_BUDGET_BYTES = 64 * 1024 * 1024
 DEFAULT_MAX_ENTRY_BYTES = 1 * 1024 * 1024
@@ -108,7 +108,8 @@ class _CacheCoreBase:
             state = self._namespaces.get(namespace)
             if state is None:
                 state = NamespaceState(namespace=namespace)
-                self._namespaces[namespace] = state
+                if not self._is_closed():
+                    self._namespaces[namespace] = state
             return state
 
     @contextmanager
@@ -117,14 +118,17 @@ class _CacheCoreBase:
             yield
 
     @staticmethod
-    def _identity_generation_matches(
+    def _match_identity_state(
         state: NamespaceState,
-        identity_state: IdentityState | None,
+        identity: Canonical,
         generation_key: tuple[int, int],
-    ) -> bool:
+    ) -> IdentityState | None:
+        identity_state = state.identities.get(identity)
         if identity_state is None:
-            return False
-        return (state.epoch, identity_state.generation) == generation_key
+            return None
+        if (state.epoch, identity_state.generation) != generation_key:
+            return None
+        return identity_state
 
     def _maybe_prune_identity_locked(
         self, state: NamespaceState, identity: Canonical, identity_state: IdentityState
@@ -147,10 +151,19 @@ class _CacheCoreBase:
     def _discard_entry_locked(self, state: NamespaceState, entry: CacheEntry) -> None:
         was_indexed = state.entry_index.pop(entry, _NOT_INDEXED) is not _NOT_INDEXED
         if was_indexed and entry.identity is not None:
-            identity_state = state.identities.get(entry.identity)
-            if identity_state is not None:
-                identity_state.cached_ref_count -= 1
-                self._maybe_prune_identity_locked(state, entry.identity, identity_state)
+            identity_state = state.identities[entry.identity]
+            identity_state.cached_ref_count -= 1
+            self._maybe_prune_identity_locked(state, entry.identity, identity_state)
+
+    def _reclaim_if_evicted_before_publication(
+        self, state: NamespaceState, key: CacheKey, entry: CacheEntry
+    ) -> bool:
+        if self._lru.contains_exact(key, entry):
+            return False
+        with self._namespace_section(state):
+            self._discard_entry_locked(state, entry)
+        self._lru.remove_exact(key, entry)
+        return True
 
     def _process_evicted(self, evicted: list[CacheEntry]) -> None:
         if not evicted:
@@ -237,9 +250,7 @@ class _CacheCoreNamespaceLifecycle(_CacheCoreBase):
             state.entry_index.clear()
             for entry, _key in reclaimed:
                 if entry.identity is not None:
-                    identity_state = state.identities.get(entry.identity)
-                    if identity_state is not None:
-                        identity_state.cached_ref_count -= 1
+                    state.identities[entry.identity].cached_ref_count -= 1
             for identity_state in state.identities.values():
                 identity_state.alias_keys.clear()
             for identity, identity_state in list(state.identities.items()):
@@ -300,6 +311,7 @@ class _CacheCoreIdentityAdmission(_CacheCoreBase):
         *,
         alias: AliasKey | None = None,
     ) -> AdmissionOutcome:
+        self._ensure_active()
         try:
             canonical_shape = canonicalize(read_shape)
             encoded = encode_value(value)
@@ -309,12 +321,12 @@ class _CacheCoreIdentityAdmission(_CacheCoreBase):
             key = IdentityCacheKey(capture.namespace, capture.identity, canonical_shape)
             state = self._namespace(capture.namespace)
             with self._namespace_section(state):
-                identity_state = state.identities.get(capture.identity)
-                if self._is_closed() or not self._identity_generation_matches(
-                    state, identity_state, capture.generation_key
-                ):
+                identity_state = self._match_identity_state(
+                    state, capture.identity, capture.generation_key
+                )
+                if self._is_closed() or identity_state is None:
                     return AdmissionOutcome.DECLINED_STALE
-                if alias is not None and identity_state is not None:
+                if alias is not None:
                     self._publish_alias_locked(state, alias, capture.identity)
             entry = CacheEntry(
                 generation_key=capture.generation_key,
@@ -330,22 +342,20 @@ class _CacheCoreIdentityAdmission(_CacheCoreBase):
             still_resident = self._lru.contains_exact(key, entry)
             rolled_back = False
             with self._namespace_section(state):
-                identity_state = state.identities.get(capture.identity)
-                if (
-                    not still_resident
-                    or self._is_closed()
-                    or not self._identity_generation_matches(
-                        state, identity_state, capture.generation_key
-                    )
-                ):
+                identity_state = self._match_identity_state(
+                    state, capture.identity, capture.generation_key
+                )
+                if not still_resident or self._is_closed() or identity_state is None:
                     rolled_back = True
-                elif identity_state is not None:
+                else:
                     state.entry_index[entry] = key
                     identity_state.cached_ref_count += 1
                 if displaced is not None:
                     self._discard_entry_locked(state, displaced)
             if rolled_back:
                 self._lru.remove_exact(key, entry)
+                return AdmissionOutcome.DECLINED_STALE
+            if self._reclaim_if_evicted_before_publication(state, key, entry):
                 return AdmissionOutcome.DECLINED_STALE
             return AdmissionOutcome.ADMITTED
         finally:
@@ -368,9 +378,7 @@ class _CacheCoreIdentityAdmission(_CacheCoreBase):
     ) -> None:
         previous_identity = state.aliases.get(alias)
         if previous_identity is not None and previous_identity != identity:
-            previous_identity_state = state.identities.get(previous_identity)
-            if previous_identity_state is not None:
-                previous_identity_state.alias_keys.discard(alias)
+            state.identities[previous_identity].alias_keys.discard(alias)
         state.aliases[alias] = identity
         state.identities[identity].alias_keys.add(alias)
 
@@ -425,6 +433,8 @@ class _CacheCoreNamespaceAdmission(_CacheCoreBase):
         if rolled_back:
             self._lru.remove_exact(key, entry)
             return AdmissionOutcome.DECLINED_STALE
+        if self._reclaim_if_evicted_before_publication(state, key, entry):
+            return AdmissionOutcome.DECLINED_STALE
         return AdmissionOutcome.ADMITTED
 
 
@@ -438,20 +448,20 @@ class _CacheCoreLookup(_CacheCoreBase):
         canonical_identity = canonicalize(identity)
         canonical_shape = canonicalize(read_shape)
         key = IdentityCacheKey(namespace, canonical_identity, canonical_shape)
-        entry = self._lru.get_and_touch(key)
+        entry = self._lru.peek(key)
         if entry is None:
             self._statistics.record_miss()
             return LookupResult(hit=False)
         state = self._namespace(namespace)
+        entry_generation_key = (entry.generation_key[0], entry.generation_key[1])
         with self._namespace_section(state):
-            identity_state = state.identities.get(canonical_identity)
-            entry_generation_key = (entry.generation_key[0], entry.generation_key[1])
-            valid = self._identity_generation_matches(
-                state, identity_state, entry_generation_key
+            matched = self._match_identity_state(
+                state, canonical_identity, entry_generation_key
             )
-        if not valid:
+        if matched is None:
             self._statistics.record_miss()
             return LookupResult(hit=False)
+        self._lru.touch(key)
         self._statistics.record_hit()
         return LookupResult(hit=True, value=decode_value(entry.value))
 
@@ -461,7 +471,7 @@ class _CacheCoreLookup(_CacheCoreBase):
         self._ensure_active()
         canonical_discriminator = canonicalize(discriminator)
         key = NamespaceCacheKey(namespace, canonical_discriminator)
-        entry = self._lru.get_and_touch(key)
+        entry = self._lru.peek(key)
         if entry is None:
             self._statistics.record_miss()
             return LookupResult(hit=False)
@@ -471,6 +481,7 @@ class _CacheCoreLookup(_CacheCoreBase):
         if not valid:
             self._statistics.record_miss()
             return LookupResult(hit=False)
+        self._lru.touch(key)
         self._statistics.record_hit()
         return LookupResult(hit=True, value=decode_value(entry.value))
 
@@ -505,20 +516,22 @@ class _CacheCoreLookup(_CacheCoreBase):
             return LookupResult(hit=False)
         canonical_shape = canonicalize(read_shape)
         key = IdentityCacheKey(namespace, identity, canonical_shape)
-        entry = self._lru.get_and_touch(key)
+        entry = self._lru.peek(key)
         if entry is None:
             self._statistics.record_miss()
             return LookupResult(hit=False)
+        entry_generation_key = (entry.generation_key[0], entry.generation_key[1])
         with self._namespace_section(state):
             still_aliased = state.aliases.get(alias_key) == identity
-            identity_state = state.identities.get(identity)
-            entry_generation_key = (entry.generation_key[0], entry.generation_key[1])
-            valid = still_aliased and self._identity_generation_matches(
-                state, identity_state, entry_generation_key
+            matched = (
+                self._match_identity_state(state, identity, entry_generation_key)
+                if still_aliased
+                else None
             )
-        if not valid:
+        if matched is None:
             self._statistics.record_miss()
             return LookupResult(hit=False)
+        self._lru.touch(key)
         self._statistics.record_hit()
         return LookupResult(hit=True, value=decode_value(entry.value))
 

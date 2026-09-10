@@ -7,11 +7,13 @@ import pytest
 from mongo_client_cache._core.errors import CacheClosedError
 from mongo_client_cache._core.lifecycle import CacheLifecycleState
 from mongo_client_cache._core.manager import CacheCore
+from tests.core.conftest import patch_conditional_put_hook
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from mongo_client_cache._core.entries import CacheEntry
     from mongo_client_cache._core.keys import CacheKey, NamespaceId
-    from mongo_client_cache._core.lru import WeightedLru
 
 pytestmark = pytest.mark.unit
 
@@ -42,20 +44,50 @@ def test_close_is_idempotent() -> None:
     assert core.lifecycle_state is CacheLifecycleState.CLOSED
 
 
-def test_admission_after_close_raises_cache_closed_error(
+@pytest.mark.parametrize(
+    "invoke",
+    [
+        pytest.param(
+            lambda core, namespace: core.begin_identity_admission(namespace, "doc-1"),
+            id="begin_identity_admission",
+        ),
+        pytest.param(
+            lambda core, namespace: core.lookup_identity(namespace, "doc-1", "full"),
+            id="lookup_identity",
+        ),
+    ],
+)
+def test_operation_after_close_raises_cache_closed_error(
     namespace: NamespaceId,
+    invoke: Callable[[CacheCore, NamespaceId], object],
 ) -> None:
     core = CacheCore()
     core.close()
     with pytest.raises(CacheClosedError):
-        core.begin_identity_admission(namespace, "doc-1")
+        invoke(core, namespace)
 
 
-def test_lookup_after_close_raises_cache_closed_error(namespace: NamespaceId) -> None:
+def test_admit_identity_after_close_raises_cache_closed_error(
+    namespace: NamespaceId,
+) -> None:
     core = CacheCore()
+    capture = core.begin_identity_admission(namespace, "doc-1")
     core.close()
+
     with pytest.raises(CacheClosedError):
-        core.lookup_identity(namespace, "doc-1", "full")
+        core.admit_identity(capture, "full", {"v": 1})
+
+
+def test_releasing_a_capture_after_close_does_not_recreate_namespace_state(
+    namespace: NamespaceId,
+) -> None:
+    core = CacheCore()
+    capture = core.begin_identity_admission(namespace, "doc-1")
+    core.close()
+
+    core.discard_identity_admission(capture)
+
+    assert namespace not in core._namespaces
 
 
 def test_an_admission_racing_close_does_not_survive_in_the_closed_snapshot(
@@ -63,22 +95,16 @@ def test_an_admission_racing_close_does_not_survive_in_the_closed_snapshot(
 ) -> None:
     core = CacheCore()
     capture = core.begin_identity_admission(namespace, "doc-1")
-
-    lru_class = type(core._lru)
-    original_conditional_put = lru_class.conditional_put
     triggered = False
 
-    def racing_conditional_put(
-        self: WeightedLru, key: CacheKey, entry: CacheEntry
-    ) -> object:
+    def hook(_key: CacheKey, _entry: CacheEntry) -> None:
         nonlocal triggered
-        result = original_conditional_put(self, key, entry)
-        if not triggered:
-            triggered = True
-            core.close()
-        return result
+        if triggered:
+            return
+        triggered = True
+        core.close()
 
-    monkeypatch.setattr(lru_class, "conditional_put", racing_conditional_put)
+    patch_conditional_put_hook(monkeypatch, core, hook)
 
     core.admit_identity(capture, "full", {"v": 1})
 

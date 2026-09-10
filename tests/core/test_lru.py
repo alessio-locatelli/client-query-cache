@@ -44,45 +44,39 @@ def test_conditional_put_admits_into_empty_key(lru: WeightedLru) -> None:
     assert evicted == []
 
 
-def test_conditional_put_rejects_older_generation(lru: WeightedLru) -> None:
-    key = make_key("k")
-    newer = make_entry((5,))
-    lru.conditional_put(key, newer)
-
-    admitted, displaced, evicted = lru.conditional_put(key, make_entry((3,)))
-
-    assert not admitted
-    assert displaced is None
-    assert evicted == []
-    assert lru.get_and_touch(key) is newer
-
-
-def test_conditional_put_replaces_with_newer_generation(lru: WeightedLru) -> None:
-    key = make_key("k")
-    older = make_entry((1,))
-    lru.conditional_put(key, older)
-
-    newer = make_entry((2,))
-    admitted, displaced, _evicted = lru.conditional_put(key, newer)
-
-    assert admitted
-    assert displaced is older
-    assert lru.get_and_touch(key) is newer
-
-
-def test_identity_guarded_ordering_ranks_epoch_before_identity_generation(
+@pytest.mark.parametrize(
+    ("first_generation_key", "second_generation_key", "second_should_replace"),
+    [
+        pytest.param((5,), (3,), False, id="older_generation_is_rejected"),
+        pytest.param((1,), (2,), True, id="newer_generation_replaces"),
+        pytest.param(
+            (0, 100),
+            (1, 1),
+            True,
+            id="newer_epoch_outranks_a_larger_identity_generation",
+        ),
+    ],
+)
+def test_conditional_put_generation_ordering(
     lru: WeightedLru,
+    first_generation_key: tuple[int, ...],
+    second_generation_key: tuple[int, ...],
+    second_should_replace: bool,
 ) -> None:
     key = make_key("k")
-    stale_pre_clear = make_entry((0, 100))
-    lru.conditional_put(key, stale_pre_clear)
+    first = make_entry(first_generation_key)
+    lru.conditional_put(key, first)
 
-    valid_post_clear = make_entry((1, 1))
-    admitted, displaced, _evicted = lru.conditional_put(key, valid_post_clear)
+    second = make_entry(second_generation_key)
+    admitted, displaced, _evicted = lru.conditional_put(key, second)
 
-    assert admitted
-    assert displaced is stale_pre_clear
-    assert lru.get_and_touch(key) is valid_post_clear
+    assert admitted is second_should_replace
+    if second_should_replace:
+        assert displaced is first
+        assert lru.peek(key) is second
+    else:
+        assert displaced is None
+        assert lru.peek(key) is first
 
 
 def test_eviction_reclaims_least_recently_used_entries(lru: WeightedLru) -> None:
@@ -99,15 +93,43 @@ def test_touching_an_entry_protects_it_from_eviction(lru: WeightedLru) -> None:
     lru.conditional_put(protected_key, make_entry((1,), weight=10))
 
     for index in range(200):
-        lru.get_and_touch(protected_key)
+        lru.touch(protected_key)
         lru.conditional_put(make_key(index), make_entry((1,), weight=10))
 
-    assert lru.get_and_touch(protected_key) is not None
+    assert lru.peek(protected_key) is not None
 
 
-def test_is_oversize_rejects_values_over_the_max_entry_size(lru: WeightedLru) -> None:
-    assert lru.is_oversize(101)
-    assert not lru.is_oversize(100)
+def test_touching_a_key_no_longer_resident_is_a_no_op(lru: WeightedLru) -> None:
+    # A caller may validate an entry, lose a race to a concurrent eviction or
+    # rollback, and only then call touch() for a key that is already gone.
+    lru.touch(make_key("never-admitted"))
+    assert lru.peek(make_key("never-admitted")) is None
+
+
+@pytest.mark.parametrize(
+    ("weight", "expected_oversize"),
+    [
+        pytest.param(101, True, id="over_the_max"),
+        pytest.param(100, False, id="at_the_max"),
+    ],
+)
+def test_is_oversize(
+    lru: WeightedLru,
+    weight: int,
+    expected_oversize: bool,
+) -> None:
+    assert lru.is_oversize(weight) is expected_oversize
+
+
+def test_peek_does_not_protect_an_entry_from_eviction(lru: WeightedLru) -> None:
+    peeked_key = make_key("peeked")
+    lru.conditional_put(peeked_key, make_entry((1,), weight=10))
+
+    for index in range(200):
+        lru.peek(peeked_key)
+        lru.conditional_put(make_key(index), make_entry((1,), weight=10))
+
+    assert lru.peek(peeked_key) is None
 
 
 def test_remove_exact_only_removes_the_matching_token(lru: WeightedLru) -> None:
@@ -118,6 +140,6 @@ def test_remove_exact_only_removes_the_matching_token(lru: WeightedLru) -> None:
     lru.conditional_put(key, fresh)
 
     assert lru.remove_exact(key, stale) is False
-    assert lru.get_and_touch(key) is fresh
+    assert lru.peek(key) is fresh
     assert lru.remove_exact(key, fresh) is True
-    assert lru.get_and_touch(key) is None
+    assert lru.peek(key) is None
