@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any
 from mongo_client_cache._core.keys import NamespaceId
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, MutableSet
+    from collections.abc import Mapping
 
     from pymongo.errors import OperationFailure
 
@@ -43,43 +43,34 @@ def _namespace_from_ns(ns: Mapping[str, Any]) -> NamespaceId:
 
 
 def route_change_event(
-    cache: CacheCore,
-    event: Mapping[str, Any],
-    known_namespaces: MutableSet[NamespaceId],
+    cache: CacheCore, database: str, event: Mapping[str, Any]
 ) -> bool:
     operation_type = event["operationType"]
     if operation_type in WRITE_OPERATION_TYPES:
         namespace = _namespace_from_ns(event["ns"])
-        known_namespaces.add(namespace)
         cache.record_write(namespace, event["documentKey"]["_id"])
         return False
     if operation_type == "create":
-        namespace = _namespace_from_ns(event["ns"])
-        known_namespaces.add(namespace)
-        cache.create_namespace(namespace)
+        cache.create_namespace(_namespace_from_ns(event["ns"]))
         return False
     if operation_type == "drop":
-        namespace = _namespace_from_ns(event["ns"])
-        cache.clear_namespace(namespace)
-        known_namespaces.discard(namespace)
+        cache.clear_namespace(_namespace_from_ns(event["ns"]))
         return False
     if operation_type == "rename":
-        source = _namespace_from_ns(event["ns"])
-        destination = _namespace_from_ns(event["to"])
-        cache.clear_namespace(source)
-        cache.clear_namespace(destination)
-        known_namespaces.discard(source)
-        known_namespaces.add(destination)
+        cache.clear_namespace(_namespace_from_ns(event["ns"]))
+        cache.clear_namespace(_namespace_from_ns(event["to"]))
         return False
     if operation_type == "dropDatabase":
         return False
     # operation_type == "invalidate": the $match stage above admits no other
     # kind, and dropDatabase is the only event that invalidates a
-    # database-scoped stream, so every namespace this database ever routed an
-    # event for must be cleared before the stream can safely reopen.
-    for namespace in list(known_namespaces):
+    # database-scoped stream, so every namespace cache-core currently tracks
+    # for this database must be cleared before the stream can safely reopen
+    # — not just namespaces this stream happened to route an event for,
+    # since a namespace-guarded entry (e.g. a negative lookup) can be
+    # admitted for a namespace that never produced a write.
+    for namespace in cache.namespaces_for_database(database):
         cache.clear_namespace(namespace)
-    known_namespaces.clear()
     return True
 
 

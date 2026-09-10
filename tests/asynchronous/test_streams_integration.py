@@ -199,10 +199,6 @@ async def test_drop_database_clears_the_cache_and_the_stream_recovers(
 class _NextFailsOnceStream:
     __slots__ = ("_error", "_raised", "_real_stream")
 
-    # A real network blip can't be timed precisely enough to trigger our
-    # supervisor's own reconnect path, since pymongo transparently resumes
-    # from one resumable error itself; this wraps a real stream so its
-    # first `next()` call fails deterministically instead.
     def __init__(self, real_stream: object, error: Exception) -> None:
         self._real_stream = real_stream
         self._error = error
@@ -327,10 +323,6 @@ async def test_clears_the_cache_when_resume_history_is_lost(
 class _PausingStream:
     __slots__ = ("_fetched_event", "_paused", "_real_stream", "_release_event")
 
-    # `route_change_event` runs synchronously with no `await` inside the
-    # supervisor's task, so the only cooperative pause point between "event
-    # fetched from the stream" and "event routed to cache" is here, inside
-    # the stream's own async `next()`, before it returns the event.
     def __init__(
         self,
         real_stream: object,

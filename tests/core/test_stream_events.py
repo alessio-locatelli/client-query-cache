@@ -55,39 +55,33 @@ def test_write_events_record_a_write_against_the_document_identity(
         "ns": {"db": "db", "coll": "coll"},
         "documentKey": {"_id": "doc-1"},
     }
-    known_namespaces: set[NamespaceId] = set()
 
-    must_reopen = route_change_event(cache, event, known_namespaces)
+    must_reopen = route_change_event(cache, "db", event)
 
     assert must_reopen is False
     cache.record_write.assert_called_once_with(namespace, "doc-1")
-    assert known_namespaces == {namespace}
 
 
-def test_create_event_creates_the_namespace_and_tracks_it() -> None:
+def test_create_event_creates_the_namespace() -> None:
     cache = Mock()
     namespace = NamespaceId("db", "coll")
     event = {"operationType": "create", "ns": {"db": "db", "coll": "coll"}}
-    known_namespaces: set[NamespaceId] = set()
 
-    must_reopen = route_change_event(cache, event, known_namespaces)
+    must_reopen = route_change_event(cache, "db", event)
 
     assert must_reopen is False
     cache.create_namespace.assert_called_once_with(namespace)
-    assert known_namespaces == {namespace}
 
 
-def test_drop_event_clears_the_namespace_and_forgets_it() -> None:
+def test_drop_event_clears_the_namespace() -> None:
     cache = Mock()
     namespace = NamespaceId("db", "coll")
     event = {"operationType": "drop", "ns": {"db": "db", "coll": "coll"}}
-    known_namespaces: set[NamespaceId] = {namespace}
 
-    must_reopen = route_change_event(cache, event, known_namespaces)
+    must_reopen = route_change_event(cache, "db", event)
 
     assert must_reopen is False
     cache.clear_namespace.assert_called_once_with(namespace)
-    assert known_namespaces == set()
 
 
 def test_rename_event_clears_both_the_source_and_destination_namespaces() -> None:
@@ -99,39 +93,35 @@ def test_rename_event_clears_both_the_source_and_destination_namespaces() -> Non
         "ns": {"db": "db", "coll": "old_coll"},
         "to": {"db": "db", "coll": "new_coll"},
     }
-    known_namespaces: set[NamespaceId] = {source}
 
-    must_reopen = route_change_event(cache, event, known_namespaces)
+    must_reopen = route_change_event(cache, "db", event)
 
     assert must_reopen is False
     cache.clear_namespace.assert_has_calls([call(source), call(destination)])
-    assert known_namespaces == {destination}
 
 
 def test_drop_database_event_is_a_no_op_pending_its_invalidation() -> None:
     cache = Mock()
     event = {"operationType": "dropDatabase", "ns": {"db": "db"}}
-    known_namespaces: set[NamespaceId] = {NamespaceId("db", "coll")}
 
-    must_reopen = route_change_event(cache, event, known_namespaces)
+    must_reopen = route_change_event(cache, "db", event)
 
     assert must_reopen is False
     cache.clear_namespace.assert_not_called()
-    assert known_namespaces == {NamespaceId("db", "coll")}
 
 
-def test_invalidate_event_clears_every_known_namespace_and_signals_a_reopen() -> None:
+def test_invalidate_clears_every_namespace_cache_core_tracks_for_the_database() -> None:
     cache = Mock()
     first = NamespaceId("db", "first")
     second = NamespaceId("db", "second")
+    cache.namespaces_for_database.return_value = [first, second]
     event = {"operationType": "invalidate"}
-    known_namespaces: set[NamespaceId] = {first, second}
 
-    must_reopen = route_change_event(cache, event, known_namespaces)
+    must_reopen = route_change_event(cache, "db", event)
 
     assert must_reopen is True
+    cache.namespaces_for_database.assert_called_once_with("db")
     cache.clear_namespace.assert_has_calls([call(first), call(second)], any_order=True)
-    assert known_namespaces == set()
 
 
 @pytest.mark.parametrize(
@@ -172,7 +162,7 @@ def test_write_event_invalidates_document_and_namespace_guarded_entries() -> Non
         "ns": {"db": "db", "coll": "coll"},
         "documentKey": {"_id": "doc-1"},
     }
-    route_change_event(cache, event, set())
+    route_change_event(cache, "db", event)
 
     assert cache.lookup_identity(namespace, "doc-1", "full").hit is False
     assert cache.lookup_namespace(namespace, "query-shape").hit is False
@@ -186,7 +176,7 @@ def test_drop_event_invalidates_identity_guarded_entries_via_epoch() -> None:
     assert cache.lookup_identity(namespace, "doc-1", "full").hit is True
 
     event = {"operationType": "drop", "ns": {"db": "db", "coll": "coll"}}
-    route_change_event(cache, event, {namespace})
+    route_change_event(cache, "db", event)
 
     assert cache.lookup_identity(namespace, "doc-1", "full").hit is False
 
@@ -201,9 +191,27 @@ def test_create_event_reclaims_entries_cached_before_the_namespace_existed() -> 
     assert count_before == 1
 
     event = {"operationType": "create", "ns": {"db": "db", "coll": "coll"}}
-    route_change_event(cache, event, set())
+    route_change_event(cache, "db", event)
 
     assert cache.lookup_namespace(namespace, "missing-doc").hit is False
     used_after, count_after = cache._lru.snapshot_usage()
     assert count_after == 0
     assert used_after == 0
+
+
+def test_invalidate_clears_a_namespace_that_never_produced_an_event() -> None:
+    cache = CacheCore()
+    namespace = NamespaceId("db", "never_written")
+    other_database_namespace = NamespaceId("other_db", "coll")
+    namespace_capture = cache.capture_namespace_generation(namespace)
+    cache.admit_namespace(namespace_capture, "missing-doc", None)
+    other_capture = cache.capture_namespace_generation(other_database_namespace)
+    cache.admit_namespace(other_capture, "missing-doc", None)
+    assert cache.lookup_namespace(namespace, "missing-doc").hit is True
+
+    event = {"operationType": "invalidate"}
+    must_reopen = route_change_event(cache, "db", event)
+
+    assert must_reopen is True
+    assert cache.lookup_namespace(namespace, "missing-doc").hit is False
+    assert cache.lookup_namespace(other_database_namespace, "missing-doc").hit is True

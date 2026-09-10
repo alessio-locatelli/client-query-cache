@@ -8,7 +8,7 @@ from unittest.mock import Mock
 import pytest
 from pymongo.errors import OperationFailure
 
-from mongo_client_cache._core.errors import StreamStartupError
+from mongo_client_cache._core.errors import StreamLifecycleError, StreamStartupError
 from mongo_client_cache._core.keys import NamespaceId
 from mongo_client_cache._core.stream_health import RetryBackoff
 from mongo_client_cache.asynchronous.streams import (
@@ -204,12 +204,44 @@ async def test_reconnects_using_the_saved_resume_token() -> None:
         assert database.watch_calls[1]["resume_after"] == {"tok": "tok-1"}
         assert "start_after" not in database.watch_calls[1]
         await _wait_until(lambda: supervisor.healthy)
+        await _wait_until(lambda: stream1.closed)
+    finally:
+        await supervisor.stop()
+
+
+async def test_start_raises_when_called_more_than_once() -> None:
+    database = _FakeDatabase("db", [_ScriptedStream([])])
+    supervisor = DatabaseStreamSupervisor(_as_database(database), Mock())
+
+    await supervisor.start()
+    try:
+        with pytest.raises(StreamLifecycleError):
+            await supervisor.start()
+    finally:
+        await supervisor.stop()
+
+
+async def test_unexpected_stream_closure_triggers_reconnect() -> None:
+    stream1 = _ScriptedStream([StopAsyncIteration()])
+    database = _FakeDatabase("db", [stream1, _ScriptedStream([])])
+    supervisor = DatabaseStreamSupervisor(
+        _as_database(database), Mock(), backoff=_FAST_BACKOFF
+    )
+    watch_calls_after_recovery = 2
+
+    await supervisor.start()
+    try:
+        await _wait_until(
+            lambda: len(database.watch_calls) == watch_calls_after_recovery
+        )
+        await _wait_until(lambda: supervisor.healthy)
     finally:
         await supervisor.stop()
 
 
 async def test_clears_known_namespaces_when_resume_history_is_lost() -> None:
     cache = Mock()
+    cache.namespaces_for_database.return_value = [NamespaceId("db", "coll")]
     stream1 = _ScriptedStream(
         [_insert_event("tok-1"), OperationFailure("blip", code=1)]
     )
@@ -227,6 +259,7 @@ async def test_clears_known_namespaces_when_resume_history_is_lost() -> None:
         await _wait_until(
             lambda: len(database.watch_calls) == watch_calls_after_recovery
         )
+        cache.namespaces_for_database.assert_called_once_with("db")
         cache.clear_namespace.assert_called_once_with(NamespaceId("db", "coll"))
         assert "resume_after" not in database.watch_calls[2]
         assert "start_after" not in database.watch_calls[2]
@@ -237,6 +270,7 @@ async def test_clears_known_namespaces_when_resume_history_is_lost() -> None:
 
 async def test_reopens_with_start_after_following_an_invalidate_event() -> None:
     cache = Mock()
+    cache.namespaces_for_database.return_value = [NamespaceId("db", "coll")]
     invalidate_event = {"_id": {"tok": "inv"}, "operationType": "invalidate"}
     stream1 = _ScriptedStream([_insert_event("tok-1"), invalidate_event])
     database = _FakeDatabase("db", [stream1, _ScriptedStream([])])
@@ -250,6 +284,7 @@ async def test_reopens_with_start_after_following_an_invalidate_event() -> None:
         await _wait_until(lambda: len(database.watch_calls) == watch_calls_after_reopen)
         assert database.watch_calls[1]["start_after"] == {"tok": "inv"}
         assert "resume_after" not in database.watch_calls[1]
+        cache.namespaces_for_database.assert_called_once_with("db")
         cache.clear_namespace.assert_called_once_with(NamespaceId("db", "coll"))
         await _wait_until(lambda: supervisor.healthy)
     finally:

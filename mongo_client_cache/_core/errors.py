@@ -19,3 +19,7 @@ class CacheClosedError(CacheError):
 
 class StreamStartupError(CacheError):
     pass
+
+
+class StreamLifecycleError(CacheError):
+    pass

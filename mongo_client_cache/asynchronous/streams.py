@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from pymongo.errors import OperationFailure, PyMongoError
 
-from mongo_client_cache._core.errors import StreamStartupError
+from mongo_client_cache._core.errors import StreamLifecycleError, StreamStartupError
 from mongo_client_cache._core.stream_events import (
     build_change_stream_pipeline,
     is_unresumable_change_stream_error,
@@ -22,7 +22,6 @@ if TYPE_CHECKING:
     from pymongo.asynchronous.change_stream import AsyncDatabaseChangeStream
     from pymongo.asynchronous.database import AsyncDatabase
 
-    from mongo_client_cache._core.keys import NamespaceId
     from mongo_client_cache._core.manager import CacheCore
 
 MINIMUM_SERVER_VERSION = (6, 0)
@@ -38,7 +37,6 @@ class DatabaseStreamSupervisor:
         "_database",
         "_health",
         "_max_await_time_ms",
-        "_namespaces",
         "_resume_token",
         "_stop_event",
         "_stream",
@@ -57,7 +55,6 @@ class DatabaseStreamSupervisor:
         self._cache = cache
         self._backoff = backoff if backoff is not None else RetryBackoff()
         self._max_await_time_ms = max_await_time_ms
-        self._namespaces: set[NamespaceId] = set()
         self._health = StreamHealth.STARTING
         self._stream: AsyncDatabaseChangeStream[Any] | None = None
         self._resume_token: Mapping[str, Any] | None = None
@@ -69,6 +66,9 @@ class DatabaseStreamSupervisor:
         return self._health is StreamHealth.HEALTHY
 
     async def start(self) -> None:
+        if self._health is not StreamHealth.STARTING:
+            message = "start() may only be called once per supervisor instance"
+            raise StreamLifecycleError(message)
         await self._ensure_server_supports_expanded_events()
         try:
             await self._open_stream(resume_token=None, use_start_after=False)
@@ -114,9 +114,13 @@ class DatabaseStreamSupervisor:
                 kwargs["start_after"] = resume_token
             else:
                 kwargs["resume_after"] = resume_token
+        previous_stream = self._stream
         self._stream = await self._database.watch(
             build_change_stream_pipeline(), **kwargs
         )
+        if previous_stream is not None:
+            with contextlib.suppress(PyMongoError):
+                await previous_stream.close()
 
     async def _interruptible_sleep(self, delay: float) -> bool:
         try:
@@ -130,13 +134,11 @@ class DatabaseStreamSupervisor:
             assert self._stream is not None
             try:
                 event = await self._stream.next()
-            except StopAsyncIteration:
-                return
-            except PyMongoError:
+            except StopAsyncIteration, PyMongoError:
                 await self._handle_stream_failure()
                 continue
             self._resume_token = self._stream.resume_token
-            must_reopen = route_change_event(self._cache, event, self._namespaces)
+            must_reopen = route_change_event(self._cache, self._database.name, event)
             if must_reopen:
                 await self._reopen_after_invalidate()
 
@@ -160,7 +162,7 @@ class DatabaseStreamSupervisor:
                 if isinstance(
                     exc, OperationFailure
                 ) and is_unresumable_change_stream_error(exc):
-                    self._clear_known_namespaces()
+                    self._clear_namespaces_for_database()
                     self._resume_token = None
                     use_start_after = False
                     continue
@@ -173,10 +175,9 @@ class DatabaseStreamSupervisor:
                 self._health = StreamHealth.HEALTHY
                 return
 
-    def _clear_known_namespaces(self) -> None:
-        for namespace in list(self._namespaces):
+    def _clear_namespaces_for_database(self) -> None:
+        for namespace in self._cache.namespaces_for_database(self._database.name):
             self._cache.clear_namespace(namespace)
-        self._namespaces.clear()
 
 
 class ChangeStreamCoordinator:
