@@ -63,19 +63,55 @@ def test_write_events_record_a_write_against_the_document_identity(
     cache.record_write.assert_called_once_with(namespace, "doc-1")
 
 
-def test_write_event_for_an_untracked_namespace_does_not_touch_the_cache() -> None:
+@pytest.mark.parametrize(
+    ("event", "unused_method"),
+    [
+        pytest.param(
+            {
+                "operationType": "insert",
+                "ns": {"db": "db", "coll": "coll"},
+                "documentKey": {"_id": "doc-1"},
+            },
+            "record_write",
+            id="write",
+        ),
+        pytest.param(
+            {"operationType": "create", "ns": {"db": "db", "coll": "coll"}},
+            "create_namespace",
+            id="create",
+        ),
+        pytest.param(
+            {"operationType": "drop", "ns": {"db": "db", "coll": "coll"}},
+            "clear_namespace",
+            id="drop",
+        ),
+    ],
+)
+def test_event_for_an_untracked_namespace_does_not_touch_the_cache(
+    event: Mapping[str, object], unused_method: str
+) -> None:
+    cache = Mock()
+    cache.has_namespace.return_value = False
+
+    must_reopen = route_change_event(cache, "db", event)
+
+    assert must_reopen is False
+    getattr(cache, unused_method).assert_not_called()
+
+
+def test_rename_event_skips_an_untracked_source_and_destination() -> None:
     cache = Mock()
     cache.has_namespace.return_value = False
     event = {
-        "operationType": "insert",
-        "ns": {"db": "db", "coll": "coll"},
-        "documentKey": {"_id": "doc-1"},
+        "operationType": "rename",
+        "ns": {"db": "db", "coll": "old_coll"},
+        "to": {"db": "db", "coll": "new_coll"},
     }
 
     must_reopen = route_change_event(cache, "db", event)
 
     assert must_reopen is False
-    cache.record_write.assert_not_called()
+    cache.clear_namespace.assert_not_called()
 
 
 def test_create_event_creates_the_namespace() -> None:
