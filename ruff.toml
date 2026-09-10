@@ -26,6 +26,9 @@ lint.ignore = [
   "ERA001",
   "FIX002",
   "SLF001",
+  # Two annoying and useless warnings.
+  "EM101",
+  "TRY003",
 ]
 lint.select = ["ALL"]
 
