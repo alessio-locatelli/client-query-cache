@@ -15,6 +15,7 @@ DEFAULT_MULTIPLIER = 2.0
 
 class StreamHealth(enum.Enum):
     STARTING = "starting"
+    CONNECTING = "connecting"
     HEALTHY = "healthy"
     RECONNECTING = "reconnecting"
     CLOSED = "closed"
