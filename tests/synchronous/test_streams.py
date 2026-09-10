@@ -41,9 +41,6 @@ class _FixedDelayBackoff:
 
 
 def _long_backoff(delay: float = 5.0) -> RetryBackoff:
-    # RetryBackoff.next_delay() jitters uniformly over [0, cap], so a large
-    # base_seconds does not reliably produce a large actual delay; tests that
-    # need to reliably catch a supervisor mid-wait use a fixed delay instead.
     return cast("RetryBackoff", _FixedDelayBackoff(delay))
 
 
@@ -126,10 +123,6 @@ def _as_database(fake: _FakeDatabase) -> Database[Any]:
 
 
 def _is_healthy(supervisor: DatabaseStreamSupervisor) -> bool:
-    # A plain `supervisor.healthy` read narrows under mypy's property
-    # narrowing and is not widened by an intervening `stop()`/`start()`
-    # call, making a later opposite-value assert falsely "unreachable".
-    # Routing the read through a function call sidesteps that narrowing.
     return supervisor.healthy
 
 
