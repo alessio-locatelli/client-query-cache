@@ -72,8 +72,8 @@ class DatabaseStreamSupervisor:
         if self._health is not StreamHealth.STARTING:
             message = "start() may only be called once per supervisor instance"
             raise StreamLifecycleError(message)
-        self._ensure_server_supports_expanded_events()
         try:
+            self._ensure_server_supports_expanded_events()
             self._open_stream(resume_token=None, use_start_after=False)
         except PyMongoError as exc:
             message = (
@@ -125,6 +125,9 @@ class DatabaseStreamSupervisor:
         if previous_stream is not None:
             with contextlib.suppress(PyMongoError):
                 previous_stream.close()
+        if self._stop_event.is_set():
+            with contextlib.suppress(PyMongoError):
+                self._stream.close()
 
     def _set_health(self, health: StreamHealth) -> None:
         with self._health_lock:

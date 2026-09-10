@@ -69,8 +69,8 @@ class DatabaseStreamSupervisor:
         if self._health is not StreamHealth.STARTING:
             message = "start() may only be called once per supervisor instance"
             raise StreamLifecycleError(message)
-        await self._ensure_server_supports_expanded_events()
         try:
+            await self._ensure_server_supports_expanded_events()
             await self._open_stream(resume_token=None, use_start_after=False)
         except PyMongoError as exc:
             message = (
@@ -121,6 +121,9 @@ class DatabaseStreamSupervisor:
         if previous_stream is not None:
             with contextlib.suppress(PyMongoError):
                 await previous_stream.close()
+        if self._stop_event.is_set():
+            with contextlib.suppress(PyMongoError):
+                await self._stream.close()
 
     async def _interruptible_sleep(self, delay: float) -> bool:
         try:

@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import Mock
 
 import pytest
-from pymongo.errors import OperationFailure
+from pymongo.errors import ConnectionFailure, OperationFailure
 
 from mongo_client_cache._core.errors import StreamLifecycleError, StreamStartupError
 from mongo_client_cache._core.keys import NamespaceId
@@ -138,6 +138,39 @@ def test_start_fails_closed(
 
     assert len(database.watch_calls) == expected_watch_calls
     assert supervisor.healthy is False
+
+
+def test_start_fails_closed_when_server_info_itself_fails() -> None:
+    database = _FakeDatabase("db", [])
+
+    def failing_server_info() -> dict[str, object]:
+        message = "no primary available"  # pytriage: TR5
+        raise ConnectionFailure(message)
+
+    database.client = SimpleNamespace(server_info=failing_server_info)
+    supervisor = DatabaseStreamSupervisor(_as_database(database), Mock())
+
+    with pytest.raises(StreamStartupError):
+        supervisor.start()
+
+    assert supervisor.healthy is False
+
+
+def test_closes_a_stream_opened_after_stop_was_requested() -> None:
+    stream = _ScriptedStream([])
+    database = _FakeDatabase("db", [stream])
+    supervisor = DatabaseStreamSupervisor(_as_database(database), Mock())
+
+    def before_watch(_index: int) -> None:
+        supervisor._stop_event.set()
+
+    database._before_watch = before_watch
+
+    try:
+        supervisor.start()
+        assert stream.closed is True
+    finally:
+        supervisor.stop()
 
 
 def test_start_becomes_healthy_and_routes_events() -> None:
