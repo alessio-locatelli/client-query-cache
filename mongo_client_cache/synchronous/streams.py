@@ -37,6 +37,7 @@ class DatabaseStreamSupervisor:
         "_database",
         "_health",
         "_health_lock",
+        "_lifecycle_lock",
         "_max_await_time_ms",
         "_resume_token",
         "_stop_event",
@@ -58,6 +59,7 @@ class DatabaseStreamSupervisor:
         self._max_await_time_ms = max_await_time_ms
         self._health = StreamHealth.STARTING
         self._health_lock = threading.Lock()
+        self._lifecycle_lock = threading.Lock()
         self._stream: DatabaseChangeStream[Any] | None = None
         self._resume_token: Mapping[str, Any] | None = None
         self._stop_event = threading.Event()
@@ -80,27 +82,29 @@ class DatabaseStreamSupervisor:
                 f"failed to open change stream for database {self._database.name!r}"
             )
             raise StreamStartupError(message) from exc
-        if self._stop_event.is_set():
-            assert self._stream is not None
-            with contextlib.suppress(PyMongoError):
-                self._stream.close()
-            self._set_health(StreamHealth.CLOSED)
-            message = "stop() was called while start() was still connecting"
-            raise StreamLifecycleError(message)
-        self._set_health(StreamHealth.HEALTHY)
-        self._thread = threading.Thread(
-            target=self._run,
-            name=f"mongo-client-cache-stream-{self._database.name}",
-            daemon=True,
-        )
-        self._thread.start()
+        with self._lifecycle_lock:
+            if self._stop_event.is_set():
+                assert self._stream is not None
+                with contextlib.suppress(PyMongoError):
+                    self._stream.close()
+                self._set_health(StreamHealth.CLOSED)
+                message = "stop() was called while start() was still connecting"
+                raise StreamLifecycleError(message)
+            self._set_health(StreamHealth.HEALTHY)
+            self._thread = threading.Thread(
+                target=self._run,
+                name=f"mongo-client-cache-stream-{self._database.name}",
+                daemon=True,
+            )
+            self._thread.start()
 
     def stop(self) -> None:
-        self._stop_event.set()
-        stream = self._stream
-        if stream is not None:
-            stream.close()
-        thread = self._thread
+        with self._lifecycle_lock:
+            self._stop_event.set()
+            stream = self._stream
+            if stream is not None:
+                stream.close()
+            thread = self._thread
         if thread is not None:
             thread.join()
         self._set_health(StreamHealth.CLOSED)
