@@ -437,9 +437,6 @@ def test_a_rolled_back_admission_still_discards_the_entry_it_displaced(
     core.record_write(namespace, identity)
     second_capture = core.begin_identity_admission(namespace, identity)
 
-    # admit_identity() calls conditional_put() exactly once per attempt, and
-    # this test only ever admits `second_capture`, so the hook itself never
-    # needs to guard against being re-triggered.
     def hook(_key: CacheKey, _entry: CacheEntry) -> None:
         core.record_write(namespace, identity)
 

@@ -96,9 +96,6 @@ def test_an_admission_racing_close_does_not_survive_in_the_closed_snapshot(
     core = CacheCore()
     capture = core.begin_identity_admission(namespace, "doc-1")
 
-    # admit_identity() calls conditional_put() exactly once per attempt, and
-    # this test only ever admits `capture`, so the hook itself never needs
-    # to guard against being re-triggered.
     def hook(_key: CacheKey, _entry: CacheEntry) -> None:
         core.close()
 
