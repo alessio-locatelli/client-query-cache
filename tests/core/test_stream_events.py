@@ -155,6 +155,22 @@ def test_rename_event_clears_both_the_source_and_destination_namespaces() -> Non
     cache.clear_namespace.assert_has_calls([call(source), call(destination)])
 
 
+def test_rename_event_does_not_clear_a_destination_in_another_database() -> None:
+    cache = Mock()
+    cache.has_namespace.return_value = True
+    source = NamespaceId("db", "old_coll")
+    event = {
+        "operationType": "rename",
+        "ns": {"db": "db", "coll": "old_coll"},
+        "to": {"db": "other_db", "coll": "new_coll"},
+    }
+
+    must_reopen = route_change_event(cache, "db", event)
+
+    assert must_reopen is False
+    cache.clear_namespace.assert_called_once_with(source)
+
+
 def test_drop_database_event_is_a_no_op_pending_its_invalidation() -> None:
     cache = Mock()
     event = {"operationType": "dropDatabase", "ns": {"db": "db"}}
@@ -284,3 +300,24 @@ def test_invalidate_clears_a_namespace_that_never_produced_an_event() -> None:
     assert must_reopen is True
     assert cache.lookup_namespace(namespace, "missing-doc").hit is False
     assert cache.lookup_namespace(other_database_namespace, "missing-doc").hit is True
+
+
+def test_rename_to_another_database_does_not_clear_that_databases_cache() -> None:
+    cache = CacheCore()
+    source = NamespaceId("db", "old_coll")
+    destination = NamespaceId("other_db", "new_coll")
+    source_capture = cache.capture_namespace_generation(source)
+    cache.admit_namespace(source_capture, "query", [1])
+    destination_capture = cache.capture_namespace_generation(destination)
+    cache.admit_namespace(destination_capture, "query", [1])
+    assert cache.lookup_namespace(destination, "query").hit is True
+
+    event = {
+        "operationType": "rename",
+        "ns": {"db": "db", "coll": "old_coll"},
+        "to": {"db": "other_db", "coll": "new_coll"},
+    }
+    route_change_event(cache, "db", event)
+
+    assert cache.lookup_namespace(source, "query").hit is False
+    assert cache.lookup_namespace(destination, "query").hit is True

@@ -138,12 +138,6 @@ class _CacheCoreBase:
         for alias_key in identity_state.alias_keys:
             state.aliases.pop(alias_key, None)
         state.identities.pop(identity, None)
-        # A recreated IdentityState always starts from this watermark; keeping
-        # it above every generation this identity ever reached (not just the
-        # value at first creation) stops a future admission from being
-        # rejected by, or a stale one from matching, a same-key entry that is
-        # still resident but was never reclaimed (e.g. cancelled before index
-        # publication).
         state.identity_generation_watermark = max(
             state.identity_generation_watermark, identity_state.generation + 1
         )
@@ -289,10 +283,6 @@ class _CacheCoreIdentityAdmission(_CacheCoreBase):
         self._ensure_active()
         canonical_identity = canonicalize(identity)
         if canonical_identity is None:
-            # None is the sentinel CacheEntry.identity uses to mean "this is a
-            # namespace-guarded entry"; accepting it as a real identity value
-            # would make an identity-guarded entry indistinguishable from that
-            # sentinel, so eviction/clear reclamation could never find it.
             message = "identity must not be None"
             raise UnsupportedCacheRequestError(message)
         state = self._namespace(namespace)
