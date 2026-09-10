@@ -118,6 +118,40 @@ def test_a_late_stale_insertion_cannot_clobber_a_fresher_entry(
     assert result.value == {"v": "fresh"}
 
 
+def test_an_entry_evicted_before_publication_is_not_indexed_as_a_ghost(
+    core: CacheCore, namespace: NamespaceId, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    identity = "doc-1"
+    read_shape = "full"
+    capture = core.begin_identity_admission(namespace, identity)
+
+    lru_class = type(core._lru)
+    original_conditional_put = lru_class.conditional_put
+    triggered = False
+
+    def racing_conditional_put(
+        self: WeightedLru, key: CacheKey, entry: CacheEntry
+    ) -> object:
+        nonlocal triggered
+        result = original_conditional_put(self, key, entry)
+        if not triggered and entry.generation_key == capture.generation_key:
+            triggered = True
+            # Simulate a concurrent admission's capacity eviction removing
+            # this entry before this admission reaches its own namespace-lock
+            # publication step.
+            core._lru.remove_exact(key, entry)
+        return result
+
+    monkeypatch.setattr(lru_class, "conditional_put", racing_conditional_put)
+
+    outcome = core.admit_identity(capture, read_shape, {"v": "evicted-before-publish"})
+
+    assert outcome is AdmissionOutcome.DECLINED_STALE
+    state = core._namespace(namespace)
+    assert len(state.entry_index) == 0
+    assert identity not in state.identities
+
+
 def test_a_replaced_entry_does_not_leak_its_index_token(
     core: CacheCore, namespace: NamespaceId
 ) -> None:
@@ -165,6 +199,96 @@ def test_cancelled_admission_is_rejected_at_lookup_but_not_physically_reclaimed(
     assert result.hit is False
 
 
+def test_an_orphaned_entry_is_not_revalidated_by_a_later_admission_for_the_identity(
+    core: CacheCore, namespace: NamespaceId
+) -> None:
+    identity = "doc-1"
+    orphaned_shape = "orphaned-shape"
+    capture = core.begin_identity_admission(namespace, identity)
+
+    canonical_identity = capture.identity
+    canonical_shape = canonicalize(orphaned_shape)
+    orphaned_key = IdentityCacheKey(namespace, canonical_identity, canonical_shape)
+    encoded = encode_value({"v": "orphaned"})
+    orphaned_entry = CacheEntry(
+        generation_key=capture.generation_key,
+        weight=len(encoded),
+        value=encoded,
+        namespace=namespace,
+        identity=canonical_identity,
+    )
+    admitted, _displaced, _evicted = core._lru.conditional_put(
+        orphaned_key, orphaned_entry
+    )
+    assert admitted
+    core.discard_identity_admission(capture)
+
+    state = core._namespace(namespace)
+    assert identity not in state.identities
+
+    fresh_capture = core.begin_identity_admission(namespace, identity)
+    outcome = core.admit_identity(fresh_capture, "fresh-shape", {"v": "fresh"})
+    assert outcome is AdmissionOutcome.ADMITTED
+
+    orphaned_result = core.lookup_identity(namespace, identity, orphaned_shape)
+    assert orphaned_result.hit is False
+
+
+def test_a_pruned_high_generation_identity_does_not_block_future_admissions(
+    core: CacheCore, namespace: NamespaceId
+) -> None:
+    identity = "doc-1"
+    read_shape = "shared-shape"
+    write_count = 50
+
+    # Keep the identity tracked (via an open capture) while driving its
+    # generation up with writes, without ever successfully admitting a
+    # resident entry for it.
+    holder_capture = core.begin_identity_admission(namespace, identity)
+    for _ in range(write_count):
+        core.record_write(namespace, identity)
+
+    # Orphan an entry at the identity's now-high generation, under the same
+    # key a later, legitimate admission will use, bypassing the normal
+    # publish step.
+    orphan_capture = core.begin_identity_admission(namespace, identity)
+    canonical_identity = orphan_capture.identity
+    canonical_shape = canonicalize(read_shape)
+    key = IdentityCacheKey(namespace, canonical_identity, canonical_shape)
+    encoded = encode_value({"v": "orphan"})
+    orphaned_entry = CacheEntry(
+        generation_key=orphan_capture.generation_key,
+        weight=len(encoded),
+        value=encoded,
+        namespace=namespace,
+        identity=canonical_identity,
+    )
+    admitted, _displaced, _evicted = core._lru.conditional_put(key, orphaned_entry)
+    assert admitted
+    core.discard_identity_admission(orphan_capture)
+    core.discard_identity_admission(holder_capture)
+
+    state = core._namespace(namespace)
+    assert identity not in state.identities
+
+    # A fresh admission under the same key must not be rejected by
+    # conditional_put as "older" than the still-resident orphan.
+    fresh_capture = core.begin_identity_admission(namespace, identity)
+    outcome = core.admit_identity(fresh_capture, read_shape, {"v": "fresh"})
+    assert outcome is AdmissionOutcome.ADMITTED
+
+    result = core.lookup_identity(namespace, identity, read_shape)
+    assert result.hit
+    assert result.value == {"v": "fresh"}
+
+
+def test_identity_admission_rejects_none_as_an_identity_value(
+    core: CacheCore, namespace: NamespaceId
+) -> None:
+    with pytest.raises(UnsupportedCacheRequestError):
+        core.begin_identity_admission(namespace, None)
+
+
 def test_a_namespace_clear_reclaims_a_normally_completed_admission(
     core: CacheCore, namespace: NamespaceId
 ) -> None:
@@ -177,6 +301,34 @@ def test_a_namespace_clear_reclaims_a_normally_completed_admission(
     used_bytes, entry_count = core._lru.snapshot_usage()
     assert used_bytes == 0
     assert entry_count == 0
+
+
+def test_a_namespace_guarded_entry_evicted_before_publication_is_not_a_ghost(
+    core: CacheCore, namespace: NamespaceId, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    capture = core.capture_namespace_generation(namespace)
+
+    lru_class = type(core._lru)
+    original_conditional_put = lru_class.conditional_put
+    triggered = False
+
+    def racing_conditional_put(
+        self: WeightedLru, key: CacheKey, entry: CacheEntry
+    ) -> object:
+        nonlocal triggered
+        result = original_conditional_put(self, key, entry)
+        if not triggered and entry.generation_key == (capture.generation,):
+            triggered = True
+            core._lru.remove_exact(key, entry)
+        return result
+
+    monkeypatch.setattr(lru_class, "conditional_put", racing_conditional_put)
+
+    outcome = core.admit_namespace(capture, ("find", {}), ["evicted-before-publish"])
+
+    assert outcome is AdmissionOutcome.DECLINED_STALE
+    state = core._namespace(namespace)
+    assert len(state.entry_index) == 0
 
 
 def test_no_code_path_holds_the_namespace_lock_and_the_lru_lock_at_once(
@@ -247,3 +399,40 @@ def test_thread_local_guard_is_isolated_per_thread(core: CacheCore) -> None:
         thread.join()
 
     assert not errors
+
+
+def test_a_rolled_back_admission_still_discards_the_entry_it_displaced(
+    core: CacheCore, namespace: NamespaceId, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    identity = "doc-1"
+    read_shape = "full"
+
+    first_capture = core.begin_identity_admission(namespace, identity)
+    outcome = core.admit_identity(first_capture, read_shape, {"v": "first"})
+    assert outcome is AdmissionOutcome.ADMITTED
+
+    core.record_write(namespace, identity)
+    second_capture = core.begin_identity_admission(namespace, identity)
+
+    lru_class = type(core._lru)
+    original_conditional_put = lru_class.conditional_put
+    triggered = False
+
+    def racing_conditional_put(
+        self: WeightedLru, key: CacheKey, entry: CacheEntry
+    ) -> object:
+        nonlocal triggered
+        result = original_conditional_put(self, key, entry)
+        if not triggered and entry.generation_key == second_capture.generation_key:
+            triggered = True
+            core.record_write(namespace, identity)
+        return result
+
+    monkeypatch.setattr(lru_class, "conditional_put", racing_conditional_put)
+
+    outcome = core.admit_identity(second_capture, read_shape, {"v": "second"})
+    assert outcome is AdmissionOutcome.DECLINED_STALE
+
+    state = core._namespace(namespace)
+    assert len(state.entry_index) == 0
+    assert identity not in state.identities

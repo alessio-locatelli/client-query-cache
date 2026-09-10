@@ -31,3 +31,4 @@ class NamespaceState:
     identities: dict[Canonical, IdentityState] = field(default_factory=dict)
     aliases: dict[AliasKey, Canonical] = field(default_factory=dict)
     entry_index: dict[CacheEntry, CacheKey] = field(default_factory=dict)
+    identity_generation_watermark: int = 0
