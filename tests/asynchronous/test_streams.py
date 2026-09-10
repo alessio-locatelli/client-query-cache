@@ -232,8 +232,7 @@ async def test_start_fails_closed_when_server_info_itself_fails(
     database = _FakeDatabase("db", [])
 
     async def failing_server_info() -> dict[str, object]:
-        message = "no primary available"  # pytriage: TR5
-        raise ConnectionFailure(message)
+        raise ConnectionFailure("no primary available")
 
     database.client = SimpleNamespace(server_info=failing_server_info)
     supervisor = make_supervisor(_as_database(database), Mock())

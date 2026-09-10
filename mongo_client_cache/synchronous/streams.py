@@ -216,8 +216,7 @@ class ChangeStreamCoordinator:
     def activate_database(self, name: str) -> DatabaseStreamSupervisor:
         with self._lock:
             if self._closed:
-                message = "coordinator is closed"  # pytriage: TR5
-                raise StreamLifecycleError(message)
+                raise StreamLifecycleError("coordinator is closed")
             supervisor = self._supervisors.get(name)
             if supervisor is None:
                 supervisor = DatabaseStreamSupervisor(self._client[name], self._cache)
