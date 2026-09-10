@@ -244,7 +244,7 @@ async def test_start_fails_closed_when_server_info_itself_fails(
     assert supervisor.healthy is False
 
 
-async def test_closes_a_stream_opened_after_stop_was_requested(
+async def test_start_raises_and_closes_the_stream_when_stop_races_it(
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
 ) -> None:
     stream = _ScriptedStream([])
@@ -256,9 +256,11 @@ async def test_closes_a_stream_opened_after_stop_was_requested(
 
     database._before_watch = before_watch
 
-    await supervisor.start()
+    with pytest.raises(StreamLifecycleError):
+        await supervisor.start()
 
     assert stream.closed is True
+    assert supervisor.healthy is False
 
 
 async def test_start_becomes_healthy_and_routes_events(

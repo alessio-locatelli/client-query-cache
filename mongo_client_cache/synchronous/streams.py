@@ -80,6 +80,13 @@ class DatabaseStreamSupervisor:
                 f"failed to open change stream for database {self._database.name!r}"
             )
             raise StreamStartupError(message) from exc
+        if self._stop_event.is_set():
+            assert self._stream is not None
+            with contextlib.suppress(PyMongoError):
+                self._stream.close()
+            self._set_health(StreamHealth.CLOSED)
+            message = "stop() was called while start() was still connecting"
+            raise StreamLifecycleError(message)
         self._set_health(StreamHealth.HEALTHY)
         self._thread = threading.Thread(
             target=self._run,

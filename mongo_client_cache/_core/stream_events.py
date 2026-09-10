@@ -60,12 +60,12 @@ def _route_drop(cache: CacheCore, event: Mapping[str, Any]) -> None:
         cache.clear_namespace(namespace)
 
 
-def _route_rename(cache: CacheCore, event: Mapping[str, Any]) -> None:
+def _route_rename(cache: CacheCore, database: str, event: Mapping[str, Any]) -> None:
     source = _namespace_from_ns(event["ns"])
-    destination = _namespace_from_ns(event["to"])
     if cache.has_namespace(source):
         cache.clear_namespace(source)
-    if cache.has_namespace(destination):
+    destination = _namespace_from_ns(event["to"])
+    if destination.database == database and cache.has_namespace(destination):
         cache.clear_namespace(destination)
 
 
@@ -88,7 +88,7 @@ def route_change_event(
         _route_drop(cache, event)
         return False
     if operation_type == "rename":
-        _route_rename(cache, event)
+        _route_rename(cache, database, event)
         return False
     if operation_type == "dropDatabase":
         return False

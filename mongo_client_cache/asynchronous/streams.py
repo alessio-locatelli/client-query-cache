@@ -77,6 +77,13 @@ class DatabaseStreamSupervisor:
                 f"failed to open change stream for database {self._database.name!r}"
             )
             raise StreamStartupError(message) from exc
+        if self._stop_event.is_set():
+            assert self._stream is not None
+            with contextlib.suppress(PyMongoError):
+                await self._stream.close()
+            self._health = StreamHealth.CLOSED
+            message = "stop() was called while start() was still connecting"
+            raise StreamLifecycleError(message)
         self._health = StreamHealth.HEALTHY
         self._task = asyncio.ensure_future(self._run())
 
