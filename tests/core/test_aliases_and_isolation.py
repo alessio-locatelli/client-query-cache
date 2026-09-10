@@ -40,9 +40,6 @@ def test_clearing_discards_aliases_and_budget_for_a_racing_rolled_back_admission
     capture = core.begin_identity_admission(namespace, "doc-1")
     alias = canonical_alias_key("email", "a@example.com", None)
 
-    # admit_identity() calls conditional_put() exactly once per attempt, and
-    # this test only ever admits `capture`, so the hook itself never needs
-    # to guard against being re-triggered.
     def hook(_key: CacheKey, _entry: CacheEntry) -> None:
         core.clear_namespace(namespace)
 
