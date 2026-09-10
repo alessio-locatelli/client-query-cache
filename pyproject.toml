@@ -43,7 +43,12 @@ module-root = ""
 
 [tool.vulture]
 paths = ["mongo_client_cache", "tests"]
-ignore_names = ["log_when_test_starts", "faker_seed", "pytestmark"]
+ignore_names = [
+  "log_when_test_starts",
+  "faker_seed",
+  "pytestmark",
+  "return_value",
+]
 
 [tool.ruff-extra-rules]
 fix = true

@@ -219,6 +219,14 @@ class _CacheCoreLifecycle(_CacheCoreBase):
 class _CacheCoreNamespaceLifecycle(_CacheCoreBase):
     __slots__ = ()
 
+    def namespaces_for_database(self, database: str) -> list[NamespaceId]:
+        with self._namespaces_lock:
+            return [
+                namespace
+                for namespace in self._namespaces
+                if namespace.database == database
+            ]
+
     def record_write(self, namespace: NamespaceId, identity: object) -> None:
         self._ensure_active()
         canonical_identity = canonicalize(identity)

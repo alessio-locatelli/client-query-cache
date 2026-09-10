@@ -3,6 +3,7 @@ from mongo_client_cache._core.errors import (
     CacheClosedError,
     CacheConfigurationError,
     CacheError,
+    StreamLifecycleError,
     StreamStartupError,
     UnsupportedCacheRequestError,
 )
@@ -31,6 +32,7 @@ __all__ = [
     "NamespaceCapture",
     "NamespaceId",
     "StreamHealth",
+    "StreamLifecycleError",
     "StreamStartupError",
     "UnsupportedCacheRequestError",
 ]
