@@ -3,6 +3,7 @@ from mongo_client_cache._core.errors import (
     CacheClosedError,
     CacheConfigurationError,
     CacheError,
+    StreamStartupError,
     UnsupportedCacheRequestError,
 )
 from mongo_client_cache._core.keys import NamespaceId
@@ -14,6 +15,7 @@ from mongo_client_cache._core.manager import (
     NamespaceCapture,
 )
 from mongo_client_cache._core.snapshots import CacheSnapshot
+from mongo_client_cache._core.stream_health import StreamHealth
 
 __all__ = [
     "AdmissionOutcome",
@@ -28,5 +30,7 @@ __all__ = [
     "LookupResult",
     "NamespaceCapture",
     "NamespaceId",
+    "StreamHealth",
+    "StreamStartupError",
     "UnsupportedCacheRequestError",
 ]

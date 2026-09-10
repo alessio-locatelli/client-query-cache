@@ -15,3 +15,7 @@ class UnsupportedCacheRequestError(CacheError, TypeError):
 
 class CacheClosedError(CacheError):
     pass
+
+
+class StreamStartupError(CacheError):
+    pass
