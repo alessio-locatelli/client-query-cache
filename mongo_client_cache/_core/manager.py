@@ -9,7 +9,11 @@ from typing import TYPE_CHECKING
 from mongo_client_cache._core.canonical import canonicalize
 from mongo_client_cache._core.codec import decode_value, encode_value
 from mongo_client_cache._core.entries import AdmissionOutcome, CacheEntry, LookupResult
-from mongo_client_cache._core.errors import CacheClosedError, CacheConfigurationError
+from mongo_client_cache._core.errors import (
+    CacheClosedError,
+    CacheConfigurationError,
+    UnsupportedCacheRequestError,
+)
 from mongo_client_cache._core.keys import (
     IdentityCacheKey,
     NamespaceCacheKey,
@@ -66,7 +70,7 @@ class NamespaceCapture:
     generation: int
 
 
-class CacheCore:
+class _CacheCoreBase:
     __slots__ = (
         "_guard",
         "_lifecycle",
@@ -91,13 +95,88 @@ class CacheCore:
         self._lifecycle_lock = threading.Lock()
         self._statistics = CacheStatistics()
 
+    def _is_closed(self) -> bool:
+        return self._lifecycle is CacheLifecycleState.CLOSED
+
+    def _ensure_active(self) -> None:
+        if self._is_closed():
+            message = "cache manager is closed"
+            raise CacheClosedError(message)
+
+    def _namespace(self, namespace: NamespaceId) -> NamespaceState:
+        with self._namespaces_lock:
+            state = self._namespaces.get(namespace)
+            if state is None:
+                state = NamespaceState(namespace=namespace)
+                self._namespaces[namespace] = state
+            return state
+
+    @contextmanager
+    def _namespace_section(self, state: NamespaceState) -> Iterator[None]:
+        with self._guard.namespace_section(), state.lock:
+            yield
+
+    @staticmethod
+    def _identity_generation_matches(
+        state: NamespaceState,
+        identity_state: IdentityState | None,
+        generation_key: tuple[int, int],
+    ) -> bool:
+        if identity_state is None:
+            return False
+        return (state.epoch, identity_state.generation) == generation_key
+
+    def _maybe_prune_identity_locked(
+        self, state: NamespaceState, identity: Canonical, identity_state: IdentityState
+    ) -> None:
+        if identity_state.is_referenced:
+            return
+        for alias_key in identity_state.alias_keys:
+            state.aliases.pop(alias_key, None)
+        state.identities.pop(identity, None)
+        # A recreated IdentityState always starts from this watermark; keeping
+        # it above every generation this identity ever reached (not just the
+        # value at first creation) stops a future admission from being
+        # rejected by, or a stale one from matching, a same-key entry that is
+        # still resident but was never reclaimed (e.g. cancelled before index
+        # publication).
+        state.identity_generation_watermark = max(
+            state.identity_generation_watermark, identity_state.generation + 1
+        )
+
+    def _discard_entry_locked(self, state: NamespaceState, entry: CacheEntry) -> None:
+        was_indexed = state.entry_index.pop(entry, _NOT_INDEXED) is not _NOT_INDEXED
+        if was_indexed and entry.identity is not None:
+            identity_state = state.identities.get(entry.identity)
+            if identity_state is not None:
+                identity_state.cached_ref_count -= 1
+                self._maybe_prune_identity_locked(state, entry.identity, identity_state)
+
+    def _process_evicted(self, evicted: list[CacheEntry]) -> None:
+        if not evicted:
+            return
+        self._statistics.record_evictions(len(evicted))
+        logger.debug("cache entries evicted", extra={"evicted_count": len(evicted)})
+        by_namespace: dict[NamespaceId, list[CacheEntry]] = {}
+        for entry in evicted:
+            by_namespace.setdefault(entry.namespace, []).append(entry)
+        for namespace, entries in by_namespace.items():
+            state = self._namespace(namespace)
+            with self._namespace_section(state):
+                for entry in entries:
+                    self._discard_entry_locked(state, entry)
+
+
+class _CacheCoreLifecycle(_CacheCoreBase):
+    __slots__ = ()
+
     @property
     def lifecycle_state(self) -> CacheLifecycleState:
         return self._lifecycle
 
     def close(self) -> None:
         with self._lifecycle_lock:
-            if self._lifecycle is CacheLifecycleState.CLOSED:
+            if self._is_closed():
                 return
             self._lifecycle = CacheLifecycleState.CLOSED
         self._lru.clear_all()
@@ -123,7 +202,9 @@ class CacheCore:
             bypasses=bypasses,
         )
 
-    # -- Namespace lifecycle --------------------------------------------
+
+class _CacheCoreNamespaceLifecycle(_CacheCoreBase):
+    __slots__ = ()
 
     def record_write(self, namespace: NamespaceId, identity: object) -> None:
         self._ensure_active()
@@ -175,18 +256,31 @@ class CacheCore:
             },
         )
 
-    # -- Identity-guarded admission ---------------------------------------
+
+class _CacheCoreIdentityAdmission(_CacheCoreBase):
+    __slots__ = ()
 
     def begin_identity_admission(
         self, namespace: NamespaceId, identity: object
     ) -> IdentityCapture:
         self._ensure_active()
         canonical_identity = canonicalize(identity)
+        if canonical_identity is None:
+            # None is the sentinel CacheEntry.identity uses to mean "this is a
+            # namespace-guarded entry"; accepting it as a real identity value
+            # would make an identity-guarded entry indistinguishable from that
+            # sentinel, so eviction/clear reclamation could never find it.
+            message = "identity must not be None"
+            raise UnsupportedCacheRequestError(message)
         state = self._namespace(namespace)
         with self._namespace_section(state):
-            identity_state = state.identities.setdefault(
-                canonical_identity, IdentityState()
-            )
+            identity_state = state.identities.get(canonical_identity)
+            if identity_state is None:
+                identity_state = IdentityState(
+                    generation=state.identity_generation_watermark
+                )
+                state.identity_generation_watermark += 1
+                state.identities[canonical_identity] = identity_state
             identity_state.inflight_ref_count += 1
             generation_key = (state.epoch, identity_state.generation)
         return IdentityCapture(
@@ -216,13 +310,12 @@ class CacheCore:
             state = self._namespace(capture.namespace)
             with self._namespace_section(state):
                 identity_state = state.identities.get(capture.identity)
-                if not self._identity_generation_matches(
+                if self._is_closed() or not self._identity_generation_matches(
                     state, identity_state, capture.generation_key
                 ):
                     return AdmissionOutcome.DECLINED_STALE
                 if alias is not None and identity_state is not None:
-                    state.aliases[alias] = capture.identity
-                    identity_state.alias_keys.add(alias)
+                    self._publish_alias_locked(state, alias, capture.identity)
             entry = CacheEntry(
                 generation_key=capture.generation_key,
                 weight=weight,
@@ -234,34 +327,29 @@ class CacheCore:
             if not admitted:
                 return AdmissionOutcome.DECLINED_STALE
             self._process_evicted(evicted)
+            still_resident = self._lru.contains_exact(key, entry)
             rolled_back = False
             with self._namespace_section(state):
                 identity_state = state.identities.get(capture.identity)
-                if not self._identity_generation_matches(
-                    state, identity_state, capture.generation_key
+                if (
+                    not still_resident
+                    or self._is_closed()
+                    or not self._identity_generation_matches(
+                        state, identity_state, capture.generation_key
+                    )
                 ):
                     rolled_back = True
                 elif identity_state is not None:
                     state.entry_index[entry] = key
                     identity_state.cached_ref_count += 1
-                    if displaced is not None:
-                        self._discard_entry_locked(state, displaced)
+                if displaced is not None:
+                    self._discard_entry_locked(state, displaced)
             if rolled_back:
                 self._lru.remove_exact(key, entry)
                 return AdmissionOutcome.DECLINED_STALE
             return AdmissionOutcome.ADMITTED
         finally:
             self._release_identity_capture(capture)
-
-    @staticmethod
-    def _identity_generation_matches(
-        state: NamespaceState,
-        identity_state: IdentityState | None,
-        generation_key: tuple[int, int],
-    ) -> bool:
-        if identity_state is None:
-            return False
-        return (state.epoch, identity_state.generation) == generation_key
 
     def _release_identity_capture(self, capture: IdentityCapture) -> None:
         if capture.released:
@@ -275,7 +363,20 @@ class CacheCore:
             identity_state.inflight_ref_count -= 1
             self._maybe_prune_identity_locked(state, capture.identity, identity_state)
 
-    # -- Namespace-guarded admission ---------------------------------------
+    def _publish_alias_locked(
+        self, state: NamespaceState, alias: AliasKey, identity: Canonical
+    ) -> None:
+        previous_identity = state.aliases.get(alias)
+        if previous_identity is not None and previous_identity != identity:
+            previous_identity_state = state.identities.get(previous_identity)
+            if previous_identity_state is not None:
+                previous_identity_state.alias_keys.discard(alias)
+        state.aliases[alias] = identity
+        state.identities[identity].alias_keys.add(alias)
+
+
+class _CacheCoreNamespaceAdmission(_CacheCoreBase):
+    __slots__ = ()
 
     def capture_namespace_generation(self, namespace: NamespaceId) -> NamespaceCapture:
         self._ensure_active()
@@ -295,7 +396,7 @@ class CacheCore:
         key = NamespaceCacheKey(capture.namespace, canonical_discriminator)
         state = self._namespace(capture.namespace)
         with self._namespace_section(state):
-            if state.generation != capture.generation:
+            if self._is_closed() or state.generation != capture.generation:
                 return AdmissionOutcome.DECLINED_STALE
         entry = CacheEntry(
             generation_key=(capture.generation,),
@@ -308,20 +409,27 @@ class CacheCore:
         if not admitted:
             return AdmissionOutcome.DECLINED_STALE
         self._process_evicted(evicted)
+        still_resident = self._lru.contains_exact(key, entry)
         rolled_back = False
         with self._namespace_section(state):
-            if state.generation != capture.generation:
+            if (
+                not still_resident
+                or self._is_closed()
+                or state.generation != capture.generation
+            ):
                 rolled_back = True
             else:
                 state.entry_index[entry] = key
-                if displaced is not None:
-                    self._discard_entry_locked(state, displaced)
+            if displaced is not None:
+                self._discard_entry_locked(state, displaced)
         if rolled_back:
             self._lru.remove_exact(key, entry)
             return AdmissionOutcome.DECLINED_STALE
         return AdmissionOutcome.ADMITTED
 
-    # -- Lookup -------------------------------------------------------------
+
+class _CacheCoreLookup(_CacheCoreBase):
+    __slots__ = ()
 
     def lookup_identity(
         self, namespace: NamespaceId, identity: object, read_shape: object
@@ -379,53 +487,47 @@ class CacheCore:
         with self._namespace_section(state):
             return state.aliases.get(alias_key)
 
-    # -- Internals ------------------------------------------------------
+    def lookup_by_alias(
+        self,
+        namespace: NamespaceId,
+        definition: object,
+        value: object,
+        collation: object,
+        read_shape: object,
+    ) -> LookupResult:
+        self._ensure_active()
+        alias_key = canonical_alias_key(definition, value, collation)
+        state = self._namespace(namespace)
+        with self._namespace_section(state):
+            identity = state.aliases.get(alias_key)
+        if identity is None:
+            self._statistics.record_miss()
+            return LookupResult(hit=False)
+        canonical_shape = canonicalize(read_shape)
+        key = IdentityCacheKey(namespace, identity, canonical_shape)
+        entry = self._lru.get_and_touch(key)
+        if entry is None:
+            self._statistics.record_miss()
+            return LookupResult(hit=False)
+        with self._namespace_section(state):
+            still_aliased = state.aliases.get(alias_key) == identity
+            identity_state = state.identities.get(identity)
+            entry_generation_key = (entry.generation_key[0], entry.generation_key[1])
+            valid = still_aliased and self._identity_generation_matches(
+                state, identity_state, entry_generation_key
+            )
+        if not valid:
+            self._statistics.record_miss()
+            return LookupResult(hit=False)
+        self._statistics.record_hit()
+        return LookupResult(hit=True, value=decode_value(entry.value))
 
-    def _ensure_active(self) -> None:
-        if self._lifecycle is CacheLifecycleState.CLOSED:
-            message = "cache manager is closed"
-            raise CacheClosedError(message)
 
-    def _namespace(self, namespace: NamespaceId) -> NamespaceState:
-        with self._namespaces_lock:
-            state = self._namespaces.get(namespace)
-            if state is None:
-                state = NamespaceState(namespace=namespace)
-                self._namespaces[namespace] = state
-            return state
-
-    @contextmanager
-    def _namespace_section(self, state: NamespaceState) -> Iterator[None]:
-        with self._guard.namespace_section(), state.lock:
-            yield
-
-    def _maybe_prune_identity_locked(
-        self, state: NamespaceState, identity: Canonical, identity_state: IdentityState
-    ) -> None:
-        if identity_state.is_referenced:
-            return
-        for alias_key in identity_state.alias_keys:
-            state.aliases.pop(alias_key, None)
-        state.identities.pop(identity, None)
-
-    def _discard_entry_locked(self, state: NamespaceState, entry: CacheEntry) -> None:
-        was_indexed = state.entry_index.pop(entry, _NOT_INDEXED) is not _NOT_INDEXED
-        if was_indexed and entry.identity is not None:
-            identity_state = state.identities.get(entry.identity)
-            if identity_state is not None:
-                identity_state.cached_ref_count -= 1
-                self._maybe_prune_identity_locked(state, entry.identity, identity_state)
-
-    def _process_evicted(self, evicted: list[CacheEntry]) -> None:
-        if not evicted:
-            return
-        self._statistics.record_evictions(len(evicted))
-        logger.debug("cache entries evicted", extra={"evicted_count": len(evicted)})
-        by_namespace: dict[NamespaceId, list[CacheEntry]] = {}
-        for entry in evicted:
-            by_namespace.setdefault(entry.namespace, []).append(entry)
-        for namespace, entries in by_namespace.items():
-            state = self._namespace(namespace)
-            with self._namespace_section(state):
-                for entry in entries:
-                    self._discard_entry_locked(state, entry)
+class CacheCore(
+    _CacheCoreLifecycle,
+    _CacheCoreNamespaceLifecycle,
+    _CacheCoreIdentityAdmission,
+    _CacheCoreNamespaceAdmission,
+    _CacheCoreLookup,
+):
+    __slots__ = ()

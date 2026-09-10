@@ -78,6 +78,10 @@ class WeightedLru:
                 evicted.append(oldest_entry)
             return True, current, evicted
 
+    def contains_exact(self, key: CacheKey, entry: CacheEntry) -> bool:
+        with self._guard.lru_section(), self._lock:
+            return self._order.get(key) is entry
+
     def remove_exact(self, key: CacheKey, entry: CacheEntry) -> bool:
         with self._guard.lru_section(), self._lock:
             current = self._order.get(key)

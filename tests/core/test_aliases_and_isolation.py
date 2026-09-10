@@ -150,3 +150,111 @@ def test_an_inflight_read_racing_a_clear_is_rejected_rather_than_repopulating(
 
     assert outcome is AdmissionOutcome.DECLINED_STALE
     assert core.lookup_identity(namespace, identity, "full").hit is False
+
+
+def test_lookup_by_alias_returns_the_cached_value_for_a_valid_resolution(
+    core: CacheCore, namespace: NamespaceId
+) -> None:
+    capture = core.begin_identity_admission(namespace, "doc-1")
+    alias = canonical_alias_key("email", "a@example.com", None)
+    core.admit_identity(capture, "full", {"v": "current"}, alias=alias)
+
+    result = core.lookup_by_alias(namespace, "email", "a@example.com", None, "full")
+
+    assert result.hit
+    assert result.value == {"v": "current"}
+
+
+def test_lookup_by_alias_misses_when_no_alias_is_resolved(
+    core: CacheCore, namespace: NamespaceId
+) -> None:
+    result = core.lookup_by_alias(
+        namespace, "email", "missing@example.com", None, "full"
+    )
+    assert result.hit is False
+
+
+def test_lookup_by_alias_does_not_return_a_document_the_alias_no_longer_matches(
+    core: CacheCore, namespace: NamespaceId
+) -> None:
+    identity = "doc-1"
+    capture = core.begin_identity_admission(namespace, identity)
+    alias = canonical_alias_key("email", "a@example.com", None)
+    core.admit_identity(capture, "full", {"v": "old-email-value"}, alias=alias)
+
+    # The document's email changes; a write drops the stale alias immediately,
+    # then a fresh identity-guarded entry is cached for the same document.
+    core.record_write(namespace, identity)
+    fresh_capture = core.begin_identity_admission(namespace, identity)
+    core.admit_identity(fresh_capture, "full", {"v": "new-email-value"})
+
+    result = core.lookup_by_alias(namespace, "email", "a@example.com", None, "full")
+
+    assert result.hit is False
+
+
+def test_a_write_racing_between_resolve_alias_and_lookup_identity_is_not_masked(
+    core: CacheCore, namespace: NamespaceId
+) -> None:
+    identity = "doc-1"
+    capture = core.begin_identity_admission(namespace, identity)
+    alias = canonical_alias_key("email", "a@example.com", None)
+    core.admit_identity(capture, "full", {"v": "old-email-value"}, alias=alias)
+
+    resolved_identity = core.resolve_alias(namespace, "email", "a@example.com", None)
+    assert resolved_identity == identity
+
+    core.record_write(namespace, identity)
+    fresh_capture = core.begin_identity_admission(namespace, identity)
+    core.admit_identity(fresh_capture, "full", {"v": "new-email-value"})
+
+    # A caller composing resolve_alias() with a bare lookup_identity() would
+    # incorrectly see the document's *current* contents as if they still
+    # matched the old email; lookup_by_alias re-validates the alias itself
+    # and correctly misses instead.
+    stale_composition = core.lookup_identity(namespace, resolved_identity, "full")
+    assert stale_composition.hit
+
+    result = core.lookup_by_alias(namespace, "email", "a@example.com", None, "full")
+    assert result.hit is False
+
+
+def test_repointing_an_alias_to_a_new_identity_survives_the_old_owners_cleanup(
+    core: CacheCore, namespace: NamespaceId
+) -> None:
+    alias = canonical_alias_key("email", "shared@example.com", None)
+
+    old_owner = "doc-old"
+    old_capture = core.begin_identity_admission(namespace, old_owner)
+    core.admit_identity(old_capture, "full", {"v": "old-owner"}, alias=alias)
+
+    new_owner = "doc-new"
+    new_capture = core.begin_identity_admission(namespace, new_owner)
+    core.admit_identity(new_capture, "full", {"v": "new-owner"}, alias=alias)
+
+    assert core.resolve_alias(namespace, "email", "shared@example.com", None) == (
+        new_owner
+    )
+
+    # Writing to the old owner must not clean up an alias it no longer owns.
+    core.record_write(namespace, old_owner)
+
+    assert core.resolve_alias(namespace, "email", "shared@example.com", None) == (
+        new_owner
+    )
+
+
+def test_a_mapping_identity_resolved_via_alias_still_matches_lookup_identity(
+    core: CacheCore, namespace: NamespaceId
+) -> None:
+    identity = {"tenant": "t1", "id": 42}
+    capture = core.begin_identity_admission(namespace, identity)
+    alias = canonical_alias_key("email", "a@example.com", None)
+    core.admit_identity(capture, "full", {"v": "value"}, alias=alias)
+
+    resolved_identity = core.resolve_alias(namespace, "email", "a@example.com", None)
+    assert resolved_identity is not None
+
+    result = core.lookup_identity(namespace, resolved_identity, "full")
+    assert result.hit
+    assert result.value == {"v": "value"}
