@@ -11,6 +11,7 @@ dependencies = ["pymongo>=4.18"]
 
 [dependency-groups]
 dev = [
+  "covdefaults>=2.3.0",
   "mypy>=2.3.1",
   "types-docker>=7.2.0.20260827",
   "types-paramiko>=5.0.0.20260724",
@@ -39,18 +40,6 @@ build-backend = "uv_build"
 
 [tool.uv.build-backend]
 module-root = ""
-
-[tool.coverage.run]
-branch = true
-source = ["mongo_client_cache"]
-
-[tool.coverage.report]
-fail_under = 81.10
-precision = 2
-show_missing = true
-
-[tool.coverage.xml]
-output = "coverage.xml"
 
 [tool.vulture]
 paths = ["mongo_client_cache", "tests"]
