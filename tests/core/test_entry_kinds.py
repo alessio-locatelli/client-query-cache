@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pytest
 
 from mongo_client_cache._core.entries import AdmissionOutcome
 from mongo_client_cache._core.keys import NamespaceId, canonical_alias_key
 from mongo_client_cache._core.manager import CacheCore, CacheCoreConfig
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 pytestmark = pytest.mark.unit
 
@@ -36,14 +41,32 @@ def test_write_invalidates_namespace_guarded_entries_regardless_of_document(
     assert core.lookup_namespace(namespace, ("find", "shape")).hit is False
 
 
+@pytest.mark.parametrize(
+    ("begin", "admit"),
+    [
+        pytest.param(
+            lambda core, namespace: core.begin_identity_admission(namespace, "doc-1"),
+            lambda core, capture: core.admit_identity(capture, "full", {"v": "x"}),
+            id="identity_guarded",
+        ),
+        pytest.param(
+            lambda core, namespace: core.capture_namespace_generation(namespace),
+            lambda core, capture: core.admit_namespace(capture, ("find", "shape"), [1]),
+            id="namespace_guarded",
+        ),
+    ],
+)
 def test_admission_captured_before_a_write_is_rejected_by_compare_and_decide(
-    core: CacheCore, namespace: NamespaceId
+    core: CacheCore,
+    namespace: NamespaceId,
+    begin: Callable[[CacheCore, NamespaceId], object],
+    admit: Callable[[CacheCore, object], AdmissionOutcome],
 ) -> None:
-    identity = "doc-1"
-    capture = core.begin_identity_admission(namespace, identity)
-    core.record_write(namespace, identity)
+    capture = begin(core, namespace)
 
-    outcome = core.admit_identity(capture, "full", {"v": "stale"})
+    core.record_write(namespace, "doc-1")
+
+    outcome = admit(core, capture)
 
     assert outcome is AdmissionOutcome.DECLINED_STALE
 
@@ -96,30 +119,37 @@ def test_a_projected_read_does_not_collide_with_a_full_document_read(
     assert projected.value == {"a": 1}
 
 
-def test_different_find_or_aggregate_shapes_do_not_collide(
-    core: CacheCore, namespace: NamespaceId
+@pytest.mark.parametrize(
+    ("first", "second"),
+    [
+        pytest.param(
+            (("find", {"a": 1}), [{"doc": 1}]),
+            (("find", {"a": 2}), [{"doc": 2}]),
+            id="different_find_filters",
+        ),
+        pytest.param(
+            (("distinct", "email", {}), ["a@example.com"]),
+            (("distinct", "username", {}), ["alice"]),
+            id="different_distinct_fields",
+        ),
+    ],
+)
+def test_different_namespace_guarded_discriminators_do_not_collide(
+    core: CacheCore,
+    namespace: NamespaceId,
+    first: tuple[object, object],
+    second: tuple[object, object],
 ) -> None:
+    discriminator_1, value_1 = first
+    discriminator_2, value_2 = second
+
     capture_1 = core.capture_namespace_generation(namespace)
-    core.admit_namespace(capture_1, ("find", {"a": 1}), [{"doc": 1}])
+    core.admit_namespace(capture_1, discriminator_1, value_1)
     capture_2 = core.capture_namespace_generation(namespace)
-    core.admit_namespace(capture_2, ("find", {"a": 2}), [{"doc": 2}])
+    core.admit_namespace(capture_2, discriminator_2, value_2)
 
-    assert core.lookup_namespace(namespace, ("find", {"a": 1})).value == [{"doc": 1}]
-    assert core.lookup_namespace(namespace, ("find", {"a": 2})).value == [{"doc": 2}]
-
-
-def test_distinct_calls_on_different_fields_do_not_collide(
-    core: CacheCore, namespace: NamespaceId
-) -> None:
-    capture_email = core.capture_namespace_generation(namespace)
-    core.admit_namespace(capture_email, ("distinct", "email", {}), ["a@example.com"])
-    capture_username = core.capture_namespace_generation(namespace)
-    core.admit_namespace(capture_username, ("distinct", "username", {}), ["alice"])
-
-    email_result = core.lookup_namespace(namespace, ("distinct", "email", {}))
-    username_result = core.lookup_namespace(namespace, ("distinct", "username", {}))
-    assert email_result.value == ["a@example.com"]
-    assert username_result.value == ["alice"]
+    assert core.lookup_namespace(namespace, discriminator_1).value == value_1
+    assert core.lookup_namespace(namespace, discriminator_2).value == value_2
 
 
 def test_namespace_creation_invalidates_and_reclaims_a_pre_creation_entry(

@@ -1,8 +1,14 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pytest
 
 from mongo_client_cache._core.locking import LockOrderGuard, LockOrderViolationError
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterator
+    from contextlib import AbstractContextManager
 
 pytestmark = pytest.mark.unit
 
@@ -15,23 +21,27 @@ def test_lru_section_can_be_entered_after_namespace_section_exits() -> None:
         pass
 
 
-def test_lru_section_rejects_nesting_inside_namespace_section() -> None:
+@pytest.mark.parametrize(
+    ("outer", "inner"),
+    [
+        pytest.param(
+            lambda guard: guard.namespace_section(),
+            lambda guard: guard.lru_section(),
+            id="lru_inside_namespace",
+        ),
+        pytest.param(
+            lambda guard: guard.lru_section(),
+            lambda guard: guard.namespace_section(),
+            id="namespace_inside_lru",
+        ),
+    ],
+)
+def test_nesting_the_other_section_is_rejected(
+    outer: Callable[[LockOrderGuard], AbstractContextManager[Iterator[None]]],
+    inner: Callable[[LockOrderGuard], AbstractContextManager[Iterator[None]]],
+) -> None:
     guard = LockOrderGuard()
-    with (
-        guard.namespace_section(),
-        pytest.raises(LockOrderViolationError),
-        guard.lru_section(),
-    ):
-        pass
-
-
-def test_namespace_section_rejects_nesting_inside_lru_section() -> None:
-    guard = LockOrderGuard()
-    with (
-        guard.lru_section(),
-        pytest.raises(LockOrderViolationError),
-        guard.namespace_section(),
-    ):
+    with outer(guard), pytest.raises(LockOrderViolationError), inner(guard):
         pass
 
 

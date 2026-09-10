@@ -13,35 +13,56 @@ from mongo_client_cache._core.errors import UnsupportedCacheRequestError
 from mongo_client_cache._core.keys import IdentityCacheKey, NamespaceId
 from mongo_client_cache._core.locking import LockOrderViolationError
 from mongo_client_cache._core.manager import CacheCore, CacheCoreConfig
+from tests.core.conftest import (
+    patch_conditional_put_hook as _patch_conditional_put_hook,
+)
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from mongo_client_cache._core.keys import CacheKey
     from mongo_client_cache._core.lru import WeightedLru
 
 pytestmark = pytest.mark.unit
 
 
-def test_identity_admission_rejects_an_unsupported_identity(
+@pytest.mark.parametrize(
+    "invoke",
+    [
+        pytest.param(
+            lambda core, namespace: core.begin_identity_admission(namespace, {1, 2, 3}),
+            id="identity_admission_unsupported_identity",
+        ),
+        pytest.param(
+            lambda core, namespace: core.admit_identity(
+                core.begin_identity_admission(namespace, "doc-1"),
+                {1, 2, 3},
+                {"a": 1},
+            ),
+            id="identity_admission_unsupported_read_shape",
+        ),
+        pytest.param(
+            lambda core, namespace: core.admit_namespace(
+                core.capture_namespace_generation(namespace), {1, 2, 3}, []
+            ),
+            id="namespace_admission_unsupported_discriminator",
+        ),
+    ],
+)
+def test_admission_rejects_unsupported_canonicalization_input(
+    core: CacheCore,
+    namespace: NamespaceId,
+    invoke: Callable[[CacheCore, NamespaceId], object],
+) -> None:
+    with pytest.raises(UnsupportedCacheRequestError):
+        invoke(core, namespace)
+
+
+def test_identity_admission_rejects_none_as_an_identity_value(
     core: CacheCore, namespace: NamespaceId
 ) -> None:
     with pytest.raises(UnsupportedCacheRequestError):
-        core.begin_identity_admission(namespace, {1, 2, 3})
-
-
-def test_identity_admission_rejects_an_unsupported_read_shape(
-    core: CacheCore, namespace: NamespaceId
-) -> None:
-    capture = core.begin_identity_admission(namespace, "doc-1")
-    with pytest.raises(UnsupportedCacheRequestError):
-        core.admit_identity(capture, {1, 2, 3}, {"a": 1})
-
-
-def test_namespace_admission_rejects_an_unsupported_discriminator(
-    core: CacheCore, namespace: NamespaceId
-) -> None:
-    capture = core.capture_namespace_generation(namespace)
-    with pytest.raises(UnsupportedCacheRequestError):
-        core.admit_namespace(capture, {1, 2, 3}, [])
+        core.begin_identity_admission(namespace, None)
 
 
 def test_admission_rejects_an_oversize_value(namespace: NamespaceId) -> None:
@@ -51,31 +72,37 @@ def test_admission_rejects_an_oversize_value(namespace: NamespaceId) -> None:
     assert outcome is AdmissionOutcome.DECLINED_OVERSIZE
 
 
-def test_a_rollback_does_not_delete_a_newer_replacement(
-    core: CacheCore, namespace: NamespaceId, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    "trigger_before_insert",
+    [
+        pytest.param(False, id="rollback_after_physical_insert"),
+        pytest.param(True, id="late_stale_insertion_before_physical_insert"),
+    ],
+)
+def test_a_racing_fresher_admission_wins_regardless_of_when_it_lands(
+    core: CacheCore,
+    namespace: NamespaceId,
+    monkeypatch: pytest.MonkeyPatch,
+    trigger_before_insert: bool,
 ) -> None:
     identity = "doc-1"
     read_shape = "full"
     capture_stale = core.begin_identity_admission(namespace, identity)
-
-    lru_class = type(core._lru)
-    original_conditional_put = lru_class.conditional_put
     triggered = False
 
-    def racing_conditional_put(
-        self: WeightedLru, key: CacheKey, entry: CacheEntry
-    ) -> object:
+    def hook(_key: CacheKey, entry: CacheEntry) -> None:
         nonlocal triggered
-        result = original_conditional_put(self, key, entry)
-        if not triggered and entry.generation_key == capture_stale.generation_key:
-            triggered = True
-            core.record_write(namespace, identity)
-            fresh_capture = core.begin_identity_admission(namespace, identity)
-            outcome = core.admit_identity(fresh_capture, read_shape, {"v": "fresh"})
-            assert outcome is AdmissionOutcome.ADMITTED
-        return result
+        if triggered or entry.generation_key != capture_stale.generation_key:
+            return
+        triggered = True
+        core.record_write(namespace, identity)
+        fresh_capture = core.begin_identity_admission(namespace, identity)
+        outcome = core.admit_identity(fresh_capture, read_shape, {"v": "fresh"})
+        assert outcome is AdmissionOutcome.ADMITTED
 
-    monkeypatch.setattr(lru_class, "conditional_put", racing_conditional_put)
+    _patch_conditional_put_hook(
+        monkeypatch, core, hook, trigger_before_insert=trigger_before_insert
+    )
 
     outcome = core.admit_identity(capture_stale, read_shape, {"v": "stale"})
 
@@ -85,71 +112,114 @@ def test_a_rollback_does_not_delete_a_newer_replacement(
     assert result.value == {"v": "fresh"}
 
 
-def test_a_late_stale_insertion_cannot_clobber_a_fresher_entry(
-    core: CacheCore, namespace: NamespaceId, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    "trigger_before_insert",
+    [
+        pytest.param(False, id="rollback_after_physical_insert"),
+        pytest.param(True, id="late_stale_insertion_before_physical_insert"),
+    ],
+)
+def test_a_racing_fresher_namespace_admission_wins_regardless_of_when_it_lands(
+    core: CacheCore,
+    namespace: NamespaceId,
+    monkeypatch: pytest.MonkeyPatch,
+    trigger_before_insert: bool,
 ) -> None:
-    identity = "doc-1"
-    read_shape = "full"
-    capture_stale = core.begin_identity_admission(namespace, identity)
-
-    lru_class = type(core._lru)
-    original_conditional_put = lru_class.conditional_put
+    discriminator = ("find", "shape")
+    capture_stale = core.capture_namespace_generation(namespace)
     triggered = False
 
-    def racing_conditional_put(
-        self: WeightedLru, key: CacheKey, entry: CacheEntry
-    ) -> object:
+    def hook(_key: CacheKey, entry: CacheEntry) -> None:
         nonlocal triggered
-        if not triggered and entry.generation_key == capture_stale.generation_key:
-            triggered = True
-            core.record_write(namespace, identity)
-            fresh_capture = core.begin_identity_admission(namespace, identity)
-            outcome = core.admit_identity(fresh_capture, read_shape, {"v": "fresh"})
-            assert outcome is AdmissionOutcome.ADMITTED
-        return original_conditional_put(self, key, entry)
+        if triggered or entry.generation_key != (capture_stale.generation,):
+            return
+        triggered = True
+        core.record_write(namespace, "some-doc")
+        fresh_capture = core.capture_namespace_generation(namespace)
+        outcome = core.admit_namespace(fresh_capture, discriminator, ["fresh"])
+        assert outcome is AdmissionOutcome.ADMITTED
 
-    monkeypatch.setattr(lru_class, "conditional_put", racing_conditional_put)
+    _patch_conditional_put_hook(
+        monkeypatch, core, hook, trigger_before_insert=trigger_before_insert
+    )
 
-    outcome = core.admit_identity(capture_stale, read_shape, {"v": "stale"})
+    outcome = core.admit_namespace(capture_stale, discriminator, ["stale"])
 
     assert outcome is AdmissionOutcome.DECLINED_STALE
-    result = core.lookup_identity(namespace, identity, read_shape)
+    result = core.lookup_namespace(namespace, discriminator)
     assert result.hit
-    assert result.value == {"v": "fresh"}
+    assert result.value == ["fresh"]
 
 
+_BEGIN_AND_ADMIT_BY_KIND = [
+    pytest.param(
+        lambda core, namespace: core.begin_identity_admission(namespace, "doc-1"),
+        lambda core, capture: core.admit_identity(capture, "full", {"v": "x"}),
+        id="identity_guarded",
+    ),
+    pytest.param(
+        lambda core, namespace: core.capture_namespace_generation(namespace),
+        lambda core, capture: core.admit_namespace(capture, ("find", {}), ["x"]),
+        id="namespace_guarded",
+    ),
+]
+
+
+@pytest.mark.parametrize(("begin", "admit"), _BEGIN_AND_ADMIT_BY_KIND)
 def test_an_entry_evicted_before_publication_is_not_indexed_as_a_ghost(
-    core: CacheCore, namespace: NamespaceId, monkeypatch: pytest.MonkeyPatch
+    core: CacheCore,
+    namespace: NamespaceId,
+    monkeypatch: pytest.MonkeyPatch,
+    begin: Callable[[CacheCore, NamespaceId], object],
+    admit: Callable[[CacheCore, object], AdmissionOutcome],
 ) -> None:
-    identity = "doc-1"
-    read_shape = "full"
-    capture = core.begin_identity_admission(namespace, identity)
+    capture = begin(core, namespace)
 
-    lru_class = type(core._lru)
-    original_conditional_put = lru_class.conditional_put
-    triggered = False
+    def hook(key: CacheKey, entry: CacheEntry) -> None:
+        core._lru.remove_exact(key, entry)
 
-    def racing_conditional_put(
-        self: WeightedLru, key: CacheKey, entry: CacheEntry
-    ) -> object:
-        nonlocal triggered
-        result = original_conditional_put(self, key, entry)
-        if not triggered and entry.generation_key == capture.generation_key:
-            triggered = True
-            # Simulate a concurrent admission's capacity eviction removing
-            # this entry before this admission reaches its own namespace-lock
-            # publication step.
-            core._lru.remove_exact(key, entry)
-        return result
+    _patch_conditional_put_hook(monkeypatch, core, hook)
 
-    monkeypatch.setattr(lru_class, "conditional_put", racing_conditional_put)
-
-    outcome = core.admit_identity(capture, read_shape, {"v": "evicted-before-publish"})
+    outcome = admit(core, capture)
 
     assert outcome is AdmissionOutcome.DECLINED_STALE
     state = core._namespace(namespace)
     assert len(state.entry_index) == 0
-    assert identity not in state.identities
+
+
+@pytest.mark.parametrize(("begin", "admit"), _BEGIN_AND_ADMIT_BY_KIND)
+def test_an_entry_evicted_between_the_residency_check_and_publication_is_reclaimed(
+    core: CacheCore,
+    namespace: NamespaceId,
+    monkeypatch: pytest.MonkeyPatch,
+    begin: Callable[[CacheCore, NamespaceId], object],
+    admit: Callable[[CacheCore, object], AdmissionOutcome],
+) -> None:
+    capture = begin(core, namespace)
+
+    lru_class = type(core._lru)
+    original_contains_exact = lru_class.contains_exact
+    triggered = False
+
+    def patched_contains_exact(
+        self: WeightedLru, key: CacheKey, entry: CacheEntry
+    ) -> bool:
+        nonlocal triggered
+        result = original_contains_exact(self, key, entry)
+        if not triggered and result:
+            triggered = True
+            # Simulate a concurrent admission's capacity eviction landing
+            # exactly between this residency check and publication.
+            self.remove_exact(key, entry)
+        return result
+
+    monkeypatch.setattr(lru_class, "contains_exact", patched_contains_exact)
+
+    outcome = admit(core, capture)
+
+    assert outcome is AdmissionOutcome.DECLINED_STALE
+    state = core._namespace(namespace)
+    assert len(state.entry_index) == 0
 
 
 def test_a_replaced_entry_does_not_leak_its_index_token(
@@ -282,13 +352,6 @@ def test_a_pruned_high_generation_identity_does_not_block_future_admissions(
     assert result.value == {"v": "fresh"}
 
 
-def test_identity_admission_rejects_none_as_an_identity_value(
-    core: CacheCore, namespace: NamespaceId
-) -> None:
-    with pytest.raises(UnsupportedCacheRequestError):
-        core.begin_identity_admission(namespace, None)
-
-
 def test_a_namespace_clear_reclaims_a_normally_completed_admission(
     core: CacheCore, namespace: NamespaceId
 ) -> None:
@@ -301,34 +364,6 @@ def test_a_namespace_clear_reclaims_a_normally_completed_admission(
     used_bytes, entry_count = core._lru.snapshot_usage()
     assert used_bytes == 0
     assert entry_count == 0
-
-
-def test_a_namespace_guarded_entry_evicted_before_publication_is_not_a_ghost(
-    core: CacheCore, namespace: NamespaceId, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    capture = core.capture_namespace_generation(namespace)
-
-    lru_class = type(core._lru)
-    original_conditional_put = lru_class.conditional_put
-    triggered = False
-
-    def racing_conditional_put(
-        self: WeightedLru, key: CacheKey, entry: CacheEntry
-    ) -> object:
-        nonlocal triggered
-        result = original_conditional_put(self, key, entry)
-        if not triggered and entry.generation_key == (capture.generation,):
-            triggered = True
-            core._lru.remove_exact(key, entry)
-        return result
-
-    monkeypatch.setattr(lru_class, "conditional_put", racing_conditional_put)
-
-    outcome = core.admit_namespace(capture, ("find", {}), ["evicted-before-publish"])
-
-    assert outcome is AdmissionOutcome.DECLINED_STALE
-    state = core._namespace(namespace)
-    assert len(state.entry_index) == 0
 
 
 def test_no_code_path_holds_the_namespace_lock_and_the_lru_lock_at_once(
@@ -413,22 +448,16 @@ def test_a_rolled_back_admission_still_discards_the_entry_it_displaced(
 
     core.record_write(namespace, identity)
     second_capture = core.begin_identity_admission(namespace, identity)
-
-    lru_class = type(core._lru)
-    original_conditional_put = lru_class.conditional_put
     triggered = False
 
-    def racing_conditional_put(
-        self: WeightedLru, key: CacheKey, entry: CacheEntry
-    ) -> object:
+    def hook(_key: CacheKey, entry: CacheEntry) -> None:
         nonlocal triggered
-        result = original_conditional_put(self, key, entry)
-        if not triggered and entry.generation_key == second_capture.generation_key:
-            triggered = True
-            core.record_write(namespace, identity)
-        return result
+        if triggered or entry.generation_key != second_capture.generation_key:
+            return
+        triggered = True
+        core.record_write(namespace, identity)
 
-    monkeypatch.setattr(lru_class, "conditional_put", racing_conditional_put)
+    _patch_conditional_put_hook(monkeypatch, core, hook)
 
     outcome = core.admit_identity(second_capture, read_shape, {"v": "second"})
     assert outcome is AdmissionOutcome.DECLINED_STALE

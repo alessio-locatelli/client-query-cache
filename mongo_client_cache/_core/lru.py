@@ -49,12 +49,14 @@ class WeightedLru:
         with self._guard.lru_section(), self._lock:
             return self._used_bytes, len(self._order)
 
-    def get_and_touch(self, key: CacheKey) -> CacheEntry | None:
+    def peek(self, key: CacheKey) -> CacheEntry | None:
         with self._guard.lru_section(), self._lock:
-            entry = self._order.get(key)
-            if entry is not None:
+            return self._order.get(key)
+
+    def touch(self, key: CacheKey) -> None:
+        with self._guard.lru_section(), self._lock:
+            if key in self._order:
                 self._order.move_to_end(key)
-            return entry
 
     def conditional_put(
         self, key: CacheKey, entry: CacheEntry
@@ -71,8 +73,6 @@ class WeightedLru:
             self._used_bytes += entry.weight
             while self._used_bytes > self._shared_budget_bytes:
                 oldest_key, oldest_entry = next(iter(self._order.items()))
-                if oldest_key == key:
-                    break
                 del self._order[oldest_key]
                 self._used_bytes -= oldest_entry.weight
                 evicted.append(oldest_entry)

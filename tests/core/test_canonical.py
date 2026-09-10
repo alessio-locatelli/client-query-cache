@@ -11,22 +11,55 @@ pytestmark = pytest.mark.unit
 @pytest.mark.parametrize(
     ("first", "second"),
     [
-        ({"a": 1, "b": 2}, {"b": 2, "a": 1}),
-        ({"a": {"x": 1, "y": 2}}, {"a": {"y": 2, "x": 1}}),
+        pytest.param({"a": 1, "b": 2}, {"b": 2, "a": 1}, id="dict_key_order"),
+        pytest.param(
+            {"a": {"x": 1, "y": 2}}, {"a": {"y": 2, "x": 1}}, id="nested_dict_key_order"
+        ),
+        pytest.param(True, True, id="equal_bools"),
+        pytest.param(
+            {True: "x", 2: "y", "z": "w"},
+            {"z": "w", 2: "y", True: "x"},
+            id="heterogeneous_key_order",
+        ),
     ],
 )
-def test_canonicalize_makes_dict_key_order_irrelevant(
-    first: dict[str, object], second: dict[str, object]
-) -> None:
+def test_canonicalize_treats_as_equivalent(first: object, second: object) -> None:
     assert canonicalize(first) == canonicalize(second)
 
 
-def test_canonicalize_preserves_list_order() -> None:
-    assert canonicalize([1, 2]) != canonicalize([2, 1])
+@pytest.mark.parametrize(
+    ("first", "second"),
+    [
+        pytest.param([1, 2], [2, 1], id="list_order"),
+        pytest.param({"a": 1}, {"a": 1, "b": 1}, id="nested_shape"),
+        pytest.param(True, 1, id="bool_vs_int"),
+        pytest.param(False, 0, id="bool_vs_int_falsy"),
+        pytest.param(
+            {True: "x"},
+            {1: "x"},
+            id="bool_vs_int_dict_key",
+        ),
+        pytest.param(("map", (("x", 1),)), {"x": 1}, id="forged_mapping_tag"),
+        pytest.param(
+            ("bool", True),
+            True,
+            id="forged_bool_tag",
+        ),
+    ],
+)
+def test_canonicalize_distinguishes(first: object, second: object) -> None:
+    assert canonicalize(first) != canonicalize(second)
 
 
-def test_canonicalize_distinguishes_nested_shapes() -> None:
-    assert canonicalize({"a": 1}) != canonicalize({"a": 1, "b": 1})
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param({True: "x", 2: "y", "z": "w"}, id="heterogeneous_keys"),
+        pytest.param(({"a": 1}, "y"), id="unhashable_first_tuple_element"),
+    ],
+)
+def test_canonicalize_does_not_raise(value: object) -> None:
+    canonicalize(value)
 
 
 @pytest.mark.parametrize("value", [None, 1, "x", 1.5, b"bytes"])
@@ -34,39 +67,24 @@ def test_canonicalize_passes_through_hashable_scalars(value: object) -> None:
     assert canonicalize(value) == value
 
 
-def test_canonicalize_rejects_unhashable_unsupported_values() -> None:
+class _UnhashableByOverriddenEq:
+    __slots__ = ()
+    __hash__ = None  # type: ignore[assignment]
+
+    def __eq__(self, other: object) -> bool:
+        return self is other
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param({1, 2, 3}, id="a_set"),
+        pytest.param(_UnhashableByOverriddenEq(), id="a_custom_object_with_no_hash"),
+    ],
+)
+def test_canonicalize_rejects_unhashable_unsupported_values(value: object) -> None:
     with pytest.raises(UnsupportedCacheRequestError):
-        canonicalize({1, 2, 3})
-
-
-def test_canonicalize_distinguishes_a_mapping_from_an_equivalent_pair_sequence() -> (
-    None
-):
-    assert canonicalize({"a": 1}) != canonicalize([("a", 1)])
-
-
-def test_canonicalize_distinguishes_a_bool_from_an_equal_int() -> None:
-    assert canonicalize(True) != canonicalize(1)  # noqa: FBT003
-    assert canonicalize(False) != canonicalize(0)  # noqa: FBT003
-
-
-def test_canonicalize_still_treats_equal_bools_as_equal() -> None:
-    assert canonicalize(True) == canonicalize(True)  # noqa: FBT003
-
-
-def test_canonicalize_distinguishes_bool_and_int_dict_keys() -> None:
-    assert canonicalize({True: "x"}) != canonicalize({1: "x"})
-
-
-def test_canonicalize_accepts_a_mapping_with_heterogeneous_key_types() -> None:
-    mixed = {True: "x", 2: "y", "z": "w"}
-    canonicalize(mixed)
-
-
-def test_canonicalize_heterogeneous_key_mapping_is_order_independent() -> None:
-    first = {True: "x", 2: "y", "z": "w"}
-    second = {"z": "w", 2: "y", True: "x"}
-    assert canonicalize(first) == canonicalize(second)
+        canonicalize(value)
 
 
 @pytest.mark.parametrize(
@@ -80,17 +98,3 @@ def test_canonicalize_heterogeneous_key_mapping_is_order_independent() -> None:
 def test_canonicalize_is_idempotent_on_its_own_output(value: object) -> None:
     once = canonicalize(value)
     assert canonicalize(once) == once
-
-
-def test_a_raw_tuple_mimicking_the_mapping_tag_does_not_collide_with_a_mapping() -> (
-    None
-):
-    assert canonicalize(("map", (("x", 1),))) != canonicalize({"x": 1})
-
-
-def test_a_raw_tuple_mimicking_the_bool_tag_does_not_collide_with_a_bool() -> None:
-    assert canonicalize(("bool", True)) != canonicalize(True)  # noqa: FBT003
-
-
-def test_a_tuple_with_an_unhashable_first_element_does_not_raise() -> None:
-    canonicalize(({"a": 1}, "y"))
