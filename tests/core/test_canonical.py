@@ -67,19 +67,16 @@ def test_canonicalize_passes_through_hashable_scalars(value: object) -> None:
     assert canonicalize(value) == value
 
 
-class _UnhashableByOverriddenEq:
+class _Unhashable:
     __slots__ = ()
     __hash__ = None  # type: ignore[assignment]
-
-    def __eq__(self, other: object) -> bool:
-        return self is other
 
 
 @pytest.mark.parametrize(
     "value",
     [
         pytest.param({1, 2, 3}, id="a_set"),
-        pytest.param(_UnhashableByOverriddenEq(), id="a_custom_object_with_no_hash"),
+        pytest.param(_Unhashable(), id="a_custom_object_with_no_hash"),
     ],
 )
 def test_canonicalize_rejects_unhashable_unsupported_values(value: object) -> None:

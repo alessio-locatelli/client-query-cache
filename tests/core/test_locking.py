@@ -41,8 +41,8 @@ def test_nesting_the_other_section_is_rejected(
     inner: Callable[[LockOrderGuard], AbstractContextManager[Iterator[None]]],
 ) -> None:
     guard = LockOrderGuard()
-    with outer(guard), pytest.raises(LockOrderViolationError), inner(guard):
-        pass
+    with outer(guard), pytest.raises(LockOrderViolationError):
+        inner(guard).__enter__()
 
 
 def test_namespace_section_is_reentrant_safe_to_sequence() -> None:

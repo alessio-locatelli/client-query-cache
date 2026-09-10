@@ -66,7 +66,7 @@ def mongodb_uri() -> Iterator[MongoDbUri]:
 
     try:
         container.start()
-    except DockerException as error:
+    except DockerException as error:  # pragma: no cover (requires a broken runtime)
         pytest.fail(
             "A Docker-compatible container runtime is required for integration "
             "and end-to-end tests. Start Docker or a rootless Podman socket and "
@@ -86,9 +86,11 @@ def mongodb_uri() -> Iterator[MongoDbUri]:
             try:
                 client.admin.command("ping")
                 break
-            except ConnectionFailure:
+            # Race: the container may accept the connection before this
+            # retry ever runs.
+            except ConnectionFailure:  # pragma: lax no cover
                 sleep(0.1)
-        else:
+        else:  # pragma: no cover (hard timeout; requires a stuck container)
             pytest.fail("MongoDB did not accept connections within 30 seconds.")
 
         client.admin.command(
@@ -104,10 +106,13 @@ def mongodb_uri() -> Iterator[MongoDbUri]:
                 if client.admin.command("hello")["isWritablePrimary"]:
                     yield uri
                     return
-            except ConnectionFailure, OperationFailure:
+            # Race: election may finish before this retry ever runs.
+            except ConnectionFailure, OperationFailure:  # pragma: lax no cover
                 pass
             sleep(0.1)
-        pytest.fail("MongoDB did not elect a writable primary within 30 seconds.")
+        pytest.fail(  # pragma: no cover (hard timeout; requires a stuck election)
+            "MongoDB did not elect a writable primary within 30 seconds."
+        )
     finally:
         client.close()
         container.stop()
