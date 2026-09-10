@@ -381,12 +381,8 @@ def test_the_lock_order_guard_would_catch_a_real_nesting_bug(
     core: CacheCore, namespace: NamespaceId
 ) -> None:
     state = core._namespace(namespace)
-    with (
-        pytest.raises(LockOrderViolationError),
-        core._namespace_section(state),
-        core._guard.lru_section(),
-    ):
-        pass
+    with core._namespace_section(state), pytest.raises(LockOrderViolationError):
+        core._guard.lru_section().__enter__()
 
 
 def test_identity_capture_can_be_discarded_without_admitting(
@@ -414,7 +410,10 @@ def test_thread_local_guard_is_isolated_per_thread(core: CacheCore) -> None:
         try:
             with core._guard.namespace_section():
                 pass
-        except BaseException as error:  # noqa: BLE001
+        # A background thread's exception would otherwise vanish silently;
+        # capture it here so `assert not errors` below can still fail the
+        # test if thread-local isolation is ever broken.
+        except BaseException as error:  # noqa: BLE001  # pragma: no cover
             errors.append(error)
 
     with core._guard.lru_section():
@@ -437,13 +436,11 @@ def test_a_rolled_back_admission_still_discards_the_entry_it_displaced(
 
     core.record_write(namespace, identity)
     second_capture = core.begin_identity_admission(namespace, identity)
-    triggered = False
 
-    def hook(_key: CacheKey, entry: CacheEntry) -> None:
-        nonlocal triggered
-        if triggered or entry.generation_key != second_capture.generation_key:
-            return
-        triggered = True
+    # admit_identity() calls conditional_put() exactly once per attempt, and
+    # this test only ever admits `second_capture`, so the hook itself never
+    # needs to guard against being re-triggered.
+    def hook(_key: CacheKey, _entry: CacheEntry) -> None:
         core.record_write(namespace, identity)
 
     _patch_conditional_put_hook(monkeypatch, core, hook)

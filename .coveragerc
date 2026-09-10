@@ -1,5 +1,14 @@
 [run]
 plugins = covdefaults
+omit =
+    # Runs the installed wheel's public API as a script in a disposable venv
+    # via subprocess; `just coverage` never selects it (see `just test-e2e`),
+    # and coverage.py cannot trace into that subprocess's interpreter anyway.
+    tests/e2e/*
+
+[report]
+exclude_lines =
+    pragma: lax no cover
 
 [xml]
 output = coverage.xml
