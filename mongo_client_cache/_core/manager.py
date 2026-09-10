@@ -227,6 +227,10 @@ class _CacheCoreNamespaceLifecycle(_CacheCoreBase):
                 if namespace.database == database
             ]
 
+    def has_namespace(self, namespace: NamespaceId) -> bool:
+        with self._namespaces_lock:
+            return namespace in self._namespaces
+
     def record_write(self, namespace: NamespaceId, identity: object) -> None:
         self._ensure_active()
         canonical_identity = canonicalize(identity)

@@ -49,6 +49,7 @@ def test_write_events_record_a_write_against_the_document_identity(
     operation_type: str,
 ) -> None:
     cache = Mock()
+    cache.has_namespace.return_value = True
     namespace = NamespaceId("db", "coll")
     event: Mapping[str, object] = {
         "operationType": operation_type,
@@ -62,8 +63,24 @@ def test_write_events_record_a_write_against_the_document_identity(
     cache.record_write.assert_called_once_with(namespace, "doc-1")
 
 
+def test_write_event_for_an_untracked_namespace_does_not_touch_the_cache() -> None:
+    cache = Mock()
+    cache.has_namespace.return_value = False
+    event = {
+        "operationType": "insert",
+        "ns": {"db": "db", "coll": "coll"},
+        "documentKey": {"_id": "doc-1"},
+    }
+
+    must_reopen = route_change_event(cache, "db", event)
+
+    assert must_reopen is False
+    cache.record_write.assert_not_called()
+
+
 def test_create_event_creates_the_namespace() -> None:
     cache = Mock()
+    cache.has_namespace.return_value = True
     namespace = NamespaceId("db", "coll")
     event = {"operationType": "create", "ns": {"db": "db", "coll": "coll"}}
 
@@ -75,6 +92,7 @@ def test_create_event_creates_the_namespace() -> None:
 
 def test_drop_event_clears_the_namespace() -> None:
     cache = Mock()
+    cache.has_namespace.return_value = True
     namespace = NamespaceId("db", "coll")
     event = {"operationType": "drop", "ns": {"db": "db", "coll": "coll"}}
 
@@ -86,6 +104,7 @@ def test_drop_event_clears_the_namespace() -> None:
 
 def test_rename_event_clears_both_the_source_and_destination_namespaces() -> None:
     cache = Mock()
+    cache.has_namespace.return_value = True
     source = NamespaceId("db", "old_coll")
     destination = NamespaceId("db", "new_coll")
     event = {
@@ -197,6 +216,20 @@ def test_create_event_reclaims_entries_cached_before_the_namespace_existed() -> 
     used_after, count_after = cache._lru.snapshot_usage()
     assert count_after == 0
     assert used_after == 0
+
+
+def test_write_to_an_uncached_namespace_does_not_grow_cache_core_state() -> None:
+    cache = CacheCore()
+    namespace = NamespaceId("db", "coll")
+    event = {
+        "operationType": "insert",
+        "ns": {"db": "db", "coll": "coll"},
+        "documentKey": {"_id": "doc-1"},
+    }
+
+    route_change_event(cache, "db", event)
+
+    assert cache.has_namespace(namespace) is False
 
 
 def test_invalidate_clears_a_namespace_that_never_produced_an_event() -> None:
