@@ -14,4 +14,4 @@
 
 ## 4. Verify coherency end to end
 
-- [ ] 4.1 Use independent raw writers to test update, delete, drop, `dropDatabase`, rename, resumable interruption, and lost-resume-history behavior in sync and asyncio suites; distinguish post-event invalidation from a cache hit concurrent with event delivery.
+- [x] 4.1 Use independent raw writers to test update, delete, drop, `dropDatabase`, rename, resumable interruption, and lost-resume-history behavior in sync and asyncio suites; distinguish post-event invalidation from a cache hit concurrent with event delivery.
