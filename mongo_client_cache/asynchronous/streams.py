@@ -149,6 +149,8 @@ class DatabaseStreamSupervisor:
         if self._stop_event.is_set():
             return
         self._health = StreamHealth.RECONNECTING
+        if self._resume_token is None:
+            self._clear_namespaces_for_database()
         await self._reopen_with_backoff(use_start_after=False)
 
     async def _reopen_after_invalidate(self) -> None:

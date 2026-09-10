@@ -160,7 +160,7 @@ coverage:
     uv run --locked --all-groups -- coverage run -p -m pytest -m unit "${pytest_log_args[@]}"
     uv run --locked --all-groups -- coverage run -p -m pytest -m integration "${pytest_log_args[@]}"
     uv run --locked --all-groups -- coverage combine
-    uv run --locked --all-groups -- coverage report --fail-under=81.10
+    uv run --locked --all-groups -- coverage report --fail-under=100
     uv run --locked --all-groups -- coverage xml
     uv run --locked --all-groups -- python -c 'from pathlib import Path; import sys; coverage_exclusions = [(path, line_number) for path in Path("mongo_client_cache").rglob("*.py") for line_number, line in enumerate(path.read_text().splitlines(), start=1) if "pragma: no cover" in line]; sys.stderr.write("".join(f"{path}:{line_number}: prohibited pragma: no cover\n" for path, line_number in coverage_exclusions)); sys.exit(bool(coverage_exclusions))'
     uv run --locked --all-groups -- strict-no-cover

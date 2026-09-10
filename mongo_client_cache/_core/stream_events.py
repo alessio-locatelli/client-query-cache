@@ -70,12 +70,6 @@ def _route_rename(cache: CacheCore, event: Mapping[str, Any]) -> None:
 
 
 def _route_invalidate(cache: CacheCore, database: str) -> None:
-    # dropDatabase is the only event that invalidates a database-scoped
-    # stream, so every namespace cache-core currently tracks for this
-    # database must be cleared before the stream can safely reopen — not
-    # just namespaces this stream happened to route an event for, since a
-    # namespace-guarded entry (e.g. a negative lookup) can be admitted for
-    # a namespace that never produced a write.
     for namespace in cache.namespaces_for_database(database):
         cache.clear_namespace(namespace)
 
@@ -98,7 +92,6 @@ def route_change_event(
         return False
     if operation_type == "dropDatabase":
         return False
-    # operation_type == "invalidate": the $match stage above admits no other kind.
     _route_invalidate(cache, database)
     return True
 
