@@ -11,6 +11,7 @@ Writes are expected to participate in cache coherence, typically by invalidating
 ### General
 
 - Use the OpenSpec workflow for all non-trivial work.
+- **Review findings in an active change:** While a branch's OpenSpec change remains active, valid review findings belong to that change. Amend its existing delta specs, design, or tasks when needed; when existing requirements already cover the behavior, add only the necessary task, implementation, and regression test. A review round never by itself justifies a new change. Create a separate change only when the finding is outside the active change's declared scope or the user explicitly requests a split. Archive only after the whole branch has been cleanly reviewed.
 - Leverage the [Generic Development Workflow](openspec/generic_development_workflow.md) when planning designs and tasks.
 - You must follow SOLID, DRY principles, and maintain high-quality scalable and extendable architecture.
 - Performance is critical, and you must fight for every micro- and macro-optimization. For each major change, you must record profiling and benchmark measurements in the commit body.
