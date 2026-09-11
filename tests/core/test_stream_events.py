@@ -171,14 +171,17 @@ def test_rename_event_does_not_clear_a_destination_in_another_database() -> None
     cache.clear_namespace.assert_called_once_with(source)
 
 
-def test_drop_database_event_is_a_no_op_pending_its_invalidation() -> None:
+def test_drop_database_clears_every_cache_namespace_immediately() -> None:
     cache = Mock()
+    first = NamespaceId("db", "first")
+    second = NamespaceId("db", "second")
+    cache.namespaces_for_database.return_value = [first, second]
     event = {"operationType": "dropDatabase", "ns": {"db": "db"}}
 
     must_reopen = route_change_event(cache, "db", event)
 
     assert must_reopen is False
-    cache.clear_namespace.assert_not_called()
+    cache.clear_namespace.assert_has_calls([call(first), call(second)], any_order=True)
 
 
 def test_invalidate_clears_every_namespace_cache_core_tracks_for_the_database() -> None:

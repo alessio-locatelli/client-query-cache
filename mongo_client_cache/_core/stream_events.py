@@ -91,6 +91,7 @@ def route_change_event(
         _route_rename(cache, database, event)
         return False
     if operation_type == "dropDatabase":
+        _route_invalidate(cache, database)
         return False
     _route_invalidate(cache, database)
     return True
