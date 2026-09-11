@@ -33,6 +33,7 @@ Writes are expected to participate in cache coherence, typically by invalidating
 
 - Never write docstrings and code comments.
 - Put "why" information (non-obvious context, rationale behind the changes, etc.) into the commit body.
+- Keep the usage documentation in sync with the code's public interface. Document examples, hints, gotchas, and misuse.
 
 _Note that ignore comments that suppress false-positives (e.g., `# noqa`, `# type: ignore`, `# pragma`) are obviously out of scope of these guidelines._
 
