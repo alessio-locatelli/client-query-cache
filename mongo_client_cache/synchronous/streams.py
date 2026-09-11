@@ -59,7 +59,7 @@ class DatabaseStreamSupervisor:
         self._max_await_time_ms = max_await_time_ms
         self._health = StreamHealth.STARTING
         self._health_lock = threading.Lock()
-        self._lifecycle_lock = threading.Lock()
+        self._lifecycle_lock = threading.RLock()
         self._stream: DatabaseChangeStream[Any] | None = None
         self._resume_token: Mapping[str, Any] | None = None
         self._stop_event = threading.Event()
@@ -109,9 +109,17 @@ class DatabaseStreamSupervisor:
     def stop(self) -> None:
         with self._lifecycle_lock:
             self._stop_event.set()
+            self._set_health(StreamHealth.CLOSED)
             stream = self._stream
             if stream is not None:
-                stream.close()
+                try:
+                    stream.close()
+                except PyMongoError:
+                    logger.warning(
+                        "change stream close failed during shutdown",
+                        extra={"database": self._database.name},
+                        exc_info=True,
+                    )
             thread = self._thread
         if thread is not None:
             thread.join()
@@ -149,11 +157,14 @@ class DatabaseStreamSupervisor:
                 self._stream.close()
 
     def _set_health(self, health: StreamHealth) -> None:
-        with self._health_lock:
-            self._health = health
-        self._cache.set_database_available(
-            self._database.name, available=health is StreamHealth.HEALTHY
-        )
+        with self._lifecycle_lock:
+            if self._stop_event.is_set() and health is StreamHealth.HEALTHY:
+                health = StreamHealth.CLOSED
+            with self._health_lock:
+                self._cache.set_database_available(
+                    self._database.name, available=health is StreamHealth.HEALTHY
+                )
+                self._health = health
 
     def _run(self) -> None:
         while not self._stop_event.is_set():

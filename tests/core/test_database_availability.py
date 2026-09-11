@@ -68,6 +68,26 @@ _ADMISSIONS = [
 ]
 
 
+def _start_identity_admission(
+    core: CacheCore, namespace: NamespaceId
+) -> Callable[[], AdmissionOutcome]:
+    capture = core.begin_identity_admission(namespace, "doc-1")
+    return lambda: core.admit_identity(capture, "full", {"v": "x"})
+
+
+def _start_namespace_admission(
+    core: CacheCore, namespace: NamespaceId
+) -> Callable[[], AdmissionOutcome]:
+    capture = core.capture_namespace_generation(namespace)
+    return lambda: core.admit_namespace(capture, ("find", {}), ["x"])
+
+
+_START_ADMISSIONS = [
+    pytest.param(_start_identity_admission, id="admit_identity"),
+    pytest.param(_start_namespace_admission, id="admit_namespace"),
+]
+
+
 @pytest.mark.parametrize(("seed", "lookup"), _LOOKUPS)
 def test_lookups_are_unaffected_by_default(
     core: CacheCore,
@@ -102,6 +122,34 @@ def test_admissions_are_declined_while_the_database_is_unavailable(
     core.set_database_available(namespace.database, available=False)
 
     assert admit(core, namespace) is AdmissionOutcome.DECLINED_UNAVAILABLE
+    assert core.snapshot().bypasses == 1
+
+
+@pytest.mark.parametrize("start_admission", _START_ADMISSIONS)
+def test_admissions_started_while_unavailable_are_declined_after_recovery(
+    core: CacheCore,
+    namespace: NamespaceId,
+    start_admission: Callable[[CacheCore, NamespaceId], Callable[[], AdmissionOutcome]],
+) -> None:
+    core.set_database_available(namespace.database, available=False)
+    admit = start_admission(core, namespace)
+    core.set_database_available(namespace.database, available=True)
+
+    assert admit() is AdmissionOutcome.DECLINED_UNAVAILABLE
+    assert core.snapshot().bypasses == 1
+
+
+@pytest.mark.parametrize("start_admission", _START_ADMISSIONS)
+def test_admissions_spanning_recovery_are_declined(
+    core: CacheCore,
+    namespace: NamespaceId,
+    start_admission: Callable[[CacheCore, NamespaceId], Callable[[], AdmissionOutcome]],
+) -> None:
+    admit = start_admission(core, namespace)
+    core.set_database_available(namespace.database, available=False)
+    core.set_database_available(namespace.database, available=True)
+
+    assert admit() is AdmissionOutcome.DECLINED_UNAVAILABLE
     assert core.snapshot().bypasses == 1
 
 

@@ -103,6 +103,7 @@ class DatabaseStreamSupervisor:
 
     async def stop(self) -> None:
         self._stop_event.set()
+        self._set_health(StreamHealth.CLOSED)
         task = self._task
         if task is not None:
             task.cancel()
@@ -110,14 +111,23 @@ class DatabaseStreamSupervisor:
                 await task
         stream = self._stream
         if stream is not None:
-            await stream.close()
+            try:
+                await stream.close()
+            except PyMongoError:
+                logger.warning(
+                    "change stream close failed during shutdown",
+                    extra={"database": self._database.name},
+                    exc_info=True,
+                )
         self._set_health(StreamHealth.CLOSED)
 
     def _set_health(self, health: StreamHealth) -> None:
-        self._health = health
+        if self._stop_event.is_set() and health is StreamHealth.HEALTHY:
+            health = StreamHealth.CLOSED
         self._cache.set_database_available(
             self._database.name, available=health is StreamHealth.HEALTHY
         )
+        self._health = health
 
     async def _ensure_server_supports_expanded_events(self) -> None:
         server_info = await self._database.client.server_info()

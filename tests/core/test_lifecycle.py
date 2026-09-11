@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 import pytest
 
 from mongo_client_cache._core.errors import CacheClosedError
+from mongo_client_cache._core.keys import NamespaceId
 from mongo_client_cache._core.lifecycle import CacheLifecycleState
 from mongo_client_cache._core.manager import CacheCore
 from tests.core.conftest import patch_conditional_put_hook
@@ -13,7 +15,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from mongo_client_cache._core.entries import CacheEntry
-    from mongo_client_cache._core.keys import CacheKey, NamespaceId
+    from mongo_client_cache._core.keys import CacheKey
 
 pytestmark = pytest.mark.unit
 
@@ -88,6 +90,27 @@ def test_releasing_a_capture_after_close_does_not_recreate_namespace_state(
     core.discard_identity_admission(capture)
 
     assert namespace not in core._namespaces
+
+
+def test_database_namespace_lookup_uses_its_reverse_index(
+    namespace: NamespaceId, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    core = CacheCore()
+    other_namespace = NamespaceId("other_database", namespace.collection)
+    core.capture_namespace_generation(namespace)
+    core.capture_namespace_generation(other_namespace)
+    monkeypatch.setattr(core, "_namespaces", MappingProxyType({}))
+
+    assert core.namespaces_for_database(namespace.database) == [namespace]
+
+
+def test_close_releases_database_namespace_index(namespace: NamespaceId) -> None:
+    core = CacheCore()
+    core.capture_namespace_generation(namespace)
+
+    core.close()
+
+    assert core._database_namespaces == {}
 
 
 def test_an_admission_racing_close_does_not_survive_in_the_closed_snapshot(

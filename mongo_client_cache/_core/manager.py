@@ -35,6 +35,7 @@ DEFAULT_SHARED_BUDGET_BYTES = 64 * 1024 * 1024
 DEFAULT_MAX_ENTRY_BYTES = 1 * 1024 * 1024
 
 _NOT_INDEXED = object()
+_DEFAULT_DATABASE_AVAILABILITY = (True, 0)
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +62,7 @@ class IdentityCapture:
     namespace: NamespaceId
     identity: Canonical
     generation_key: tuple[int, int]
+    availability_generation: int
     released: bool = field(default=False)
 
 
@@ -68,12 +70,14 @@ class IdentityCapture:
 class NamespaceCapture:
     namespace: NamespaceId
     generation: int
+    availability_generation: int
 
 
 class _CacheCoreBase:
     __slots__ = (
         "_availability_lock",
         "_database_availability",
+        "_database_namespaces",
         "_guard",
         "_lifecycle",
         "_lifecycle_lock",
@@ -92,29 +96,50 @@ class _CacheCoreBase:
             guard=self._guard,
         )
         self._namespaces: dict[NamespaceId, NamespaceState] = {}
+        self._database_namespaces: dict[str, dict[NamespaceId, None]] = {}
         self._namespaces_lock = threading.Lock()
         self._lifecycle = CacheLifecycleState.ACTIVE
         self._lifecycle_lock = threading.Lock()
         self._statistics = CacheStatistics()
-        self._database_availability: dict[str, bool] = {}
-        self._availability_lock = threading.Lock()
+        self._database_availability: dict[str, tuple[bool, int]] = {}
+        self._availability_lock = threading.RLock()
 
     def _is_closed(self) -> bool:
         return self._lifecycle is CacheLifecycleState.CLOSED
 
     def _is_database_available(self, database: str) -> bool:
         with self._availability_lock:
-            return self._database_availability.get(database, True)
+            available, _generation = self._database_availability.get(
+                database, _DEFAULT_DATABASE_AVAILABILITY
+            )
+            return available
 
-    def _reject_before_admission(
-        self, namespace: NamespaceId, weight: int
-    ) -> AdmissionOutcome | None:
-        if not self._is_database_available(namespace.database):
-            self._statistics.record_bypass()
-            return AdmissionOutcome.DECLINED_UNAVAILABLE
-        if self._lru.is_oversize(weight):
-            return AdmissionOutcome.DECLINED_OVERSIZE
-        return None
+    def _capture_database_availability(self, database: str) -> int:
+        with self._availability_lock:
+            _available, generation = self._database_availability.get(
+                database, _DEFAULT_DATABASE_AVAILABILITY
+            )
+            return generation
+
+    @contextmanager
+    def _admission_section(
+        self,
+        namespace: NamespaceId,
+        availability_generation: int,
+        weight: int,
+    ) -> Iterator[AdmissionOutcome | None]:
+        with self._availability_lock:
+            available, current_generation = self._database_availability.get(
+                namespace.database, _DEFAULT_DATABASE_AVAILABILITY
+            )
+            if not available or availability_generation != current_generation:
+                self._statistics.record_bypass()
+                yield AdmissionOutcome.DECLINED_UNAVAILABLE
+                return
+            if self._lru.is_oversize(weight):
+                yield AdmissionOutcome.DECLINED_OVERSIZE
+                return
+            yield None
 
     def _ensure_active(self) -> None:
         if self._is_closed():
@@ -128,6 +153,9 @@ class _CacheCoreBase:
                 state = NamespaceState(namespace=namespace)
                 if not self._is_closed():
                     self._namespaces[namespace] = state
+                    self._database_namespaces.setdefault(namespace.database, {})[
+                        namespace
+                    ] = None
             return state
 
     @contextmanager
@@ -207,6 +235,7 @@ class _CacheCoreLifecycle(_CacheCoreBase):
         self._lru.clear_all()
         with self._namespaces_lock:
             self._namespaces.clear()
+            self._database_namespaces.clear()
         logger.info("cache manager closed")
 
     def record_bypass(self) -> None:
@@ -233,11 +262,7 @@ class _CacheCoreNamespaceLifecycle(_CacheCoreBase):
 
     def namespaces_for_database(self, database: str) -> list[NamespaceId]:
         with self._namespaces_lock:
-            return [
-                namespace
-                for namespace in self._namespaces
-                if namespace.database == database
-            ]
+            return list(self._database_namespaces.get(database, {}))
 
     def has_namespace(self, namespace: NamespaceId) -> bool:
         with self._namespaces_lock:
@@ -297,7 +322,11 @@ class _CacheCoreDatabaseAvailability(_CacheCoreBase):
 
     def set_database_available(self, database: str, *, available: bool) -> None:
         with self._availability_lock:
-            self._database_availability[database] = available
+            current_available, generation = self._database_availability.get(
+                database, _DEFAULT_DATABASE_AVAILABILITY
+            )
+            if available != current_available:
+                self._database_availability[database] = (available, generation + 1)
 
 
 class _CacheCoreIdentityAdmission(_CacheCoreBase):
@@ -311,6 +340,9 @@ class _CacheCoreIdentityAdmission(_CacheCoreBase):
         if canonical_identity is None:
             message = "identity must not be None"
             raise UnsupportedCacheRequestError(message)
+        availability_generation = self._capture_database_availability(
+            namespace.database
+        )
         state = self._namespace(namespace)
         with self._namespace_section(state):
             identity_state = state.identities.get(canonical_identity)
@@ -326,6 +358,7 @@ class _CacheCoreIdentityAdmission(_CacheCoreBase):
             namespace=namespace,
             identity=canonical_identity,
             generation_key=generation_key,
+            availability_generation=availability_generation,
         )
 
     def discard_identity_admission(self, capture: IdentityCapture) -> None:
@@ -344,27 +377,31 @@ class _CacheCoreIdentityAdmission(_CacheCoreBase):
             canonical_shape = canonicalize(read_shape)
             encoded = encode_value(value)
             weight = len(encoded)
-            rejected = self._reject_before_admission(capture.namespace, weight)
-            if rejected is not None:
-                return rejected
-            key = IdentityCacheKey(capture.namespace, capture.identity, canonical_shape)
-            state = self._namespace(capture.namespace)
-            with self._namespace_section(state):
-                identity_state = self._match_identity_state(
-                    state, capture.identity, capture.generation_key
+            with self._admission_section(
+                capture.namespace, capture.availability_generation, weight
+            ) as rejected:
+                if rejected is not None:
+                    return rejected
+                key = IdentityCacheKey(
+                    capture.namespace, capture.identity, canonical_shape
                 )
-                if self._is_closed() or identity_state is None:
-                    return AdmissionOutcome.DECLINED_STALE
-                if alias is not None:
-                    self._publish_alias_locked(state, alias, capture.identity)
-            entry = CacheEntry(
-                generation_key=capture.generation_key,
-                weight=weight,
-                value=encoded,
-                namespace=capture.namespace,
-                identity=capture.identity,
-            )
-            admitted, displaced, evicted = self._lru.conditional_put(key, entry)
+                state = self._namespace(capture.namespace)
+                with self._namespace_section(state):
+                    identity_state = self._match_identity_state(
+                        state, capture.identity, capture.generation_key
+                    )
+                    if self._is_closed() or identity_state is None:
+                        return AdmissionOutcome.DECLINED_STALE
+                    if alias is not None:
+                        self._publish_alias_locked(state, alias, capture.identity)
+                entry = CacheEntry(
+                    generation_key=capture.generation_key,
+                    weight=weight,
+                    value=encoded,
+                    namespace=capture.namespace,
+                    identity=capture.identity,
+                )
+                admitted, displaced, evicted = self._lru.conditional_put(key, entry)
             if not admitted:
                 return AdmissionOutcome.DECLINED_STALE
             self._process_evicted(evicted)
@@ -417,9 +454,16 @@ class _CacheCoreNamespaceAdmission(_CacheCoreBase):
 
     def capture_namespace_generation(self, namespace: NamespaceId) -> NamespaceCapture:
         self._ensure_active()
+        availability_generation = self._capture_database_availability(
+            namespace.database
+        )
         state = self._namespace(namespace)
         with self._namespace_section(state):
-            return NamespaceCapture(namespace=namespace, generation=state.generation)
+            return NamespaceCapture(
+                namespace=namespace,
+                generation=state.generation,
+                availability_generation=availability_generation,
+            )
 
     def admit_namespace(
         self, capture: NamespaceCapture, discriminator: object, value: object
@@ -428,22 +472,24 @@ class _CacheCoreNamespaceAdmission(_CacheCoreBase):
         canonical_discriminator = canonicalize(discriminator)
         encoded = encode_value(value)
         weight = len(encoded)
-        rejected = self._reject_before_admission(capture.namespace, weight)
-        if rejected is not None:
-            return rejected
-        key = NamespaceCacheKey(capture.namespace, canonical_discriminator)
-        state = self._namespace(capture.namespace)
-        with self._namespace_section(state):
-            if self._is_closed() or state.generation != capture.generation:
-                return AdmissionOutcome.DECLINED_STALE
-        entry = CacheEntry(
-            generation_key=(capture.generation,),
-            weight=weight,
-            value=encoded,
-            namespace=capture.namespace,
-            identity=None,
-        )
-        admitted, displaced, evicted = self._lru.conditional_put(key, entry)
+        with self._admission_section(
+            capture.namespace, capture.availability_generation, weight
+        ) as rejected:
+            if rejected is not None:
+                return rejected
+            key = NamespaceCacheKey(capture.namespace, canonical_discriminator)
+            state = self._namespace(capture.namespace)
+            with self._namespace_section(state):
+                if self._is_closed() or state.generation != capture.generation:
+                    return AdmissionOutcome.DECLINED_STALE
+            entry = CacheEntry(
+                generation_key=(capture.generation,),
+                weight=weight,
+                value=encoded,
+                namespace=capture.namespace,
+                identity=None,
+            )
+            admitted, displaced, evicted = self._lru.conditional_put(key, entry)
         if not admitted:
             return AdmissionOutcome.DECLINED_STALE
         self._process_evicted(evicted)

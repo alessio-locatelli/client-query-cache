@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import Mock
@@ -12,7 +13,7 @@ from mongo_client_cache._core.entries import AdmissionOutcome
 from mongo_client_cache._core.errors import StreamLifecycleError, StreamStartupError
 from mongo_client_cache._core.keys import NamespaceId
 from mongo_client_cache._core.manager import CacheCore
-from mongo_client_cache._core.stream_health import RetryBackoff
+from mongo_client_cache._core.stream_health import RetryBackoff, StreamHealth
 from mongo_client_cache.asynchronous.streams import (
     ChangeStreamCoordinator,
     DatabaseStreamSupervisor,
@@ -68,6 +69,32 @@ class _ScriptedStream:
     async def close(self) -> None:
         self.closed = True
         self._closed_event.set()
+
+
+class _BlockingCloseStream(_ScriptedStream):
+    __slots__ = ("close_started", "release_close")
+
+    def __init__(self, events: list[object]) -> None:
+        super().__init__(events)
+        self.close_started = asyncio.Event()
+        self.release_close = asyncio.Event()
+
+    async def close(self) -> None:
+        self.close_started.set()
+        await self.release_close.wait()
+        await super().close()
+
+
+class _CloseRaisesStream(_ScriptedStream):
+    __slots__ = ("close_started",)
+
+    def __init__(self, events: list[object]) -> None:
+        super().__init__(events)
+        self.close_started = asyncio.Event()
+
+    async def close(self) -> None:
+        self.close_started.set()
+        raise ConnectionFailure("cursor close failed")
 
 
 class _StreamStopsThenFails:
@@ -411,6 +438,19 @@ async def test_a_stop_racing_a_successful_reopen_does_not_report_healthy(
     assert supervisor.healthy is False
 
 
+async def test_stop_prevents_recovery_from_restoring_cache_eligibility(
+    make_supervisor: Callable[..., DatabaseStreamSupervisor],
+) -> None:
+    cache = CacheCore()
+    supervisor = make_supervisor(_as_database(_FakeDatabase("db", [])), cache)
+    supervisor._stop_event.set()
+
+    supervisor._set_health(StreamHealth.HEALTHY)
+
+    assert supervisor.healthy is False
+    assert _attempt_admission(cache, "db") is AdmissionOutcome.DECLINED_UNAVAILABLE
+
+
 async def test_stop_interrupts_an_in_progress_backoff_wait(
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
 ) -> None:
@@ -612,6 +652,47 @@ async def test_supervisor_is_unhealthy_while_reconnecting(
     await _wait_until(lambda: supervisor.healthy)
 
 
+async def test_unhealthy_transition_disables_cache_before_publishing_health(
+    make_supervisor: Callable[..., DatabaseStreamSupervisor],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cache = CacheCore()
+    supervisor = make_supervisor(_as_database(_FakeDatabase("db", [])), cache)
+    supervisor._set_health(StreamHealth.HEALTHY)
+    availability_published = threading.Event()
+    release_health_publication = threading.Event()
+    original_set_database_available = CacheCore.set_database_available
+
+    def delayed_set_database_available(
+        self: CacheCore, database: str, *, available: bool
+    ) -> None:
+        original_set_database_available(self, database, available=available)
+        if not available:
+            availability_published.set()
+            release_health_publication.wait(timeout=2)
+
+    monkeypatch.setattr(
+        CacheCore, "set_database_available", delayed_set_database_available
+    )
+    transition_thread = threading.Thread(
+        target=supervisor._set_health, args=(StreamHealth.RECONNECTING,)
+    )
+
+    transition_thread.start()
+    assert availability_published.wait(timeout=2)
+    health_during_cache_transition: list[bool] = []
+    health_during_cache_transition.append(supervisor.healthy)
+    outcome = _attempt_admission(cache, "db")
+    release_health_publication.set()
+    transition_thread.join(timeout=2)
+    supervisor._set_health(StreamHealth.HEALTHY)
+
+    assert not transition_thread.is_alive()
+    assert health_during_cache_transition == [True]
+    assert outcome is AdmissionOutcome.DECLINED_UNAVAILABLE
+    assert supervisor.healthy is True
+
+
 async def test_coordinator_starts_one_independent_stream_per_active_database(
     make_coordinator: Callable[..., ChangeStreamCoordinator],
 ) -> None:
@@ -703,6 +784,38 @@ async def test_cache_use_is_bypassed_after_stop(
     await supervisor.stop()
 
     assert _attempt_admission(cache, "db") is AdmissionOutcome.DECLINED_UNAVAILABLE
+
+
+async def test_cache_use_is_bypassed_while_stop_waits_for_stream_cleanup(
+    make_supervisor: Callable[..., DatabaseStreamSupervisor],
+) -> None:
+    cache = CacheCore()
+    stream = _BlockingCloseStream([])
+    supervisor = make_supervisor(_as_database(_FakeDatabase("db", [stream])), cache)
+    await supervisor.start()
+    stop_task = asyncio.create_task(supervisor.stop())
+
+    await stream.close_started.wait()
+    outcome = _attempt_admission(cache, "db")
+    stream.release_close.set()
+    await stop_task
+
+    assert outcome is AdmissionOutcome.DECLINED_UNAVAILABLE
+
+
+async def test_stop_continues_when_stream_close_raises(
+    make_supervisor: Callable[..., DatabaseStreamSupervisor],
+) -> None:
+    stream = _CloseRaisesStream([])
+    supervisor = make_supervisor(
+        _as_database(_FakeDatabase("db", [stream])), CacheCore()
+    )
+    await supervisor.start()
+
+    await supervisor.stop()
+
+    assert stream.close_started.is_set()
+    assert supervisor.healthy is False
 
 
 async def test_cache_use_stays_bypassed_when_startup_fails(
