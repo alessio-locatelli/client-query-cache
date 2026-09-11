@@ -70,6 +70,7 @@ def _route_rename(cache: CacheCore, database: str, event: Mapping[str, Any]) -> 
 
 
 def _route_invalidate(cache: CacheCore, database: str) -> None:
+    cache.set_database_available(database, available=False)
     for namespace in cache.namespaces_for_database(database):
         cache.clear_namespace(namespace)
 
@@ -92,7 +93,7 @@ def route_change_event(
         return False
     if operation_type == "dropDatabase":
         _route_invalidate(cache, database)
-        return False
+        return True
     _route_invalidate(cache, database)
     return True
 
