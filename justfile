@@ -10,6 +10,7 @@ setup:
     uv sync --locked --all-groups
     npm ci --silent
     prek install
+    git submodule update --init
 
 lint:
     uv run --locked --all-groups -- prek run --all-files
