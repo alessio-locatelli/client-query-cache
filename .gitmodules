@@ -1,0 +1,4 @@
+[submodule "specifications"]
+	path = specifications
+	url = https://github.com/mongodb/specifications/
+	shallow = true

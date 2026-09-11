@@ -90,4 +90,4 @@ Commit proactively during the work after completing each dedicated part of a lar
 
 ## References
 
-- [MongoDB Specifications](https://specifications.readthedocs.io/en/latest/) (local clone is a sibling directory at `../specifications`).
+- [MongoDB Specifications](./specifications) repository (Git submodule).
