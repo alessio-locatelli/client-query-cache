@@ -89,6 +89,7 @@ Per-document-event routing and dispatch is O(1), but deserialization scales with
 - [A write is committed before its event reaches a healthy worker] → Document bounded/eventual coherency and test post-event invalidation rather than promising a per-read write barrier.
 - [Resume token is lost] → Clear rather than assert stale entries are safe.
 - [A single serial per-database router could become a bottleneck under heavy write traffic on uncached collections, but partitioning would need to reconstruct per-namespace event ordering explicitly] → Ship the single serial consumer for this change; defer the partitioning decision to benchmark evidence tracked in `benchmark-change-stream-costs`.
+- [Cache use fails closed on the owning supervisor's stream health via a per-database availability flag on `CacheCore`, tracked without a per-owner token] → Sharing one `CacheCore` across more than one `ChangeStreamCoordinator`/`DatabaseStreamSupervisor` for the same database is unsupported: one supervisor stopping would overwrite another's still-healthy availability state. This matches the existing one-`CacheCore`-per-`CacheManager` resource model rather than introducing new sharing; see `document-public-library`'s tasks for its tracked operator-facing ownership documentation.
 
 ## Migration Plan
 

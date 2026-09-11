@@ -1,7 +1,7 @@
 ## 1. Document the public interface
 
 - [ ] 1.1 Replace the proof-of-concept README with verified audience, topology prerequisites, installation, sync/async quick starts, lifecycle, consistency, and non-goal guidance; verify every sample against the public API.
-- [ ] 1.2 Publish the API reference and prototype migration guide; verify it covers configuration, limits, ownership, raw fallback, and rollback to PyMongo collections.
+- [ ] 1.2 Publish the API reference and prototype migration guide; verify it covers configuration, limits, ownership, raw fallback, and rollback to PyMongo collections. Ownership guidance SHALL explicitly state that a `CacheManager` instance and the `CacheCore`/`ChangeStreamCoordinator` it owns are exclusive to that instance: sharing one `CacheCore` across more than one `ChangeStreamCoordinator` (or activating the same database from two coordinators over one `CacheCore`) is unsupported, per `implement-change-stream-coherency`'s `design.md`, because per-database stream-health availability is a single flag with no per-owner isolation, so one supervisor stopping can silently mark another supervisor's still-healthy database unavailable.
 
 ## 2. Document architecture and operations
 
