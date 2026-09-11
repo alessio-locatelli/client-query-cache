@@ -8,7 +8,7 @@ This capability keeps a process-local cache safe to use only while a database-sc
 
 ### Requirement: A manager owns one database-scoped invalidation stream
 
-For every active cached database, the manager SHALL use exactly one database-scoped stream opened with `show_expanded_events=True` to route insert, update, replace, delete, drop, `dropDatabase`, rename, `create`, and invalidation events to all affected cache namespaces. The manager SHALL require MongoDB server version 6.0 or newer and SHALL fail closed during startup when the server cannot support the expanded-events option. The stream projection SHALL retain the resume token and fields required for routing while omitting unnecessary full documents and update descriptions. A `create` event SHALL advance the affected namespace's epoch and generation and SHALL physically reclaim any entries cached against that namespace while it did not yet exist, the same as a clear, so a namespace coming into existence invalidates any determination a caller made about it before it existed and does not leave pre-existence entries consuming shared budget.
+For every active cached database, the manager SHALL use exactly one database-scoped stream opened with `show_expanded_events=True` to route insert, update, replace, delete, drop, `dropDatabase`, rename, `create`, and invalidation events to all affected cache namespaces. The manager SHALL require MongoDB server version 6.0 or newer and SHALL fail closed during startup when the server cannot support the expanded-events option. The stream projection SHALL retain the resume token and fields required for routing while omitting unnecessary full documents and update descriptions. A `create` event SHALL advance the affected namespace's epoch and generation and SHALL physically reclaim any entries cached against that namespace while it did not yet exist, the same as a clear, so a namespace coming into existence invalidates any determination a caller made about it before it existed and does not leave pre-existence entries consuming shared budget. Database-wide invalidation SHALL enumerate only namespaces registered for the affected database and SHALL not traverse namespace metadata for other databases.
 
 #### Scenario: An external update is received
 
@@ -35,6 +35,11 @@ For every active cached database, the manager SHALL use exactly one database-sco
 - **WHEN** a caller activates cached collections in more than one database through the same client
 - **THEN** the manager maintains one independent database-scoped stream for each active cached database, and an event in one database cannot be routed as an invalidation for another database
 
+#### Scenario: A database-wide invalidation has unrelated namespaces
+
+- **WHEN** the manager clears a database while the cache tracks namespaces from other databases
+- **THEN** it enumerates and clears only the affected database's namespaces
+
 #### Scenario: A namespace is created after being absent
 
 - **WHEN** the manager processes a `create` event for a namespace that has cached namespace-guarded entries admitted while it was absent
@@ -42,12 +47,27 @@ For every active cached database, the manager SHALL use exactly one database-sco
 
 ### Requirement: Cache use fails closed during stream uncertainty
 
-The manager SHALL permit cache use only after stream startup establishes the documented healthy state. During recovery it SHALL bypass cache admission and hits. If continuity cannot be resumed, it SHALL clear the affected cache before re-establishing the stream.
+The manager SHALL permit cache use only after stream startup establishes the documented healthy state. During recovery and shutdown it SHALL bypass cache admission and hits. A cache admission capture created while the stream is unavailable, or before an intervening unavailable-to-healthy transition, SHALL be rejected even if the stream is healthy when admission completes. Health and cache-availability transitions SHALL be serialized so a terminal stopped or failed supervisor cannot leave its database cache-eligible. A supervisor SHALL disable cache availability before waiting for stream or worker shutdown. If continuity cannot be resumed, it SHALL clear the affected cache before re-establishing the stream.
 
 #### Scenario: Resume history is unavailable
 
 - **WHEN** a disconnected stream cannot resume from its saved token
 - **THEN** the manager clears the affected cache, bypasses cache use until a new stream is healthy, and records the recovery state
+
+#### Scenario: A read spans stream recovery
+
+- **WHEN** a read begins cache admission while its database stream is unavailable and the stream becomes healthy before the read completes
+- **THEN** the completed read is not admitted to the cache
+
+#### Scenario: A stop races stream recovery
+
+- **WHEN** a stop request races a successful stream reopen
+- **THEN** the supervisor finishes stopped and cache use for its database remains bypassed
+
+#### Scenario: Shutdown blocks on cleanup
+
+- **WHEN** a supervisor's stream or worker cleanup blocks during shutdown
+- **THEN** cache use for its database is bypassed before cleanup completes
 
 ### Requirement: Sync and asyncio recovery are equivalent
 
@@ -57,3 +77,8 @@ The synchronous worker and asyncio task SHALL implement equivalent startup, shut
 
 - **WHEN** a temporary stream interruption occurs with resumable history available
 - **THEN** each execution model reconnects with the saved token and restores cache eligibility only after recovery succeeds
+
+#### Scenario: Shutdown is in progress
+
+- **WHEN** synchronous or asyncio shutdown waits for stream cleanup
+- **THEN** each execution model bypasses cache use throughout that wait
