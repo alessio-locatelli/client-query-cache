@@ -9,8 +9,10 @@ from unittest.mock import Mock
 import pytest
 from pymongo.errors import ConnectionFailure, OperationFailure
 
+from mongo_client_cache._core.entries import AdmissionOutcome
 from mongo_client_cache._core.errors import StreamLifecycleError, StreamStartupError
 from mongo_client_cache._core.keys import NamespaceId
+from mongo_client_cache._core.manager import CacheCore
 from mongo_client_cache._core.stream_health import RetryBackoff
 from mongo_client_cache.synchronous.streams import (
     ChangeStreamCoordinator,
@@ -133,6 +135,12 @@ def _insert_event(marker: str = "tok-1") -> dict[str, object]:
         "ns": {"db": "db", "coll": "coll"},
         "documentKey": {"_id": "doc-1"},
     }
+
+
+def _attempt_admission(cache: CacheCore, database: str) -> AdmissionOutcome:
+    namespace = NamespaceId(database, "coll")
+    capture = cache.begin_identity_admission(namespace, "doc-1")
+    return cache.admit_identity(capture, "full", {"v": "x"})
 
 
 def _wait_until(predicate: Callable[[], bool], *, timeout: float = 2.0) -> None:
@@ -583,3 +591,81 @@ def test_coordinator_starts_one_independent_stream_per_active_database(
 
     assert _is_healthy(first) is False
     assert _is_healthy(second) is False
+
+
+def test_cache_use_is_bypassed_until_start_completes(
+    make_supervisor: Callable[..., DatabaseStreamSupervisor],
+) -> None:
+    release = threading.Event()
+
+    def before_watch(_index: int) -> None:
+        release.wait(timeout=2)
+
+    database = _FakeDatabase("db", [_ScriptedStream([])], before_watch=before_watch)
+    cache = CacheCore()
+    supervisor = make_supervisor(_as_database(database), cache)
+
+    thread = threading.Thread(target=supervisor.start)
+    thread.start()
+    _wait_until(lambda: len(database.watch_calls) == 1)
+    assert _attempt_admission(cache, "db") is AdmissionOutcome.DECLINED_UNAVAILABLE
+
+    release.set()
+    thread.join()
+
+    assert _attempt_admission(cache, "db") is AdmissionOutcome.ADMITTED
+
+
+def test_cache_use_is_bypassed_while_reconnecting_and_restored_once_healthy(
+    make_supervisor: Callable[..., DatabaseStreamSupervisor],
+) -> None:
+    release = threading.Event()
+    watch_calls_before_release = 2
+
+    def before_watch(index: int) -> None:
+        if index == 1:
+            release.wait(timeout=2)
+
+    stream1 = _ScriptedStream([_insert_event(), OperationFailure("blip", code=1)])
+    database = _FakeDatabase(
+        "db", [stream1, _ScriptedStream([])], before_watch=before_watch
+    )
+    cache = CacheCore()
+    supervisor = make_supervisor(_as_database(database), cache, backoff=_FAST_BACKOFF)
+
+    supervisor.start()
+    _wait_until(lambda: len(database.watch_calls) == watch_calls_before_release)
+    assert _attempt_admission(cache, "db") is AdmissionOutcome.DECLINED_UNAVAILABLE
+
+    release.set()
+    _wait_until(lambda: supervisor.healthy)
+
+    assert _attempt_admission(cache, "db") is AdmissionOutcome.ADMITTED
+
+
+def test_cache_use_is_bypassed_after_stop(
+    make_supervisor: Callable[..., DatabaseStreamSupervisor],
+) -> None:
+    cache = CacheCore()
+    database = _FakeDatabase("db", [_ScriptedStream([])])
+    supervisor = make_supervisor(_as_database(database), cache)
+
+    supervisor.start()
+    assert _attempt_admission(cache, "db") is AdmissionOutcome.ADMITTED
+
+    supervisor.stop()
+
+    assert _attempt_admission(cache, "db") is AdmissionOutcome.DECLINED_UNAVAILABLE
+
+
+def test_cache_use_stays_bypassed_when_startup_fails(
+    make_supervisor: Callable[..., DatabaseStreamSupervisor],
+) -> None:
+    cache = CacheCore()
+    database = _FakeDatabase("db", [ConnectionFailure("down")])
+    supervisor = make_supervisor(_as_database(database), cache)
+
+    with pytest.raises(StreamStartupError):
+        supervisor.start()
+
+    assert _attempt_admission(cache, "db") is AdmissionOutcome.DECLINED_UNAVAILABLE
