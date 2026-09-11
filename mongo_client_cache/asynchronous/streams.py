@@ -70,6 +70,7 @@ class DatabaseStreamSupervisor:
             message = "start() may only be called once per supervisor instance"
             raise StreamLifecycleError(message)
         self._set_health(StreamHealth.CONNECTING)
+        self._clear_namespaces_for_database()
         try:
             await self._ensure_server_supports_expanded_events()
             await self._open_stream(resume_token=None, use_start_after=False)
@@ -82,6 +83,13 @@ class DatabaseStreamSupervisor:
                 f"failed to open change stream for database {self._database.name!r}"
             )
             raise StreamStartupError(message) from exc
+        except asyncio.CancelledError:
+            self._set_health(StreamHealth.CLOSED)
+            stream = self._stream
+            if stream is not None:
+                with contextlib.suppress(PyMongoError):
+                    await stream.close()
+            raise
         if self._stop_event.is_set():
             assert self._stream is not None
             with contextlib.suppress(PyMongoError):

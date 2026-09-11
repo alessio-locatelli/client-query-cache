@@ -116,6 +116,18 @@ def test_availability_can_be_restored(core: CacheCore, namespace: NamespaceId) -
     assert core.lookup_identity(namespace, "doc-1", "full").hit
 
 
+def test_resolve_alias_is_bypassed_while_the_database_is_unavailable(
+    core: CacheCore, namespace: NamespaceId
+) -> None:
+    _seed_alias(core, namespace)
+    core.set_database_available(namespace.database, available=False)
+
+    resolved = core.resolve_alias(namespace, "email", "a@example.com", None)
+
+    assert resolved is None
+    assert core.snapshot().bypasses == 1
+
+
 def test_marking_one_database_unavailable_does_not_affect_another(
     core: CacheCore, namespace: NamespaceId
 ) -> None:

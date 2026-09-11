@@ -528,6 +528,9 @@ class _CacheCoreLookup(_CacheCoreBase):
         collation: object,
     ) -> Canonical | None:
         self._ensure_active()
+        if not self._is_database_available(namespace.database):
+            self._statistics.record_bypass()
+            return None
         alias_key = canonical_alias_key(definition, value, collation)
         state = self._namespace(namespace)
         with self._namespace_section(state):

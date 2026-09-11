@@ -76,6 +76,7 @@ class DatabaseStreamSupervisor:
                 message = "start() may only be called once per supervisor instance"
                 raise StreamLifecycleError(message)
             self._set_health(StreamHealth.CONNECTING)
+        self._clear_namespaces_for_database()
         try:
             self._ensure_server_supports_expanded_events()
             self._open_stream(resume_token=None, use_start_after=False)
