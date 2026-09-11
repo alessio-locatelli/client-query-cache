@@ -13,6 +13,7 @@ class AdmissionOutcome(enum.Enum):
     ADMITTED = "admitted"
     DECLINED_OVERSIZE = "declined_oversize"
     DECLINED_STALE = "declined_stale"
+    DECLINED_UNAVAILABLE = "declined_unavailable"
 
 
 @dataclass(eq=False, slots=True)

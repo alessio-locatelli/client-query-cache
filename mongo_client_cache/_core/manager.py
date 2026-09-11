@@ -72,6 +72,8 @@ class NamespaceCapture:
 
 class _CacheCoreBase:
     __slots__ = (
+        "_availability_lock",
+        "_database_availability",
         "_guard",
         "_lifecycle",
         "_lifecycle_lock",
@@ -94,9 +96,25 @@ class _CacheCoreBase:
         self._lifecycle = CacheLifecycleState.ACTIVE
         self._lifecycle_lock = threading.Lock()
         self._statistics = CacheStatistics()
+        self._database_availability: dict[str, bool] = {}
+        self._availability_lock = threading.Lock()
 
     def _is_closed(self) -> bool:
         return self._lifecycle is CacheLifecycleState.CLOSED
+
+    def _is_database_available(self, database: str) -> bool:
+        with self._availability_lock:
+            return self._database_availability.get(database, True)
+
+    def _reject_before_admission(
+        self, namespace: NamespaceId, weight: int
+    ) -> AdmissionOutcome | None:
+        if not self._is_database_available(namespace.database):
+            self._statistics.record_bypass()
+            return AdmissionOutcome.DECLINED_UNAVAILABLE
+        if self._lru.is_oversize(weight):
+            return AdmissionOutcome.DECLINED_OVERSIZE
+        return None
 
     def _ensure_active(self) -> None:
         if self._is_closed():
@@ -274,6 +292,14 @@ class _CacheCoreNamespaceLifecycle(_CacheCoreBase):
         )
 
 
+class _CacheCoreDatabaseAvailability(_CacheCoreBase):
+    __slots__ = ()
+
+    def set_database_available(self, database: str, *, available: bool) -> None:
+        with self._availability_lock:
+            self._database_availability[database] = available
+
+
 class _CacheCoreIdentityAdmission(_CacheCoreBase):
     __slots__ = ()
 
@@ -318,8 +344,9 @@ class _CacheCoreIdentityAdmission(_CacheCoreBase):
             canonical_shape = canonicalize(read_shape)
             encoded = encode_value(value)
             weight = len(encoded)
-            if self._lru.is_oversize(weight):
-                return AdmissionOutcome.DECLINED_OVERSIZE
+            rejected = self._reject_before_admission(capture.namespace, weight)
+            if rejected is not None:
+                return rejected
             key = IdentityCacheKey(capture.namespace, capture.identity, canonical_shape)
             state = self._namespace(capture.namespace)
             with self._namespace_section(state):
@@ -401,8 +428,9 @@ class _CacheCoreNamespaceAdmission(_CacheCoreBase):
         canonical_discriminator = canonicalize(discriminator)
         encoded = encode_value(value)
         weight = len(encoded)
-        if self._lru.is_oversize(weight):
-            return AdmissionOutcome.DECLINED_OVERSIZE
+        rejected = self._reject_before_admission(capture.namespace, weight)
+        if rejected is not None:
+            return rejected
         key = NamespaceCacheKey(capture.namespace, canonical_discriminator)
         state = self._namespace(capture.namespace)
         with self._namespace_section(state):
@@ -447,6 +475,9 @@ class _CacheCoreLookup(_CacheCoreBase):
         self, namespace: NamespaceId, identity: object, read_shape: object
     ) -> LookupResult:
         self._ensure_active()
+        if not self._is_database_available(namespace.database):
+            self._statistics.record_bypass()
+            return LookupResult(hit=False)
         canonical_identity = canonicalize(identity)
         key = IdentityCacheKey(namespace, canonical_identity, canonicalize(read_shape))
         entry = self._lru.peek(key)
@@ -470,6 +501,9 @@ class _CacheCoreLookup(_CacheCoreBase):
         self, namespace: NamespaceId, discriminator: object
     ) -> LookupResult:
         self._ensure_active()
+        if not self._is_database_available(namespace.database):
+            self._statistics.record_bypass()
+            return LookupResult(hit=False)
         canonical_discriminator = canonicalize(discriminator)
         key = NamespaceCacheKey(namespace, canonical_discriminator)
         entry = self._lru.peek(key)
@@ -508,6 +542,9 @@ class _CacheCoreLookup(_CacheCoreBase):
         read_shape: object,
     ) -> LookupResult:
         self._ensure_active()
+        if not self._is_database_available(namespace.database):
+            self._statistics.record_bypass()
+            return LookupResult(hit=False)
         alias_key = canonical_alias_key(definition, value, collation)
         state = self._namespace(namespace)
         with self._namespace_section(state):
@@ -539,6 +576,7 @@ class _CacheCoreLookup(_CacheCoreBase):
 class CacheCore(
     _CacheCoreLifecycle,
     _CacheCoreNamespaceLifecycle,
+    _CacheCoreDatabaseAvailability,
     _CacheCoreIdentityAdmission,
     _CacheCoreNamespaceAdmission,
     _CacheCoreLookup,

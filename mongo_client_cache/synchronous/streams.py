@@ -149,6 +149,9 @@ class DatabaseStreamSupervisor:
     def _set_health(self, health: StreamHealth) -> None:
         with self._health_lock:
             self._health = health
+        self._cache.set_database_available(
+            self._database.name, available=health is StreamHealth.HEALTHY
+        )
 
     def _run(self) -> None:
         while not self._stop_event.is_set():
@@ -190,6 +193,11 @@ class DatabaseStreamSupervisor:
                     use_start_after = False
                     continue
                 delay = self._backoff.next_delay()
+                logger.warning(
+                    "change stream reconnect failed, retrying with backoff",
+                    extra={"database": self._database.name, "delay_seconds": delay},
+                    exc_info=exc,
+                )
                 if self._stop_event.wait(delay):
                     return
                 continue

@@ -69,15 +69,15 @@ class DatabaseStreamSupervisor:
         if self._health is not StreamHealth.STARTING:
             message = "start() may only be called once per supervisor instance"
             raise StreamLifecycleError(message)
-        self._health = StreamHealth.CONNECTING
+        self._set_health(StreamHealth.CONNECTING)
         try:
             await self._ensure_server_supports_expanded_events()
             await self._open_stream(resume_token=None, use_start_after=False)
         except StreamStartupError:
-            self._health = StreamHealth.CLOSED
+            self._set_health(StreamHealth.CLOSED)
             raise
         except PyMongoError as exc:
-            self._health = StreamHealth.CLOSED
+            self._set_health(StreamHealth.CLOSED)
             message = (
                 f"failed to open change stream for database {self._database.name!r}"
             )
@@ -86,10 +86,10 @@ class DatabaseStreamSupervisor:
             assert self._stream is not None
             with contextlib.suppress(PyMongoError):
                 await self._stream.close()
-            self._health = StreamHealth.CLOSED
+            self._set_health(StreamHealth.CLOSED)
             message = "stop() was called while start() was still connecting"
             raise StreamLifecycleError(message)
-        self._health = StreamHealth.HEALTHY
+        self._set_health(StreamHealth.HEALTHY)
         self._task = asyncio.ensure_future(self._run())
 
     async def stop(self) -> None:
@@ -102,7 +102,13 @@ class DatabaseStreamSupervisor:
         stream = self._stream
         if stream is not None:
             await stream.close()
-        self._health = StreamHealth.CLOSED
+        self._set_health(StreamHealth.CLOSED)
+
+    def _set_health(self, health: StreamHealth) -> None:
+        self._health = health
+        self._cache.set_database_available(
+            self._database.name, available=health is StreamHealth.HEALTHY
+        )
 
     async def _ensure_server_supports_expanded_events(self) -> None:
         server_info = await self._database.client.server_info()
@@ -160,13 +166,13 @@ class DatabaseStreamSupervisor:
     async def _handle_stream_failure(self) -> None:
         if self._stop_event.is_set():
             return
-        self._health = StreamHealth.RECONNECTING
+        self._set_health(StreamHealth.RECONNECTING)
         if self._resume_token is None:
             self._clear_namespaces_for_database()
         await self._reopen_with_backoff(use_start_after=False)
 
     async def _reopen_after_invalidate(self) -> None:
-        self._health = StreamHealth.RECONNECTING
+        self._set_health(StreamHealth.RECONNECTING)
         await self._reopen_with_backoff(use_start_after=True)
 
     async def _reopen_with_backoff(self, *, use_start_after: bool) -> None:
@@ -184,12 +190,17 @@ class DatabaseStreamSupervisor:
                     use_start_after = False
                     continue
                 delay = self._backoff.next_delay()
+                logger.warning(
+                    "change stream reconnect failed, retrying with backoff",
+                    extra={"database": self._database.name, "delay_seconds": delay},
+                    exc_info=exc,
+                )
                 if await self._interruptible_sleep(delay):
                     return
                 continue
             else:
                 self._backoff.reset()
-                self._health = StreamHealth.HEALTHY
+                self._set_health(StreamHealth.HEALTHY)
                 return
 
     def _clear_namespaces_for_database(self) -> None:
