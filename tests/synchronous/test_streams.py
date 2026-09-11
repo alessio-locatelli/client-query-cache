@@ -400,6 +400,30 @@ def test_retries_with_backoff_after_a_transient_reopen_failure(
     _wait_until(lambda: supervisor.healthy)
 
 
+def test_a_stop_racing_a_successful_reopen_does_not_report_healthy(
+    make_supervisor: Callable[..., DatabaseStreamSupervisor],
+) -> None:
+    stream1 = _ScriptedStream([OperationFailure("blip", code=1)])
+    database = _FakeDatabase("db", [stream1, _ScriptedStream([])])
+    supervisor = make_supervisor(
+        _as_database(database), _mock_cache(), backoff=_FAST_BACKOFF
+    )
+
+    def before_watch(index: int) -> None:
+        if index == 1:
+            supervisor._stop_event.set()
+
+    database._before_watch = before_watch
+    watch_calls_after_reopen = 2
+
+    supervisor.start()
+    _wait_until(lambda: len(database.watch_calls) == watch_calls_after_reopen)
+    assert supervisor._thread is not None
+    supervisor._thread.join(timeout=2)
+
+    assert supervisor.healthy is False
+
+
 def test_stop_interrupts_an_in_progress_backoff_wait(
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
 ) -> None:

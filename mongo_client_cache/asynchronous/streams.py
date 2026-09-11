@@ -208,7 +208,8 @@ class DatabaseStreamSupervisor:
                 continue
             else:
                 self._backoff.reset()
-                self._set_health(StreamHealth.HEALTHY)
+                if not self._stop_event.is_set():
+                    self._set_health(StreamHealth.HEALTHY)
                 return
 
     def _clear_namespaces_for_database(self) -> None:
