@@ -64,6 +64,7 @@ class DatabaseStreamSupervisor:
         self._resume_token: Mapping[str, Any] | None = None
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
+        self._cache.set_database_available(self._database.name, available=False)
 
     @property
     def healthy(self) -> bool:

@@ -551,12 +551,25 @@ async def test_clears_known_namespaces_when_resume_history_is_lost(
     await _wait_until(lambda: supervisor.healthy)
 
 
-async def test_reopens_with_start_after_following_an_invalidate_event(
+@pytest.mark.parametrize(
+    "invalidate_event",
+    [
+        pytest.param(
+            {"_id": {"tok": "drop"}, "operationType": "dropDatabase"},
+            id="drop_database",
+        ),
+        pytest.param(
+            {"_id": {"tok": "inv"}, "operationType": "invalidate"},
+            id="invalidate",
+        ),
+    ],
+)
+async def test_reopens_with_start_after_following_a_database_invalidation_event(
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
+    invalidate_event: dict[str, object],
 ) -> None:
     cache = _mock_cache()
     cache.namespaces_for_database.return_value = [NamespaceId("db", "coll")]
-    invalidate_event = {"_id": {"tok": "inv"}, "operationType": "invalidate"}
     stream1 = _ScriptedStream([_insert_event("tok-1"), invalidate_event])
     database = _FakeDatabase("db", [stream1, _ScriptedStream([])])
     supervisor = make_supervisor(_as_database(database), cache, backoff=_FAST_BACKOFF)
@@ -564,7 +577,7 @@ async def test_reopens_with_start_after_following_an_invalidate_event(
 
     await supervisor.start()
     await _wait_until(lambda: len(database.watch_calls) == watch_calls_after_reopen)
-    assert database.watch_calls[1]["start_after"] == {"tok": "inv"}
+    assert database.watch_calls[1]["start_after"] == invalidate_event["_id"]
     assert "resume_after" not in database.watch_calls[1]
     calls_to_clear = 2
     assert cache.clear_namespace.call_count == calls_to_clear
@@ -636,6 +649,8 @@ async def test_cache_use_is_bypassed_until_start_completes(
     database = _FakeDatabase("db", [_ScriptedStream([])], before_watch=before_watch)
     cache = CacheCore()
     supervisor = make_supervisor(_as_database(database), cache)
+
+    assert _attempt_admission(cache, "db") is AdmissionOutcome.DECLINED_UNAVAILABLE
 
     task = asyncio.ensure_future(supervisor.start())
     await _wait_until(lambda: len(database.watch_calls) == 1)

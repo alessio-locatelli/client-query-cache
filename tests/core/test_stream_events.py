@@ -180,8 +180,13 @@ def test_drop_database_clears_every_cache_namespace_immediately() -> None:
 
     must_reopen = route_change_event(cache, "db", event)
 
-    assert must_reopen is False
-    cache.clear_namespace.assert_has_calls([call(first), call(second)], any_order=True)
+    assert must_reopen is True
+    assert cache.mock_calls == [
+        call.set_database_available("db", available=False),
+        call.namespaces_for_database("db"),
+        call.clear_namespace(first),
+        call.clear_namespace(second),
+    ]
 
 
 def test_invalidate_clears_every_namespace_cache_core_tracks_for_the_database() -> None:
@@ -194,8 +199,12 @@ def test_invalidate_clears_every_namespace_cache_core_tracks_for_the_database() 
     must_reopen = route_change_event(cache, "db", event)
 
     assert must_reopen is True
-    cache.namespaces_for_database.assert_called_once_with("db")
-    cache.clear_namespace.assert_has_calls([call(first), call(second)], any_order=True)
+    assert cache.mock_calls == [
+        call.set_database_available("db", available=False),
+        call.namespaces_for_database("db"),
+        call.clear_namespace(first),
+        call.clear_namespace(second),
+    ]
 
 
 @pytest.mark.parametrize(

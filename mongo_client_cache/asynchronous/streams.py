@@ -60,6 +60,7 @@ class DatabaseStreamSupervisor:
         self._resume_token: Mapping[str, Any] | None = None
         self._stop_event = asyncio.Event()
         self._task: asyncio.Task[None] | None = None
+        self._cache.set_database_available(self._database.name, available=False)
 
     @property
     def healthy(self) -> bool:
