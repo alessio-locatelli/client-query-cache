@@ -73,6 +73,27 @@ class NamespaceCapture:
     availability_generation: int
 
 
+def _maybe_prune_identity_locked(
+    state: NamespaceState, identity: Canonical, identity_state: IdentityState
+) -> None:
+    if identity_state.is_referenced:
+        return
+    for alias_key in identity_state.alias_keys:
+        state.aliases.pop(alias_key, None)
+    state.identities.pop(identity, None)
+    state.identity_generation_watermark = max(
+        state.identity_generation_watermark, identity_state.generation + 1
+    )
+
+
+def _discard_entry_locked(state: NamespaceState, entry: CacheEntry) -> None:
+    was_indexed = state.entry_index.pop(entry, _NOT_INDEXED) is not _NOT_INDEXED
+    if was_indexed and entry.identity is not None:
+        identity_state = state.identities[entry.identity]
+        identity_state.cached_ref_count -= 1
+        _maybe_prune_identity_locked(state, entry.identity, identity_state)
+
+
 class _CacheCoreBase:
     __slots__ = (
         "_availability_lock",
@@ -176,32 +197,13 @@ class _CacheCoreBase:
             return None
         return identity_state
 
-    def _maybe_prune_identity_locked(
-        self, state: NamespaceState, identity: Canonical, identity_state: IdentityState
-    ) -> None:
-        if identity_state.is_referenced:
-            return
-        for alias_key in identity_state.alias_keys:
-            state.aliases.pop(alias_key, None)
-        state.identities.pop(identity, None)
-        state.identity_generation_watermark = max(
-            state.identity_generation_watermark, identity_state.generation + 1
-        )
-
-    def _discard_entry_locked(self, state: NamespaceState, entry: CacheEntry) -> None:
-        was_indexed = state.entry_index.pop(entry, _NOT_INDEXED) is not _NOT_INDEXED
-        if was_indexed and entry.identity is not None:
-            identity_state = state.identities[entry.identity]
-            identity_state.cached_ref_count -= 1
-            self._maybe_prune_identity_locked(state, entry.identity, identity_state)
-
     def _reclaim_if_evicted_before_publication(
         self, state: NamespaceState, key: CacheKey, entry: CacheEntry
     ) -> bool:
         if self._lru.contains_exact(key, entry):
             return False
         with self._namespace_section(state):
-            self._discard_entry_locked(state, entry)
+            _discard_entry_locked(state, entry)
         self._lru.remove_exact(key, entry)
         return True
 
@@ -217,7 +219,7 @@ class _CacheCoreBase:
             state = self._namespace(namespace)
             with self._namespace_section(state):
                 for entry in entries:
-                    self._discard_entry_locked(state, entry)
+                    _discard_entry_locked(state, entry)
 
 
 class _CacheCoreLifecycle(_CacheCoreBase):
@@ -393,7 +395,7 @@ class _CacheCoreIdentityAdmission(_CacheCoreBase):
                     if self._is_closed() or identity_state is None:
                         return AdmissionOutcome.DECLINED_STALE
                     if alias is not None:
-                        self._publish_alias_locked(state, alias, capture.identity)
+                        _publish_alias_locked(state, alias, capture.identity)
                 entry = CacheEntry(
                     generation_key=capture.generation_key,
                     weight=weight,
@@ -417,7 +419,7 @@ class _CacheCoreIdentityAdmission(_CacheCoreBase):
                     state.entry_index[entry] = key
                     identity_state.cached_ref_count += 1
                 if displaced is not None:
-                    self._discard_entry_locked(state, displaced)
+                    _discard_entry_locked(state, displaced)
             if rolled_back:
                 self._lru.remove_exact(key, entry)
                 return AdmissionOutcome.DECLINED_STALE
@@ -437,16 +439,17 @@ class _CacheCoreIdentityAdmission(_CacheCoreBase):
             if identity_state is None:
                 return
             identity_state.inflight_ref_count -= 1
-            self._maybe_prune_identity_locked(state, capture.identity, identity_state)
+            _maybe_prune_identity_locked(state, capture.identity, identity_state)
 
-    def _publish_alias_locked(
-        self, state: NamespaceState, alias: AliasKey, identity: Canonical
-    ) -> None:
-        previous_identity = state.aliases.get(alias)
-        if previous_identity is not None and previous_identity != identity:
-            state.identities[previous_identity].alias_keys.discard(alias)
-        state.aliases[alias] = identity
-        state.identities[identity].alias_keys.add(alias)
+
+def _publish_alias_locked(
+    state: NamespaceState, alias: AliasKey, identity: Canonical
+) -> None:
+    previous_identity = state.aliases.get(alias)
+    if previous_identity is not None and previous_identity != identity:
+        state.identities[previous_identity].alias_keys.discard(alias)
+    state.aliases[alias] = identity
+    state.identities[identity].alias_keys.add(alias)
 
 
 class _CacheCoreNamespaceAdmission(_CacheCoreBase):
@@ -505,7 +508,7 @@ class _CacheCoreNamespaceAdmission(_CacheCoreBase):
             else:
                 state.entry_index[entry] = key
             if displaced is not None:
-                self._discard_entry_locked(state, displaced)
+                _discard_entry_locked(state, displaced)
         if rolled_back:
             self._lru.remove_exact(key, entry)
             return AdmissionOutcome.DECLINED_STALE
