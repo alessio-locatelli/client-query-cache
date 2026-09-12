@@ -40,7 +40,7 @@ build-backend = "uv_build"
 module-root = "src"
 
 [tool.vulture]
-paths = ["src/mongo_client_cache", "tests"]
+paths = ["src", "tests"]
 ignore_names = [
   "log_when_test_starts",
   "faker_seed",
