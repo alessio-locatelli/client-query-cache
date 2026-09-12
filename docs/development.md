@@ -38,6 +38,8 @@ just coverage
 
 `just test` is the container-free unit tier. The integration, end-to-end, and coverage recipes require the host Podman API socket. Run `just enable-podman-socket` once inside the contributor container before using them.
 
+Repository quality and test commands exclude the `specifications` Git submodule. Run its tooling from its own checkout when needed.
+
 Run `just ci-lint` after changing CI configuration. Run host Podman commands from the contributor container with `just podman -- <arguments>`.
 
 ## Continuous integration

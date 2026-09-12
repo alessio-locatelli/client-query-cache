@@ -15,10 +15,10 @@ setup:
 
 lint:
     uv run -- prek run --all-files
-    uv run -- mypy --install-types .
+    uv run -- mypy --install-types
 
 ci-lint:
-    ZIZMOR_OFFLINE=true zizmor --fix=all --persona=auditor .
+    ZIZMOR_OFFLINE=true zizmor --fix=all --persona=auditor .github
 
 format:
     npm run format --silent

@@ -1,6 +1,7 @@
 target-version = "py314"
 
 extend-exclude = ["specifications"]
+force-exclude = true
 
 [lint]
 preview = true
