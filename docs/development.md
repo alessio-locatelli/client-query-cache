@@ -5,8 +5,8 @@ The project provides a pinned development image for Toolbx and Distrobox. Run th
 ## Host prerequisites
 
 - [Rootless Podman](https://podman.io/docs/installation)
-- A [systemd user session](https://www.freedesktop.org/software/systemd/man/latest/systemd.user.html)
-- [Toolbx](https://containertoolbx.org/install/) with [`flatpak-spawn`](https://flatpak.org/setup/) and a working Flatpak portal/session helper, or [Distrobox](https://distrobox.it/#installation)
+- A systemd user session
+- [Toolbx](https://containertoolbx.org/install/) with `flatpak-spawn` and a working Flatpak portal/session helper, or [Distrobox](https://distrobox.it/#installation)
 
 ## Create the environment
 
