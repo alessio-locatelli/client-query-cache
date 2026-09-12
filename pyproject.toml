@@ -19,8 +19,6 @@ dev = [
   "types-pygments>=2.21.0.20260819",
   "types-pysocks>=1.7.1.20260518",
   "types-simplejson>=4.1.0.20260724",
-]
-test = [
   "coverage>=7.16.0",
   "faker>=40.38.0",
   "hypothesis>=6.167.1",
