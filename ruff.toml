@@ -3,37 +3,34 @@ target-version = "py314"
 extend-exclude = ["specifications"]
 
 [lint]
+preview = true
 select = ["ALL"]
 ignore = [
   "D",
-  # Trailing comma missing
-  "COM812",
-  # Use of `assert` detected
-  "S101",
-  # Magic value used in comparison
-  "PLR2004",
-  # Too many branches
-  "PLR0912",
-  # Too many return statements
-  "PLR0911",
-  # is too complex
-  "C901",
-  # Too many statements
-  "PLR0915",
-  # too-many-arguments
-  "PLR0913",
-  # raw-string-in-exception
-  "EM101",
-  # Avoid specifying long messages outside the exception class
-  "TRY003",
-  # print
-  "T201",
-  # Missing copyright notice at top of file
-  "CPY001",
+  "missing-trailing-comma",
+  "assert",
+  "magic-value-comparison",
+  "too-many-branches",
+  "too-many-return-statements",
+  "complex-structure",
+  "too-many-statements",
+  "too-many-arguments",
+  "raw-string-in-exception",
+  "raise-vanilla-args",
+  "print",
+  "missing-copyright-notice",
+  # Rules from the preview.
+  "unnecessary-dunder-call",
+  "too-many-locals",
+  "noqa-comments",
+  "pytest-fixture-autouse",
+  "suspicious-subprocess-import",
+  "suspicious-non-cryptographic-random-usage",
 ]
 
 [lint.per-file-ignores]
 "tests/*" = [
-  "SLF001", # Private member accessed.
-  "FBT001", # Boolean-typed positional argument in function definition.
+  "private-member-access",
+  "boolean-type-hint-positional-argument",
+  "import-private-name",
 ]
