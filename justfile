@@ -16,12 +16,14 @@ setup:
 lint:
     uv run -- prek run --all-files
     uv run -- mypy --install-types
+    just --fmt --check
 
 ci-lint:
     ZIZMOR_OFFLINE=true zizmor --fix=all --persona=auditor .github
 
 format:
     npm run format --silent
+    just --fmt
 
 test:
     uv run -- pytest -m unit
