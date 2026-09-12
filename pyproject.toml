@@ -39,6 +39,16 @@ build-backend = "uv_build"
 [tool.uv.build-backend]
 module-root = "src"
 
+[tool.slotscheck]
+strict-imports = true
+require-superclass = true
+require-subclass = true
+exclude-modules = '''
+(
+  ^specifications
+)
+'''
+
 [tool.vulture]
 paths = ["src", "tests"]
 ignore_names = [
@@ -50,6 +60,7 @@ ignore_names = [
 
 [tool.ruff-extra-rules]
 fix = true
+exclude = ["specifications"]
 extend-select = ["unused-pytriage"]
 [tool.ruff-extra-rules.meaningless-vars]
 level = "aggressive"
