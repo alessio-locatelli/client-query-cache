@@ -600,18 +600,10 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "covdefaults" },
-    { name = "mypy" },
-    { name = "types-docker" },
-    { name = "types-paramiko" },
-    { name = "types-pexpect" },
-    { name = "types-pygments" },
-    { name = "types-pysocks" },
-    { name = "types-simplejson" },
-]
-test = [
     { name = "coverage" },
     { name = "faker" },
     { name = "hypothesis" },
+    { name = "mypy" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-timeout" },
@@ -620,6 +612,12 @@ test = [
     { name = "testcontainers", extra = ["mongodb"] },
     { name = "tox" },
     { name = "tox-uv" },
+    { name = "types-docker" },
+    { name = "types-paramiko" },
+    { name = "types-pexpect" },
+    { name = "types-pygments" },
+    { name = "types-pysocks" },
+    { name = "types-simplejson" },
 ]
 
 [package.metadata]
@@ -628,18 +626,10 @@ requires-dist = [{ name = "pymongo", specifier = ">=4.18" }]
 [package.metadata.requires-dev]
 dev = [
     { name = "covdefaults", specifier = ">=2.3.0" },
-    { name = "mypy", specifier = ">=2.3.1" },
-    { name = "types-docker", specifier = ">=7.2.0.20260827" },
-    { name = "types-paramiko", specifier = ">=5.0.0.20260724" },
-    { name = "types-pexpect", specifier = ">=4.9.0.20260518" },
-    { name = "types-pygments", specifier = ">=2.21.0.20260819" },
-    { name = "types-pysocks", specifier = ">=1.7.1.20260518" },
-    { name = "types-simplejson", specifier = ">=4.1.0.20260724" },
-]
-test = [
     { name = "coverage", specifier = ">=7.16.0" },
     { name = "faker", specifier = ">=40.38.0" },
     { name = "hypothesis", specifier = ">=6.167.1" },
+    { name = "mypy", specifier = ">=2.3.1" },
     { name = "pytest", specifier = ">=9.1.1" },
     { name = "pytest-asyncio", specifier = ">=1.4.0" },
     { name = "pytest-timeout", specifier = ">=2.4.0" },
@@ -648,6 +638,12 @@ test = [
     { name = "testcontainers", extras = ["mongodb"], specifier = ">=4.15.0" },
     { name = "tox", specifier = ">=4.61.2" },
     { name = "tox-uv", specifier = ">=1.36.0" },
+    { name = "types-docker", specifier = ">=7.2.0.20260827" },
+    { name = "types-paramiko", specifier = ">=5.0.0.20260724" },
+    { name = "types-pexpect", specifier = ">=4.9.0.20260518" },
+    { name = "types-pygments", specifier = ">=2.21.0.20260819" },
+    { name = "types-pysocks", specifier = ">=1.7.1.20260518" },
+    { name = "types-simplejson", specifier = ">=4.1.0.20260724" },
 ]
 
 [[package]]
