@@ -1,43 +1,39 @@
 target-version = "py314"
 
-lint.ignore = [
+extend-exclude = ["specifications"]
+
+[lint]
+select = ["ALL"]
+ignore = [
+  "D",
+  # Trailing comma missing
+  "COM812",
+  # Use of `assert` detected
+  "S101",
+  # Magic value used in comparison
+  "PLR2004",
+  # Too many branches
+  "PLR0912",
+  # Too many return statements
+  "PLR0911",
+  # is too complex
+  "C901",
+  # Too many statements
+  "PLR0915",
+  # too-many-arguments
+  "PLR0913",
+  # raw-string-in-exception
+  "EM101",
+  # Avoid specifying long messages outside the exception class
+  "TRY003",
+  # print
+  "T201",
   # Missing copyright notice at top of file
   "CPY001",
-  # Missing explicit return at the end of function able to return non-None value
-  "RET503",
-  # Use of assert detected
-  "S101",
-  # Standard pseudo-random generators are not suitable for cryptographic purposes
-  "S311",
-  # Missing author in TODO; try: # TODO(<author_name>): ... or # TODO @<author_name>: ...
-  "TD002",
-  # Explicitly concatenated string should be implicitly concatenated
-  "ISC003",
-  # Use `logging.exception` instead of `logging.error`
-  "TRY400",
-  # missing-trailing-comma
-  "COM812",
-  # We do not use SQL, so injection is not possible.
-  "S608",
-  # try/except:pass is a little faster inside functions
-  "SIM105",
-  # NOTE: Maybe enable this later:
-  "D",
-  "ERA001",
-  "FIX002",
-  "SLF001",
-  # Two annoying and useless warnings.
-  "EM101",
-  "TRY003",
 ]
-lint.select = ["ALL"]
-
-[lint.flake8-builtins]
-builtins-ignorelist = ["filter"]
-
-[lint.isort]
-combine-as-imports = true
-
 
 [lint.per-file-ignores]
-"tests/**" = ["ARG001", "ARG004", "PLR6301", "FBT001", "PLC2701", "D103"]
+"tests/*" = [
+  "SLF001", # Private member accessed.
+  "FBT001", # Boolean-typed positional argument in function definition.
+]
