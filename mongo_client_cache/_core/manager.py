@@ -94,6 +94,19 @@ def _discard_entry_locked(state: NamespaceState, entry: CacheEntry) -> None:
         _maybe_prune_identity_locked(state, entry.identity, identity_state)
 
 
+def _match_identity_state(
+    state: NamespaceState,
+    identity: Canonical,
+    generation_key: tuple[int, int],
+) -> IdentityState | None:
+    identity_state = state.identities.get(identity)
+    if identity_state is None:
+        return None
+    if (state.epoch, identity_state.generation) != generation_key:
+        return None
+    return identity_state
+
+
 class _CacheCoreBase:
     __slots__ = (
         "_availability_lock",
@@ -183,19 +196,6 @@ class _CacheCoreBase:
     def _namespace_section(self, state: NamespaceState) -> Iterator[None]:
         with self._guard.namespace_section(), state.lock:
             yield
-
-    @staticmethod
-    def _match_identity_state(
-        state: NamespaceState,
-        identity: Canonical,
-        generation_key: tuple[int, int],
-    ) -> IdentityState | None:
-        identity_state = state.identities.get(identity)
-        if identity_state is None:
-            return None
-        if (state.epoch, identity_state.generation) != generation_key:
-            return None
-        return identity_state
 
     def _reclaim_if_evicted_before_publication(
         self, state: NamespaceState, key: CacheKey, entry: CacheEntry
@@ -389,7 +389,7 @@ class _CacheCoreIdentityAdmission(_CacheCoreBase):
                 )
                 state = self._namespace(capture.namespace)
                 with self._namespace_section(state):
-                    identity_state = self._match_identity_state(
+                    identity_state = _match_identity_state(
                         state, capture.identity, capture.generation_key
                     )
                     if self._is_closed() or identity_state is None:
@@ -410,7 +410,7 @@ class _CacheCoreIdentityAdmission(_CacheCoreBase):
             still_resident = self._lru.contains_exact(key, entry)
             rolled_back = False
             with self._namespace_section(state):
-                identity_state = self._match_identity_state(
+                identity_state = _match_identity_state(
                     state, capture.identity, capture.generation_key
                 )
                 if not still_resident or self._is_closed() or identity_state is None:
@@ -536,7 +536,7 @@ class _CacheCoreLookup(_CacheCoreBase):
         state = self._namespace(namespace)
         entry_generation_key = (entry.generation_key[0], entry.generation_key[1])
         with self._namespace_section(state):
-            matched = self._match_identity_state(
+            matched = _match_identity_state(
                 state, canonical_identity, entry_generation_key
             )
         if matched is None:
@@ -613,7 +613,7 @@ class _CacheCoreLookup(_CacheCoreBase):
         with self._namespace_section(state):
             still_aliased = state.aliases.get(alias_key) == identity
             matched = (
-                self._match_identity_state(state, identity, entry_generation_key)
+                _match_identity_state(state, identity, entry_generation_key)
                 if still_aliased
                 else None
             )
