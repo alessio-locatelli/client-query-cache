@@ -1,29 +1,9 @@
 verbose = "info"
-
 mode = "plain"
-
-# None of the URLs fail with this strict value. There were some, but they were
-# outdated and replacing them with fresh URLs resolved the problem. Before you
-# decide to increase this value or reset it to the default, check whether your
-# URL can be updated to one that does not redirect or whether the URL is
-# private (and should be excluded).
 max_redirects = 1
-
-# According to the discussion in
-# https://github.com/lycheeverse/lychee/issues/27, using GET should be
-# acceptable too. Using GET does not meaningfully increase overhead in lychee,
-# because only response headers and the status code are read, not the body.
-# Since reqwest uses lazy streaming, any additional data transfer is minimal
-# and largely dependent on the OS TCP/IP stack, making the original concern
-# mostly obsolete.
 method = "head"
-
 cache = true
-
 max_cache_age = "14d"
-
 accept = "200..=204,400,401,403,405,429,500,503,504"
-
 exclude_all_private = true
-
 exclude_path = ['lychee.toml', 'specifications']
