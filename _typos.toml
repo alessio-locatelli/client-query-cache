@@ -1,2 +1,4 @@
 [default.extend-words]
 CPY = "CPY"
+[files]
+extend-exclude = ["specifications"]
