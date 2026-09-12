@@ -2,18 +2,19 @@ set positional-arguments
 
 dev_image := "localhost/mongodb-client-cache-dev:0.1.0"
 dev_container := "mongodb-client-cache-dev"
+export UV_LOCKED := "1"
 
 default:
     @just --list
 
 setup:
-    uv sync --locked --all-groups
+    uv sync --all-groups
     npm ci --silent
     prek install
     git submodule update --init
 
 lint:
-    uv run --locked --all-groups -- prek run --all-files
+    uv run --all-groups -- prek run --all-files
     uv run -- mypy --install-types .
 
 ci-lint:
@@ -23,7 +24,7 @@ format:
     npm run format --silent
 
 test:
-    uv run --locked --all-groups -- pytest -m unit
+    uv run --all-groups -- pytest -m unit
 
 build-dev-image:
     podman build --tag {{ dev_image }} --file Containerfile .
@@ -111,7 +112,7 @@ test-integration:
             exit 1
         fi
     fi
-    uv run --locked --all-groups -- pytest -m integration "${pytest_log_args[@]}"
+    uv run --all-groups -- pytest -m integration "${pytest_log_args[@]}"
 
 test-e2e:
     #!/usr/bin/env bash
@@ -133,7 +134,7 @@ test-e2e:
             exit 1
         fi
     fi
-    uv run --locked --all-groups -- pytest -m e2e "${pytest_log_args[@]}"
+    uv run --all-groups -- pytest -m e2e "${pytest_log_args[@]}"
 
 coverage:
     #!/usr/bin/env bash
@@ -157,11 +158,11 @@ coverage:
             exit 1
         fi
     fi
-    uv run --locked --all-groups -- coverage erase
-    uv run --locked --all-groups -- coverage run -p -m pytest -m unit "${pytest_log_args[@]}"
-    uv run --locked --all-groups -- coverage run -p -m pytest -m integration "${pytest_log_args[@]}"
-    uv run --locked --all-groups -- coverage combine
-    uv run --locked --all-groups -- coverage report --fail-under=100
-    uv run --locked --all-groups -- coverage xml
-    uv run --locked --all-groups -- python -c 'from pathlib import Path; import sys; coverage_exclusions = [(path, line_number) for path in Path("mongo_client_cache").rglob("*.py") for line_number, line in enumerate(path.read_text().splitlines(), start=1) if "pragma: no cover" in line]; sys.stderr.write("".join(f"{path}:{line_number}: prohibited pragma: no cover\n" for path, line_number in coverage_exclusions)); sys.exit(bool(coverage_exclusions))'
-    uv run --locked --all-groups -- strict-no-cover
+    uv run --all-groups -- coverage erase
+    uv run --all-groups -- coverage run -p -m pytest -m unit "${pytest_log_args[@]}"
+    uv run --all-groups -- coverage run -p -m pytest -m integration "${pytest_log_args[@]}"
+    uv run --all-groups -- coverage combine
+    uv run --all-groups -- coverage report --fail-under=100
+    uv run --all-groups -- coverage xml
+    uv run --all-groups -- python -c 'from pathlib import Path; import sys; coverage_exclusions = [(path, line_number) for path in Path("mongo_client_cache").rglob("*.py") for line_number, line in enumerate(path.read_text().splitlines(), start=1) if "pragma: no cover" in line]; sys.stderr.write("".join(f"{path}:{line_number}: prohibited pragma: no cover\n" for path, line_number in coverage_exclusions)); sys.exit(bool(coverage_exclusions))'
+    uv run --all-groups -- strict-no-cover
