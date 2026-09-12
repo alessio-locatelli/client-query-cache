@@ -17,6 +17,7 @@ lint:
     uv run -- prek run --all-files
     uv run -- mypy --install-types
     just --fmt --check
+    npm exec -- openspec validate --all --strict
 
 ci-lint:
     ZIZMOR_OFFLINE=true zizmor --fix=all --persona=auditor .github

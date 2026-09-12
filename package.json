@@ -1,7 +1,8 @@
 {
   "private": true,
   "devDependencies": {
-    "markdownlint-cli2": "^0.23.2",
+    "@fission-ai/openspec": "^1.13.0",
+    "markdownlint-cli2": "^0.21.0",
     "prettier": "3.9.6"
   },
   "scripts": {
