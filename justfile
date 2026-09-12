@@ -99,8 +99,6 @@ test-integration:
 
     pytest_log_args=()
     if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
-        # Hosted runs persist pytest.log as a diagnostic artifact; keep it free
-        # of the DEBUG-level query/document logging local debugging relies on.
         pytest_log_args=(--log-file-level=WARNING)
     else
         uid="$(id -u)"
@@ -161,11 +159,7 @@ coverage:
             exit 1
         fi
     fi
-    uv run -- coverage erase
-    uv run -- coverage run -p -m pytest -m unit "${pytest_log_args[@]}"
-    uv run -- coverage run -p -m pytest -m integration "${pytest_log_args[@]}"
-    uv run -- coverage combine
-    uv run -- coverage report --fail-under=100
-    uv run -- coverage xml
+    uv run -- coverage run -m pytest -qq "${pytest_log_args[@]}"
+    uv run -- coverage report
     uv run -- python -c 'from pathlib import Path; import sys; coverage_exclusions = [(path, line_number) for path in Path("src/mongo_client_cache").rglob("*.py") for line_number, line in enumerate(path.read_text().splitlines(), start=1) if "pragma: no cover" in line]; sys.stderr.write("".join(f"{path}:{line_number}: prohibited pragma: no cover\n" for path, line_number in coverage_exclusions)); sys.exit(bool(coverage_exclusions))'
     uv run -- strict-no-cover

@@ -39,12 +39,17 @@ Database-backed tests SHALL initialize and wait for a disposable single-node Mon
 
 ### Requirement: Production branch coverage cannot regress
 
-The repository SHALL measure branches for every importable production module and SHALL fail its coverage command below the recorded 81.10 percent combined production baseline. The repository SHALL NOT exclude ordinary production paths from measurement. The `implement-change-stream-coherency` change SHALL raise the threshold to 100 percent when it implements the planned cache-coherency operations.
+The repository SHALL measure branches for every importable production module and SHALL rely on the configured covdefaults policy rather than an individual command invocation to enforce its coverage threshold. The coverage command SHALL execute the current test suite once under coverage and fail when the report falls below that enforced threshold. The repository SHALL NOT exclude ordinary production paths from measurement.
 
 #### Scenario: A reachable branch is not covered
 
 - **WHEN** a coverage run leaves a production branch unexecuted
-- **THEN** the report identifies the missing branch and the command fails if combined coverage falls below the recorded baseline
+- **THEN** the report identifies the missing branch and the command fails if coverage falls below the configured threshold
+
+#### Scenario: A contributor runs the coverage command
+
+- **WHEN** a contributor runs the documented coverage command with an accessible container runtime
+- **THEN** unit, integration, and end-to-end tests execute in one pytest invocation and the coverage report is produced from that run
 
 #### Scenario: Planned behavior remains unimplemented
 
