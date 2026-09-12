@@ -6,7 +6,7 @@ authors = [
   { name = "Alessio Locatelli", email = "<software.development@secure.mailbox.org>" },
 ]
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.14.6"
 dependencies = ["pymongo>=4.18"]
 
 [dependency-groups]
