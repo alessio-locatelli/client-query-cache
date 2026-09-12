@@ -1,5 +1,6 @@
 {
   "globs": ["README.md"],
+  "ignores": ["specifications/**"],
   "config": {
     "line-length": false,
   },
