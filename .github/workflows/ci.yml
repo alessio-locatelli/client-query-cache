@@ -59,11 +59,12 @@ jobs:
       - name: Build source and wheel distributions
         run: uv build
 
-      - name: Install the built wheel in isolation and import the public API
-        run: >-
-          uv run --isolated --no-project --python ${PYTHON_VERSION}
-          --with "$(ls dist/*.whl)"
-          -- python -I -c "from mongo_client_cache import CacheManager, CachedCollection, CachedDatabase"
+      - name: Install built distributions in isolation and import the public API
+        run: |
+          for artifact in dist/*.tar.gz dist/*.whl; do
+            uv run --isolated --no-project --python ${PYTHON_VERSION} --with "${artifact}" -- \
+              python -I -c "from mongo_client_cache import CacheManager, CachedCollection, CachedDatabase"
+          done
 
   unit-tests:
     name: Unit tests
