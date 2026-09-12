@@ -48,41 +48,16 @@ _Note that ignore comments that suppress false-positives (e.g., `# noqa`, `# typ
 
 ## Commands
 
-Run project commands through the recipes documented in [`docs/development.md`](docs/development.md).
+Follow the contributor workflow in [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
-### Setup
-
-```bash
-just setup
-```
-
-### Python package and project manager
-
-Use [`uv`](https://docs.astral.sh/uv/).
-
-## Development
-
-### Lint
+### Default validation
 
 ```bash
-just lint
-just format
-```
-
-If edited CI:
-
-```bash
-just ci-lint
-```
-
-### Test
-
-```bash
-just test
-just test-integration
-just test-e2e
 just coverage
 ```
+
+For focused test recipes and quality commands, use the contributor guide. Run `just ci-lint` after
+changing CI configuration.
 
 ### Writing Commit Messages
 
