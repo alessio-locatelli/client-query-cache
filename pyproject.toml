@@ -37,10 +37,10 @@ requires = ["uv_build>=0.12.9,<0.13.0"]
 build-backend = "uv_build"
 
 [tool.uv.build-backend]
-module-root = ""
+module-root = "src"
 
 [tool.vulture]
-paths = ["mongo_client_cache", "tests"]
+paths = ["src/mongo_client_cache", "tests"]
 ignore_names = [
   "log_when_test_starts",
   "faker_seed",
