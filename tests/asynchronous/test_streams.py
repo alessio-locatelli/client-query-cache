@@ -136,7 +136,7 @@ class _FakeDatabase:
     def _make_server_info(
         version_array: list[int],
     ) -> Callable[[], object]:
-        async def server_info() -> dict[str, object]:
+        async def server_info() -> dict[str, object]:  # noqa: RUF029
             return {
                 "version": ".".join(str(part) for part in version_array),
                 "versionArray": version_array,
@@ -272,7 +272,7 @@ async def test_start_fails_closed_when_server_info_itself_fails(
 ) -> None:
     database = _FakeDatabase("db", [])
 
-    async def failing_server_info() -> dict[str, object]:
+    async def failing_server_info() -> dict[str, object]:  # noqa: RUF029
         raise ConnectionFailure("no primary available")
 
     database.client = SimpleNamespace(server_info=failing_server_info)
@@ -291,7 +291,7 @@ async def test_start_raises_and_closes_the_stream_when_stop_races_it(
     database = _FakeDatabase("db", [stream])
     supervisor = make_supervisor(_as_database(database), _mock_cache())
 
-    async def before_watch(_index: int) -> None:
+    async def before_watch(_index: int) -> None:  # noqa: RUF029
         supervisor._stop_event.set()
 
     database._before_watch = before_watch
@@ -423,7 +423,7 @@ async def test_a_stop_racing_a_successful_reopen_does_not_report_healthy(
         _as_database(database), _mock_cache(), backoff=_FAST_BACKOFF
     )
 
-    async def before_watch(index: int) -> None:
+    async def before_watch(index: int) -> None:  # noqa: RUF029
         if index == 1:
             supervisor._stop_event.set()
 
@@ -438,7 +438,7 @@ async def test_a_stop_racing_a_successful_reopen_does_not_report_healthy(
     assert supervisor.healthy is False
 
 
-async def test_stop_prevents_recovery_from_restoring_cache_eligibility(
+def test_stop_prevents_recovery_from_restoring_cache_eligibility(
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
 ) -> None:
     cache = CacheCore()
@@ -456,7 +456,7 @@ async def test_stop_interrupts_an_in_progress_backoff_wait(
 ) -> None:
     entered_backoff = asyncio.Event()
 
-    async def before_watch(index: int) -> None:
+    async def before_watch(index: int) -> None:  # noqa: RUF029
         if index == 1:
             entered_backoff.set()
 
@@ -492,7 +492,7 @@ async def test_stop_event_set_during_an_unresumable_clear_exits_the_retry_loop(
         _as_database(database), _mock_cache(), backoff=_FAST_BACKOFF
     )
 
-    async def before_watch(index: int) -> None:
+    async def before_watch(index: int) -> None:  # noqa: RUF029
         if index == 1:
             supervisor._stop_event.set()
 
@@ -652,7 +652,7 @@ async def test_supervisor_is_unhealthy_while_reconnecting(
     await _wait_until(lambda: supervisor.healthy)
 
 
-async def test_unhealthy_transition_disables_cache_before_publishing_health(
+def test_unhealthy_transition_disables_cache_before_publishing_health(
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
