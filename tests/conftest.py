@@ -12,7 +12,7 @@ import pytest
 from bson import Decimal128
 from docker.errors import DockerException
 from pymongo import MongoClient
-from pymongo.errors import ConnectionFailure, OperationFailure
+from pymongo.errors import ConnectionFailure
 from testcontainers.core.container import DockerContainer
 
 if TYPE_CHECKING:
@@ -101,13 +101,9 @@ def mongodb_uri() -> Iterator[MongoDbUri]:
             )
 
             while monotonic() < deadline:
-                try:
-                    if client.admin.command("hello")["isWritablePrimary"]:
-                        yield uri
-                        return
-                # Race: election may finish before this retry ever runs.
-                except ConnectionFailure, OperationFailure:  # pragma: lax no cover
-                    pass
+                if client.admin.command("hello")["isWritablePrimary"]:
+                    yield uri
+                    return
                 sleep(0.1)
             pytest.fail(  # pragma: no cover (hard timeout; requires a stuck container)
                 "MongoDB did not elect a writable primary within 30 seconds."
