@@ -60,19 +60,19 @@ def nonpersistent_collection_name() -> CollectionName:
 
 @pytest.fixture(scope="session")
 def mongodb_uri() -> Iterator[MongoDbUri]:
-    container = DockerContainer("mongo:8.0.4-noble")
-    container.with_command(["--replSet", "rs0", "--bind_ip_all"])
-    container.with_exposed_ports(27017)
-
     with ExitStack() as resources:
         try:
+            container = DockerContainer("mongo:8.0.4-noble")
+            container.with_command(["--replSet", "rs0", "--bind_ip_all"])
+            container.with_exposed_ports(27017)
             resources.enter_context(container)
         except DockerException as error:  # pragma: no cover (requires a broken runtime)
-            pytest.fail(
+            message = (
                 "A Docker-compatible container runtime is required for integration "
                 "and end-to-end tests. Start Docker or a rootless Podman socket and "
                 f"try again. Container startup failed: {error}"
             )
+            raise pytest.fail.Exception(message, pytrace=False) from None
 
         host = container.get_container_host_ip()
         port = container.get_exposed_port(27017)
