@@ -448,3 +448,40 @@ def test_a_rolled_back_admission_still_discards_the_entry_it_displaced(
     state = core._namespace(namespace)
     assert len(state.entry_index) == 0
     assert identity not in state.identities
+
+
+class _Unencodable:
+    __slots__ = ()
+
+
+def test_admit_identity_declines_when_the_value_cannot_be_encoded(
+    core: CacheCore, namespace: NamespaceId
+) -> None:
+    capture = core.begin_identity_admission(namespace, "doc-1")
+
+    outcome = core.admit_identity(capture, "full", _Unencodable())
+
+    assert outcome is AdmissionOutcome.DECLINED_UNENCODABLE
+    assert core.lookup_identity(namespace, "doc-1", "full").hit is False
+
+
+def test_admit_namespace_declines_when_the_value_cannot_be_encoded(
+    core: CacheCore, namespace: NamespaceId
+) -> None:
+    capture = core.capture_namespace_generation(namespace)
+
+    outcome = core.admit_namespace(capture, "shape", _Unencodable())
+
+    assert outcome is AdmissionOutcome.DECLINED_UNENCODABLE
+    assert core.lookup_namespace(namespace, "shape").hit is False
+
+
+def test_a_write_with_an_uncanonicalizable_identity_advances_the_namespace_generation(
+    core: CacheCore, namespace: NamespaceId
+) -> None:
+    capture = core.capture_namespace_generation(namespace)
+
+    core.record_write(namespace, {1, 2, 3})
+
+    outcome = core.admit_namespace(capture, "shape", ["stale"])
+    assert outcome is AdmissionOutcome.DECLINED_STALE

@@ -25,6 +25,8 @@ def raw_mongo_client(
 @pytest.fixture
 def cache_manager(
     raw_mongo_client: MongoClient[dict[str, Any]],
-) -> CacheManager[dict[str, Any]]:
+) -> Iterator[CacheManager[dict[str, Any]]]:
     logger.debug("[SETUP] %s wrapping %s.", CacheManager.__name__, raw_mongo_client)
-    return CacheManager(raw_mongo_client)
+    manager = CacheManager(raw_mongo_client)
+    yield manager
+    manager.close()

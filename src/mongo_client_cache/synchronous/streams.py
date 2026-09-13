@@ -235,14 +235,23 @@ class ChangeStreamCoordinator:
         self._closed = False
         self._lock = threading.Lock()
 
-    def activate_database(self, name: str) -> DatabaseStreamSupervisor:
+    def activate_database(self, name: str) -> DatabaseStreamSupervisor | None:
         with self._lock:
             if self._closed:
                 raise StreamLifecycleError("coordinator is closed")
             supervisor = self._supervisors.get(name)
             if supervisor is None:
                 supervisor = DatabaseStreamSupervisor(self._client[name], self._cache)
-                supervisor.start()
+                try:
+                    supervisor.start()
+                except StreamStartupError:
+                    logger.warning(
+                        "change stream startup failed for database %r; reads for "
+                        "this database will bypass the cache",
+                        name,
+                        exc_info=True,
+                    )
+                    return None
                 self._supervisors[name] = supervisor
             return supervisor
 

@@ -4,6 +4,7 @@ import pytest
 from pymongo import AsyncMongoClient
 from pymongo.asynchronous.database import AsyncDatabase
 
+from mongo_client_cache._core.lifecycle import CacheLifecycleState
 from mongo_client_cache.asynchronous.database import CachedDatabase
 from mongo_client_cache.asynchronous.manager import CacheManager
 
@@ -32,3 +33,20 @@ def test_manager_builds_a_database_facade_around_the_caller_client(
     assert isinstance(database.raw, AsyncDatabase)
     assert database.name == "example"
     assert database.raw.client is client
+
+
+async def test_manager_used_as_a_context_manager_closes_its_own_cache(
+    client: AsyncMongoClient[dict[str, Any]],
+) -> None:
+    async with CacheManager(client) as manager:
+        core = manager.cache_core
+
+    assert core.lifecycle_state is CacheLifecycleState.CLOSED
+
+
+async def test_manager_close_does_not_close_the_caller_owned_client(
+    client: AsyncMongoClient[dict[str, Any]],
+) -> None:
+    await CacheManager(client).close()
+
+    assert client._closed is False

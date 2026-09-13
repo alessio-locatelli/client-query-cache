@@ -6,7 +6,9 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from mongo_client_cache._core.canonical import canonicalize
+from bson.errors import BSONError
+
+from mongo_client_cache._core.canonical import canonicalize, is_canonicalizable
 from mongo_client_cache._core.codec import decode_value, encode_value
 from mongo_client_cache._core.entries import AdmissionOutcome, CacheEntry, LookupResult
 from mongo_client_cache._core.errors import (
@@ -27,6 +29,9 @@ from mongo_client_cache._core.snapshots import CacheSnapshot, CacheStatistics
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+    from typing import Any
+
+    from bson.codec_options import CodecOptions
 
     from mongo_client_cache._core.canonical import Canonical
     from mongo_client_cache._core.keys import AliasKey, CacheKey, NamespaceId
@@ -270,13 +275,19 @@ class _CacheCoreNamespaceLifecycle(_CacheCoreBase):
         with self._namespaces_lock:
             return namespace in self._namespaces
 
+    def current_epoch(self, namespace: NamespaceId) -> int:
+        state = self._namespace(namespace)
+        with self._namespace_section(state):
+            return state.epoch
+
     def record_write(self, namespace: NamespaceId, identity: object) -> None:
         self._ensure_active()
-        canonical_identity = canonicalize(identity)
         state = self._namespace(namespace)
         with self._namespace_section(state):
             state.generation += 1
-            identity_state = state.identities.get(canonical_identity)
+            if not is_canonicalizable(identity):
+                return
+            identity_state = state.identities.get(canonicalize(identity))
             if identity_state is not None:
                 identity_state.generation += 1
                 for alias_key in identity_state.alias_keys:
@@ -321,6 +332,9 @@ class _CacheCoreNamespaceLifecycle(_CacheCoreBase):
 
 class _CacheCoreDatabaseAvailability(_CacheCoreBase):
     __slots__ = ()
+
+    def is_database_available(self, database: str) -> bool:
+        return self._is_database_available(database)
 
     def set_database_available(self, database: str, *, available: bool) -> None:
         with self._availability_lock:
@@ -373,11 +387,15 @@ class _CacheCoreIdentityAdmission(_CacheCoreBase):
         value: object,
         *,
         alias: AliasKey | None = None,
+        codec_options: CodecOptions[Any] | None = None,
     ) -> AdmissionOutcome:
         self._ensure_active()
         try:
             canonical_shape = canonicalize(read_shape)
-            encoded = encode_value(value)
+            try:
+                encoded = encode_value(value, codec_options)
+            except BSONError:
+                return AdmissionOutcome.DECLINED_UNENCODABLE
             weight = len(encoded)
             with self._admission_section(
                 capture.namespace, capture.availability_generation, weight
@@ -469,11 +487,19 @@ class _CacheCoreNamespaceAdmission(_CacheCoreBase):
             )
 
     def admit_namespace(
-        self, capture: NamespaceCapture, discriminator: object, value: object
+        self,
+        capture: NamespaceCapture,
+        discriminator: object,
+        value: object,
+        *,
+        codec_options: CodecOptions[Any] | None = None,
     ) -> AdmissionOutcome:
         self._ensure_active()
         canonical_discriminator = canonicalize(discriminator)
-        encoded = encode_value(value)
+        try:
+            encoded = encode_value(value, codec_options)
+        except BSONError:
+            return AdmissionOutcome.DECLINED_UNENCODABLE
         weight = len(encoded)
         with self._admission_section(
             capture.namespace, capture.availability_generation, weight
@@ -521,7 +547,12 @@ class _CacheCoreLookup(_CacheCoreBase):
     __slots__ = ()
 
     def lookup_identity(
-        self, namespace: NamespaceId, identity: object, read_shape: object
+        self,
+        namespace: NamespaceId,
+        identity: object,
+        read_shape: object,
+        *,
+        codec_options: CodecOptions[Any] | None = None,
     ) -> LookupResult:
         self._ensure_active()
         if not self._is_database_available(namespace.database):
@@ -544,10 +575,14 @@ class _CacheCoreLookup(_CacheCoreBase):
             return LookupResult(hit=False)
         self._lru.touch(key)
         self._statistics.record_hit()
-        return LookupResult(hit=True, value=decode_value(entry.value))
+        return LookupResult(hit=True, value=decode_value(entry.value, codec_options))
 
     def lookup_namespace(
-        self, namespace: NamespaceId, discriminator: object
+        self,
+        namespace: NamespaceId,
+        discriminator: object,
+        *,
+        codec_options: CodecOptions[Any] | None = None,
     ) -> LookupResult:
         self._ensure_active()
         if not self._is_database_available(namespace.database):
@@ -567,7 +602,7 @@ class _CacheCoreLookup(_CacheCoreBase):
             return LookupResult(hit=False)
         self._lru.touch(key)
         self._statistics.record_hit()
-        return LookupResult(hit=True, value=decode_value(entry.value))
+        return LookupResult(hit=True, value=decode_value(entry.value, codec_options))
 
     def resolve_alias(
         self,
@@ -592,6 +627,8 @@ class _CacheCoreLookup(_CacheCoreBase):
         value: object,
         collation: object,
         read_shape: object,
+        *,
+        codec_options: CodecOptions[Any] | None = None,
     ) -> LookupResult:
         self._ensure_active()
         if not self._is_database_available(namespace.database):
@@ -622,7 +659,7 @@ class _CacheCoreLookup(_CacheCoreBase):
             return LookupResult(hit=False)
         self._lru.touch(key)
         self._statistics.record_hit()
-        return LookupResult(hit=True, value=decode_value(entry.value))
+        return LookupResult(hit=True, value=decode_value(entry.value, codec_options))
 
 
 class CacheCore(

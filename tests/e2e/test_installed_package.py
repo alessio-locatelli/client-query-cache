@@ -71,11 +71,10 @@ from mongo_client_cache import CacheManager
 uri = os.environ["MONGODB_TEST_URI"]
 database_name = os.environ["MONGODB_TEST_DATABASE"]
 collection_name = os.environ["MONGODB_TEST_COLLECTION"]
-with MongoClient(uri) as client:
-    manager = CacheManager(client)
+with MongoClient(uri) as client, CacheManager(client) as manager:
     collection = manager[database_name][collection_name]
     collection.raw.insert_one({"_id": "independent-write", "value": 42})
-    document = collection.raw.find_one({"_id": "independent-write"})
+    document = collection.find_one({"_id": "independent-write"})
     assert document == {"_id": "independent-write", "value": 42}
     client.drop_database(database_name)
 """
