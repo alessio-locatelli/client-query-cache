@@ -1,6 +1,7 @@
 import decimal
 import logging
 import uuid
+from contextlib import ExitStack
 from copy import copy
 from datetime import datetime
 from decimal import Decimal
@@ -12,7 +13,7 @@ from bson import Decimal128
 from docker.errors import DockerException
 from pymongo import MongoClient
 from pymongo.errors import ConnectionFailure, OperationFailure
-from testcontainers.core.container import DockerContainer, Reaper
+from testcontainers.core.container import DockerContainer
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -64,59 +65,53 @@ def mongodb_uri() -> Iterator[MongoDbUri]:
     container.with_command(["--replSet", "rs0", "--bind_ip_all"])
     container.with_exposed_ports(27017)
 
-    try:
-        container.start()
-    except DockerException as error:  # pragma: no cover (requires a broken runtime)
-        pytest.fail(
-            "A Docker-compatible container runtime is required for integration "
-            "and end-to-end tests. Start Docker or a rootless Podman socket and "
-            f"try again. Container startup failed: {error}"
-        )
+    with ExitStack() as resources:
+        try:
+            resources.enter_context(container)
+        except DockerException as error:  # pragma: no cover (requires a broken runtime)
+            pytest.fail(
+                "A Docker-compatible container runtime is required for integration "
+                "and end-to-end tests. Start Docker or a rootless Podman socket and "
+                f"try again. Container startup failed: {error}"
+            )
 
-    host = container.get_container_host_ip()
-    port = container.get_exposed_port(27017)
-    uri = MongoDbUri(f"mongodb://{host}:{port}/?directConnection=true")
-    client: MongoClient[dict[str, Any]] = MongoClient(
-        uri, serverSelectionTimeoutMS=1_000
-    )
+        host = container.get_container_host_ip()
+        port = container.get_exposed_port(27017)
+        uri = MongoDbUri(f"mongodb://{host}:{port}/?directConnection=true")
 
-    try:
-        deadline = monotonic() + 30
-        while monotonic() < deadline:
-            try:
-                client.admin.command("ping")
-                break
-            # Race: the container may accept the connection before this
-            # retry ever runs.
-            except ConnectionFailure:  # pragma: lax no cover
+        with MongoClient[dict[str, Any]](uri, serverSelectionTimeoutMS=1_000) as client:
+            deadline = monotonic() + 30
+            while monotonic() < deadline:
+                try:
+                    client.admin.command("ping")
+                    break
+                # Race: the container may accept the connection before this
+                # retry ever runs.
+                except ConnectionFailure:  # pragma: lax no cover
+                    sleep(0.1)
+            else:  # pragma: no cover (hard timeout; requires a stuck container)
+                pytest.fail("MongoDB did not accept connections within 30 seconds.")
+
+            client.admin.command(
+                "replSetInitiate",
+                {
+                    "_id": "rs0",
+                    "members": [{"_id": 0, "host": "localhost:27017"}],
+                },
+            )
+
+            while monotonic() < deadline:
+                try:
+                    if client.admin.command("hello")["isWritablePrimary"]:
+                        yield uri
+                        return
+                # Race: election may finish before this retry ever runs.
+                except ConnectionFailure, OperationFailure:  # pragma: lax no cover
+                    pass
                 sleep(0.1)
-        else:  # pragma: no cover (hard timeout; requires a stuck container)
-            pytest.fail("MongoDB did not accept connections within 30 seconds.")
-
-        client.admin.command(
-            "replSetInitiate",
-            {
-                "_id": "rs0",
-                "members": [{"_id": 0, "host": "localhost:27017"}],
-            },
-        )
-
-        while monotonic() < deadline:
-            try:
-                if client.admin.command("hello")["isWritablePrimary"]:
-                    yield uri
-                    return
-            # Race: election may finish before this retry ever runs.
-            except ConnectionFailure, OperationFailure:  # pragma: lax no cover
-                pass
-            sleep(0.1)
-        pytest.fail(  # pragma: no cover (hard timeout; requires a stuck election)
-            "MongoDB did not elect a writable primary within 30 seconds."
-        )
-    finally:
-        client.close()
-        container.stop()
-        Reaper.delete_instance()
+            pytest.fail(  # pragma: no cover (hard timeout; requires a stuck container)
+                "MongoDB did not elect a writable primary within 30 seconds."
+            )
 
 
 @pytest.fixture
