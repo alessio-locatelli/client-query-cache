@@ -20,17 +20,15 @@ validation commands; or alter test coverage.
 - Remove workflow-level `paths-ignore`. Branch-protection and ruleset configuration could not be
   read through the GitHub API, so the workflow must not rely on skipped-run semantics for a
   potentially required check.
-- Add a short, pinned change-classification job using
-  `dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36` (`v3.0.2`) with only
-  `pull-requests: read` in addition to the existing read-only `contents` permission and a
-  five-minute timeout. Its runtime-affecting filter includes every path (`**`) and excludes only
-  `**.md` and `openspec/**`. The classifier uses the pull request's `changed_files` event value to
-  bypass the action when the count is 3,000 or more, because GitHub's pull-request file-list API
-  can return at most 3,000 files. The bypass sets the runtime output to true, so an incomplete diff
-  can never skip coverage. The quality/package job still runs for every pull request because it
-  validates documentation and OpenSpec inputs. A local diff script was considered, but it would
-  need full history and custom event handling; the maintained action keeps that GitHub-specific
-  logic out of workflow shell.
+- Add a five-minute change-classification job using the existing pinned checkout action with
+  `fetch-depth: 2`. On a pull-request workflow, the checked-out merge commit has the base and head
+  as its parents, so the job can compare their exact trees locally without a pull-request API token
+  or a file-list limit. Its Git pathspec includes every path and excludes only `**.md` and
+  `openspec/**`; a Git error fails the classifier rather than reporting a documentation-only
+  change. The quality/package job still runs for every pull request because it validates
+  documentation and OpenSpec inputs. The third-party API action was rejected because it would need
+  job-level `pull-requests: read`, which the project's required auditor permits only with a source
+  comment that violates the project no-comments rule.
 - Make the Docker-backed coverage job depend only on the classification output and condition it on
   either a runtime-affecting change or classifier failure. Its `if` begins with `always()` so a
   failed classifier does not make GitHub skip the dependent job before evaluating the fallback,
