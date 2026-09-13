@@ -24,7 +24,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          fetch-depth: 2
+          # The pull request base can predate a shallow checkout of its head.
+          fetch-depth: 0
           persist-credentials: false
 
       - id: filter
