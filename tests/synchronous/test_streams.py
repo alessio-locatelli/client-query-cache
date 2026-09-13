@@ -187,7 +187,9 @@ def _wait_until(predicate: Callable[[], bool], *, timeout: float = 2.0) -> None:
         if predicate():
             return
         time.sleep(0.005)
-    pytest.fail("condition was not met within the timeout")  # pragma: lax no cover
+    pytest.fail(  # pragma: no cover (test timeout diagnostic)
+        "condition was not met within the timeout"
+    )
 
 
 @pytest.fixture
