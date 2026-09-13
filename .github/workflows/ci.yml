@@ -62,7 +62,7 @@ jobs:
       - name: Install built distributions in isolation and import the public API
         run: |
           for artifact in dist/*.tar.gz dist/*.whl; do
-            uv run --isolated --no-project --python ${PYTHON_VERSION} --with "${artifact}" -- \
+            uv run --isolated --no-project --python "${PYTHON_VERSION}" --with "${artifact}" -- \
               python -I -c "from mongo_client_cache import CacheManager, CachedCollection, CachedDatabase"
           done
 
