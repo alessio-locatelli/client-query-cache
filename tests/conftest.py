@@ -35,13 +35,6 @@ def log_when_test_starts(request: pytest.FixtureRequest) -> None:
     logger.debug(f"Starting '{cls_}{request.node.name}'...")  # noqa: G004
 
 
-@pytest.fixture(autouse=True)
-def faker_seed() -> int:
-    seed = 0
-    logger.info("Starting pytest session with `Faker.seed` value: %s", seed)
-    return seed
-
-
 @pytest.fixture
 def cached_database_name() -> DatabaseName:
     return DatabaseName(f"test_{uuid.uuid4().hex}")
