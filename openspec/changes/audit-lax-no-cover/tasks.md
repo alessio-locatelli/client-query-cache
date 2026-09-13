@@ -1,8 +1,8 @@
 ## 1. Audit test-harness exclusions
 
-- [ ] 1.1 Audit `tests/conftest.py:89`; retain `lax no cover` only with a minimal
-      container-startup MRE and repeated-run evidence, otherwise remove the
-      unproven retry and verify the integration fixture.
+- [x] 1.1 Remove the unproven `tests/conftest.py` ping retry: no minimal MRE
+      or repeated-run evidence supported retaining its `lax no cover` branch;
+      verify the integration fixture.
 - [x] 1.2 Guard Docker client construction with the fixture's runtime diagnostic
       and verify a missing socket reports it without a raw Docker traceback.
 - [ ] 1.3 Audit all four polling timeout guards listed in design.md, replacing

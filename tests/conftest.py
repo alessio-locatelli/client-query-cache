@@ -12,7 +12,6 @@ import pytest
 from bson import Decimal128
 from docker.errors import DockerException
 from pymongo import MongoClient
-from pymongo.errors import ConnectionFailure
 from testcontainers.core.container import DockerContainer
 
 if TYPE_CHECKING:
@@ -79,17 +78,7 @@ def mongodb_uri() -> Iterator[MongoDbUri]:
         uri = MongoDbUri(f"mongodb://{host}:{port}/?directConnection=true")
 
         with MongoClient[dict[str, Any]](uri, serverSelectionTimeoutMS=1_000) as client:
-            deadline = monotonic() + 30
-            while monotonic() < deadline:
-                try:
-                    client.admin.command("ping")
-                    break
-                # Race: the container may accept the connection before this
-                # retry ever runs.
-                except ConnectionFailure:  # pragma: lax no cover
-                    sleep(0.1)
-            else:  # pragma: no cover (hard timeout; requires a stuck container)
-                pytest.fail("MongoDB did not accept connections within 30 seconds.")
+            client.admin.command("ping")
 
             client.admin.command(
                 "replSetInitiate",
@@ -99,6 +88,7 @@ def mongodb_uri() -> Iterator[MongoDbUri]:
                 },
             )
 
+            deadline = monotonic() + 30
             while monotonic() < deadline:
                 if client.admin.command("hello")["isWritablePrimary"]:
                     yield uri
