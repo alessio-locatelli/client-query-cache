@@ -11,9 +11,9 @@
 - [x] 1.4 Replace the three unreachable asynchronous test-double paths listed in
       design.md with a direct test, assertion, or deletion and verify the
       asynchronous stream tests.
-- [ ] 1.5 Retain a synchronous concurrent-worker `lax no cover` handler only
-      with an MRE and repeated intermittent evidence; otherwise use non-lax failure
-      reporting and verify the synchronous stream tests.
+- [x] 1.5 Replace the synchronous concurrent-worker `lax no cover` handlers:
+      use explicit lifecycle suppression and non-lax failure reporting, then
+      verify the synchronous stream tests.
 
 ## 2. Audit stream test doubles
 

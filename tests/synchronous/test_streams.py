@@ -3,6 +3,7 @@ from __future__ import annotations
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import suppress
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import Mock
@@ -309,16 +310,15 @@ def test_concurrent_start_and_stop_never_crash_or_leave_healthy(
 
         def run_start(supervisor: DatabaseStreamSupervisor = supervisor) -> None:
             try:
-                supervisor.start()
-            except StreamStartupError, StreamLifecycleError:  # pragma: lax no cover
-                pass
-            except BaseException as exc:  # noqa: BLE001  # pragma: lax no cover
+                with suppress(StreamLifecycleError):
+                    supervisor.start()
+            except BaseException as exc:  # noqa: BLE001  # pragma: no cover (worker failure reporting)
                 errors.append(exc)
 
         def run_stop(supervisor: DatabaseStreamSupervisor = supervisor) -> None:
             try:
                 supervisor.stop()
-            except BaseException as exc:  # noqa: BLE001  # pragma: lax no cover
+            except BaseException as exc:  # noqa: BLE001  # pragma: no cover (worker failure reporting)
                 errors.append(exc)
 
         start_thread = threading.Thread(target=run_start)
