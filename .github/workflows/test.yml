@@ -38,6 +38,8 @@ jobs:
 
       - run: uv run -- mypy --install-types
 
+      - run: uv run -- python -m slotscheck src tests
+
       - run: uv build
 
       - run: |
