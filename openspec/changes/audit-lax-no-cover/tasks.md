@@ -17,7 +17,7 @@
 
 ## 2. Audit stream test doubles
 
-- [ ] 2.1 Remove `.coveragerc`'s `lax no cover` configuration only after a
+- [x] 2.1 Remove `.coveragerc`'s `lax no cover` configuration only after a
       repository search confirms no source occurrences remain, then verify full
       coverage and strict-no-cover.
 

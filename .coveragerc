@@ -4,5 +4,3 @@ omit =
     tests/e2e/*
 
 [report]
-exclude_lines =
-    pragma: lax no cover
