@@ -20,7 +20,7 @@ lint:
     npm exec -- openspec validate --all --strict
 
 ci-lint:
-    ZIZMOR_OFFLINE=true zizmor --fix=all --persona=auditor .github
+    ZIZMOR_OFFLINE=true zizmor --fix=all -q --persona=auditor .github
 
 format:
     npm run format --silent
