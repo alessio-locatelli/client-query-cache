@@ -22,6 +22,6 @@ The change-stream coherency requirement currently pins the minimum supported Mon
 ## Impact
 
 - `src/mongo_client_cache/synchronous/streams.py` and `src/mongo_client_cache/asynchronous/streams.py`: `MINIMUM_SERVER_VERSION` and the associated error message.
-- `tests/synchronous/test_streams.py` and `tests/asynchronous/test_streams.py`: the existing below-minimum-version test case already uses a version array well under 8.0, but a new case is needed to cover a server between the old and new minimum (7.x), which was previously accepted and must now be rejected.
+- `tests/synchronous/test_streams.py` and `tests/asynchronous/test_streams.py`: the existing below-minimum-version test case already uses a version array well under 8.0, so it continues to cover the new threshold without changes.
 - `openspec/specs/change-stream-coherency/spec.md`: the requirement text and scenario naming the version number.
 - `README.md`: no existing version requirement is documented; add one.
