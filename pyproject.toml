@@ -50,13 +50,7 @@ exclude-modules = '''
 '''
 
 [tool.vulture]
-paths = ["src", "tests"]
-ignore_names = [
-  "log_when_test_starts",
-  "faker_seed",
-  "pytestmark",
-  "return_value",
-]
+paths = ["src", "tests", ".vulture_whitelist"]
 
 [tool.ruff-extra-rules]
 fix = true
