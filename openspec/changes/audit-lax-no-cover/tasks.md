@@ -5,7 +5,7 @@
       verify the integration fixture.
 - [x] 1.2 Guard Docker client construction with the fixture's runtime diagnostic
       and verify a missing socket reports it without a raw Docker traceback.
-- [ ] 1.3 Audit all four polling timeout guards listed in design.md, replacing
+- [x] 1.3 Audit all four polling timeout guards listed in design.md, replacing
       each with a reasoned ordinary exclusion or direct failure-path test and
       verifying its stream module.
 - [ ] 1.4 Replace the three unreachable asynchronous test-double paths listed in
