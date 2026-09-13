@@ -877,11 +877,13 @@ async def test_start_closes_the_stream_when_cancelled_racing_a_concurrent_stop(
         def __init__(self) -> None:
             self.close_calls = 0
 
-        async def next(self) -> dict[str, object]:
+        async def next(
+            self,
+        ) -> dict[str, object]:  # pragma: no cover (test invariant guard)
             message = (
                 f"next() must not run after stop is requested ({self.close_calls=})"
             )
-            raise AssertionError(message)  # pragma: no cover (test invariant guard)
+            raise AssertionError(message)
 
         async def close(self) -> None:
             self.close_calls += 1
