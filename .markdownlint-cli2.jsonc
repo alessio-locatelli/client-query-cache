@@ -1,7 +1,9 @@
 {
-  "globs": ["README.md"],
+  "globs": ["README.md", "AGENTS.md", "CLAUDE.md", "CONTRIBUTING.md"],
+  "noBanner": true,
   "ignores": ["specifications/**"],
   "config": {
     "line-length": false,
+    "first-line-heading": false,
   },
 }
