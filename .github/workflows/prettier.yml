@@ -32,11 +32,8 @@ jobs:
           node-version: "24"
           cache: npm
 
-      - name: Install JavaScript dependencies
-        run: npm ci --silent
+      - run: npm ci --silent
 
-      - name: Run Prettier and Markdownlint
-        run: npm run format:check
+      - run: npm run format:check
 
-      - name: Validate OpenSpec artifacts
-        run: npm exec -- openspec validate --all --strict
+      - run: npm exec -- openspec validate --all --strict

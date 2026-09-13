@@ -34,17 +34,13 @@ jobs:
           uv-version: ${{ env.UV_VERSION }}
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Sync locked dependencies
-        run: uv sync --locked --all-groups
+      - run: uv sync --locked --all-groups
 
-      - name: Run static Python checks
-        run: uv run -- mypy --install-types
+      - run: uv run -- mypy --install-types
 
-      - name: Build source and wheel distributions
-        run: uv build
+      - run: uv build
 
-      - name: Install built distributions in isolation and import the public API
-        run: |
+      - run: |
           for artifact in dist/*.tar.gz dist/*.whl; do
             uv run --isolated --no-project --python "${PYTHON_VERSION}" --with "${artifact}" -- \
               python -I -c "from mongo_client_cache import CacheManager, CachedCollection, CachedDatabase"
@@ -64,14 +60,11 @@ jobs:
           uv-version: ${{ env.UV_VERSION }}
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Sync locked dependencies
-        run: uv sync --locked --all-groups
+      - run: uv sync --locked --all-groups
 
-      - name: Run full coverage
-        run: just coverage
+      - run: just coverage
 
-      - name: Upload failure diagnostics
-        if: failure()
+      - if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: pytest-log
