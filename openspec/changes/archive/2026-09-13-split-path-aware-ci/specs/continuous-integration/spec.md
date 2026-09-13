@@ -1,10 +1,4 @@
-# continuous-integration Specification
-
-## Purpose
-
-This capability gives external contributors hosted, repeatable evidence that the locked project and its database-backed test tiers work together.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: CI verifies the locked package and local gates
 
@@ -22,7 +16,7 @@ isolated environment only when a pull request changes Python files, `pytest.ini`
 
 #### Scenario: Dependency metadata is unlocked
 
-- **WHEN** a change modifies dependency metadata without the corresponding lockfile update
+- **WHEN** a pull request modifies `pyproject.toml` without the corresponding lockfile update
 - **THEN** the Python-validation workflow fails before accepting the change
 
 #### Scenario: A Python file changes

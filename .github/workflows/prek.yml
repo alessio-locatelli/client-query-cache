@@ -1,0 +1,49 @@
+name: Prek
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  UV_VERSION: "0.12.3"
+  PYTHON_VERSION: "3.14"
+
+jobs:
+  prek:
+    name: Prek
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: $/.github/actions/setup-toolchain
+        with:
+          uv-version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/prek
+          key: prek-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml') }}
+
+      - name: Sync locked dependencies
+        run: uv sync --locked --all-groups
+
+      - name: Install prek
+        run: |
+          uv tool install prek==0.5.2
+          echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
+
+      - name: Run Prek except Prettier
+        run: prek run --all-files --skip prettier
+
+      - name: Check Justfile formatting
+        run: just --fmt --check

@@ -1,4 +1,4 @@
-name: CI
+name: Python validation
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -6,6 +6,11 @@ concurrency:
 
 on:
   pull_request:
+    paths:
+      - "**.py"
+      - "pytest.ini"
+      - "pyproject.toml"
+      - "uv.lock"
 
 permissions:
   contents: read
@@ -15,39 +20,8 @@ env:
   PYTHON_VERSION: "3.14"
 
 jobs:
-  classify-changes:
-    name: Classify runtime-affecting changes
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    outputs:
-      runtime: ${{ steps.filter.outputs.runtime }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          # The pull request base can predate a shallow checkout of its head.
-          fetch-depth: 0
-          persist-credentials: false
-
-      - id: filter
-        shell: bash
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: |
-          set -euo pipefail
-          if git diff --quiet "$BASE_SHA" "$HEAD_SHA" -- . ':(exclude)**.md' ':(exclude)openspec/**'; then
-            echo "runtime=false" >> "$GITHUB_OUTPUT"
-          else
-            status=$?
-            if (( status == 1 )); then
-              echo "runtime=true" >> "$GITHUB_OUTPUT"
-            else
-              exit "$status"
-            fi
-          fi
-
-  quality-and-build:
-    name: Quality, packaging, and isolated install
+  package:
+    name: Static checks, packaging, and isolated install
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -60,29 +34,11 @@ jobs:
           uv-version: ${{ env.UV_VERSION }}
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: "24"
-          cache: npm
-
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.cache/prek
-          key: prek-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml') }}
-
       - name: Sync locked dependencies
         run: uv sync --locked --all-groups
 
-      - name: Install JavaScript dependencies
-        run: npm ci --silent
-
-      - name: Install prek
-        run: |
-          uv tool install prek==0.5.2
-          echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
-
-      - name: Run quality checks
-        run: just lint
+      - name: Run static Python checks
+        run: uv run -- mypy --install-types
 
       - name: Build source and wheel distributions
         run: uv build
@@ -96,8 +52,6 @@ jobs:
 
   integration-e2e:
     name: Docker-backed integration, end-to-end, and coverage
-    needs: classify-changes
-    if: ${{ always() && !cancelled() && (needs.classify-changes.result != 'success' || needs.classify-changes.outputs.runtime == 'true') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
