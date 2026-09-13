@@ -4,6 +4,14 @@
   "ignores": ["specifications/**"],
   "config": {
     "line-length": false,
-    "first-line-heading": false,
   },
+  "overrides": [
+    {
+      "filter": ["CLAUDE.md", "AGENTS.md"],
+      "config": {
+        "first-line-heading": false,
+      },
+      "combine": "merge",
+    },
+  ],
 }
