@@ -194,7 +194,7 @@ async def _wait_until(
     try:
         async with asyncio.timeout(timeout_seconds):
             await _poll()
-    except TimeoutError:  # pragma: lax no cover
+    except TimeoutError:  # pragma: no cover (test timeout diagnostic)
         pytest.fail("condition was not met within the timeout")
 
 
