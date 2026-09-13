@@ -15,6 +15,7 @@ Writes are expected to participate in cache coherence, typically by invalidating
 - Leverage the [Generic Development Workflow](openspec/generic_development_workflow.md) when planning designs and tasks.
 - You must follow SOLID, DRY principles, and maintain high-quality scalable and extendable architecture.
 - Performance is critical, and you must fight for every micro- and macro-optimization. For each major change, you must record profiling and benchmark measurements in the commit body.
+- Keep the usage documentation in sync with the code's public interface. Document examples, hints, gotchas, and misuse.
 
 ### OpenSpec completion
 
@@ -28,14 +29,6 @@ Writes are expected to participate in cache coherence, typically by invalidating
 - Setup, teardown, or cleanup logic should be placed outside the test function itself. For example, a fixture can yield an object and perform cleanup.
 - Tests should not duplicate the same code (e.g., `try`/`finally` blocks or inner functions). Extract and reuse such logic instead.
 - Do not write tests for impossible scenarios solely to achieve 100% code coverage. If code is unused in production, delete it immediately—do not mask it with mocking or patching in tests.
-
-### Docstrings and code comments
-
-- Never write docstrings and code comments.
-- Put "why" information (non-obvious context, rationale behind the changes, etc.) into the commit body.
-- Keep the usage documentation in sync with the code's public interface. Document examples, hints, gotchas, and misuse.
-
-_Note that ignore comments that suppress false-positives (e.g., `# noqa`, `# type: ignore`, `# pragma`) are obviously out of scope of these guidelines._
 
 ## User-facing prose (README, program output)
 
@@ -61,7 +54,8 @@ changing CI configuration.
 
 ### Writing Commit Messages
 
-Commit proactively during the work after completing each dedicated part of a larger task. The commit body should communicate the "why," not just the "what." Include the rationale behind the changes, non-trivial decisions, and any other information that may be useful for future developers.
+- Commit proactively during the work after completing each dedicated part of a larger task.
+- The commit body should communicate the "why," not just the "what." Include the rationale behind the changes, non-trivial decisions, and any other information that may be useful for future developers.
 
 ## References
 
