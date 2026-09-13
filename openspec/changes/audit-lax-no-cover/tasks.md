@@ -23,5 +23,5 @@
 
 ## 3. Commit evidence
 
-- [ ] 3.1 Commit every accepted file edit separately with a body that records its
+- [x] 3.1 Commit every accepted file edit separately with a body that records its
       evidence and disposition; verify each commit contains only that edit.
