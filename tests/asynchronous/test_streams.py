@@ -58,7 +58,7 @@ class _ScriptedStream:
     async def next(self) -> dict[str, object]:
         if not self._events:
             await self._closed_event.wait()
-            raise StopAsyncIteration  # pragma: lax no cover
+            raise StopAsyncIteration
         item = self._events.pop(0)
         if isinstance(item, Exception):
             raise item
@@ -228,6 +228,15 @@ async def make_coordinator() -> AsyncIterator[Callable[..., ChangeStreamCoordina
     yield _make
     for coordinator in coordinators:
         await coordinator.close()
+
+
+async def test_scripted_stream_stops_after_close() -> None:
+    stream = _ScriptedStream([])
+
+    await stream.close()
+
+    with pytest.raises(StopAsyncIteration):
+        await stream.next()
 
 
 def test_fixed_delay_backoff_returns_the_configured_delay_and_ignores_reset() -> None:
@@ -840,7 +849,9 @@ async def test_start_closes_and_fails_when_cancelled_while_connecting(
     async def hanging_server_info() -> dict[str, object]:
         entered_server_info.set()
         await block.wait()
-        return {"version": "8.0.4", "versionArray": [8, 0, 4]}  # pragma: lax no cover
+        raise AssertionError(  # pragma: no cover (unreachable after cancellation)
+            "server_info unexpectedly resumed after cancellation"
+        )
 
     database = _FakeDatabase("db", [_ScriptedStream([])])
     database.client = SimpleNamespace(server_info=hanging_server_info)
@@ -867,7 +878,10 @@ async def test_start_closes_the_stream_when_cancelled_racing_a_concurrent_stop(
             self.close_calls = 0
 
         async def next(self) -> dict[str, object]:
-            raise NotImplementedError  # pragma: lax no cover
+            message = (
+                f"next() must not run after stop is requested ({self.close_calls=})"
+            )
+            raise AssertionError(message)  # pragma: no cover (test invariant guard)
 
         async def close(self) -> None:
             self.close_calls += 1

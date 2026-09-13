@@ -8,7 +8,7 @@
 - [x] 1.3 Audit all four polling timeout guards listed in design.md, replacing
       each with a reasoned ordinary exclusion or direct failure-path test and
       verifying its stream module.
-- [ ] 1.4 Replace the three unreachable asynchronous test-double paths listed in
+- [x] 1.4 Replace the three unreachable asynchronous test-double paths listed in
       design.md with a direct test, assertion, or deletion and verify the
       asynchronous stream tests.
 - [ ] 1.5 Retain a synchronous concurrent-worker `lax no cover` handler only
