@@ -37,20 +37,21 @@ test-double or concurrent-worker paths.
 
 ### Audit inventory
 
-| Location                                            | Current path                 | Required disposition evidence                                                              |
-| --------------------------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------ |
-| `tests/conftest.py:89`                              | MongoDB ping retry           | Minimal container-startup MRE and repeated intermittent failures, or a non-lax replacement |
-| `tests/asynchronous/test_streams.py:61`             | closed scripted stream       | Direct test, assertion, or deletion                                                        |
-| `tests/asynchronous/test_streams.py:197`            | polling timeout              | Reasoned ordinary exclusion or direct failure-path test                                    |
-| `tests/asynchronous/test_streams.py:843`            | cancelled server-info return | Assertion or deletion                                                                      |
-| `tests/asynchronous/test_streams.py:870`            | cancelled stream's `next`    | Assertion or deletion                                                                      |
-| `tests/asynchronous/test_streams_integration.py:60` | polling timeout              | Reasoned ordinary exclusion or direct failure-path test                                    |
-| `tests/synchronous/test_streams.py:190`             | polling timeout              | Reasoned ordinary exclusion or direct failure-path test                                    |
-| `tests/synchronous/test_streams.py:311`             | raced start exception        | MRE plus repeated intermittent evidence, or non-lax replacement                            |
-| `tests/synchronous/test_streams.py:313`             | unexpected start exception   | Reasoned ordinary exclusion or explicit assertion                                          |
-| `tests/synchronous/test_streams.py:319`             | unexpected stop exception    | Reasoned ordinary exclusion or explicit assertion                                          |
-| `tests/synchronous/test_streams_integration.py:58`  | polling timeout              | Reasoned ordinary exclusion or direct failure-path test                                    |
-| `.coveragerc:8`                                     | exclusion pattern            | Remove after all source occurrences are gone                                               |
+| Location                                            | Current path                 | Required disposition evidence                                                |
+| --------------------------------------------------- | ---------------------------- | ---------------------------------------------------------------------------- |
+| `tests/conftest.py:89`                              | MongoDB ping retry           | Minimal container-startup MRE and repeated intermittent failures, or removal |
+| `tests/conftest.py:64`                              | Docker client construction   | Verify a missing runtime reports the documented diagnostic                   |
+| `tests/asynchronous/test_streams.py:61`             | closed scripted stream       | Direct test, assertion, or deletion                                          |
+| `tests/asynchronous/test_streams.py:197`            | polling timeout              | Reasoned ordinary exclusion or direct failure-path test                      |
+| `tests/asynchronous/test_streams.py:843`            | cancelled server-info return | Assertion or deletion                                                        |
+| `tests/asynchronous/test_streams.py:870`            | cancelled stream's `next`    | Assertion or deletion                                                        |
+| `tests/asynchronous/test_streams_integration.py:60` | polling timeout              | Reasoned ordinary exclusion or direct failure-path test                      |
+| `tests/synchronous/test_streams.py:190`             | polling timeout              | Reasoned ordinary exclusion or direct failure-path test                      |
+| `tests/synchronous/test_streams.py:311`             | raced start exception        | MRE plus repeated intermittent evidence, or non-lax replacement              |
+| `tests/synchronous/test_streams.py:313`             | unexpected start exception   | Reasoned ordinary exclusion or explicit assertion                            |
+| `tests/synchronous/test_streams.py:319`             | unexpected stop exception    | Reasoned ordinary exclusion or explicit assertion                            |
+| `tests/synchronous/test_streams_integration.py:58`  | polling timeout              | Reasoned ordinary exclusion or direct failure-path test                      |
+| `.coveragerc:8`                                     | exclusion pattern            | Remove after all source occurrences are gone                                 |
 
 Alternatives considered: retaining the existing exclusions based on historical
 coverage comments would preserve 100% coverage, but would not distinguish real
