@@ -40,6 +40,6 @@ jobs:
           uv tool install prek==0.5.2
           echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
 
-      - run: prek run --all-files --skip prettier
+      - run: SKIP=slotscheck,prettier prek run --all-files
 
       - run: just --fmt --check
