@@ -23,7 +23,8 @@ class _CanonicalTag:
 _MAPPING_TAG = _CanonicalTag("map")
 _SEQUENCE_TAG = _CanonicalTag("seq")
 _BOOL_TAG = _CanonicalTag("bool")
-_OWN_TAGS = (_MAPPING_TAG, _SEQUENCE_TAG, _BOOL_TAG)
+_FLOAT_TAG = _CanonicalTag("float")
+_OWN_TAGS = (_MAPPING_TAG, _SEQUENCE_TAG, _BOOL_TAG, _FLOAT_TAG)
 _TAGGED_TUPLE_SIZE = 2
 
 
@@ -56,4 +57,21 @@ def canonicalize(value: object) -> Canonical:
         type_name = type(value).__name__
         message = f"cannot canonicalize value of type {type_name!r} for a cache key"
         raise UnsupportedCacheRequestError(message) from None
+    if value != value:  # noqa: PLR0124 (deliberate self-inequality check for NaN-like values)
+        type_name = type(value).__name__
+        message = (
+            f"cannot canonicalize a non-reflexive value of type {type_name!r} "
+            "for a cache key"
+        )
+        raise UnsupportedCacheRequestError(message)
+    if isinstance(value, float):
+        return (_FLOAT_TAG, value)
     return value
+
+
+def is_canonicalizable(value: object) -> bool:
+    try:
+        canonicalize(value)
+    except UnsupportedCacheRequestError:
+        return False
+    return True

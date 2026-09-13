@@ -1,0 +1,113 @@
+from __future__ import annotations
+
+from typing import Any
+
+import pytest
+
+from mongo_client_cache._core.read_validation import (
+    is_filter_cacheable,
+    is_pipeline_cacheable,
+    pipeline_blocks_full_materialization,
+)
+
+pytestmark = pytest.mark.unit
+
+
+@pytest.mark.parametrize(
+    "pipeline",
+    [
+        pytest.param([{"$match": {"a": 1}}], id="plain-match"),
+        pytest.param([{"$project": {"a": 1}}, {"$limit": 5}], id="project-and-limit"),
+        pytest.param([], id="empty-pipeline"),
+    ],
+)
+def test_safe_pipelines_are_cacheable(pipeline: list[dict[str, Any]]) -> None:
+    assert is_pipeline_cacheable(pipeline) is True
+
+
+@pytest.mark.parametrize(
+    "pipeline",
+    [
+        pytest.param([{"$lookup": {"from": "other"}}], id="lookup"),
+        pytest.param([{"$unionWith": {"coll": "other"}}], id="union-with"),
+        pytest.param([{"$graphLookup": {"from": "other"}}], id="graph-lookup"),
+        pytest.param([{"$out": "other"}], id="out"),
+        pytest.param([{"$merge": {"into": "other"}}], id="merge"),
+        pytest.param([{"$sample": {"size": 1}}], id="sample"),
+        pytest.param([{"$project": {"r": {"$function": {}}}}], id="function"),
+        pytest.param(
+            [{"$group": {"_id": None, "r": {"$accumulator": {}}}}], id="accumulator"
+        ),
+        pytest.param([{"$match": {"$expr": {"$rand": {}}}}], id="rand"),
+        pytest.param([{"$match": {"$expr": {"$sampleRate": 0.5}}}], id="sample-rate"),
+        pytest.param(
+            [{"$match": {"$expr": {"$eq": ["$a", "$$NOW"]}}}], id="now-variable"
+        ),
+        pytest.param(
+            [{"$match": {"$expr": {"$eq": ["$a", "$$CLUSTER_TIME"]}}}],
+            id="cluster-time-variable",
+        ),
+        pytest.param(
+            [{"$facet": {"nested": [{"$lookup": {"from": "other"}}]}}],
+            id="nested-inside-facet",
+        ),
+        pytest.param([{"$collStats": {"count": {}}}], id="coll-stats"),
+        pytest.param([{"$indexStats": {}}], id="index-stats"),
+        pytest.param([{"$planCacheStats": {}}], id="plan-cache-stats"),
+    ],
+)
+def test_unsafe_pipelines_are_not_cacheable(pipeline: list[dict[str, Any]]) -> None:
+    assert is_pipeline_cacheable(pipeline) is False
+
+
+@pytest.mark.parametrize(
+    "pipeline",
+    [
+        pytest.param([{"$match": {"a": 1}}], id="plain-match"),
+        pytest.param([{"$lookup": {"from": "other"}}], id="lookup"),
+        pytest.param(
+            [{"$project": {"value": {"$literal": {"$changeStream": 1}}}}],
+            id="change-stream-key-as-literal-data",
+        ),
+    ],
+)
+def test_pipelines_without_a_change_stream_do_not_block_materialization(
+    pipeline: list[dict[str, Any]],
+) -> None:
+    assert pipeline_blocks_full_materialization(pipeline) is False
+
+
+def test_a_change_stream_pipeline_blocks_materialization() -> None:
+    assert pipeline_blocks_full_materialization([{"$changeStream": {}}]) is True
+
+
+@pytest.mark.parametrize(
+    "filter_query",
+    [
+        pytest.param(None, id="no-filter"),
+        pytest.param({}, id="empty-filter"),
+        pytest.param({"a": 1}, id="plain-equality"),
+        pytest.param({"a": {"$gt": 1}}, id="range-operator"),
+    ],
+)
+def test_safe_filters_are_cacheable(filter_query: dict[str, Any] | None) -> None:
+    assert is_filter_cacheable(filter_query) is True
+
+
+@pytest.mark.parametrize(
+    "filter_query",
+    [
+        pytest.param({"$where": "this.a > 1"}, id="where"),
+        pytest.param({"$and": [{"$where": "true"}]}, id="nested-where"),
+        pytest.param({"$expr": {"$rand": {}}}, id="expr-rand"),
+        pytest.param({"$expr": {"$sampleRate": 0.5}}, id="expr-sample-rate"),
+        pytest.param({"$expr": {"$eq": ["$a", "$$NOW"]}}, id="expr-now"),
+        pytest.param(
+            {"$expr": {"$eq": ["$a", "$$CLUSTER_TIME"]}}, id="expr-cluster-time"
+        ),
+        pytest.param({"$expr": {"$function": {}}}, id="expr-function"),
+        pytest.param({"$expr": {"$accumulator": {}}}, id="expr-accumulator"),
+    ],
+)
+def test_unsafe_filters_are_not_cacheable(filter_query: dict[str, Any]) -> None:
+    assert is_filter_cacheable(filter_query) is False

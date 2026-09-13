@@ -238,14 +238,23 @@ class ChangeStreamCoordinator:
         self._closed = False
         self._lock = asyncio.Lock()
 
-    async def activate_database(self, name: str) -> DatabaseStreamSupervisor:
+    async def activate_database(self, name: str) -> DatabaseStreamSupervisor | None:
         async with self._lock:
             if self._closed:
                 raise StreamLifecycleError("coordinator is closed")
             supervisor = self._supervisors.get(name)
             if supervisor is None:
                 supervisor = DatabaseStreamSupervisor(self._client[name], self._cache)
-                await supervisor.start()
+                try:
+                    await supervisor.start()
+                except StreamStartupError:
+                    logger.warning(
+                        "change stream startup failed for database %r; reads for "
+                        "this database will bypass the cache",
+                        name,
+                        exc_info=True,
+                    )
+                    return None
                 self._supervisors[name] = supervisor
             return supervisor
 

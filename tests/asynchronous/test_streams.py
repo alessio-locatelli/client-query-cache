@@ -333,6 +333,20 @@ async def test_concurrent_starts_let_only_one_caller_publish_a_worker(
     assert len(database.watch_calls) == 1
 
 
+async def test_activate_database_bypasses_when_startup_is_unsupported(
+    make_coordinator: Callable[..., ChangeStreamCoordinator],
+) -> None:
+    database = _FakeDatabase("db", [], version_array=[5, 0, 9])
+    client = Mock()
+    client.__getitem__ = Mock(return_value=_as_database(database))
+    cache = CacheCore()
+    coordinator = make_coordinator(client, cache)
+
+    await coordinator.activate_database("db")
+
+    assert _attempt_admission(cache, "db") is AdmissionOutcome.DECLINED_UNAVAILABLE
+
+
 async def test_coordinator_rejects_activation_after_close(
     make_coordinator: Callable[..., ChangeStreamCoordinator],
 ) -> None:
@@ -717,6 +731,8 @@ async def test_coordinator_starts_one_independent_stream_per_active_database(
     second = await coordinator.activate_database("second")
     same_first = await coordinator.activate_database("first")
 
+    assert first is not None
+    assert second is not None
     assert first is not second
     assert first is same_first
     assert _is_healthy(first) is True

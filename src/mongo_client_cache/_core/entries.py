@@ -14,6 +14,7 @@ class AdmissionOutcome(enum.Enum):
     DECLINED_OVERSIZE = "declined_oversize"
     DECLINED_STALE = "declined_stale"
     DECLINED_UNAVAILABLE = "declined_unavailable"
+    DECLINED_UNENCODABLE = "declined_unencodable"
 
 
 @dataclass(eq=False, slots=True)

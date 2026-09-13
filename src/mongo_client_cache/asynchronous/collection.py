@@ -1,16 +1,79 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any
+from collections.abc import Mapping, Sequence
+from typing import TYPE_CHECKING, Any, cast
+
+from pymongo import ReadPreference
+from pymongo.collation import Collation
+from pymongo.cursor import CursorType
+from pymongo.errors import OperationFailure
+from pymongo.read_concern import ReadConcern
+
+from mongo_client_cache._core.canonical import is_canonicalizable
+from mongo_client_cache._core.collection_metadata import (
+    interpret_list_collections_entry,
+)
+from mongo_client_cache._core.errors import UnsupportedCacheRequestError
+from mongo_client_cache._core.identity_reads import (
+    NO_IDENTITY,
+    extract_id_identity,
+    normalize_identity_for_cache_key,
+)
+from mongo_client_cache._core.keys import NamespaceId
+from mongo_client_cache._core.order_sensitive_keys import order_sensitive_key
+from mongo_client_cache._core.read_validation import (
+    is_filter_cacheable,
+    is_pipeline_cacheable,
+    pipeline_blocks_full_materialization,
+)
 
 if TYPE_CHECKING:
+    from pymongo.asynchronous.client_session import AsyncClientSession
     from pymongo.asynchronous.collection import AsyncCollection
 
     from mongo_client_cache.asynchronous.database import CachedDatabase
 
+_FORCED_READ_CONCERN = ReadConcern("majority")
+_ACCEPTABLE_READ_CONCERN_LEVELS = (None, "majority")
+
+type _CollationIn = Collation | Mapping[str, Any]
+
+
+def _collation_document(collation: _CollationIn | None) -> Mapping[str, Any] | None:
+    if collation is None:
+        return None
+    if isinstance(collation, Collation):
+        return collation.document
+    return dict(collation)
+
+
+def _blocks_full_materialization(kwargs: Mapping[str, object]) -> bool:
+    cursor_type = kwargs.get("cursor_type", CursorType.NON_TAILABLE)
+    if cursor_type != CursorType.NON_TAILABLE:
+        return True
+    return bool(kwargs.get("allow_partial_results", False))
+
+
+def _count_documents_kwargs(
+    skip: int,
+    limit: int,
+    collation: _CollationIn | None,
+    hint: str | Sequence[tuple[str, int]] | None,
+) -> dict[str, Any]:
+    kwargs: dict[str, Any] = {}
+    if skip:
+        kwargs["skip"] = skip
+    if limit:
+        kwargs["limit"] = limit
+    if collation is not None:
+        kwargs["collation"] = collation
+    if hint is not None:
+        kwargs["hint"] = hint
+    return kwargs
+
 
 class CachedCollection[DocumentType: Mapping[str, Any]]:
-    __slots__ = ("_collection", "_database")
+    __slots__ = ("_collection", "_database", "_forced_collection")
 
     def __init__(
         self,
@@ -19,6 +82,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
     ) -> None:
         self._database = database
         self._collection = collection
+        self._forced_collection: AsyncCollection[DocumentType] | None = None
 
     @property
     def database(self) -> CachedDatabase[DocumentType]:
@@ -31,3 +95,320 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
     @property
     def raw(self) -> AsyncCollection[DocumentType]:
         return self._collection
+
+    async def find_one(
+        self,
+        filter: object = None,  # noqa: A002
+        projection: Mapping[str, Any] | Sequence[str] | None = None,
+        *,
+        session: AsyncClientSession | None = None,
+        **kwargs: object,
+    ) -> DocumentType | None:
+        identity = extract_id_identity(filter)
+        if (
+            identity is NO_IDENTITY
+            or self._wants_bypass(session=session, kwargs=kwargs)
+            or not is_canonicalizable(identity)
+            or not await self._is_cache_eligible()
+        ):
+            return await self._collection.find_one(
+                filter, projection, session=session, **kwargs
+            )
+        return await self._find_one_by_id(identity, projection)
+
+    async def find(
+        self,
+        filter: Mapping[str, Any] | None = None,  # noqa: A002
+        projection: Mapping[str, Any] | Sequence[str] | None = None,
+        *,
+        sort: Sequence[tuple[str, int]] | None = None,
+        skip: int = 0,
+        limit: int = 0,
+        collation: _CollationIn | None = None,
+        session: AsyncClientSession | None = None,
+        **kwargs: object,
+    ) -> list[DocumentType]:
+        if kwargs and _blocks_full_materialization(kwargs):
+            message = (
+                "find() always fully materializes its result and cannot support a "
+                "tailable, exhaust, or partial-result cursor; use .raw.find() instead"
+            )
+            raise UnsupportedCacheRequestError(message)
+        discriminator = order_sensitive_key(
+            (
+                "find",
+                filter,
+                projection,
+                sort,
+                skip,
+                limit,
+                _collation_document(collation),
+            )
+        )
+        if (
+            self._wants_bypass(session=session, kwargs=kwargs)
+            or not is_filter_cacheable(filter)
+            or not is_canonicalizable(discriminator)
+            or not await self._is_cache_eligible()
+        ):
+            cursor = self._collection.find(
+                filter,
+                projection,
+                skip=skip,
+                limit=limit,
+                sort=sort,
+                collation=collation,
+                session=session,
+                **kwargs,
+            )
+            return await cursor.to_list()
+        namespace = self._namespace()
+        cache = self._database.manager.cache_core
+        codec_options = self._collection.codec_options
+        lookup_result = cache.lookup_namespace(
+            namespace, discriminator, codec_options=codec_options
+        )
+        if lookup_result.hit:
+            return cast("list[DocumentType]", lookup_result.value)
+        capture = cache.capture_namespace_generation(namespace)
+        cursor = self._forced_collection_handle().find(
+            filter,
+            projection,
+            skip=skip,
+            limit=limit,
+            sort=sort,
+            collation=collation,
+        )
+        documents = await cursor.to_list()
+        cache.admit_namespace(
+            capture, discriminator, documents, codec_options=codec_options
+        )
+        return documents
+
+    async def aggregate(
+        self,
+        pipeline: Sequence[Mapping[str, Any]],
+        *,
+        collation: _CollationIn | None = None,
+        session: AsyncClientSession | None = None,
+        **kwargs: object,
+    ) -> list[DocumentType]:
+        if pipeline_blocks_full_materialization(pipeline):
+            message = (
+                "aggregate() always fully materializes its result and cannot "
+                "support a $changeStream pipeline; use .raw.aggregate() instead"
+            )
+            raise UnsupportedCacheRequestError(message)
+        discriminator = order_sensitive_key(
+            ("aggregate", pipeline, _collation_document(collation))
+        )
+        if (
+            self._wants_bypass(session=session, kwargs=kwargs)
+            or not is_pipeline_cacheable(pipeline)
+            or not is_canonicalizable(discriminator)
+            or not await self._is_cache_eligible()
+        ):
+            cursor = await self._collection.aggregate(
+                pipeline,
+                collation=collation,
+                session=session,
+                **cast("dict[str, Any]", kwargs),
+            )
+            return await cursor.to_list()
+        namespace = self._namespace()
+        cache = self._database.manager.cache_core
+        codec_options = self._collection.codec_options
+        lookup_result = cache.lookup_namespace(
+            namespace, discriminator, codec_options=codec_options
+        )
+        if lookup_result.hit:
+            return cast("list[DocumentType]", lookup_result.value)
+        capture = cache.capture_namespace_generation(namespace)
+        cursor = await self._forced_collection_handle().aggregate(
+            pipeline, collation=collation
+        )
+        documents = await cursor.to_list()
+        cache.admit_namespace(
+            capture, discriminator, documents, codec_options=codec_options
+        )
+        return documents
+
+    async def count_documents(
+        self,
+        filter: Mapping[str, Any],  # noqa: A002
+        *,
+        skip: int = 0,
+        limit: int = 0,
+        collation: _CollationIn | None = None,
+        hint: str | Sequence[tuple[str, int]] | None = None,
+        session: AsyncClientSession | None = None,
+        **kwargs: object,
+    ) -> int:
+        merged_kwargs = _count_documents_kwargs(skip, limit, collation, hint) | kwargs
+        discriminator = order_sensitive_key(
+            (
+                "count_documents",
+                filter,
+                skip,
+                limit,
+                _collation_document(collation),
+                hint,
+            )
+        )
+        if (
+            self._wants_bypass(session=session, kwargs=kwargs)
+            or not is_filter_cacheable(filter)
+            or not is_canonicalizable(discriminator)
+            or not await self._is_cache_eligible()
+        ):
+            return await self._collection.count_documents(
+                filter, session=session, **merged_kwargs
+            )
+        namespace = self._namespace()
+        cache = self._database.manager.cache_core
+        codec_options = self._collection.codec_options
+        lookup_result = cache.lookup_namespace(
+            namespace, discriminator, codec_options=codec_options
+        )
+        if lookup_result.hit:
+            return cast("int", lookup_result.value)
+        capture = cache.capture_namespace_generation(namespace)
+        count = await self._forced_collection_handle().count_documents(
+            filter, **merged_kwargs
+        )
+        cache.admit_namespace(
+            capture, discriminator, count, codec_options=codec_options
+        )
+        return count
+
+    async def estimated_document_count(self, **kwargs: object) -> int:
+        if (
+            kwargs
+            or not self._is_primary_majority()
+            or not await self._is_cache_eligible()
+        ):
+            return await self._collection.estimated_document_count(**kwargs)
+        namespace = self._namespace()
+        discriminator = ("estimated_document_count",)
+        cache = self._database.manager.cache_core
+        codec_options = self._collection.codec_options
+        lookup_result = cache.lookup_namespace(
+            namespace, discriminator, codec_options=codec_options
+        )
+        if lookup_result.hit:
+            return cast("int", lookup_result.value)
+        capture = cache.capture_namespace_generation(namespace)
+        count = await self._forced_collection_handle().estimated_document_count()
+        cache.admit_namespace(
+            capture, discriminator, count, codec_options=codec_options
+        )
+        return count
+
+    async def distinct(
+        self,
+        key: str,
+        filter: Mapping[str, Any] | None = None,  # noqa: A002
+        *,
+        collation: _CollationIn | None = None,
+        session: AsyncClientSession | None = None,
+        **kwargs: object,
+    ) -> list[Any]:
+        discriminator = order_sensitive_key(
+            ("distinct", key, filter, _collation_document(collation))
+        )
+        if (
+            self._wants_bypass(session=session, kwargs=kwargs)
+            or not is_filter_cacheable(filter)
+            or not is_canonicalizable(discriminator)
+            or not await self._is_cache_eligible()
+        ):
+            return await self._collection.distinct(
+                key,
+                filter,
+                collation=collation,
+                session=session,
+                **cast("dict[str, Any]", kwargs),
+            )
+        namespace = self._namespace()
+        cache = self._database.manager.cache_core
+        codec_options = self._collection.codec_options
+        lookup_result = cache.lookup_namespace(
+            namespace, discriminator, codec_options=codec_options
+        )
+        if lookup_result.hit:
+            return cast("list[Any]", lookup_result.value)
+        capture = cache.capture_namespace_generation(namespace)
+        values = await self._forced_collection_handle().distinct(
+            key, filter, collation=collation
+        )
+        cache.admit_namespace(
+            capture, discriminator, values, codec_options=codec_options
+        )
+        return values
+
+    async def _find_one_by_id(
+        self,
+        identity: object,
+        projection: Mapping[str, Any] | Sequence[str] | None,
+    ) -> DocumentType | None:
+        namespace = self._namespace()
+        read_shape = ("find_one", projection)
+        cache = self._database.manager.cache_core
+        codec_options = self._collection.codec_options
+        identity = normalize_identity_for_cache_key(
+            identity, codec_options, self._database.manager.client.codec_options
+        )
+        lookup_result = cache.lookup_identity(
+            namespace, identity, read_shape, codec_options=codec_options
+        )
+        if lookup_result.hit:
+            return cast("DocumentType | None", lookup_result.value)
+        capture = cache.begin_identity_admission(namespace, identity)
+        try:
+            document = await self._forced_collection_handle().find_one(
+                {"_id": identity}, projection
+            )
+        except BaseException:
+            cache.discard_identity_admission(capture)
+            raise
+        cache.admit_identity(capture, read_shape, document, codec_options=codec_options)
+        return document
+
+    def _namespace(self) -> NamespaceId:
+        return NamespaceId(self._database.name, self.name)
+
+    def _is_primary_majority(self) -> bool:
+        read_concern = self._collection.read_concern
+        return (
+            self._collection.read_preference == ReadPreference.PRIMARY
+            and read_concern.level in _ACCEPTABLE_READ_CONCERN_LEVELS
+        )
+
+    def _wants_bypass(
+        self, *, session: AsyncClientSession | None, kwargs: Mapping[str, object]
+    ) -> bool:
+        return session is not None or bool(kwargs) or not self._is_primary_majority()
+
+    def _forced_collection_handle(self) -> AsyncCollection[DocumentType]:
+        if self._forced_collection is None:
+            self._forced_collection = self._collection.with_options(
+                read_preference=ReadPreference.PRIMARY,
+                read_concern=_FORCED_READ_CONCERN,
+            )
+        return self._forced_collection
+
+    async def _is_cache_eligible(self) -> bool:
+        return await self._database.manager.ensure_cache_eligible(
+            self._namespace(), self._check_is_view
+        )
+
+    async def _check_is_view(self) -> bool | None:
+        try:
+            cursor = await self._database.raw.list_collections(
+                filter={"name": self.name}
+            )
+            entries = await cursor.to_list(length=1)
+        except OperationFailure:
+            return None
+        entry = entries[0] if entries else None
+        return interpret_list_collections_entry(entry)
