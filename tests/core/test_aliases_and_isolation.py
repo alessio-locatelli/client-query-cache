@@ -171,8 +171,6 @@ def test_lookup_by_alias_does_not_return_a_document_the_alias_no_longer_matches(
     alias = canonical_alias_key("email", "a@example.com", None)
     core.admit_identity(capture, "full", {"v": "old-email-value"}, alias=alias)
 
-    # The document's email changes; a write drops the stale alias immediately,
-    # then a fresh identity-guarded entry is cached for the same document.
     core.record_write(namespace, identity)
     fresh_capture = core.begin_identity_admission(namespace, identity)
     core.admit_identity(fresh_capture, "full", {"v": "new-email-value"})
@@ -199,10 +197,6 @@ def test_a_write_racing_between_resolve_alias_and_lookup_identity_is_not_masked(
     fresh_capture = core.begin_identity_admission(namespace, identity)
     core.admit_identity(fresh_capture, "full", {"v": "new-email-value"})
 
-    # A caller composing resolve_alias() with a bare lookup_identity() would
-    # incorrectly see the document's *current* contents as if they still
-    # matched the old email; lookup_by_alias re-validates the alias itself
-    # and correctly misses instead.
     stale_composition = core.lookup_identity(namespace, resolved_identity, "full")
     assert stale_composition.hit
 
@@ -229,7 +223,6 @@ def test_repointing_an_alias_to_a_new_identity_survives_the_old_owners_cleanup(
         new_owner
     )
 
-    # Writing to the old owner must not clean up an alias it no longer owns.
     core.record_write(namespace, old_owner)
 
     assert core.resolve_alias(namespace, "email", "shared@example.com", None) == (
@@ -277,9 +270,6 @@ def test_lookup_by_alias_misses_a_stale_entry_under_a_still_current_alias(
     capture = core.begin_identity_admission(namespace, identity)
     core.admit_identity(capture, read_shape, {"v": "old"}, alias=alias)
 
-    # The write drops the alias; republishing it for a different read shape
-    # leaves the *original* shape's entry stale under an alias that is
-    # otherwise still current for the identity.
     core.record_write(namespace, identity)
     fresh_capture = core.begin_identity_admission(namespace, identity)
     core.admit_identity(fresh_capture, "other-shape", {"v": "new"}, alias=alias)
