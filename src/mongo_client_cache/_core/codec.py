@@ -23,3 +23,15 @@ def decode_value(
     encoded: bytes, codec_options: CodecOptions[Mapping[str, Any]] | None = None
 ) -> object:
     return bson.decode(encoded, codec_options=codec_options)[_ENVELOPE_FIELD]
+
+
+def codec_fingerprint(codec_options: CodecOptions[Mapping[str, Any]]) -> object:
+    return (
+        codec_options.document_class,
+        codec_options.tz_aware,
+        codec_options.uuid_representation,
+        codec_options.unicode_decode_error_handler,
+        codec_options.tzinfo,
+        codec_options.datetime_conversion,
+        id(codec_options.type_registry),
+    )
