@@ -1,6 +1,6 @@
 ## 1. Discover unique keys
 
-- [ ] 1.1 Add a per-`CacheManager` collection-metadata cache keyed by namespace, epoch-gated the same way as `implement-cached-read-api`'s view detection, that calls `list_indexes()` on first use and re-verifies on epoch advance; filter to indexes with `unique: true`, no `partialFilterExpression`, not `sparse`, and not hashed, extracting field order and collation; verify discovery happens once and is shared across handles, that excluded index shapes are never used, and that an in-place `createIndex`/`dropIndex` is not detected until the next epoch advance.
+- [ ] 1.1 Add a per-`CacheManager` collection-metadata cache keyed by namespace, tracking a dedicated per-namespace index generation that advances on a `createIndexes`/`dropIndexes` change-stream event for that namespace or on a namespace epoch advance, that calls `list_indexes()` on first use and re-verifies whenever the index generation has advanced since the last check; filter to indexes with `unique: true`, no `partialFilterExpression`, not `sparse`, and not hashed, extracting field order and collation; verify discovery happens once and is shared across handles, that excluded index shapes are never used, and that an in-place `createIndex`/`dropIndex` is detected once its change-stream event has been processed.
 
 ## 2. Cache unique-key reads
 
