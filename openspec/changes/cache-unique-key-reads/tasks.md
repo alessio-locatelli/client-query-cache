@@ -11,3 +11,7 @@
 ## 3. Asyncio parity
 
 - [ ] 3.1 Add the same discovery and unique-key caching behavior to the asyncio facades; verify parity against PyMongo 4.13 `AsyncMongoClient`, the declared runtime minimum.
+
+## 4. Code Quality
+
+- [ ] 4.1 Scan the entire file for edited or added tests (including pre-existing tests within the file) and ensure that the "Writing Tests" guidelines from `AGENTS.md` are applied, including test parametrization.
