@@ -579,6 +579,8 @@ async def test_find_one_bypasses_cache_when_view_inspection_fails(
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
     make_fake_document: Callable[..., dict[str, Any]],
+    caplog: pytest.LogCaptureFixture,
+    *,
     probe_error: Exception,
 ) -> None:
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
@@ -589,6 +591,7 @@ async def test_find_one_bypasses_cache_when_view_inspection_fails(
         raise probe_error
 
     with (
+        caplog.at_level("WARNING", logger="mongo_client_cache.asynchronous.collection"),
         patch.object(AsyncDatabase, "list_collections", side_effect=_raise),
         patch.object(
             AsyncCollection,
@@ -603,6 +606,8 @@ async def test_find_one_bypasses_cache_when_view_inspection_fails(
     assert first == document
     assert second == document
     assert spy.call_count == 2
+    assert caplog.records
+    assert all(record.levelname == "WARNING" for record in caplog.records)
 
 
 @pytest.mark.parametrize(
