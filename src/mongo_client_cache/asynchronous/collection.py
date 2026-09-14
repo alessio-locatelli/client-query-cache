@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any, cast
 from pymongo import ReadPreference
 from pymongo.collation import Collation
 from pymongo.cursor import CursorType
-from pymongo.errors import OperationFailure
+from pymongo.errors import PyMongoError
 from pymongo.read_concern import ReadConcern
 
 from mongo_client_cache._core.canonical import is_canonicalizable
@@ -352,7 +352,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
         projection: Mapping[str, Any] | Sequence[str] | None,
     ) -> DocumentType | None:
         namespace = self._namespace()
-        read_shape = ("find_one", projection)
+        read_shape = ("find_one", order_sensitive_key(projection))
         cache = self._database.manager.cache_core
         codec_options = self._collection.codec_options
         identity = normalize_identity_for_cache_key(
@@ -408,7 +408,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
                 filter={"name": self.name}
             )
             entries = await cursor.to_list(length=1)
-        except OperationFailure:
+        except PyMongoError:
             return None
         entry = entries[0] if entries else None
         return interpret_list_collections_entry(entry)
