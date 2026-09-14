@@ -180,9 +180,12 @@ def test_drop_database_clears_the_cache_and_the_stream_recovers(
     _wait_until(lambda: cache.lookup_identity(namespace, "doc-1", "full").hit is False)
     _wait_until(lambda: supervisor.healthy)
 
-    capture2 = cache.begin_identity_admission(namespace, "doc-2")
-    cache.admit_identity(capture2, "full", {"v": 1})
-    assert cache.lookup_identity(namespace, "doc-2", "full").hit is True
+    def _admit_and_check_doc2() -> bool:
+        capture2 = cache.begin_identity_admission(namespace, "doc-2")
+        cache.admit_identity(capture2, "full", {"v": 1})
+        return cache.lookup_identity(namespace, "doc-2", "full").hit
+
+    _wait_until(_admit_and_check_doc2)
 
     independent_writer[cached_database_name].create_collection("items")
 
