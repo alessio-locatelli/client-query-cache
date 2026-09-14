@@ -29,6 +29,8 @@ The same facades are available for `pymongo.AsyncMongoClient` under `mongo_clien
 
 A read bypasses the cache — falling back to a normal PyMongo call — whenever caching it safely isn't possible: when the caller supplies a session, a read preference other than primary, or a read concern other than majority; when the collection is a MongoDB view; when an aggregation pipeline joins another collection, writes, reports live statistics, or is otherwise nondeterministic; or when a `find`/`count_documents`/`distinct` filter is nondeterministic. `find()` always returns a fully materialized list rather than a cursor, so it does not support a tailable, exhaust, or partial-result read — use `collection.raw.find(...)` for those.
 
+Leaving read concern unspecified (the common case) is treated as compatible with caching, not as a bypass condition: a cache miss reads at majority concern, which is stronger, and can be slower or less available during a network partition, than the server's own default read concern an uncached call would otherwise use.
+
 See [`docs/migration.md`](docs/migration.md) for what changed since the earlier prototype.
 
 ## Development
