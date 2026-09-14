@@ -20,7 +20,10 @@ from mongo_client_cache._core.identity_reads import (
     normalize_identity_for_cache_key,
 )
 from mongo_client_cache._core.keys import NamespaceId
-from mongo_client_cache._core.order_sensitive_keys import order_sensitive_key
+from mongo_client_cache._core.order_sensitive_keys import (
+    order_sensitive_discriminator_key,
+    order_sensitive_key,
+)
 from mongo_client_cache._core.read_validation import (
     is_filter_cacheable,
     is_pipeline_cacheable,
@@ -105,7 +108,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
         **kwargs: object,
     ) -> DocumentType | None:
         identity = extract_id_identity(filter)
-        read_shape = ("find_one", order_sensitive_key(projection))
+        read_shape = ("find_one", order_sensitive_discriminator_key(projection))
         if (
             identity is NO_IDENTITY
             or self._wants_bypass(session=session, kwargs=kwargs)
@@ -136,7 +139,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
                 "tailable, exhaust, or partial-result cursor; use .raw.find() instead"
             )
             raise UnsupportedCacheRequestError(message)
-        discriminator = order_sensitive_key(
+        discriminator = order_sensitive_discriminator_key(
             (
                 "find",
                 filter,
@@ -201,7 +204,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
                 "support a $changeStream pipeline; use .raw.aggregate() instead"
             )
             raise UnsupportedCacheRequestError(message)
-        discriminator = order_sensitive_key(
+        discriminator = order_sensitive_discriminator_key(
             ("aggregate", pipeline, _collation_document(collation))
         )
         if (
@@ -247,7 +250,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
         **kwargs: object,
     ) -> int:
         merged_kwargs = _count_documents_kwargs(skip, limit, collation, hint) | kwargs
-        discriminator = order_sensitive_key(
+        discriminator = order_sensitive_discriminator_key(
             (
                 "count_documents",
                 filter,
@@ -315,7 +318,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
         session: AsyncClientSession | None = None,
         **kwargs: object,
     ) -> list[Any]:
-        discriminator = order_sensitive_key(
+        discriminator = order_sensitive_discriminator_key(
             ("distinct", key, filter, _collation_document(collation))
         )
         if (
@@ -357,10 +360,11 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
         namespace = self._namespace()
         cache = self._database.manager.cache_core
         codec_options = self._collection.codec_options
-        identity = normalize_identity_for_cache_key(
-            identity, codec_options, self._database.manager.client.codec_options
+        cache_identity = order_sensitive_key(
+            normalize_identity_for_cache_key(
+                identity, codec_options, self._database.manager.client.codec_options
+            )
         )
-        cache_identity = order_sensitive_key(identity)
         lookup_result = cache.lookup_identity(
             namespace, cache_identity, read_shape, codec_options=codec_options
         )

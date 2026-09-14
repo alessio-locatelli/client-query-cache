@@ -9,17 +9,37 @@ class _OrderTag:
 
 _MAPPING_TAG = _OrderTag()
 _SEQUENCE_TAG = _OrderTag()
+_FLOAT_TAG = _OrderTag()
 
 
-def order_sensitive_key(value: object) -> object:
+def _order_sensitive_key(value: object, *, distinguish_float: bool) -> object:
     if isinstance(value, Mapping):
         return (
             _MAPPING_TAG,
             tuple(
-                (order_sensitive_key(key), order_sensitive_key(item))
+                (
+                    _order_sensitive_key(key, distinguish_float=distinguish_float),
+                    _order_sensitive_key(item, distinguish_float=distinguish_float),
+                )
                 for key, item in value.items()
             ),
         )
     if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
-        return (_SEQUENCE_TAG, tuple(order_sensitive_key(item) for item in value))
+        return (
+            _SEQUENCE_TAG,
+            tuple(
+                _order_sensitive_key(item, distinguish_float=distinguish_float)
+                for item in value
+            ),
+        )
+    if distinguish_float and isinstance(value, float):
+        return (_FLOAT_TAG, value)
     return value
+
+
+def order_sensitive_key(value: object) -> object:
+    return _order_sensitive_key(value, distinguish_float=False)
+
+
+def order_sensitive_discriminator_key(value: object) -> object:
+    return _order_sensitive_key(value, distinguish_float=True)

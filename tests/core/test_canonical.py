@@ -21,6 +21,11 @@ pytestmark = pytest.mark.unit
             {"z": "w", 2: "y", True: "x"},
             id="heterogeneous_key_order",
         ),
+        pytest.param(
+            1.0,
+            1,
+            id="float_and_int_are_the_same_identity_mongodb_would_match",
+        ),
     ],
 )
 def test_canonicalize_treats_as_equivalent(first: object, second: object) -> None:
@@ -34,7 +39,6 @@ def test_canonicalize_treats_as_equivalent(first: object, second: object) -> Non
         pytest.param({"a": 1}, {"a": 1, "b": 1}, id="nested_shape"),
         pytest.param(True, 1, id="bool_vs_int"),
         pytest.param(False, 0, id="bool_vs_int_falsy"),
-        pytest.param(1.0, 1, id="float_vs_int"),
         pytest.param(
             {True: "x"},
             {1: "x"},
@@ -63,7 +67,7 @@ def test_canonicalize_does_not_raise(value: object) -> None:
     canonicalize(value)
 
 
-@pytest.mark.parametrize("value", [None, 1, "x", b"bytes"])
+@pytest.mark.parametrize("value", [None, 1, "x", b"bytes", 1.5])
 def test_canonicalize_passes_through_hashable_scalars(value: object) -> None:
     assert canonicalize(value) == value
 
@@ -92,7 +96,6 @@ def test_canonicalize_rejects_values_unsuitable_as_cache_keys(value: object) -> 
         {"a": 1, "b": [1, 2]},
         [1, {"a": 1}],
         True,
-        1.5,
     ],
 )
 def test_canonicalize_is_idempotent_on_its_own_output(value: object) -> None:

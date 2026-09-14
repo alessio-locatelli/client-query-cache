@@ -23,8 +23,7 @@ class _CanonicalTag:
 _MAPPING_TAG = _CanonicalTag("map")
 _SEQUENCE_TAG = _CanonicalTag("seq")
 _BOOL_TAG = _CanonicalTag("bool")
-_FLOAT_TAG = _CanonicalTag("float")
-_OWN_TAGS = (_MAPPING_TAG, _SEQUENCE_TAG, _BOOL_TAG, _FLOAT_TAG)
+_OWN_TAGS = (_MAPPING_TAG, _SEQUENCE_TAG, _BOOL_TAG)
 _TAGGED_TUPLE_SIZE = 2
 
 
@@ -64,8 +63,6 @@ def canonicalize(value: object) -> Canonical:
             "for a cache key"
         )
         raise UnsupportedCacheRequestError(message)
-    if isinstance(value, float):
-        return (_FLOAT_TAG, value)
     return value
 
 

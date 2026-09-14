@@ -3,7 +3,10 @@ from __future__ import annotations
 import pytest
 
 from mongo_client_cache._core.canonical import canonicalize
-from mongo_client_cache._core.order_sensitive_keys import order_sensitive_key
+from mongo_client_cache._core.order_sensitive_keys import (
+    order_sensitive_discriminator_key,
+    order_sensitive_key,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -47,3 +50,24 @@ def test_order_sensitive_key_distinguishes_a_mapping_from_an_equivalent_sequence
 @pytest.mark.parametrize("value", [None, 1, "x", 1.5, True])
 def test_order_sensitive_key_passes_through_scalars(value: object) -> None:
     assert order_sensitive_key(value) == value
+
+
+def test_order_sensitive_key_treats_float_and_int_as_the_same_identity() -> None:
+    assert canonicalize(order_sensitive_key(1.0)) == canonicalize(
+        order_sensitive_key(1)
+    )
+
+
+def test_order_sensitive_discriminator_key_distinguishes_float_from_int() -> None:
+    assert canonicalize(order_sensitive_discriminator_key(1.0)) != canonicalize(
+        order_sensitive_discriminator_key(1)
+    )
+
+
+def test_order_sensitive_discriminator_key_still_distinguishes_reordered_fields() -> (
+    None
+):
+    first = order_sensitive_discriminator_key({"a": 1, "b": 2})
+    second = order_sensitive_discriminator_key({"b": 2, "a": 1})
+
+    assert canonicalize(first) != canonicalize(second)
