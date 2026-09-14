@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any, cast
 
@@ -38,6 +39,8 @@ if TYPE_CHECKING:
 
 _FORCED_READ_CONCERN = ReadConcern("majority")
 _ACCEPTABLE_READ_CONCERN_LEVELS = (None, "majority")
+
+logger = logging.getLogger(__name__)
 
 type _CollationIn = Collation | Mapping[str, Any]
 
@@ -468,6 +471,11 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
             )
             entries = await cursor.to_list(length=1)
         except PyMongoError:
+            logger.warning(
+                "collection-type probe failed; this read bypasses the cache",
+                extra={"database": self._database.name, "collection": self.name},
+                exc_info=True,
+            )
             return None
         entry = entries[0] if entries else None
         return interpret_list_collections_entry(entry)
