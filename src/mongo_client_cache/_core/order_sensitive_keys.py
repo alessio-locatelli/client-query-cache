@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
+from mongo_client_cache._core.canonical import _OWN_TAGS as _CANONICAL_OWN_TAGS
+
 
 class _OrderTag:
     __slots__ = ()
@@ -10,9 +12,26 @@ class _OrderTag:
 _MAPPING_TAG = _OrderTag()
 _SEQUENCE_TAG = _OrderTag()
 _FLOAT_TAG = _OrderTag()
+# Private object identities, not strings: a caller-supplied tuple can never
+# forge one of these by coincidence, so the idempotency check below can
+# never collide with real input. Also recognizes canonicalize()'s own tags,
+# since begin_identity_admission/lookup_identity compose
+# canonicalize(order_sensitive_key(x)) - a value already produced by that
+# composed pipeline (e.g. a canonical identity resolved via resolve_alias,
+# reused as a fresh lookup_identity/begin_identity_admission argument) has
+# canonicalize()'s tag on the outside, not this module's, and must still be
+# recognized as already processed.
+_OWN_TAGS = (_MAPPING_TAG, _SEQUENCE_TAG, _FLOAT_TAG, *_CANONICAL_OWN_TAGS)
+_TAGGED_TUPLE_SIZE = 2
 
 
 def _order_sensitive_key(value: object, *, distinguish_float: bool) -> object:
+    if (
+        isinstance(value, tuple)
+        and len(value) == _TAGGED_TUPLE_SIZE
+        and any(value[0] is tag for tag in _OWN_TAGS)
+    ):
+        return value
     if isinstance(value, Mapping):
         return (
             _MAPPING_TAG,

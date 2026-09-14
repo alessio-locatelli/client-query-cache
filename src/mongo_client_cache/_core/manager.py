@@ -354,7 +354,7 @@ class _CacheCoreIdentityAdmission(_CacheCoreBase):
         self, namespace: NamespaceId, identity: object
     ) -> IdentityCapture:
         self._ensure_active()
-        canonical_identity = canonicalize(identity)
+        canonical_identity = canonicalize(order_sensitive_key(identity))
         if canonical_identity is None:
             message = "identity must not be None"
             raise UnsupportedCacheRequestError(message)
@@ -560,7 +560,7 @@ class _CacheCoreLookup(_CacheCoreBase):
         if not self._is_database_available(namespace.database):
             self._statistics.record_bypass()
             return LookupResult(hit=False)
-        canonical_identity = canonicalize(identity)
+        canonical_identity = canonicalize(order_sensitive_key(identity))
         key = IdentityCacheKey(namespace, canonical_identity, canonicalize(read_shape))
         entry = self._lru.peek(key)
         if entry is None:
