@@ -8,7 +8,7 @@ This capability keeps a process-local cache safe to use only while a database-sc
 
 ### Requirement: A manager owns one database-scoped invalidation stream
 
-For every active cached database, the manager SHALL use exactly one database-scoped stream opened with `show_expanded_events=True` to route insert, update, replace, delete, drop, `dropDatabase`, rename, `create`, and invalidation events to all affected cache namespaces. The manager SHALL require MongoDB server version 6.0 or newer and SHALL fail closed during startup when the server cannot support the expanded-events option. The stream projection SHALL retain the resume token and fields required for routing while omitting unnecessary full documents and update descriptions. A `create` event SHALL advance the affected namespace's epoch and generation and SHALL physically reclaim any entries cached against that namespace while it did not yet exist, the same as a clear, so a namespace coming into existence invalidates any determination a caller made about it before it existed and does not leave pre-existence entries consuming shared budget. Database-wide invalidation SHALL enumerate only namespaces registered for the affected database and SHALL not traverse namespace metadata for other databases.
+For every active cached database, the manager SHALL use exactly one database-scoped stream opened with `show_expanded_events=True` to route insert, update, replace, delete, drop, `dropDatabase`, rename, `create`, `createIndexes`, `dropIndexes`, and invalidation events to all affected cache namespaces. The manager SHALL require MongoDB server version 6.0 or newer and SHALL fail closed during startup when the server cannot support the expanded-events option. The stream projection SHALL retain the resume token and fields required for routing while omitting unnecessary full documents and update descriptions. A `create` event SHALL advance the affected namespace's epoch and generation and SHALL physically reclaim any entries cached against that namespace while it did not yet exist, the same as a clear, so a namespace coming into existence invalidates any determination a caller made about it before it existed and does not leave pre-existence entries consuming shared budget. A `createIndexes` or `dropIndexes` event SHALL be routed to the affected namespace without being treated as a document write or a namespace-wide document-cache invalidation, since an index change has no `documentKey` and no bearing on which documents are cached. Database-wide invalidation SHALL enumerate only namespaces registered for the affected database and SHALL not traverse namespace metadata for other databases.
 
 #### Scenario: An external update is received
 
@@ -44,6 +44,11 @@ For every active cached database, the manager SHALL use exactly one database-sco
 
 - **WHEN** the manager processes a `create` event for a namespace that has cached namespace-guarded entries admitted while it was absent
 - **THEN** it advances that namespace's epoch and generation, so a collection-type or eligibility determination made before the namespace existed is treated as stale, and it physically reclaims those pre-existence entries rather than leaving them resident
+
+#### Scenario: An index is created or dropped on a live collection
+
+- **WHEN** the manager processes a `createIndexes` or `dropIndexes` event for a namespace
+- **THEN** it routes the event to that namespace for consumers that track index metadata, without advancing the namespace's document-cache generation or epoch and without requiring a `documentKey`
 
 ### Requirement: Cache use fails closed during stream uncertainty
 

@@ -29,7 +29,7 @@ from mongo_client_cache._core.order_sensitive_keys import order_sensitive_key
 from mongo_client_cache._core.snapshots import CacheSnapshot, CacheStatistics
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
     from typing import Any
 
     from bson.codec_options import CodecOptions
@@ -227,6 +227,36 @@ class _CacheCoreBase:
                 for entry in entries:
                     _discard_entry_locked(state, entry)
 
+    def _finalize_put(
+        self,
+        state: NamespaceState,
+        key: CacheKey,
+        entry: CacheEntry,
+        *,
+        admitted: bool,
+        displaced: CacheEntry | None,
+        is_still_valid: Callable[[], bool],
+        on_admit: Callable[[], None],
+    ) -> AdmissionOutcome:
+        if not admitted:
+            return AdmissionOutcome.DECLINED_STALE
+        still_resident = self._lru.contains_exact(key, entry)
+        rolled_back = False
+        with self._namespace_section(state):
+            if not still_resident or self._is_closed() or not is_still_valid():
+                rolled_back = True
+            else:
+                state.entry_index[entry] = key
+                on_admit()
+            if displaced is not None:
+                _discard_entry_locked(state, displaced)
+        if rolled_back:
+            self._lru.remove_exact(key, entry)
+            return AdmissionOutcome.DECLINED_STALE
+        if self._reclaim_if_evicted_before_publication(state, key, entry):
+            return AdmissionOutcome.DECLINED_STALE
+        return AdmissionOutcome.ADMITTED
+
 
 class _CacheCoreLifecycle(_CacheCoreBase):
     __slots__ = ()
@@ -281,6 +311,17 @@ class _CacheCoreNamespaceLifecycle(_CacheCoreBase):
         with self._namespace_section(state):
             return state.epoch
 
+    def current_index_generation(self, namespace: NamespaceId) -> int:
+        state = self._namespace(namespace)
+        with self._namespace_section(state):
+            return state.index_generation
+
+    def record_index_change(self, namespace: NamespaceId) -> None:
+        self._ensure_active()
+        state = self._namespace(namespace)
+        with self._namespace_section(state):
+            state.index_generation += 1
+
     def record_write(self, namespace: NamespaceId, identity: object) -> None:
         self._ensure_active()
         identity = order_sensitive_key(identity)
@@ -309,6 +350,7 @@ class _CacheCoreNamespaceLifecycle(_CacheCoreBase):
         with self._namespace_section(state):
             state.generation += 1
             state.epoch += 1
+            state.index_generation += 1
             state.aliases = {}
             reclaimed = list(state.entry_index.items())
             state.entry_index.clear()
@@ -424,28 +466,28 @@ class _CacheCoreIdentityAdmission(_CacheCoreBase):
                     identity=capture.identity,
                 )
                 admitted, displaced, evicted = self._lru.conditional_put(key, entry)
-            if not admitted:
-                return AdmissionOutcome.DECLINED_STALE
             self._process_evicted(evicted)
-            still_resident = self._lru.contains_exact(key, entry)
-            rolled_back = False
-            with self._namespace_section(state):
-                identity_state = _match_identity_state(
-                    state, capture.identity, capture.generation_key
+
+            def _is_still_valid() -> bool:
+                return (
+                    _match_identity_state(
+                        state, capture.identity, capture.generation_key
+                    )
+                    is not None
                 )
-                if not still_resident or self._is_closed() or identity_state is None:
-                    rolled_back = True
-                else:
-                    state.entry_index[entry] = key
-                    identity_state.cached_ref_count += 1
-                if displaced is not None:
-                    _discard_entry_locked(state, displaced)
-            if rolled_back:
-                self._lru.remove_exact(key, entry)
-                return AdmissionOutcome.DECLINED_STALE
-            if self._reclaim_if_evicted_before_publication(state, key, entry):
-                return AdmissionOutcome.DECLINED_STALE
-            return AdmissionOutcome.ADMITTED
+
+            def _on_admit() -> None:
+                state.identities[capture.identity].cached_ref_count += 1
+
+            return self._finalize_put(
+                state,
+                key,
+                entry,
+                admitted=admitted,
+                displaced=displaced,
+                is_still_valid=_is_still_valid,
+                on_admit=_on_admit,
+            )
         finally:
             self._release_identity_capture(capture)
 
@@ -521,28 +563,137 @@ class _CacheCoreNamespaceAdmission(_CacheCoreBase):
                 identity=None,
             )
             admitted, displaced, evicted = self._lru.conditional_put(key, entry)
-        if not admitted:
-            return AdmissionOutcome.DECLINED_STALE
         self._process_evicted(evicted)
-        still_resident = self._lru.contains_exact(key, entry)
-        rolled_back = False
+        return self._finalize_put(
+            state,
+            key,
+            entry,
+            admitted=admitted,
+            displaced=displaced,
+            is_still_valid=lambda: state.generation == capture.generation,
+            on_admit=lambda: None,
+        )
+
+
+class _CacheCoreUniqueKeyAdmission(_CacheCoreBase):
+    __slots__ = ()
+
+    def discard_stale_alias(
+        self, namespace: NamespaceId, alias: AliasKey, expected_identity: Canonical
+    ) -> None:
+        self._ensure_active()
+        state = self._namespace(namespace)
         with self._namespace_section(state):
-            if (
-                not still_resident
-                or self._is_closed()
-                or state.generation != capture.generation
-            ):
-                rolled_back = True
-            else:
-                state.entry_index[entry] = key
-            if displaced is not None:
-                _discard_entry_locked(state, displaced)
-        if rolled_back:
-            self._lru.remove_exact(key, entry)
-            return AdmissionOutcome.DECLINED_STALE
-        if self._reclaim_if_evicted_before_publication(state, key, entry):
-            return AdmissionOutcome.DECLINED_STALE
-        return AdmissionOutcome.ADMITTED
+            current_identity = state.aliases.get(alias)
+            if current_identity != expected_identity:
+                return
+            del state.aliases[alias]
+            state.identities[current_identity].alias_keys.discard(alias)
+
+    def admit_unique_key_match(
+        self,
+        namespace_capture: NamespaceCapture,
+        discriminator: object,
+        identity: object,
+        read_shape: object,
+        value: object,
+        *,
+        alias: AliasKey,
+        codec_options: CodecOptions[Any] | None = None,
+    ) -> AdmissionOutcome:
+        self._ensure_active()
+        namespace = namespace_capture.namespace
+        canonical_discriminator = canonicalize(discriminator)
+        canonical_identity = canonicalize(order_sensitive_key(identity))
+        if canonical_identity is None:
+            message = "identity must not be None"
+            raise UnsupportedCacheRequestError(message)
+        canonical_shape = canonicalize(read_shape)
+        try:
+            encoded = encode_value(value, codec_options)
+        except BSONError, OverflowError:
+            return AdmissionOutcome.DECLINED_UNENCODABLE
+        weight = len(encoded)
+        with self._admission_section(
+            namespace, namespace_capture.availability_generation, weight
+        ) as rejected:
+            if rejected is not None:
+                return rejected
+            namespace_key = NamespaceCacheKey(namespace, canonical_discriminator)
+            identity_key = IdentityCacheKey(
+                namespace, canonical_identity, canonical_shape
+            )
+            state = self._namespace(namespace)
+            with self._namespace_section(state):
+                if (
+                    self._is_closed()
+                    or state.generation != namespace_capture.generation
+                ):
+                    return AdmissionOutcome.DECLINED_STALE
+                identity_state = state.identities.get(canonical_identity)
+                if identity_state is None:
+                    identity_state = IdentityState(
+                        generation=state.identity_generation_watermark
+                    )
+                    state.identity_generation_watermark += 1
+                    state.identities[canonical_identity] = identity_state
+                identity_generation_key = (state.epoch, identity_state.generation)
+                _publish_alias_locked(state, alias, canonical_identity)
+            namespace_entry = CacheEntry(
+                generation_key=(namespace_capture.generation,),
+                weight=weight,
+                value=encoded,
+                namespace=namespace,
+                identity=None,
+            )
+            identity_entry = CacheEntry(
+                generation_key=identity_generation_key,
+                weight=weight,
+                value=encoded,
+                namespace=namespace,
+                identity=canonical_identity,
+            )
+            ns_admitted, ns_displaced, ns_evicted = self._lru.conditional_put(
+                namespace_key, namespace_entry
+            )
+            id_admitted, id_displaced, id_evicted = self._lru.conditional_put(
+                identity_key, identity_entry
+            )
+        self._process_evicted(ns_evicted)
+        self._process_evicted(id_evicted)
+        namespace_outcome = self._finalize_put(
+            state,
+            namespace_key,
+            namespace_entry,
+            admitted=ns_admitted,
+            displaced=ns_displaced,
+            is_still_valid=lambda: state.generation == namespace_capture.generation,
+            on_admit=lambda: None,
+        )
+
+        def _identity_still_valid() -> bool:
+            return (
+                _match_identity_state(
+                    state, canonical_identity, identity_generation_key
+                )
+                is not None
+            )
+
+        def _on_identity_admit() -> None:
+            state.identities[canonical_identity].cached_ref_count += 1
+
+        identity_outcome = self._finalize_put(
+            state,
+            identity_key,
+            identity_entry,
+            admitted=id_admitted,
+            displaced=id_displaced,
+            is_still_valid=_identity_still_valid,
+            on_admit=_on_identity_admit,
+        )
+        if namespace_outcome is AdmissionOutcome.ADMITTED:
+            return identity_outcome
+        return namespace_outcome
 
 
 class _CacheCoreLookup(_CacheCoreBase):
@@ -670,6 +821,7 @@ class CacheCore(
     _CacheCoreDatabaseAvailability,
     _CacheCoreIdentityAdmission,
     _CacheCoreNamespaceAdmission,
+    _CacheCoreUniqueKeyAdmission,
     _CacheCoreLookup,
 ):
     __slots__ = ()

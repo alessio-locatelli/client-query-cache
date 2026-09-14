@@ -28,6 +28,7 @@ class NamespaceState:
     lock: threading.Lock = field(default_factory=threading.Lock)
     generation: int = 0
     epoch: int = 0
+    index_generation: int = 0
     identities: dict[Canonical, IdentityState] = field(default_factory=dict)
     aliases: dict[AliasKey, Canonical] = field(default_factory=dict)
     entry_index: dict[CacheEntry, CacheKey] = field(default_factory=dict)

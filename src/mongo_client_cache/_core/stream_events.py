@@ -16,8 +16,12 @@ CHANGE_STREAM_HISTORY_LOST_CODE = 286
 
 WRITE_OPERATION_TYPES = frozenset({"insert", "update", "replace", "delete"})
 
-RELEVANT_OPERATION_TYPES = WRITE_OPERATION_TYPES | frozenset(
-    {"drop", "dropDatabase", "rename", "create", "invalidate"}
+INDEX_OPERATION_TYPES = frozenset({"createIndexes", "dropIndexes"})
+
+RELEVANT_OPERATION_TYPES = (
+    WRITE_OPERATION_TYPES
+    | INDEX_OPERATION_TYPES
+    | frozenset({"drop", "dropDatabase", "rename", "create", "invalidate"})
 )
 
 CHANGE_STREAM_PROJECTION: Mapping[str, int] = {
@@ -60,6 +64,12 @@ def _route_drop(cache: CacheCore, event: Mapping[str, Any]) -> None:
         cache.clear_namespace(namespace)
 
 
+def _route_index_change(cache: CacheCore, event: Mapping[str, Any]) -> None:
+    namespace = _namespace_from_ns(event["ns"])
+    if cache.has_namespace(namespace):
+        cache.record_index_change(namespace)
+
+
 def _route_rename(cache: CacheCore, database: str, event: Mapping[str, Any]) -> None:
     source = _namespace_from_ns(event["ns"])
     if cache.has_namespace(source):
@@ -81,6 +91,9 @@ def route_change_event(
     operation_type = event["operationType"]
     if operation_type in WRITE_OPERATION_TYPES:
         _route_write(cache, event)
+        return False
+    if operation_type in INDEX_OPERATION_TYPES:
+        _route_index_change(cache, event)
         return False
     if operation_type == "create":
         _route_create(cache, event)
