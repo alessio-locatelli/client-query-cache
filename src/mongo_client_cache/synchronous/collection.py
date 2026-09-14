@@ -25,7 +25,10 @@ from mongo_client_cache._core.keys import NamespaceId, canonical_alias_key
 from mongo_client_cache._core.order_sensitive_keys import (
     order_sensitive_discriminator_key,
 )
-from mongo_client_cache._core.projection import ensure_id_present_for_resolution
+from mongo_client_cache._core.projection import (
+    ensure_id_present_for_resolution,
+    without_id,
+)
 from mongo_client_cache._core.read_validation import (
     is_filter_cacheable,
     is_pipeline_cacheable,
@@ -556,7 +559,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
             return None
         raw_identity = document["_id"]
         if exclude_id:
-            cast("dict[str, Any]", document).pop("_id")
+            document = cast("DocumentType", without_id(document))
         cache_identity = normalize_identity_for_cache_key(
             raw_identity, codec_options, self._database.manager.client.codec_options
         )

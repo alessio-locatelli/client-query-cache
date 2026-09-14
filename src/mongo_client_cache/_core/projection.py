@@ -1,12 +1,19 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, MutableMapping
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
 _ID_FIELD = "_id"
+
+
+def without_id(document: Mapping[str, Any]) -> Mapping[str, Any]:
+    if isinstance(document, MutableMapping):
+        document.pop(_ID_FIELD, None)
+        return document
+    return {key: value for key, value in document.items() if key != _ID_FIELD}
 
 
 def _is_include_value(value: object) -> bool:

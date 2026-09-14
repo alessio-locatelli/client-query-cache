@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
-from mongo_client_cache._core.projection import ensure_id_present_for_resolution
+from mongo_client_cache._core.projection import (
+    ensure_id_present_for_resolution,
+    without_id,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -78,3 +82,21 @@ def test_never_produces_a_mixed_inclusion_exclusion_projection() -> None:
 
     values = set(cast("Mapping[str, Any]", server_projection).values())
     assert not (any(value for value in values) and any(not value for value in values))
+
+
+def test_without_id_mutates_a_mutable_mapping_in_place() -> None:
+    document = {"_id": "doc-1", "name": "Ada"}
+
+    stripped_document = without_id(document)
+
+    assert stripped_document is document
+    assert stripped_document == {"name": "Ada"}
+
+
+def test_without_id_copies_an_immutable_mapping() -> None:
+    document = MappingProxyType({"_id": "doc-1", "name": "Ada"})
+
+    stripped_document = without_id(document)
+
+    assert stripped_document == {"name": "Ada"}
+    assert "_id" not in stripped_document
