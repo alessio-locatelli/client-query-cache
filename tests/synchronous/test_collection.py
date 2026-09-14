@@ -11,7 +11,7 @@ from bson.codec_options import CodecOptions
 from pymongo import MongoClient, ReadPreference
 from pymongo.collation import Collation
 from pymongo.cursor import CursorType
-from pymongo.errors import OperationFailure
+from pymongo.errors import ConnectionFailure, OperationFailure
 from pymongo.read_concern import ReadConcern
 from pymongo.synchronous.collection import Collection
 from pymongo.synchronous.database import Database
@@ -470,18 +470,28 @@ def test_namespace_wrapped_while_absent_and_created_as_a_view_is_detected(
     assert spy.call_count == 2
 
 
-def test_find_one_bypasses_cache_when_view_inspection_is_unauthorized(
+@pytest.mark.parametrize(
+    "probe_error",
+    [
+        pytest.param(OperationFailure("not authorized", code=13), id="unauthorized"),
+        pytest.param(
+            ConnectionFailure("no primary available"), id="connection_failure"
+        ),
+    ],
+)
+def test_find_one_bypasses_cache_when_view_inspection_fails(
     cache_manager: CacheManager[dict[str, Any]],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
     make_fake_document: Callable[..., dict[str, Any]],
+    probe_error: Exception,
 ) -> None:
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
     document = make_fake_document()
     collection.raw.insert_one(document)
 
     def _raise(*_args: object, **_kwargs: object) -> None:
-        raise OperationFailure("not authorized", code=13)
+        raise probe_error
 
     with (
         patch.object(Database, "list_collections", side_effect=_raise),
@@ -497,18 +507,28 @@ def test_find_one_bypasses_cache_when_view_inspection_is_unauthorized(
     assert spy.call_count == 2
 
 
+@pytest.mark.parametrize(
+    "probe_error",
+    [
+        pytest.param(OperationFailure("not authorized", code=13), id="unauthorized"),
+        pytest.param(
+            ConnectionFailure("no primary available"), id="connection_failure"
+        ),
+    ],
+)
 def test_view_inspection_failure_is_not_memoized_as_a_permanent_view(
     cache_manager: CacheManager[dict[str, Any]],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
     make_fake_document: Callable[..., dict[str, Any]],
+    probe_error: Exception,
 ) -> None:
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
     document = make_fake_document()
     collection.raw.insert_one(document)
 
     def _raise(*_args: object, **_kwargs: object) -> None:
-        raise OperationFailure("not authorized", code=13)
+        raise probe_error
 
     with patch.object(Database, "list_collections", side_effect=_raise):
         collection.find_one({"_id": document["_id"]})
@@ -728,6 +748,35 @@ def test_find_with_an_embedded_document_filter_is_order_sensitive(
 
     assert first == [{"_id": "doc1", "x": {"a": 1, "b": 2}}]
     assert second == [{"_id": "doc2", "x": {"b": 2, "a": 1}}]
+
+
+def test_find_one_with_a_nested_elem_match_projection_is_order_sensitive(
+    cache_manager: CacheManager[dict[str, Any]],
+    cached_database_name: DatabaseName,
+    nonpersistent_collection_name: CollectionName,
+) -> None:
+    collection = cache_manager[cached_database_name][nonpersistent_collection_name]
+    collection.raw.insert_one(
+        {
+            "_id": "doc-1",
+            "items": [
+                {"sub": {"a": 1, "b": 2}, "tag": "first"},
+                {"sub": {"b": 2, "a": 1}, "tag": "second"},
+            ],
+        }
+    )
+
+    first = collection.find_one(
+        {"_id": "doc-1"}, {"items": {"$elemMatch": {"sub": {"a": 1, "b": 2}}}}
+    )
+    second = collection.find_one(
+        {"_id": "doc-1"}, {"items": {"$elemMatch": {"sub": {"b": 2, "a": 1}}}}
+    )
+
+    assert first is not None
+    assert second is not None
+    assert first["items"][0]["tag"] == "first"
+    assert second["items"][0]["tag"] == "second"
 
 
 def test_aggregate_with_a_multi_field_sort_is_order_sensitive(

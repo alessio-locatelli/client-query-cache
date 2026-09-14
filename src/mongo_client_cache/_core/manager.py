@@ -394,7 +394,7 @@ class _CacheCoreIdentityAdmission(_CacheCoreBase):
             canonical_shape = canonicalize(read_shape)
             try:
                 encoded = encode_value(value, codec_options)
-            except BSONError:
+            except BSONError, OverflowError:
                 return AdmissionOutcome.DECLINED_UNENCODABLE
             weight = len(encoded)
             with self._admission_section(
@@ -498,7 +498,7 @@ class _CacheCoreNamespaceAdmission(_CacheCoreBase):
         canonical_discriminator = canonicalize(discriminator)
         try:
             encoded = encode_value(value, codec_options)
-        except BSONError:
+        except BSONError, OverflowError:
             return AdmissionOutcome.DECLINED_UNENCODABLE
         weight = len(encoded)
         with self._admission_section(

@@ -454,23 +454,37 @@ class _Unencodable:
     __slots__ = ()
 
 
+@pytest.mark.parametrize(
+    "unencodable_value",
+    [
+        pytest.param(_Unencodable(), id="unencodable_type"),
+        pytest.param(10**20, id="out_of_range_int_overflow"),
+    ],
+)
 def test_admit_identity_declines_when_the_value_cannot_be_encoded(
-    core: CacheCore, namespace: NamespaceId
+    core: CacheCore, namespace: NamespaceId, unencodable_value: object
 ) -> None:
     capture = core.begin_identity_admission(namespace, "doc-1")
 
-    outcome = core.admit_identity(capture, "full", _Unencodable())
+    outcome = core.admit_identity(capture, "full", unencodable_value)
 
     assert outcome is AdmissionOutcome.DECLINED_UNENCODABLE
     assert core.lookup_identity(namespace, "doc-1", "full").hit is False
 
 
+@pytest.mark.parametrize(
+    "unencodable_value",
+    [
+        pytest.param(_Unencodable(), id="unencodable_type"),
+        pytest.param(10**20, id="out_of_range_int_overflow"),
+    ],
+)
 def test_admit_namespace_declines_when_the_value_cannot_be_encoded(
-    core: CacheCore, namespace: NamespaceId
+    core: CacheCore, namespace: NamespaceId, unencodable_value: object
 ) -> None:
     capture = core.capture_namespace_generation(namespace)
 
-    outcome = core.admit_namespace(capture, "shape", _Unencodable())
+    outcome = core.admit_namespace(capture, "shape", unencodable_value)
 
     assert outcome is AdmissionOutcome.DECLINED_UNENCODABLE
     assert core.lookup_namespace(namespace, "shape").hit is False
