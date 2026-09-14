@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
 from bson.errors import BSONError
+from bson.regex import Regex
 
 from mongo_client_cache._core.codec import decode_value, encode_value
 
@@ -24,10 +26,16 @@ def _is_query_operator_mapping(value: Mapping[str, Any]) -> bool:
     return any(key.startswith("$") for key in value)
 
 
+def _is_regex(value: object) -> bool:
+    return isinstance(value, re.Pattern | Regex)
+
+
 def extract_id_identity(filter_query: object) -> object:
     if filter_query is None:
         return NO_IDENTITY
     if not isinstance(filter_query, Mapping):
+        if _is_regex(filter_query):
+            return NO_IDENTITY
         return filter_query
     if set(filter_query) != {_ID_FIELD}:
         return NO_IDENTITY
@@ -35,6 +43,8 @@ def extract_id_identity(filter_query: object) -> object:
     if value is None:
         return NO_IDENTITY
     if isinstance(value, Mapping) and _is_query_operator_mapping(value):
+        return NO_IDENTITY
+    if _is_regex(value):
         return NO_IDENTITY
     return value
 
