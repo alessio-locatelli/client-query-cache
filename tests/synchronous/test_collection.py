@@ -858,6 +858,40 @@ def test_aggregate_with_a_multi_field_sort_is_order_sensitive(
     assert [doc["_id"] for doc in by_y_then_x] == ["b", "c", "a"]
 
 
+def test_aggregate_with_a_literal_int_and_float_do_not_collide(
+    cache_manager: CacheManager[dict[str, Any]],
+    cached_database_name: DatabaseName,
+    nonpersistent_collection_name: CollectionName,
+) -> None:
+    collection = cache_manager[cached_database_name][nonpersistent_collection_name]
+    collection.raw.insert_one({"_id": "a"})
+
+    int_result = collection.aggregate([{"$project": {"v": {"$literal": 1}}}])
+    float_result = collection.aggregate([{"$project": {"v": {"$literal": 1.0}}}])
+
+    assert int_result == [{"_id": "a", "v": 1}]
+    assert float_result == [{"_id": "a", "v": 1.0}]
+    assert isinstance(int_result[0]["v"], int)
+    assert isinstance(float_result[0]["v"], float)
+
+
+def test_find_one_by_a_numeric_id_invalidates_regardless_of_int_or_float_spelling(
+    cache_manager: CacheManager[dict[str, Any]],
+    independent_writer: MongoClient[dict[str, Any]],
+    cached_database_name: DatabaseName,
+    nonpersistent_collection_name: CollectionName,
+) -> None:
+    collection = cache_manager[cached_database_name][nonpersistent_collection_name]
+    collection.raw.insert_one({"_id": 1, "v": 1})
+    assert collection.find_one({"_id": 1.0}) == {"_id": 1, "v": 1}
+
+    independent_writer[cached_database_name][nonpersistent_collection_name].update_one(
+        {"_id": 1}, {"$set": {"v": 2}}
+    )
+
+    _wait_until(lambda: (collection.find_one({"_id": 1.0}) or {}).get("v") == 2)
+
+
 @pytest.mark.parametrize(
     "kwargs",
     [
