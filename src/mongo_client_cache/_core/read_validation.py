@@ -46,9 +46,11 @@ def _contains_unsafe_construct(
         return False
     if isinstance(node, str):
         try:
-            return node in unsafe_variables
+            if node in unsafe_variables:
+                return True
         except TypeError:
             return False
+        return any(node.startswith(f"{variable}.") for variable in unsafe_variables)
     if isinstance(node, Sequence) and not isinstance(node, (bytes, bytearray)):
         return any(
             _contains_unsafe_construct(item, unsafe_keys, unsafe_variables)
