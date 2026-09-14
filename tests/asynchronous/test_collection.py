@@ -1361,6 +1361,53 @@ async def test_find_with_a_meta_projection_is_never_cached(
 
 
 @pytest.mark.parametrize(
+    ("patch_target", "invoke"),
+    [
+        pytest.param(
+            "find",
+            lambda collection: collection.find({"$text": {"$search": "hello"}}),
+            id="find-text-search",
+        ),
+        pytest.param(
+            "count_documents",
+            lambda collection: collection.count_documents(
+                {"$text": {"$search": "hello"}}
+            ),
+            id="count_documents-text-search",
+        ),
+        pytest.param(
+            "distinct",
+            lambda collection: collection.distinct(
+                "text", {"$text": {"$search": "hello"}}
+            ),
+            id="distinct-text-search",
+        ),
+    ],
+)
+async def test_text_search_filters_are_never_cached(
+    cache_manager: CacheManager[dict[str, Any]],
+    cached_database_name: DatabaseName,
+    nonpersistent_collection_name: CollectionName,
+    patch_target: str,
+    invoke: Callable[[CachedCollection[dict[str, Any]]], Coroutine[Any, Any, object]],
+) -> None:
+    collection = cache_manager[cached_database_name][nonpersistent_collection_name]
+    await collection.raw.create_index([("text", "text")])
+    await collection.raw.insert_one({"_id": "a", "text": "hello world"})
+
+    with patch.object(
+        AsyncCollection,
+        patch_target,
+        autospec=True,
+        side_effect=getattr(AsyncCollection, patch_target),
+    ) as spy:
+        await invoke(collection)
+        await invoke(collection)
+
+    assert spy.call_count == 2
+
+
+@pytest.mark.parametrize(
     ("patch_target", "insert_doc", "invoke", "expected"),
     [
         pytest.param(

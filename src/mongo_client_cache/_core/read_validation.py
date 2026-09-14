@@ -19,13 +19,14 @@ PIPELINE_UNSAFE_KEYS = frozenset(
         "$indexStats",
         "$planCacheStats",
         "$meta",
+        "$text",
     }
 )
 
 PIPELINE_BLOCKING_KEYS = frozenset({"$changeStream"})
 
 FILTER_UNSAFE_KEYS = frozenset(
-    {"$where", "$rand", "$sampleRate", "$function", "$accumulator"}
+    {"$where", "$rand", "$sampleRate", "$function", "$accumulator", "$text"}
 )
 
 PROJECTION_UNSAFE_KEYS = frozenset({"$meta"})

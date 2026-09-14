@@ -62,6 +62,9 @@ def test_safe_pipelines_are_cacheable(pipeline: list[dict[str, Any]]) -> None:
         pytest.param(
             [{"$project": {"score": {"$meta": "textScore"}}}], id="meta-projection"
         ),
+        pytest.param(
+            [{"$match": {"$text": {"$search": "coffee"}}}], id="text-search-match"
+        ),
     ],
 )
 def test_unsafe_pipelines_are_not_cacheable(pipeline: list[dict[str, Any]]) -> None:
@@ -119,6 +122,10 @@ def test_safe_filters_are_cacheable(filter_query: dict[str, Any] | None) -> None
         ),
         pytest.param({"$expr": {"$function": {}}}, id="expr-function"),
         pytest.param({"$expr": {"$accumulator": {}}}, id="expr-accumulator"),
+        pytest.param({"$text": {"$search": "coffee"}}, id="text-search"),
+        pytest.param(
+            {"$and": [{"$text": {"$search": "coffee"}}]}, id="nested-text-search"
+        ),
     ],
 )
 def test_unsafe_filters_are_not_cacheable(filter_query: dict[str, Any]) -> None:
