@@ -8,7 +8,25 @@ from bson.codec_options import CodecOptions
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
+    from bson.codec_options import TypeRegistry
+
 _ENVELOPE_FIELD = "v"
+
+
+class _TypeRegistryIdentity:
+    __slots__ = ("_registry",)
+
+    def __init__(self, registry: TypeRegistry) -> None:
+        self._registry = registry
+
+    def __eq__(self, other: object) -> bool:
+        return (
+            isinstance(other, _TypeRegistryIdentity)
+            and self._registry is other._registry
+        )
+
+    def __hash__(self) -> int:
+        return id(self._registry)
 
 
 def encode_value(
@@ -33,5 +51,5 @@ def codec_fingerprint(codec_options: CodecOptions[Mapping[str, Any]]) -> object:
         codec_options.unicode_decode_error_handler,
         codec_options.tzinfo,
         codec_options.datetime_conversion,
-        id(codec_options.type_registry),
+        _TypeRegistryIdentity(codec_options.type_registry),
     )
