@@ -28,6 +28,7 @@ from mongo_client_cache._core.order_sensitive_keys import (
 from mongo_client_cache._core.read_validation import (
     is_filter_cacheable,
     is_pipeline_cacheable,
+    is_projection_cacheable,
     pipeline_blocks_full_materialization,
 )
 
@@ -118,8 +119,8 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
         if (
             identity is NO_IDENTITY
             or self._wants_bypass(session=session, kwargs=kwargs)
-            or not is_canonicalizable(identity)
-            or not is_canonicalizable(read_shape)
+            or not (is_canonicalizable(identity) and is_canonicalizable(read_shape))
+            or not is_projection_cacheable(projection)
             or not self._is_cache_eligible()
         ):
             self._record_bypass()
@@ -162,6 +163,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
         if (
             self._wants_bypass(session=session, kwargs=kwargs)
             or not is_filter_cacheable(filter)
+            or not is_projection_cacheable(projection)
             or not is_canonicalizable(discriminator)
             or not self._is_cache_eligible()
         ):

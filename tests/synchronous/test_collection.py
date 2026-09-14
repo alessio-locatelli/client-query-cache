@@ -9,6 +9,7 @@ from bson import Binary
 from bson.binary import UuidRepresentation
 from bson.code import Code
 from bson.codec_options import CodecOptions
+from bson.int64 import Int64
 from pymongo import MongoClient, ReadPreference
 from pymongo.collation import Collation
 from pymongo.cursor import CursorType
@@ -1052,6 +1053,23 @@ def test_aggregate_with_a_literal_int_and_float_do_not_collide(
     assert isinstance(float_result[0]["v"], float)
 
 
+def test_aggregate_with_a_literal_int_and_int64_do_not_collide(
+    cache_manager: CacheManager[dict[str, Any]],
+    cached_database_name: DatabaseName,
+    nonpersistent_collection_name: CollectionName,
+) -> None:
+    collection = cache_manager[cached_database_name][nonpersistent_collection_name]
+    collection.raw.insert_one({"_id": "a"})
+
+    int_result = collection.aggregate([{"$project": {"t": {"$type": {"$literal": 1}}}}])
+    int64_result = collection.aggregate(
+        [{"$project": {"t": {"$type": {"$literal": Int64(1)}}}}]
+    )
+
+    assert int_result == [{"_id": "a", "t": "int"}]
+    assert int64_result == [{"_id": "a", "t": "long"}]
+
+
 def test_find_one_by_a_numeric_id_invalidates_regardless_of_int_or_float_spelling(
     cache_manager: CacheManager[dict[str, Any]],
     independent_writer: MongoClient[dict[str, Any]],
@@ -1265,6 +1283,28 @@ def test_unsafe_filters_are_never_cached(
     ) as spy:
         invoke(collection)
         invoke(collection)
+
+    assert spy.call_count == 2
+
+
+def test_find_with_a_meta_projection_is_never_cached(
+    cache_manager: CacheManager[dict[str, Any]],
+    cached_database_name: DatabaseName,
+    nonpersistent_collection_name: CollectionName,
+) -> None:
+    collection = cache_manager[cached_database_name][nonpersistent_collection_name]
+    collection.raw.create_index([("text", "text")])
+    collection.raw.insert_one({"_id": "a", "text": "hello world"})
+
+    with patch.object(
+        Collection, "find", autospec=True, side_effect=Collection.find
+    ) as spy:
+        collection.find(
+            {"$text": {"$search": "hello"}}, {"score": {"$meta": "textScore"}}
+        )
+        collection.find(
+            {"$text": {"$search": "hello"}}, {"score": {"$meta": "textScore"}}
+        )
 
     assert spy.call_count == 2
 

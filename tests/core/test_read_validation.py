@@ -7,6 +7,7 @@ import pytest
 from mongo_client_cache._core.read_validation import (
     is_filter_cacheable,
     is_pipeline_cacheable,
+    is_projection_cacheable,
     pipeline_blocks_full_materialization,
 )
 
@@ -58,6 +59,9 @@ def test_safe_pipelines_are_cacheable(pipeline: list[dict[str, Any]]) -> None:
         pytest.param([{"$collStats": {"count": {}}}], id="coll-stats"),
         pytest.param([{"$indexStats": {}}], id="index-stats"),
         pytest.param([{"$planCacheStats": {}}], id="plan-cache-stats"),
+        pytest.param(
+            [{"$project": {"score": {"$meta": "textScore"}}}], id="meta-projection"
+        ),
     ],
 )
 def test_unsafe_pipelines_are_not_cacheable(pipeline: list[dict[str, Any]]) -> None:
@@ -119,3 +123,22 @@ def test_safe_filters_are_cacheable(filter_query: dict[str, Any] | None) -> None
 )
 def test_unsafe_filters_are_not_cacheable(filter_query: dict[str, Any]) -> None:
     assert is_filter_cacheable(filter_query) is False
+
+
+@pytest.mark.parametrize(
+    "projection",
+    [
+        pytest.param(None, id="no-projection"),
+        pytest.param({"a": 1}, id="plain-inclusion"),
+        pytest.param({"a": 0}, id="plain-exclusion"),
+        pytest.param(["a", "b"], id="field-name-list"),
+    ],
+)
+def test_safe_projections_are_cacheable(
+    projection: dict[str, Any] | list[str] | None,
+) -> None:
+    assert is_projection_cacheable(projection) is True
+
+
+def test_a_meta_projection_is_not_cacheable() -> None:
+    assert is_projection_cacheable({"score": {"$meta": "textScore"}}) is False

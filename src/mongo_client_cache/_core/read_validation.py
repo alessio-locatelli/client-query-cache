@@ -18,6 +18,7 @@ PIPELINE_UNSAFE_KEYS = frozenset(
         "$collStats",
         "$indexStats",
         "$planCacheStats",
+        "$meta",
     }
 )
 
@@ -26,6 +27,8 @@ PIPELINE_BLOCKING_KEYS = frozenset({"$changeStream"})
 FILTER_UNSAFE_KEYS = frozenset(
     {"$where", "$rand", "$sampleRate", "$function", "$accumulator"}
 )
+
+PROJECTION_UNSAFE_KEYS = frozenset({"$meta"})
 
 NONDETERMINISTIC_SYSTEM_VARIABLES = frozenset({"$$NOW", "$$CLUSTER_TIME"})
 
@@ -75,3 +78,11 @@ def is_filter_cacheable(filter_query: Mapping[str, Any] | None) -> bool:
     return not _contains_unsafe_construct(
         filter_query, FILTER_UNSAFE_KEYS, NONDETERMINISTIC_SYSTEM_VARIABLES
     )
+
+
+def is_projection_cacheable(
+    projection: Mapping[str, Any] | Sequence[str] | None,
+) -> bool:
+    if projection is None:
+        return True
+    return not _contains_unsafe_construct(projection, PROJECTION_UNSAFE_KEYS)

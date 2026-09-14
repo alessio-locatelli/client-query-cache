@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
+from bson.int64 import Int64
+
 from mongo_client_cache._core.canonical import _OWN_TAGS as _CANONICAL_OWN_TAGS
 
 
@@ -12,6 +14,7 @@ class _OrderTag:
 _MAPPING_TAG = _OrderTag()
 _SEQUENCE_TAG = _OrderTag()
 _FLOAT_TAG = _OrderTag()
+_INT64_TAG = _OrderTag()
 # Private object identities, not strings: a caller-supplied tuple can never
 # forge one of these by coincidence, so the idempotency check below can
 # never collide with real input. Also recognizes canonicalize()'s own tags,
@@ -21,11 +24,13 @@ _FLOAT_TAG = _OrderTag()
 # reused as a fresh lookup_identity/begin_identity_admission argument) has
 # canonicalize()'s tag on the outside, not this module's, and must still be
 # recognized as already processed.
-_OWN_TAGS = (_MAPPING_TAG, _SEQUENCE_TAG, _FLOAT_TAG, *_CANONICAL_OWN_TAGS)
+_OWN_TAGS = (_MAPPING_TAG, _SEQUENCE_TAG, _FLOAT_TAG, _INT64_TAG, *_CANONICAL_OWN_TAGS)
 _TAGGED_TUPLE_SIZE = 2
 
 
-def _order_sensitive_key(value: object, *, distinguish_float: bool) -> object:
+def _order_sensitive_key(
+    value: object, *, distinguish_numeric_subtypes: bool
+) -> object:
     if (
         isinstance(value, tuple)
         and len(value) == _TAGGED_TUPLE_SIZE
@@ -37,8 +42,12 @@ def _order_sensitive_key(value: object, *, distinguish_float: bool) -> object:
             _MAPPING_TAG,
             tuple(
                 (
-                    _order_sensitive_key(key, distinguish_float=distinguish_float),
-                    _order_sensitive_key(item, distinguish_float=distinguish_float),
+                    _order_sensitive_key(
+                        key, distinguish_numeric_subtypes=distinguish_numeric_subtypes
+                    ),
+                    _order_sensitive_key(
+                        item, distinguish_numeric_subtypes=distinguish_numeric_subtypes
+                    ),
                 )
                 for key, item in value.items()
             ),
@@ -47,18 +56,23 @@ def _order_sensitive_key(value: object, *, distinguish_float: bool) -> object:
         return (
             _SEQUENCE_TAG,
             tuple(
-                _order_sensitive_key(item, distinguish_float=distinguish_float)
+                _order_sensitive_key(
+                    item, distinguish_numeric_subtypes=distinguish_numeric_subtypes
+                )
                 for item in value
             ),
         )
-    if distinguish_float and isinstance(value, float):
-        return (_FLOAT_TAG, value)
+    if distinguish_numeric_subtypes:
+        if isinstance(value, Int64):
+            return (_INT64_TAG, value)
+        if isinstance(value, float):
+            return (_FLOAT_TAG, value)
     return value
 
 
 def order_sensitive_key(value: object) -> object:
-    return _order_sensitive_key(value, distinguish_float=False)
+    return _order_sensitive_key(value, distinguish_numeric_subtypes=False)
 
 
 def order_sensitive_discriminator_key(value: object) -> object:
-    return _order_sensitive_key(value, distinguish_float=True)
+    return _order_sensitive_key(value, distinguish_numeric_subtypes=True)
