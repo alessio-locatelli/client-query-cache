@@ -413,6 +413,8 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
         cache_identity = normalize_identity_for_cache_key(
             identity, codec_options, self._database.manager.client.codec_options
         )
+        if not is_canonicalizable(cache_identity):
+            return await self._collection.find_one({"_id": identity}, projection)
         lookup_result = cache.lookup_identity(
             namespace, cache_identity, read_shape, codec_options=codec_options
         )
