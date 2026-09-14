@@ -48,6 +48,10 @@ def test_safe_pipelines_are_cacheable(pipeline: list[dict[str, Any]]) -> None:
             id="cluster-time-variable",
         ),
         pytest.param(
+            [{"$match": {"$expr": {"$eq": ["$a", "$$CLUSTER_TIME.t"]}}}],
+            id="cluster-time-field-path",
+        ),
+        pytest.param(
             [{"$facet": {"nested": [{"$lookup": {"from": "other"}}]}}],
             id="nested-inside-facet",
         ),
@@ -104,6 +108,10 @@ def test_safe_filters_are_cacheable(filter_query: dict[str, Any] | None) -> None
         pytest.param({"$expr": {"$eq": ["$a", "$$NOW"]}}, id="expr-now"),
         pytest.param(
             {"$expr": {"$eq": ["$a", "$$CLUSTER_TIME"]}}, id="expr-cluster-time"
+        ),
+        pytest.param(
+            {"$expr": {"$eq": ["$a", "$$CLUSTER_TIME.t"]}},
+            id="expr-cluster-time-field-path",
         ),
         pytest.param({"$expr": {"$function": {}}}, id="expr-function"),
         pytest.param({"$expr": {"$accumulator": {}}}, id="expr-accumulator"),
