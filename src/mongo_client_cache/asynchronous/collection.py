@@ -105,16 +105,18 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
         **kwargs: object,
     ) -> DocumentType | None:
         identity = extract_id_identity(filter)
+        read_shape = ("find_one", order_sensitive_key(projection))
         if (
             identity is NO_IDENTITY
             or self._wants_bypass(session=session, kwargs=kwargs)
             or not is_canonicalizable(identity)
+            or not is_canonicalizable(read_shape)
             or not await self._is_cache_eligible()
         ):
             return await self._collection.find_one(
                 filter, projection, session=session, **kwargs
             )
-        return await self._find_one_by_id(identity, projection)
+        return await self._find_one_by_id(identity, projection, read_shape)
 
     async def find(
         self,
@@ -350,20 +352,21 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
         self,
         identity: object,
         projection: Mapping[str, Any] | Sequence[str] | None,
+        read_shape: object,
     ) -> DocumentType | None:
         namespace = self._namespace()
-        read_shape = ("find_one", order_sensitive_key(projection))
         cache = self._database.manager.cache_core
         codec_options = self._collection.codec_options
         identity = normalize_identity_for_cache_key(
             identity, codec_options, self._database.manager.client.codec_options
         )
+        cache_identity = order_sensitive_key(identity)
         lookup_result = cache.lookup_identity(
-            namespace, identity, read_shape, codec_options=codec_options
+            namespace, cache_identity, read_shape, codec_options=codec_options
         )
         if lookup_result.hit:
             return cast("DocumentType | None", lookup_result.value)
-        capture = cache.begin_identity_admission(namespace, identity)
+        capture = cache.begin_identity_admission(namespace, cache_identity)
         try:
             document = await self._forced_collection_handle().find_one(
                 {"_id": identity}, projection

@@ -25,6 +25,7 @@ from mongo_client_cache._core.lifecycle import CacheLifecycleState
 from mongo_client_cache._core.locking import LockOrderGuard
 from mongo_client_cache._core.lru import WeightedLru
 from mongo_client_cache._core.namespace import IdentityState, NamespaceState
+from mongo_client_cache._core.order_sensitive_keys import order_sensitive_key
 from mongo_client_cache._core.snapshots import CacheSnapshot, CacheStatistics
 
 if TYPE_CHECKING:
@@ -282,6 +283,7 @@ class _CacheCoreNamespaceLifecycle(_CacheCoreBase):
 
     def record_write(self, namespace: NamespaceId, identity: object) -> None:
         self._ensure_active()
+        identity = order_sensitive_key(identity)
         state = self._namespace(namespace)
         with self._namespace_section(state):
             state.generation += 1
