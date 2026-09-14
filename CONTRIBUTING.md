@@ -39,14 +39,16 @@ just enable-podman-socket
 just coverage
 ```
 
-`just coverage` runs the current test suite and reports coverage. `just test` is the container-free
-unit-test command. To discover focused recipes, run:
+`just coverage` runs the current test suite and reports coverage. Run `uv run -- pytest -m unit` for
+the container-free unit-test tier. To discover focused recipes, run:
 
 ```console
 just --list | grep -E 'test|coverage'
 ```
 
-Use pytest directly for its selection options. Run `just lint` and `just format` for repository
-quality checks, and run `just ci-lint` after changing GitHub Actions.
+For a specific path, node ID, or other pytest argument, run `just pytest -- <arguments>` — always
+include the leading `--`, mirroring `just podman -- <arguments>` below, since some pytest flags
+(such as `-q` or `-v`) share a letter with `just`'s own short flags. Run `just lint` and
+`just format` for repository quality checks, and run `just ci-lint` after changing GitHub Actions.
 
 Run host Podman commands from the contributor container with `just podman -- <arguments>`.
