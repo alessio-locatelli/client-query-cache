@@ -15,15 +15,6 @@ _MAPPING_TAG = _OrderTag()
 _SEQUENCE_TAG = _OrderTag()
 _FLOAT_TAG = _OrderTag()
 _INT64_TAG = _OrderTag()
-# Private object identities, not strings: a caller-supplied tuple can never
-# forge one of these by coincidence, so the idempotency check below can
-# never collide with real input. Also recognizes canonicalize()'s own tags,
-# since begin_identity_admission/lookup_identity compose
-# canonicalize(order_sensitive_key(x)) - a value already produced by that
-# composed pipeline (e.g. a canonical identity resolved via resolve_alias,
-# reused as a fresh lookup_identity/begin_identity_admission argument) has
-# canonicalize()'s tag on the outside, not this module's, and must still be
-# recognized as already processed.
 _OWN_TAGS = (_MAPPING_TAG, _SEQUENCE_TAG, _FLOAT_TAG, _INT64_TAG, *_CANONICAL_OWN_TAGS)
 _TAGGED_TUPLE_SIZE = 2
 
