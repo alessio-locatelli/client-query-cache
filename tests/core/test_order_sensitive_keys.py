@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from bson.int64 import Int64
 
 from mongo_client_cache._core.canonical import canonicalize
 from mongo_client_cache._core.order_sensitive_keys import (
@@ -60,6 +61,18 @@ def test_order_sensitive_key_treats_float_and_int_as_the_same_identity() -> None
 
 def test_order_sensitive_discriminator_key_distinguishes_float_from_int() -> None:
     assert canonicalize(order_sensitive_discriminator_key(1.0)) != canonicalize(
+        order_sensitive_discriminator_key(1)
+    )
+
+
+def test_order_sensitive_key_treats_int64_and_int_as_the_same_identity() -> None:
+    assert canonicalize(order_sensitive_key(Int64(1))) == canonicalize(
+        order_sensitive_key(1)
+    )
+
+
+def test_order_sensitive_discriminator_key_distinguishes_int64_from_int() -> None:
+    assert canonicalize(order_sensitive_discriminator_key(Int64(1))) != canonicalize(
         order_sensitive_discriminator_key(1)
     )
 

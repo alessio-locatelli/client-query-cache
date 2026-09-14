@@ -9,6 +9,7 @@ from bson import Binary
 from bson.binary import UuidRepresentation
 from bson.code import Code
 from bson.codec_options import CodecOptions
+from bson.int64 import Int64
 from pymongo import AsyncMongoClient, ReadPreference
 from pymongo.asynchronous.collection import AsyncCollection
 from pymongo.asynchronous.database import AsyncDatabase
@@ -1094,6 +1095,25 @@ async def test_aggregate_with_a_literal_int_and_float_do_not_collide(
     assert isinstance(float_result[0]["v"], float)
 
 
+async def test_aggregate_with_a_literal_int_and_int64_do_not_collide(
+    cache_manager: CacheManager[dict[str, Any]],
+    cached_database_name: DatabaseName,
+    nonpersistent_collection_name: CollectionName,
+) -> None:
+    collection = cache_manager[cached_database_name][nonpersistent_collection_name]
+    await collection.raw.insert_one({"_id": "a"})
+
+    int_result = await collection.aggregate(
+        [{"$project": {"t": {"$type": {"$literal": 1}}}}]
+    )
+    int64_result = await collection.aggregate(
+        [{"$project": {"t": {"$type": {"$literal": Int64(1)}}}}]
+    )
+
+    assert int_result == [{"_id": "a", "t": "int"}]
+    assert int64_result == [{"_id": "a", "t": "long"}]
+
+
 async def test_find_one_by_a_numeric_id_invalidates_regardless_of_int_or_float_spelling(
     cache_manager: CacheManager[dict[str, Any]],
     independent_writer: AsyncMongoClient[dict[str, Any]],
@@ -1314,6 +1334,28 @@ async def test_unsafe_filters_are_never_cached(
     ) as spy:
         await invoke(collection)
         await invoke(collection)
+
+    assert spy.call_count == 2
+
+
+async def test_find_with_a_meta_projection_is_never_cached(
+    cache_manager: CacheManager[dict[str, Any]],
+    cached_database_name: DatabaseName,
+    nonpersistent_collection_name: CollectionName,
+) -> None:
+    collection = cache_manager[cached_database_name][nonpersistent_collection_name]
+    await collection.raw.create_index([("text", "text")])
+    await collection.raw.insert_one({"_id": "a", "text": "hello world"})
+
+    with patch.object(
+        AsyncCollection, "find", autospec=True, side_effect=AsyncCollection.find
+    ) as spy:
+        await collection.find(
+            {"$text": {"$search": "hello"}}, {"score": {"$meta": "textScore"}}
+        )
+        await collection.find(
+            {"$text": {"$search": "hello"}}, {"score": {"$meta": "textScore"}}
+        )
 
     assert spy.call_count == 2
 
