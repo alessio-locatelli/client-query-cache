@@ -6,3 +6,5 @@ rules:
       Common obvious development steps (e.g., "run tests", "close completed issue", "archive specs") are already covered by the project's documentation and are mandatory to follow; these must not be duplicated into the list of tasks, as that would be nothing more than extra noise.
     - >-
       Unless this is something like a meta spec that needs to track separate tickets, do not track unrelated or follow-up work as open checkboxes. Doing so leads to scope creep and prevents archiving the spec once its dedicated work is completed. Instead, track major dedicated work in their own specs or tickets.
+    - >-
+      Add a final `Code Quality` section containing exactly one task: `Scan the entire file for edited or added tests (including pre-existing tests within the file) and ensure that the "Writing Tests" guidelines from AGENTS.md are applied, including test parametrization.` If tasks touch no code, mark it as completed with the note "not applicable to the changes".
