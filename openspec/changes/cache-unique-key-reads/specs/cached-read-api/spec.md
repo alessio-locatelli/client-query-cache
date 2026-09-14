@@ -2,7 +2,7 @@
 
 ### Requirement: Unique keys are discovered from server index metadata, not declared
 
-The facades SHALL discover unique keys for a namespace from `list_indexes()` rather than from a caller declaration. A discovered key SHALL be limited to indexes with `unique: true` that have no `partialFilterExpression`, are not `sparse`, and are not a hashed key, since only such an index unconditionally guarantees uniqueness for every document. A read SHALL only take the alias path through a discovered key when the read's effective collation exactly matches the index's collation. Discovery SHALL be re-performed whenever the namespace epoch has advanced since the last check, using the same re-verification trigger as view detection, and SHALL be shared across every facade handle for the same namespace.
+The facades SHALL discover unique keys for a namespace from `list_indexes()` rather than from a caller declaration. A discovered key SHALL be limited to indexes with `unique: true` that have no `partialFilterExpression`, are not `sparse`, and are not a hashed key, since only such an index unconditionally guarantees uniqueness for every document. A read SHALL only take the alias path through a discovered key when the read's effective collation exactly matches the index's collation. Discovery SHALL be re-performed whenever the namespace's index generation has advanced since the last check, and SHALL be shared across every facade handle for the same namespace. The index generation SHALL advance whenever the manager processes a `createIndexes` or `dropIndexes` change-stream event for that namespace, or whenever the namespace epoch itself advances (drop/recreate/create).
 
 #### Scenario: A unique index is discovered and used
 
@@ -19,10 +19,10 @@ The facades SHALL discover unique keys for a namespace from `list_indexes()` rat
 - **WHEN** a caller's read specifies a collation different from a unique index's collation (or specifies none while the index has a non-default collation)
 - **THEN** the facade does not use that index as a unique key for the read, and the read is treated as a generic bounded read instead
 
-#### Scenario: An index is added or removed without a namespace epoch advance
+#### Scenario: An index is added or removed on a live collection
 
-- **WHEN** a unique index is created or dropped on a live collection without the collection being dropped and recreated
-- **THEN** the facade does not detect the change until the namespace's epoch next advances for an unrelated reason, or a new `CacheManager` is constructed
+- **WHEN** a unique index is created or dropped on a live collection without the collection being dropped and recreated, and the manager has processed the resulting `createIndexes`/`dropIndexes` event
+- **THEN** the facade re-verifies discovery before treating a subsequent read as eligible for the alias path, reflecting the index change
 
 ### Requirement: Unresolved and negative unique-key reads are guarded conservatively
 
