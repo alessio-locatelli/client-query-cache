@@ -17,7 +17,7 @@ from pymongo.synchronous.collection import Collection
 from pymongo.synchronous.database import Database
 
 from mongo_client_cache._core.errors import UnsupportedCacheRequestError
-from mongo_client_cache._core.manager import CacheCoreConfig
+from mongo_client_cache._core.manager import CacheCore, CacheCoreConfig
 from mongo_client_cache.synchronous.collection import CachedCollection
 from mongo_client_cache.synchronous.manager import CacheManager
 
@@ -632,6 +632,74 @@ def test_find_one_bypasses_forced_options_while_the_stream_is_unavailable(
 
     assert returned_document == {"_id": "b", "v": 2}
     spy.assert_called_once_with(collection.raw, {"_id": "b"}, None, session=None)
+
+
+@pytest.mark.parametrize(
+    ("patch_target", "invoke", "expected"),
+    [
+        pytest.param(
+            "find_one",
+            lambda collection: collection.find_one({"_id": "a"}),
+            {"_id": "a", "v": 1},
+            id="find_one",
+        ),
+        pytest.param(
+            "find",
+            lambda collection: collection.find({"v": 1}),
+            [{"_id": "a", "v": 1}],
+            id="find",
+        ),
+        pytest.param(
+            "aggregate",
+            lambda collection: collection.aggregate([{"$match": {"v": 1}}]),
+            [{"_id": "a", "v": 1}],
+            id="aggregate",
+        ),
+        pytest.param(
+            "count_documents",
+            lambda collection: collection.count_documents({"v": 1}),
+            1,
+            id="count_documents",
+        ),
+        pytest.param(
+            "estimated_document_count",
+            lambda collection: collection.estimated_document_count(),
+            1,
+            id="estimated_document_count",
+        ),
+        pytest.param(
+            "distinct",
+            lambda collection: collection.distinct("v"),
+            [1],
+            id="distinct",
+        ),
+    ],
+)
+def test_reads_recheck_availability_before_forcing_read_options(
+    cache_manager: CacheManager[dict[str, Any]],
+    cached_database_name: DatabaseName,
+    nonpersistent_collection_name: CollectionName,
+    *,
+    patch_target: str,
+    invoke: Callable[[CachedCollection[dict[str, Any]]], object],
+    expected: object,
+) -> None:
+    collection = cache_manager[cached_database_name][nonpersistent_collection_name]
+    collection.raw.insert_one({"_id": "a", "v": 1})
+
+    with (
+        patch.object(CacheCore, "is_database_available", side_effect=[True, False]),
+        patch.object(
+            Collection,
+            patch_target,
+            autospec=True,
+            side_effect=getattr(Collection, patch_target),
+        ) as spy,
+    ):
+        returned = invoke(collection)
+
+    assert returned == expected
+    assert spy.call_args.args[0] is collection.raw
 
 
 def test_find_one_by_id_discards_admission_when_the_query_fails(

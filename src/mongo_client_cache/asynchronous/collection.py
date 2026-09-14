@@ -179,6 +179,18 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
         )
         if lookup_result.hit:
             return cast("list[DocumentType]", lookup_result.value)
+        if not cache.is_database_available(namespace.database):
+            cursor = self._collection.find(
+                filter,
+                projection,
+                skip=skip,
+                limit=limit,
+                sort=sort,
+                collation=collation,
+                session=session,
+                **kwargs,
+            )
+            return await cursor.to_list()
         capture = cache.capture_namespace_generation(namespace)
         cursor = self._forced_collection_handle().find(
             filter,
@@ -237,6 +249,14 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
         )
         if lookup_result.hit:
             return cast("list[DocumentType]", lookup_result.value)
+        if not cache.is_database_available(namespace.database):
+            cursor = await self._collection.aggregate(
+                pipeline,
+                collation=collation,
+                session=session,
+                **cast("dict[str, Any]", kwargs),
+            )
+            return await cursor.to_list()
         capture = cache.capture_namespace_generation(namespace)
         cursor = await self._forced_collection_handle().aggregate(
             pipeline, collation=collation
@@ -287,6 +307,10 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
         )
         if lookup_result.hit:
             return cast("int", lookup_result.value)
+        if not cache.is_database_available(namespace.database):
+            return await self._collection.count_documents(
+                filter, session=session, **merged_kwargs
+            )
         capture = cache.capture_namespace_generation(namespace)
         count = await self._forced_collection_handle().count_documents(
             filter, **merged_kwargs
@@ -312,6 +336,8 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
         )
         if lookup_result.hit:
             return cast("int", lookup_result.value)
+        if not cache.is_database_available(namespace.database):
+            return await self._collection.estimated_document_count()
         capture = cache.capture_namespace_generation(namespace)
         count = await self._forced_collection_handle().estimated_document_count()
         cache.admit_namespace(
@@ -358,6 +384,14 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
         )
         if lookup_result.hit:
             return cast("list[Any]", lookup_result.value)
+        if not cache.is_database_available(namespace.database):
+            return await self._collection.distinct(
+                key,
+                filter,
+                collation=collation,
+                session=session,
+                **cast("dict[str, Any]", kwargs),
+            )
         capture = cache.capture_namespace_generation(namespace)
         values = await self._forced_collection_handle().distinct(
             key, filter, collation=collation
@@ -384,6 +418,8 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
         )
         if lookup_result.hit:
             return cast("DocumentType | None", lookup_result.value)
+        if not cache.is_database_available(namespace.database):
+            return await self._collection.find_one({"_id": identity}, projection)
         capture = cache.begin_identity_admission(namespace, cache_identity)
         try:
             document = await self._forced_collection_handle().find_one(
