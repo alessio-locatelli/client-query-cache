@@ -15,7 +15,7 @@ Writes are expected to participate in cache coherence, typically by invalidating
 - Leverage the [Generic Development Workflow](openspec/generic_development_workflow.md) when planning designs and tasks.
 - You must follow SOLID, DRY principles, and maintain high-quality scalable and extendable architecture.
 - Performance is critical, and you must fight for every micro- and macro-optimization. For each major change, you must record profiling and benchmark measurements in the commit body.
-- Keep the usage documentation in sync with the code's public interface. Document examples, hints, gotchas, and misuse.
+- Keep the usage documentation in `README.md` and `docs/` in sync with the code's public interface. Document examples, hints, gotchas, and common misuse patterns. OpenSpec files are internal specifications for development—they are not intended for end-user consumption.
 
 ### OpenSpec completion
 
