@@ -245,10 +245,6 @@ async def test_an_index_created_on_a_live_collection_is_detected_and_used(
             await collection.find_one({"email": "a@example.com"})
         return spy.call_count
 
-    # A read racing the same-namespace write that the change stream is still
-    # catching up on may itself be declined as stale (see the namespace-generation
-    # guard in design.md), so the very first successful discovery can still cost 2
-    # round trips; only a settled read afterwards reliably costs at most 1.
     async def _is_settling() -> bool:
         return (await _round_trips_for_two_reads()) <= 1
 
@@ -425,11 +421,6 @@ async def _evict_identity_entry_via_filler_pressure(
     namespace: NamespaceId,
     identity_key: IdentityCacheKey,
 ) -> None:
-    # A filler read immediately after its own insert races the same-namespace
-    # write the change stream hasn't caught up with yet (the namespace-generation
-    # guard in design.md), which would otherwise decline almost every filler
-    # admission. Insert every filler up front and let the stream settle before
-    # reading any of them back, so admission races are no longer self-inflicted.
     cache = cache_manager.cache_core
     lru = cache._lru
     filler_count = 60
@@ -468,11 +459,6 @@ async def test_a_still_accurate_resolved_alias_refreshes_with_a_single_round_tri
     target = {"_id": "target", "email": "target@example.com", "v": 1}
     await collection.raw.insert_one(target)
     assert await collection.find_one({"email": "target@example.com"}) == target
-    # A second, differently-shaped identity-guarded entry keeps the identity
-    # referenced (and therefore its alias alive) once the first entry below is
-    # evicted; otherwise evicting the only entry referencing this identity would
-    # prune the identity and discard the alias with it (see _maybe_prune_identity_locked
-    # in manager.py), masking the resolved-but-evicted path this test targets.
     await collection.find_one({"email": "target@example.com"}, {"v": 1})
 
     namespace = NamespaceId(cached_database_name, nonpersistent_collection_name)
@@ -518,9 +504,6 @@ async def test_a_resolved_alias_with_no_remaining_match_discards_the_alias(
     target = {"_id": "target", "email": "target@example.com", "v": 1}
     await collection.raw.insert_one(target)
     assert await collection.find_one({"email": "target@example.com"}) == target
-    # Keep the identity referenced (and therefore its alias alive) once the
-    # entry below is evicted; see the matching comment in
-    # test_a_still_accurate_resolved_alias_refreshes_with_a_single_round_trip.
     await collection.find_one({"email": "target@example.com"}, {"v": 1})
 
     namespace = NamespaceId(cached_database_name, nonpersistent_collection_name)
@@ -545,12 +528,6 @@ async def test_a_resolved_alias_with_no_remaining_match_discards_the_alias(
         is not None
     )
 
-    # A real delete would itself be observed by the change stream and would
-    # already clear the alias via the ordinary per-identity write invalidation
-    # (see design.md), never reaching the reverification path this covers.
-    # Returning no match for the reverification query directly exercises that
-    # path: an alias resolved but evicted from cache, re-verified against the
-    # server, and found to no longer match anything.
     with patch.object(AsyncCollection, "find_one", autospec=True, return_value=None):
         reverified_document = await collection.find_one({"email": "target@example.com"})
 
@@ -574,10 +551,6 @@ async def test_a_resolved_unique_key_read_rechecks_availability_before_forcing_o
     await collection.raw.insert_one(document)
     await collection.find_one({"email": "a@example.com"})
 
-    # A different projection is a genuine cache miss for the identity-guarded
-    # entry cached above, while the alias itself (unaffected by that entry's
-    # shape) stays resolved, exercising the resolved-but-missed availability
-    # recheck rather than the unresolved one already covered in test_collection.py.
     with (
         patch.object(CacheCore, "is_database_available", side_effect=[True, False]),
         patch.object(
