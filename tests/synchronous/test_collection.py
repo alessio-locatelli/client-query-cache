@@ -244,6 +244,44 @@ def test_find_one_by_a_uuid_id_invalidates_after_an_independent_write(
     _wait_until(lambda: (collection.find_one({"_id": identifier}) or {}).get("v") == 2)
 
 
+def test_find_one_by_compound_ids_with_different_field_order_do_not_collide(
+    cache_manager: CacheManager[dict[str, Any]],
+    cached_database_name: DatabaseName,
+    nonpersistent_collection_name: CollectionName,
+) -> None:
+    collection = cache_manager[cached_database_name][nonpersistent_collection_name]
+    collection.raw.insert_many(
+        [
+            {"_id": {"a": 1, "b": 2}, "v": 1},
+            {"_id": {"b": 2, "a": 1}, "v": 2},
+        ]
+    )
+
+    first = collection.find_one({"_id": {"a": 1, "b": 2}})
+    second = collection.find_one({"_id": {"b": 2, "a": 1}})
+
+    assert first == {"_id": {"a": 1, "b": 2}, "v": 1}
+    assert second == {"_id": {"b": 2, "a": 1}, "v": 2}
+
+
+def test_find_one_by_a_compound_id_invalidates_after_an_independent_write(
+    cache_manager: CacheManager[dict[str, Any]],
+    independent_writer: MongoClient[dict[str, Any]],
+    cached_database_name: DatabaseName,
+    nonpersistent_collection_name: CollectionName,
+) -> None:
+    collection = cache_manager[cached_database_name][nonpersistent_collection_name]
+    identity = {"a": 1, "b": 2}
+    collection.raw.insert_one({"_id": identity, "v": 1})
+    assert collection.find_one({"_id": identity}) == {"_id": identity, "v": 1}
+
+    independent_writer[cached_database_name][nonpersistent_collection_name].update_one(
+        {"_id": identity}, {"$set": {"v": 2}}
+    )
+
+    _wait_until(lambda: (collection.find_one({"_id": identity}) or {}).get("v") == 2)
+
+
 def test_find_one_with_a_non_id_filter_bypasses_cache(
     cache_manager: CacheManager[dict[str, Any]],
     cached_database_name: DatabaseName,
@@ -1020,6 +1058,16 @@ def test_unsafe_filters_are_never_cached(
             ),
             {"_id": Code("function() { return true; }"), "v": 1},
             id="find_one-unhashable-identity",
+        ),
+        pytest.param(
+            "find_one",
+            {"_id": "a", "items": [{"sub": 1}]},
+            lambda collection: collection.find_one(
+                {"_id": "a"},
+                {"items": {"$elemMatch": {"sub": Code("function() { return true; }")}}},
+            ),
+            {"_id": "a"},
+            id="find_one-unhashable-projection",
         ),
     ],
 )
