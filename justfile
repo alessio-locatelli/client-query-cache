@@ -1,11 +1,9 @@
 set positional-arguments
+set default-list
 
 dev_image := "localhost/mongodb-client-cache-dev:0.1.0"
 dev_container := "mongodb-client-cache-dev"
 export UV_LOCKED := "1"
-
-default:
-    @just --list
 
 setup:
     uv sync
