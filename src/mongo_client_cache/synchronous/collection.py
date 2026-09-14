@@ -22,7 +22,6 @@ from mongo_client_cache._core.identity_reads import (
 from mongo_client_cache._core.keys import NamespaceId
 from mongo_client_cache._core.order_sensitive_keys import (
     order_sensitive_discriminator_key,
-    order_sensitive_key,
 )
 from mongo_client_cache._core.read_validation import (
     is_filter_cacheable,
@@ -358,10 +357,8 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
         namespace = self._namespace()
         cache = self._database.manager.cache_core
         codec_options = self._collection.codec_options
-        cache_identity = order_sensitive_key(
-            normalize_identity_for_cache_key(
-                identity, codec_options, self._database.manager.client.codec_options
-            )
+        cache_identity = normalize_identity_for_cache_key(
+            identity, codec_options, self._database.manager.client.codec_options
         )
         lookup_result = cache.lookup_identity(
             namespace, cache_identity, read_shape, codec_options=codec_options

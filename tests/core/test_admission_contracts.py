@@ -499,3 +499,16 @@ def test_a_write_with_an_uncanonicalizable_identity_advances_the_namespace_gener
 
     outcome = core.admit_namespace(capture, "shape", ["stale"])
     assert outcome is AdmissionOutcome.DECLINED_STALE
+
+
+def test_record_write_invalidates_an_entry_admitted_under_a_mapping_identity(
+    core: CacheCore, namespace: NamespaceId
+) -> None:
+    identity = {"a": 1, "b": 2}
+    capture = core.begin_identity_admission(namespace, identity)
+    core.admit_identity(capture, "full", {"v": 1})
+    assert core.lookup_identity(namespace, identity, "full").hit is True
+
+    core.record_write(namespace, identity)
+
+    assert core.lookup_identity(namespace, identity, "full").hit is False
