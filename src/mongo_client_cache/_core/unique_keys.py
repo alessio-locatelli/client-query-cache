@@ -5,6 +5,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from mongo_client_cache._core.canonical import is_canonicalizable
 from mongo_client_cache._core.identity_reads import NO_IDENTITY, extract_equality_value
 
 if TYPE_CHECKING:
@@ -47,7 +48,7 @@ def _extract_ordered_values(
     values: list[Any] = []
     for field in fields:
         value = extract_equality_value(filter_query[field])
-        if value is NO_IDENTITY:
+        if value is NO_IDENTITY or not is_canonicalizable(value):
             return None
         values.append(value)
     return tuple(values)

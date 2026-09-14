@@ -11,7 +11,11 @@ from pymongo.synchronous.collection import Collection
 
 from mongo_client_cache._core.canonical import canonicalize
 from mongo_client_cache._core.codec import codec_fingerprint
-from mongo_client_cache._core.keys import IdentityCacheKey, NamespaceId
+from mongo_client_cache._core.keys import (
+    IdentityCacheKey,
+    NamespaceId,
+    canonical_alias_key,
+)
 from mongo_client_cache._core.manager import CacheCore, CacheCoreConfig
 from mongo_client_cache._core.order_sensitive_keys import (
     order_sensitive_discriminator_key,
@@ -512,6 +516,12 @@ def test_a_resolved_alias_with_no_remaining_match_discards_the_alias(
         )
         is None
     )
+    alias = canonical_alias_key(("email",), ("target@example.com",), None)
+    namespace_lookup = tight_budget_cache_manager.cache_core.lookup_namespace(
+        namespace, (alias, read_shape)
+    )
+    assert namespace_lookup.hit
+    assert namespace_lookup.value is None
 
 
 def test_a_resolved_unique_key_read_rechecks_availability_before_forcing_read_options(
