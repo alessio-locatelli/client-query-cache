@@ -35,6 +35,15 @@ def test_order_sensitive_key_preserves_sequence_order() -> None:
     )
 
 
+def test_order_sensitive_key_distinguishes_a_mapping_from_an_equivalent_sequence() -> (
+    None
+):
+    mapping_shaped = order_sensitive_key({"a": 1})
+    sequence_shaped = order_sensitive_key([["a", 1]])
+
+    assert canonicalize(mapping_shaped) != canonicalize(sequence_shaped)
+
+
 @pytest.mark.parametrize("value", [None, 1, "x", 1.5, True])
 def test_order_sensitive_key_passes_through_scalars(value: object) -> None:
     assert order_sensitive_key(value) == value

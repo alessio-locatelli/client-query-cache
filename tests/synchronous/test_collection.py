@@ -788,6 +788,26 @@ def test_find_with_an_embedded_document_filter_is_order_sensitive(
     assert second == [{"_id": "doc2", "x": {"b": 2, "a": 1}}]
 
 
+def test_find_with_a_mapping_filter_does_not_collide_with_an_equivalent_sequence(
+    cache_manager: CacheManager[dict[str, Any]],
+    cached_database_name: DatabaseName,
+    nonpersistent_collection_name: CollectionName,
+) -> None:
+    collection = cache_manager[cached_database_name][nonpersistent_collection_name]
+    collection.raw.insert_many(
+        [
+            {"_id": "doc1", "x": {"a": 1}},
+            {"_id": "doc2", "x": [["a", 1]]},
+        ]
+    )
+
+    first = collection.find({"x": {"a": 1}})
+    second = collection.find({"x": [["a", 1]]})
+
+    assert first == [{"_id": "doc1", "x": {"a": 1}}]
+    assert second == [{"_id": "doc2", "x": [["a", 1]]}]
+
+
 def test_find_one_with_a_nested_elem_match_projection_is_order_sensitive(
     cache_manager: CacheManager[dict[str, Any]],
     cached_database_name: DatabaseName,
