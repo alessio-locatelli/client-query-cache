@@ -244,6 +244,36 @@ def test_find_one_by_a_uuid_id_invalidates_after_an_independent_write(
     _wait_until(lambda: (collection.find_one({"_id": identifier}) or {}).get("v") == 2)
 
 
+def test_find_with_different_uuid_codecs_do_not_share_a_cache_entry(
+    cache_manager: CacheManager[dict[str, Any]],
+    cached_database_name: DatabaseName,
+    nonpersistent_collection_name: CollectionName,
+) -> None:
+    database = cache_manager[cached_database_name]
+    standard_collection = CachedCollection(
+        database,
+        database.raw[nonpersistent_collection_name].with_options(
+            codec_options=CodecOptions(uuid_representation=UuidRepresentation.STANDARD)
+        ),
+    )
+    legacy_collection = CachedCollection(
+        database,
+        database.raw[nonpersistent_collection_name].with_options(
+            codec_options=CodecOptions(
+                uuid_representation=UuidRepresentation.JAVA_LEGACY
+            )
+        ),
+    )
+    identifier = uuid.uuid4()
+    standard_collection.raw.insert_one({"_id": "doc-1", "u": identifier})
+
+    first = standard_collection.find({"u": identifier})
+    second = legacy_collection.find({"u": identifier})
+
+    assert first == [{"_id": "doc-1", "u": identifier}]
+    assert second == []
+
+
 def test_find_one_by_compound_ids_with_different_field_order_do_not_collide(
     cache_manager: CacheManager[dict[str, Any]],
     cached_database_name: DatabaseName,

@@ -10,6 +10,7 @@ from pymongo.errors import PyMongoError
 from pymongo.read_concern import ReadConcern
 
 from mongo_client_cache._core.canonical import is_canonicalizable
+from mongo_client_cache._core.codec import codec_fingerprint
 from mongo_client_cache._core.collection_metadata import (
     interpret_list_collections_entry,
 )
@@ -107,7 +108,10 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
         **kwargs: object,
     ) -> DocumentType | None:
         identity = extract_id_identity(filter)
-        read_shape = ("find_one", order_sensitive_discriminator_key(projection))
+        codec_options = self._collection.codec_options
+        read_shape = order_sensitive_discriminator_key(
+            ("find_one", projection, codec_fingerprint(codec_options))
+        )
         if (
             identity is NO_IDENTITY
             or self._wants_bypass(session=session, kwargs=kwargs)
@@ -138,6 +142,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
                 "tailable, exhaust, or partial-result cursor; use .raw.find() instead"
             )
             raise UnsupportedCacheRequestError(message)
+        codec_options = self._collection.codec_options
         discriminator = order_sensitive_discriminator_key(
             (
                 "find",
@@ -147,6 +152,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
                 skip,
                 limit,
                 _collation_document(collation),
+                codec_fingerprint(codec_options),
             )
         )
         if (
@@ -168,7 +174,6 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
             return await cursor.to_list()
         namespace = self._namespace()
         cache = self._database.manager.cache_core
-        codec_options = self._collection.codec_options
         lookup_result = cache.lookup_namespace(
             namespace, discriminator, codec_options=codec_options
         )
@@ -203,8 +208,14 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
                 "support a $changeStream pipeline; use .raw.aggregate() instead"
             )
             raise UnsupportedCacheRequestError(message)
+        codec_options = self._collection.codec_options
         discriminator = order_sensitive_discriminator_key(
-            ("aggregate", pipeline, _collation_document(collation))
+            (
+                "aggregate",
+                pipeline,
+                _collation_document(collation),
+                codec_fingerprint(codec_options),
+            )
         )
         if (
             self._wants_bypass(session=session, kwargs=kwargs)
@@ -221,7 +232,6 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
             return await cursor.to_list()
         namespace = self._namespace()
         cache = self._database.manager.cache_core
-        codec_options = self._collection.codec_options
         lookup_result = cache.lookup_namespace(
             namespace, discriminator, codec_options=codec_options
         )
@@ -249,6 +259,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
         **kwargs: object,
     ) -> int:
         merged_kwargs = _count_documents_kwargs(skip, limit, collation, hint) | kwargs
+        codec_options = self._collection.codec_options
         discriminator = order_sensitive_discriminator_key(
             (
                 "count_documents",
@@ -257,6 +268,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
                 limit,
                 _collation_document(collation),
                 hint,
+                codec_fingerprint(codec_options),
             )
         )
         if (
@@ -270,7 +282,6 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
             )
         namespace = self._namespace()
         cache = self._database.manager.cache_core
-        codec_options = self._collection.codec_options
         lookup_result = cache.lookup_namespace(
             namespace, discriminator, codec_options=codec_options
         )
@@ -317,8 +328,15 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
         session: AsyncClientSession | None = None,
         **kwargs: object,
     ) -> list[Any]:
+        codec_options = self._collection.codec_options
         discriminator = order_sensitive_discriminator_key(
-            ("distinct", key, filter, _collation_document(collation))
+            (
+                "distinct",
+                key,
+                filter,
+                _collation_document(collation),
+                codec_fingerprint(codec_options),
+            )
         )
         if (
             self._wants_bypass(session=session, kwargs=kwargs)
@@ -335,7 +353,6 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
             )
         namespace = self._namespace()
         cache = self._database.manager.cache_core
-        codec_options = self._collection.codec_options
         lookup_result = cache.lookup_namespace(
             namespace, discriminator, codec_options=codec_options
         )
