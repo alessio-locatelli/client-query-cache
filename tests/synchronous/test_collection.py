@@ -332,6 +332,35 @@ def test_find_one_with_a_non_id_filter_bypasses_cache(
     assert spy.call_count == 2
 
 
+@pytest.mark.parametrize(
+    "invoke",
+    [
+        pytest.param(
+            lambda collection: collection.find({"$where": "true"}),
+            id="find-unsafe-filter",
+        ),
+        pytest.param(
+            lambda collection: collection.find_one({"_id": re.compile(r"^a")}),
+            id="find_one-regex-identity",
+        ),
+    ],
+)
+def test_facade_bypasses_are_recorded_in_cache_statistics(
+    cache_manager: CacheManager[dict[str, Any]],
+    cached_database_name: DatabaseName,
+    nonpersistent_collection_name: CollectionName,
+    invoke: Callable[[CachedCollection[dict[str, Any]]], object],
+) -> None:
+    collection = cache_manager[cached_database_name][nonpersistent_collection_name]
+    collection.raw.insert_one({"_id": "a", "v": 1})
+
+    before = cache_manager.cache_core.snapshot().bypasses
+    invoke(collection)
+    after = cache_manager.cache_core.snapshot().bypasses
+
+    assert after == before + 1
+
+
 def test_find_one_by_a_regex_id_bypasses_instead_of_caching(
     cache_manager: CacheManager[dict[str, Any]],
     cached_database_name: DatabaseName,
