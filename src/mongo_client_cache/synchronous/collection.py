@@ -122,6 +122,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
             or not is_canonicalizable(read_shape)
             or not self._is_cache_eligible()
         ):
+            self._record_bypass()
             return self._collection.find_one(
                 filter, projection, session=session, **kwargs
             )
@@ -164,6 +165,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
             or not is_canonicalizable(discriminator)
             or not self._is_cache_eligible()
         ):
+            self._record_bypass()
             return list(
                 self._collection.find(
                     filter,
@@ -241,6 +243,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
             or not is_canonicalizable(discriminator)
             or not self._is_cache_eligible()
         ):
+            self._record_bypass()
             return list(
                 self._collection.aggregate(
                     pipeline,
@@ -304,6 +307,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
             or not is_canonicalizable(discriminator)
             or not self._is_cache_eligible()
         ):
+            self._record_bypass()
             return self._collection.count_documents(
                 filter, session=session, **merged_kwargs
             )
@@ -329,6 +333,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
 
     def estimated_document_count(self, **kwargs: object) -> int:
         if kwargs or not self._is_primary_majority() or not self._is_cache_eligible():
+            self._record_bypass()
             return self._collection.estimated_document_count(**kwargs)
         namespace = self._namespace()
         discriminator = ("estimated_document_count",)
@@ -373,6 +378,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
             or not is_canonicalizable(discriminator)
             or not self._is_cache_eligible()
         ):
+            self._record_bypass()
             return self._collection.distinct(
                 key,
                 filter,
@@ -417,6 +423,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
             identity, codec_options, self._database.manager.client.codec_options
         )
         if not is_canonicalizable(cache_identity):
+            self._record_bypass()
             return self._collection.find_one({"_id": identity}, projection)
         lookup_result = cache.lookup_identity(
             namespace, cache_identity, read_shape, codec_options=codec_options
@@ -450,6 +457,9 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
         self, *, session: ClientSession | None, kwargs: Mapping[str, object]
     ) -> bool:
         return session is not None or bool(kwargs) or not self._is_primary_majority()
+
+    def _record_bypass(self) -> None:
+        self._database.manager.cache_core.record_bypass()
 
     def _forced_collection_handle(self) -> Collection[DocumentType]:
         if self._forced_collection is None:
