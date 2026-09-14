@@ -17,7 +17,9 @@
 ### Modified Capabilities
 
 - `cached-read-api`: Add unique-key discovery and alias-based identity caching to the existing synchronous and asynchronous cached-read facades.
+- `change-stream-coherency`: Route `createIndexes`/`dropIndexes` events, which the stream's operation-type filter currently excludes, so unique-key discovery can react to a live index change.
 
 ## Impact
 
 - Extends `synchronous`/`asynchronous` collection facades and their metadata-cache component; depends on `implement-cached-read-api` being archived first.
+- Extends `_core/stream_events.py`'s change-stream operation-type filter and routing to include `createIndexes`/`dropIndexes`, which the current filter excludes.
