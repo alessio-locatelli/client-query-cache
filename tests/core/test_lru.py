@@ -100,8 +100,6 @@ def test_touching_an_entry_protects_it_from_eviction(lru: WeightedLru) -> None:
 
 
 def test_touching_a_key_no_longer_resident_is_a_no_op(lru: WeightedLru) -> None:
-    # A caller may validate an entry, lose a race to a concurrent eviction or
-    # rollback, and only then call touch() for a key that is already gone.
     lru.touch(make_key("never-admitted"))
     assert lru.peek(make_key("never-admitted")) is None
 

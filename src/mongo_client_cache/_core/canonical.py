@@ -17,9 +17,6 @@ class _CanonicalTag:
         return f"<canonical:{self._name}>"
 
 
-# Private object identities, not strings: a caller-supplied tuple can never
-# forge one of these by coincidence (unlike a string literal such as "map"),
-# so the idempotency check below can never collide with real input.
 _MAPPING_TAG = _CanonicalTag("map")
 _SEQUENCE_TAG = _CanonicalTag("seq")
 _BOOL_TAG = _CanonicalTag("bool")
@@ -28,14 +25,6 @@ _TAGGED_TUPLE_SIZE = 2
 
 
 def canonicalize(value: object) -> Canonical:
-    # Idempotent: a value already produced by this function (e.g. returned by
-    # resolve_alias for later reuse as a lookup_identity/begin_identity_admission
-    # argument) must pass through unchanged, since a mapping/sequence/bool
-    # identity would otherwise be wrapped a second time and stop matching the
-    # key it was originally cached under. `_OWN_TAGS` is a plain tuple (not a
-    # set) and compared with `is`-backed `==`, not `in` on a hashed
-    # container, so an unhashable first element (e.g. a dict) can't raise
-    # here.
     if (
         isinstance(value, tuple)
         and len(value) == _TAGGED_TUPLE_SIZE

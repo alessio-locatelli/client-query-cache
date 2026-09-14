@@ -202,8 +202,6 @@ def test_an_entry_evicted_between_the_residency_check_and_publication_is_reclaim
         is_resident = original_contains_exact(self, key, entry)
         if not triggered and is_resident:
             triggered = True
-            # Simulate a concurrent admission's capacity eviction landing
-            # exactly between this residency check and publication.
             self.remove_exact(key, entry)
         return is_resident
 
@@ -301,16 +299,10 @@ def test_a_pruned_high_generation_identity_does_not_block_future_admissions(
     read_shape = "shared-shape"
     write_count = 50
 
-    # Keep the identity tracked (via an open capture) while driving its
-    # generation up with writes, without ever successfully admitting a
-    # resident entry for it.
     holder_capture = core.begin_identity_admission(namespace, identity)
     for _ in range(write_count):
         core.record_write(namespace, identity)
 
-    # Orphan an entry at the identity's now-high generation, under the same
-    # key a later, legitimate admission will use, bypassing the normal
-    # publish step.
     orphan_capture = core.begin_identity_admission(namespace, identity)
     canonical_identity = orphan_capture.identity
     key = IdentityCacheKey(namespace, canonical_identity, canonicalize(read_shape))
@@ -330,8 +322,6 @@ def test_a_pruned_high_generation_identity_does_not_block_future_admissions(
     state = core._namespace(namespace)
     assert identity not in state.identities
 
-    # A fresh admission under the same key must not be rejected by
-    # conditional_put as "older" than the still-resident orphan.
     fresh_capture = core.begin_identity_admission(namespace, identity)
     outcome = core.admit_identity(fresh_capture, read_shape, {"v": "fresh"})
     assert outcome is AdmissionOutcome.ADMITTED
@@ -410,9 +400,6 @@ def test_thread_local_guard_is_isolated_per_thread(core: CacheCore) -> None:
         try:
             with core._guard.namespace_section():
                 pass
-        # A background thread's exception would otherwise vanish silently;
-        # capture it here so `assert not errors` below can still fail the
-        # test if thread-local isolation is ever broken.
         except BaseException as error:  # noqa: BLE001  # pragma: no cover
             errors.append(error)
 
