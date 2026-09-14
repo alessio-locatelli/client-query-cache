@@ -35,6 +35,7 @@ from mongo_client_cache._core.read_validation import (
 if TYPE_CHECKING:
     from pymongo.asynchronous.client_session import AsyncClientSession
     from pymongo.asynchronous.collection import AsyncCollection
+    from pymongo.asynchronous.database import AsyncDatabase
 
     from mongo_client_cache.asynchronous.database import CachedDatabase
 
@@ -80,7 +81,7 @@ def _count_documents_kwargs(
 
 
 class CachedCollection[DocumentType: Mapping[str, Any]]:
-    __slots__ = ("_collection", "_database", "_forced_collection")
+    __slots__ = ("_collection", "_database", "_forced_collection", "_forced_database")
 
     def __init__(
         self,
@@ -90,6 +91,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
         self._database = database
         self._collection = collection
         self._forced_collection: AsyncCollection[DocumentType] | None = None
+        self._forced_database: AsyncDatabase[DocumentType] | None = None
 
     @property
     def database(self) -> CachedDatabase[DocumentType]:
@@ -471,6 +473,14 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
             )
         return self._forced_collection
 
+    def _forced_database_handle(self) -> AsyncDatabase[DocumentType]:
+        if self._forced_database is None:
+            self._forced_database = self._database.raw.with_options(
+                read_preference=ReadPreference.PRIMARY,
+                read_concern=_FORCED_READ_CONCERN,
+            )
+        return self._forced_database
+
     async def _is_cache_eligible(self) -> bool:
         return await self._database.manager.ensure_cache_eligible(
             self._namespace(), self._check_is_view
@@ -478,7 +488,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
 
     async def _check_is_view(self) -> bool | None:
         try:
-            cursor = await self._database.raw.list_collections(
+            cursor = await self._forced_database_handle().list_collections(
                 filter={"name": self.name}
             )
             entries = await cursor.to_list(length=1)
