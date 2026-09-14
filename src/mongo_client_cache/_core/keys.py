@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, NamedTuple
 
 from mongo_client_cache._core.canonical import canonicalize
+from mongo_client_cache._core.order_sensitive_keys import order_sensitive_key
 
 if TYPE_CHECKING:
     from mongo_client_cache._core.canonical import Canonical
@@ -35,4 +36,8 @@ type AliasKey = tuple[Canonical, Canonical, Canonical]
 def canonical_alias_key(
     definition: object, value: object, collation: object
 ) -> AliasKey:
-    return (canonicalize(definition), canonicalize(value), canonicalize(collation))
+    return (
+        canonicalize(definition),
+        canonicalize(order_sensitive_key(value)),
+        canonicalize(collation),
+    )

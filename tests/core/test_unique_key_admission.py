@@ -8,9 +8,11 @@ from mongo_client_cache._core.entries import AdmissionOutcome
 from mongo_client_cache._core.errors import UnsupportedCacheRequestError
 from mongo_client_cache._core.keys import canonical_alias_key
 from mongo_client_cache._core.manager import CacheCore, CacheCoreConfig
+from tests.core.conftest import patch_conditional_put_hook
 
 if TYPE_CHECKING:
-    from mongo_client_cache._core.keys import NamespaceId
+    from mongo_client_cache._core.entries import CacheEntry
+    from mongo_client_cache._core.keys import CacheKey, NamespaceId
 
 pytestmark = pytest.mark.unit
 
@@ -224,6 +226,60 @@ def test_admit_unique_key_match_declines_when_the_value_cannot_be_encoded(
 
     assert outcome is AdmissionOutcome.DECLINED_UNENCODABLE
     assert core.resolve_alias(namespace, ("email",), ("a@example.com",), None) is None
+
+
+@pytest.mark.parametrize(
+    "trigger_before_insert",
+    [
+        pytest.param(False, id="rollback_after_physical_insert"),
+        pytest.param(True, id="late_stale_insertion_before_physical_insert"),
+    ],
+)
+def test_a_racing_write_does_not_leave_a_stale_alias_reachable(
+    core: CacheCore,
+    namespace: NamespaceId,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    trigger_before_insert: bool,
+) -> None:
+    alias = canonical_alias_key(("email",), ("a@example.com",), None)
+    stale_capture = core.capture_namespace_generation(namespace)
+    triggered = False
+
+    def hook(_key: CacheKey, _entry: CacheEntry) -> None:
+        nonlocal triggered
+        if triggered:
+            return
+        triggered = True
+        core.record_write(namespace, "doc-old")
+        fresh_capture = core.capture_namespace_generation(namespace)
+        outcome = core.admit_unique_key_match(
+            fresh_capture,
+            (alias, "full"),
+            "doc-new",
+            "full",
+            {"v": "fresh"},
+            alias=alias,
+        )
+        assert outcome is AdmissionOutcome.ADMITTED
+
+    patch_conditional_put_hook(
+        monkeypatch, core, hook, trigger_before_insert=trigger_before_insert
+    )
+
+    outcome = core.admit_unique_key_match(
+        stale_capture, (alias, "full"), "doc-old", "full", {"v": "stale"}, alias=alias
+    )
+
+    assert outcome is AdmissionOutcome.DECLINED_STALE
+    assert core.resolve_alias(namespace, ("email",), ("a@example.com",), None) == (
+        "doc-new"
+    )
+    lookup_result = core.lookup_by_alias(
+        namespace, ("email",), ("a@example.com",), None, "full"
+    )
+    assert lookup_result.hit
+    assert lookup_result.value == {"v": "fresh"}
 
 
 def test_discard_stale_alias_on_an_unresolved_key_value_is_a_no_op(
