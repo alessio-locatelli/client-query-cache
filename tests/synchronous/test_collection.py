@@ -1,3 +1,4 @@
+import re
 import time
 import uuid
 from typing import TYPE_CHECKING, Any
@@ -328,6 +329,25 @@ def test_find_one_with_a_non_id_filter_bypasses_cache(
         collection.find_one({"_id": document["_id"], "extra": "field"})
         collection.find_one({"_id": document["_id"], "extra": "field"})
 
+    assert spy.call_count == 2
+
+
+def test_find_one_by_a_regex_id_bypasses_instead_of_caching(
+    cache_manager: CacheManager[dict[str, Any]],
+    cached_database_name: DatabaseName,
+    nonpersistent_collection_name: CollectionName,
+) -> None:
+    collection = cache_manager[cached_database_name][nonpersistent_collection_name]
+    collection.raw.insert_one({"_id": "doc-1", "v": 1})
+
+    with patch.object(
+        Collection, "find_one", autospec=True, side_effect=Collection.find_one
+    ) as spy:
+        first = collection.find_one({"_id": re.compile(r"^doc-")})
+        second = collection.find_one({"_id": re.compile(r"^doc-")})
+
+    assert first == {"_id": "doc-1", "v": 1}
+    assert second == {"_id": "doc-1", "v": 1}
     assert spy.call_count == 2
 
 

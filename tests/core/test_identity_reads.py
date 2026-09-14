@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -8,6 +9,7 @@ import bson
 import pytest
 from bson.binary import UuidRepresentation
 from bson.codec_options import CodecOptions
+from bson.regex import Regex
 
 from mongo_client_cache._core.identity_reads import (
     NO_IDENTITY,
@@ -36,6 +38,12 @@ pytestmark = pytest.mark.unit
         pytest.param({"_id": None}, NO_IDENTITY, id="explicit-null-id"),
         pytest.param("doc-1", "doc-1", id="pymongo-scalar-shorthand"),
         pytest.param(42, 42, id="pymongo-int-shorthand"),
+        pytest.param(
+            {"_id": re.compile(r"^doc-")}, NO_IDENTITY, id="id-with-python-regex"
+        ),
+        pytest.param({"_id": Regex("^doc-")}, NO_IDENTITY, id="id-with-bson-regex"),
+        pytest.param(re.compile(r"^doc-"), NO_IDENTITY, id="python-regex-shorthand"),
+        pytest.param(Regex("^doc-"), NO_IDENTITY, id="bson-regex-shorthand"),
     ],
 )
 def test_extract_id_identity(filter_query: object, expected: object) -> None:

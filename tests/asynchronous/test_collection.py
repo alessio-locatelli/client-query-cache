@@ -1,4 +1,5 @@
 import asyncio
+import re
 import uuid
 from typing import TYPE_CHECKING, Any
 from unittest.mock import patch
@@ -349,6 +350,28 @@ async def test_find_one_with_a_non_id_filter_bypasses_cache(
         await collection.find_one({"_id": document["_id"], "extra": "field"})
         await collection.find_one({"_id": document["_id"], "extra": "field"})
 
+    assert spy.call_count == 2
+
+
+async def test_find_one_by_a_regex_id_bypasses_instead_of_caching(
+    cache_manager: CacheManager[dict[str, Any]],
+    cached_database_name: DatabaseName,
+    nonpersistent_collection_name: CollectionName,
+) -> None:
+    collection = cache_manager[cached_database_name][nonpersistent_collection_name]
+    await collection.raw.insert_one({"_id": "doc-1", "v": 1})
+
+    with patch.object(
+        AsyncCollection,
+        "find_one",
+        autospec=True,
+        side_effect=AsyncCollection.find_one,
+    ) as spy:
+        first = await collection.find_one({"_id": re.compile(r"^doc-")})
+        second = await collection.find_one({"_id": re.compile(r"^doc-")})
+
+    assert first == {"_id": "doc-1", "v": 1}
+    assert second == {"_id": "doc-1", "v": 1}
     assert spy.call_count == 2
 
 
