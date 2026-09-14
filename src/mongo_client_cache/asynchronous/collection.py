@@ -553,6 +553,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
         if document is None:
             if previous_identity is not None:
                 cache.discard_stale_alias(namespace, alias, previous_identity)
+            cache.discard_namespace_entry(namespace, discriminator, capture.generation)
             cache.admit_namespace(
                 capture, discriminator, None, codec_options=codec_options
             )

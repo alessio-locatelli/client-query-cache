@@ -1394,6 +1394,15 @@ def test_text_search_filters_are_never_cached(
             {"_id": "a"},
             id="find_one-unhashable-projection",
         ),
+        pytest.param(
+            "find_one",
+            {"_id": "a", "tag": Code("function() { return true; }")},
+            lambda collection: collection.find_one(
+                {"tag": Code("function() { return true; }")}
+            ),
+            {"_id": "a", "tag": Code("function() { return true; }")},
+            id="find_one-unhashable-unique-key-value",
+        ),
     ],
 )
 def test_reads_with_an_unhashable_value_bypass_instead_of_raising(
@@ -1407,6 +1416,7 @@ def test_reads_with_an_unhashable_value_bypass_instead_of_raising(
     expected: object,
 ) -> None:
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
+    collection.raw.create_index("tag", unique=True)
     collection.raw.insert_one(insert_doc)
 
     with patch.object(

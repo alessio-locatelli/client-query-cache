@@ -127,6 +127,8 @@ def test_match_unique_key_matches_a_compound_filter_regardless_of_field_order() 
         pytest.param({"email": {"$in": ["a@example.com"]}}, id="query-operator-value"),
         pytest.param({"email": None}, id="none-value"),
         pytest.param("not-a-mapping", id="non-mapping-filter"),
+        pytest.param({"email": float("nan")}, id="uncanonicalizable-nan-value"),
+        pytest.param({"email": {1, 2, 3}}, id="uncanonicalizable-unhashable-value"),
     ],
 )
 def test_match_unique_key_does_not_match_an_ineligible_filter(

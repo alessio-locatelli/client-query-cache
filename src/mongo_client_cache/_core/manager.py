@@ -590,6 +590,19 @@ class _CacheCoreUniqueKeyAdmission(_CacheCoreBase):
             del state.aliases[alias]
             state.identities[current_identity].alias_keys.discard(alias)
 
+    def discard_namespace_entry(
+        self, namespace: NamespaceId, discriminator: object, generation: int
+    ) -> None:
+        self._ensure_active()
+        key = NamespaceCacheKey(namespace, canonicalize(discriminator))
+        entry = self._lru.peek(key)
+        if entry is None or entry.generation_key != (generation,):
+            return
+        state = self._namespace(namespace)
+        with self._namespace_section(state):
+            _discard_entry_locked(state, entry)
+        self._lru.remove_exact(key, entry)
+
     def admit_unique_key_match(
         self,
         namespace_capture: NamespaceCapture,

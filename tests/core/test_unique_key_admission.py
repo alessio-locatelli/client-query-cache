@@ -165,6 +165,57 @@ def test_discard_stale_alias_removes_a_matching_alias(
     assert core.resolve_alias(namespace, ("email",), ("a@example.com",), None) is None
 
 
+def test_discard_namespace_entry_lets_a_negative_result_replace_a_stale_positive_one(
+    core: CacheCore, namespace: NamespaceId
+) -> None:
+    alias = canonical_alias_key(("email",), ("a@example.com",), None)
+    discriminator = (alias, "full")
+    first_capture = core.capture_namespace_generation(namespace)
+    core.admit_unique_key_match(
+        first_capture, discriminator, "doc-1", "full", {"v": "old"}, alias=alias
+    )
+    core.discard_stale_alias(namespace, alias, "doc-1")
+
+    second_capture = core.capture_namespace_generation(namespace)
+    assert second_capture.generation == first_capture.generation
+
+    core.discard_namespace_entry(namespace, discriminator, second_capture.generation)
+    outcome = core.admit_namespace(second_capture, discriminator, None)
+
+    assert outcome is AdmissionOutcome.ADMITTED
+    lookup_result = core.lookup_namespace(namespace, discriminator)
+    assert lookup_result.hit
+    assert lookup_result.value is None
+
+
+def test_discard_namespace_entry_on_an_absent_key_is_a_no_op(
+    core: CacheCore, namespace: NamespaceId
+) -> None:
+    core.discard_namespace_entry(namespace, ("nothing-cached-here", "full"), 0)
+
+
+def test_discard_namespace_entry_does_not_evict_a_newer_valid_entry(
+    core: CacheCore, namespace: NamespaceId
+) -> None:
+    alias = canonical_alias_key(("email",), ("a@example.com",), None)
+    discriminator = (alias, "full")
+    stale_capture = core.capture_namespace_generation(namespace)
+    core.record_write(namespace, "unrelated-doc")
+    fresh_capture = core.capture_namespace_generation(namespace)
+    assert fresh_capture.generation != stale_capture.generation
+
+    outcome = core.admit_unique_key_match(
+        fresh_capture, discriminator, "doc-new", "full", {"v": "new"}, alias=alias
+    )
+    assert outcome is AdmissionOutcome.ADMITTED
+
+    core.discard_namespace_entry(namespace, discriminator, stale_capture.generation)
+
+    lookup_result = core.lookup_namespace(namespace, discriminator)
+    assert lookup_result.hit
+    assert lookup_result.value == {"v": "new"}
+
+
 def test_discard_stale_alias_is_a_no_op_when_the_alias_was_repointed_concurrently(
     core: CacheCore, namespace: NamespaceId
 ) -> None:
