@@ -21,22 +21,27 @@ from mongo_client_cache._core.identity_reads import (
     extract_id_identity,
     normalize_identity_for_cache_key,
 )
-from mongo_client_cache._core.keys import NamespaceId
+from mongo_client_cache._core.keys import NamespaceId, canonical_alias_key
 from mongo_client_cache._core.order_sensitive_keys import (
     order_sensitive_discriminator_key,
 )
+from mongo_client_cache._core.projection import ensure_id_present_for_resolution
 from mongo_client_cache._core.read_validation import (
     is_filter_cacheable,
     is_pipeline_cacheable,
     is_projection_cacheable,
     pipeline_blocks_full_materialization,
 )
+from mongo_client_cache._core.unique_keys import match_unique_key
 
 if TYPE_CHECKING:
     from pymongo.asynchronous.client_session import AsyncClientSession
     from pymongo.asynchronous.collection import AsyncCollection
     from pymongo.asynchronous.database import AsyncDatabase
 
+    from mongo_client_cache._core.collection_metadata import CollectionProbeResult
+    from mongo_client_cache._core.keys import AliasKey
+    from mongo_client_cache._core.unique_keys import UniqueKeyDefinition
     from mongo_client_cache.asynchronous.database import CachedDatabase
 
 _FORCED_READ_CONCERN = ReadConcern("majority")
@@ -119,17 +124,36 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
             ("find_one", projection, codec_fingerprint(codec_options))
         )
         if (
-            identity is NO_IDENTITY
-            or self._wants_bypass(session=session, kwargs=kwargs)
-            or not (is_canonicalizable(identity) and is_canonicalizable(read_shape))
+            self._wants_bypass(session=session, kwargs=kwargs)
             or not is_projection_cacheable(projection)
+            or not is_canonicalizable(read_shape)
             or not await self._is_cache_eligible()
         ):
             self._record_bypass()
             return await self._collection.find_one(
                 filter, projection, session=session, **kwargs
             )
-        return await self._find_one_by_id(identity, projection, read_shape)
+        if identity is not NO_IDENTITY:
+            if not is_canonicalizable(identity):
+                self._record_bypass()
+                return await self._collection.find_one(
+                    filter, projection, session=session, **kwargs
+                )
+            return await self._find_one_by_id(identity, projection, read_shape)
+        unique_key_match = await self._match_unique_key(filter)
+        if unique_key_match is None:
+            self._record_bypass()
+            return await self._collection.find_one(
+                filter, projection, session=session, **kwargs
+            )
+        key_definition, key_values = unique_key_match
+        return await self._find_one_by_unique_key(
+            key_definition,
+            key_values,
+            cast("Mapping[str, Any]", filter),
+            projection,
+            read_shape,
+        )
 
     async def find(
         self,
@@ -447,6 +471,107 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
         cache.admit_identity(capture, read_shape, document, codec_options=codec_options)
         return document
 
+    async def _match_unique_key(
+        self, filter_query: object
+    ) -> tuple[UniqueKeyDefinition, tuple[Any, ...]] | None:
+        namespace = self._namespace()
+        manager = self._database.manager
+        keys = await manager.unique_keys_for(namespace, self._list_indexes_probe)
+        if not keys:
+            return None
+        default_collation = manager.default_collation_for(namespace)
+        return match_unique_key(filter_query, keys, default_collation)
+
+    async def _find_one_by_unique_key(
+        self,
+        key_definition: UniqueKeyDefinition,
+        key_values: tuple[Any, ...],
+        original_filter: Mapping[str, Any],
+        projection: Mapping[str, Any] | Sequence[str] | None,
+        read_shape: object,
+    ) -> DocumentType | None:
+        namespace = self._namespace()
+        cache = self._database.manager.cache_core
+        codec_options = self._collection.codec_options
+        alias = canonical_alias_key(
+            key_definition.fields, key_values, key_definition.collation
+        )
+        discriminator = (alias, read_shape)
+
+        resolved_identity = cache.resolve_alias(
+            namespace, key_definition.fields, key_values, key_definition.collation
+        )
+        if resolved_identity is not None:
+            lookup_result = cache.lookup_identity(
+                namespace, resolved_identity, read_shape, codec_options=codec_options
+            )
+            if lookup_result.hit:
+                return cast("DocumentType | None", lookup_result.value)
+            if not cache.is_database_available(namespace.database):
+                return await self._collection.find_one(original_filter, projection)
+            return await self._resolve_unique_key_read(
+                alias,
+                discriminator,
+                original_filter,
+                projection,
+                read_shape,
+                previous_identity=resolved_identity,
+            )
+
+        lookup_result = cache.lookup_namespace(
+            namespace, discriminator, codec_options=codec_options
+        )
+        if lookup_result.hit:
+            return cast("DocumentType | None", lookup_result.value)
+        if not cache.is_database_available(namespace.database):
+            return await self._collection.find_one(original_filter, projection)
+        return await self._resolve_unique_key_read(
+            alias, discriminator, original_filter, projection, read_shape
+        )
+
+    async def _resolve_unique_key_read(
+        self,
+        alias: AliasKey,
+        discriminator: object,
+        original_filter: Mapping[str, Any],
+        projection: Mapping[str, Any] | Sequence[str] | None,
+        read_shape: object,
+        *,
+        previous_identity: object | None = None,
+    ) -> DocumentType | None:
+        namespace = self._namespace()
+        cache = self._database.manager.cache_core
+        codec_options = self._collection.codec_options
+        capture = cache.capture_namespace_generation(namespace)
+        server_projection, exclude_id = ensure_id_present_for_resolution(projection)
+        document = await self._forced_collection_handle().find_one(
+            original_filter, server_projection
+        )
+        if document is None:
+            if previous_identity is not None:
+                cache.discard_stale_alias(namespace, alias, previous_identity)
+            cache.admit_namespace(
+                capture, discriminator, None, codec_options=codec_options
+            )
+            return None
+        raw_identity = document["_id"]
+        if exclude_id:
+            cast("dict[str, Any]", document).pop("_id")
+        cache_identity = normalize_identity_for_cache_key(
+            raw_identity, codec_options, self._database.manager.client.codec_options
+        )
+        if is_canonicalizable(cache_identity):
+            cache.admit_unique_key_match(
+                capture,
+                discriminator,
+                cache_identity,
+                read_shape,
+                document,
+                alias=alias,
+                codec_options=codec_options,
+            )
+        return document
+
     def _namespace(self) -> NamespaceId:
         return NamespaceId(self._database.name, self.name)
 
@@ -483,10 +608,10 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
 
     async def _is_cache_eligible(self) -> bool:
         return await self._database.manager.ensure_cache_eligible(
-            self._namespace(), self._check_is_view
+            self._namespace(), self._probe_collection
         )
 
-    async def _check_is_view(self) -> bool | None:
+    async def _probe_collection(self) -> CollectionProbeResult | None:
         try:
             cursor = await self._forced_database_handle().list_collections(
                 filter={"name": self.name}
@@ -501,3 +626,16 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
             return None
         entry = entries[0] if entries else None
         return interpret_list_collections_entry(entry)
+
+    async def _list_indexes_probe(self) -> list[Mapping[str, Any]] | None:
+        try:
+            cursor = await self._forced_collection_handle().list_indexes()
+            return cast("list[Mapping[str, Any]]", await cursor.to_list())
+        except PyMongoError:
+            logger.warning(
+                "index metadata probe failed; unique-key discovery is skipped for "
+                "this read",
+                extra={"database": self._database.name, "collection": self.name},
+                exc_info=True,
+            )
+            return None

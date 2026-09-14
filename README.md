@@ -21,7 +21,13 @@ with (
 
     collection.raw.insert_one({"_id": "example", "value": 42})
     collection.find_one({"_id": "example"})  # cached, and invalidated by later writes
+
+    collection.raw.create_index("email", unique=True)
+    collection.raw.insert_one({"_id": "user-1", "email": "a@example.com"})
+    collection.find_one({"email": "a@example.com"})  # also cached, like an `_id` lookup
 ```
+
+`find_one` caches a lookup by `_id` and by any other field the database enforces as unique, discovered automatically from the collection's own indexes — there's nothing to declare. Only a plain unique index qualifies: a partial, sparse, or hashed unique index, or a read whose collation doesn't match the index's collation, falls back to an uncached read instead.
 
 `CacheManager` starts a background change-stream task the first time a read touches a database, so close it (or use it as a context manager, as above) alongside the client — closing only the client leaves that background task running against a closed connection.
 

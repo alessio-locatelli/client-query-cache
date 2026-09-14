@@ -63,6 +63,26 @@ def test_write_events_record_a_write_against_the_document_identity(
     cache.record_write.assert_called_once_with(namespace, "doc-1")
 
 
+@pytest.mark.parametrize("operation_type", ["createIndexes", "dropIndexes"])
+def test_index_events_record_an_index_change_against_the_namespace(
+    operation_type: str,
+) -> None:
+    cache = Mock()
+    cache.has_namespace.return_value = True
+    namespace = NamespaceId("db", "coll")
+    event: Mapping[str, object] = {
+        "operationType": operation_type,
+        "ns": {"db": "db", "coll": "coll"},
+    }
+
+    must_reopen = route_change_event(cache, "db", event)
+
+    assert must_reopen is False
+    cache.record_index_change.assert_called_once_with(namespace)
+    cache.record_write.assert_not_called()
+    cache.clear_namespace.assert_not_called()
+
+
 @pytest.mark.parametrize(
     ("event", "unused_method"),
     [
@@ -84,6 +104,16 @@ def test_write_events_record_a_write_against_the_document_identity(
             {"operationType": "drop", "ns": {"db": "db", "coll": "coll"}},
             "clear_namespace",
             id="drop",
+        ),
+        pytest.param(
+            {"operationType": "createIndexes", "ns": {"db": "db", "coll": "coll"}},
+            "record_index_change",
+            id="createIndexes",
+        ),
+        pytest.param(
+            {"operationType": "dropIndexes", "ns": {"db": "db", "coll": "coll"}},
+            "record_index_change",
+            id="dropIndexes",
         ),
     ],
 )
@@ -249,6 +279,39 @@ def test_write_event_invalidates_document_and_namespace_guarded_entries() -> Non
 
     assert cache.lookup_identity(namespace, "doc-1", "full").hit is False
     assert cache.lookup_namespace(namespace, "query-shape").hit is False
+
+
+@pytest.mark.parametrize("operation_type", ["createIndexes", "dropIndexes"])
+def test_index_event_advances_index_generation_without_touching_document_cache(
+    operation_type: str,
+) -> None:
+    cache = CacheCore()
+    namespace = NamespaceId("db", "coll")
+    identity_capture = cache.begin_identity_admission(namespace, "doc-1")
+    cache.admit_identity(identity_capture, "full", {"v": 1})
+    namespace_capture = cache.capture_namespace_generation(namespace)
+    cache.admit_namespace(namespace_capture, "query-shape", [{"v": 1}])
+    generation_before = cache.current_index_generation(namespace)
+
+    event = {"operationType": operation_type, "ns": {"db": "db", "coll": "coll"}}
+    must_reopen = route_change_event(cache, "db", event)
+
+    assert must_reopen is False
+    assert cache.current_index_generation(namespace) == generation_before + 1
+    assert cache.lookup_identity(namespace, "doc-1", "full").hit is True
+    assert cache.lookup_namespace(namespace, "query-shape").hit is True
+
+
+def test_index_event_for_an_untracked_namespace_does_not_grow_cache_core_state() -> (
+    None
+):
+    cache = CacheCore()
+    namespace = NamespaceId("db", "coll")
+    event = {"operationType": "createIndexes", "ns": {"db": "db", "coll": "coll"}}
+
+    route_change_event(cache, "db", event)
+
+    assert cache.has_namespace(namespace) is False
 
 
 def test_drop_event_invalidates_identity_guarded_entries_via_epoch() -> None:

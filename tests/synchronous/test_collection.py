@@ -695,19 +695,25 @@ def test_find_one_bypasses_forced_options_while_the_stream_is_unavailable(
         pytest.param(
             "find_one",
             lambda collection: collection.find_one({"_id": "a"}),
-            {"_id": "a", "v": 1},
+            {"_id": "a", "v": 1, "email": "a@example.com"},
             id="find_one",
+        ),
+        pytest.param(
+            "find_one",
+            lambda collection: collection.find_one({"email": "a@example.com"}),
+            {"_id": "a", "v": 1, "email": "a@example.com"},
+            id="find_one_unresolved_unique_key",
         ),
         pytest.param(
             "find",
             lambda collection: collection.find({"v": 1}),
-            [{"_id": "a", "v": 1}],
+            [{"_id": "a", "v": 1, "email": "a@example.com"}],
             id="find",
         ),
         pytest.param(
             "aggregate",
             lambda collection: collection.aggregate([{"$match": {"v": 1}}]),
-            [{"_id": "a", "v": 1}],
+            [{"_id": "a", "v": 1, "email": "a@example.com"}],
             id="aggregate",
         ),
         pytest.param(
@@ -740,7 +746,8 @@ def test_reads_recheck_availability_before_forcing_read_options(
     expected: object,
 ) -> None:
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
-    collection.raw.insert_one({"_id": "a", "v": 1})
+    collection.raw.create_index("email", unique=True)
+    collection.raw.insert_one({"_id": "a", "v": 1, "email": "a@example.com"})
 
     with (
         patch.object(CacheCore, "is_database_available", side_effect=[True, False]),

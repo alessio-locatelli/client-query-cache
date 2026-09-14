@@ -1,0 +1,239 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+import pytest
+
+from mongo_client_cache._core.entries import AdmissionOutcome
+from mongo_client_cache._core.errors import UnsupportedCacheRequestError
+from mongo_client_cache._core.keys import canonical_alias_key
+from mongo_client_cache._core.manager import CacheCore, CacheCoreConfig
+
+if TYPE_CHECKING:
+    from mongo_client_cache._core.keys import NamespaceId
+
+pytestmark = pytest.mark.unit
+
+
+class _Unencodable:
+    __slots__ = ()
+
+
+def test_a_first_time_match_admits_both_a_namespace_and_identity_guarded_entry(
+    core: CacheCore, namespace: NamespaceId
+) -> None:
+    alias = canonical_alias_key(("email",), ("a@example.com",), None)
+    namespace_capture = core.capture_namespace_generation(namespace)
+
+    outcome = core.admit_unique_key_match(
+        namespace_capture,
+        (alias, "full"),
+        "doc-1",
+        "full",
+        {"email": "a@example.com"},
+        alias=alias,
+    )
+
+    assert outcome is AdmissionOutcome.ADMITTED
+    assert core.lookup_namespace(namespace, (alias, "full")).hit is True
+    assert core.lookup_identity(namespace, "doc-1", "full").hit is True
+    assert core.resolve_alias(namespace, ("email",), ("a@example.com",), None) == (
+        "doc-1"
+    )
+
+
+def test_the_published_alias_survives_so_a_later_read_takes_the_identity_path(
+    core: CacheCore, namespace: NamespaceId
+) -> None:
+    alias = canonical_alias_key(("email",), ("a@example.com",), None)
+    namespace_capture = core.capture_namespace_generation(namespace)
+    core.admit_unique_key_match(
+        namespace_capture,
+        (alias, "full"),
+        "doc-1",
+        "full",
+        {"email": "a@example.com"},
+        alias=alias,
+    )
+
+    resolved_identity = core.resolve_alias(
+        namespace, ("email",), ("a@example.com",), None
+    )
+
+    assert resolved_identity == "doc-1"
+    assert core.lookup_identity(namespace, resolved_identity, "full").hit is True
+
+
+def test_lookup_by_alias_reaches_the_value_admitted_by_a_unique_key_match(
+    core: CacheCore, namespace: NamespaceId
+) -> None:
+    alias = canonical_alias_key(("email",), ("a@example.com",), None)
+    namespace_capture = core.capture_namespace_generation(namespace)
+    document = {"email": "a@example.com", "name": "Ada"}
+
+    core.admit_unique_key_match(
+        namespace_capture, (alias, "full"), "doc-1", "full", document, alias=alias
+    )
+
+    lookup_result = core.lookup_by_alias(
+        namespace, ("email",), ("a@example.com",), None, "full"
+    )
+
+    assert lookup_result.hit is True
+    assert lookup_result.value == document
+
+
+def test_a_write_to_the_matched_document_invalidates_both_entries_and_the_alias(
+    core: CacheCore, namespace: NamespaceId
+) -> None:
+    alias = canonical_alias_key(("email",), ("a@example.com",), None)
+    namespace_capture = core.capture_namespace_generation(namespace)
+    core.admit_unique_key_match(
+        namespace_capture,
+        (alias, "full"),
+        "doc-1",
+        "full",
+        {"email": "a@example.com"},
+        alias=alias,
+    )
+
+    core.record_write(namespace, "doc-1")
+
+    assert core.lookup_identity(namespace, "doc-1", "full").hit is False
+    assert core.resolve_alias(namespace, ("email",), ("a@example.com",), None) is None
+
+
+def test_a_write_racing_the_capture_declines_the_match_and_publishes_no_alias(
+    core: CacheCore, namespace: NamespaceId
+) -> None:
+    alias = canonical_alias_key(("email",), ("a@example.com",), None)
+    namespace_capture = core.capture_namespace_generation(namespace)
+    core.record_write(namespace, "unrelated-doc")
+
+    outcome = core.admit_unique_key_match(
+        namespace_capture,
+        (alias, "full"),
+        "doc-1",
+        "full",
+        {"email": "a@example.com"},
+        alias=alias,
+    )
+
+    assert outcome is AdmissionOutcome.DECLINED_STALE
+    assert core.resolve_alias(namespace, ("email",), ("a@example.com",), None) is None
+    assert core.lookup_identity(namespace, "doc-1", "full").hit is False
+
+
+def test_admit_unique_key_match_declines_an_oversize_value(
+    namespace: NamespaceId,
+) -> None:
+    core = CacheCore(CacheCoreConfig(shared_budget_bytes=1_000, max_entry_bytes=32))
+    alias = canonical_alias_key(("email",), ("a@example.com",), None)
+    namespace_capture = core.capture_namespace_generation(namespace)
+
+    outcome = core.admit_unique_key_match(
+        namespace_capture,
+        (alias, "full"),
+        "doc-1",
+        "full",
+        {"payload": "x" * 100},
+        alias=alias,
+    )
+
+    assert outcome is AdmissionOutcome.DECLINED_OVERSIZE
+    assert core.resolve_alias(namespace, ("email",), ("a@example.com",), None) is None
+
+
+def test_discard_stale_alias_removes_a_matching_alias(
+    core: CacheCore, namespace: NamespaceId
+) -> None:
+    alias = canonical_alias_key(("email",), ("a@example.com",), None)
+    namespace_capture = core.capture_namespace_generation(namespace)
+    core.admit_unique_key_match(
+        namespace_capture,
+        (alias, "full"),
+        "doc-1",
+        "full",
+        {"email": "a@example.com"},
+        alias=alias,
+    )
+
+    core.discard_stale_alias(namespace, alias, "doc-1")
+
+    assert core.resolve_alias(namespace, ("email",), ("a@example.com",), None) is None
+
+
+def test_discard_stale_alias_is_a_no_op_when_the_alias_was_repointed_concurrently(
+    core: CacheCore, namespace: NamespaceId
+) -> None:
+    alias = canonical_alias_key(("email",), ("a@example.com",), None)
+    first_capture = core.capture_namespace_generation(namespace)
+    core.admit_unique_key_match(
+        first_capture, (alias, "full"), "doc-old", "full", {"v": "old"}, alias=alias
+    )
+    second_capture = core.capture_namespace_generation(namespace)
+    core.admit_unique_key_match(
+        second_capture, (alias, "full"), "doc-new", "full", {"v": "new"}, alias=alias
+    )
+
+    core.discard_stale_alias(namespace, alias, "doc-old")
+
+    assert core.resolve_alias(namespace, ("email",), ("a@example.com",), None) == (
+        "doc-new"
+    )
+
+
+def test_admit_unique_key_match_rejects_none_as_an_identity_value(
+    core: CacheCore, namespace: NamespaceId
+) -> None:
+    alias = canonical_alias_key(("email",), ("a@example.com",), None)
+    namespace_capture = core.capture_namespace_generation(namespace)
+
+    with pytest.raises(UnsupportedCacheRequestError):
+        core.admit_unique_key_match(
+            namespace_capture,
+            (alias, "full"),
+            None,
+            "full",
+            {"email": "a@example.com"},
+            alias=alias,
+        )
+
+
+@pytest.mark.parametrize(
+    "unencodable_value",
+    [
+        pytest.param(_Unencodable(), id="unencodable_type"),
+        pytest.param(10**20, id="out_of_range_int_overflow"),
+    ],
+)
+def test_admit_unique_key_match_declines_when_the_value_cannot_be_encoded(
+    core: CacheCore, namespace: NamespaceId, unencodable_value: object
+) -> None:
+    alias = canonical_alias_key(("email",), ("a@example.com",), None)
+    namespace_capture = core.capture_namespace_generation(namespace)
+
+    outcome = core.admit_unique_key_match(
+        namespace_capture,
+        (alias, "full"),
+        "doc-1",
+        "full",
+        unencodable_value,
+        alias=alias,
+    )
+
+    assert outcome is AdmissionOutcome.DECLINED_UNENCODABLE
+    assert core.resolve_alias(namespace, ("email",), ("a@example.com",), None) is None
+
+
+def test_discard_stale_alias_on_an_unresolved_key_value_is_a_no_op(
+    core: CacheCore, namespace: NamespaceId
+) -> None:
+    alias = canonical_alias_key(("email",), ("missing@example.com",), None)
+
+    core.discard_stale_alias(namespace, alias, "doc-1")
+
+    assert (
+        core.resolve_alias(namespace, ("email",), ("missing@example.com",), None)
+        is None
+    )

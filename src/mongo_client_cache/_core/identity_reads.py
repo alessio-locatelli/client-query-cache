@@ -30,6 +30,16 @@ def _is_regex(value: object) -> bool:
     return isinstance(value, re.Pattern | Regex)
 
 
+def extract_equality_value(value: object) -> object:
+    if value is None:
+        return NO_IDENTITY
+    if isinstance(value, Mapping) and _is_query_operator_mapping(value):
+        return NO_IDENTITY
+    if _is_regex(value):
+        return NO_IDENTITY
+    return value
+
+
 def extract_id_identity(filter_query: object) -> object:
     if filter_query is None:
         return NO_IDENTITY
@@ -39,14 +49,7 @@ def extract_id_identity(filter_query: object) -> object:
         return filter_query
     if set(filter_query) != {_ID_FIELD}:
         return NO_IDENTITY
-    value = filter_query[_ID_FIELD]
-    if value is None:
-        return NO_IDENTITY
-    if isinstance(value, Mapping) and _is_query_operator_mapping(value):
-        return NO_IDENTITY
-    if _is_regex(value):
-        return NO_IDENTITY
-    return value
+    return extract_equality_value(filter_query[_ID_FIELD])
 
 
 def normalize_identity_for_cache_key(

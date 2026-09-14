@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 class CollectionMetadata:
     checked_epoch: int
     is_view: bool
+    default_collation: Mapping[str, Any] | None
 
 
 class CollectionMetadataCache:
@@ -32,5 +33,17 @@ class CollectionMetadataCache:
             self._entries[namespace] = metadata
 
 
-def interpret_list_collections_entry(entry: Mapping[str, Any] | None) -> bool:
-    return entry is not None and entry.get("type") == "view"
+@dataclass(frozen=True, slots=True)
+class CollectionProbeResult:
+    is_view: bool
+    default_collation: Mapping[str, Any] | None
+
+
+def interpret_list_collections_entry(
+    entry: Mapping[str, Any] | None,
+) -> CollectionProbeResult:
+    if entry is None:
+        return CollectionProbeResult(is_view=False, default_collation=None)
+    is_view = entry.get("type") == "view"
+    default_collation = entry.get("options", {}).get("collation")
+    return CollectionProbeResult(is_view=is_view, default_collation=default_collation)
