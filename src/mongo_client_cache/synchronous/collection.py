@@ -35,6 +35,7 @@ from mongo_client_cache._core.read_validation import (
 if TYPE_CHECKING:
     from pymongo.client_session import ClientSession
     from pymongo.synchronous.collection import Collection
+    from pymongo.synchronous.database import Database
 
     from mongo_client_cache.synchronous.database import CachedDatabase
 
@@ -80,7 +81,7 @@ def _count_documents_kwargs(
 
 
 class CachedCollection[DocumentType: Mapping[str, Any]]:
-    __slots__ = ("_collection", "_database", "_forced_collection")
+    __slots__ = ("_collection", "_database", "_forced_collection", "_forced_database")
 
     def __init__(
         self,
@@ -90,6 +91,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
         self._database = database
         self._collection = collection
         self._forced_collection: Collection[DocumentType] | None = None
+        self._forced_database: Database[DocumentType] | None = None
 
     @property
     def database(self) -> CachedDatabase[DocumentType]:
@@ -471,6 +473,14 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
             )
         return self._forced_collection
 
+    def _forced_database_handle(self) -> Database[DocumentType]:
+        if self._forced_database is None:
+            self._forced_database = self._database.raw.with_options(
+                read_preference=ReadPreference.PRIMARY,
+                read_concern=_FORCED_READ_CONCERN,
+            )
+        return self._forced_database
+
     def _is_cache_eligible(self) -> bool:
         return self._database.manager.ensure_cache_eligible(
             self._namespace(), self._check_is_view
@@ -479,7 +489,11 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
     def _check_is_view(self) -> bool | None:
         try:
             entry = next(
-                iter(self._database.raw.list_collections(filter={"name": self.name})),
+                iter(
+                    self._forced_database_handle().list_collections(
+                        filter={"name": self.name}
+                    )
+                ),
                 None,
             )
         except PyMongoError:
