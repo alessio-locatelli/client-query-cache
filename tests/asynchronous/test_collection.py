@@ -942,6 +942,34 @@ async def test_find_with_a_mapping_filter_does_not_collide_with_an_equivalent_se
     assert second == [{"_id": "doc2", "x": [["a", 1]]}]
 
 
+async def test_find_one_bypasses_when_identity_normalization_yields_an_unhashable_value(
+    cache_manager: CacheManager[dict[str, Any]],
+    cached_database_name: DatabaseName,
+    nonpersistent_collection_name: CollectionName,
+) -> None:
+    collection = cache_manager[cached_database_name][nonpersistent_collection_name]
+    await collection.raw.insert_one({"_id": "a", "v": 1})
+
+    with (
+        patch(
+            "mongo_client_cache.asynchronous.collection.normalize_identity_for_cache_key",
+            return_value={1, 2, 3},
+        ),
+        patch.object(
+            AsyncCollection,
+            "find_one",
+            autospec=True,
+            side_effect=AsyncCollection.find_one,
+        ) as spy,
+    ):
+        first = await collection.find_one({"_id": "a"})
+        second = await collection.find_one({"_id": "a"})
+
+    assert first == {"_id": "a", "v": 1}
+    assert second == {"_id": "a", "v": 1}
+    assert spy.call_count == 2
+
+
 async def test_find_one_with_a_nested_elem_match_projection_is_order_sensitive(
     cache_manager: CacheManager[dict[str, Any]],
     cached_database_name: DatabaseName,
