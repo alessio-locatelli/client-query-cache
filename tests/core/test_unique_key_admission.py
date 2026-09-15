@@ -362,6 +362,26 @@ def test_a_rolled_back_identity_admission_does_not_leave_the_alias_orphaned(
     assert lookup_result.hit is False
 
 
+def test_the_alias_survives_when_the_identity_entry_is_already_cached(
+    core: CacheCore, namespace: NamespaceId
+) -> None:
+    alias = canonical_alias_key(("email",), ("a@example.com",), None)
+    document = {"email": "a@example.com", "name": "Ada"}
+    identity_capture = core.begin_identity_admission(namespace, "doc-1")
+    core.admit_identity(identity_capture, "full", document)
+
+    namespace_capture = core.capture_namespace_generation(namespace)
+    core.admit_unique_key_match(
+        namespace_capture, (alias, "full"), "doc-1", "full", document, alias=alias
+    )
+
+    lookup_result = core.lookup_by_alias(
+        namespace, ("email",), ("a@example.com",), None, "full"
+    )
+    assert lookup_result.hit is True
+    assert lookup_result.value == document
+
+
 def test_discard_stale_alias_on_an_unresolved_key_value_is_a_no_op(
     core: CacheCore, namespace: NamespaceId
 ) -> None:

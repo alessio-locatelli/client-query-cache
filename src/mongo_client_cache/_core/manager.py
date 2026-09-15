@@ -713,7 +713,12 @@ class _CacheCoreUniqueKeyAdmission(_CacheCoreBase):
         )
         if identity_outcome is not AdmissionOutcome.ADMITTED:
             with self._namespace_section(state):
-                _discard_alias_locked(state, alias, canonical_identity)
+                current_identity_state = state.identities.get(canonical_identity)
+                if (
+                    current_identity_state is None
+                    or not current_identity_state.is_referenced
+                ):
+                    _discard_alias_locked(state, alias, canonical_identity)
         if namespace_outcome is AdmissionOutcome.ADMITTED:
             return identity_outcome
         return namespace_outcome
