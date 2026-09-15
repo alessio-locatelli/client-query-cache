@@ -575,6 +575,9 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
                 alias=alias,
                 codec_options=codec_options,
             )
+        elif previous_identity is not None:
+            cache.discard_stale_alias(namespace, alias, previous_identity)
+            cache.discard_namespace_entry(namespace, discriminator, capture.generation)
         return document
 
     def _namespace(self) -> NamespaceId:
