@@ -15,6 +15,7 @@ from mongo_client_cache._core.codec import codec_fingerprint
 from mongo_client_cache._core.collection_metadata import (
     interpret_list_collections_entry,
 )
+from mongo_client_cache._core.entries import AdmissionOutcome
 from mongo_client_cache._core.errors import UnsupportedCacheRequestError
 from mongo_client_cache._core.identity_reads import (
     NO_IDENTITY,
@@ -566,7 +567,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
         )
         if cache_identity is not None and is_canonicalizable(cache_identity):
             cache.discard_namespace_entry(namespace, discriminator, capture.generation)
-            cache.admit_unique_key_match(
+            outcome = cache.admit_unique_key_match(
                 capture,
                 discriminator,
                 cache_identity,
@@ -575,6 +576,11 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
                 alias=alias,
                 codec_options=codec_options,
             )
+            if (
+                outcome is not AdmissionOutcome.ADMITTED
+                and previous_identity is not None
+            ):
+                cache.discard_stale_alias(namespace, alias, previous_identity)
         elif previous_identity is not None:
             cache.discard_stale_alias(namespace, alias, previous_identity)
             cache.discard_namespace_entry(namespace, discriminator, capture.generation)
