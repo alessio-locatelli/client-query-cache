@@ -32,6 +32,12 @@ if TYPE_CHECKING:
 pytestmark = pytest.mark.integration
 
 
+def _available_once_then_unavailable() -> Iterator[bool]:
+    yield True
+    while True:
+        yield False
+
+
 @pytest.fixture
 def independent_writer(
     mongodb_uri: MongoDbUri,
@@ -611,7 +617,11 @@ def test_a_resolved_unique_key_read_rechecks_availability_before_forcing_read_op
     collection.find_one({"email": "a@example.com"})
 
     with (
-        patch.object(CacheCore, "is_database_available", side_effect=[True, False]),
+        patch.object(
+            CacheCore,
+            "is_database_available",
+            side_effect=_available_once_then_unavailable(),
+        ),
         patch.object(
             Collection, "find_one", autospec=True, side_effect=Collection.find_one
         ) as spy,
