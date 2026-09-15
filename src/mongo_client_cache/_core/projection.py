@@ -4,6 +4,7 @@ from collections.abc import Mapping, MutableMapping
 from typing import TYPE_CHECKING, Any
 
 import bson
+from bson.errors import BSONError
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -23,9 +24,13 @@ def without_id(
     stripped = {key: value for key, value in document.items() if key != _ID_FIELD}
     if codec_options is None:
         return stripped
-    return bson.decode(
-        bson.encode(stripped, codec_options=codec_options), codec_options=codec_options
-    )
+    try:
+        return bson.decode(
+            bson.encode(stripped, codec_options=codec_options),
+            codec_options=codec_options,
+        )
+    except BSONError, OverflowError:
+        return stripped
 
 
 def _is_include_value(value: object) -> bool:

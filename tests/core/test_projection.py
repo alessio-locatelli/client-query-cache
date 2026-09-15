@@ -115,3 +115,12 @@ def test_without_id_preserves_custom_document_class_with_codec_options() -> None
 
     assert isinstance(stripped_document, RawBSONDocument)
     assert dict(stripped_document.items()) == {"name": "Ada"}
+
+
+def test_without_id_falls_back_to_a_plain_dict_when_re_encoding_fails() -> None:
+    unencodable = object()
+    document = MappingProxyType({"_id": "doc-1", "name": unencodable})
+
+    stripped_document = without_id(document, CodecOptions())
+
+    assert stripped_document == {"name": unencodable}
