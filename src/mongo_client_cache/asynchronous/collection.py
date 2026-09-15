@@ -564,7 +564,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
         cache_identity = normalize_identity_for_cache_key(
             raw_identity, codec_options, self._database.manager.client.codec_options
         )
-        if is_canonicalizable(cache_identity):
+        if cache_identity is not None and is_canonicalizable(cache_identity):
             cache.discard_namespace_entry(namespace, discriminator, capture.generation)
             cache.admit_unique_key_match(
                 capture,
