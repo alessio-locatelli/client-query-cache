@@ -4,6 +4,7 @@ import pytest
 from pymongo import MongoClient
 from pymongo.synchronous.database import Database
 
+from mongo_client_cache._core.keys import NamespaceId
 from mongo_client_cache._core.lifecycle import CacheLifecycleState
 from mongo_client_cache.synchronous.database import CachedDatabase
 from mongo_client_cache.synchronous.manager import CacheManager
@@ -50,3 +51,16 @@ def test_manager_close_does_not_close_the_caller_owned_client(
     CacheManager(client).close()
 
     assert client._closed is False
+
+
+def test_unique_keys_for_rejects_a_probe_racing_a_concurrent_index_change(
+    client: MongoClient[dict[str, Any]],
+) -> None:
+    manager = CacheManager(client)
+    namespace = NamespaceId("example", "widgets")
+
+    def racing_list_indexes() -> list[dict[str, Any]]:
+        manager.cache_core.record_index_change(namespace)
+        return [{"key": {"email": 1}, "name": "email_1", "unique": True}]
+
+    assert manager.unique_keys_for(namespace, racing_list_indexes) == ()

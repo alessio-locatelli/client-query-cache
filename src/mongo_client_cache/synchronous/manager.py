@@ -87,6 +87,8 @@ class CacheManager[DocumentType: Mapping[str, Any]]:
             index_specs = list_indexes()
             if index_specs is None:
                 return ()
+            if self._cache.current_index_generation(namespace) != current_generation:
+                return ()
             cached = UniqueKeyMetadata(
                 checked_index_generation=current_generation,
                 keys=discover_unique_keys(index_specs),
