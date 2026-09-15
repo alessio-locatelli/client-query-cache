@@ -333,6 +333,35 @@ def test_a_racing_write_does_not_leave_a_stale_alias_reachable(
     assert lookup_result.value == {"v": "fresh"}
 
 
+def test_a_rolled_back_identity_admission_does_not_leave_the_alias_orphaned(
+    core: CacheCore, namespace: NamespaceId, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    alias = canonical_alias_key(("email",), ("a@example.com",), None)
+    namespace_capture = core.capture_namespace_generation(namespace)
+
+    def hook(key: CacheKey, entry: CacheEntry) -> None:
+        if entry.identity is not None:
+            core._lru.remove_exact(key, entry)
+
+    patch_conditional_put_hook(monkeypatch, core, hook)
+
+    outcome = core.admit_unique_key_match(
+        namespace_capture,
+        (alias, "full"),
+        "doc-1",
+        "full",
+        {"email": "a@example.com"},
+        alias=alias,
+    )
+
+    assert outcome is AdmissionOutcome.DECLINED_STALE
+    assert core.resolve_alias(namespace, ("email",), ("a@example.com",), None) is None
+    lookup_result = core.lookup_by_alias(
+        namespace, ("email",), ("a@example.com",), None, "full"
+    )
+    assert lookup_result.hit is False
+
+
 def test_discard_stale_alias_on_an_unresolved_key_value_is_a_no_op(
     core: CacheCore, namespace: NamespaceId
 ) -> None:
