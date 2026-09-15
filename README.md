@@ -38,7 +38,3 @@ A read bypasses the cache — falling back to a normal PyMongo call — whenever
 Leaving read concern unspecified (the common case) is treated as compatible with caching, not as a bypass condition: a cache miss reads at majority concern, which is stronger, and can be slower or less available during a network partition, than the server's own default read concern an uncached call would otherwise use.
 
 See [`docs/migration.md`](docs/migration.md) for what changed since the earlier prototype.
-
-## Development
-
-See the [development environment guide](docs/development.md).
