@@ -87,40 +87,59 @@ def test_never_produces_a_mixed_inclusion_exclusion_projection() -> None:
     assert not (any(value for value in values) and any(not value for value in values))
 
 
-def test_without_id_mutates_a_mutable_mapping_in_place() -> None:
-    document = {"_id": "doc-1", "name": "Ada"}
-
-    stripped_document = without_id(document)
-
-    assert stripped_document is document
-    assert stripped_document == {"name": "Ada"}
+_UNENCODABLE_VALUE = object()
+_RAW_BSON_CODEC_OPTIONS = CodecOptions(document_class=RawBSONDocument)
 
 
-def test_without_id_copies_an_immutable_mapping() -> None:
-    document = MappingProxyType({"_id": "doc-1", "name": "Ada"})
-
-    stripped_document = without_id(document)
-
-    assert stripped_document == {"name": "Ada"}
-    assert "_id" not in stripped_document
-
-
-def test_without_id_preserves_custom_document_class_with_codec_options() -> None:
-    codec_options = CodecOptions(document_class=RawBSONDocument)
-    document = RawBSONDocument(
-        bson.encode({"_id": "doc-1", "name": "Ada"}), codec_options=codec_options
-    )
-
+@pytest.mark.parametrize(
+    ("document", "codec_options", "expected", "expected_type", "same_object"),
+    [
+        pytest.param(
+            {"_id": "doc-1", "name": "Ada"},
+            None,
+            {"name": "Ada"},
+            dict,
+            True,
+            id="mutable-mapping",
+        ),
+        pytest.param(
+            MappingProxyType({"_id": "doc-1", "name": "Ada"}),
+            None,
+            {"name": "Ada"},
+            dict,
+            False,
+            id="immutable-mapping-without-codec-options",
+        ),
+        pytest.param(
+            RawBSONDocument(
+                bson.encode({"_id": "doc-1", "name": "Ada"}),
+                codec_options=_RAW_BSON_CODEC_OPTIONS,
+            ),
+            _RAW_BSON_CODEC_OPTIONS,
+            {"name": "Ada"},
+            RawBSONDocument,
+            False,
+            id="custom-document-class-with-codec-options",
+        ),
+        pytest.param(
+            MappingProxyType({"_id": "doc-1", "name": _UNENCODABLE_VALUE}),
+            CodecOptions(),
+            {"name": _UNENCODABLE_VALUE},
+            dict,
+            False,
+            id="falls-back-when-re-encoding-fails",
+        ),
+    ],
+)
+def test_without_id_strips_the_id_field(
+    document: Mapping[str, Any],
+    codec_options: CodecOptions[Any] | None,
+    expected: Mapping[str, Any],
+    expected_type: type,
+    same_object: bool,
+) -> None:
     stripped_document = without_id(document, codec_options)
 
-    assert isinstance(stripped_document, RawBSONDocument)
-    assert dict(stripped_document.items()) == {"name": "Ada"}
-
-
-def test_without_id_falls_back_to_a_plain_dict_when_re_encoding_fails() -> None:
-    unencodable = object()
-    document = MappingProxyType({"_id": "doc-1", "name": unencodable})
-
-    stripped_document = without_id(document, CodecOptions())
-
-    assert stripped_document == {"name": unencodable}
+    assert isinstance(stripped_document, expected_type)
+    assert (stripped_document is document) is same_object
+    assert dict(stripped_document.items()) == expected
