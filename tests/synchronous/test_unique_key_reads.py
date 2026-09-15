@@ -524,6 +524,40 @@ def test_a_resolved_alias_with_no_remaining_match_discards_the_alias(
     assert namespace_lookup.value is None
 
 
+def test_a_revalidated_positive_match_overwrites_a_stale_namespace_entry(
+    cache_manager: CacheManager[dict[str, Any]],
+    cached_database_name: DatabaseName,
+    nonpersistent_collection_name: CollectionName,
+) -> None:
+    collection = cache_manager[cached_database_name][nonpersistent_collection_name]
+    collection.raw.create_index("email", unique=True)
+    original = {"_id": "target", "email": "target@example.com", "v": 1}
+    collection.raw.insert_one(original)
+    assert collection.find_one({"email": "target@example.com"}) == original
+
+    namespace = NamespaceId(cached_database_name, nonpersistent_collection_name)
+    alias = canonical_alias_key(("email",), ("target@example.com",), None)
+    read_shape = order_sensitive_discriminator_key(
+        ("find_one", None, codec_fingerprint(collection.raw.codec_options))
+    )
+    cache = cache_manager.cache_core
+    identity = cache.resolve_alias(namespace, ("email",), ("target@example.com",), None)
+    assert identity is not None
+    identity_key = IdentityCacheKey(namespace, identity, canonicalize(read_shape))
+    identity_entry = cache._lru.peek(identity_key)
+    assert identity_entry is not None
+    assert cache._lru.remove_exact(identity_key, identity_entry)
+
+    updated = {"_id": "target", "email": "target@example.com", "v": 2}
+    with patch.object(Collection, "find_one", autospec=True, return_value=updated):
+        refreshed = collection.find_one({"email": "target@example.com"})
+
+    assert refreshed == updated
+    namespace_lookup = cache.lookup_namespace(namespace, (alias, read_shape))
+    assert namespace_lookup.hit
+    assert namespace_lookup.value == updated
+
+
 def test_a_resolved_unique_key_read_rechecks_availability_before_forcing_read_options(
     cache_manager: CacheManager[dict[str, Any]],
     cached_database_name: DatabaseName,
