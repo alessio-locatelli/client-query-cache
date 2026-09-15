@@ -118,7 +118,7 @@ test-e2e:
     fi
     uv run -- pytest -m e2e "${pytest_log_args[@]}"
 
-coverage:
+tests_and_coverage:
     #!/usr/bin/env bash
     set -euo pipefail
 

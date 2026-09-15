@@ -108,7 +108,7 @@ Contributors working inside a toolbx or Distrobox container SHALL enable and rea
 #### Scenario: A contributor prepares full validation in a dev container
 
 - **WHEN** a Toolbx or Distrobox contributor follows the documented full validation workflow
-- **THEN** the guidance directs them to run `just enable-podman-socket` before `just coverage`
+- **THEN** the guidance directs them to run `just enable-podman-socket` before `just tests_and_coverage`
 
 #### Scenario: A contributor issues an interactive Podman command from inside toolbx
 

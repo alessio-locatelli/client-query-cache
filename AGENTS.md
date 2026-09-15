@@ -1,10 +1,6 @@
 ## Project Description
 
-A high-performance, process-local caching layer for PyMongo (sync and asyncio), designed to invalidate cached reads via MongoDB change streams rather than relying primarily on time-based expiry.
-
-The project targets realistic mixed workloads, including collections that rarely change alongside collections with frequent writes. Its intended design is to cache only operations whose results can be kept coherent safely and predictably, while falling back to direct MongoDB access for unsupported or ambiguous cases.
-
-Writes are expected to participate in cache coherence, typically by invalidating affected cached entries; populating the cache from writes should occur only when the authoritative post-write document is available or when explicitly supported. MongoDB views and other operations whose invalidation semantics cannot be determined safely should bypass caching unless dedicated support is implemented.
+See [README.md](README.md).
 
 ## Development Guidelines
 
@@ -30,6 +26,24 @@ Writes are expected to participate in cache coherence, typically by invalidating
 - Tests should not duplicate the same code (e.g., `try`/`finally` blocks or inner functions). Extract and reuse such logic instead.
 - Do not write tests for impossible scenarios solely to achieve 100% code coverage. If code is unused in production, delete it immediately—do not mask it with mocking or patching in tests.
 
+### Validation, linting, formatting, testing
+
+```bash
+just lint
+just format
+# All tests and coverage report.
+just tests_and_coverage
+# Custom flags or arguments.
+just pytest <any_pytest_args>
+```
+
+For more details or a first time setup see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+### Writing Commit Messages
+
+- Commit proactively during the work after completing each dedicated part of a larger task.
+- The commit body should communicate the "why," not just the "what." Include the rationale behind the changes, non-trivial decisions, and any other information that may be useful for future developers.
+
 ## User-facing prose (README, program output)
 
 - **No internal implementation details.** Don't expose internal implementation-level mechanics in a README. A README is a short, high-level description for a regular user, not a spec for the internals — use a concrete illustrative example instead of a formula.
@@ -38,24 +52,6 @@ Writes are expected to participate in cache coherence, typically by invalidating
 - Non-recoverable persistent failures (such as missing files, missing dependencies, permission or access errors, etc.) must not go unreported. At minimum, produce a visible error message so users can either take corrective action or report the issue.
 - **Do not compete with official documentation:** Do not teach users how to install third-party tools, how to debug or configure their environment, etc. Use a short hint and a reference to the official resource.
 - In the "unreleased" section, a changelog entry should describe the final behavior once, not accumulate review history.
-
-## Commands
-
-Follow the contributor workflow in [`CONTRIBUTING.md`](CONTRIBUTING.md).
-
-### Default validation
-
-```bash
-just coverage
-```
-
-For focused test recipes and quality commands, use the contributor guide. Run `just ci-lint` after
-changing CI configuration.
-
-### Writing Commit Messages
-
-- Commit proactively during the work after completing each dedicated part of a larger task.
-- The commit body should communicate the "why," not just the "what." Include the rationale behind the changes, non-trivial decisions, and any other information that may be useful for future developers.
 
 ## References
 
