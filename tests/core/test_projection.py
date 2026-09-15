@@ -3,7 +3,10 @@ from __future__ import annotations
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, cast
 
+import bson
 import pytest
+from bson.codec_options import CodecOptions
+from bson.raw_bson import RawBSONDocument
 
 from mongo_client_cache._core.projection import (
     ensure_id_present_for_resolution,
@@ -100,3 +103,15 @@ def test_without_id_copies_an_immutable_mapping() -> None:
 
     assert stripped_document == {"name": "Ada"}
     assert "_id" not in stripped_document
+
+
+def test_without_id_preserves_custom_document_class_with_codec_options() -> None:
+    codec_options = CodecOptions(document_class=RawBSONDocument)
+    document = RawBSONDocument(
+        bson.encode({"_id": "doc-1", "name": "Ada"}), codec_options=codec_options
+    )
+
+    stripped_document = without_id(document, codec_options)
+
+    assert isinstance(stripped_document, RawBSONDocument)
+    assert dict(stripped_document.items()) == {"name": "Ada"}

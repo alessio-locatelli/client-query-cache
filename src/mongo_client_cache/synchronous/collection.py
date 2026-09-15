@@ -560,7 +560,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
             return None
         raw_identity = document["_id"]
         if exclude_id:
-            document = cast("DocumentType", without_id(document))
+            document = cast("DocumentType", without_id(document, codec_options))
         cache_identity = normalize_identity_for_cache_key(
             raw_identity, codec_options, self._database.manager.client.codec_options
         )
