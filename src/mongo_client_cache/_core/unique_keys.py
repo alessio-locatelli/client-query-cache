@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from mongo_client_cache._core.canonical import is_canonicalizable
+from mongo_client_cache._core.collation import normalize_collation
 from mongo_client_cache._core.identity_reads import NO_IDENTITY, extract_equality_value
 
 if TYPE_CHECKING:
@@ -33,7 +34,8 @@ def discover_unique_keys(
 ) -> tuple[UniqueKeyDefinition, ...]:
     return tuple(
         UniqueKeyDefinition(
-            fields=tuple(index_spec["key"]), collation=index_spec.get("collation")
+            fields=tuple(index_spec["key"]),
+            collation=normalize_collation(index_spec.get("collation")),
         )
         for index_spec in index_specs
         if _is_eligible_index(index_spec)

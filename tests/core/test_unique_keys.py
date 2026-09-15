@@ -75,6 +75,16 @@ pytestmark = pytest.mark.unit
             (),
             id="default-id-index-excluded",
         ),
+        pytest.param(
+            {
+                "key": {"email": 1},
+                "name": "email_simple",
+                "unique": True,
+                "collation": {"locale": "simple"},
+            },
+            (UniqueKeyDefinition(fields=("email",), collation=None),),
+            id="unique-index-with-simple-collation-normalized-to-none",
+        ),
     ],
 )
 def test_discover_unique_keys_filters_by_index_shape(
@@ -151,3 +161,20 @@ def test_match_unique_key_matches_when_collation_is_identical() -> None:
 
 def test_match_unique_key_returns_none_when_no_keys_are_discovered() -> None:
     assert match_unique_key({"email": "value"}, [], None) is None
+
+
+def test_match_unique_key_matches_simple_collation_index_against_default() -> None:
+    keys = discover_unique_keys(
+        [
+            {
+                "key": {"email": 1},
+                "name": "email_simple",
+                "unique": True,
+                "collation": {"locale": "simple"},
+            }
+        ]
+    )
+
+    matched_key = match_unique_key({"email": "value"}, keys, None)
+
+    assert matched_key == (keys[0], ("value",))
