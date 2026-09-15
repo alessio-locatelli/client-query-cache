@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import threading
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -9,8 +9,6 @@ from mongo_client_cache._core.canonical import is_canonicalizable
 from mongo_client_cache._core.identity_reads import NO_IDENTITY, extract_equality_value
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
-
     from mongo_client_cache._core.keys import NamespaceId
 
 
@@ -49,6 +47,12 @@ def _extract_ordered_values(
     for field in fields:
         value = extract_equality_value(filter_query[field])
         if value is NO_IDENTITY or not is_canonicalizable(value):
+            return None
+        if (
+            isinstance(value, Sequence)
+            and not isinstance(value, (str, bytes, bytearray))
+            and not value
+        ):
             return None
         values.append(value)
     return tuple(values)

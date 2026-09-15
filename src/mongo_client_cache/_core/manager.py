@@ -514,6 +514,17 @@ def _publish_alias_locked(
     state.identities[identity].alias_keys.add(alias)
 
 
+def _discard_alias_locked(
+    state: NamespaceState, alias: AliasKey, expected_identity: Canonical
+) -> None:
+    if state.aliases.get(alias) != expected_identity:
+        return
+    del state.aliases[alias]
+    identity_state = state.identities[expected_identity]
+    identity_state.alias_keys.discard(alias)
+    _maybe_prune_identity_locked(state, expected_identity, identity_state)
+
+
 class _CacheCoreNamespaceAdmission(_CacheCoreBase):
     __slots__ = ()
 
@@ -584,11 +595,7 @@ class _CacheCoreUniqueKeyAdmission(_CacheCoreBase):
         self._ensure_active()
         state = self._namespace(namespace)
         with self._namespace_section(state):
-            current_identity = state.aliases.get(alias)
-            if current_identity != expected_identity:
-                return
-            del state.aliases[alias]
-            state.identities[current_identity].alias_keys.discard(alias)
+            _discard_alias_locked(state, alias, expected_identity)
 
     def discard_namespace_entry(
         self, namespace: NamespaceId, discriminator: object, generation: int
@@ -704,6 +711,9 @@ class _CacheCoreUniqueKeyAdmission(_CacheCoreBase):
             is_still_valid=_identity_still_valid,
             on_admit=_on_identity_admit,
         )
+        if identity_outcome is not AdmissionOutcome.ADMITTED:
+            with self._namespace_section(state):
+                _discard_alias_locked(state, alias, canonical_identity)
         if namespace_outcome is AdmissionOutcome.ADMITTED:
             return identity_outcome
         return namespace_outcome
