@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 
     from mongo_client_cache._core.manager import CacheCore
 
-MINIMUM_SERVER_VERSION = (6, 0)
+MINIMUM_SERVER_VERSION = (8, 0)
 DEFAULT_MAX_AWAIT_TIME_MS = 1_000
 
 logger = logging.getLogger(__name__)
@@ -130,8 +130,8 @@ class DatabaseStreamSupervisor:
         version = tuple(server_info["versionArray"][:2])
         if version < MINIMUM_SERVER_VERSION:
             message = (
-                f"MongoDB server version {server_info['version']} does not support "
-                "change-stream expanded events; version 6.0 or newer is required"
+                f"MongoDB server version {server_info['version']} is not supported; "
+                "mongo_client_cache requires MongoDB 8.0 or newer"
             )
             raise StreamStartupError(message)
 

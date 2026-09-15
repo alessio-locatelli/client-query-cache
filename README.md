@@ -8,6 +8,10 @@ Writes are expected to participate in cache coherence, typically by invalidating
 
 ---
 
+## Requirements
+
+`mongo_client_cache` requires a MongoDB server version 8.0 or newer; the manager fails to start caching against an older server.
+
 ## Status
 
 `CacheManager` wraps a `pymongo.MongoClient` (or `pymongo.AsyncMongoClient`) that you construct and own. Its database and collection facades cache a narrow set of PyMongo's own read methods — `find_one`, `find`, `aggregate`, `count_documents`, `estimated_document_count`, and `distinct` — and keep cached results coherent as the underlying data changes. Every other operation, including all writes, remains available through the wrapped PyMongo object via `.raw`:
