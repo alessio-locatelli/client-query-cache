@@ -3,17 +3,29 @@ from __future__ import annotations
 from collections.abc import Mapping, MutableMapping
 from typing import TYPE_CHECKING, Any
 
+import bson
+
 if TYPE_CHECKING:
     from collections.abc import Sequence
+
+    from bson.codec_options import CodecOptions
 
 _ID_FIELD = "_id"
 
 
-def without_id(document: Mapping[str, Any]) -> Mapping[str, Any]:
+def without_id(
+    document: Mapping[str, Any],
+    codec_options: CodecOptions[Any] | None = None,
+) -> Mapping[str, Any]:
     if isinstance(document, MutableMapping):
         document.pop(_ID_FIELD, None)
         return document
-    return {key: value for key, value in document.items() if key != _ID_FIELD}
+    stripped = {key: value for key, value in document.items() if key != _ID_FIELD}
+    if codec_options is None:
+        return stripped
+    return bson.decode(
+        bson.encode(stripped, codec_options=codec_options), codec_options=codec_options
+    )
 
 
 def _is_include_value(value: object) -> bool:
