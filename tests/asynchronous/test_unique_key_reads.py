@@ -649,19 +649,35 @@ async def test_a_resolved_unique_key_read_rechecks_availability_before_forcing_o
     assert spy.call_args.args[0] is collection.raw
 
 
-async def test_unique_key_match_skips_admission_for_an_unhashable_identity(
+@pytest.mark.parametrize(
+    ("seed_document", "cache_identity"),
+    [
+        pytest.param(
+            {"_id": "doc-1", "email": "a@example.com", "v": 1},
+            {1, 2, 3},
+            id="unhashable-identity",
+        ),
+        pytest.param(
+            {"_id": None, "email": "a@example.com", "v": 1}, None, id="null-identity"
+        ),
+    ],
+)
+async def test_unique_key_match_skips_admission_for_an_uncacheable_identity(
     cache_manager: CacheManager[dict[str, Any]],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
+    *,
+    seed_document: dict[str, Any],
+    cache_identity: object,
 ) -> None:
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
     await collection.raw.create_index("email", unique=True)
-    await collection.raw.insert_one({"_id": "doc-1", "email": "a@example.com", "v": 1})
+    await collection.raw.insert_one(seed_document)
 
     with (
         patch(
             "mongo_client_cache.asynchronous.collection.normalize_identity_for_cache_key",
-            return_value={1, 2, 3},
+            return_value=cache_identity,
         ),
         patch.object(
             AsyncCollection,
@@ -673,9 +689,8 @@ async def test_unique_key_match_skips_admission_for_an_unhashable_identity(
         first = await collection.find_one({"email": "a@example.com"})
         second = await collection.find_one({"email": "a@example.com"})
 
-    expected = {"_id": "doc-1", "email": "a@example.com", "v": 1}
-    assert first == expected
-    assert second == expected
+    assert first == seed_document
+    assert second == seed_document
     assert spy.call_count == 2
 
 
