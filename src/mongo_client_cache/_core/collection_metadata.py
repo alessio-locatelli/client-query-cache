@@ -4,6 +4,8 @@ import threading
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from mongo_client_cache._core.collation import normalize_collation
+
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
@@ -45,5 +47,5 @@ def interpret_list_collections_entry(
     if entry is None:
         return CollectionProbeResult(is_view=False, default_collation=None)
     is_view = entry.get("type") == "view"
-    default_collation = entry.get("options", {}).get("collation")
+    default_collation = normalize_collation(entry.get("options", {}).get("collation"))
     return CollectionProbeResult(is_view=is_view, default_collation=default_collation)
