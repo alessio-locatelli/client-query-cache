@@ -7,4 +7,9 @@ rules:
     - >-
       Unless this is something like a meta spec that needs to track separate tickets, do not track unrelated or follow-up work as open checkboxes. Doing so leads to scope creep and prevents archiving the spec once its dedicated work is completed. Instead, track major dedicated work in their own specs or tickets.
     - >-
-      Add a final `Code Quality` section containing exactly one task: `Scan the entire file for edited or added tests (including pre-existing tests within the file) and ensure that the "Writing Tests" guidelines from AGENTS.md are applied, including test parametrization.` If tasks touch no code, mark it as completed with the note "not applicable to the changes".
+      Add a final `Code Quality` section containing two tasks:
+
+      - Scan the entire file for edited or added tests (including pre-existing tests within the file) and ensure that the "Writing Tests" guidelines from `AGENTS.md` are applied, including test parametrization.
+      - If you are Claude Code, confirm that you added no new prose to the code (all "why" explanations must go in the specs and commit bodies). OpenAI Codex is exempt from this rule because it understands the difference between garbage and valuable code comments.
+
+      Inapplicable tasks are marked as completed with a short reason (e.g., "touches no code" or "specs applied by GPT").
