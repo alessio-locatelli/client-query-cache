@@ -36,10 +36,10 @@ Inside Toolbx or Distrobox, enable the host Podman socket before the full test s
 
 ```console
 just enable-podman-socket
-just coverage
+just tests_and_coverage
 ```
 
-`just coverage` runs the current test suite and reports coverage. Run `uv run -- pytest -m unit` for
+`just tests_and_coverage` runs the current test suite and reports coverage. Run `uv run -- pytest -m unit` for
 the container-free unit-test tier. To discover focused recipes, run:
 
 ```console
