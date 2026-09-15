@@ -24,12 +24,18 @@ from mongo_client_cache._core.order_sensitive_keys import (
 from mongo_client_cache.asynchronous.manager import CacheManager
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Callable, Coroutine
+    from collections.abc import AsyncIterator, Callable, Coroutine, Iterator
 
     from mongo_client_cache.asynchronous.collection import CachedCollection
     from tests.conftest import CollectionName, DatabaseName, MongoDbUri
 
 pytestmark = pytest.mark.integration
+
+
+def _available_once_then_unavailable() -> Iterator[bool]:
+    yield True
+    while True:
+        yield False
 
 
 @pytest.fixture
@@ -633,7 +639,11 @@ async def test_a_resolved_unique_key_read_rechecks_availability_before_forcing_o
     await collection.find_one({"email": "a@example.com"})
 
     with (
-        patch.object(CacheCore, "is_database_available", side_effect=[True, False]),
+        patch.object(
+            CacheCore,
+            "is_database_available",
+            side_effect=_available_once_then_unavailable(),
+        ),
         patch.object(
             AsyncCollection,
             "find_one",
