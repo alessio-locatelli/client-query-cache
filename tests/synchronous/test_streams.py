@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import datetime
 import threading
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
 from types import SimpleNamespace
@@ -9,6 +11,8 @@ from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import Mock
 
 import pytest
+from bson.binary import UuidRepresentation
+from bson.codec_options import CodecOptions
 from pymongo.errors import ConnectionFailure, OperationFailure
 
 from mongo_client_cache._core.entries import AdmissionOutcome
@@ -29,6 +33,7 @@ if TYPE_CHECKING:
 pytestmark = pytest.mark.unit
 
 _FAST_BACKOFF = RetryBackoff(base_seconds=0.001, max_seconds=0.002)
+_WALL_TIME = datetime.datetime(2024, 1, 1, tzinfo=datetime.UTC)
 
 
 class _FixedDelayBackoff:
@@ -121,7 +126,14 @@ class _StreamStopsThenFails:
 
 
 class _FakeDatabase:
-    __slots__ = ("_before_watch", "_script", "client", "name", "watch_calls")
+    __slots__ = (
+        "_before_watch",
+        "_script",
+        "client",
+        "codec_options",
+        "name",
+        "watch_calls",
+    )
 
     def __init__(
         self,
@@ -132,6 +144,7 @@ class _FakeDatabase:
         before_watch: Callable[[int], None] | None = None,
     ) -> None:
         self.name = name
+        self.codec_options: CodecOptions[Any] = CodecOptions()
         self.client = SimpleNamespace(
             server_info=lambda: {
                 "version": ".".join(str(part) for part in (version_array or [8, 0, 4])),
@@ -173,6 +186,7 @@ def _insert_event(marker: str = "tok-1") -> dict[str, object]:
         "operationType": "insert",
         "ns": {"db": "db", "coll": "coll"},
         "documentKey": {"_id": "doc-1"},
+        "wallTime": _WALL_TIME,
     }
 
 
@@ -604,6 +618,91 @@ def test_unexpected_stream_closure_triggers_reconnect_instead_of_staying_healthy
     _wait_until(lambda: supervisor.healthy)
 
 
+def test_stream_poll_is_counted_even_when_next_raises() -> None:
+    cache = CacheCore()
+    stream1 = _ScriptedStream([StopIteration()])
+    database = _FakeDatabase("db", [stream1, _ScriptedStream([])])
+    supervisor = DatabaseStreamSupervisor(
+        _as_database(database), cache, backoff=_FAST_BACKOFF
+    )
+
+    supervisor.start()
+    try:
+        _wait_until(lambda: cache.stream_cost_snapshot("db").stream_polls >= 1)
+    finally:
+        supervisor.stop()
+
+
+def test_stream_survives_events_with_non_default_codec_values() -> None:
+    cache = CacheCore()
+    event = {
+        "operationType": "insert",
+        "ns": {"db": "db", "coll": "coll"},
+        "documentKey": {"_id": uuid.uuid4()},
+        "wallTime": _WALL_TIME,
+    }
+    database = _FakeDatabase("db", [_ScriptedStream([event]), _ScriptedStream([])])
+    database.codec_options = CodecOptions(
+        uuid_representation=UuidRepresentation.STANDARD
+    )
+    supervisor = DatabaseStreamSupervisor(
+        _as_database(database), cache, backoff=_FAST_BACKOFF
+    )
+
+    supervisor.start()
+    try:
+        _wait_until(lambda: cache.stream_cost_snapshot("db").logical_event_bytes > 0)
+        assert supervisor.healthy
+    finally:
+        supervisor.stop()
+
+
+class _Unencodable:
+    __slots__ = ()
+
+
+def test_invalidation_survives_unencodable_logical_bytes() -> None:
+    cache = CacheCore()
+    namespace = NamespaceId("db", "coll")
+    capture = cache.begin_identity_admission(namespace, "doc-1")
+    cache.admit_identity(capture, "full", {"v": 1})
+    event = {
+        "operationType": "insert",
+        "ns": {"db": "db", "coll": "coll"},
+        "documentKey": {"_id": "doc-1", "unencodable": _Unencodable()},
+        "wallTime": _WALL_TIME,
+    }
+    database = _FakeDatabase("db", [_ScriptedStream([event]), _ScriptedStream([])])
+    supervisor = DatabaseStreamSupervisor(
+        _as_database(database), cache, backoff=_FAST_BACKOFF
+    )
+
+    supervisor.start()
+    try:
+        _wait_until(lambda: cache.stream_cost_snapshot("db").invalidations >= 1)
+        assert supervisor.healthy
+        assert cache.lookup_identity(namespace, "doc-1", "full").hit is False
+        assert cache.stream_cost_snapshot("db").logical_event_bytes == 0
+    finally:
+        supervisor.stop()
+
+
+def test_clearing_namespaces_resets_stream_cost_statistics() -> None:
+    cache = CacheCore()
+    cache.record_stream_poll("db")
+    cache.record_invalidation_applied("db", 1.0)
+    database = _FakeDatabase("db", [_ScriptedStream([])])
+    supervisor = DatabaseStreamSupervisor(
+        _as_database(database), cache, backoff=_FAST_BACKOFF
+    )
+
+    supervisor._clear_namespaces_for_database()
+
+    snapshot = cache.stream_cost_snapshot("db")
+    assert snapshot.stream_polls == 0
+    assert snapshot.invalidations == 0
+
+
 def test_clears_the_cache_when_reconnecting_without_a_resume_token(
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
 ) -> None:
@@ -653,11 +752,19 @@ def test_clears_known_namespaces_when_resume_history_is_lost(
     "invalidate_event",
     [
         pytest.param(
-            {"_id": {"tok": "drop"}, "operationType": "dropDatabase"},
+            {
+                "_id": {"tok": "drop"},
+                "operationType": "dropDatabase",
+                "wallTime": _WALL_TIME,
+            },
             id="drop_database",
         ),
         pytest.param(
-            {"_id": {"tok": "inv"}, "operationType": "invalidate"},
+            {
+                "_id": {"tok": "inv"},
+                "operationType": "invalidate",
+                "wallTime": _WALL_TIME,
+            },
             id="invalidate",
         ),
     ],

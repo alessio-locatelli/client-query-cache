@@ -5,6 +5,8 @@ import logging
 import threading
 from typing import TYPE_CHECKING, Any
 
+import bson
+from bson.errors import BSONError
 from pymongo.errors import OperationFailure, PyMongoError
 
 from mongo_client_cache._core.errors import StreamLifecycleError, StreamStartupError
@@ -169,6 +171,7 @@ class DatabaseStreamSupervisor:
     def _run(self) -> None:
         while not self._stop_event.is_set():
             assert self._stream is not None
+            self._cache.record_stream_poll(self._database.name)
             try:
                 event = self._stream.next()
             except StopIteration, PyMongoError:
@@ -176,8 +179,18 @@ class DatabaseStreamSupervisor:
                 continue
             self._resume_token = self._stream.resume_token
             must_reopen = route_change_event(self._cache, self._database.name, event)
+            self._record_logical_event_bytes(event)
             if must_reopen:
                 self._reopen_after_invalidate()
+
+    def _record_logical_event_bytes(self, event: Mapping[str, Any]) -> None:
+        try:
+            encoded_length = len(
+                bson.encode(dict(event), codec_options=self._database.codec_options)
+            )
+        except BSONError, TypeError, ValueError:
+            return
+        self._cache.record_logical_event_bytes(self._database.name, encoded_length)
 
     def _handle_stream_failure(self) -> None:
         if self._stop_event.is_set():
@@ -223,6 +236,7 @@ class DatabaseStreamSupervisor:
     def _clear_namespaces_for_database(self) -> None:
         for namespace in self._cache.namespaces_for_database(self._database.name):
             self._cache.clear_namespace(namespace)
+        self._cache.reset_stream_cost_statistics(self._database.name)
 
 
 class ChangeStreamCoordinator:

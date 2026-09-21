@@ -15,10 +15,18 @@ class CacheSnapshot:
     misses: int
     evictions: int
     bypasses: int
+    oversized_bypasses: int
 
 
 class CacheStatistics:
-    __slots__ = ("_bypasses", "_evictions", "_hits", "_lock", "_misses")
+    __slots__ = (
+        "_bypasses",
+        "_evictions",
+        "_hits",
+        "_lock",
+        "_misses",
+        "_oversized_bypasses",
+    )
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
@@ -26,6 +34,7 @@ class CacheStatistics:
         self._misses = 0
         self._evictions = 0
         self._bypasses = 0
+        self._oversized_bypasses = 0
 
     def record_hit(self) -> None:
         with self._lock:
@@ -43,6 +52,16 @@ class CacheStatistics:
         with self._lock:
             self._bypasses += 1
 
-    def snapshot(self) -> tuple[int, int, int, int]:
+    def record_oversized_bypass(self) -> None:
         with self._lock:
-            return self._hits, self._misses, self._evictions, self._bypasses
+            self._oversized_bypasses += 1
+
+    def snapshot(self) -> tuple[int, int, int, int, int]:
+        with self._lock:
+            return (
+                self._hits,
+                self._misses,
+                self._evictions,
+                self._bypasses,
+                self._oversized_bypasses,
+            )

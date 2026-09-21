@@ -16,6 +16,10 @@ from mongo_client_cache._core.manager import (
     NamespaceCapture,
 )
 from mongo_client_cache._core.snapshots import CacheSnapshot
+from mongo_client_cache._core.stream_cost import (
+    LagCaptureWindowConfig,
+    StreamCostSnapshot,
+)
 from mongo_client_cache._core.stream_health import StreamHealth
 
 __all__ = [
@@ -28,9 +32,11 @@ __all__ = [
     "CacheLifecycleState",
     "CacheSnapshot",
     "IdentityCapture",
+    "LagCaptureWindowConfig",
     "LookupResult",
     "NamespaceCapture",
     "NamespaceId",
+    "StreamCostSnapshot",
     "StreamHealth",
     "StreamLifecycleError",
     "StreamStartupError",
