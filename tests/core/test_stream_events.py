@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import datetime
 from typing import TYPE_CHECKING
-from unittest.mock import Mock, call
+from unittest.mock import ANY, Mock, call
 
 import pytest
 from pymongo.errors import OperationFailure
@@ -20,6 +21,8 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
 pytestmark = pytest.mark.unit
+
+_WALL_TIME = datetime.datetime(2024, 1, 1, tzinfo=datetime.UTC)
 
 
 def test_pipeline_matches_only_relevant_operation_types() -> None:
@@ -55,6 +58,7 @@ def test_write_events_record_a_write_against_the_document_identity(
         "operationType": operation_type,
         "ns": {"db": "db", "coll": "coll"},
         "documentKey": {"_id": "doc-1"},
+        "wallTime": _WALL_TIME,
     }
 
     must_reopen = route_change_event(cache, "db", event)
@@ -73,6 +77,7 @@ def test_index_events_record_an_index_change_against_the_namespace(
     event: Mapping[str, object] = {
         "operationType": operation_type,
         "ns": {"db": "db", "coll": "coll"},
+        "wallTime": _WALL_TIME,
     }
 
     must_reopen = route_change_event(cache, "db", event)
@@ -91,27 +96,44 @@ def test_index_events_record_an_index_change_against_the_namespace(
                 "operationType": "insert",
                 "ns": {"db": "db", "coll": "coll"},
                 "documentKey": {"_id": "doc-1"},
+                "wallTime": _WALL_TIME,
             },
             "record_write",
             id="write",
         ),
         pytest.param(
-            {"operationType": "create", "ns": {"db": "db", "coll": "coll"}},
+            {
+                "operationType": "create",
+                "ns": {"db": "db", "coll": "coll"},
+                "wallTime": _WALL_TIME,
+            },
             "create_namespace",
             id="create",
         ),
         pytest.param(
-            {"operationType": "drop", "ns": {"db": "db", "coll": "coll"}},
+            {
+                "operationType": "drop",
+                "ns": {"db": "db", "coll": "coll"},
+                "wallTime": _WALL_TIME,
+            },
             "clear_namespace",
             id="drop",
         ),
         pytest.param(
-            {"operationType": "createIndexes", "ns": {"db": "db", "coll": "coll"}},
+            {
+                "operationType": "createIndexes",
+                "ns": {"db": "db", "coll": "coll"},
+                "wallTime": _WALL_TIME,
+            },
             "record_index_change",
             id="createIndexes",
         ),
         pytest.param(
-            {"operationType": "dropIndexes", "ns": {"db": "db", "coll": "coll"}},
+            {
+                "operationType": "dropIndexes",
+                "ns": {"db": "db", "coll": "coll"},
+                "wallTime": _WALL_TIME,
+            },
             "record_index_change",
             id="dropIndexes",
         ),
@@ -136,6 +158,7 @@ def test_rename_event_skips_an_untracked_source_and_destination() -> None:
         "operationType": "rename",
         "ns": {"db": "db", "coll": "old_coll"},
         "to": {"db": "db", "coll": "new_coll"},
+        "wallTime": _WALL_TIME,
     }
 
     must_reopen = route_change_event(cache, "db", event)
@@ -148,7 +171,11 @@ def test_create_event_creates_the_namespace() -> None:
     cache = Mock()
     cache.has_namespace.return_value = True
     namespace = NamespaceId("db", "coll")
-    event = {"operationType": "create", "ns": {"db": "db", "coll": "coll"}}
+    event = {
+        "operationType": "create",
+        "ns": {"db": "db", "coll": "coll"},
+        "wallTime": _WALL_TIME,
+    }
 
     must_reopen = route_change_event(cache, "db", event)
 
@@ -160,7 +187,11 @@ def test_drop_event_clears_the_namespace() -> None:
     cache = Mock()
     cache.has_namespace.return_value = True
     namespace = NamespaceId("db", "coll")
-    event = {"operationType": "drop", "ns": {"db": "db", "coll": "coll"}}
+    event = {
+        "operationType": "drop",
+        "ns": {"db": "db", "coll": "coll"},
+        "wallTime": _WALL_TIME,
+    }
 
     must_reopen = route_change_event(cache, "db", event)
 
@@ -177,6 +208,7 @@ def test_rename_event_clears_both_the_source_and_destination_namespaces() -> Non
         "operationType": "rename",
         "ns": {"db": "db", "coll": "old_coll"},
         "to": {"db": "db", "coll": "new_coll"},
+        "wallTime": _WALL_TIME,
     }
 
     must_reopen = route_change_event(cache, "db", event)
@@ -193,6 +225,7 @@ def test_rename_event_does_not_clear_a_destination_in_another_database() -> None
         "operationType": "rename",
         "ns": {"db": "db", "coll": "old_coll"},
         "to": {"db": "other_db", "coll": "new_coll"},
+        "wallTime": _WALL_TIME,
     }
 
     must_reopen = route_change_event(cache, "db", event)
@@ -206,7 +239,11 @@ def test_drop_database_clears_every_cache_namespace_immediately() -> None:
     first = NamespaceId("db", "first")
     second = NamespaceId("db", "second")
     cache.namespaces_for_database.return_value = [first, second]
-    event = {"operationType": "dropDatabase", "ns": {"db": "db"}}
+    event = {
+        "operationType": "dropDatabase",
+        "ns": {"db": "db"},
+        "wallTime": _WALL_TIME,
+    }
 
     must_reopen = route_change_event(cache, "db", event)
 
@@ -216,7 +253,19 @@ def test_drop_database_clears_every_cache_namespace_immediately() -> None:
         call.namespaces_for_database("db"),
         call.clear_namespace(first),
         call.clear_namespace(second),
+        call.record_invalidation_applied("db", ANY),
     ]
+
+
+def test_invalidate_with_no_cached_namespaces_records_no_lag_sample() -> None:
+    cache = Mock()
+    cache.namespaces_for_database.return_value = []
+    event = {"operationType": "invalidate", "wallTime": _WALL_TIME}
+
+    must_reopen = route_change_event(cache, "db", event)
+
+    assert must_reopen is True
+    cache.record_invalidation_applied.assert_not_called()
 
 
 def test_invalidate_clears_every_namespace_cache_core_tracks_for_the_database() -> None:
@@ -224,7 +273,7 @@ def test_invalidate_clears_every_namespace_cache_core_tracks_for_the_database() 
     first = NamespaceId("db", "first")
     second = NamespaceId("db", "second")
     cache.namespaces_for_database.return_value = [first, second]
-    event = {"operationType": "invalidate"}
+    event = {"operationType": "invalidate", "wallTime": _WALL_TIME}
 
     must_reopen = route_change_event(cache, "db", event)
 
@@ -234,6 +283,7 @@ def test_invalidate_clears_every_namespace_cache_core_tracks_for_the_database() 
         call.namespaces_for_database("db"),
         call.clear_namespace(first),
         call.clear_namespace(second),
+        call.record_invalidation_applied("db", ANY),
     ]
 
 
@@ -274,6 +324,7 @@ def test_write_event_invalidates_document_and_namespace_guarded_entries() -> Non
         "operationType": "update",
         "ns": {"db": "db", "coll": "coll"},
         "documentKey": {"_id": "doc-1"},
+        "wallTime": _WALL_TIME,
     }
     route_change_event(cache, "db", event)
 
@@ -293,7 +344,11 @@ def test_index_event_advances_index_generation_without_touching_document_cache(
     cache.admit_namespace(namespace_capture, "query-shape", [{"v": 1}])
     generation_before = cache.current_index_generation(namespace)
 
-    event = {"operationType": operation_type, "ns": {"db": "db", "coll": "coll"}}
+    event = {
+        "operationType": operation_type,
+        "ns": {"db": "db", "coll": "coll"},
+        "wallTime": _WALL_TIME,
+    }
     must_reopen = route_change_event(cache, "db", event)
 
     assert must_reopen is False
@@ -307,7 +362,11 @@ def test_index_event_for_an_untracked_namespace_does_not_grow_cache_core_state()
 ):
     cache = CacheCore()
     namespace = NamespaceId("db", "coll")
-    event = {"operationType": "createIndexes", "ns": {"db": "db", "coll": "coll"}}
+    event = {
+        "operationType": "createIndexes",
+        "ns": {"db": "db", "coll": "coll"},
+        "wallTime": _WALL_TIME,
+    }
 
     route_change_event(cache, "db", event)
 
@@ -321,7 +380,11 @@ def test_drop_event_invalidates_identity_guarded_entries_via_epoch() -> None:
     cache.admit_identity(identity_capture, "full", {"v": 1})
     assert cache.lookup_identity(namespace, "doc-1", "full").hit is True
 
-    event = {"operationType": "drop", "ns": {"db": "db", "coll": "coll"}}
+    event = {
+        "operationType": "drop",
+        "ns": {"db": "db", "coll": "coll"},
+        "wallTime": _WALL_TIME,
+    }
     route_change_event(cache, "db", event)
 
     assert cache.lookup_identity(namespace, "doc-1", "full").hit is False
@@ -336,7 +399,11 @@ def test_create_event_reclaims_entries_cached_before_the_namespace_existed() -> 
     _used_before, count_before = cache._lru.snapshot_usage()
     assert count_before == 1
 
-    event = {"operationType": "create", "ns": {"db": "db", "coll": "coll"}}
+    event = {
+        "operationType": "create",
+        "ns": {"db": "db", "coll": "coll"},
+        "wallTime": _WALL_TIME,
+    }
     route_change_event(cache, "db", event)
 
     assert cache.lookup_namespace(namespace, "missing-doc").hit is False
@@ -352,6 +419,7 @@ def test_write_to_an_uncached_namespace_does_not_grow_cache_core_state() -> None
         "operationType": "insert",
         "ns": {"db": "db", "coll": "coll"},
         "documentKey": {"_id": "doc-1"},
+        "wallTime": _WALL_TIME,
     }
 
     route_change_event(cache, "db", event)
@@ -369,7 +437,7 @@ def test_invalidate_clears_a_namespace_that_never_produced_an_event() -> None:
     cache.admit_namespace(other_capture, "missing-doc", None)
     assert cache.lookup_namespace(namespace, "missing-doc").hit is True
 
-    event = {"operationType": "invalidate"}
+    event = {"operationType": "invalidate", "wallTime": _WALL_TIME}
     must_reopen = route_change_event(cache, "db", event)
 
     assert must_reopen is True
@@ -391,6 +459,7 @@ def test_rename_to_another_database_does_not_clear_that_databases_cache() -> Non
         "operationType": "rename",
         "ns": {"db": "db", "coll": "old_coll"},
         "to": {"db": "other_db", "coll": "new_coll"},
+        "wallTime": _WALL_TIME,
     }
     route_change_event(cache, "db", event)
 

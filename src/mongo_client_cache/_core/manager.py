@@ -27,6 +27,12 @@ from mongo_client_cache._core.lru import WeightedLru
 from mongo_client_cache._core.namespace import IdentityState, NamespaceState
 from mongo_client_cache._core.order_sensitive_keys import order_sensitive_key
 from mongo_client_cache._core.snapshots import CacheSnapshot, CacheStatistics
+from mongo_client_cache._core.stream_cost import (
+    DEFAULT_LAG_CAPTURE_WINDOW_CONFIG,
+    LagCaptureWindowConfig,
+    StreamCostRegistry,
+    StreamCostSnapshot,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -50,6 +56,9 @@ logger = logging.getLogger(__name__)
 class CacheCoreConfig:
     shared_budget_bytes: int = DEFAULT_SHARED_BUDGET_BYTES
     max_entry_bytes: int = DEFAULT_MAX_ENTRY_BYTES
+    lag_capture_window_config: LagCaptureWindowConfig = (
+        DEFAULT_LAG_CAPTURE_WINDOW_CONFIG
+    )
 
     def __post_init__(self) -> None:
         if self.shared_budget_bytes <= 0:
@@ -125,6 +134,7 @@ class _CacheCoreBase:
         "_namespaces",
         "_namespaces_lock",
         "_statistics",
+        "_stream_cost",
     )
 
     def __init__(self, config: CacheCoreConfig | None = None) -> None:
@@ -143,6 +153,9 @@ class _CacheCoreBase:
         self._statistics = CacheStatistics()
         self._database_availability: dict[str, tuple[bool, int]] = {}
         self._availability_lock = threading.RLock()
+        self._stream_cost = StreamCostRegistry(
+            resolved_config.lag_capture_window_config
+        )
 
     def _is_closed(self) -> bool:
         return self._lifecycle is CacheLifecycleState.CLOSED
@@ -177,6 +190,7 @@ class _CacheCoreBase:
                 yield AdmissionOutcome.DECLINED_UNAVAILABLE
                 return
             if self._lru.is_oversize(weight):
+                self._statistics.record_oversized_bypass()
                 yield AdmissionOutcome.DECLINED_OVERSIZE
                 return
             yield None
@@ -281,7 +295,9 @@ class _CacheCoreLifecycle(_CacheCoreBase):
 
     def snapshot(self) -> CacheSnapshot:
         used_bytes, entry_count = self._lru.snapshot_usage()
-        hits, misses, evictions, bypasses = self._statistics.snapshot()
+        hits, misses, evictions, bypasses, oversized_bypasses = (
+            self._statistics.snapshot()
+        )
         return CacheSnapshot(
             lifecycle=self._lifecycle.value,
             used_bytes=used_bytes,
@@ -292,6 +308,7 @@ class _CacheCoreLifecycle(_CacheCoreBase):
             misses=misses,
             evictions=evictions,
             bypasses=bypasses,
+            oversized_bypasses=oversized_bypasses,
         )
 
 
@@ -843,6 +860,34 @@ class _CacheCoreLookup(_CacheCoreBase):
         return LookupResult(hit=True, value=decode_value(entry.value, codec_options))
 
 
+class _CacheCoreStreamCostTelemetry(_CacheCoreBase):
+    __slots__ = ()
+
+    def record_stream_poll(self, database: str) -> None:
+        self._stream_cost.record_poll(database)
+
+    def record_logical_event_bytes(self, database: str, count: int) -> None:
+        self._stream_cost.record_logical_event_bytes(database, count)
+
+    def record_invalidation_applied(
+        self, database: str, raw_lag_seconds: float
+    ) -> None:
+        self._stream_cost.record_invalidation(database, raw_lag_seconds)
+
+    def reset_stream_cost_statistics(self, database: str | None = None) -> None:
+        if database is None:
+            self._stream_cost.reset_all()
+        else:
+            self._stream_cost.reset(database)
+
+    def stream_cost_snapshot(self, database: str) -> StreamCostSnapshot:
+        used_bytes, _entry_count = self._lru.snapshot_usage()
+        return self._stream_cost.snapshot(database, resident_bytes=used_bytes)
+
+    def active_stream_cost_databases(self) -> list[str]:
+        return self._stream_cost.active_databases()
+
+
 class CacheCore(
     _CacheCoreLifecycle,
     _CacheCoreNamespaceLifecycle,
@@ -851,5 +896,6 @@ class CacheCore(
     _CacheCoreNamespaceAdmission,
     _CacheCoreUniqueKeyAdmission,
     _CacheCoreLookup,
+    _CacheCoreStreamCostTelemetry,
 ):
     __slots__ = ()
