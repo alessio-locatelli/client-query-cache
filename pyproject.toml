@@ -30,6 +30,8 @@ dev = [
   "testcontainers[mongodb]>=4.15.0",
   "tox>=4.61.2",
   "tox-uv>=1.36.0",
+  "jsonschema>=4.26.0",
+  "types-jsonschema>=4.26.0.20260518",
 ]
 
 [build-system]
@@ -50,7 +52,7 @@ exclude-modules = '''
 '''
 
 [tool.vulture]
-paths = ["src", "tests", ".vulture_whitelist"]
+paths = ["src", "tests", "benchmarks", ".vulture_whitelist"]
 
 [tool.ruff-extra-rules]
 fix = true
