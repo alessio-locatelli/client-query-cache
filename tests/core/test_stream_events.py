@@ -11,7 +11,9 @@ from mongo_client_cache._core.keys import NamespaceId
 from mongo_client_cache._core.manager import CacheCore
 from mongo_client_cache._core.stream_events import (
     CHANGE_STREAM_PROJECTION,
+    INDEX_OPERATION_TYPES,
     RELEVANT_OPERATION_TYPES,
+    WRITE_OPERATION_TYPES,
     build_change_stream_pipeline,
     is_unresumable_change_stream_error,
     route_change_event,
@@ -45,6 +47,57 @@ def test_pipeline_projects_every_routing_and_resume_field() -> None:
         "clusterTime",
         "wallTime",
     }
+
+
+def _projected_event_for(operation_type: str) -> dict[str, object]:
+    event: dict[str, object] = {"operationType": operation_type, "wallTime": _WALL_TIME}
+    if operation_type in WRITE_OPERATION_TYPES:
+        event["ns"] = {"db": "db", "coll": "coll"}
+        event["documentKey"] = {"_id": "doc-1"}
+    elif operation_type in INDEX_OPERATION_TYPES or operation_type in {
+        "create",
+        "drop",
+    }:
+        event["ns"] = {"db": "db", "coll": "coll"}
+    elif operation_type == "rename":
+        event["ns"] = {"db": "db", "coll": "old_coll"}
+        event["to"] = {"db": "db", "coll": "new_coll"}
+    return event
+
+
+@pytest.mark.parametrize("operation_type", sorted(RELEVANT_OPERATION_TYPES))
+def test_every_relevant_operation_type_is_routed_without_a_full_document(
+    operation_type: str,
+) -> None:
+    cache = Mock()
+    cache.has_namespace.return_value = True
+    cache.namespaces_for_database.return_value = [NamespaceId("db", "coll")]
+    event = _projected_event_for(operation_type)
+    assert "fullDocument" not in event
+    assert "fullDocumentBeforeChange" not in event
+
+    route_change_event(cache, "db", event)
+
+
+def test_update_event_without_full_document_routes_invalidation_and_lag() -> None:
+    cache = CacheCore()
+    namespace = NamespaceId("db", "coll")
+    identity_capture = cache.begin_identity_admission(namespace, "doc-1")
+    cache.admit_identity(identity_capture, "full", {"v": 1})
+    event = {
+        "_id": {"tok": "resume-1"},
+        "operationType": "update",
+        "ns": {"db": "db", "coll": "coll"},
+        "documentKey": {"_id": "doc-1"},
+        "wallTime": _WALL_TIME,
+    }
+    assert "fullDocument" not in event
+    assert "fullDocumentBeforeChange" not in event
+
+    route_change_event(cache, "db", event)
+
+    assert cache.lookup_identity(namespace, "doc-1", "full").hit is False
+    assert cache.stream_cost_snapshot("db").invalidations == 1
 
 
 @pytest.mark.parametrize("operation_type", ["insert", "update", "replace", "delete"])
