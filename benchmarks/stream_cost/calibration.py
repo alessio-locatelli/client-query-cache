@@ -121,14 +121,21 @@ class CalibrationSeries:
 
     @property
     def has_election_change(self) -> bool:
-        election_ids = {
-            sample.election_id
-            for sample in self.samples
-            if sample.election_id is not None
-        }
+        election_ids = {sample.election_id for sample in self.samples}
         return len(election_ids) > 1
 
     def has_host_clock_step(self, *, tolerance_seconds: float) -> bool:
+        for sample in self.samples:
+            sample_t0 = PairedReading(
+                wall_seconds=sample.wall_t0, monotonic_seconds=sample.monotonic_t0
+            )
+            sample_t1 = PairedReading(
+                wall_seconds=sample.wall_t1, monotonic_seconds=sample.monotonic_t1
+            )
+            if host_clock_stepped(
+                sample_t0, sample_t1, tolerance_seconds=tolerance_seconds
+            ):
+                return True
         initial_reading = PairedReading(
             wall_seconds=self.initial.wall_t0,
             monotonic_seconds=self.initial.monotonic_t0,
@@ -214,7 +221,6 @@ class TopologyChangeListener(TopologyListener):
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._current_primary: tuple[str, int | None] | None = None
-        self._primary_lost = False
         self._primary_changed = False
 
     @property
@@ -231,14 +237,15 @@ class TopologyChangeListener(TopologyListener):
         with self._lock:
             if new_primary is None:
                 if self._current_primary is not None:
-                    self._primary_lost = True
+                    self._primary_changed = True
+                    self._current_primary = None
                 return
-            if self._current_primary is not None and (
-                new_primary != self._current_primary or self._primary_lost
+            if (
+                self._current_primary is not None
+                and new_primary != self._current_primary
             ):
                 self._primary_changed = True
             self._current_primary = new_primary
-            self._primary_lost = False
 
     @staticmethod
     def closed(_event: TopologyClosedEvent) -> None:

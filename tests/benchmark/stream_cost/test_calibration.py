@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import pytest
 
@@ -23,6 +23,12 @@ from benchmarks.stream_cost.errors import BenchmarkConfigurationError
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+    from pymongo.monitoring import (
+        TopologyClosedEvent,
+        TopologyDescriptionChangedEvent,
+        TopologyOpenedEvent,
+    )
 
 pytestmark = pytest.mark.unit
 
@@ -177,7 +183,7 @@ def test_calibration_series_exceeds_drift_tolerance(
         (("a", "a"), False),
         (("a", "b"), True),
         ((None, None), False),
-        ((None, "a"), False),
+        ((None, "a"), True),
         (("a", "b", "a"), True),
     ],
 )
@@ -227,6 +233,19 @@ def test_calibration_series_has_host_clock_step(
     )
     series = CalibrationSeries(samples=(initial, second))
     assert series.has_host_clock_step(tolerance_seconds=tolerance) is expected
+
+
+def test_calibration_series_has_host_clock_step_detects_within_sample_step() -> None:
+    stepped_sample = ClockSample(
+        wall_t0=0.0,
+        wall_t1=0.5,
+        monotonic_t0=0.0,
+        monotonic_t1=0.1,
+        server_time_seconds=0.25,
+        election_id=None,
+    )
+    series = CalibrationSeries(samples=(stepped_sample,))
+    assert series.has_host_clock_step(tolerance_seconds=0.05) is True
 
 
 @pytest.mark.parametrize(
@@ -319,74 +338,63 @@ class _FakeTopologyDescriptionChangedEvent:
     new_description: _FakeTopologyDescription
 
 
+def _change_event(
+    servers: dict[tuple[str, int], _FakeServerDescription],
+) -> TopologyDescriptionChangedEvent:
+    event = _FakeTopologyDescriptionChangedEvent(_FakeTopologyDescription(servers))
+    return cast("TopologyDescriptionChangedEvent", event)
+
+
 def test_topology_change_listener_starts_unchanged() -> None:
     listener = TopologyChangeListener()
-    assert listener.primary_changed is False
-    listener.opened(object())  # type: ignore[arg-type]
-    listener.closed(object())  # type: ignore[arg-type]
-    assert listener.primary_changed is False
+    assert bool(listener.primary_changed) is False
+    listener.opened(cast("TopologyOpenedEvent", object()))
+    listener.closed(cast("TopologyClosedEvent", object()))
+    assert bool(listener.primary_changed) is False
 
 
 def test_topology_change_listener_ignores_no_writable_primary() -> None:
     listener = TopologyChangeListener()
-    event = _FakeTopologyDescriptionChangedEvent(
-        _FakeTopologyDescription(
-            {("host", 1): _FakeServerDescription(is_writable=False)}
-        )
-    )
-    listener.description_changed(event)  # type: ignore[arg-type]
-    assert listener.primary_changed is False
+    event = _change_event({("host", 1): _FakeServerDescription(is_writable=False)})
+    listener.description_changed(event)
+    assert bool(listener.primary_changed) is False
 
 
 def test_topology_change_listener_detects_primary_change() -> None:
     listener = TopologyChangeListener()
-    first_event = _FakeTopologyDescriptionChangedEvent(
-        _FakeTopologyDescription(
-            {("host", 1): _FakeServerDescription(is_writable=True)}
-        )
+    first_event = _change_event({("host", 1): _FakeServerDescription(is_writable=True)})
+    listener.description_changed(first_event)
+    assert bool(listener.primary_changed) is False
+
+    same_primary_event = _change_event(
+        {("host", 1): _FakeServerDescription(is_writable=True)}
     )
-    listener.description_changed(first_event)  # type: ignore[arg-type]
-    assert listener.primary_changed is False
+    listener.description_changed(same_primary_event)
+    assert bool(listener.primary_changed) is False
 
-    same_primary_event = _FakeTopologyDescriptionChangedEvent(
-        _FakeTopologyDescription(
-            {("host", 1): _FakeServerDescription(is_writable=True)}
-        )
+    new_primary_event = _change_event(
+        {("host", 2): _FakeServerDescription(is_writable=True)}
     )
-    listener.description_changed(same_primary_event)  # type: ignore[arg-type]
-    assert listener.primary_changed is False
-
-    new_primary_event = _FakeTopologyDescriptionChangedEvent(
-        _FakeTopologyDescription(
-            {("host", 2): _FakeServerDescription(is_writable=True)}
-        )
-    )
-    listener.description_changed(new_primary_event)  # type: ignore[arg-type]
-    assert listener.primary_changed is True
+    listener.description_changed(new_primary_event)
+    assert bool(listener.primary_changed) is True
 
 
-def test_topology_change_listener_detects_stepdown_and_return_to_same_primary() -> None:
+def test_topology_change_listener_flags_primary_loss_immediately() -> None:
     listener = TopologyChangeListener()
-    primary_event = _FakeTopologyDescriptionChangedEvent(
-        _FakeTopologyDescription(
-            {("host", 1): _FakeServerDescription(is_writable=True)}
-        )
+    primary_event = _change_event(
+        {("host", 1): _FakeServerDescription(is_writable=True)}
     )
-    listener.description_changed(primary_event)  # type: ignore[arg-type]
-    assert listener.primary_changed is False
+    listener.description_changed(primary_event)
+    assert bool(listener.primary_changed) is False
 
-    no_primary_event = _FakeTopologyDescriptionChangedEvent(
-        _FakeTopologyDescription(
-            {("host", 1): _FakeServerDescription(is_writable=False)}
-        )
+    no_primary_event = _change_event(
+        {("host", 1): _FakeServerDescription(is_writable=False)}
     )
-    listener.description_changed(no_primary_event)  # type: ignore[arg-type]
-    assert listener.primary_changed is False
+    listener.description_changed(no_primary_event)
+    assert bool(listener.primary_changed)
 
-    same_primary_returns_event = _FakeTopologyDescriptionChangedEvent(
-        _FakeTopologyDescription(
-            {("host", 1): _FakeServerDescription(is_writable=True)}
-        )
+    same_primary_returns_event = _change_event(
+        {("host", 1): _FakeServerDescription(is_writable=True)}
     )
-    listener.description_changed(same_primary_returns_event)  # type: ignore[arg-type]
-    assert listener.primary_changed is True
+    listener.description_changed(same_primary_returns_event)
+    assert bool(listener.primary_changed)
