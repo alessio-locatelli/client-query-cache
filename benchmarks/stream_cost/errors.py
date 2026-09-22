@@ -14,6 +14,10 @@ class BenchmarkConfigurationError(BenchmarkError, ValueError):
     pass
 
 
+class BenchmarkSetupError(BenchmarkError, RuntimeError):
+    pass
+
+
 class ReportValidationError(BenchmarkError, ValueError):
     def __init__(self, errors: Sequence[str]) -> None:
         self.errors = tuple(errors)
