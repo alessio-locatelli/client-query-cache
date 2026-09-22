@@ -236,6 +236,7 @@ def test_cpu_usage_reads_docker_stats() -> None:
         {"cpu_stats": {"cpu_usage": {"total_usage": "not-a-number"}}},
         {"cpu_stats": {"cpu_usage": {"total_usage": float("nan")}}},
         {"cpu_stats": {"cpu_usage": {"total_usage": float("inf")}}},
+        {"cpu_stats": {"cpu_usage": {"total_usage": -1}}},
     ],
 )
 def test_cpu_usage_wraps_missing_evidence(stats: dict[str, Any] | None) -> None:

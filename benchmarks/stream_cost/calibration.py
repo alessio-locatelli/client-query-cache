@@ -56,12 +56,27 @@ class ClockSample:
         return self.round_trip_seconds / 2 + _QUANTIZATION_ALLOWANCE_SECONDS
 
 
+@dataclass(frozen=True, slots=True)
+class CalibrationPoint:
+    selected: ClockSample
+    rounds: tuple[ClockSample, ...]
+
+    def __post_init__(self) -> None:
+        if not self.rounds:
+            message = "at least one round is required"
+            raise BenchmarkConfigurationError(message)
+        if self.selected not in self.rounds:
+            message = "selected must be one of rounds"
+            raise BenchmarkConfigurationError(message)
+
+
 def sample_clock_offset(
     send_hello: Callable[[], Mapping[str, object]], *, rounds: int
-) -> ClockSample:
+) -> CalibrationPoint:
     if rounds <= 0:
         message = "rounds must be positive"
         raise BenchmarkConfigurationError(message)
+    collected: list[ClockSample] = []
     best: ClockSample | None = None
     for _ in range(rounds):
         wall_t0 = time.time()
@@ -79,24 +94,29 @@ def sample_clock_offset(
             server_time_seconds=_bson_datetime_to_epoch_seconds(local_time),
             election_id=response.get("electionId"),
         )
+        collected.append(sample)
         if best is None or sample.round_trip_seconds < best.round_trip_seconds:
             best = sample
     assert best is not None
-    return best
+    return CalibrationPoint(selected=best, rounds=tuple(collected))
 
 
 @dataclass(frozen=True, slots=True)
 class CalibrationSeries:
-    samples: tuple[ClockSample, ...]
+    points: tuple[CalibrationPoint, ...]
 
     def __post_init__(self) -> None:
-        if not self.samples:
-            message = "at least one calibration sample is required"
+        if not self.points:
+            message = "at least one calibration point is required"
             raise BenchmarkConfigurationError(message)
 
     @property
     def initial(self) -> ClockSample:
-        return self.samples[0]
+        return self.points[0].selected
+
+    @property
+    def _all_rounds(self) -> list[ClockSample]:
+        return [sample for point in self.points for sample in point.rounds]
 
     def drift_seconds(self, sample: ClockSample) -> float:
         return abs(sample.offset_seconds - self.initial.offset_seconds)
@@ -106,26 +126,28 @@ class CalibrationSeries:
 
     @property
     def total_uncertainty_seconds(self) -> float:
+        selected = [point.selected for point in self.points]
         candidates = [self.initial.uncertainty_seconds]
         candidates.extend(
             self.drift_seconds(sample) + self.combined_drift_uncertainty_seconds(sample)
-            for sample in self.samples[1:]
+            for sample in selected[1:]
         )
         return max(candidates)
 
     def exceeds_drift_tolerance(self, tolerance_seconds: float) -> bool:
+        selected = [point.selected for point in self.points]
         return any(
-            self.drift_seconds(sample) > tolerance_seconds
-            for sample in self.samples[1:]
+            self.drift_seconds(sample) > tolerance_seconds for sample in selected[1:]
         )
 
     @property
     def has_election_change(self) -> bool:
-        election_ids = {sample.election_id for sample in self.samples}
+        election_ids = {sample.election_id for sample in self._all_rounds}
         return len(election_ids) > 1
 
     def has_host_clock_step(self, *, tolerance_seconds: float) -> bool:
-        for sample in self.samples:
+        all_rounds = self._all_rounds
+        for sample in all_rounds:
             sample_t0 = PairedReading(
                 wall_seconds=sample.wall_t0, monotonic_seconds=sample.monotonic_t0
             )
@@ -148,7 +170,7 @@ class CalibrationSeries:
                 ),
                 tolerance_seconds=tolerance_seconds,
             )
-            for sample in self.samples[1:]
+            for sample in all_rounds
         )
 
 
