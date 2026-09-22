@@ -333,6 +333,37 @@ def test_await_writable_primary_retries_ping_until_reachable(
     assert _FlakyPingClient.ping_attempts == 3
 
 
+class _FlakyElectionClient(_FakeMongoClient):
+    __slots__ = ()
+    hello_attempts: ClassVar[int] = 0
+
+    def command(
+        self, name: str, *_args: object, **_kwargs: object
+    ) -> dict[str, object]:
+        if name == "hello":
+            type(self).hello_attempts += 1
+            if type(self).hello_attempts < 3:
+                raise PyMongoError("election in progress")
+            return {"isWritablePrimary": True}
+        return {}
+
+
+def test_await_writable_primary_retries_transient_hello_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _FlakyElectionClient.hello_attempts = 0
+    monkeypatch.setattr(
+        "benchmarks.stream_cost.topology._ELECTION_POLL_INTERVAL_SECONDS", 0.001
+    )
+    monkeypatch.setattr(
+        "benchmarks.stream_cost.topology.MongoClient", _FlakyElectionClient
+    )
+    replica_set = IsolatedReplicaSet(ResourceLimits(cpus=1.0, memory="512m"))
+    replica_set._uri = "mongodb://stub/"
+    replica_set._await_writable_primary()
+    assert _FlakyElectionClient.hello_attempts == 3
+
+
 class _UnreachablePingClient(_FakeMongoClient):
     __slots__ = ()
 
@@ -385,10 +416,11 @@ def test_build_client_delegates_when_discovery_is_disabled(
     captured: dict[str, Any] = {}
 
     def _fake_build_dedicated_client(
-        uri: str, config: BenchmarkClientTopologyConfig
+        uri: str, config: BenchmarkClientTopologyConfig, *, event_listeners: object = ()
     ) -> str:
         captured["uri"] = uri
         captured["config"] = config
+        captured["event_listeners"] = event_listeners
         return "fake-client"
 
     monkeypatch.setattr(
@@ -400,4 +432,33 @@ def test_build_client_delegates_when_discovery_is_disabled(
     config = _client_topology()
     client = replica_set.build_client(config)
     assert client == "fake-client"
-    assert captured == {"uri": "mongodb://stub/", "config": config}
+    assert captured == {
+        "uri": "mongodb://stub/",
+        "config": config,
+        "event_listeners": (),
+    }
+
+
+def test_build_client_passes_through_event_listeners(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def _fake_build_dedicated_client(
+        _uri: str,
+        _config: BenchmarkClientTopologyConfig,
+        *,
+        event_listeners: object = (),
+    ) -> str:
+        captured["event_listeners"] = event_listeners
+        return "fake-client"
+
+    monkeypatch.setattr(
+        "benchmarks.stream_cost.topology.build_dedicated_client",
+        _fake_build_dedicated_client,
+    )
+    replica_set = IsolatedReplicaSet(ResourceLimits(cpus=1.0, memory="512m"))
+    replica_set._uri = "mongodb://stub/"
+    listener = object()
+    replica_set.build_client(_client_topology(), event_listeners=[listener])
+    assert captured["event_listeners"] == [listener]

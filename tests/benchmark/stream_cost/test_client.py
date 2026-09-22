@@ -39,6 +39,7 @@ class _StubClient:
                 "directConnection": True,
                 "tls": False,
                 "compressors": None,
+                "event_listeners": [],
             },
         ),
         (
@@ -52,6 +53,7 @@ class _StubClient:
                 "directConnection": False,
                 "tls": True,
                 "compressors": "zstd",
+                "event_listeners": [],
             },
         ),
     ],
@@ -65,3 +67,19 @@ def test_build_dedicated_client_passes_expected_kwargs(
     build_dedicated_client("mongodb://example/", config)
     assert _StubClient.last_uri == "mongodb://example/"
     assert _StubClient.last_kwargs == expected_kwargs
+
+
+def test_build_dedicated_client_passes_through_event_listeners(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("benchmarks.stream_cost.client.MongoClient", _StubClient)
+    listener = object()
+    config = BenchmarkClientTopologyConfig(
+        tls_enabled=False,
+        compression_enabled=False,
+        discovery_enabled=False,
+        shared_connections=False,
+    )
+    build_dedicated_client("mongodb://example/", config, event_listeners=[listener])
+    assert _StubClient.last_kwargs is not None
+    assert _StubClient.last_kwargs["event_listeners"] == [listener]

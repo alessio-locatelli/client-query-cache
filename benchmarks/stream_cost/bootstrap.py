@@ -55,6 +55,13 @@ def block_bootstrap_percentile_ci(
     if not windows:
         message = "at least one capture window is required"
         raise BenchmarkConfigurationError(message)
+    window_sizes = {len(window) for window in windows}
+    if window_sizes == {0}:
+        message = "capture windows must not be empty"
+        raise BenchmarkConfigurationError(message)
+    if len(window_sizes) > 1:
+        message = f"capture windows must all be the same size, got sizes {window_sizes}"
+        raise BenchmarkConfigurationError(message)
     if resample_count <= 0:
         message = "resample_count must be positive"
         raise BenchmarkConfigurationError(message)
@@ -116,6 +123,9 @@ def delta_threshold_decisive(
 
 
 def bonferroni_confidence_level(target_confidence_level: float) -> float:
+    if not 0 < target_confidence_level < 1:
+        message = "target_confidence_level must be between 0 and 1 exclusive"
+        raise BenchmarkConfigurationError(message)
     alpha = 1 - target_confidence_level
     return 1 - alpha / 2
 

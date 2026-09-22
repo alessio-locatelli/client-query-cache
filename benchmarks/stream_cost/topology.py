@@ -4,12 +4,13 @@ import contextlib
 import math
 from dataclasses import dataclass
 from time import monotonic, sleep
-from typing import Self
+from typing import TYPE_CHECKING, Self
 
 from docker.errors import DockerException
 from pymongo import MongoClient
 from pymongo.errors import PyMongoError
 from testcontainers.core.container import DockerContainer
+from testcontainers.core.exceptions import ContainerStartException
 
 from benchmarks.stream_cost.client import (
     BenchmarkClientTopologyConfig,
@@ -19,6 +20,9 @@ from benchmarks.stream_cost.errors import (
     BenchmarkConfigurationError,
     BenchmarkSetupError,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 MONGODB_IMAGE = "mongo:8.0.4-noble"
 
@@ -118,7 +122,10 @@ class IsolatedReplicaSet:
         return self._uri
 
     def build_client(
-        self, config: BenchmarkClientTopologyConfig
+        self,
+        config: BenchmarkClientTopologyConfig,
+        *,
+        event_listeners: Sequence[object] = (),
     ) -> MongoClient[dict[str, object]]:
         if config.discovery_enabled:
             message = (
@@ -129,7 +136,7 @@ class IsolatedReplicaSet:
                 "URI actually connects through"
             )
             raise BenchmarkConfigurationError(message)
-        return build_dedicated_client(self.uri, config)
+        return build_dedicated_client(self.uri, config, event_listeners=event_listeners)
 
     def _await_writable_primary(self) -> None:
         with MongoClient[dict[str, object]](
@@ -158,8 +165,11 @@ class IsolatedReplicaSet:
             )
             deadline = monotonic() + _ELECTION_TIMEOUT_SECONDS
             while monotonic() < deadline:
-                if client.admin.command("hello")["isWritablePrimary"]:
-                    return
+                try:
+                    if client.admin.command("hello")["isWritablePrimary"]:
+                        return
+                except PyMongoError:
+                    pass
                 sleep(_ELECTION_POLL_INTERVAL_SECONDS)
             message = (
                 f"MongoDB did not elect a writable primary within "
@@ -171,12 +181,13 @@ class IsolatedReplicaSet:
         if self._container is None:
             message = "IsolatedReplicaSet has not been started"
             raise BenchmarkSetupError(message)
-        wrapped = self._container.get_wrapped_container()
         try:
+            wrapped = self._container.get_wrapped_container()
             stats = wrapped.stats(stream=False)
             usage_nanoseconds = self._parse_cpu_usage_nanoseconds(stats)
         except (
             DockerException,
+            ContainerStartException,
             KeyError,
             TypeError,
             ValueError,
