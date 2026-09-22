@@ -66,15 +66,16 @@ def test_block_bootstrap_rejects_a_single_window() -> None:
         )
 
 
-def test_block_bootstrap_rejects_non_positive_resample_count() -> None:
+@pytest.mark.parametrize("resample_count", [0, 1])
+def test_block_bootstrap_rejects_too_few_resamples(resample_count: int) -> None:
     with pytest.raises(
-        BenchmarkConfigurationError, match="resample_count must be positive"
+        BenchmarkConfigurationError, match="resample_count must be at least 2"
     ):
         block_bootstrap_percentile_ci(
             ((1.0, 2.0), (3.0, 4.0)),
             percentile=0.5,
             confidence_level=0.95,
-            resample_count=0,
+            resample_count=resample_count,
             seed=1,
         )
 
