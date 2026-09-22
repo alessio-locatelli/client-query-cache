@@ -23,6 +23,7 @@ from benchmarks.stream_cost.errors import (
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+    from types import TracebackType
 
 MONGODB_IMAGE = "mongo:8.0.4-noble"
 
@@ -108,10 +109,21 @@ class IsolatedReplicaSet:
             raise
         return self
 
-    def __exit__(self, *_exc_info: object) -> None:
-        if self._container is not None:
-            with contextlib.suppress(DockerException, ContainerStartException):
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None = None,
+        _exc: BaseException | None = None,
+        _tb: TracebackType | None = None,
+    ) -> None:
+        if self._container is None:
+            return
+        try:
+            if exc_type is not None:
+                with contextlib.suppress(DockerException, ContainerStartException):
+                    self._container.stop()
+            else:
                 self._container.stop()
+        finally:
             self._container = None
             self._uri = None
 
