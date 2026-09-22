@@ -83,9 +83,9 @@ class IsolatedReplicaSet:
                 mem_limit=self._limits.memory,
             )
             container.start()
-        except DockerException as error:
+        except (DockerException, ContainerStartException) as error:
             if container is not None:
-                with contextlib.suppress(DockerException):
+                with contextlib.suppress(DockerException, ContainerStartException):
                     container.stop()
             message = (
                 "A Docker-compatible container runtime is required for the "
@@ -101,7 +101,7 @@ class IsolatedReplicaSet:
             self._uri = f"mongodb://{host}:{port}/?directConnection=true"
             self._await_writable_primary()
         except Exception:
-            with contextlib.suppress(DockerException):
+            with contextlib.suppress(DockerException, ContainerStartException):
                 container.stop()
             self._container = None
             self._uri = None

@@ -24,7 +24,7 @@ def minimum_sample_count(percentile: float) -> int:
 
 def _percentile_index(count: int, percentile: float) -> int:
     exact_rank = round(percentile * count, _FLOATING_POINT_GUARD_DECIMALS)
-    return min(max(math.ceil(exact_rank) - 1, 0), count - 1)
+    return min(max(math.floor(exact_rank), 0), count - 1)
 
 
 def _percentile(values: Sequence[float], percentile: float) -> float:

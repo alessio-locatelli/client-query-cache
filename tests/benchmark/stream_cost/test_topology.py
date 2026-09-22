@@ -6,6 +6,7 @@ from unittest.mock import patch
 import pytest
 from docker.errors import DockerException
 from pymongo.errors import PyMongoError
+from testcontainers.core.exceptions import ContainerStartException
 
 from benchmarks.stream_cost.client import BenchmarkClientTopologyConfig
 from benchmarks.stream_cost.errors import (
@@ -106,11 +107,16 @@ def test_isolated_replica_set_wraps_docker_startup_failure() -> None:
 
 
 class _FakeDockerContainer:
-    __slots__ = ("_fail_start", "_fail_stop", "stopped")
+    __slots__ = ("_fail_start_exception", "_fail_stop", "stopped")
 
-    def __init__(self, *, fail_start: bool = False, fail_stop: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        fail_start_exception: type[Exception] | None = None,
+        fail_stop: bool = False,
+    ) -> None:
         self.stopped = False
-        self._fail_start = fail_start
+        self._fail_start_exception = fail_start_exception
         self._fail_stop = fail_stop
 
     def with_command(self, _command: object) -> _FakeDockerContainer:
@@ -123,8 +129,8 @@ class _FakeDockerContainer:
         return self
 
     def start(self) -> _FakeDockerContainer:
-        if self._fail_start:
-            raise DockerException("start failed")
+        if self._fail_start_exception is not None:
+            raise self._fail_start_exception("start failed")
         return self
 
     @staticmethod
@@ -183,10 +189,11 @@ def test_enter_preserves_original_error_when_cleanup_stop_also_fails(
         _ = replica_set.uri
 
 
+@pytest.mark.parametrize("start_exception", [DockerException, ContainerStartException])
 def test_enter_stops_partially_created_container_when_start_fails(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, start_exception: type[Exception]
 ) -> None:
-    fake_container = _FakeDockerContainer(fail_start=True)
+    fake_container = _FakeDockerContainer(fail_start_exception=start_exception)
     monkeypatch.setattr(
         "benchmarks.stream_cost.topology.DockerContainer",
         lambda _image: fake_container,
