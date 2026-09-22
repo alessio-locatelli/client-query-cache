@@ -64,8 +64,8 @@ def block_bootstrap_percentile_ci(
     if len(window_sizes) > 1:
         message = f"capture windows must all be the same size, got sizes {window_sizes}"
         raise BenchmarkConfigurationError(message)
-    if resample_count <= 0:
-        message = "resample_count must be positive"
+    if resample_count < 2:
+        message = "resample_count must be at least 2 for a meaningful bootstrap"
         raise BenchmarkConfigurationError(message)
     if not 0 < confidence_level < 1:
         message = "confidence_level must be between 0 and 1 exclusive"

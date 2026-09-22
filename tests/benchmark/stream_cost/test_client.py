@@ -8,6 +8,7 @@ from benchmarks.stream_cost.client import (
     BenchmarkClientTopologyConfig,
     build_dedicated_client,
 )
+from benchmarks.stream_cost.errors import BenchmarkConfigurationError
 
 pytestmark = pytest.mark.unit
 
@@ -47,7 +48,7 @@ class _StubClient:
                 tls_enabled=True,
                 compression_enabled=True,
                 discovery_enabled=True,
-                shared_connections=True,
+                shared_connections=False,
             ),
             {
                 "directConnection": False,
@@ -83,3 +84,14 @@ def test_build_dedicated_client_passes_through_event_listeners(
     build_dedicated_client("mongodb://example/", config, event_listeners=[listener])
     assert _StubClient.last_kwargs is not None
     assert _StubClient.last_kwargs["event_listeners"] == [listener]
+
+
+def test_build_dedicated_client_rejects_shared_connections() -> None:
+    config = BenchmarkClientTopologyConfig(
+        tls_enabled=False,
+        compression_enabled=False,
+        discovery_enabled=False,
+        shared_connections=True,
+    )
+    with pytest.raises(BenchmarkConfigurationError, match="shared_connections"):
+        build_dedicated_client("mongodb://example/", config)
