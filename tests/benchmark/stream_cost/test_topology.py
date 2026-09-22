@@ -272,14 +272,28 @@ def test_exit_stops_the_container() -> None:
         _ = replica_set.uri
 
 
-def test_exit_suppresses_stop_failure_and_still_resets_state() -> None:
+def test_exit_surfaces_stop_failure_when_no_exception_is_active() -> None:
     replica_set = IsolatedReplicaSet(ResourceLimits(cpus=1.0, memory="512m"))
     fake_container = _FakeContainer(
         {"cpu_stats": {"cpu_usage": {"total_usage": 0}}}, fail_stop=True
     )
     replica_set._container = fake_container  # type: ignore[assignment]
     replica_set._uri = "mongodb://stub/"
-    replica_set.__exit__()
+    with pytest.raises(DockerException, match="stop failed"):
+        replica_set.__exit__()
+    assert fake_container.stopped is True
+    with pytest.raises(BenchmarkSetupError, match="has not been started"):
+        _ = replica_set.uri
+
+
+def test_exit_suppresses_stop_failure_when_an_exception_is_already_active() -> None:
+    replica_set = IsolatedReplicaSet(ResourceLimits(cpus=1.0, memory="512m"))
+    fake_container = _FakeContainer(
+        {"cpu_stats": {"cpu_usage": {"total_usage": 0}}}, fail_stop=True
+    )
+    replica_set._container = fake_container  # type: ignore[assignment]
+    replica_set._uri = "mongodb://stub/"
+    replica_set.__exit__(RuntimeError, RuntimeError("benchmark body failed"), None)
     assert fake_container.stopped is True
     with pytest.raises(BenchmarkSetupError, match="has not been started"):
         _ = replica_set.uri
