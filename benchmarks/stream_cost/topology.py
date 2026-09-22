@@ -34,8 +34,17 @@ _ELECTION_TIMEOUT_SECONDS = 30.0
 _ELECTION_POLL_INTERVAL_SECONDS = 0.1
 _NANOCPUS_PER_CPU = 1_000_000_000
 _NANOSECONDS_PER_SECOND = 1_000_000_000
-_MEMORY_PATTERN = re.compile(r"^(\d+(?:\.\d+)?)([bkmg]?)$", re.IGNORECASE)
-_MEMORY_UNIT_MULTIPLIERS = {"": 1, "b": 1, "k": 1024, "m": 1024**2, "g": 1024**3}
+_MEMORY_PATTERN = re.compile(r"^(\d+(?:\.\d+)?)(kb|mb|gb|b|k|m|g)?$", re.IGNORECASE)
+_MEMORY_UNIT_MULTIPLIERS = {
+    "": 1,
+    "b": 1,
+    "k": 1024,
+    "kb": 1024,
+    "m": 1024**2,
+    "mb": 1024**2,
+    "g": 1024**3,
+    "gb": 1024**3,
+}
 
 
 def _parse_memory_bytes(memory: str) -> float:
@@ -43,8 +52,13 @@ def _parse_memory_bytes(memory: str) -> float:
     if match is None:
         message = f"memory ({memory!r}) is not a valid Docker memory quantity"
         raise BenchmarkConfigurationError(message)
-    multiplier = _MEMORY_UNIT_MULTIPLIERS[match.group(2).lower()]
-    return float(match.group(1)) * multiplier
+    unit = (match.group(2) or "").lower()
+    multiplier = _MEMORY_UNIT_MULTIPLIERS[unit]
+    value = float(match.group(1)) * multiplier
+    if not math.isfinite(value):
+        message = f"memory ({memory!r}) overflows to a non-finite byte quantity"
+        raise BenchmarkConfigurationError(message)
+    return value
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,15 +141,20 @@ class IsolatedReplicaSet:
     def __exit__(
         self,
         exc_type: type[BaseException] | None = None,
-        _exc: BaseException | None = None,
+        exc: BaseException | None = None,
         _tb: TracebackType | None = None,
     ) -> None:
         if self._container is None:
             return
         try:
             if exc_type is not None:
-                with contextlib.suppress(DockerException, ContainerStartException):
+                try:
                     self._container.stop()
+                except (DockerException, ContainerStartException) as cleanup_error:
+                    if exc is not None:
+                        exc.add_note(
+                            f"additionally, container cleanup failed: {cleanup_error}"
+                        )
             else:
                 self._container.stop()
         finally:

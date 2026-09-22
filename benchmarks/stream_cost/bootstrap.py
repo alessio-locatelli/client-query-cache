@@ -52,8 +52,10 @@ def block_bootstrap_percentile_ci(
     resample_count: int,
     seed: int,
 ) -> ConfidenceInterval:
-    if not windows:
-        message = "at least one capture window is required"
+    if len(windows) < 2:
+        message = (
+            "at least two capture windows are required for a valid block bootstrap"
+        )
         raise BenchmarkConfigurationError(message)
     window_sizes = {len(window) for window in windows}
     if window_sizes == {0}:
