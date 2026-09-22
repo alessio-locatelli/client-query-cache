@@ -199,6 +199,36 @@ def test_calibration_series_has_election_change(
     assert series.has_election_change is expected
 
 
+def _sample_with_readings(*, wall_t0: float, monotonic_t0: float) -> ClockSample:
+    return ClockSample(
+        wall_t0=wall_t0,
+        wall_t1=wall_t0 + 0.1,
+        monotonic_t0=monotonic_t0,
+        monotonic_t1=monotonic_t0 + 0.1,
+        server_time_seconds=wall_t0 + 0.05 + 10.0,
+        election_id=None,
+    )
+
+
+@pytest.mark.parametrize(
+    ("second_wall_t0", "second_monotonic_t0", "tolerance", "expected"),
+    [
+        (100.0, 100.0, 0.05, False),
+        (100.2, 100.0, 0.05, True),
+        (100.02, 100.0, 0.05, False),
+    ],
+)
+def test_calibration_series_has_host_clock_step(
+    second_wall_t0: float, second_monotonic_t0: float, tolerance: float, expected: bool
+) -> None:
+    initial = _sample_with_readings(wall_t0=0.0, monotonic_t0=0.0)
+    second = _sample_with_readings(
+        wall_t0=second_wall_t0, monotonic_t0=second_monotonic_t0
+    )
+    series = CalibrationSeries(samples=(initial, second))
+    assert series.has_host_clock_step(tolerance_seconds=tolerance) is expected
+
+
 @pytest.mark.parametrize(
     ("cadence", "threshold", "should_raise"),
     [
@@ -332,4 +362,31 @@ def test_topology_change_listener_detects_primary_change() -> None:
         )
     )
     listener.description_changed(new_primary_event)  # type: ignore[arg-type]
+    assert listener.primary_changed is True
+
+
+def test_topology_change_listener_detects_stepdown_and_return_to_same_primary() -> None:
+    listener = TopologyChangeListener()
+    primary_event = _FakeTopologyDescriptionChangedEvent(
+        _FakeTopologyDescription(
+            {("host", 1): _FakeServerDescription(is_writable=True)}
+        )
+    )
+    listener.description_changed(primary_event)  # type: ignore[arg-type]
+    assert listener.primary_changed is False
+
+    no_primary_event = _FakeTopologyDescriptionChangedEvent(
+        _FakeTopologyDescription(
+            {("host", 1): _FakeServerDescription(is_writable=False)}
+        )
+    )
+    listener.description_changed(no_primary_event)  # type: ignore[arg-type]
+    assert listener.primary_changed is False
+
+    same_primary_returns_event = _FakeTopologyDescriptionChangedEvent(
+        _FakeTopologyDescription(
+            {("host", 1): _FakeServerDescription(is_writable=True)}
+        )
+    )
+    listener.description_changed(same_primary_returns_event)  # type: ignore[arg-type]
     assert listener.primary_changed is True

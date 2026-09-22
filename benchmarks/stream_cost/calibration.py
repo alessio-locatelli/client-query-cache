@@ -128,6 +128,22 @@ class CalibrationSeries:
         }
         return len(election_ids) > 1
 
+    def has_host_clock_step(self, *, tolerance_seconds: float) -> bool:
+        initial_reading = PairedReading(
+            wall_seconds=self.initial.wall_t0,
+            monotonic_seconds=self.initial.monotonic_t0,
+        )
+        return any(
+            host_clock_stepped(
+                initial_reading,
+                PairedReading(
+                    wall_seconds=sample.wall_t0, monotonic_seconds=sample.monotonic_t0
+                ),
+                tolerance_seconds=tolerance_seconds,
+            )
+            for sample in self.samples[1:]
+        )
+
 
 def validate_cadence(
     cadence_seconds: float, threshold_seconds: float, *, max_fraction: float = 0.1
@@ -198,6 +214,7 @@ class TopologyChangeListener(TopologyListener):
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._current_primary: tuple[str, int | None] | None = None
+        self._primary_lost = False
         self._primary_changed = False
 
     @property
@@ -211,15 +228,17 @@ class TopologyChangeListener(TopologyListener):
 
     def description_changed(self, event: TopologyDescriptionChangedEvent) -> None:
         new_primary = _writable_primary_address(event.new_description)
-        if new_primary is None:
-            return
         with self._lock:
-            if (
-                self._current_primary is not None
-                and new_primary != self._current_primary
+            if new_primary is None:
+                if self._current_primary is not None:
+                    self._primary_lost = True
+                return
+            if self._current_primary is not None and (
+                new_primary != self._current_primary or self._primary_lost
             ):
                 self._primary_changed = True
             self._current_primary = new_primary
+            self._primary_lost = False
 
     @staticmethod
     def closed(_event: TopologyClosedEvent) -> None:

@@ -88,6 +88,21 @@ def test_block_bootstrap_rejects_below_sample_count_floor() -> None:
         )
 
 
+def test_block_bootstrap_rejects_all_empty_windows() -> None:
+    with pytest.raises(BenchmarkConfigurationError, match="must not be empty"):
+        block_bootstrap_percentile_ci(
+            ((), ()), percentile=0.5, confidence_level=0.95, resample_count=10, seed=1
+        )
+
+
+def test_block_bootstrap_rejects_unequal_window_sizes() -> None:
+    windows = ((1.0, 2.0), (3.0,))
+    with pytest.raises(BenchmarkConfigurationError, match="must all be the same size"):
+        block_bootstrap_percentile_ci(
+            windows, percentile=0.5, confidence_level=0.95, resample_count=10, seed=1
+        )
+
+
 def test_block_bootstrap_point_estimate_matches_full_sample_percentile() -> None:
     windows = tuple((float(value),) for value in range(1, 101))
     ci = block_bootstrap_percentile_ci(
@@ -173,6 +188,14 @@ def test_delta_threshold_decisive(
 )
 def test_bonferroni_confidence_level(target_confidence: float, expected: float) -> None:
     assert bonferroni_confidence_level(target_confidence) == pytest.approx(expected)
+
+
+@pytest.mark.parametrize("target_confidence", [0.0, 1.0, -0.5, 1.5])
+def test_bonferroni_confidence_level_rejects_out_of_range_target(
+    target_confidence: float,
+) -> None:
+    with pytest.raises(BenchmarkConfigurationError, match="target_confidence_level"):
+        bonferroni_confidence_level(target_confidence)
 
 
 def test_bonferroni_delta_interval_centers_on_the_supplied_delta() -> None:
