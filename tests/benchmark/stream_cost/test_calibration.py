@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, cast
 import pytest
 
 from benchmarks.stream_cost.calibration import (
+    CalibrationPoint,
     CalibrationSeries,
     ClockSample,
     PairedReading,
@@ -70,10 +71,10 @@ def test_sample_clock_offset_computes_offset_and_uncertainty(
     def send_hello() -> dict[str, object]:
         return {"localTime": server_time, "electionId": None}
 
-    sample = sample_clock_offset(send_hello, rounds=1)
+    point = sample_clock_offset(send_hello, rounds=1)
     expected_offset = server_time.timestamp() - (100.0 + 100.2) / 2
-    assert sample.offset_seconds == pytest.approx(expected_offset)
-    assert sample.uncertainty_seconds == pytest.approx(0.2 / 2 + 0.001)
+    assert point.selected.offset_seconds == pytest.approx(expected_offset)
+    assert point.selected.uncertainty_seconds == pytest.approx(0.2 / 2 + 0.001)
 
 
 def test_sample_clock_offset_treats_naive_datetime_as_utc(
@@ -89,8 +90,8 @@ def test_sample_clock_offset_treats_naive_datetime_as_utc(
     naive_time = datetime(2024, 1, 1)  # noqa: DTZ001
     aware_time = naive_time.replace(tzinfo=UTC)
 
-    sample = sample_clock_offset(lambda: {"localTime": naive_time}, rounds=1)
-    assert sample.offset_seconds == pytest.approx(aware_time.timestamp())
+    point = sample_clock_offset(lambda: {"localTime": naive_time}, rounds=1)
+    assert point.selected.offset_seconds == pytest.approx(aware_time.timestamp())
 
 
 def test_sample_clock_offset_selects_minimum_round_trip(
@@ -112,12 +113,39 @@ def test_sample_clock_offset_selects_minimum_round_trip(
         ]
     )
 
-    sample = sample_clock_offset(lambda: next(responses), rounds=3)
-    assert sample.election_id == "b"
-    assert sample.round_trip_seconds == pytest.approx(0.05)
+    point = sample_clock_offset(lambda: next(responses), rounds=3)
+    assert point.selected.election_id == "b"
+    assert point.selected.round_trip_seconds == pytest.approx(0.05)
+    assert [sample.election_id for sample in point.rounds] == ["a", "b", "c"]
 
 
-def _sample(*, round_trip: float, offset: float) -> ClockSample:
+def test_sample_clock_offset_retains_every_round_not_just_the_winner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "benchmarks.stream_cost.calibration.time.time",
+        _sequence_source([100.0, 100.5, 200.0, 200.05]),
+    )
+    monkeypatch.setattr(
+        "benchmarks.stream_cost.calibration.time.monotonic",
+        _sequence_source([1000.0, 1000.5, 2000.0, 2000.05]),
+    )
+    responses = iter(
+        [
+            {"localTime": datetime(2024, 1, 1, tzinfo=UTC), "electionId": "a"},
+            {"localTime": datetime(2024, 1, 2, tzinfo=UTC), "electionId": "b"},
+        ]
+    )
+
+    point = sample_clock_offset(lambda: next(responses), rounds=2)
+    assert point.selected.election_id == "b"
+    assert len(point.rounds) == 2
+    assert point.rounds[0].election_id == "a"
+
+
+def _clock_sample(
+    *, round_trip: float, offset: float, election_id: object = None
+) -> ClockSample:
     wall_t0 = 0.0
     wall_t1 = round_trip
     mid = (wall_t0 + wall_t1) / 2
@@ -127,34 +155,58 @@ def _sample(*, round_trip: float, offset: float) -> ClockSample:
         monotonic_t0=0.0,
         monotonic_t1=round_trip,
         server_time_seconds=mid + offset,
-        election_id=None,
+        election_id=election_id,
     )
 
 
-def test_calibration_series_rejects_empty_samples() -> None:
+def _point(
+    *, round_trip: float = 0.1, offset: float = 10.0, election_id: object = None
+) -> CalibrationPoint:
+    sample = _clock_sample(
+        round_trip=round_trip, offset=offset, election_id=election_id
+    )
+    return CalibrationPoint(selected=sample, rounds=(sample,))
+
+
+def test_calibration_point_rejects_selected_outside_rounds() -> None:
+    selected = _clock_sample(round_trip=0.1, offset=10.0)
+    other = _clock_sample(round_trip=0.2, offset=20.0)
     with pytest.raises(
-        BenchmarkConfigurationError, match="at least one calibration sample"
+        BenchmarkConfigurationError, match="selected must be one of rounds"
     ):
-        CalibrationSeries(samples=())
+        CalibrationPoint(selected=selected, rounds=(other,))
+
+
+def test_calibration_point_rejects_empty_rounds() -> None:
+    selected = _clock_sample(round_trip=0.1, offset=10.0)
+    with pytest.raises(BenchmarkConfigurationError, match="at least one round"):
+        CalibrationPoint(selected=selected, rounds=())
+
+
+def test_calibration_series_rejects_empty_points() -> None:
+    with pytest.raises(
+        BenchmarkConfigurationError, match="at least one calibration point"
+    ):
+        CalibrationSeries(points=())
 
 
 def test_calibration_series_total_uncertainty_with_single_sample() -> None:
-    initial = _sample(round_trip=0.1, offset=10.0)
-    series = CalibrationSeries(samples=(initial,))
+    initial = _point(round_trip=0.1, offset=10.0)
+    series = CalibrationSeries(points=(initial,))
     assert series.total_uncertainty_seconds == pytest.approx(
-        initial.uncertainty_seconds
+        initial.selected.uncertainty_seconds
     )
 
 
 def test_calibration_series_total_uncertainty_dominated_by_drift() -> None:
-    initial = _sample(round_trip=0.1, offset=10.0)
-    drifted = _sample(round_trip=0.2, offset=10.5)
-    series = CalibrationSeries(samples=(initial, drifted))
-    drift = series.drift_seconds(drifted)
+    initial = _point(round_trip=0.1, offset=10.0)
+    drifted = _point(round_trip=0.2, offset=10.5)
+    series = CalibrationSeries(points=(initial, drifted))
+    drift = series.drift_seconds(drifted.selected)
     assert drift == pytest.approx(0.5)
-    combined_uncertainty = series.combined_drift_uncertainty_seconds(drifted)
+    combined_uncertainty = series.combined_drift_uncertainty_seconds(drifted.selected)
     assert combined_uncertainty == pytest.approx(
-        initial.uncertainty_seconds + drifted.uncertainty_seconds
+        initial.selected.uncertainty_seconds + drifted.selected.uncertainty_seconds
     )
     assert series.total_uncertainty_seconds == pytest.approx(
         drift + combined_uncertainty
@@ -171,9 +223,9 @@ def test_calibration_series_total_uncertainty_dominated_by_drift() -> None:
 def test_calibration_series_exceeds_drift_tolerance(
     tolerance: float, expected: bool
 ) -> None:
-    initial = _sample(round_trip=0.1, offset=10.0)
-    drifted = _sample(round_trip=0.1, offset=10.5)
-    series = CalibrationSeries(samples=(initial, drifted))
+    initial = _point(round_trip=0.1, offset=10.0)
+    drifted = _point(round_trip=0.1, offset=10.5)
+    series = CalibrationSeries(points=(initial, drifted))
     assert series.exceeds_drift_tolerance(tolerance) is expected
 
 
@@ -190,19 +242,20 @@ def test_calibration_series_exceeds_drift_tolerance(
 def test_calibration_series_has_election_change(
     election_ids: tuple[object, ...], expected: bool
 ) -> None:
-    samples = tuple(
-        ClockSample(
-            wall_t0=0.0,
-            wall_t1=0.1,
-            monotonic_t0=0.0,
-            monotonic_t1=0.1,
-            server_time_seconds=10.05,
-            election_id=election_id,
-        )
+    points = tuple(
+        _point(round_trip=0.1, offset=10.0, election_id=election_id)
         for election_id in election_ids
     )
-    series = CalibrationSeries(samples=samples)
+    series = CalibrationSeries(points=points)
     assert series.has_election_change is expected
+
+
+def test_has_election_change_detects_change_in_a_discarded_round() -> None:
+    winner = _clock_sample(round_trip=0.05, offset=10.0, election_id="a")
+    loser = _clock_sample(round_trip=0.2, offset=10.0, election_id="b")
+    point = CalibrationPoint(selected=winner, rounds=(loser, winner))
+    series = CalibrationSeries(points=(point,))
+    assert series.has_election_change is True
 
 
 def _sample_with_readings(*, wall_t0: float, monotonic_t0: float) -> ClockSample:
@@ -216,6 +269,11 @@ def _sample_with_readings(*, wall_t0: float, monotonic_t0: float) -> ClockSample
     )
 
 
+def _point_with_readings(*, wall_t0: float, monotonic_t0: float) -> CalibrationPoint:
+    sample = _sample_with_readings(wall_t0=wall_t0, monotonic_t0=monotonic_t0)
+    return CalibrationPoint(selected=sample, rounds=(sample,))
+
+
 @pytest.mark.parametrize(
     ("second_wall_t0", "second_monotonic_t0", "tolerance", "expected"),
     [
@@ -227,11 +285,11 @@ def _sample_with_readings(*, wall_t0: float, monotonic_t0: float) -> ClockSample
 def test_calibration_series_has_host_clock_step(
     second_wall_t0: float, second_monotonic_t0: float, tolerance: float, expected: bool
 ) -> None:
-    initial = _sample_with_readings(wall_t0=0.0, monotonic_t0=0.0)
-    second = _sample_with_readings(
+    initial = _point_with_readings(wall_t0=0.0, monotonic_t0=0.0)
+    second = _point_with_readings(
         wall_t0=second_wall_t0, monotonic_t0=second_monotonic_t0
     )
-    series = CalibrationSeries(samples=(initial, second))
+    series = CalibrationSeries(points=(initial, second))
     assert series.has_host_clock_step(tolerance_seconds=tolerance) is expected
 
 
@@ -244,7 +302,23 @@ def test_calibration_series_has_host_clock_step_detects_within_sample_step() -> 
         server_time_seconds=0.25,
         election_id=None,
     )
-    series = CalibrationSeries(samples=(stepped_sample,))
+    point = CalibrationPoint(selected=stepped_sample, rounds=(stepped_sample,))
+    series = CalibrationSeries(points=(point,))
+    assert series.has_host_clock_step(tolerance_seconds=0.05) is True
+
+
+def test_has_host_clock_step_detects_step_in_a_discarded_round() -> None:
+    good_sample = _sample_with_readings(wall_t0=0.0, monotonic_t0=0.0)
+    stepped_sample = ClockSample(
+        wall_t0=1.0,
+        wall_t1=1.5,
+        monotonic_t0=1.0,
+        monotonic_t1=1.1,
+        server_time_seconds=1.25,
+        election_id=None,
+    )
+    point = CalibrationPoint(selected=good_sample, rounds=(stepped_sample, good_sample))
+    series = CalibrationSeries(points=(point,))
     assert series.has_host_clock_step(tolerance_seconds=0.05) is True
 
 

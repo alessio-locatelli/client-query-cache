@@ -205,4 +205,8 @@ class IsolatedReplicaSet:
         if not isinstance(stats, dict):
             message = "stats(stream=False) unexpectedly returned an iterator"
             raise TypeError(message)
-        return int(stats["cpu_stats"]["cpu_usage"]["total_usage"])
+        usage_nanoseconds = int(stats["cpu_stats"]["cpu_usage"]["total_usage"])
+        if usage_nanoseconds < 0:
+            message = f"total_usage ({usage_nanoseconds}) must not be negative"
+            raise ValueError(message)
+        return usage_nanoseconds
