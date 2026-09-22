@@ -69,7 +69,11 @@ def test_sample_clock_offset_computes_offset_and_uncertainty(
     server_time = datetime(2024, 1, 1, tzinfo=UTC)
 
     def send_hello() -> dict[str, object]:
-        return {"localTime": server_time, "electionId": None}
+        return {
+            "localTime": server_time,
+            "electionId": "election-1",
+            "isWritablePrimary": True,
+        }
 
     point = sample_clock_offset(send_hello, rounds=1)
     expected_offset = server_time.timestamp() - (100.0 + 100.2) / 2
@@ -90,7 +94,14 @@ def test_sample_clock_offset_treats_naive_datetime_as_utc(
     naive_time = datetime(2024, 1, 1)  # noqa: DTZ001
     aware_time = naive_time.replace(tzinfo=UTC)
 
-    point = sample_clock_offset(lambda: {"localTime": naive_time}, rounds=1)
+    point = sample_clock_offset(
+        lambda: {
+            "localTime": naive_time,
+            "electionId": "election-1",
+            "isWritablePrimary": True,
+        },
+        rounds=1,
+    )
     assert point.selected.offset_seconds == pytest.approx(aware_time.timestamp())
 
 
@@ -107,9 +118,21 @@ def test_sample_clock_offset_selects_minimum_round_trip(
     )
     responses = iter(
         [
-            {"localTime": datetime(2024, 1, 1, tzinfo=UTC), "electionId": "a"},
-            {"localTime": datetime(2024, 1, 2, tzinfo=UTC), "electionId": "b"},
-            {"localTime": datetime(2024, 1, 3, tzinfo=UTC), "electionId": "c"},
+            {
+                "localTime": datetime(2024, 1, 1, tzinfo=UTC),
+                "electionId": "a",
+                "isWritablePrimary": True,
+            },
+            {
+                "localTime": datetime(2024, 1, 2, tzinfo=UTC),
+                "electionId": "b",
+                "isWritablePrimary": True,
+            },
+            {
+                "localTime": datetime(2024, 1, 3, tzinfo=UTC),
+                "electionId": "c",
+                "isWritablePrimary": True,
+            },
         ]
     )
 
@@ -132,8 +155,16 @@ def test_sample_clock_offset_retains_every_round_not_just_the_winner(
     )
     responses = iter(
         [
-            {"localTime": datetime(2024, 1, 1, tzinfo=UTC), "electionId": "a"},
-            {"localTime": datetime(2024, 1, 2, tzinfo=UTC), "electionId": "b"},
+            {
+                "localTime": datetime(2024, 1, 1, tzinfo=UTC),
+                "electionId": "a",
+                "isWritablePrimary": True,
+            },
+            {
+                "localTime": datetime(2024, 1, 2, tzinfo=UTC),
+                "electionId": "b",
+                "isWritablePrimary": True,
+            },
         ]
     )
 
@@ -141,6 +172,32 @@ def test_sample_clock_offset_retains_every_round_not_just_the_winner(
     assert point.selected.election_id == "b"
     assert len(point.rounds) == 2
     assert point.rounds[0].election_id == "a"
+
+
+def test_sample_clock_offset_rejects_a_response_not_from_the_primary() -> None:
+    def send_hello() -> dict[str, object]:
+        return {
+            "localTime": datetime(2024, 1, 1, tzinfo=UTC),
+            "electionId": "a",
+            "isWritablePrimary": False,
+        }
+
+    with pytest.raises(
+        BenchmarkConfigurationError, match="not from a writable primary"
+    ):
+        sample_clock_offset(send_hello, rounds=1)
+
+
+def test_sample_clock_offset_rejects_a_response_missing_election_id() -> None:
+    def send_hello() -> dict[str, object]:
+        return {
+            "localTime": datetime(2024, 1, 1, tzinfo=UTC),
+            "electionId": None,
+            "isWritablePrimary": True,
+        }
+
+    with pytest.raises(BenchmarkConfigurationError, match="missing electionId"):
+        sample_clock_offset(send_hello, rounds=1)
 
 
 def _clock_sample(
@@ -336,6 +393,25 @@ def test_validate_cadence(cadence: float, threshold: float, should_raise: bool) 
             validate_cadence(cadence, threshold)
     else:
         validate_cadence(cadence, threshold)
+
+
+@pytest.mark.parametrize(
+    ("cadence", "threshold", "max_fraction", "match"),
+    [
+        (-1.0, 10.0, 0.1, "cadence_seconds"),
+        (float("nan"), 10.0, 0.1, "cadence_seconds"),
+        (0.0, 10.0, 0.1, "cadence_seconds"),
+        (1.0, -10.0, 0.1, "threshold_seconds"),
+        (1.0, float("nan"), 0.1, "threshold_seconds"),
+        (1.0, 10.0, -0.1, "max_fraction"),
+        (1.0, 10.0, float("nan"), "max_fraction"),
+    ],
+)
+def test_validate_cadence_rejects_invalid_inputs(
+    cadence: float, threshold: float, max_fraction: float, match: str
+) -> None:
+    with pytest.raises(BenchmarkConfigurationError, match=match):
+        validate_cadence(cadence, threshold, max_fraction=max_fraction)
 
 
 @pytest.mark.parametrize(

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import threading
 import time
 from dataclasses import dataclass
@@ -84,6 +85,13 @@ def sample_clock_offset(
         response = send_hello()
         wall_t1 = time.time()
         monotonic_t1 = time.monotonic()
+        if response.get("isWritablePrimary") is not True:
+            message = "hello response is not from a writable primary"
+            raise BenchmarkConfigurationError(message)
+        election_id = response.get("electionId")
+        if election_id is None:
+            message = "hello response is missing electionId"
+            raise BenchmarkConfigurationError(message)
         local_time = response["localTime"]
         assert isinstance(local_time, datetime)
         sample = ClockSample(
@@ -92,7 +100,7 @@ def sample_clock_offset(
             monotonic_t0=monotonic_t0,
             monotonic_t1=monotonic_t1,
             server_time_seconds=_bson_datetime_to_epoch_seconds(local_time),
-            election_id=response.get("electionId"),
+            election_id=election_id,
         )
         collected.append(sample)
         if best is None or sample.round_trip_seconds < best.round_trip_seconds:
@@ -177,6 +185,15 @@ class CalibrationSeries:
 def validate_cadence(
     cadence_seconds: float, threshold_seconds: float, *, max_fraction: float = 0.1
 ) -> None:
+    if not math.isfinite(cadence_seconds) or cadence_seconds <= 0:
+        message = "cadence_seconds must be a positive, finite number"
+        raise BenchmarkConfigurationError(message)
+    if not math.isfinite(threshold_seconds) or threshold_seconds <= 0:
+        message = "threshold_seconds must be a positive, finite number"
+        raise BenchmarkConfigurationError(message)
+    if not math.isfinite(max_fraction) or max_fraction <= 0:
+        message = "max_fraction must be a positive, finite number"
+        raise BenchmarkConfigurationError(message)
     if cadence_seconds > threshold_seconds * max_fraction:
         message = (
             f"calibration cadence ({cadence_seconds}s) exceeds "

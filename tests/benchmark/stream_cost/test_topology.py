@@ -32,17 +32,20 @@ class _FakeStats:
 
 
 class _FakeContainer:
-    __slots__ = ("_wrapped", "stopped")
+    __slots__ = ("_fail_stop", "_wrapped", "stopped")
 
-    def __init__(self, stats_result: object) -> None:
+    def __init__(self, stats_result: object, *, fail_stop: bool = False) -> None:
         self._wrapped = _FakeStats(stats_result)
         self.stopped = False
+        self._fail_stop = fail_stop
 
     def get_wrapped_container(self) -> _FakeStats:
         return self._wrapped
 
     def stop(self) -> None:
         self.stopped = True
+        if self._fail_stop:
+            raise DockerException("stop failed")
 
 
 class _FakeMongoClient:
@@ -261,6 +264,19 @@ def test_exit_without_start_is_a_noop() -> None:
 def test_exit_stops_the_container() -> None:
     replica_set = IsolatedReplicaSet(ResourceLimits(cpus=1.0, memory="512m"))
     fake_container = _FakeContainer({"cpu_stats": {"cpu_usage": {"total_usage": 0}}})
+    replica_set._container = fake_container  # type: ignore[assignment]
+    replica_set._uri = "mongodb://stub/"
+    replica_set.__exit__()
+    assert fake_container.stopped is True
+    with pytest.raises(BenchmarkSetupError, match="has not been started"):
+        _ = replica_set.uri
+
+
+def test_exit_suppresses_stop_failure_and_still_resets_state() -> None:
+    replica_set = IsolatedReplicaSet(ResourceLimits(cpus=1.0, memory="512m"))
+    fake_container = _FakeContainer(
+        {"cpu_stats": {"cpu_usage": {"total_usage": 0}}}, fail_stop=True
+    )
     replica_set._container = fake_container  # type: ignore[assignment]
     replica_set._uri = "mongodb://stub/"
     replica_set.__exit__()
