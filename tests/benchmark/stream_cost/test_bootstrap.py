@@ -46,10 +46,23 @@ def test_confidence_interval_rejects_inverted_bounds() -> None:
 
 def test_block_bootstrap_rejects_empty_windows() -> None:
     with pytest.raises(
-        BenchmarkConfigurationError, match="at least one capture window"
+        BenchmarkConfigurationError, match="at least two capture windows"
     ):
         block_bootstrap_percentile_ci(
             (), percentile=0.5, confidence_level=0.95, resample_count=10, seed=1
+        )
+
+
+def test_block_bootstrap_rejects_a_single_window() -> None:
+    with pytest.raises(
+        BenchmarkConfigurationError, match="at least two capture windows"
+    ):
+        block_bootstrap_percentile_ci(
+            ((1.0, 2.0),),
+            percentile=0.5,
+            confidence_level=0.95,
+            resample_count=10,
+            seed=1,
         )
 
 
@@ -58,7 +71,7 @@ def test_block_bootstrap_rejects_non_positive_resample_count() -> None:
         BenchmarkConfigurationError, match="resample_count must be positive"
     ):
         block_bootstrap_percentile_ci(
-            ((1.0, 2.0),),
+            ((1.0, 2.0), (3.0, 4.0)),
             percentile=0.5,
             confidence_level=0.95,
             resample_count=0,
@@ -72,7 +85,7 @@ def test_block_bootstrap_rejects_out_of_range_confidence(
 ) -> None:
     with pytest.raises(BenchmarkConfigurationError, match="confidence_level"):
         block_bootstrap_percentile_ci(
-            ((1.0, 2.0),),
+            ((1.0, 2.0), (3.0, 4.0)),
             percentile=0.5,
             confidence_level=confidence_level,
             resample_count=10,

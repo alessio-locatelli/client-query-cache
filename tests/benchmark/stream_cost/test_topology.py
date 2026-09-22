@@ -91,6 +91,7 @@ class _StubHelloClient(_FakeMongoClient):
         (1.0, "0", "must be a positive quantity"),
         (1.0, "0m", "must be a positive quantity"),
         (1.0, "not-a-memory-quantity", "not a valid Docker memory quantity"),
+        (1.0, "1" + "0" * 400, "non-finite byte quantity"),
     ],
 )
 def test_resource_limits_rejects_invalid_values(
@@ -98,6 +99,11 @@ def test_resource_limits_rejects_invalid_values(
 ) -> None:
     with pytest.raises(BenchmarkConfigurationError, match=match):
         ResourceLimits(cpus=cpus, memory=memory)
+
+
+@pytest.mark.parametrize("memory", ["512m", "512mb", "1g", "1gb", "1024k", "1024kb"])
+def test_resource_limits_accepts_docker_memory_suffixes(memory: str) -> None:
+    ResourceLimits(cpus=1.0, memory=memory)
 
 
 def test_isolated_replica_set_wraps_docker_startup_failure() -> None:
@@ -296,7 +302,25 @@ def test_exit_suppresses_stop_failure_when_an_exception_is_already_active() -> N
     )
     replica_set._container = fake_container  # type: ignore[assignment]
     replica_set._uri = "mongodb://stub/"
-    replica_set.__exit__(RuntimeError, RuntimeError("benchmark body failed"), None)
+    body_error = RuntimeError("benchmark body failed")
+    replica_set.__exit__(RuntimeError, body_error, None)
+    assert fake_container.stopped is True
+    assert any(
+        "container cleanup failed" in note
+        for note in getattr(body_error, "__notes__", [])
+    )
+    with pytest.raises(BenchmarkSetupError, match="has not been started"):
+        _ = replica_set.uri
+
+
+def test_exit_tolerates_a_missing_exception_instance() -> None:
+    replica_set = IsolatedReplicaSet(ResourceLimits(cpus=1.0, memory="512m"))
+    fake_container = _FakeContainer(
+        {"cpu_stats": {"cpu_usage": {"total_usage": 0}}}, fail_stop=True
+    )
+    replica_set._container = fake_container  # type: ignore[assignment]
+    replica_set._uri = "mongodb://stub/"
+    replica_set.__exit__(RuntimeError, None, None)
     assert fake_container.stopped is True
     with pytest.raises(BenchmarkSetupError, match="has not been started"):
         _ = replica_set.uri
