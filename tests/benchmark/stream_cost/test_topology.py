@@ -88,6 +88,9 @@ class _StubHelloClient(_FakeMongoClient):
         (float("nan"), "512m", "cpus must be a finite number"),
         (float("inf"), "512m", "cpus must be a finite number"),
         (1e308, "512m", "overflows the container runtime's nanocpu representation"),
+        (1.0, "0", "must be a positive quantity"),
+        (1.0, "0m", "must be a positive quantity"),
+        (1.0, "not-a-memory-quantity", "not a valid Docker memory quantity"),
     ],
 )
 def test_resource_limits_rejects_invalid_values(

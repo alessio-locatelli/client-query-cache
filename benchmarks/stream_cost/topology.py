@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import math
+import re
 from dataclasses import dataclass
 from time import monotonic, sleep
 from typing import TYPE_CHECKING, Self
@@ -33,6 +34,17 @@ _ELECTION_TIMEOUT_SECONDS = 30.0
 _ELECTION_POLL_INTERVAL_SECONDS = 0.1
 _NANOCPUS_PER_CPU = 1_000_000_000
 _NANOSECONDS_PER_SECOND = 1_000_000_000
+_MEMORY_PATTERN = re.compile(r"^(\d+(?:\.\d+)?)([bkmg]?)$", re.IGNORECASE)
+_MEMORY_UNIT_MULTIPLIERS = {"": 1, "b": 1, "k": 1024, "m": 1024**2, "g": 1024**3}
+
+
+def _parse_memory_bytes(memory: str) -> float:
+    match = _MEMORY_PATTERN.match(memory.strip())
+    if match is None:
+        message = f"memory ({memory!r}) is not a valid Docker memory quantity"
+        raise BenchmarkConfigurationError(message)
+    multiplier = _MEMORY_UNIT_MULTIPLIERS[match.group(2).lower()]
+    return float(match.group(1)) * multiplier
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,6 +61,9 @@ class ResourceLimits:
             raise BenchmarkConfigurationError(message)
         if not self.memory:
             message = "memory must not be empty"
+            raise BenchmarkConfigurationError(message)
+        if _parse_memory_bytes(self.memory) <= 0:
+            message = f"memory ({self.memory!r}) must be a positive quantity"
             raise BenchmarkConfigurationError(message)
         nanocpus = self.cpus * _NANOCPUS_PER_CPU
         if not math.isfinite(nanocpus):
