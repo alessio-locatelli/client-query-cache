@@ -108,8 +108,16 @@ def test_block_bootstrap_point_estimate_matches_full_sample_percentile() -> None
     ci = block_bootstrap_percentile_ci(
         windows, percentile=0.5, confidence_level=0.95, resample_count=200, seed=7
     )
-    assert ci.point_estimate == pytest.approx(50.0)
+    assert ci.point_estimate == pytest.approx(51.0)
     assert ci.lower <= ci.point_estimate <= ci.upper
+
+
+def test_block_bootstrap_percentile_is_the_maximum_at_the_sample_count_floor() -> None:
+    windows = tuple((float(value),) for value in range(1, 101))
+    ci = block_bootstrap_percentile_ci(
+        windows, percentile=0.99, confidence_level=0.95, resample_count=200, seed=7
+    )
+    assert ci.point_estimate == pytest.approx(100.0)
 
 
 def test_block_bootstrap_is_deterministic_for_a_fixed_seed() -> None:
