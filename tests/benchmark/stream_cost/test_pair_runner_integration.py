@@ -74,9 +74,6 @@ def test_run_consolidated_stream_pair_produces_a_lag_distribution_per_run(
     )
     schedule = generate_relevant_write_schedule(3, total_duration_seconds=0.3, seed=1)
     order = counterbalanced_pair_order(config.pair_count)[0]
-    # A window sized to exactly this schedule's write count so the pair's
-    # tiny relevant-write traffic still completes at least one capture
-    # window, satisfying the percentile sample-count floor.
     cache_config = CacheCoreConfig(
         lag_capture_window_config=LagCaptureWindowConfig(
             window_count=1, events_per_window=3, min_separation_events=0
@@ -128,9 +125,6 @@ def test_run_consolidated_stream_pair_rejects_a_run_with_too_few_lag_samples(
     schedule = generate_relevant_write_schedule(1, total_duration_seconds=0.05, seed=1)
     order = counterbalanced_pair_order(config.pair_count)[0]
 
-    # No custom cache_config: the default 100-events-per-window capture
-    # never closes for a single relevant write, so the run's lag distribution
-    # stays empty and must be rejected rather than silently accepted.
     try:
         with pytest.raises(BenchmarkSetupError, match="invalidation-lag samples"):
             run_consolidated_stream_pair(

@@ -271,13 +271,6 @@ class TopologyChangeListener(TopologyListener):
             return self._primary_changed
 
     def reset(self) -> None:
-        # A shared listener spans every pair a multi-pair driver runs; a
-        # topology event correctly observed and failed in an earlier pair
-        # would otherwise stay latched and also fail every later pair, even
-        # one whose own calibration-to-pair interval was perfectly stable.
-        # Clearing _current_primary too (not just the flag) re-baselines
-        # cleanly: the next description_changed event is compared against
-        # "no known primary yet," so it can never itself look like a change.
         with self._lock:
             self._primary_changed = False
             self._current_primary = None

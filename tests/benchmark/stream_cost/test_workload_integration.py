@@ -129,8 +129,6 @@ def test_run_workload_variant_composes_the_configured_read_write_mix(
     assert outcome.writes_issued == variant.sampling.writes
     touched_count = collection.raw.count_documents({"touched": {"$gte": 1}})
     assert touched_count > 0
-    # The warmup ran through the normal admission path before sampling: at
-    # least one admission and one hit, plus whatever sampling added on top.
     assert after.entry_count > before.entry_count
     assert after.hits > before.hits
 
@@ -155,8 +153,6 @@ def test_run_workload_variant_still_primes_the_idle_variant(
     assert outcome.reads.raw_results == ()
     assert outcome.reads.cache_results == ()
     assert outcome.writes_issued == 0
-    # The idle variant's *sampling* window has zero operations, but its
-    # warmup phase still primes admission/hit counters before that window.
     assert after.entry_count > before.entry_count
     assert after.hits > before.hits
 
@@ -198,9 +194,6 @@ def test_run_paired_reads_rejects_mismatched_raw_and_cache_data(
     collection = database[persistent_collection_name]
     insert_dataset(collection.raw, dataset)
 
-    # A deliberately different raw collection stands in for a raw arm whose
-    # data has diverged from the cache arm's, exercising the mismatch check
-    # deterministically rather than racing real change-stream invalidation.
     mismatched_raw_collection = database.raw[nonpersistent_collection_name]
     mismatched_documents = [dict(document) for document in dataset.documents]
     for document in mismatched_documents:

@@ -239,8 +239,6 @@ def test_fails_when_the_listener_observed_a_primary_change(
         variant: PairVariant,
         **_kwargs: object,
     ) -> tuple[_StubManager, RunResult]:
-        # Simulate the primary changing mid-pair (between the two runs),
-        # which listener.reset() at the start of the pair must not hide.
         if variant is PairVariant.LOADED:
             listener.description_changed(_server_event(("host", 1)))
             listener.description_changed(_server_event(("host", 2)))

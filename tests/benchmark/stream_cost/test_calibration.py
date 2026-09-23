@@ -568,9 +568,6 @@ def test_topology_change_listener_reset_clears_a_latched_change() -> None:
     listener.reset()
     assert bool(listener.primary_changed) is False
 
-    # The reset baseline is "no known primary," so the very next event
-    # (even the same primary as before the reset) must not itself look
-    # like a change.
     listener.description_changed(
         _change_event({("host", 2): _FakeServerDescription(is_writable=True)})
     )
