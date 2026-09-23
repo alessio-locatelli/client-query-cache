@@ -11,6 +11,7 @@ from benchmarks.stream_cost.calibration import (
     CalibrationPoint,
     CalibrationSeries,
     ClockSample,
+    PairedReading,
     TopologyChangeListener,
 )
 from benchmarks.stream_cost.consolidated_stream import (
@@ -98,6 +99,7 @@ def _fake_run_result(variant: PairVariant) -> RunResult:
         relevant_write_count=1,
         unrelated_write_count_during_window=0,
         raw_lag_windows=(),
+        invalidation_apply_readings=(),
     )
 
 
@@ -376,6 +378,100 @@ def test_fails_when_the_hosts_wall_clock_was_stepped(
         )
 
 
+def test_fails_when_the_hosts_wall_clock_was_stepped_during_an_invalidation_apply(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = _StubManager()
+
+    def fake_run_single(
+        _client: object,
+        _previous_manager: object,
+        *,
+        variant: PairVariant,
+        **_kwargs: object,
+    ) -> tuple[_StubManager, RunResult]:
+        readings = (
+            (PairedReading(wall_seconds=100.0, monotonic_seconds=1.0),)
+            if variant is PairVariant.LOADED
+            else ()
+        )
+        return manager, RunResult(
+            variant=variant,
+            relevant_write_count=1,
+            unrelated_write_count_during_window=0,
+            raw_lag_windows=(),
+            invalidation_apply_readings=readings,
+        )
+
+    monkeypatch.setattr(pair_runner, "_run_single", fake_run_single)
+    _patch_calibration(
+        monkeypatch,
+        [
+            _point(wall_t0=0.0, offset=10.0),
+            _point(wall_t0=1.0, offset=10.0),
+            _point(wall_t0=2.0, offset=10.0),
+        ],
+    )
+
+    with pytest.raises(BenchmarkSetupError, match="invalidation was being applied"):
+        run_consolidated_stream_pair(
+            _dummy_client(),
+            TopologyChangeListener(),
+            database="db",
+            relevant_collection_names=["a", "b"],
+            unrelated_collection_name="unrelated",
+            config=_config(),
+            schedule=(0.0,),
+            order=_ORDER,
+        )
+
+
+def test_a_present_invalidation_apply_reading_that_did_not_step_does_not_fail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = _StubManager()
+
+    def fake_run_single(
+        _client: object,
+        _previous_manager: object,
+        *,
+        variant: PairVariant,
+        **_kwargs: object,
+    ) -> tuple[_StubManager, RunResult]:
+        return manager, RunResult(
+            variant=variant,
+            relevant_write_count=1,
+            unrelated_write_count_during_window=0,
+            raw_lag_windows=(),
+            invalidation_apply_readings=(
+                PairedReading(wall_seconds=0.05, monotonic_seconds=0.05),
+            ),
+        )
+
+    monkeypatch.setattr(pair_runner, "_run_single", fake_run_single)
+    _patch_calibration(
+        monkeypatch,
+        [
+            _point(wall_t0=0.0, offset=10.0),
+            _point(wall_t0=1.0, offset=10.0),
+            _point(wall_t0=2.0, offset=10.0),
+        ],
+    )
+
+    pair_result = run_consolidated_stream_pair(
+        _dummy_client(),
+        TopologyChangeListener(),
+        database="db",
+        relevant_collection_names=["a", "b"],
+        unrelated_collection_name="unrelated",
+        config=_config(),
+        schedule=(0.0,),
+        order=_ORDER,
+    )
+
+    assert pair_result.control.variant is PairVariant.CONTROL
+
+
 def test_returns_a_pair_result_when_everything_checks_out(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -456,6 +552,7 @@ def test_fails_when_relevant_write_counts_do_not_match(
             relevant_write_count=count,
             unrelated_write_count_during_window=0,
             raw_lag_windows=(),
+            invalidation_apply_readings=(),
         )
 
     monkeypatch.setattr(pair_runner, "_run_single", fake_run_single)
