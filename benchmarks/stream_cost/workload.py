@@ -156,7 +156,7 @@ class PrimingDelta:
 
 def priming_delta(before: CacheSnapshot, after: CacheSnapshot) -> PrimingDelta:
     return PrimingDelta(
-        admissions=after.entry_count - before.entry_count,
+        admissions=after.misses - before.misses,
         hits=after.hits - before.hits,
     )
 
