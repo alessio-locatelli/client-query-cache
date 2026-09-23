@@ -206,6 +206,29 @@ def test_sample_clock_offset_rejects_a_response_missing_election_id() -> None:
         sample_clock_offset(send_hello, rounds=1)
 
 
+@pytest.mark.parametrize(
+    "response",
+    [
+        pytest.param(
+            {"electionId": "a", "isWritablePrimary": True}, id="missing_local_time"
+        ),
+        pytest.param(
+            {
+                "localTime": "not-a-datetime",
+                "electionId": "a",
+                "isWritablePrimary": True,
+            },
+            id="malformed_local_time",
+        ),
+    ],
+)
+def test_sample_clock_offset_rejects_a_response_with_a_bad_local_time(
+    response: dict[str, object],
+) -> None:
+    with pytest.raises(BenchmarkConfigurationError, match="localTime"):
+        sample_clock_offset(lambda: response, rounds=1)
+
+
 def _clock_sample(
     *, round_trip: float, offset: float, election_id: object = None
 ) -> ClockSample:

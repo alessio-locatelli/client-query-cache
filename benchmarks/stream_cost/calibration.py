@@ -96,8 +96,10 @@ def sample_clock_offset(
         if election_id is None:
             message = "hello response is missing electionId"
             raise BenchmarkConfigurationError(message)
-        local_time = response["localTime"]
-        assert isinstance(local_time, datetime)
+        local_time = response.get("localTime")
+        if not isinstance(local_time, datetime):
+            message = "hello response is missing or has a malformed localTime"
+            raise BenchmarkConfigurationError(message)
         sample = ClockSample(
             wall_t0=wall_t0,
             wall_t1=wall_t1,
