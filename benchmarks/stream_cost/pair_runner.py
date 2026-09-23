@@ -279,6 +279,7 @@ def run_consolidated_stream_pair(
         )
         raise BenchmarkConfigurationError(message)
 
+    listener.reset()
     sampler = PeriodicCalibrationSampler(
         lambda: _send_hello(client),
         cadence_seconds=config.calibration_cadence_seconds,

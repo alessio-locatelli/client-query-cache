@@ -7,6 +7,7 @@ import pytest
 from benchmarks.stream_cost.errors import BenchmarkSetupError
 from benchmarks.stream_cost.workload import (
     STANDARD_WORKLOAD_VARIANTS,
+    OperationCounts,
     WorkloadKind,
     WorkloadVariant,
     insert_dataset,
@@ -158,6 +159,31 @@ def test_run_workload_variant_still_primes_the_idle_variant(
     # warmup phase still primes admission/hit counters before that window.
     assert after.entry_count > before.entry_count
     assert after.hits > before.hits
+
+
+def test_run_workload_variant_executes_configured_warmup_writes(
+    cache_manager: CacheManager[dict[str, Any]],
+    cached_database_name: DatabaseName,
+    persistent_collection_name: CollectionName,
+) -> None:
+    base_variant = _idle_small_variant()
+    variant = WorkloadVariant(
+        kind=base_variant.kind,
+        data_size=base_variant.data_size,
+        document_count=base_variant.document_count,
+        warmup=OperationCounts(reads=2, writes=3),
+        sampling=base_variant.sampling,
+        seed=base_variant.seed,
+    )
+    dataset = seed_dataset(variant)
+    database = cache_manager[cached_database_name]
+    collection = database[persistent_collection_name]
+    insert_dataset(collection.raw, dataset)
+
+    run_workload_variant(cache_manager, collection.raw, collection, variant, dataset)
+
+    touched_count = collection.raw.count_documents({"touched": {"$gte": 1}})
+    assert touched_count > 0
 
 
 def test_run_paired_reads_rejects_mismatched_raw_and_cache_data(

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, cast
@@ -59,20 +60,43 @@ def test_consolidated_stream_pair_config_accepts_valid_values() -> None:
         ("acceptable_lag_percentile", 0.0, "acceptable_lag_percentile"),
         ("acceptable_lag_percentile", 1.0, "acceptable_lag_percentile"),
         ("acceptable_lag_threshold_seconds", 0.0, "acceptable_lag_threshold_seconds"),
+        (
+            "acceptable_lag_threshold_seconds",
+            math.nan,
+            "acceptable_lag_threshold_seconds",
+        ),
+        (
+            "acceptable_lag_threshold_seconds",
+            math.inf,
+            "acceptable_lag_threshold_seconds",
+        ),
         ("relevant_write_count", 0, "relevant_write_count"),
         (
             "relevant_write_schedule_tolerance_seconds",
             0.0,
             "relevant_write_schedule_tolerance_seconds",
         ),
+        (
+            "relevant_write_schedule_tolerance_seconds",
+            math.nan,
+            "relevant_write_schedule_tolerance_seconds",
+        ),
         ("relevant_write_count_tolerance", -1, "relevant_write_count_tolerance"),
         ("unrelated_write_minimum_count", 0, "unrelated_write_minimum_count"),
         ("unrelated_write_interval_seconds", 0.0, "unrelated_write_interval_seconds"),
+        (
+            "unrelated_write_interval_seconds",
+            math.nan,
+            "unrelated_write_interval_seconds",
+        ),
         ("clock_drift_tolerance_seconds", 0.0, "clock_drift_tolerance_seconds"),
+        ("clock_drift_tolerance_seconds", math.nan, "clock_drift_tolerance_seconds"),
         ("calibration_cadence_seconds", 0.0, "cadence_seconds"),
         ("calibration_cadence_seconds", 1.0, "exceeds"),
         ("pair_count", MINIMUM_REPEATED_PAIRS - 1, "pair_count"),
         ("warmup_duration_seconds", 0.0, "warmup_duration_seconds"),
+        ("warmup_duration_seconds", math.nan, "warmup_duration_seconds"),
+        ("warmup_duration_seconds", math.inf, "warmup_duration_seconds"),
     ],
 )
 def test_consolidated_stream_pair_config_rejects_invalid_values(

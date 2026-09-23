@@ -287,6 +287,10 @@ def run_workload_variant(
         repeats=variant.warmup.reads,
     )
     verify_primed(before, manager.cache_core.snapshot(), variant_name=variant.name)
+    if variant.warmup.writes:
+        issue_writes(
+            raw_collection, dataset, variant.warmup.writes, seed=variant.seed + 3
+        )
 
     read_ids = sample_operation_ids(dataset, variant.sampling.reads, seed=variant.seed)
     reads = run_paired_reads(raw_collection, cache_collection, variant, read_ids)
