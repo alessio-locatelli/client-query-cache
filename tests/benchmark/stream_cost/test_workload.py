@@ -43,6 +43,7 @@ def _snapshot(
     *,
     entry_count: int = 0,
     hits: int = 0,
+    misses: int = 0,
     oversized_bypasses: int = 0,
 ) -> CacheSnapshot:
     return CacheSnapshot(
@@ -52,7 +53,7 @@ def _snapshot(
         max_entry_bytes=1,
         entry_count=entry_count,
         hits=hits,
-        misses=0,
+        misses=misses,
         evictions=0,
         bypasses=0,
         oversized_bypasses=oversized_bypasses,
@@ -206,15 +207,15 @@ def test_sample_operation_ids_is_deterministic_and_drawn_from_the_dataset() -> N
 
 
 def test_priming_delta_computes_admission_and_hit_deltas() -> None:
-    before = _snapshot(entry_count=1, hits=2)
-    after = _snapshot(entry_count=2, hits=5)
+    before = _snapshot(misses=1, hits=2)
+    after = _snapshot(misses=2, hits=5)
     delta = priming_delta(before, after)
     assert delta.admissions == 1
     assert delta.hits == 3
 
 
 @pytest.mark.parametrize(
-    ("entry_delta", "hit_delta"),
+    ("miss_delta", "hit_delta"),
     [
         (0, 1),
         (1, 0),
@@ -223,17 +224,23 @@ def test_priming_delta_computes_admission_and_hit_deltas() -> None:
     ],
 )
 def test_verify_primed_rejects_non_positive_deltas(
-    entry_delta: int, hit_delta: int
+    miss_delta: int, hit_delta: int
 ) -> None:
-    before = _snapshot(entry_count=5, hits=5)
-    after = _snapshot(entry_count=5 + entry_delta, hits=5 + hit_delta)
+    before = _snapshot(misses=5, hits=5)
+    after = _snapshot(misses=5 + miss_delta, hits=5 + hit_delta)
     with pytest.raises(BenchmarkSetupError, match="not primed"):
         verify_primed(before, after, variant_name="read-heavy-small")
 
 
 def test_verify_primed_accepts_positive_deltas() -> None:
-    before = _snapshot(entry_count=0, hits=0)
-    after = _snapshot(entry_count=1, hits=1)
+    before = _snapshot(misses=0, hits=0)
+    after = _snapshot(misses=1, hits=1)
+    verify_primed(before, after, variant_name="read-heavy-small")
+
+
+def test_verify_primed_accepts_a_miss_delta_despite_a_flat_entry_count() -> None:
+    before = _snapshot(entry_count=5, misses=10, hits=5)
+    after = _snapshot(entry_count=5, misses=11, hits=6)
     verify_primed(before, after, variant_name="read-heavy-small")
 
 
