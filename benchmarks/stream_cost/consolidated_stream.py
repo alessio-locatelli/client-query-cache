@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import enum
+import math
 import random
 import threading
 import time
@@ -26,6 +27,12 @@ if TYPE_CHECKING:
 MINIMUM_REPEATED_PAIRS = 3
 
 
+def _require_finite_positive(value: float, field_name: str) -> None:
+    if not math.isfinite(value) or value <= 0:
+        message = f"{field_name} must be a positive, finite number"
+        raise BenchmarkConfigurationError(message)
+
+
 class PairVariant(enum.Enum):
     CONTROL = "control"
     LOADED = "loaded"
@@ -49,27 +56,28 @@ class ConsolidatedStreamPairConfig:
         if not 0 < self.acceptable_lag_percentile < 1:
             message = "acceptable_lag_percentile must be between 0 and 1 exclusive"
             raise BenchmarkConfigurationError(message)
-        if self.acceptable_lag_threshold_seconds <= 0:
-            message = "acceptable_lag_threshold_seconds must be positive"
-            raise BenchmarkConfigurationError(message)
+        _require_finite_positive(
+            self.acceptable_lag_threshold_seconds, "acceptable_lag_threshold_seconds"
+        )
         if self.relevant_write_count <= 0:
             message = "relevant_write_count must be positive"
             raise BenchmarkConfigurationError(message)
-        if self.relevant_write_schedule_tolerance_seconds <= 0:
-            message = "relevant_write_schedule_tolerance_seconds must be positive"
-            raise BenchmarkConfigurationError(message)
+        _require_finite_positive(
+            self.relevant_write_schedule_tolerance_seconds,
+            "relevant_write_schedule_tolerance_seconds",
+        )
         if self.relevant_write_count_tolerance < 0:
             message = "relevant_write_count_tolerance must not be negative"
             raise BenchmarkConfigurationError(message)
         if self.unrelated_write_minimum_count <= 0:
             message = "unrelated_write_minimum_count must be positive"
             raise BenchmarkConfigurationError(message)
-        if self.unrelated_write_interval_seconds <= 0:
-            message = "unrelated_write_interval_seconds must be positive"
-            raise BenchmarkConfigurationError(message)
-        if self.clock_drift_tolerance_seconds <= 0:
-            message = "clock_drift_tolerance_seconds must be positive"
-            raise BenchmarkConfigurationError(message)
+        _require_finite_positive(
+            self.unrelated_write_interval_seconds, "unrelated_write_interval_seconds"
+        )
+        _require_finite_positive(
+            self.clock_drift_tolerance_seconds, "clock_drift_tolerance_seconds"
+        )
         validate_cadence(
             self.calibration_cadence_seconds, self.acceptable_lag_threshold_seconds
         )
@@ -79,9 +87,9 @@ class ConsolidatedStreamPairConfig:
                 f"{MINIMUM_REPEATED_PAIRS} repeated, counterbalanced pairs"
             )
             raise BenchmarkConfigurationError(message)
-        if self.warmup_duration_seconds <= 0:
-            message = "warmup_duration_seconds must be positive"
-            raise BenchmarkConfigurationError(message)
+        _require_finite_positive(
+            self.warmup_duration_seconds, "warmup_duration_seconds"
+        )
 
 
 def counterbalanced_pair_order(

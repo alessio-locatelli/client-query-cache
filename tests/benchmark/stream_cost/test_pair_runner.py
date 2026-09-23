@@ -229,7 +229,24 @@ def _server_event(
 def test_fails_when_the_listener_observed_a_primary_change(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _patch_healthy_runs(monkeypatch)
+    listener = TopologyChangeListener()
+    manager = _StubManager()
+
+    def fake_run_single(
+        _client: object,
+        _previous_manager: object,
+        *,
+        variant: PairVariant,
+        **_kwargs: object,
+    ) -> tuple[_StubManager, RunResult]:
+        # Simulate the primary changing mid-pair (between the two runs),
+        # which listener.reset() at the start of the pair must not hide.
+        if variant is PairVariant.LOADED:
+            listener.description_changed(_server_event(("host", 1)))
+            listener.description_changed(_server_event(("host", 2)))
+        return manager, _fake_run_result(variant)
+
+    monkeypatch.setattr(pair_runner, "_run_single", fake_run_single)
     _patch_calibration(
         monkeypatch,
         [
@@ -238,9 +255,6 @@ def test_fails_when_the_listener_observed_a_primary_change(
             _point(wall_t0=2.0, offset=10.0),
         ],
     )
-    listener = TopologyChangeListener()
-    listener.description_changed(_server_event(("host", 1)))
-    listener.description_changed(_server_event(("host", 2)))
 
     with pytest.raises(BenchmarkSetupError, match="primary changed"):
         run_consolidated_stream_pair(
@@ -362,6 +376,37 @@ def test_returns_a_pair_result_when_everything_checks_out(
     assert pair_result.control.raw_lag_windows == ()
     assert pair_result.loaded.raw_lag_windows == ()
     assert manager.closed is True
+
+
+def test_a_stale_primary_change_from_a_prior_pair_does_not_fail_this_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_healthy_runs(monkeypatch)
+    _patch_calibration(
+        monkeypatch,
+        [
+            _point(wall_t0=0.0, offset=10.0),
+            _point(wall_t0=1.0, offset=10.0),
+            _point(wall_t0=2.0, offset=10.0),
+        ],
+    )
+    listener = TopologyChangeListener()
+    listener.description_changed(_server_event(("host", 1)))
+    listener.description_changed(_server_event(("host", 2)))
+    assert listener.primary_changed is True
+
+    pair_result = run_consolidated_stream_pair(
+        _dummy_client(),
+        listener,
+        database="db",
+        relevant_collection_names=["a", "b"],
+        unrelated_collection_name="unrelated",
+        config=_config(),
+        schedule=(0.0,),
+        order=_ORDER,
+    )
+
+    assert pair_result.control.variant is PairVariant.CONTROL
 
 
 def test_fails_when_relevant_write_counts_do_not_match(
