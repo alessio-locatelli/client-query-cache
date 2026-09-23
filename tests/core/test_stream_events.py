@@ -306,7 +306,7 @@ def test_drop_database_clears_every_cache_namespace_immediately() -> None:
         call.namespaces_for_database("db"),
         call.clear_namespace(first),
         call.clear_namespace(second),
-        call.record_invalidation_applied("db", ANY),
+        call.record_invalidation_applied("db", ANY, ANY, ANY),
     ]
 
 
@@ -336,7 +336,7 @@ def test_invalidate_clears_every_namespace_cache_core_tracks_for_the_database() 
         call.namespaces_for_database("db"),
         call.clear_namespace(first),
         call.clear_namespace(second),
-        call.record_invalidation_applied("db", ANY),
+        call.record_invalidation_applied("db", ANY, ANY, ANY),
     ]
 
 

@@ -690,7 +690,7 @@ def test_invalidation_survives_unencodable_logical_bytes() -> None:
 def test_clearing_namespaces_resets_stream_cost_statistics() -> None:
     cache = CacheCore()
     cache.record_stream_poll("db")
-    cache.record_invalidation_applied("db", 1.0)
+    cache.record_invalidation_applied("db", 1.0, 1.0, 2.0)
     database = _FakeDatabase("db", [_ScriptedStream([])])
     supervisor = DatabaseStreamSupervisor(
         _as_database(database), cache, backoff=_FAST_BACKOFF

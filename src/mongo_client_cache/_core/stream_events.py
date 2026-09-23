@@ -61,8 +61,12 @@ def _wall_time_seconds(value: datetime.datetime | DatetimeMS) -> float:
 def _record_invalidation(
     cache: CacheCore, database: str, event: Mapping[str, Any]
 ) -> None:
-    raw_lag_seconds = time.time() - _wall_time_seconds(event["wallTime"])
-    cache.record_invalidation_applied(database, raw_lag_seconds)
+    wall_seconds = time.time()
+    monotonic_seconds = time.monotonic()
+    raw_lag_seconds = wall_seconds - _wall_time_seconds(event["wallTime"])
+    cache.record_invalidation_applied(
+        database, raw_lag_seconds, wall_seconds, monotonic_seconds
+    )
 
 
 def _route_write(cache: CacheCore, database: str, event: Mapping[str, Any]) -> None:

@@ -12,6 +12,7 @@ from mongo_client_cache._core.errors import CacheConfigurationError
 from mongo_client_cache._core.keys import NamespaceId
 from mongo_client_cache._core.manager import CacheCore, CacheCoreConfig
 from mongo_client_cache._core.stream_cost import (
+    InvalidationApplyReading,
     LagCaptureWindowConfig,
     LagCaptureWindows,
 )
@@ -133,7 +134,7 @@ def test_stream_cost_snapshot_only_exposes_safe_primitive_fields() -> None:
     )
     core.record_stream_poll("db")
     core.record_logical_event_bytes("db", 128)
-    core.record_invalidation_applied("db", -0.01)
+    core.record_invalidation_applied("db", -0.01, 1.0, 2.0)
     snapshot = core.stream_cost_snapshot("db")
 
     for field in dataclasses.fields(snapshot):
@@ -143,6 +144,10 @@ def test_stream_cost_snapshot_only_exposes_safe_primitive_fields() -> None:
         assert isinstance(window, tuple)
         for sample in window:
             assert isinstance(sample, float)
+    for reading in snapshot.invalidation_apply_readings:
+        assert isinstance(reading, InvalidationApplyReading)
+        assert isinstance(reading.wall_seconds, float)
+        assert isinstance(reading.monotonic_seconds, float)
 
 
 def test_stream_cost_snapshot_labels_resident_bytes_scope_and_lag_clock_skew() -> None:
@@ -160,7 +165,7 @@ def test_stream_cost_snapshot_tracks_polls_bytes_and_invalidations() -> None:
     core.record_stream_poll("db")
     core.record_logical_event_bytes("db", 10)
     core.record_logical_event_bytes("db", 20)
-    core.record_invalidation_applied("db", 0.5)
+    core.record_invalidation_applied("db", 0.5, 1.0, 2.0)
 
     snapshot = core.stream_cost_snapshot("db")
 
@@ -168,12 +173,15 @@ def test_stream_cost_snapshot_tracks_polls_bytes_and_invalidations() -> None:
     assert snapshot.logical_event_bytes == 30
     assert snapshot.invalidations == 1
     assert snapshot.invalidation_lag_windows == ()
+    assert snapshot.invalidation_apply_readings == (
+        InvalidationApplyReading(wall_seconds=1.0, monotonic_seconds=2.0),
+    )
 
 
 def test_stream_cost_is_scoped_per_database_stream() -> None:
     core = CacheCore()
     core.record_stream_poll("db_one")
-    core.record_invalidation_applied("db_two", 1.0)
+    core.record_invalidation_applied("db_two", 1.0, 1.0, 2.0)
 
     assert core.stream_cost_snapshot("db_one").stream_polls == 1
     assert core.stream_cost_snapshot("db_one").invalidations == 0
@@ -224,7 +232,7 @@ def test_reset_stream_cost_statistics_never_interleaves_with_an_in_flight_record
 
     def _record() -> None:
         barrier.wait()
-        core.record_invalidation_applied("db", 1.0)
+        core.record_invalidation_applied("db", 1.0, 1.0, 2.0)
 
     def _reset() -> None:
         barrier.wait()
@@ -245,6 +253,7 @@ def test_reset_stream_cost_statistics_never_interleaves_with_an_in_flight_record
         assert (snapshot.invalidations == 1) == (recorded_lag_samples == 1)
         assert snapshot.invalidations in {0, 1}
         assert recorded_lag_samples in {0, 1}
+        assert len(snapshot.invalidation_apply_readings) == recorded_lag_samples
 
 
 def test_reset_stream_cost_statistics_without_a_database_resets_every_stream() -> None:
