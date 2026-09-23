@@ -12,7 +12,9 @@ from benchmarks.stream_cost.bootstrap import (
 )
 from benchmarks.stream_cost.calibration import (
     CalibrationSeries,
+    PairedReading,
     PeriodicCalibrationSampler,
+    host_clock_stepped,
 )
 from benchmarks.stream_cost.consolidated_stream import (
     PairVariant,
@@ -76,6 +78,7 @@ class RunResult:
     relevant_write_count: int
     unrelated_write_count_during_window: int
     raw_lag_windows: tuple[tuple[float, ...], ...]
+    invalidation_apply_readings: tuple[PairedReading, ...]
 
 
 def _activate_consolidated_stream(
@@ -203,6 +206,13 @@ def _execute_run(
         relevant_write_count=len(schedule),
         unrelated_write_count_during_window=unrelated_count_during_window,
         raw_lag_windows=snapshot.invalidation_lag_windows,
+        invalidation_apply_readings=tuple(
+            PairedReading(
+                wall_seconds=reading.wall_seconds,
+                monotonic_seconds=reading.monotonic_seconds,
+            )
+            for reading in snapshot.invalidation_apply_readings
+        ),
     )
 
 
@@ -337,6 +347,27 @@ def run_consolidated_stream_pair(
         message = (
             "the benchmark host's wall clock was stepped during the "
             "calibration-to-pair interval"
+        )
+        raise BenchmarkSetupError(message)
+    initial_reading = PairedReading(
+        wall_seconds=series.initial.wall_t0,
+        monotonic_seconds=series.initial.monotonic_t0,
+    )
+    invalidation_apply_readings = (
+        run_results_by_variant[PairVariant.CONTROL].invalidation_apply_readings
+        + run_results_by_variant[PairVariant.LOADED].invalidation_apply_readings
+    )
+    if any(
+        host_clock_stepped(
+            initial_reading,
+            reading,
+            tolerance_seconds=config.clock_drift_tolerance_seconds,
+        )
+        for reading in invalidation_apply_readings
+    ):
+        message = (
+            "the benchmark host's wall clock was stepped while an invalidation "
+            "was being applied during the pair"
         )
         raise BenchmarkSetupError(message)
 
