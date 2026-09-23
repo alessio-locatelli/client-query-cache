@@ -188,6 +188,23 @@ def test_rejects_an_order_missing_a_variant() -> None:
         )
 
 
+def test_rejects_an_order_with_extra_duplicate_entries() -> None:
+    with pytest.raises(BenchmarkConfigurationError, match="order must contain"):
+        run_consolidated_stream_pair(
+            _dummy_client(),
+            TopologyChangeListener(),
+            database="db",
+            relevant_collection_names=["a", "b"],
+            unrelated_collection_name="unrelated",
+            config=_config(),
+            schedule=(0.0,),
+            order=cast(
+                "tuple[PairVariant, PairVariant]",
+                (PairVariant.CONTROL, PairVariant.LOADED, PairVariant.CONTROL),
+            ),
+        )
+
+
 def test_propagates_a_failure_before_any_manager_is_created(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

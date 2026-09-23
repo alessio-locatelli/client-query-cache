@@ -256,7 +256,7 @@ def run_consolidated_stream_pair(
     order: tuple[PairVariant, PairVariant],
     cache_config: CacheCoreConfig | None = None,
 ) -> PairResult:
-    if set(order) != {PairVariant.CONTROL, PairVariant.LOADED}:
+    if len(order) != 2 or set(order) != {PairVariant.CONTROL, PairVariant.LOADED}:
         message = (
             "order must contain exactly one PairVariant.CONTROL and one "
             f"PairVariant.LOADED, got {order}"
