@@ -37,7 +37,8 @@ def build_dedicated_client(
     kwargs: dict[str, Any] = {
         "directConnection": not config.discovery_enabled,
         "tls": config.tls_enabled,
-        "compressors": _COMPRESSOR if config.compression_enabled else None,
         "event_listeners": list(event_listeners),
     }
+    if config.compression_enabled:
+        kwargs["compressors"] = _COMPRESSOR
     return MongoClient[dict[str, Any]](uri, **kwargs)

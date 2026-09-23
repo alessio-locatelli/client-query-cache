@@ -39,7 +39,6 @@ class _StubClient:
             {
                 "directConnection": True,
                 "tls": False,
-                "compressors": None,
                 "event_listeners": [],
             },
         ),
