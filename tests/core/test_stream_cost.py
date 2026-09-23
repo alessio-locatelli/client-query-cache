@@ -101,6 +101,17 @@ def test_lag_capture_windows_stays_within_its_configured_memory_bound() -> None:
     assert all(len(window) == config.events_per_window for window in captured)
 
 
+def test_lag_capture_windows_record_reports_whether_the_event_was_accepted() -> None:
+    config = LagCaptureWindowConfig(
+        window_count=1, events_per_window=1, min_separation_events=1
+    )
+    windows = LagCaptureWindows(config)
+
+    assert windows.record(1.0) is True
+    assert windows.record(2.0) is False
+    assert windows.record(3.0) is True
+
+
 def test_lag_capture_windows_reset_clears_completed_and_partial_state() -> None:
     config = LagCaptureWindowConfig(
         window_count=2, events_per_window=2, min_separation_events=0
@@ -175,6 +186,27 @@ def test_stream_cost_snapshot_tracks_polls_bytes_and_invalidations() -> None:
     assert snapshot.invalidation_lag_windows == ()
     assert snapshot.invalidation_apply_readings == (
         InvalidationApplyReading(wall_seconds=1.0, monotonic_seconds=2.0),
+    )
+
+
+def test_invalidation_apply_readings_exclude_separator_events() -> None:
+    core = CacheCore(
+        CacheCoreConfig(
+            lag_capture_window_config=LagCaptureWindowConfig(
+                window_count=2, events_per_window=1, min_separation_events=1
+            )
+        )
+    )
+    core.record_invalidation_applied("db", 1.0, 1.0, 2.0)
+    core.record_invalidation_applied("db", 2.0, 3.0, 4.0)
+    core.record_invalidation_applied("db", 3.0, 5.0, 6.0)
+
+    snapshot = core.stream_cost_snapshot("db")
+
+    assert snapshot.invalidations == 3
+    assert snapshot.invalidation_apply_readings == (
+        InvalidationApplyReading(wall_seconds=1.0, monotonic_seconds=2.0),
+        InvalidationApplyReading(wall_seconds=5.0, monotonic_seconds=6.0),
     )
 
 
