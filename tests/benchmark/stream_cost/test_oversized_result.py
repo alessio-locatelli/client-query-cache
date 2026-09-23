@@ -48,7 +48,15 @@ def test_find_crossover_prefix_length_rejects_a_result_that_already_fits() -> No
 
 def test_find_crossover_prefix_length_rejects_a_single_oversized_document() -> None:
     documents = _padded_documents(2, padding_bytes=_MAX_ENTRY_BYTES * 2)
-    with pytest.raises(BenchmarkConfigurationError, match="first document alone"):
+    with pytest.raises(BenchmarkConfigurationError, match="individually exceed"):
+        find_crossover_prefix_length(documents, max_entry_bytes=_MAX_ENTRY_BYTES)
+
+
+def test_find_crossover_prefix_length_rejects_a_later_oversized_document() -> None:
+    documents = _padded_documents(5) + _padded_documents(
+        1, padding_bytes=_MAX_ENTRY_BYTES * 2
+    )
+    with pytest.raises(BenchmarkConfigurationError, match="individually exceed"):
         find_crossover_prefix_length(documents, max_entry_bytes=_MAX_ENTRY_BYTES)
 
 

@@ -42,6 +42,7 @@ def _valid_pair_config_kwargs() -> dict[str, float | int]:
         "unrelated_write_minimum_count": 50,
         "unrelated_write_interval_seconds": 0.01,
         "clock_drift_tolerance_seconds": 0.1,
+        "calibration_cadence_seconds": 0.05,
         "pair_count": MINIMUM_REPEATED_PAIRS,
         "warmup_duration_seconds": 1.0,
     }
@@ -68,6 +69,8 @@ def test_consolidated_stream_pair_config_accepts_valid_values() -> None:
         ("unrelated_write_minimum_count", 0, "unrelated_write_minimum_count"),
         ("unrelated_write_interval_seconds", 0.0, "unrelated_write_interval_seconds"),
         ("clock_drift_tolerance_seconds", 0.0, "clock_drift_tolerance_seconds"),
+        ("calibration_cadence_seconds", 0.0, "cadence_seconds"),
+        ("calibration_cadence_seconds", 1.0, "exceeds"),
         ("pair_count", MINIMUM_REPEATED_PAIRS - 1, "pair_count"),
         ("warmup_duration_seconds", 0.0, "warmup_duration_seconds"),
     ],

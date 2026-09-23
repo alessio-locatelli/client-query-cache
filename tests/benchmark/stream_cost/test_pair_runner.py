@@ -5,21 +5,29 @@ from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
+from benchmarks.stream_cost import calibration as calibration_module
 from benchmarks.stream_cost import pair_runner
 from benchmarks.stream_cost.calibration import (
     CalibrationPoint,
+    CalibrationSeries,
     ClockSample,
     TopologyChangeListener,
 )
 from benchmarks.stream_cost.consolidated_stream import (
     ConsolidatedStreamPairConfig,
     PairVariant,
+    counterbalanced_pair_order,
 )
 from benchmarks.stream_cost.errors import (
     BenchmarkConfigurationError,
     BenchmarkSetupError,
 )
-from benchmarks.stream_cost.pair_runner import RunResult, run_consolidated_stream_pair
+from benchmarks.stream_cost.pair_runner import (
+    PairResult,
+    RunResult,
+    run_consolidated_stream_pair,
+    run_consolidated_stream_pairs,
+)
 
 if TYPE_CHECKING:
     from pymongo import MongoClient
@@ -42,6 +50,7 @@ def _config(
         unrelated_write_minimum_count=1,
         unrelated_write_interval_seconds=0.5,
         clock_drift_tolerance_seconds=clock_drift_tolerance_seconds,
+        calibration_cadence_seconds=0.5,
         pair_count=3,
         warmup_duration_seconds=0.01,
     )
@@ -97,7 +106,9 @@ def _patch_calibration(
 ) -> None:
     iterator = iter(points)
     monkeypatch.setattr(
-        pair_runner, "sample_clock_offset", lambda *_args, **_kwargs: next(iterator)
+        calibration_module,
+        "sample_clock_offset",
+        lambda *_args, **_kwargs: next(iterator),
     )
 
 
@@ -383,3 +394,103 @@ def test_send_hello_uses_the_primary_read_preference() -> None:
     pair_runner._send_hello(cast("MongoClient[dict[str, Any]]", _StubClient()))
 
     assert calls[0]["name"] == "hello"
+
+
+def test_await_condition_raises_on_timeout() -> None:
+    with pytest.raises(BenchmarkSetupError, match="boom"):
+        pair_runner._await_condition(
+            lambda: False,
+            timeout_seconds=0.01,
+            poll_interval_seconds=0.001,
+            timeout_message="boom",
+        )
+
+
+def test_await_condition_returns_once_the_predicate_is_true() -> None:
+    calls: list[None] = []
+
+    def predicate() -> bool:
+        calls.append(None)
+        return len(calls) >= 2
+
+    pair_runner._await_condition(
+        predicate,
+        timeout_seconds=1.0,
+        poll_interval_seconds=0.001,
+        timeout_message="unreachable",
+    )
+    assert len(calls) == 2
+
+
+def test_rejects_a_schedule_length_mismatching_the_configured_count() -> None:
+    with pytest.raises(BenchmarkConfigurationError, match="relevant_write_count"):
+        run_consolidated_stream_pair(
+            _dummy_client(),
+            TopologyChangeListener(),
+            database="db",
+            relevant_collection_names=["a", "b"],
+            unrelated_collection_name="unrelated",
+            config=_config(),
+            schedule=(0.0, 0.1),
+            order=_ORDER,
+        )
+
+
+def test_run_single_closes_the_manager_when_execute_run_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = _StubManager()
+    monkeypatch.setattr(pair_runner, "reset_run_state", lambda *_a, **_k: manager)
+
+    def failing_execute_run(*_args: object, **_kwargs: object) -> None:
+        message = "simulated execute failure"
+        raise BenchmarkSetupError(message)
+
+    monkeypatch.setattr(pair_runner, "_execute_run", failing_execute_run)
+
+    with pytest.raises(BenchmarkSetupError, match="simulated execute failure"):
+        pair_runner._run_single(
+            _dummy_client(),
+            None,
+            database="db",
+            relevant_collection_names=["a", "b"],
+            unrelated_collection_name="unrelated",
+            config=_config(),
+            schedule=(0.0,),
+            variant=PairVariant.CONTROL,
+        )
+
+    assert manager.closed is True
+
+
+def test_run_consolidated_stream_pairs_runs_the_configured_pair_count(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[PairVariant, PairVariant]] = []
+
+    def fake_run_pair(
+        *_args: object,
+        order: tuple[PairVariant, PairVariant],
+        **_kwargs: object,
+    ) -> PairResult:
+        calls.append(order)
+        return PairResult(
+            control=_fake_run_result(PairVariant.CONTROL),
+            loaded=_fake_run_result(PairVariant.LOADED),
+            calibration=CalibrationSeries(points=(_point(wall_t0=0.0, offset=10.0),)),
+        )
+
+    monkeypatch.setattr(pair_runner, "run_consolidated_stream_pair", fake_run_pair)
+
+    pair_results = run_consolidated_stream_pairs(
+        _dummy_client(),
+        TopologyChangeListener(),
+        database="db",
+        relevant_collection_names=["a", "b"],
+        unrelated_collection_name="unrelated",
+        config=_config(),
+        schedule=(0.0,),
+    )
+
+    assert len(pair_results) == 3
+    assert calls == list(counterbalanced_pair_order(3))

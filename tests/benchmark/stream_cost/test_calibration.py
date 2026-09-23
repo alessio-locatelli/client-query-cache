@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, cast
@@ -11,6 +12,7 @@ from benchmarks.stream_cost.calibration import (
     CalibrationSeries,
     ClockSample,
     PairedReading,
+    PeriodicCalibrationSampler,
     TopologyChangeListener,
     delta_margin_seconds,
     drift_adjusted_delta_seconds,
@@ -548,3 +550,53 @@ def test_topology_change_listener_flags_primary_loss_immediately() -> None:
     )
     listener.description_changed(same_primary_returns_event)
     assert bool(listener.primary_changed)
+
+
+def _stub_send_hello() -> dict[str, object]:
+    return {
+        "localTime": datetime(2024, 1, 1, tzinfo=UTC),
+        "electionId": "election-1",
+        "isWritablePrimary": True,
+    }
+
+
+def test_periodic_calibration_sampler_rejects_non_positive_cadence() -> None:
+    with pytest.raises(BenchmarkConfigurationError, match="cadence_seconds"):
+        PeriodicCalibrationSampler(_stub_send_hello, cadence_seconds=0.0, rounds=1)
+
+
+def test_periodic_calibration_sampler_stop_without_start_returns_no_points() -> None:
+    sampler = PeriodicCalibrationSampler(
+        _stub_send_hello, cadence_seconds=10.0, rounds=1
+    )
+    assert sampler.stop() == ()
+
+
+def test_periodic_calibration_sampler_rejects_a_second_start() -> None:
+    sampler = PeriodicCalibrationSampler(
+        _stub_send_hello, cadence_seconds=10.0, rounds=1
+    )
+    sampler.start()
+    try:
+        with pytest.raises(BenchmarkConfigurationError, match="already been started"):
+            sampler.start()
+    finally:
+        sampler.stop()
+
+
+def test_periodic_calibration_sampler_sample_now_appends_a_point() -> None:
+    sampler = PeriodicCalibrationSampler(
+        _stub_send_hello, cadence_seconds=10.0, rounds=1
+    )
+    point = sampler.sample_now()  # pytriage: TR5 (must run before points() below)
+    assert sampler.points() == (point,)
+
+
+def test_periodic_calibration_sampler_samples_repeatedly_at_the_cadence() -> None:
+    sampler = PeriodicCalibrationSampler(
+        _stub_send_hello, cadence_seconds=0.02, rounds=1
+    )
+    sampler.start()
+    time.sleep(0.15)
+    minimum_expected_points = 3
+    assert len(sampler.stop()) >= minimum_expected_points

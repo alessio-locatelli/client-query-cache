@@ -24,6 +24,12 @@ def _encoded_prefix_size(
     return len(encode_value(list(documents[:prefix_length]), codec_options))
 
 
+def _encoded_single_document_size(
+    document: Mapping[str, object], codec_options: CodecOptions[Any] | None
+) -> int:
+    return len(encode_value([document], codec_options))
+
+
 def find_crossover_prefix_length(
     documents: Sequence[Mapping[str, object]],
     *,
@@ -43,11 +49,17 @@ def find_crossover_prefix_length(
             "encoded to be a valid oversized-result workload"
         )
         raise BenchmarkConfigurationError(message)
-    if _encoded_prefix_size(documents, 1, codec_options) > max_entry_bytes:
+    oversized_indices = [
+        index
+        for index, document in enumerate(documents)
+        if _encoded_single_document_size(document, codec_options) > max_entry_bytes
+    ]
+    if oversized_indices:
         message = (
-            "the first document alone exceeds max_entry_bytes; the oversized-result "
-            "workload requires individually-fitting documents whose aggregate "
-            "encoded size exceeds the limit"
+            f"document(s) at index {oversized_indices} individually exceed "
+            "max_entry_bytes; the oversized-result workload requires "
+            "individually-fitting documents whose aggregate encoded size "
+            "exceeds the limit"
         )
         raise BenchmarkConfigurationError(message)
     low, high = 1, len(documents)
