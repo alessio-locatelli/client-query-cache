@@ -26,6 +26,7 @@ if TYPE_CHECKING:
 
     from mongo_client_cache._core.snapshots import CacheSnapshot
     from mongo_client_cache.synchronous.collection import CachedCollection
+    from mongo_client_cache.synchronous.manager import CacheManager
 
 # A read repeated twice against the identical cache key always misses (and
 # admits) on the first call and hits on the second, satisfying the
@@ -273,11 +274,20 @@ class WorkloadVariantOutcome:
 
 
 def run_workload_variant(
+    manager: CacheManager[dict[str, Any]],
     raw_collection: Collection[dict[str, Any]],
     cache_collection: CachedCollection[dict[str, Any]],
     variant: WorkloadVariant,
     dataset: SeededDataset,
 ) -> WorkloadVariantOutcome:
+    warmup_id = dataset.ids[0]
+    before = manager.cache_core.snapshot()
+    prime_read_variant(
+        lambda: cache_collection.find_one({"_id": warmup_id}),
+        repeats=variant.warmup.reads,
+    )
+    verify_primed(before, manager.cache_core.snapshot(), variant_name=variant.name)
+
     read_ids = sample_operation_ids(dataset, variant.sampling.reads, seed=variant.seed)
     reads = run_paired_reads(raw_collection, cache_collection, variant, read_ids)
     writes_issued = issue_writes(

@@ -30,6 +30,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
 
     from pymongo import MongoClient
+    from pymongo.synchronous.collection import Collection
 
     from benchmarks.stream_cost.calibration import TopologyChangeListener
     from benchmarks.stream_cost.consolidated_stream import (
@@ -103,6 +104,19 @@ def _activate_consolidated_stream(
     verify_single_consolidated_stream(manager, database=database)
 
 
+def _warm_up_server(
+    collection: Collection[dict[str, Any]], *, duration_seconds: float
+) -> None:
+    # A plain sleep does not touch the server at all: WiredTiger/OS page
+    # cache warmth (the reason this phase exists, per this workload's
+    # reset-does-not-clear-server-state design) only changes in response to
+    # real traffic against the collection, so this issues read round trips
+    # against the seeded relevant document for the configured duration.
+    deadline = time.monotonic() + duration_seconds
+    while time.monotonic() < deadline:
+        collection.find_one({"_id": _RELEVANT_WRITE_DOCUMENT_ID})
+
+
 def _execute_run(
     manager: CacheManager[dict[str, Any]],
     *,
@@ -116,7 +130,10 @@ def _execute_run(
     _activate_consolidated_stream(
         manager, database=database, relevant_collection_names=relevant_collection_names
     )
-    time.sleep(config.warmup_duration_seconds)
+    _warm_up_server(
+        manager[database].raw[relevant_collection_names[0]],
+        duration_seconds=config.warmup_duration_seconds,
+    )
 
     unrelated_writer: UnrelatedWriteWorkload | None = None
     window_start_count = 0

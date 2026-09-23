@@ -42,6 +42,14 @@ def _balanced_small_variant() -> WorkloadVariant:
     )
 
 
+def _idle_small_variant() -> WorkloadVariant:
+    return next(
+        variant
+        for variant in STANDARD_WORKLOAD_VARIANTS
+        if variant.kind is WorkloadKind.IDLE and variant.data_size.name == "small"
+    )
+
+
 def test_priming_yields_positive_admission_and_hit_deltas(
     cache_manager: CacheManager[dict[str, Any]],
     cached_database_name: DatabaseName,
@@ -108,7 +116,11 @@ def test_run_workload_variant_composes_the_configured_read_write_mix(
     collection = database[persistent_collection_name]
     insert_dataset(collection.raw, dataset)
 
-    outcome = run_workload_variant(collection.raw, collection, variant, dataset)
+    before = cache_manager.cache_core.snapshot()
+    outcome = run_workload_variant(
+        cache_manager, collection.raw, collection, variant, dataset
+    )
+    after = cache_manager.cache_core.snapshot()
 
     assert outcome.variant is variant
     assert len(outcome.reads.raw_results) == variant.sampling.reads
@@ -116,6 +128,36 @@ def test_run_workload_variant_composes_the_configured_read_write_mix(
     assert outcome.writes_issued == variant.sampling.writes
     touched_count = collection.raw.count_documents({"touched": {"$gte": 1}})
     assert touched_count > 0
+    # The warmup ran through the normal admission path before sampling: at
+    # least one admission and one hit, plus whatever sampling added on top.
+    assert after.entry_count > before.entry_count
+    assert after.hits > before.hits
+
+
+def test_run_workload_variant_still_primes_the_idle_variant(
+    cache_manager: CacheManager[dict[str, Any]],
+    cached_database_name: DatabaseName,
+    persistent_collection_name: CollectionName,
+) -> None:
+    variant = _idle_small_variant()
+    dataset = seed_dataset(variant)
+    database = cache_manager[cached_database_name]
+    collection = database[persistent_collection_name]
+    insert_dataset(collection.raw, dataset)
+
+    before = cache_manager.cache_core.snapshot()
+    outcome = run_workload_variant(
+        cache_manager, collection.raw, collection, variant, dataset
+    )
+    after = cache_manager.cache_core.snapshot()
+
+    assert outcome.reads.raw_results == ()
+    assert outcome.reads.cache_results == ()
+    assert outcome.writes_issued == 0
+    # The idle variant's *sampling* window has zero operations, but its
+    # warmup phase still primes admission/hit counters before that window.
+    assert after.entry_count > before.entry_count
+    assert after.hits > before.hits
 
 
 def test_run_paired_reads_rejects_mismatched_raw_and_cache_data(
