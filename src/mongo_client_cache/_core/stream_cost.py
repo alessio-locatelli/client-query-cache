@@ -56,8 +56,6 @@ class LagCaptureWindows:
             if self._separation_remaining > 0:
                 self._separation_remaining -= 1
                 return False
-            if not self._current and len(self._windows) == self._windows.maxlen:
-                self._windows.popleft()
             self._current.append(raw_lag_seconds)
             if len(self._current) < self._config.events_per_window:
                 return True
@@ -113,7 +111,7 @@ class StreamCostStatistics:
         self._invalidations = 0
         self._lag = LagCaptureWindows(lag_config)
         self._apply_readings: deque[InvalidationApplyReading] = deque(
-            maxlen=lag_config.window_count * lag_config.events_per_window
+            maxlen=(lag_config.window_count + 1) * lag_config.events_per_window
         )
 
     def record_poll(self) -> None:

@@ -59,6 +59,20 @@ def test_lag_capture_windows_captures_fixed_contiguous_gap_free_blocks() -> None
     assert windows.snapshot() == ((3.0, 4.0, 5.0), (6.0, 7.0, 8.0))
 
 
+def test_lag_capture_windows_keeps_a_completed_window_until_a_replacement_fills() -> (
+    None
+):
+    config = LagCaptureWindowConfig(
+        window_count=1, events_per_window=2, min_separation_events=0
+    )
+    windows = LagCaptureWindows(config)
+
+    for value in range(3):
+        windows.record(float(value))
+
+    assert windows.snapshot() == ((0.0, 1.0),)
+
+
 def test_lag_capture_windows_enforces_minimum_separation_between_windows() -> None:
     config = LagCaptureWindowConfig(
         window_count=2, events_per_window=2, min_separation_events=2
@@ -91,10 +105,8 @@ def test_lag_capture_windows_stays_within_its_configured_memory_bound() -> None:
 
     for value in range(10_000):
         windows.record(float(value))
-        total_retained = sum(len(window) for window in windows._windows) + len(
-            windows._current
-        )
-        assert total_retained <= config.window_count * config.events_per_window
+        assert len(windows._windows) <= config.window_count
+        assert len(windows._current) < config.events_per_window
 
     captured = windows.snapshot()
     assert len(captured) == config.window_count
