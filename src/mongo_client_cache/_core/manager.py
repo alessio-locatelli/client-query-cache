@@ -870,9 +870,15 @@ class _CacheCoreStreamCostTelemetry(_CacheCoreBase):
         self._stream_cost.record_logical_event_bytes(database, count)
 
     def record_invalidation_applied(
-        self, database: str, raw_lag_seconds: float
+        self,
+        database: str,
+        raw_lag_seconds: float,
+        wall_seconds: float,
+        monotonic_seconds: float,
     ) -> None:
-        self._stream_cost.record_invalidation(database, raw_lag_seconds)
+        self._stream_cost.record_invalidation(
+            database, raw_lag_seconds, wall_seconds, monotonic_seconds
+        )
 
     def reset_stream_cost_statistics(self, database: str | None = None) -> None:
         if database is None:

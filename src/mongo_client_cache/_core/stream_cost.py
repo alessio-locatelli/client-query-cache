@@ -77,6 +77,12 @@ class LagCaptureWindows:
 
 
 @dataclass(frozen=True, slots=True)
+class InvalidationApplyReading:
+    wall_seconds: float
+    monotonic_seconds: float
+
+
+@dataclass(frozen=True, slots=True)
 class StreamCostSnapshot:
     database: str
     stream_polls: int
@@ -84,12 +90,14 @@ class StreamCostSnapshot:
     invalidations: int
     invalidation_lag_windows: tuple[tuple[float, ...], ...]
     invalidation_lag_clock_skew_limitation: str
+    invalidation_apply_readings: tuple[InvalidationApplyReading, ...]
     resident_bytes: int
     resident_bytes_scope: str
 
 
 class StreamCostStatistics:
     __slots__ = (
+        "_apply_readings",
         "_invalidations",
         "_lag",
         "_lock",
@@ -103,6 +111,9 @@ class StreamCostStatistics:
         self._logical_event_bytes = 0
         self._invalidations = 0
         self._lag = LagCaptureWindows(lag_config)
+        self._apply_readings: deque[InvalidationApplyReading] = deque(
+            maxlen=lag_config.window_count * lag_config.events_per_window
+        )
 
     def record_poll(self) -> None:
         with self._lock:
@@ -112,10 +123,15 @@ class StreamCostStatistics:
         with self._lock:
             self._logical_event_bytes += count
 
-    def record_invalidation(self, raw_lag_seconds: float) -> None:
+    def record_invalidation(
+        self, raw_lag_seconds: float, wall_seconds: float, monotonic_seconds: float
+    ) -> None:
         with self._lock:
             self._invalidations += 1
             self._lag.record(raw_lag_seconds)
+            self._apply_readings.append(
+                InvalidationApplyReading(wall_seconds, monotonic_seconds)
+            )
 
     def reset(self) -> None:
         with self._lock:
@@ -123,16 +139,24 @@ class StreamCostStatistics:
             self._logical_event_bytes = 0
             self._invalidations = 0
             self._lag.reset()
+            self._apply_readings.clear()
 
     def snapshot(
         self,
-    ) -> tuple[int, int, int, tuple[tuple[float, ...], ...]]:
+    ) -> tuple[
+        int,
+        int,
+        int,
+        tuple[tuple[float, ...], ...],
+        tuple[InvalidationApplyReading, ...],
+    ]:
         with self._lock:
             return (
                 self._stream_polls,
                 self._logical_event_bytes,
                 self._invalidations,
                 self._lag.snapshot(),
+                tuple(self._apply_readings),
             )
 
 
@@ -162,8 +186,16 @@ class StreamCostRegistry:
     def record_logical_event_bytes(self, database: str, count: int) -> None:
         self._get_or_create(database).record_logical_event_bytes(count)
 
-    def record_invalidation(self, database: str, raw_lag_seconds: float) -> None:
-        self._get_or_create(database).record_invalidation(raw_lag_seconds)
+    def record_invalidation(
+        self,
+        database: str,
+        raw_lag_seconds: float,
+        wall_seconds: float,
+        monotonic_seconds: float,
+    ) -> None:
+        self._get_or_create(database).record_invalidation(
+            raw_lag_seconds, wall_seconds, monotonic_seconds
+        )
 
     def reset(self, database: str) -> None:
         stats = self._get(database)
@@ -181,10 +213,15 @@ class StreamCostRegistry:
         if stats is None:
             stream_polls, logical_event_bytes, invalidations = 0, 0, 0
             lag_windows: tuple[tuple[float, ...], ...] = ()
+            apply_readings: tuple[InvalidationApplyReading, ...] = ()
         else:
-            stream_polls, logical_event_bytes, invalidations, lag_windows = (
-                stats.snapshot()
-            )
+            (
+                stream_polls,
+                logical_event_bytes,
+                invalidations,
+                lag_windows,
+                apply_readings,
+            ) = stats.snapshot()
         return StreamCostSnapshot(
             database=database,
             stream_polls=stream_polls,
@@ -192,6 +229,7 @@ class StreamCostRegistry:
             invalidations=invalidations,
             invalidation_lag_windows=lag_windows,
             invalidation_lag_clock_skew_limitation=INVALIDATION_LAG_CLOCK_SKEW_LIMITATION,
+            invalidation_apply_readings=apply_readings,
             resident_bytes=resident_bytes,
             resident_bytes_scope=RESIDENT_BYTES_SCOPE,
         )
