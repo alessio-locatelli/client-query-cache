@@ -7,6 +7,7 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from benchmarks.stream_cost.calibration import validate_cadence
 from benchmarks.stream_cost.errors import (
     BenchmarkConfigurationError,
     BenchmarkSetupError,
@@ -40,6 +41,7 @@ class ConsolidatedStreamPairConfig:
     unrelated_write_minimum_count: int
     unrelated_write_interval_seconds: float
     clock_drift_tolerance_seconds: float
+    calibration_cadence_seconds: float
     pair_count: int
     warmup_duration_seconds: float
 
@@ -68,6 +70,9 @@ class ConsolidatedStreamPairConfig:
         if self.clock_drift_tolerance_seconds <= 0:
             message = "clock_drift_tolerance_seconds must be positive"
             raise BenchmarkConfigurationError(message)
+        validate_cadence(
+            self.calibration_cadence_seconds, self.acceptable_lag_threshold_seconds
+        )
         if self.pair_count < MINIMUM_REPEATED_PAIRS:
             message = (
                 f"pair_count ({self.pair_count}) must be at least "

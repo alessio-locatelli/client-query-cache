@@ -289,3 +289,61 @@ class TopologyChangeListener(TopologyListener):
     @staticmethod
     def closed(_event: TopologyClosedEvent) -> None:
         return None
+
+
+class PeriodicCalibrationSampler:
+    __slots__ = (
+        "_cadence_seconds",
+        "_lock",
+        "_points",
+        "_rounds",
+        "_send_hello",
+        "_stop_event",
+        "_thread",
+    )
+
+    def __init__(
+        self,
+        send_hello: Callable[[], Mapping[str, object]],
+        *,
+        cadence_seconds: float,
+        rounds: int,
+    ) -> None:
+        if cadence_seconds <= 0:
+            message = "cadence_seconds must be positive"
+            raise BenchmarkConfigurationError(message)
+        self._send_hello = send_hello
+        self._cadence_seconds = cadence_seconds
+        self._rounds = rounds
+        self._points: list[CalibrationPoint] = []
+        self._lock = threading.Lock()
+        self._stop_event = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def start(self) -> None:
+        if self._thread is not None:
+            message = "PeriodicCalibrationSampler has already been started"
+            raise BenchmarkConfigurationError(message)
+        self.sample_now()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def sample_now(self) -> CalibrationPoint:
+        point = sample_clock_offset(self._send_hello, rounds=self._rounds)
+        with self._lock:
+            self._points.append(point)
+        return point
+
+    def _run(self) -> None:
+        while not self._stop_event.wait(self._cadence_seconds):
+            self.sample_now()
+
+    def stop(self) -> tuple[CalibrationPoint, ...]:
+        self._stop_event.set()
+        if self._thread is not None:
+            self._thread.join()
+        return self.points()
+
+    def points(self) -> tuple[CalibrationPoint, ...]:
+        with self._lock:
+            return tuple(self._points)
