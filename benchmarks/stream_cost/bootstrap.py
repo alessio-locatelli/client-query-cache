@@ -12,6 +12,7 @@ if TYPE_CHECKING:
 
 
 _FLOATING_POINT_GUARD_DECIMALS = 9
+MINIMUM_BOOTSTRAP_WINDOWS = 2
 
 
 def minimum_sample_count(percentile: float) -> int:
@@ -52,9 +53,10 @@ def block_bootstrap_percentile_ci(
     resample_count: int,
     seed: int,
 ) -> ConfidenceInterval:
-    if len(windows) < 2:
+    if len(windows) < MINIMUM_BOOTSTRAP_WINDOWS:
         message = (
-            "at least two capture windows are required for a valid block bootstrap"
+            f"at least {MINIMUM_BOOTSTRAP_WINDOWS} capture windows are required "
+            "for a valid block bootstrap"
         )
         raise BenchmarkConfigurationError(message)
     window_sizes = {len(window) for window in windows}

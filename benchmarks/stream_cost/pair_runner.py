@@ -6,7 +6,10 @@ from typing import TYPE_CHECKING, Any
 
 from pymongo import ReadPreference
 
-from benchmarks.stream_cost.bootstrap import minimum_sample_count
+from benchmarks.stream_cost.bootstrap import (
+    MINIMUM_BOOTSTRAP_WINDOWS,
+    minimum_sample_count,
+)
 from benchmarks.stream_cost.calibration import (
     CalibrationSeries,
     PeriodicCalibrationSampler,
@@ -188,6 +191,13 @@ def _execute_run(
             f"{config.acceptable_lag_percentile:.2%} percentile to be defined"
         )
         raise BenchmarkSetupError(message)
+    if len(snapshot.invalidation_lag_windows) < MINIMUM_BOOTSTRAP_WINDOWS:
+        message = (
+            f"only {len(snapshot.invalidation_lag_windows)} capture window(s) were "
+            f"completed for this run, below the {MINIMUM_BOOTSTRAP_WINDOWS} required "
+            "for a valid block bootstrap"
+        )
+        raise BenchmarkSetupError(message)
     return RunResult(
         variant=variant,
         relevant_write_count=len(schedule),
@@ -246,6 +256,12 @@ def run_consolidated_stream_pair(
     order: tuple[PairVariant, PairVariant],
     cache_config: CacheCoreConfig | None = None,
 ) -> PairResult:
+    if set(order) != {PairVariant.CONTROL, PairVariant.LOADED}:
+        message = (
+            "order must contain exactly one PairVariant.CONTROL and one "
+            f"PairVariant.LOADED, got {order}"
+        )
+        raise BenchmarkConfigurationError(message)
     if len(relevant_collection_names) < _MINIMUM_RELEVANT_COLLECTIONS:
         message = (
             f"relevant_collection_names must name at least "

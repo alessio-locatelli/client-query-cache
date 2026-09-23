@@ -62,7 +62,7 @@ def test_run_consolidated_stream_pair_produces_a_lag_distribution_per_run(
     config = ConsolidatedStreamPairConfig(
         acceptable_lag_percentile=0.5,
         acceptable_lag_threshold_seconds=5.0,
-        relevant_write_count=3,
+        relevant_write_count=4,
         relevant_write_schedule_tolerance_seconds=1.0,
         relevant_write_count_tolerance=0,
         unrelated_write_minimum_count=2,
@@ -72,11 +72,11 @@ def test_run_consolidated_stream_pair_produces_a_lag_distribution_per_run(
         pair_count=3,
         warmup_duration_seconds=0.05,
     )
-    schedule = generate_relevant_write_schedule(3, total_duration_seconds=0.3, seed=1)
+    schedule = generate_relevant_write_schedule(4, total_duration_seconds=0.3, seed=1)
     order = counterbalanced_pair_order(config.pair_count)[0]
     cache_config = CacheCoreConfig(
         lag_capture_window_config=LagCaptureWindowConfig(
-            window_count=1, events_per_window=3, min_separation_events=0
+            window_count=2, events_per_window=2, min_separation_events=0
         )
     )
 
@@ -93,13 +93,15 @@ def test_run_consolidated_stream_pair_produces_a_lag_distribution_per_run(
     )
 
     assert order == (PairVariant.CONTROL, PairVariant.LOADED)
-    assert pair_result.control.relevant_write_count == 3
-    assert pair_result.loaded.relevant_write_count == 3
+    assert pair_result.control.relevant_write_count == 4
+    assert pair_result.loaded.relevant_write_count == 4
     assert pair_result.control.unrelated_write_count_during_window == 0
     assert pair_result.loaded.unrelated_write_count_during_window >= 2
     assert pair_result.calibration.has_election_change is False
-    assert sum(len(window) for window in pair_result.control.raw_lag_windows) == 3
-    assert sum(len(window) for window in pair_result.loaded.raw_lag_windows) == 3
+    assert len(pair_result.control.raw_lag_windows) == 2
+    assert len(pair_result.loaded.raw_lag_windows) == 2
+    assert sum(len(window) for window in pair_result.control.raw_lag_windows) == 4
+    assert sum(len(window) for window in pair_result.loaded.raw_lag_windows) == 4
 
 
 def test_run_consolidated_stream_pair_rejects_a_run_with_too_few_lag_samples(
@@ -141,6 +143,51 @@ def test_run_consolidated_stream_pair_rejects_a_run_with_too_few_lag_samples(
         client.drop_database(database)
 
     client.drop_database(database)
+
+
+def test_run_consolidated_stream_pair_rejects_a_run_with_too_few_windows(
+    dedicated_client_and_listener: tuple[
+        MongoClient[dict[str, Any]], TopologyChangeListener
+    ],
+) -> None:
+    client, listener = dedicated_client_and_listener
+    database = f"test_{uuid.uuid4().hex}"
+    config = ConsolidatedStreamPairConfig(
+        acceptable_lag_percentile=0.5,
+        acceptable_lag_threshold_seconds=5.0,
+        relevant_write_count=2,
+        relevant_write_schedule_tolerance_seconds=1.0,
+        relevant_write_count_tolerance=0,
+        unrelated_write_minimum_count=1,
+        unrelated_write_interval_seconds=0.5,
+        clock_drift_tolerance_seconds=1.0,
+        calibration_cadence_seconds=0.5,
+        pair_count=3,
+        warmup_duration_seconds=0.01,
+    )
+    schedule = generate_relevant_write_schedule(2, total_duration_seconds=0.05, seed=1)
+    order = counterbalanced_pair_order(config.pair_count)[0]
+    cache_config = CacheCoreConfig(
+        lag_capture_window_config=LagCaptureWindowConfig(
+            window_count=1, events_per_window=2, min_separation_events=0
+        )
+    )
+
+    try:
+        with pytest.raises(BenchmarkSetupError, match="capture window"):
+            run_consolidated_stream_pair(
+                client,
+                listener,
+                database=database,
+                relevant_collection_names=["relevant_a", "relevant_b"],
+                unrelated_collection_name="unrelated",
+                config=config,
+                schedule=schedule,
+                order=order,
+                cache_config=cache_config,
+            )
+    finally:
+        client.drop_database(database)
 
 
 class _RecordingUnrelatedWriteWorkload:

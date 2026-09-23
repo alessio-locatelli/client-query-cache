@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+from pymongo.errors import PyMongoError
 from pymongo.monitoring import TopologyListener
 
 from benchmarks.stream_cost.errors import (
@@ -273,7 +274,6 @@ class TopologyChangeListener(TopologyListener):
     def reset(self) -> None:
         with self._lock:
             self._primary_changed = False
-            self._current_primary = None
 
     @staticmethod
     def opened(_event: TopologyOpenedEvent) -> None:
@@ -325,7 +325,7 @@ class PeriodicCalibrationSampler:
         self._cadence_seconds = cadence_seconds
         self._rounds = rounds
         self._points: list[CalibrationPoint] = []
-        self._error: Exception | None = None
+        self._error: BenchmarkConfigurationError | PyMongoError | None = None
         self._lock = threading.Lock()
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
@@ -352,7 +352,7 @@ class PeriodicCalibrationSampler:
                 return
             try:
                 self.sample_now()
-            except Exception as error:  # noqa: BLE001
+            except (BenchmarkConfigurationError, PyMongoError) as error:
                 with self._lock:
                     self._error = error
                 return
