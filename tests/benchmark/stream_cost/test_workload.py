@@ -120,9 +120,6 @@ def test_idle_variant_has_zero_sampling_operations() -> None:
     assert idle_variants
     for variant in idle_variants:
         assert variant.sampling == OperationCounts(reads=0, writes=0)
-        # An idle variant still primes admission/hit counters before its
-        # zero-operation sampling window; "idle" describes the sampling
-        # phase, not an exemption from the priming requirement.
         assert variant.warmup.reads >= 2
 
 

@@ -81,12 +81,6 @@ def _activate_consolidated_stream(
     database: str,
     relevant_collection_names: Sequence[str],
 ) -> None:
-    # Seed the write-target document before the collection is ever read or
-    # activated, so the scheduled relevant writes below are always plain
-    # updates. Otherwise the very first scheduled write implicitly creates
-    # the collection, and the server emits a "create" event in addition to
-    # the write's own event — one extra invalidation beyond len(schedule)
-    # that the settle-wait below does not account for.
     manager[database].raw[relevant_collection_names[0]].insert_one(
         {"_id": _RELEVANT_WRITE_DOCUMENT_ID, "touched": 0}
     )
@@ -107,11 +101,6 @@ def _activate_consolidated_stream(
 def _warm_up_server(
     collection: Collection[dict[str, Any]], *, duration_seconds: float
 ) -> None:
-    # A plain sleep does not touch the server at all: WiredTiger/OS page
-    # cache warmth (the reason this phase exists, per this workload's
-    # reset-does-not-clear-server-state design) only changes in response to
-    # real traffic against the collection, so this issues read round trips
-    # against the seeded relevant document for the configured duration.
     deadline = time.monotonic() + duration_seconds
     while time.monotonic() < deadline:
         collection.find_one({"_id": _RELEVANT_WRITE_DOCUMENT_ID})
@@ -161,9 +150,6 @@ def _execute_run(
             start_monotonic=start_monotonic,
             tolerance_seconds=config.relevant_write_schedule_tolerance_seconds,
         )
-        # The unrelated writer must still be running while these
-        # invalidations are being applied, or the lag samples they produce
-        # were never actually subjected to concurrent unrelated load.
         _await_condition(
             lambda: (
                 manager.cache_core.stream_cost_snapshot(database).invalidations
@@ -307,10 +293,6 @@ def run_consolidated_stream_pair(
         try:
             calibration_points = sampler.stop()
         finally:
-            # order always has two entries, so a successful loop always
-            # assigns manager; it can only still be None here while an
-            # exception from the first run is propagating, which skips past
-            # this function entirely rather than falling through below.
             if manager is not None:  # pragma: no branch
                 manager.close()
 

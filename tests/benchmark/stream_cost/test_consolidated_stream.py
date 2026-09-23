@@ -163,8 +163,6 @@ def test_replay_write_schedule_rejects_non_positive_tolerance() -> None:
 def test_replay_write_schedule_records_offsets_within_tolerance(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # Two monotonic() reads per scheduled write: one before issuing (to
-    # decide whether to sleep) and one after (to record the actual offset).
     readings = iter([0.0, 0.05, 0.1, 0.16])
     monkeypatch.setattr(
         "benchmarks.stream_cost.consolidated_stream.time.monotonic",

@@ -28,9 +28,6 @@ if TYPE_CHECKING:
     from mongo_client_cache.synchronous.collection import CachedCollection
     from mongo_client_cache.synchronous.manager import CacheManager
 
-# A read repeated twice against the identical cache key always misses (and
-# admits) on the first call and hits on the second, satisfying the
-# admission-and-hit priming requirement without depending on data contents.
 _WARMUP_READ_REPEATS = 2
 
 
