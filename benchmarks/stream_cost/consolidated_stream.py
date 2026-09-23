@@ -136,6 +136,12 @@ def replay_write_schedule(
     if tolerance_seconds <= 0:
         message = "tolerance_seconds must be positive"
         raise BenchmarkConfigurationError(message)
+    if any(not math.isfinite(offset) or offset < 0 for offset in schedule):
+        message = "schedule offsets must be finite and non-negative"
+        raise BenchmarkConfigurationError(message)
+    if list(schedule) != sorted(schedule):
+        message = "schedule offsets must be sorted in non-decreasing order"
+        raise BenchmarkConfigurationError(message)
     actual_offsets: list[float] = []
     for scheduled_offset in schedule:
         target = start_monotonic + scheduled_offset
