@@ -8,6 +8,8 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from pymongo.errors import PyMongoError
+
 from benchmarks.stream_cost.calibration import validate_cadence
 from benchmarks.stream_cost.errors import (
     BenchmarkConfigurationError,
@@ -172,6 +174,7 @@ class UnrelatedWriteWorkload:
     __slots__ = (
         "_collection",
         "_count",
+        "_error",
         "_interval_seconds",
         "_lock",
         "_stop_event",
@@ -187,6 +190,7 @@ class UnrelatedWriteWorkload:
         self._collection = collection
         self._interval_seconds = interval_seconds
         self._count = 0
+        self._error: PyMongoError | None = None
         self._lock = threading.Lock()
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
@@ -202,6 +206,11 @@ class UnrelatedWriteWorkload:
         self._stop_event.set()
         if self._thread is not None:
             self._thread.join()
+        with self._lock:
+            error = self._error
+        if error is not None:
+            message = f"unrelated-write workload failed: {error}"
+            raise BenchmarkSetupError(message) from error
         return self.count
 
     @property
@@ -211,7 +220,12 @@ class UnrelatedWriteWorkload:
 
     def _run(self) -> None:
         while not self._stop_event.wait(self._interval_seconds):
-            self._collection.insert_one({"unrelated": True})
+            try:
+                self._collection.insert_one({"unrelated": True})
+            except PyMongoError as error:
+                with self._lock:
+                    self._error = error
+                return
             with self._lock:
                 self._count += 1
 

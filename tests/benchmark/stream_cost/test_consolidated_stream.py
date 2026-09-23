@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
+from pymongo.errors import ConnectionFailure
 
 from benchmarks.stream_cost.consolidated_stream import (
     MINIMUM_REPEATED_PAIRS,
@@ -268,6 +269,24 @@ def test_unrelated_write_workload_counts_writes_while_running() -> None:
     final_count = workload.stop()
     assert final_count > 0
     assert final_count == len(fake.inserted)
+
+
+@dataclass(slots=True)
+class _FailingInsertCollection:
+    @staticmethod
+    def insert_one(document: dict[str, Any]) -> None:
+        del document
+        message = "simulated insert failure"
+        raise ConnectionFailure(message)
+
+
+def test_unrelated_write_workload_propagates_a_background_failure() -> None:
+    fake_collection = cast("Collection[dict[str, Any]]", _FailingInsertCollection())
+    workload = UnrelatedWriteWorkload(fake_collection, interval_seconds=0.01)
+    workload.start()
+    time.sleep(0.1)
+    with pytest.raises(BenchmarkSetupError, match="unrelated-write workload failed"):
+        workload.stop()
 
 
 def test_unrelated_write_workload_stop_without_start_is_a_noop() -> None:

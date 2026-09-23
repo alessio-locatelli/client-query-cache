@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, cast
 
 import pytest
+from pymongo.errors import ConnectionFailure
 
 from benchmarks.stream_cost.calibration import (
     CalibrationPoint,
@@ -574,6 +575,22 @@ def test_topology_change_listener_reset_clears_a_latched_change() -> None:
     assert bool(listener.primary_changed) is False
 
 
+def test_topology_change_listener_reset_preserves_the_primary_baseline() -> None:
+    listener = TopologyChangeListener()
+    listener.description_changed(
+        _change_event({("host", 1): _FakeServerDescription(is_writable=True)})
+    )
+    listener.reset()
+
+    listener.description_changed(
+        _change_event({("host", 1): _FakeServerDescription(is_writable=False)})
+    )
+    listener.description_changed(
+        _change_event({("host", 1): _FakeServerDescription(is_writable=True)})
+    )
+    assert bool(listener.primary_changed) is True
+
+
 def _stub_send_hello() -> dict[str, object]:
     return {
         "localTime": datetime(2024, 1, 1, tzinfo=UTC),
@@ -633,7 +650,7 @@ def test_periodic_calibration_sampler_propagates_a_background_failure() -> None:
         if call_count == 1:
             return _stub_send_hello()
         message = "simulated hello failure"
-        raise RuntimeError(message)
+        raise ConnectionFailure(message)
 
     sampler = PeriodicCalibrationSampler(
         flaky_send_hello, cadence_seconds=0.02, rounds=1
