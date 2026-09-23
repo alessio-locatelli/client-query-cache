@@ -22,7 +22,10 @@ from benchmarks.stream_cost.calibration import (
     sample_clock_offset,
     validate_cadence,
 )
-from benchmarks.stream_cost.errors import BenchmarkConfigurationError
+from benchmarks.stream_cost.errors import (
+    BenchmarkConfigurationError,
+    BenchmarkSetupError,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -600,3 +603,25 @@ def test_periodic_calibration_sampler_samples_repeatedly_at_the_cadence() -> Non
     time.sleep(0.15)
     minimum_expected_points = 3
     assert len(sampler.stop()) >= minimum_expected_points
+
+
+def test_periodic_calibration_sampler_propagates_a_background_failure() -> None:
+    call_count = 0
+
+    def flaky_send_hello() -> dict[str, object]:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return _stub_send_hello()
+        message = "simulated hello failure"
+        raise RuntimeError(message)
+
+    sampler = PeriodicCalibrationSampler(
+        flaky_send_hello, cadence_seconds=0.02, rounds=1
+    )
+    sampler.start()
+    time.sleep(0.1)
+    with pytest.raises(
+        BenchmarkSetupError, match="periodic calibration sampling failed"
+    ):
+        sampler.stop()

@@ -9,7 +9,10 @@ from typing import TYPE_CHECKING
 
 from pymongo.monitoring import TopologyListener
 
-from benchmarks.stream_cost.errors import BenchmarkConfigurationError
+from benchmarks.stream_cost.errors import (
+    BenchmarkConfigurationError,
+    BenchmarkSetupError,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -294,6 +297,7 @@ class TopologyChangeListener(TopologyListener):
 class PeriodicCalibrationSampler:
     __slots__ = (
         "_cadence_seconds",
+        "_error",
         "_lock",
         "_points",
         "_rounds",
@@ -316,6 +320,7 @@ class PeriodicCalibrationSampler:
         self._cadence_seconds = cadence_seconds
         self._rounds = rounds
         self._points: list[CalibrationPoint] = []
+        self._error: Exception | None = None
         self._lock = threading.Lock()
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
@@ -336,12 +341,22 @@ class PeriodicCalibrationSampler:
 
     def _run(self) -> None:
         while not self._stop_event.wait(self._cadence_seconds):
-            self.sample_now()
+            try:
+                self.sample_now()
+            except Exception as error:  # noqa: BLE001
+                with self._lock:
+                    self._error = error
+                return
 
     def stop(self) -> tuple[CalibrationPoint, ...]:
         self._stop_event.set()
         if self._thread is not None:
             self._thread.join()
+        with self._lock:
+            error = self._error
+        if error is not None:
+            message = f"periodic calibration sampling failed: {error}"
+            raise BenchmarkSetupError(message) from error
         return self.points()
 
     def points(self) -> tuple[CalibrationPoint, ...]:

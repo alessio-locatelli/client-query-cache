@@ -25,6 +25,7 @@ from benchmarks.stream_cost.workload import (
     insert_dataset,
     prime_read_variant,
     priming_delta,
+    run_workload_variant,
     sample_operation_ids,
     seed_dataset,
     time_call,
@@ -35,6 +36,8 @@ from mongo_client_cache._core.snapshots import CacheSnapshot
 
 if TYPE_CHECKING:
     from pymongo.synchronous.collection import Collection
+
+    from mongo_client_cache.synchronous.collection import CachedCollection
 
 pytestmark = pytest.mark.unit
 
@@ -290,3 +293,23 @@ def test_time_call_returns_the_result_and_a_non_negative_elapsed_time() -> None:
     result, elapsed_seconds = time_call(lambda: 42)
     assert result == 42
     assert elapsed_seconds >= 0
+
+
+def test_run_workload_variant_issues_no_operations_for_the_idle_variant() -> None:
+    idle_variant = next(
+        variant
+        for variant in STANDARD_WORKLOAD_VARIANTS
+        if variant.kind is WorkloadKind.IDLE
+    )
+    dataset = seed_dataset(idle_variant)
+
+    outcome = run_workload_variant(
+        cast("Collection[dict[str, Any]]", None),
+        cast("CachedCollection[dict[str, Any]]", None),
+        idle_variant,
+        dataset,
+    )
+
+    assert outcome.reads.raw_results == ()
+    assert outcome.reads.cache_results == ()
+    assert outcome.writes_issued == 0
