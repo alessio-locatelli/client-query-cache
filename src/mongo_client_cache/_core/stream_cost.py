@@ -51,19 +51,20 @@ class LagCaptureWindows:
         self._current: list[float] = []
         self._separation_remaining = 0
 
-    def record(self, raw_lag_seconds: float) -> None:
+    def record(self, raw_lag_seconds: float) -> bool:
         with self._lock:
             if self._separation_remaining > 0:
                 self._separation_remaining -= 1
-                return
+                return False
             if not self._current and len(self._windows) == self._windows.maxlen:
                 self._windows.popleft()
             self._current.append(raw_lag_seconds)
             if len(self._current) < self._config.events_per_window:
-                return
+                return True
             self._windows.append(tuple(self._current))
             self._current = []
             self._separation_remaining = self._config.min_separation_events
+            return True
 
     def reset(self) -> None:
         with self._lock:
@@ -128,10 +129,10 @@ class StreamCostStatistics:
     ) -> None:
         with self._lock:
             self._invalidations += 1
-            self._lag.record(raw_lag_seconds)
-            self._apply_readings.append(
-                InvalidationApplyReading(wall_seconds, monotonic_seconds)
-            )
+            if self._lag.record(raw_lag_seconds):
+                self._apply_readings.append(
+                    InvalidationApplyReading(wall_seconds, monotonic_seconds)
+                )
 
     def reset(self) -> None:
         with self._lock:
