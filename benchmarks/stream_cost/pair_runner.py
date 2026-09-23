@@ -125,18 +125,23 @@ def _execute_run(
     )
 
     unrelated_writer: UnrelatedWriteWorkload | None = None
-    window_start_count = 0
     if variant is PairVariant.LOADED:
         unrelated_writer = UnrelatedWriteWorkload(
             manager[database].raw[unrelated_collection_name],
             interval_seconds=config.unrelated_write_interval_seconds,
         )
         unrelated_writer.start()
-        window_start_count = unrelated_writer.count
 
     relevant_collection = manager[database].raw[relevant_collection_names[0]]
+    window_start_count = 0
+    first_write_issued = False
 
     def _issue_relevant_write() -> None:
+        nonlocal window_start_count, first_write_issued
+        if not first_write_issued:
+            if unrelated_writer is not None:
+                window_start_count = unrelated_writer.count
+            first_write_issued = True
         relevant_collection.update_one(
             {"_id": _RELEVANT_WRITE_DOCUMENT_ID}, {"$inc": {"touched": 1}}
         )
@@ -163,8 +168,8 @@ def _execute_run(
             ),
         )
         if unrelated_writer is not None:
-            unrelated_count_during_window = unrelated_writer.stop() - window_start_count
-            unrelated_writer = None
+            window_end_count = unrelated_writer.count
+            unrelated_count_during_window = window_end_count - window_start_count
             verify_unrelated_write_minimum(
                 unrelated_count_during_window,
                 minimum_count=config.unrelated_write_minimum_count,

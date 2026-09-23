@@ -24,7 +24,7 @@ from mongo_client_cache._core.stream_cost import LagCaptureWindowConfig
 from mongo_client_cache.synchronous.manager import CacheManager
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
 
     from pymongo import MongoClient
 
@@ -179,7 +179,10 @@ def test_execute_run_stops_the_unrelated_writer_when_replay_fails(
         pair_runner, "UnrelatedWriteWorkload", _RecordingUnrelatedWriteWorkload
     )
 
-    def failing_replay(*_args: object, **_kwargs: object) -> None:
+    def failing_replay(
+        issue_write: Callable[[], None], *_args: object, **_kwargs: object
+    ) -> None:
+        issue_write()
         message = "simulated replay failure"
         raise BenchmarkSetupError(message)
 

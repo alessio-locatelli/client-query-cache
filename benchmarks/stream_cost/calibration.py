@@ -345,13 +345,18 @@ class PeriodicCalibrationSampler:
         return point
 
     def _run(self) -> None:
-        while not self._stop_event.wait(self._cadence_seconds):
+        next_deadline = time.monotonic() + self._cadence_seconds
+        while True:
+            remaining = next_deadline - time.monotonic()
+            if self._stop_event.wait(max(remaining, 0.0)):
+                return
             try:
                 self.sample_now()
             except Exception as error:  # noqa: BLE001
                 with self._lock:
                     self._error = error
                 return
+            next_deadline += self._cadence_seconds
 
     def stop(self) -> tuple[CalibrationPoint, ...]:
         self._stop_event.set()
