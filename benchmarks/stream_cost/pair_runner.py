@@ -203,7 +203,7 @@ def _execute_run(
         raise BenchmarkSetupError(message)
     return RunResult(
         variant=variant,
-        relevant_write_count=len(schedule),
+        relevant_write_count=snapshot.invalidations,
         unrelated_write_count_during_window=unrelated_count_during_window,
         raw_lag_windows=snapshot.invalidation_lag_windows,
         invalidation_apply_readings=tuple(

@@ -190,6 +190,69 @@ def test_run_consolidated_stream_pair_rejects_a_run_with_too_few_windows(
         client.drop_database(database)
 
 
+def test_execute_run_reports_observed_invalidations_not_the_schedule_length(
+    monkeypatch: pytest.MonkeyPatch,
+    dedicated_client_and_listener: tuple[
+        MongoClient[dict[str, Any]], TopologyChangeListener
+    ],
+) -> None:
+    client, _listener = dedicated_client_and_listener
+    database = f"test_{uuid.uuid4().hex}"
+    cache_config = CacheCoreConfig(
+        lag_capture_window_config=LagCaptureWindowConfig(
+            window_count=2, events_per_window=1, min_separation_events=0
+        )
+    )
+    manager = CacheManager(client, cache_config=cache_config)
+
+    def double_issue_replay(
+        issue_write: Callable[[], None], *_args: object, **_kwargs: object
+    ) -> tuple[float, ...]:
+        issue_write()
+        issue_write()
+        pair_runner._await_condition(
+            lambda: (
+                manager.cache_core.stream_cost_snapshot(database).invalidations >= 2
+            ),
+            timeout_seconds=5.0,
+            poll_interval_seconds=0.01,
+            timeout_message="the second invalidation was not observed in time",
+        )
+        return (0.0, 0.01)
+
+    monkeypatch.setattr(pair_runner, "replay_write_schedule", double_issue_replay)
+
+    config = ConsolidatedStreamPairConfig(
+        acceptable_lag_percentile=0.5,
+        acceptable_lag_threshold_seconds=5.0,
+        relevant_write_count=1,
+        relevant_write_schedule_tolerance_seconds=1.0,
+        relevant_write_count_tolerance=0,
+        unrelated_write_minimum_count=1,
+        unrelated_write_interval_seconds=0.5,
+        clock_drift_tolerance_seconds=1.0,
+        calibration_cadence_seconds=0.5,
+        pair_count=3,
+        warmup_duration_seconds=0.01,
+    )
+
+    try:
+        run_result = pair_runner._execute_run(
+            manager,
+            database=database,
+            relevant_collection_names=["relevant_a", "relevant_b"],
+            unrelated_collection_name="unrelated",
+            config=config,
+            schedule=(0.0,),
+            variant=PairVariant.CONTROL,
+        )
+    finally:
+        manager.close()
+        client.drop_database(database)
+
+    assert run_result.relevant_write_count == 2
+
+
 class _RecordingUnrelatedWriteWorkload:
     __slots__ = ("stopped",)
     instances: ClassVar[list[_RecordingUnrelatedWriteWorkload]] = []
