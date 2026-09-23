@@ -1,0 +1,115 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
+import pytest
+
+from benchmarks.stream_cost.errors import BenchmarkSetupError
+from benchmarks.stream_cost.workload import (
+    STANDARD_WORKLOAD_VARIANTS,
+    WorkloadKind,
+    WorkloadVariant,
+    insert_dataset,
+    issue_writes,
+    prime_read_variant,
+    run_paired_reads,
+    sample_operation_ids,
+    seed_dataset,
+    verify_primed,
+)
+
+if TYPE_CHECKING:
+    from mongo_client_cache.synchronous.manager import CacheManager
+    from tests.conftest import CollectionName, DatabaseName
+
+pytestmark = pytest.mark.integration
+
+
+def _read_heavy_small_variant() -> WorkloadVariant:
+    return next(
+        variant
+        for variant in STANDARD_WORKLOAD_VARIANTS
+        if variant.kind is WorkloadKind.READ_HEAVY and variant.data_size.name == "small"
+    )
+
+
+def test_priming_yields_positive_admission_and_hit_deltas(
+    cache_manager: CacheManager[dict[str, Any]],
+    cached_database_name: DatabaseName,
+    persistent_collection_name: CollectionName,
+) -> None:
+    variant = _read_heavy_small_variant()
+    dataset = seed_dataset(variant)
+    database = cache_manager[cached_database_name]
+    collection = database[persistent_collection_name]
+    insert_dataset(collection.raw, dataset)
+
+    document_id = dataset.ids[0]
+    before = cache_manager.cache_core.snapshot()
+    prime_read_variant(lambda: collection.find_one({"_id": document_id}))
+    after = cache_manager.cache_core.snapshot()
+
+    verify_primed(before, after, variant_name=variant.name)
+
+
+def test_run_paired_reads_returns_identical_data_for_raw_and_cache(
+    cache_manager: CacheManager[dict[str, Any]],
+    cached_database_name: DatabaseName,
+    persistent_collection_name: CollectionName,
+) -> None:
+    variant = _read_heavy_small_variant()
+    dataset = seed_dataset(variant)
+    database = cache_manager[cached_database_name]
+    collection = database[persistent_collection_name]
+    insert_dataset(collection.raw, dataset)
+
+    ids = sample_operation_ids(dataset, 5, seed=1)
+    outcome = run_paired_reads(collection.raw, collection, variant, ids)
+
+    assert outcome.raw_results == outcome.cache_results
+    assert all(document is not None for document in outcome.raw_results)
+
+
+def test_issue_writes_updates_the_requested_number_of_seeded_documents(
+    cache_manager: CacheManager[dict[str, Any]],
+    cached_database_name: DatabaseName,
+    persistent_collection_name: CollectionName,
+) -> None:
+    variant = _read_heavy_small_variant()
+    dataset = seed_dataset(variant)
+    database = cache_manager[cached_database_name]
+    collection = database[persistent_collection_name]
+    insert_dataset(collection.raw, dataset)
+
+    written = issue_writes(collection.raw, dataset, 5, seed=2)
+
+    assert written == 5
+    touched_count = collection.raw.count_documents({"touched": {"$gte": 1}})
+    assert touched_count > 0
+
+
+def test_run_paired_reads_rejects_mismatched_raw_and_cache_data(
+    cache_manager: CacheManager[dict[str, Any]],
+    cached_database_name: DatabaseName,
+    persistent_collection_name: CollectionName,
+    nonpersistent_collection_name: CollectionName,
+) -> None:
+    variant = _read_heavy_small_variant()
+    dataset = seed_dataset(variant)
+    database = cache_manager[cached_database_name]
+    collection = database[persistent_collection_name]
+    insert_dataset(collection.raw, dataset)
+
+    # A deliberately different raw collection stands in for a raw arm whose
+    # data has diverged from the cache arm's, exercising the mismatch check
+    # deterministically rather than racing real change-stream invalidation.
+    mismatched_raw_collection = database.raw[nonpersistent_collection_name]
+    mismatched_documents = [dict(document) for document in dataset.documents]
+    for document in mismatched_documents:
+        document["padding"] = "mismatched"
+    mismatched_raw_collection.insert_many(mismatched_documents)
+
+    with pytest.raises(BenchmarkSetupError, match="different data"):
+        run_paired_reads(
+            mismatched_raw_collection, collection, variant, (dataset.ids[0],)
+        )

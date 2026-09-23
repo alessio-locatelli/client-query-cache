@@ -35,3 +35,4 @@ ignore = [
   "boolean-type-hint-positional-argument",
   "import-private-name",
 ]
+"benchmarks/*" = ["import-private-name"]
