@@ -265,6 +265,29 @@ def issue_writes(
     return len(ids)
 
 
+@dataclass(frozen=True, slots=True)
+class WorkloadVariantOutcome:
+    variant: WorkloadVariant
+    reads: PairedReadOutcome
+    writes_issued: int
+
+
+def run_workload_variant(
+    raw_collection: Collection[dict[str, Any]],
+    cache_collection: CachedCollection[dict[str, Any]],
+    variant: WorkloadVariant,
+    dataset: SeededDataset,
+) -> WorkloadVariantOutcome:
+    read_ids = sample_operation_ids(dataset, variant.sampling.reads, seed=variant.seed)
+    reads = run_paired_reads(raw_collection, cache_collection, variant, read_ids)
+    writes_issued = issue_writes(
+        raw_collection, dataset, variant.sampling.writes, seed=variant.seed + 1
+    )
+    return WorkloadVariantOutcome(
+        variant=variant, reads=reads, writes_issued=writes_issued
+    )
+
+
 def time_call[T](call: Callable[[], T]) -> tuple[T, float]:
     start = time.monotonic()
     call_result = call()

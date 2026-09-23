@@ -19,6 +19,8 @@ from benchmarks.stream_cost.consolidated_stream import (
 )
 from benchmarks.stream_cost.errors import BenchmarkSetupError
 from benchmarks.stream_cost.pair_runner import run_consolidated_stream_pair
+from mongo_client_cache._core.manager import CacheCoreConfig
+from mongo_client_cache._core.stream_cost import LagCaptureWindowConfig
 from mongo_client_cache.synchronous.manager import CacheManager
 
 if TYPE_CHECKING:
@@ -72,6 +74,14 @@ def test_run_consolidated_stream_pair_produces_a_lag_distribution_per_run(
     )
     schedule = generate_relevant_write_schedule(3, total_duration_seconds=0.3, seed=1)
     order = counterbalanced_pair_order(config.pair_count)[0]
+    # A window sized to exactly this schedule's write count so the pair's
+    # tiny relevant-write traffic still completes at least one capture
+    # window, satisfying the percentile sample-count floor.
+    cache_config = CacheCoreConfig(
+        lag_capture_window_config=LagCaptureWindowConfig(
+            window_count=1, events_per_window=3, min_separation_events=0
+        )
+    )
 
     pair_result = run_consolidated_stream_pair(
         client,
@@ -82,6 +92,7 @@ def test_run_consolidated_stream_pair_produces_a_lag_distribution_per_run(
         config=config,
         schedule=schedule,
         order=order,
+        cache_config=cache_config,
     )
 
     assert order == (PairVariant.CONTROL, PairVariant.LOADED)
@@ -90,6 +101,50 @@ def test_run_consolidated_stream_pair_produces_a_lag_distribution_per_run(
     assert pair_result.control.unrelated_write_count_during_window == 0
     assert pair_result.loaded.unrelated_write_count_during_window >= 2
     assert pair_result.calibration.has_election_change is False
+    assert sum(len(window) for window in pair_result.control.raw_lag_windows) == 3
+    assert sum(len(window) for window in pair_result.loaded.raw_lag_windows) == 3
+
+
+def test_run_consolidated_stream_pair_rejects_a_run_with_too_few_lag_samples(
+    dedicated_client_and_listener: tuple[
+        MongoClient[dict[str, Any]], TopologyChangeListener
+    ],
+) -> None:
+    client, listener = dedicated_client_and_listener
+    database = f"test_{uuid.uuid4().hex}"
+    config = ConsolidatedStreamPairConfig(
+        acceptable_lag_percentile=0.5,
+        acceptable_lag_threshold_seconds=5.0,
+        relevant_write_count=1,
+        relevant_write_schedule_tolerance_seconds=1.0,
+        relevant_write_count_tolerance=0,
+        unrelated_write_minimum_count=1,
+        unrelated_write_interval_seconds=0.5,
+        clock_drift_tolerance_seconds=1.0,
+        calibration_cadence_seconds=0.5,
+        pair_count=3,
+        warmup_duration_seconds=0.01,
+    )
+    schedule = generate_relevant_write_schedule(1, total_duration_seconds=0.05, seed=1)
+    order = counterbalanced_pair_order(config.pair_count)[0]
+
+    # No custom cache_config: the default 100-events-per-window capture
+    # never closes for a single relevant write, so the run's lag distribution
+    # stays empty and must be rejected rather than silently accepted.
+    try:
+        with pytest.raises(BenchmarkSetupError, match="invalidation-lag samples"):
+            run_consolidated_stream_pair(
+                client,
+                listener,
+                database=database,
+                relevant_collection_names=["relevant_a", "relevant_b"],
+                unrelated_collection_name="unrelated",
+                config=config,
+                schedule=schedule,
+                order=order,
+            )
+    finally:
+        client.drop_database(database)
 
     client.drop_database(database)
 

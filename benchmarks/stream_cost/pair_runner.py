@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 from pymongo import ReadPreference
 
+from benchmarks.stream_cost.bootstrap import minimum_sample_count
 from benchmarks.stream_cost.calibration import (
     CalibrationSeries,
     PeriodicCalibrationSampler,
@@ -34,6 +35,7 @@ if TYPE_CHECKING:
     from benchmarks.stream_cost.consolidated_stream import (
         ConsolidatedStreamPairConfig,
     )
+    from mongo_client_cache._core.manager import CacheCoreConfig
     from mongo_client_cache.synchronous.manager import CacheManager
 
 _CALIBRATION_ROUNDS = 5
@@ -42,6 +44,7 @@ _STREAM_REGISTRATION_TIMEOUT_SECONDS = 15.0
 _STREAM_REGISTRATION_POLL_INTERVAL_SECONDS = 0.05
 _INVALIDATION_SETTLE_TIMEOUT_SECONDS = 15.0
 _INVALIDATION_SETTLE_POLL_INTERVAL_SECONDS = 0.05
+_RELEVANT_WRITE_DOCUMENT_ID = "relevant"
 
 
 def _send_hello(client: MongoClient[dict[str, Any]]) -> Mapping[str, object]:
@@ -77,6 +80,15 @@ def _activate_consolidated_stream(
     database: str,
     relevant_collection_names: Sequence[str],
 ) -> None:
+    # Seed the write-target document before the collection is ever read or
+    # activated, so the scheduled relevant writes below are always plain
+    # updates. Otherwise the very first scheduled write implicitly creates
+    # the collection, and the server emits a "create" event in addition to
+    # the write's own event — one extra invalidation beyond len(schedule)
+    # that the settle-wait below does not account for.
+    manager[database].raw[relevant_collection_names[0]].insert_one(
+        {"_id": _RELEVANT_WRITE_DOCUMENT_ID, "touched": 0}
+    )
     for name in relevant_collection_names:
         manager[database][name].find({})
     _await_condition(
@@ -120,7 +132,7 @@ def _execute_run(
 
     def _issue_relevant_write() -> None:
         relevant_collection.update_one(
-            {"_id": "relevant"}, {"$inc": {"touched": 1}}, upsert=True
+            {"_id": _RELEVANT_WRITE_DOCUMENT_ID}, {"$inc": {"touched": 1}}
         )
 
     unrelated_count_during_window = 0
@@ -132,13 +144,9 @@ def _execute_run(
             start_monotonic=start_monotonic,
             tolerance_seconds=config.relevant_write_schedule_tolerance_seconds,
         )
-        if unrelated_writer is not None:
-            unrelated_count_during_window = unrelated_writer.stop() - window_start_count
-            unrelated_writer = None
-            verify_unrelated_write_minimum(
-                unrelated_count_during_window,
-                minimum_count=config.unrelated_write_minimum_count,
-            )
+        # The unrelated writer must still be running while these
+        # invalidations are being applied, or the lag samples they produce
+        # were never actually subjected to concurrent unrelated load.
         _await_condition(
             lambda: (
                 manager.cache_core.stream_cost_snapshot(database).invalidations
@@ -151,11 +159,27 @@ def _execute_run(
                 f"within {_INVALIDATION_SETTLE_TIMEOUT_SECONDS:.0f} seconds"
             ),
         )
+        if unrelated_writer is not None:
+            unrelated_count_during_window = unrelated_writer.stop() - window_start_count
+            unrelated_writer = None
+            verify_unrelated_write_minimum(
+                unrelated_count_during_window,
+                minimum_count=config.unrelated_write_minimum_count,
+            )
     finally:
         if unrelated_writer is not None:
             unrelated_writer.stop()
 
     snapshot = manager.cache_core.stream_cost_snapshot(database)
+    total_lag_samples = sum(len(window) for window in snapshot.invalidation_lag_windows)
+    required_lag_samples = minimum_sample_count(config.acceptable_lag_percentile)
+    if total_lag_samples < required_lag_samples:
+        message = (
+            f"only {total_lag_samples} invalidation-lag samples were captured for "
+            f"this run, below the {required_lag_samples} required for the "
+            f"{config.acceptable_lag_percentile:.2%} percentile to be defined"
+        )
+        raise BenchmarkSetupError(message)
     return RunResult(
         variant=variant,
         relevant_write_count=len(schedule),
@@ -174,8 +198,11 @@ def _run_single(
     config: ConsolidatedStreamPairConfig,
     schedule: Sequence[float],
     variant: PairVariant,
+    cache_config: CacheCoreConfig | None,
 ) -> tuple[CacheManager[dict[str, Any]], RunResult]:
-    manager = reset_run_state(client, previous_manager, database=database)
+    manager = reset_run_state(
+        client, previous_manager, database=database, cache_config=cache_config
+    )
     try:
         run_result = _execute_run(
             manager,
@@ -209,12 +236,22 @@ def run_consolidated_stream_pair(
     config: ConsolidatedStreamPairConfig,
     schedule: Sequence[float],
     order: tuple[PairVariant, PairVariant],
+    cache_config: CacheCoreConfig | None = None,
 ) -> PairResult:
     if len(relevant_collection_names) < _MINIMUM_RELEVANT_COLLECTIONS:
         message = (
             f"relevant_collection_names must name at least "
             f"{_MINIMUM_RELEVANT_COLLECTIONS} collections to characterize a "
             "consolidated stream"
+        )
+        raise BenchmarkConfigurationError(message)
+    if len(set(relevant_collection_names)) != len(relevant_collection_names):
+        message = "relevant_collection_names must not contain duplicate names"
+        raise BenchmarkConfigurationError(message)
+    if unrelated_collection_name in relevant_collection_names:
+        message = (
+            "unrelated_collection_name must not be one of relevant_collection_names; "
+            "writes to a relevant collection cannot stand in for unrelated traffic"
         )
         raise BenchmarkConfigurationError(message)
     if len(schedule) != config.relevant_write_count:
@@ -244,17 +281,20 @@ def run_consolidated_stream_pair(
                 config=config,
                 schedule=schedule,
                 variant=variant,
+                cache_config=cache_config,
             )
             run_results_by_variant[variant] = run_result
             sampler.sample_now()
     finally:
-        calibration_points = sampler.stop()
-        # order always has two entries, so a successful loop always assigns
-        # manager; it can only still be None here while an exception from
-        # the first run is propagating, which skips past this function
-        # entirely rather than falling through to the checks below.
-        if manager is not None:  # pragma: no branch
-            manager.close()
+        try:
+            calibration_points = sampler.stop()
+        finally:
+            # order always has two entries, so a successful loop always
+            # assigns manager; it can only still be None here while an
+            # exception from the first run is propagating, which skips past
+            # this function entirely rather than falling through below.
+            if manager is not None:  # pragma: no branch
+                manager.close()
 
     series = CalibrationSeries(points=calibration_points)
     if listener.primary_changed or series.has_election_change:
@@ -301,6 +341,7 @@ def run_consolidated_stream_pairs(
     unrelated_collection_name: str,
     config: ConsolidatedStreamPairConfig,
     schedule: Sequence[float],
+    cache_config: CacheCoreConfig | None = None,
 ) -> tuple[PairResult, ...]:
     orders = counterbalanced_pair_order(config.pair_count)
     return tuple(
@@ -313,6 +354,7 @@ def run_consolidated_stream_pairs(
             config=config,
             schedule=schedule,
             order=order,
+            cache_config=cache_config,
         )
         for order in orders
     )

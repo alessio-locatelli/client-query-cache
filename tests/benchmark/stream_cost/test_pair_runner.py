@@ -146,6 +146,34 @@ def test_rejects_too_few_relevant_collections() -> None:
         )
 
 
+def test_rejects_duplicate_relevant_collection_names() -> None:
+    with pytest.raises(BenchmarkConfigurationError, match="duplicate"):
+        run_consolidated_stream_pair(
+            _dummy_client(),
+            TopologyChangeListener(),
+            database="db",
+            relevant_collection_names=["a", "a"],
+            unrelated_collection_name="unrelated",
+            config=_config(),
+            schedule=(0.0,),
+            order=_ORDER,
+        )
+
+
+def test_rejects_an_unrelated_collection_that_is_also_relevant() -> None:
+    with pytest.raises(BenchmarkConfigurationError, match="unrelated_collection_name"):
+        run_consolidated_stream_pair(
+            _dummy_client(),
+            TopologyChangeListener(),
+            database="db",
+            relevant_collection_names=["a", "b"],
+            unrelated_collection_name="a",
+            config=_config(),
+            schedule=(0.0,),
+            order=_ORDER,
+        )
+
+
 def test_propagates_a_failure_before_any_manager_is_created(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -458,6 +486,7 @@ def test_run_single_closes_the_manager_when_execute_run_fails(
             config=_config(),
             schedule=(0.0,),
             variant=PairVariant.CONTROL,
+            cache_config=None,
         )
 
     assert manager.closed is True

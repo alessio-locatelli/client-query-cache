@@ -13,6 +13,7 @@ from benchmarks.stream_cost.workload import (
     issue_writes,
     prime_read_variant,
     run_paired_reads,
+    run_workload_variant,
     sample_operation_ids,
     seed_dataset,
     verify_primed,
@@ -30,6 +31,14 @@ def _read_heavy_small_variant() -> WorkloadVariant:
         variant
         for variant in STANDARD_WORKLOAD_VARIANTS
         if variant.kind is WorkloadKind.READ_HEAVY and variant.data_size.name == "small"
+    )
+
+
+def _balanced_small_variant() -> WorkloadVariant:
+    return next(
+        variant
+        for variant in STANDARD_WORKLOAD_VARIANTS
+        if variant.kind is WorkloadKind.BALANCED and variant.data_size.name == "small"
     )
 
 
@@ -84,6 +93,27 @@ def test_issue_writes_updates_the_requested_number_of_seeded_documents(
     written = issue_writes(collection.raw, dataset, 5, seed=2)
 
     assert written == 5
+    touched_count = collection.raw.count_documents({"touched": {"$gte": 1}})
+    assert touched_count > 0
+
+
+def test_run_workload_variant_composes_the_configured_read_write_mix(
+    cache_manager: CacheManager[dict[str, Any]],
+    cached_database_name: DatabaseName,
+    persistent_collection_name: CollectionName,
+) -> None:
+    variant = _balanced_small_variant()
+    dataset = seed_dataset(variant)
+    database = cache_manager[cached_database_name]
+    collection = database[persistent_collection_name]
+    insert_dataset(collection.raw, dataset)
+
+    outcome = run_workload_variant(collection.raw, collection, variant, dataset)
+
+    assert outcome.variant is variant
+    assert len(outcome.reads.raw_results) == variant.sampling.reads
+    assert outcome.reads.raw_results == outcome.reads.cache_results
+    assert outcome.writes_issued == variant.sampling.writes
     touched_count = collection.raw.count_documents({"touched": {"$gte": 1}})
     assert touched_count > 0
 

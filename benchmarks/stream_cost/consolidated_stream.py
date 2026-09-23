@@ -132,8 +132,8 @@ def replay_write_schedule(
         remaining = target - time.monotonic()
         if remaining > 0:
             time.sleep(remaining)
-        issue_write()
         actual_offset = time.monotonic() - start_monotonic
+        issue_write()
         if abs(actual_offset - scheduled_offset) > tolerance_seconds:
             message = (
                 f"write issued at offset {actual_offset:.6f}s deviates from its "
