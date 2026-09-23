@@ -161,6 +161,24 @@ def test_replay_write_schedule_rejects_non_positive_tolerance() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    ("schedule", "match"),
+    [
+        pytest.param((float("nan"),), "finite and non-negative", id="nan"),
+        pytest.param((float("inf"),), "finite and non-negative", id="infinite"),
+        pytest.param((-0.1,), "finite and non-negative", id="negative"),
+        pytest.param((0.2, 0.1), "sorted", id="unsorted"),
+    ],
+)
+def test_replay_write_schedule_rejects_a_malformed_schedule(
+    schedule: tuple[float, ...], match: str
+) -> None:
+    with pytest.raises(BenchmarkConfigurationError, match=match):
+        replay_write_schedule(
+            lambda: None, schedule, start_monotonic=0.0, tolerance_seconds=1.0
+        )
+
+
 def test_replay_write_schedule_records_offsets_within_tolerance(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
