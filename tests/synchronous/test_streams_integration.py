@@ -187,13 +187,14 @@ def test_drop_database_clears_the_cache_and_the_stream_recovers(
 
     _wait_until(_admit_and_check_doc2)
 
+    epoch_before_create = cache.current_epoch(namespace)
     independent_writer[cached_database_name].create_collection("items")
 
-    _wait_until(lambda: cache.lookup_identity(namespace, "doc-2", "full").hit is False)
+    _wait_until(lambda: cache.current_epoch(namespace) > epoch_before_create)
+    _wait_until(lambda: supervisor.healthy)
+    assert cache.lookup_identity(namespace, "doc-2", "full").hit is False
 
-    capture3 = cache.begin_identity_admission(namespace, "doc-2")
-    cache.admit_identity(capture3, "full", {"v": 1})
-    assert cache.lookup_identity(namespace, "doc-2", "full").hit is True
+    _wait_until(_admit_and_check_doc2)
 
     independent_writer[cached_database_name]["items"].insert_one(
         {"_id": "doc-2", "v": 1}
