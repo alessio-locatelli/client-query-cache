@@ -1,0 +1,134 @@
+{
+  "environment": {
+    "member_count": 1,
+    "mongodb_version": "8.0.4",
+    "resource_limits": {
+      "cpus": "1.0",
+      "memory": "1g"
+    },
+    "topology": "isolated single-member replica set"
+  },
+  "identity": {
+    "library_version": "0.1.0",
+    "pymongo_version": "4.18.1",
+    "python_version": "3.14.6",
+    "revision": "3db4883"
+  },
+  "limitations": [
+    {
+      "description": "CPU is measured for the isolated MongoDB container on this host.",
+      "label": "container-cpu"
+    },
+    {
+      "description": "Logical event bytes describe decoded events, not wire traffic.",
+      "label": "logical-bytes"
+    },
+    {
+      "description": "Raw event delivery lag includes server-to-host clock skew.",
+      "label": "clock-skew"
+    }
+  ],
+  "measurement": {
+    "container_cpu_seconds": 0.016006000000000076,
+    "direct_path_bytes": null,
+    "logical_metrics": {
+      "cache": {
+        "bypasses": 0,
+        "entry_count": 63,
+        "evictions": 0,
+        "hits": 39,
+        "misses": 63,
+        "oversized_bypasses": 0,
+        "shared_budget_bytes": 67108864,
+        "used_bytes": 1260504
+      },
+      "streams": [
+        {
+          "database": "stream_cost_read_heavy-large",
+          "invalidation_lag_clock_skew_limitation": "raw invalidation-delivery-lag values include unmeasured clock offset between the mongod that originated the event and the observing host; they are not a substitute for a same-clock, single-host latency measurement",
+          "invalidation_lag_windows": [],
+          "invalidations": 10,
+          "logical_event_bytes": 3800,
+          "resident_bytes": 1260504,
+          "resident_bytes_scope": "manager-wide resident bytes across the shared LRU budget; not scoped to a single namespace, collection, or stream",
+          "stream_polls": 11
+        }
+      ]
+    },
+    "process_cpu_seconds": 0.039261163999999904,
+    "variants": [
+      {
+        "by_outcome": [
+          {
+            "operation": "read",
+            "outcome": "raw",
+            "p50_seconds": 0.00013172100079827942,
+            "p95_seconds": 0.0002394519997324096,
+            "p99_seconds": 0.0002965300009236671,
+            "sample_count": 100
+          },
+          {
+            "operation": "write",
+            "outcome": "shared_write",
+            "p50_seconds": 0.0034741780000331346,
+            "p95_seconds": 0.004105734000404482,
+            "p99_seconds": 0.004105734000404482,
+            "sample_count": 10
+          }
+        ],
+        "name": "raw",
+        "no_latency_samples": false,
+        "operation_count": 110
+      },
+      {
+        "by_outcome": [
+          {
+            "operation": "read",
+            "outcome": "hit",
+            "p50_seconds": 6.256900087464601e-5,
+            "p95_seconds": 8.502300079271663e-5,
+            "p99_seconds": 0.00010571900020295288,
+            "sample_count": 38
+          },
+          {
+            "operation": "read",
+            "outcome": "miss",
+            "p50_seconds": 0.00025087599897233304,
+            "p95_seconds": 0.0004538970006251475,
+            "p99_seconds": 0.0036880480001855176,
+            "sample_count": 62
+          },
+          {
+            "operation": "write",
+            "outcome": "shared_write",
+            "p50_seconds": 0.0034741780000331346,
+            "p95_seconds": 0.004105734000404482,
+            "p99_seconds": 0.004105734000404482,
+            "sample_count": 10
+          }
+        ],
+        "name": "cache",
+        "no_latency_samples": false,
+        "operation_count": 110
+      }
+    ],
+    "wall_seconds": 0.09687019500051974,
+    "warmup": {
+      "admissions": 1,
+      "hits": 1
+    }
+  },
+  "schema_version": "1",
+  "workload": {
+    "name": "read_heavy-large",
+    "parameters": {
+      "document_count": 100,
+      "document_size_profile": "large",
+      "sample_reads": 100,
+      "sample_writes": 10,
+      "seed": 5,
+      "warmup_reads": 2,
+      "warmup_writes": 0
+    }
+  }
+}

@@ -1,0 +1,171 @@
+{
+  "environment": {
+    "member_count": 1,
+    "mongodb_version": "8.0.4",
+    "resource_limits": {
+      "cpus": "1.0",
+      "memory": "1g"
+    },
+    "topology": "isolated single-member replica set"
+  },
+  "identity": {
+    "library_version": "0.1.0",
+    "pymongo_version": "4.18.1",
+    "python_version": "3.14.6",
+    "revision": "3db4883"
+  },
+  "limitations": [
+    {
+      "description": "CPU is measured for the isolated MongoDB container on this host.",
+      "label": "container-cpu"
+    },
+    {
+      "description": "Logical event bytes describe decoded events, not wire traffic.",
+      "label": "logical-bytes"
+    },
+    {
+      "description": "Raw event delivery lag includes server-to-host clock skew.",
+      "label": "clock-skew"
+    }
+  ],
+  "measurement": {
+    "container_cpu_seconds": 0.22237099999999987,
+    "direct_path_bytes": null,
+    "logical_metrics": {
+      "cache": {
+        "bypasses": 0,
+        "entry_count": 9,
+        "evictions": 0,
+        "hits": 3,
+        "misses": 9,
+        "oversized_bypasses": 0,
+        "shared_budget_bytes": 67108864,
+        "used_bytes": 180072
+      },
+      "streams": [
+        {
+          "database": "stream_cost_write_dominant-large",
+          "invalidation_lag_clock_skew_limitation": "raw invalidation-delivery-lag values include unmeasured clock offset between the mongod that originated the event and the observing host; they are not a substitute for a same-clock, single-host latency measurement",
+          "invalidation_lag_windows": [
+            [
+              0.00416254997253418, 0.004248619079589844, 0.004216670989990234,
+              0.004488706588745117, 0.005354404449462891, 0.004349708557128906,
+              0.005265235900878906, 0.006047248840332031, 0.00464320182800293,
+              0.004536867141723633, 0.004525899887084961, 0.004010438919067383,
+              0.005445957183837891, 0.004364490509033203, 0.004555940628051758,
+              0.00451970100402832, 0.004971742630004883, 0.004942893981933594,
+              0.004791975021362305, 0.005473613739013672, 0.007650136947631836,
+              0.004673004150390625, 0.004714250564575195, 0.004573822021484375,
+              0.0046062469482421875, 0.0046122074127197266,
+              0.004614591598510742, 0.004491090774536133, 0.004641532897949219,
+              0.006957292556762695, 0.006953239440917969, 0.0048215389251708984,
+              0.006605386734008789, 0.004674196243286133, 0.005141019821166992,
+              0.006855964660644531, 0.004747867584228516, 0.004662036895751953,
+              0.004449367523193359, 0.004417896270751953, 0.004472494125366211,
+              0.004789829254150391, 0.005017757415771484, 0.007088184356689453,
+              0.006639957427978516, 0.004683256149291992, 0.0048618316650390625,
+              0.004704952239990234, 0.004735469818115234, 0.006685495376586914,
+              0.004588603973388672, 0.004709959030151367, 0.004714488983154297,
+              0.004763364791870117, 0.004572153091430664, 0.0046062469482421875,
+              0.004534244537353516, 0.004938364028930664, 0.004983663558959961,
+              0.0046176910400390625, 0.0046155452728271484,
+              0.004648685455322266, 0.004951000213623047, 0.006583690643310547,
+              0.004567146301269531, 0.004647016525268555, 0.0045337677001953125,
+              0.004450321197509766, 0.004740476608276367, 0.0071201324462890625,
+              0.005823373794555664, 0.004825115203857422, 0.006796836853027344,
+              0.004826545715332031, 0.006896257400512695, 0.004638195037841797,
+              0.004654884338378906, 0.004644155502319336, 0.005097627639770508,
+              0.0073511600494384766, 0.006291389465332031, 0.00572657585144043,
+              0.0044708251953125, 0.004302978515625, 0.004025936126708984,
+              0.004355907440185547, 0.00446009635925293, 0.004601955413818359,
+              0.004468679428100586, 0.004548311233520508, 0.004457235336303711,
+              0.004488229751586914, 0.004745006561279297, 0.0045359134674072266,
+              0.0044269561767578125, 0.004870176315307617, 0.004984378814697266,
+              0.004698276519775391, 0.004615306854248047, 0.004448890686035156
+            ]
+          ],
+          "invalidations": 100,
+          "logical_event_bytes": 38400,
+          "resident_bytes": 180072,
+          "resident_bytes_scope": "manager-wide resident bytes across the shared LRU budget; not scoped to a single namespace, collection, or stream",
+          "stream_polls": 101
+        }
+      ]
+    },
+    "process_cpu_seconds": 0.128307457,
+    "variants": [
+      {
+        "by_outcome": [
+          {
+            "operation": "read",
+            "outcome": "raw",
+            "p50_seconds": 0.0001744860001053894,
+            "p95_seconds": 0.00035264899997855537,
+            "p99_seconds": 0.00035264899997855537,
+            "sample_count": 10
+          },
+          {
+            "operation": "write",
+            "outcome": "shared_write",
+            "p50_seconds": 0.004016646000309265,
+            "p95_seconds": 0.006017342000632198,
+            "p99_seconds": 0.006225524000910809,
+            "sample_count": 100
+          }
+        ],
+        "name": "raw",
+        "no_latency_samples": false,
+        "operation_count": 110
+      },
+      {
+        "by_outcome": [
+          {
+            "operation": "read",
+            "outcome": "hit",
+            "p50_seconds": 7.384200034721289e-5,
+            "p95_seconds": 9.396000132255722e-5,
+            "p99_seconds": 9.396000132255722e-5,
+            "sample_count": 2
+          },
+          {
+            "operation": "read",
+            "outcome": "miss",
+            "p50_seconds": 0.0003196140005456982,
+            "p95_seconds": 0.00048141500155907124,
+            "p99_seconds": 0.00048141500155907124,
+            "sample_count": 8
+          },
+          {
+            "operation": "write",
+            "outcome": "shared_write",
+            "p50_seconds": 0.004016646000309265,
+            "p95_seconds": 0.006017342000632198,
+            "p99_seconds": 0.006225524000910809,
+            "sample_count": 100
+          }
+        ],
+        "name": "cache",
+        "no_latency_samples": false,
+        "operation_count": 110
+      }
+    ],
+    "wall_seconds": 0.4669563450006535,
+    "warmup": {
+      "admissions": 1,
+      "hits": 1
+    }
+  },
+  "schema_version": "1",
+  "workload": {
+    "name": "write_dominant-large",
+    "parameters": {
+      "document_count": 100,
+      "document_size_profile": "large",
+      "sample_reads": 10,
+      "sample_writes": 100,
+      "seed": 11,
+      "warmup_reads": 2,
+      "warmup_writes": 0
+    }
+  }
+}

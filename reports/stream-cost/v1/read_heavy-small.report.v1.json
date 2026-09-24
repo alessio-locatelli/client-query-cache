@@ -1,0 +1,134 @@
+{
+  "environment": {
+    "member_count": 1,
+    "mongodb_version": "8.0.4",
+    "resource_limits": {
+      "cpus": "1.0",
+      "memory": "1g"
+    },
+    "topology": "isolated single-member replica set"
+  },
+  "identity": {
+    "library_version": "0.1.0",
+    "pymongo_version": "4.18.1",
+    "python_version": "3.14.6",
+    "revision": "3db4883"
+  },
+  "limitations": [
+    {
+      "description": "CPU is measured for the isolated MongoDB container on this host.",
+      "label": "container-cpu"
+    },
+    {
+      "description": "Logical event bytes describe decoded events, not wire traffic.",
+      "label": "logical-bytes"
+    },
+    {
+      "description": "Raw event delivery lag includes server-to-host clock skew.",
+      "label": "clock-skew"
+    }
+  ],
+  "measurement": {
+    "container_cpu_seconds": 0.017242000000000035,
+    "direct_path_bytes": null,
+    "logical_metrics": {
+      "cache": {
+        "bypasses": 0,
+        "entry_count": 61,
+        "evictions": 0,
+        "hits": 41,
+        "misses": 61,
+        "oversized_bypasses": 0,
+        "shared_budget_bytes": 67108864,
+        "used_bytes": 12688
+      },
+      "streams": [
+        {
+          "database": "stream_cost_read_heavy-small",
+          "invalidation_lag_clock_skew_limitation": "raw invalidation-delivery-lag values include unmeasured clock offset between the mongod that originated the event and the observing host; they are not a substitute for a same-clock, single-host latency measurement",
+          "invalidation_lag_windows": [],
+          "invalidations": 10,
+          "logical_event_bytes": 3800,
+          "resident_bytes": 12688,
+          "resident_bytes_scope": "manager-wide resident bytes across the shared LRU budget; not scoped to a single namespace, collection, or stream",
+          "stream_polls": 11
+        }
+      ]
+    },
+    "process_cpu_seconds": 0.035466167999999965,
+    "variants": [
+      {
+        "by_outcome": [
+          {
+            "operation": "read",
+            "outcome": "raw",
+            "p50_seconds": 0.00012041800073347986,
+            "p95_seconds": 0.00041640700146672316,
+            "p99_seconds": 0.0005804730008094339,
+            "sample_count": 100
+          },
+          {
+            "operation": "write",
+            "outcome": "shared_write",
+            "p50_seconds": 0.0020365430009405827,
+            "p95_seconds": 0.003853991000141832,
+            "p99_seconds": 0.003853991000141832,
+            "sample_count": 10
+          }
+        ],
+        "name": "raw",
+        "no_latency_samples": false,
+        "operation_count": 110
+      },
+      {
+        "by_outcome": [
+          {
+            "operation": "read",
+            "outcome": "hit",
+            "p50_seconds": 6.050200136087369e-5,
+            "p95_seconds": 0.00012695799887296744,
+            "p99_seconds": 0.00014800999997532926,
+            "sample_count": 40
+          },
+          {
+            "operation": "read",
+            "outcome": "miss",
+            "p50_seconds": 0.0002266749997943407,
+            "p95_seconds": 0.000615493998338934,
+            "p99_seconds": 0.0007626320002600551,
+            "sample_count": 60
+          },
+          {
+            "operation": "write",
+            "outcome": "shared_write",
+            "p50_seconds": 0.0020365430009405827,
+            "p95_seconds": 0.003853991000141832,
+            "p99_seconds": 0.003853991000141832,
+            "sample_count": 10
+          }
+        ],
+        "name": "cache",
+        "no_latency_samples": false,
+        "operation_count": 110
+      }
+    ],
+    "wall_seconds": 0.0867452399998001,
+    "warmup": {
+      "admissions": 1,
+      "hits": 1
+    }
+  },
+  "schema_version": "1",
+  "workload": {
+    "name": "read_heavy-small",
+    "parameters": {
+      "document_count": 100,
+      "document_size_profile": "small",
+      "sample_reads": 100,
+      "sample_writes": 10,
+      "seed": 3,
+      "warmup_reads": 2,
+      "warmup_writes": 0
+    }
+  }
+}

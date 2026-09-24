@@ -16,7 +16,7 @@
 
 ## 4. Publish evidence without timing gates
 
-- [ ] 4.1 Retain initial versioned reports and workload-selection guidance; verify every conclusion identifies its exact workload and report.
+- [x] 4.1 Retain initial versioned reports and workload-selection guidance; verify every conclusion identifies its exact workload and report.
 - [x] 4.2 Add an opt-in CI benchmark workflow that uploads reports without a host-dependent regression threshold; verify normal CI does not run it.
 
 ## 5. Resolve decisions gated on this evidence

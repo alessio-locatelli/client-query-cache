@@ -1,0 +1,134 @@
+{
+  "environment": {
+    "member_count": 1,
+    "mongodb_version": "8.0.4",
+    "resource_limits": {
+      "cpus": "1.0",
+      "memory": "1g"
+    },
+    "topology": "isolated single-member replica set"
+  },
+  "identity": {
+    "library_version": "0.1.0",
+    "pymongo_version": "4.18.1",
+    "python_version": "3.14.6",
+    "revision": "3db4883"
+  },
+  "limitations": [
+    {
+      "description": "CPU is measured for the isolated MongoDB container on this host.",
+      "label": "container-cpu"
+    },
+    {
+      "description": "Logical event bytes describe decoded events, not wire traffic.",
+      "label": "logical-bytes"
+    },
+    {
+      "description": "Raw event delivery lag includes server-to-host clock skew.",
+      "label": "clock-skew"
+    }
+  ],
+  "measurement": {
+    "container_cpu_seconds": 0.09691500000000008,
+    "direct_path_bytes": null,
+    "logical_metrics": {
+      "cache": {
+        "bypasses": 0,
+        "entry_count": 37,
+        "evictions": 0,
+        "hits": 15,
+        "misses": 37,
+        "oversized_bypasses": 0,
+        "shared_budget_bytes": 67108864,
+        "used_bytes": 74296
+      },
+      "streams": [
+        {
+          "database": "stream_cost_balanced-medium",
+          "invalidation_lag_clock_skew_limitation": "raw invalidation-delivery-lag values include unmeasured clock offset between the mongod that originated the event and the observing host; they are not a substitute for a same-clock, single-host latency measurement",
+          "invalidation_lag_windows": [],
+          "invalidations": 50,
+          "logical_event_bytes": 18950,
+          "resident_bytes": 74296,
+          "resident_bytes_scope": "manager-wide resident bytes across the shared LRU budget; not scoped to a single namespace, collection, or stream",
+          "stream_polls": 51
+        }
+      ]
+    },
+    "process_cpu_seconds": 0.068809911,
+    "variants": [
+      {
+        "by_outcome": [
+          {
+            "operation": "read",
+            "outcome": "raw",
+            "p50_seconds": 0.00010886500058404636,
+            "p95_seconds": 0.00021181100055400748,
+            "p99_seconds": 0.00030617700031143613,
+            "sample_count": 50
+          },
+          {
+            "operation": "write",
+            "outcome": "shared_write",
+            "p50_seconds": 0.004000750001068809,
+            "p95_seconds": 0.00594589300089865,
+            "p99_seconds": 0.006020539998644381,
+            "sample_count": 50
+          }
+        ],
+        "name": "raw",
+        "no_latency_samples": false,
+        "operation_count": 100
+      },
+      {
+        "by_outcome": [
+          {
+            "operation": "read",
+            "outcome": "hit",
+            "p50_seconds": 5.951999992248602e-5,
+            "p95_seconds": 8.208200051740278e-5,
+            "p99_seconds": 8.208200051740278e-5,
+            "sample_count": 14
+          },
+          {
+            "operation": "read",
+            "outcome": "miss",
+            "p50_seconds": 0.0002034169992839452,
+            "p95_seconds": 0.00047981500028981827,
+            "p99_seconds": 0.0006331389995466452,
+            "sample_count": 36
+          },
+          {
+            "operation": "write",
+            "outcome": "shared_write",
+            "p50_seconds": 0.004000750001068809,
+            "p95_seconds": 0.00594589300089865,
+            "p99_seconds": 0.006020539998644381,
+            "sample_count": 50
+          }
+        ],
+        "name": "cache",
+        "no_latency_samples": false,
+        "operation_count": 100
+      }
+    ],
+    "wall_seconds": 0.2460263280008803,
+    "warmup": {
+      "admissions": 1,
+      "hits": 1
+    }
+  },
+  "schema_version": "1",
+  "workload": {
+    "name": "balanced-medium",
+    "parameters": {
+      "document_count": 100,
+      "document_size_profile": "medium",
+      "sample_reads": 50,
+      "sample_writes": 50,
+      "seed": 7,
+      "warmup_reads": 2,
+      "warmup_writes": 0
+    }
+  }
+}

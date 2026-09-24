@@ -1,0 +1,92 @@
+{
+  "environment": {
+    "member_count": 1,
+    "mongodb_version": "8.0.4",
+    "resource_limits": {
+      "cpus": "1.0",
+      "memory": "1g"
+    },
+    "topology": "isolated single-member replica set"
+  },
+  "identity": {
+    "library_version": "0.1.0",
+    "pymongo_version": "4.18.1",
+    "python_version": "3.14.6",
+    "revision": "3db4883"
+  },
+  "limitations": [
+    {
+      "description": "CPU is measured for the isolated MongoDB container on this host.",
+      "label": "container-cpu"
+    },
+    {
+      "description": "Logical event bytes describe decoded events, not wire traffic.",
+      "label": "logical-bytes"
+    },
+    {
+      "description": "Raw event delivery lag includes server-to-host clock skew.",
+      "label": "clock-skew"
+    }
+  ],
+  "measurement": {
+    "container_cpu_seconds": 0.0021839999999999637,
+    "direct_path_bytes": null,
+    "logical_metrics": {
+      "cache": {
+        "bypasses": 0,
+        "entry_count": 1,
+        "evictions": 0,
+        "hits": 1,
+        "misses": 1,
+        "oversized_bypasses": 0,
+        "shared_budget_bytes": 67108864,
+        "used_bytes": 2008
+      },
+      "streams": [
+        {
+          "database": "stream_cost_idle-medium",
+          "invalidation_lag_clock_skew_limitation": "raw invalidation-delivery-lag values include unmeasured clock offset between the mongod that originated the event and the observing host; they are not a substitute for a same-clock, single-host latency measurement",
+          "invalidation_lag_windows": [],
+          "invalidations": 0,
+          "logical_event_bytes": 0,
+          "resident_bytes": 2008,
+          "resident_bytes_scope": "manager-wide resident bytes across the shared LRU budget; not scoped to a single namespace, collection, or stream",
+          "stream_polls": 1
+        }
+      ]
+    },
+    "process_cpu_seconds": 0.0022058629999999746,
+    "variants": [
+      {
+        "by_outcome": [],
+        "name": "raw",
+        "no_latency_samples": true,
+        "operation_count": 0
+      },
+      {
+        "by_outcome": [],
+        "name": "cache",
+        "no_latency_samples": true,
+        "operation_count": 0
+      }
+    ],
+    "wall_seconds": 0.0044605050006794045,
+    "warmup": {
+      "admissions": 1,
+      "hits": 1
+    }
+  },
+  "schema_version": "1",
+  "workload": {
+    "name": "idle-medium",
+    "parameters": {
+      "document_count": 100,
+      "document_size_profile": "medium",
+      "sample_reads": 0,
+      "sample_writes": 0,
+      "seed": 1,
+      "warmup_reads": 2,
+      "warmup_writes": 0
+    }
+  }
+}
