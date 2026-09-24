@@ -265,10 +265,6 @@ class _RecordingUnrelatedWriteWorkload:
     def start(self) -> None:
         pass
 
-    @property
-    def count(self) -> int:
-        return 0
-
     def stop(self) -> int:
         self.stopped = True
         return 0

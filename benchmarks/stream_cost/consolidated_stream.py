@@ -5,6 +5,7 @@ import math
 import random
 import threading
 import time
+from collections import deque
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -27,6 +28,7 @@ if TYPE_CHECKING:
     from mongo_client_cache._core.manager import CacheCoreConfig
 
 MINIMUM_REPEATED_PAIRS = 3
+_MAX_UNRELATED_WRITE_TIMESTAMPS = 10_000
 
 
 def _require_finite_positive(value: float, field_name: str) -> None:
@@ -196,9 +198,9 @@ class UnrelatedWriteWorkload:
             raise BenchmarkConfigurationError(message)
         self._collection = collection
         self._interval_seconds = interval_seconds
-        self._completion_times: list[float] = []
+        self._completion_times: deque[float] = deque()
         self._count = 0
-        self._error: PyMongoError | None = None
+        self._error: PyMongoError | BenchmarkSetupError | None = None
         self._lock = threading.Lock()
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
@@ -242,6 +244,12 @@ class UnrelatedWriteWorkload:
                     self._error = error
                 return
             with self._lock:
+                if len(self._completion_times) >= _MAX_UNRELATED_WRITE_TIMESTAMPS:
+                    self._error = BenchmarkSetupError(
+                        "unrelated-write timestamp limit reached before the "
+                        "lag-sampling interval ended"
+                    )
+                    return
                 self._count += 1
                 self._completion_times.append(time.monotonic())
 

@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, cast
 import pytest
 from pymongo.errors import ConnectionFailure
 
+from benchmarks.stream_cost import consolidated_stream
 from benchmarks.stream_cost.consolidated_stream import (
     MINIMUM_REPEATED_PAIRS,
     ConsolidatedStreamPairConfig,
@@ -291,6 +292,18 @@ def test_unrelated_write_workload_counts_writes_while_running() -> None:
     assert final_count == len(fake.inserted)
     assert workload.count_between(before, after) == final_count
     assert workload.count_between(after, after + 1.0) == 0
+
+
+def test_unrelated_write_workload_fails_when_timestamp_capacity_is_exhausted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(consolidated_stream, "_MAX_UNRELATED_WRITE_TIMESTAMPS", 1)
+    fake_collection = cast("Collection[dict[str, Any]]", _FakeInsertCollection())
+    workload = UnrelatedWriteWorkload(fake_collection, interval_seconds=0.001)
+    workload.start()
+    time.sleep(0.02)
+    with pytest.raises(BenchmarkSetupError, match="timestamp limit reached"):
+        workload.stop()
 
 
 @dataclass(slots=True)
