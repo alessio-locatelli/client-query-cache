@@ -17,7 +17,8 @@ if TYPE_CHECKING:
 pytestmark = pytest.mark.integration
 
 
-@pytest.mark.parametrize("direct_path_proxy", [False, True])
+@pytest.mark.timeout(180)
+@pytest.mark.parametrize("direct_path_proxy", [False, True], ids=["direct", "proxy"])
 def test_controlled_matrix_emits_valid_reports(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, direct_path_proxy: bool
 ) -> None:
