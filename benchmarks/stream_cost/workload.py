@@ -17,6 +17,7 @@ from benchmarks.stream_cost.generators import (
     DocumentSizeProfile,
     generate_seeded_documents,
 )
+from benchmarks.stream_cost.measurement import OperationLatency
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
@@ -229,6 +230,8 @@ class PairedReadOutcome:
     variant: WorkloadVariant
     raw_results: tuple[object, ...]
     cache_results: tuple[object, ...]
+    raw_latencies: tuple[OperationLatency, ...] = ()
+    cache_latencies: tuple[OperationLatency, ...] = ()
 
 
 def run_paired_reads(
@@ -237,16 +240,41 @@ def run_paired_reads(
     variant: WorkloadVariant,
     ids: Sequence[object],
 ) -> PairedReadOutcome:
-    raw_results = tuple(
-        raw_collection.find_one({"_id": document_id}) for document_id in ids
-    )
-    cache_results = tuple(
-        cache_collection.find_one({"_id": document_id}) for document_id in ids
-    )
-    for raw_value, cache_value in zip(raw_results, cache_results, strict=True):
-        assert_identical_results(raw_value, cache_value, variant_name=variant.name)
+    raw_values: list[object] = []
+    cache_values: list[object] = []
+    raw_latencies: list[OperationLatency] = []
+    cache_latencies: list[OperationLatency] = []
+    for document_id in ids:
+        raw_started = time.monotonic()
+        raw_value = raw_collection.find_one({"_id": document_id})
+        seconds = time.monotonic() - raw_started
+        raw_values.append(raw_value)
+        raw_latencies.append(OperationLatency("read", "raw", seconds))
+        before = cache_collection.database.manager.cache_core.snapshot()
+        cache_started = time.monotonic()
+        cache_value = cache_collection.find_one({"_id": document_id})
+        seconds = time.monotonic() - cache_started
+        after = cache_collection.database.manager.cache_core.snapshot()
+        if after.hits > before.hits:
+            outcome = "hit"
+        elif after.misses > before.misses:
+            outcome = "miss"
+        else:
+            outcome = "bypass"
+        cache_values.append(cache_value)
+        cache_latencies.append(OperationLatency("read", outcome, seconds))
+    raw_results = tuple(raw_values)
+    cache_results = tuple(cache_values)
+    for observed_raw, observed_cache in zip(raw_results, cache_results, strict=True):
+        assert_identical_results(
+            observed_raw, observed_cache, variant_name=variant.name
+        )
     return PairedReadOutcome(
-        variant=variant, raw_results=raw_results, cache_results=cache_results
+        variant=variant,
+        raw_results=raw_results,
+        cache_results=cache_results,
+        raw_latencies=tuple(raw_latencies),
+        cache_latencies=tuple(cache_latencies),
     )
 
 
@@ -256,10 +284,16 @@ def issue_writes(
     count: int,
     *,
     seed: int,
+    latencies: list[OperationLatency] | None = None,
 ) -> int:
     ids = sample_operation_ids(dataset, count, seed=seed)
     for document_id in ids:
+        started = time.monotonic()
         collection.update_one({"_id": document_id}, {"$inc": {"touched": 1}})
+        if latencies is not None:
+            latencies.append(
+                OperationLatency("write", "shared_write", time.monotonic() - started)
+            )
     return len(ids)
 
 
@@ -268,6 +302,8 @@ class WorkloadVariantOutcome:
     variant: WorkloadVariant
     reads: PairedReadOutcome
     writes_issued: int
+    warmup_delta: PrimingDelta
+    write_latencies: tuple[OperationLatency, ...] = ()
 
 
 def run_workload_variant(
@@ -288,15 +324,25 @@ def run_workload_variant(
         lambda: cache_collection.find_one({"_id": warmup_id}),
         repeats=variant.warmup.reads,
     )
-    verify_primed(before, manager.cache_core.snapshot(), variant_name=variant.name)
+    after = manager.cache_core.snapshot()
+    verify_primed(before, after, variant_name=variant.name)
 
     read_ids = sample_operation_ids(dataset, variant.sampling.reads, seed=variant.seed)
     reads = run_paired_reads(raw_collection, cache_collection, variant, read_ids)
+    write_latencies: list[OperationLatency] = []
     writes_issued = issue_writes(
-        raw_collection, dataset, variant.sampling.writes, seed=variant.seed + 1
+        raw_collection,
+        dataset,
+        variant.sampling.writes,
+        seed=variant.seed + 1,
+        latencies=write_latencies,
     )
     return WorkloadVariantOutcome(
-        variant=variant, reads=reads, writes_issued=writes_issued
+        variant=variant,
+        reads=reads,
+        writes_issued=writes_issued,
+        warmup_delta=priming_delta(before, after),
+        write_latencies=tuple(write_latencies),
     )
 
 
