@@ -139,20 +139,12 @@ def _execute_run(
         unrelated_writer.start()
 
     relevant_collection = manager[database].raw[relevant_collection_names[0]]
-    window_start_count = 0
-    first_write_issued = False
 
     def _issue_relevant_write() -> None:
-        nonlocal window_start_count, first_write_issued
-        if not first_write_issued:
-            if unrelated_writer is not None:
-                window_start_count = unrelated_writer.count
-            first_write_issued = True
         relevant_collection.update_one(
             {"_id": _RELEVANT_WRITE_DOCUMENT_ID}, {"$inc": {"touched": 1}}
         )
 
-    unrelated_count_during_window = 0
     try:
         start_monotonic = time.monotonic()
         replay_write_schedule(
@@ -173,18 +165,21 @@ def _execute_run(
                 f"within {_INVALIDATION_SETTLE_TIMEOUT_SECONDS:.0f} seconds"
             ),
         )
-        if unrelated_writer is not None:
-            window_end_count = unrelated_writer.count
-            unrelated_count_during_window = window_end_count - window_start_count
-            verify_unrelated_write_minimum(
-                unrelated_count_during_window,
-                minimum_count=config.unrelated_write_minimum_count,
-            )
     finally:
         if unrelated_writer is not None:
             unrelated_writer.stop()
 
     snapshot = manager.cache_core.stream_cost_snapshot(database)
+    unrelated_count_during_window = 0
+    if unrelated_writer is not None and snapshot.invalidation_apply_readings:
+        unrelated_count_during_window = unrelated_writer.count_between(
+            snapshot.invalidation_apply_readings[0].monotonic_seconds,
+            snapshot.invalidation_apply_readings[-1].monotonic_seconds,
+        )
+        verify_unrelated_write_minimum(
+            unrelated_count_during_window,
+            minimum_count=config.unrelated_write_minimum_count,
+        )
     total_lag_samples = sum(len(window) for window in snapshot.invalidation_lag_windows)
     required_lag_samples = minimum_sample_count(config.acceptable_lag_percentile)
     if total_lag_samples < required_lag_samples:
