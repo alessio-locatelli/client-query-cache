@@ -282,11 +282,15 @@ def test_unrelated_write_workload_counts_writes_while_running() -> None:
     workload = UnrelatedWriteWorkload(
         cast("Collection[dict[str, Any]]", fake), interval_seconds=0.01
     )
+    before = time.monotonic()
     workload.start()
     time.sleep(0.1)
     final_count = workload.stop()
+    after = time.monotonic()
     assert final_count > 0
     assert final_count == len(fake.inserted)
+    assert workload.count_between(before, after) == final_count
+    assert workload.count_between(after, after + 1.0) == 0
 
 
 @dataclass(slots=True)

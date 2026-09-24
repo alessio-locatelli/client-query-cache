@@ -179,6 +179,7 @@ def verify_relevant_write_counts_match(
 class UnrelatedWriteWorkload:
     __slots__ = (
         "_collection",
+        "_completion_times",
         "_count",
         "_error",
         "_interval_seconds",
@@ -195,6 +196,7 @@ class UnrelatedWriteWorkload:
             raise BenchmarkConfigurationError(message)
         self._collection = collection
         self._interval_seconds = interval_seconds
+        self._completion_times: list[float] = []
         self._count = 0
         self._error: PyMongoError | None = None
         self._lock = threading.Lock()
@@ -224,6 +226,13 @@ class UnrelatedWriteWorkload:
         with self._lock:
             return self._count
 
+    def count_between(self, start_monotonic: float, end_monotonic: float) -> int:
+        with self._lock:
+            return sum(
+                start_monotonic <= completed <= end_monotonic
+                for completed in self._completion_times
+            )
+
     def _run(self) -> None:
         while not self._stop_event.wait(self._interval_seconds):
             try:
@@ -234,6 +243,7 @@ class UnrelatedWriteWorkload:
                 return
             with self._lock:
                 self._count += 1
+                self._completion_times.append(time.monotonic())
 
 
 def verify_unrelated_write_minimum(

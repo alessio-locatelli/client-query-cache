@@ -193,6 +193,7 @@ def _consolidated_evidence(
         _pair_evidence(pair, config, pair_index=index)
         for index, pair in enumerate(pairs)
     ]
+    pipeline_healthy = all(pair["healthy"] for pair in pair_evidence)
     return {
         "schedule_offsets_seconds": schedule,
         "collection_to_stream": dict.fromkeys(
@@ -200,7 +201,12 @@ def _consolidated_evidence(
         ),
         "stream_count": 1,
         "pairs": pair_evidence,
-        "healthy": all(pair["healthy"] for pair in pair_evidence),
+        "healthy": pipeline_healthy,
+        "decision": (
+            "keep_shipped_serial_database_router"
+            if pipeline_healthy
+            else "open_router_stage_instrumentation_followup"
+        ),
         "limitation": (
             "A clock step and reversion entirely between two calibration samples "
             "cannot be detected; a healthy conclusion assumes none occurred. "
@@ -249,6 +255,11 @@ def _oversized_evidence(
         "encoder_savings_seconds": savings.savings_seconds,
         "meets_acceptable_savings_threshold": (
             savings.meets_acceptable_savings_threshold
+        ),
+        "decision": (
+            "open_incremental_admission_prototype_followup"
+            if savings.meets_acceptable_savings_threshold
+            else "leave_full_materialization_as_cost_benefit_judgment"
         ),
         "limitation": (
             "This compares one-shot encoder calls on different input sizes. "
