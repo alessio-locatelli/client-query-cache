@@ -1,0 +1,134 @@
+{
+  "environment": {
+    "member_count": 1,
+    "mongodb_version": "8.0.4",
+    "resource_limits": {
+      "cpus": "1.0",
+      "memory": "1g"
+    },
+    "topology": "isolated single-member replica set"
+  },
+  "identity": {
+    "library_version": "0.1.0",
+    "pymongo_version": "4.18.1",
+    "python_version": "3.14.6",
+    "revision": "3db4883"
+  },
+  "limitations": [
+    {
+      "description": "CPU is measured for the isolated MongoDB container on this host.",
+      "label": "container-cpu"
+    },
+    {
+      "description": "Logical event bytes describe decoded events, not wire traffic.",
+      "label": "logical-bytes"
+    },
+    {
+      "description": "Raw event delivery lag includes server-to-host clock skew.",
+      "label": "clock-skew"
+    }
+  ],
+  "measurement": {
+    "container_cpu_seconds": 0.12543300000000002,
+    "direct_path_bytes": null,
+    "logical_metrics": {
+      "cache": {
+        "bypasses": 0,
+        "entry_count": 38,
+        "evictions": 0,
+        "hits": 14,
+        "misses": 38,
+        "oversized_bypasses": 0,
+        "shared_budget_bytes": 67108864,
+        "used_bytes": 7904
+      },
+      "streams": [
+        {
+          "database": "stream_cost_balanced-small",
+          "invalidation_lag_clock_skew_limitation": "raw invalidation-delivery-lag values include unmeasured clock offset between the mongod that originated the event and the observing host; they are not a substitute for a same-clock, single-host latency measurement",
+          "invalidation_lag_windows": [],
+          "invalidations": 50,
+          "logical_event_bytes": 18900,
+          "resident_bytes": 7904,
+          "resident_bytes_scope": "manager-wide resident bytes across the shared LRU budget; not scoped to a single namespace, collection, or stream",
+          "stream_polls": 51
+        }
+      ]
+    },
+    "process_cpu_seconds": 0.082722603,
+    "variants": [
+      {
+        "by_outcome": [
+          {
+            "operation": "read",
+            "outcome": "raw",
+            "p50_seconds": 0.00011025599997083191,
+            "p95_seconds": 0.00043664199984050356,
+            "p99_seconds": 0.0005087450008431915,
+            "sample_count": 50
+          },
+          {
+            "operation": "write",
+            "outcome": "shared_write",
+            "p50_seconds": 0.004059240000060527,
+            "p95_seconds": 0.00610058799975377,
+            "p99_seconds": 0.006160547000035876,
+            "sample_count": 50
+          }
+        ],
+        "name": "raw",
+        "no_latency_samples": false,
+        "operation_count": 100
+      },
+      {
+        "by_outcome": [
+          {
+            "operation": "read",
+            "outcome": "hit",
+            "p50_seconds": 6.027600102243014e-5,
+            "p95_seconds": 0.000114922000648221,
+            "p99_seconds": 0.000114922000648221,
+            "sample_count": 13
+          },
+          {
+            "operation": "read",
+            "outcome": "miss",
+            "p50_seconds": 0.0002164229990739841,
+            "p95_seconds": 0.0007299530007003341,
+            "p99_seconds": 0.0007573390012112213,
+            "sample_count": 37
+          },
+          {
+            "operation": "write",
+            "outcome": "shared_write",
+            "p50_seconds": 0.004059240000060527,
+            "p95_seconds": 0.00610058799975377,
+            "p99_seconds": 0.006160547000035876,
+            "sample_count": 50
+          }
+        ],
+        "name": "cache",
+        "no_latency_samples": false,
+        "operation_count": 100
+      }
+    ],
+    "wall_seconds": 0.2709008599995286,
+    "warmup": {
+      "admissions": 1,
+      "hits": 1
+    }
+  },
+  "schema_version": "1",
+  "workload": {
+    "name": "balanced-small",
+    "parameters": {
+      "document_count": 100,
+      "document_size_profile": "small",
+      "sample_reads": 50,
+      "sample_writes": 50,
+      "seed": 6,
+      "warmup_reads": 2,
+      "warmup_writes": 0
+    }
+  }
+}
