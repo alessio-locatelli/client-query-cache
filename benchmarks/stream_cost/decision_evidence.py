@@ -301,7 +301,7 @@ def run_decision_evidence() -> dict[str, object]:
     return {
         "schema_version": 1,
         "revision": subprocess.check_output(  # noqa: S603 - fixed git arguments
-            [git_path, "rev-parse", "HEAD"], text=True, shell=False
+            [git_path, "rev-parse", "--short=7", "HEAD"], text=True, shell=False
         ).strip(),
         "versions": {
             "python": platform.python_version(),
