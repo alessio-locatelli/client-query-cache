@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "topology": { "cpus": 1.0, "memory": "1g", "member_count": 1 },
+  "consolidated_stream": {
+    "database": "stream_cost_decision",
+    "relevant_collections": ["relevant_a", "relevant_b"],
+    "unrelated_collection": "unrelated",
+    "pair_count": 3,
+    "relevant_write_count": 40,
+    "relevant_write_interval_seconds": 0.1,
+    "relevant_write_schedule_tolerance_seconds": 0.05,
+    "relevant_write_count_tolerance": 0,
+    "unrelated_write_interval_seconds": 0.005,
+    "unrelated_write_minimum_count": 100,
+    "warmup_duration_seconds": 0.2,
+    "lag_capture_window_count": 4,
+    "lag_capture_events_per_window": 10,
+    "lag_capture_min_separation_events": 0,
+    "lag_capture_assumption": "A ten-event window plausibly contains a typical local burst; this is a domain-informed assumption, not a proven sufficient block length.",
+    "acceptable_lag_percentile": 0.95,
+    "acceptable_lag_threshold_seconds": 0.5,
+    "meaningfully_worse_absolute_delta_threshold_seconds": 0.1,
+    "clock_drift_tolerance_seconds": 0.05,
+    "calibration_cadence_seconds": 0.05,
+    "bootstrap_confidence_level": 0.95,
+    "bootstrap_resample_count": 1000,
+    "bootstrap_seed": 19071
+  },
+  "oversized_result": {
+    "database": "stream_cost_oversized_decision",
+    "collection": "documents",
+    "document_count": 400,
+    "document_padding_bytes": 8192,
+    "max_entry_bytes": 131072,
+    "encoder_repetitions": 15,
+    "acceptable_savings_threshold_seconds": 0.005
+  }
+}
