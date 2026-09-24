@@ -8,7 +8,8 @@
     "identity",
     "environment",
     "workload",
-    "limitations"
+    "limitations",
+    "measurement"
   ],
   "properties": {
     "schema_version": { "const": "1" },
@@ -54,11 +55,131 @@
         "parameters": {
           "type": "object",
           "minProperties": 1,
+          "required": ["sample_reads", "sample_writes"],
+          "properties": {
+            "sample_reads": { "type": "integer", "minimum": 0 },
+            "sample_writes": { "type": "integer", "minimum": 0 }
+          },
           "additionalProperties": {
             "type": ["string", "number", "boolean", "null"]
           }
         }
       }
+    },
+    "measurement": {
+      "type": "object",
+      "required": [
+        "wall_seconds",
+        "process_cpu_seconds",
+        "container_cpu_seconds",
+        "direct_path_bytes",
+        "warmup",
+        "variants",
+        "logical_metrics"
+      ],
+      "properties": {
+        "wall_seconds": { "type": "number", "minimum": 0 },
+        "process_cpu_seconds": { "type": "number", "minimum": 0 },
+        "container_cpu_seconds": { "type": "number", "minimum": 0 },
+        "direct_path_bytes": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "required": ["sent", "received", "scope"],
+              "properties": {
+                "sent": { "type": "integer", "minimum": 0 },
+                "received": { "type": "integer", "minimum": 0 },
+                "scope": { "const": "dedicated direct benchmark path only" }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "warmup": {
+          "type": "object",
+          "required": ["admissions", "hits"],
+          "properties": {
+            "admissions": { "type": "integer", "minimum": 1 },
+            "hits": { "type": "integer", "minimum": 1 }
+          },
+          "additionalProperties": false
+        },
+        "variants": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "prefixItems": [
+            { "$ref": "#/$defs/rawVariant" },
+            { "$ref": "#/$defs/cacheVariant" }
+          ]
+        },
+        "logical_metrics": {
+          "type": "object",
+          "required": ["cache", "streams"],
+          "properties": {
+            "cache": {
+              "type": "object",
+              "required": [
+                "hits",
+                "misses",
+                "evictions",
+                "bypasses",
+                "oversized_bypasses",
+                "used_bytes",
+                "shared_budget_bytes",
+                "entry_count"
+              ],
+              "properties": {
+                "hits": { "type": "integer", "minimum": 0 },
+                "misses": { "type": "integer", "minimum": 0 },
+                "evictions": { "type": "integer", "minimum": 0 },
+                "bypasses": { "type": "integer", "minimum": 0 },
+                "oversized_bypasses": { "type": "integer", "minimum": 0 },
+                "used_bytes": { "type": "integer", "minimum": 0 },
+                "shared_budget_bytes": { "type": "integer", "minimum": 1 },
+                "entry_count": { "type": "integer", "minimum": 0 }
+              },
+              "additionalProperties": false
+            },
+            "streams": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "database",
+                  "stream_polls",
+                  "logical_event_bytes",
+                  "invalidations",
+                  "invalidation_lag_windows",
+                  "invalidation_lag_clock_skew_limitation",
+                  "resident_bytes",
+                  "resident_bytes_scope"
+                ],
+                "properties": {
+                  "database": { "type": "string", "minLength": 1 },
+                  "stream_polls": { "type": "integer", "minimum": 0 },
+                  "logical_event_bytes": { "type": "integer", "minimum": 0 },
+                  "invalidations": { "type": "integer", "minimum": 0 },
+                  "invalidation_lag_windows": {
+                    "type": "array",
+                    "items": { "type": "array", "items": { "type": "number" } }
+                  },
+                  "invalidation_lag_clock_skew_limitation": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "resident_bytes": { "type": "integer", "minimum": 0 },
+                  "resident_bytes_scope": { "type": "string", "minLength": 1 }
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
     },
     "limitations": {
       "type": "array",
@@ -70,6 +191,75 @@
           "description": { "type": "string", "minLength": 1 }
         }
       }
+    }
+  },
+  "$defs": {
+    "distribution": {
+      "type": "object",
+      "required": [
+        "operation",
+        "outcome",
+        "sample_count",
+        "p50_seconds",
+        "p95_seconds",
+        "p99_seconds"
+      ],
+      "properties": {
+        "operation": { "type": "string", "minLength": 1 },
+        "outcome": { "type": "string", "minLength": 1 },
+        "sample_count": { "type": "integer", "minimum": 1 },
+        "p50_seconds": { "type": "number", "minimum": 0 },
+        "p95_seconds": { "type": "number", "minimum": 0 },
+        "p99_seconds": { "type": "number", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "variant": {
+      "type": "object",
+      "required": [
+        "name",
+        "operation_count",
+        "no_latency_samples",
+        "by_outcome"
+      ],
+      "properties": {
+        "name": { "type": "string" },
+        "operation_count": { "type": "integer", "minimum": 0 },
+        "no_latency_samples": { "type": "boolean" },
+        "by_outcome": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/distribution" }
+        }
+      },
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "properties": {
+            "operation_count": { "const": 0 },
+            "no_latency_samples": { "const": true },
+            "by_outcome": { "maxItems": 0 }
+          }
+        },
+        {
+          "properties": {
+            "operation_count": { "minimum": 1 },
+            "no_latency_samples": { "const": false },
+            "by_outcome": { "minItems": 1 }
+          }
+        }
+      ]
+    },
+    "rawVariant": {
+      "allOf": [
+        { "$ref": "#/$defs/variant" },
+        { "properties": { "name": { "const": "raw" } } }
+      ]
+    },
+    "cacheVariant": {
+      "allOf": [
+        { "$ref": "#/$defs/variant" },
+        { "properties": { "name": { "const": "cache" } } }
+      ]
     }
   }
 }

@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import copy
 import datetime
-from typing import Any
+from dataclasses import replace
+from typing import Any, cast
 
 import pytest
 
@@ -14,7 +15,14 @@ from benchmarks.stream_cost.config import (
     WorkloadParameters,
 )
 from benchmarks.stream_cost.errors import ReportValidationError
+from benchmarks.stream_cost.measurement import ControlledMeasurement, OperationLatency
 from benchmarks.stream_cost.report import build_report, validate_report
+from benchmarks.stream_cost.workload import (
+    STANDARD_WORKLOAD_VARIANTS,
+    PairedReadOutcome,
+    PrimingDelta,
+    WorkloadVariantOutcome,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -33,13 +41,43 @@ def _valid_config() -> BenchmarkConfig:
             member_count=1,
             resource_limits={"cpu": "1"},
         ),
-        workload=WorkloadParameters(name="idle", parameters={"duration_seconds": 30}),
+        workload=WorkloadParameters(
+            name="idle-small", parameters={"sample_reads": 0, "sample_writes": 0}
+        ),
         limitations=(Limitation("clock-skew", "raw lag includes server-host skew"),),
     )
 
 
 def _valid_report() -> dict[str, Any]:
-    return build_report(_valid_config())
+    variant = STANDARD_WORKLOAD_VARIANTS[0]
+    outcome = WorkloadVariantOutcome(
+        variant=variant,
+        reads=PairedReadOutcome(variant=variant, raw_results=(), cache_results=()),
+        writes_issued=0,
+        warmup_delta=PrimingDelta(admissions=1, hits=1),
+    )
+    return build_report(
+        _valid_config(),
+        ControlledMeasurement(1.0, 0.1, 0.2, None, None),
+        outcome,
+        _logical_metrics(),
+    )
+
+
+def _logical_metrics() -> dict[str, object]:
+    return {
+        "cache": {
+            "hits": 1,
+            "misses": 1,
+            "evictions": 0,
+            "bypasses": 0,
+            "oversized_bypasses": 0,
+            "used_bytes": 100,
+            "shared_budget_bytes": 1000,
+            "entry_count": 1,
+        },
+        "streams": [],
+    }
 
 
 def test_build_report_produces_a_report_that_validates() -> None:
@@ -48,7 +86,14 @@ def test_build_report_produces_a_report_that_validates() -> None:
 
 @pytest.mark.parametrize(
     "top_level_key",
-    ["schema_version", "identity", "environment", "workload", "limitations"],
+    [
+        "schema_version",
+        "identity",
+        "environment",
+        "workload",
+        "limitations",
+        "measurement",
+    ],
 )
 def test_validate_report_rejects_a_missing_top_level_section(
     top_level_key: str,
@@ -166,3 +211,166 @@ def test_validate_report_rejects_a_circular_reference() -> None:
 
     with pytest.raises(ReportValidationError, match="JSON-serializable"):
         validate_report(report)
+
+
+@pytest.mark.parametrize(
+    "field", ["wall_seconds", "process_cpu_seconds", "container_cpu_seconds"]
+)
+def test_validate_report_requires_each_controlled_measurement(field: str) -> None:
+    report = _valid_report()
+    del report["measurement"][field]
+
+    with pytest.raises(ReportValidationError):
+        validate_report(report)
+
+
+def test_validate_report_rejects_idle_latency_samples() -> None:
+    report = _valid_report()
+    report["measurement"]["variants"][0]["by_outcome"] = [
+        {
+            "operation": "read",
+            "outcome": "raw",
+            "sample_count": 1,
+            "p50_seconds": 0.1,
+            "p95_seconds": 0.1,
+            "p99_seconds": 0.1,
+        }
+    ]
+
+    with pytest.raises(ReportValidationError):
+        validate_report(report)
+
+
+@pytest.mark.parametrize("variant_index", [0, 1])
+def test_validate_report_rejects_missing_operation_latency_samples(
+    variant_index: int,
+) -> None:
+    report = _valid_report()
+    report["workload"]["parameters"]["sample_reads"] = 1
+    report["measurement"]["variants"][1 - variant_index] = {
+        "name": "cache" if variant_index == 0 else "raw",
+        "operation_count": 1,
+        "no_latency_samples": False,
+        "by_outcome": [
+            {
+                "operation": "read",
+                "outcome": "hit" if variant_index == 0 else "raw",
+                "sample_count": 1,
+                "p50_seconds": 0.1,
+                "p95_seconds": 0.1,
+                "p99_seconds": 0.1,
+            }
+        ],
+    }
+
+    with pytest.raises(ReportValidationError, match="latency samples"):
+        validate_report(report)
+
+
+def test_validate_report_rejects_distribution_count_mismatch() -> None:
+    report = _valid_report()
+    report["workload"]["parameters"]["sample_reads"] = 2
+    for variant in report["measurement"]["variants"]:
+        variant["operation_count"] = 2
+        variant["no_latency_samples"] = False
+        variant["by_outcome"] = [
+            {
+                "operation": "read",
+                "outcome": "raw" if variant["name"] == "raw" else "hit",
+                "sample_count": 1,
+                "p50_seconds": 0.1,
+                "p95_seconds": 0.1,
+                "p99_seconds": 0.1,
+            }
+        ]
+
+    with pytest.raises(ReportValidationError, match="outcome distributions"):
+        validate_report(report)
+
+
+@pytest.mark.parametrize("invalid_count", [None, "1", 1.5])
+def test_validate_report_rejects_non_integer_sample_count(
+    invalid_count: object,
+) -> None:
+    report = _valid_report()
+    report["workload"]["parameters"]["sample_reads"] = invalid_count
+
+    with pytest.raises(ReportValidationError):
+        validate_report(report)
+
+
+def test_validate_report_rejects_universal_wire_byte_label() -> None:
+    report = _valid_report()
+    report["measurement"]["logical_metrics"]["cache"]["wire_bytes"] = 10
+
+    with pytest.raises(ReportValidationError):
+        validate_report(report)
+
+
+def test_validate_report_rejects_proxy_bytes_without_direct_path_scope() -> None:
+    report = _valid_report()
+    report["measurement"]["direct_path_bytes"] = {
+        "sent": 10,
+        "received": 10,
+        "scope": "all wire traffic",
+    }
+
+    with pytest.raises(ReportValidationError):
+        validate_report(report)
+
+
+def test_build_report_preserves_cache_outcome_distributions() -> None:
+    variant = STANDARD_WORKLOAD_VARIANTS[3]
+    outcome = WorkloadVariantOutcome(
+        variant=variant,
+        reads=PairedReadOutcome(
+            variant=variant,
+            raw_results=({}, {}),
+            cache_results=({}, {}),
+            raw_latencies=(
+                OperationLatency("read", "raw", 0.2),
+                OperationLatency("read", "raw", 0.4),
+            ),
+            cache_latencies=(
+                OperationLatency("read", "miss", 0.3),
+                OperationLatency("read", "hit", 0.1),
+            ),
+        ),
+        writes_issued=0,
+        warmup_delta=PrimingDelta(admissions=1, hits=1),
+    )
+    report = cast(
+        "dict[str, Any]",
+        build_report(
+            replace(
+                _valid_config(),
+                workload=WorkloadParameters(
+                    name=variant.name,
+                    parameters={"sample_reads": 2, "sample_writes": 0},
+                ),
+            ),
+            ControlledMeasurement(1.0, 0.1, 0.2, None, None),
+            outcome,
+            _logical_metrics(),
+        ),
+    )
+
+    validate_report(report)
+    assert report["measurement"]["variants"][1]["by_outcome"] == [
+        {
+            "operation": "read",
+            "outcome": "hit",
+            "sample_count": 1,
+            "p50_seconds": 0.1,
+            "p95_seconds": 0.1,
+            "p99_seconds": 0.1,
+        },
+        {
+            "operation": "read",
+            "outcome": "miss",
+            "sample_count": 1,
+            "p50_seconds": 0.3,
+            "p95_seconds": 0.3,
+            "p99_seconds": 0.3,
+        },
+    ]
