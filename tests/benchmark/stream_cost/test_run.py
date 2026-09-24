@@ -24,6 +24,13 @@ def test_revision_requires_git() -> None:
         _revision()
 
 
+def test_revision_uses_a_unique_git_abbreviation() -> None:
+    revision = _revision()
+
+    assert len(revision) >= 7
+    assert all(character in "0123456789abcdef" for character in revision)
+
+
 @pytest.mark.parametrize("fail_client_creation", [False, True])
 def test_controlled_run_closes_resources_on_failure(
     tmp_path: Path, *, fail_client_creation: bool
