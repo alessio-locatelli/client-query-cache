@@ -12,6 +12,7 @@ import pytest
 from bson import Decimal128
 from docker.errors import DockerException
 from pymongo import MongoClient
+from pymongo.errors import AutoReconnect
 from testcontainers.core.container import DockerContainer
 
 if TYPE_CHECKING:
@@ -25,8 +26,26 @@ CollectionName = NewType("CollectionName", str)
 
 logger = logging.getLogger(__name__)
 
+_MONGODB_STARTUP_TIMEOUT_SECONDS = 30.0
+_MONGODB_POLL_INTERVAL_SECONDS = 0.1
+
 logging.getLogger("faker.factory").setLevel("INFO")
 logging.getLogger("pymongo").setLevel("INFO")
+
+
+def _wait_for_mongodb_ping(client: MongoClient[dict[str, Any]]) -> None:
+    deadline = monotonic() + _MONGODB_STARTUP_TIMEOUT_SECONDS
+    while monotonic() < deadline:
+        try:
+            client.admin.command("ping")
+        except AutoReconnect:
+            sleep(_MONGODB_POLL_INTERVAL_SECONDS)
+        else:
+            return
+    pytest.fail(
+        f"MongoDB did not become reachable within "
+        f"{_MONGODB_STARTUP_TIMEOUT_SECONDS:.0f} seconds after container start."
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -71,7 +90,7 @@ def mongodb_uri() -> Iterator[MongoDbUri]:
         uri = MongoDbUri(f"mongodb://{host}:{port}/?directConnection=true")
 
         with MongoClient[dict[str, Any]](uri, serverSelectionTimeoutMS=1_000) as client:
-            client.admin.command("ping")
+            _wait_for_mongodb_ping(client)
 
             client.admin.command(
                 "replSetInitiate",
@@ -83,10 +102,13 @@ def mongodb_uri() -> Iterator[MongoDbUri]:
 
             deadline = monotonic() + 30
             while monotonic() < deadline:
-                if client.admin.command("hello")["isWritablePrimary"]:
-                    yield uri
-                    return
-                sleep(0.1)
+                try:
+                    if client.admin.command("hello")["isWritablePrimary"]:
+                        yield uri
+                        return
+                except AutoReconnect:
+                    pass
+                sleep(_MONGODB_POLL_INTERVAL_SECONDS)
             pytest.fail(  # pragma: no cover (hard timeout; requires a stuck container)
                 "MongoDB did not elect a writable primary within 30 seconds."
             )
