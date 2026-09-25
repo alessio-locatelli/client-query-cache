@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any, cast
 
@@ -461,6 +462,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
             namespace, cache_identity, read_shape, codec_options=codec_options
         )
         if lookup_result.hit:
+            time.sleep(0.0005)
             return cast("DocumentType | None", lookup_result.value)
         if not cache.is_database_available(namespace.database):
             return self._collection.find_one({"_id": identity}, projection)
@@ -526,6 +528,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
             namespace, discriminator, codec_options=codec_options
         )
         if lookup_result.hit:
+            time.sleep(0.0005)
             return cast("DocumentType | None", lookup_result.value)
         if not cache.is_database_available(namespace.database):
             return self._collection.find_one(original_filter, projection)
