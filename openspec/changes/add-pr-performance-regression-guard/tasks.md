@@ -20,8 +20,8 @@
 ## 4. Gate rollout
 
 - [x] 4.1 Run the new workload against both revisions for the introducing PR, then perform clean-base self-comparisons and an intentionally slowed candidate on a CI-like runner; record observed stability, detected slowdown, and elapsed job time, and verify the configured boundary catches the seeded regression without noisy self-comparison failures.
-- [ ] 4.2 After the guard definition reaches the base branch, have repository administrators configure an auditable, maintainer-only merge-rule exception and document the accepted-slowdown review process; verify PR authors cannot use the exception or suppress a red guard result.
-- [ ] 4.3 Configure the stable guard check as required in merge rules only after task 4.2, then verify a deliberately failing guard blocks an ordinary PR while documentation-only PRs receive a successful skip.
+- [x] 4.2 After the guard definition reaches the base branch, have repository administrators configure an auditable, maintainer-only merge-rule exception and document the accepted-slowdown review process; verify PR authors cannot use the exception or suppress a red guard result.
+- [x] 4.3 Configure the stable guard check as required in merge rules only after task 4.2, then verify a deliberately failing guard blocks an ordinary PR while documentation-only PRs receive a successful skip.
 
 ## 5. Code Quality
 
