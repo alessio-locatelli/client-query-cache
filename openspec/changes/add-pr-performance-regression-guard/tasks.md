@@ -15,8 +15,7 @@
 ## 3. Pull-request integration and guidance
 
 - [ ] 3.1 Add a stable, unprivileged PR check that times relevant Python/dependency/guard changes, explicitly skips unrelated changes, enforces a runtime limit, and preserves targeted diagnostics; verify its event and path decisions for Python, dependency, guard, and documentation-only changes.
-- [ ] 3.2 Repair both malformed local-action paths in `.github/workflows/test.yml` while integrating CI; verify the workflow resolves the repository action successfully.
-- [ ] 3.3 Update `docs/stream-cost-benchmarks.md` to explain the guard's scope, the manual workflow's separate purpose, inconclusive results, and human-reviewed intentional trade-offs; verify the documented result fields and process match the check.
+- [ ] 3.2 Update `docs/stream-cost-benchmarks.md` to explain the guard's scope, the manual workflow's separate purpose, inconclusive results, and human-reviewed intentional trade-offs; verify the documented result fields and process match the check.
 
 ## 4. Gate rollout
 
