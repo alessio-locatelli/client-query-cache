@@ -1,6 +1,13 @@
 from __future__ import annotations
 
 import pytest
+from hypothesis import strategies as st
+from hypothesis.stateful import (
+    RuleBasedStateMachine,
+    invariant,
+    rule,
+    run_state_machine_as_test,
+)
 
 from mongo_client_cache._core.entries import CacheEntry
 from mongo_client_cache._core.keys import NamespaceCacheKey, NamespaceId
@@ -141,3 +148,67 @@ def test_remove_exact_only_removes_the_matching_token(lru: WeightedLru) -> None:
     assert lru.peek(key) is fresh
     assert lru.remove_exact(key, fresh) is True
     assert lru.peek(key) is None
+
+
+_STATE_MACHINE_KEYS = st.sampled_from([make_key(f"k{index}") for index in range(4)])
+_STATE_MACHINE_GENERATION_KEYS = st.sampled_from(
+    [(generation,) for generation in range(5)]
+)
+
+
+class _WeightedLruMachine(RuleBasedStateMachine):
+    def __init__(self) -> None:
+        super().__init__()
+        self.lru = WeightedLru(
+            shared_budget_bytes=SHARED_BUDGET_BYTES,
+            max_entry_bytes=100,
+            guard=LockOrderGuard(),
+        )
+        self.resident_generation: dict[NamespaceCacheKey, tuple[int, ...]] = {}
+
+    @rule(
+        key=_STATE_MACHINE_KEYS,
+        generation_key=_STATE_MACHINE_GENERATION_KEYS,
+        weight=st.integers(min_value=1, max_value=90),
+    )
+    def conditional_put(
+        self, key: NamespaceCacheKey, generation_key: tuple[int, ...], weight: int
+    ) -> None:
+        entry = make_entry(generation_key, weight=weight)
+        admitted, _displaced, _evicted = self.lru.conditional_put(key, entry)
+        current = self.resident_generation.get(key)
+        should_admit = current is None or generation_key > current
+        assert admitted is should_admit
+        if admitted:
+            self.resident_generation[key] = generation_key
+
+    @rule(key=_STATE_MACHINE_KEYS)
+    def touch(self, key: NamespaceCacheKey) -> None:
+        self.lru.touch(key)
+
+    @rule(key=_STATE_MACHINE_KEYS)
+    def peek(self, key: NamespaceCacheKey) -> None:
+        self.lru.peek(key)
+
+    @rule(key=_STATE_MACHINE_KEYS)
+    def remove_exact(self, key: NamespaceCacheKey) -> None:
+        entry = self.lru.peek(key)
+        if entry is not None:
+            assert self.lru.remove_exact(key, entry)
+            del self.resident_generation[key]
+
+    @invariant()
+    def usage_never_exceeds_the_shared_budget(self) -> None:
+        used_bytes, _entry_count = self.lru.snapshot_usage()
+        assert used_bytes <= self.lru.shared_budget_bytes
+
+    @invariant()
+    def resident_entries_are_never_staler_than_their_latest_submission(self) -> None:
+        for key, latest_generation in self.resident_generation.items():
+            entry = self.lru.peek(key)
+            assert entry is not None
+            assert entry.generation_key >= latest_generation
+
+
+def test_weighted_lru_respects_budget_and_generation_ordering() -> None:
+    run_state_machine_as_test(_WeightedLruMachine)  # type: ignore[no-untyped-call]

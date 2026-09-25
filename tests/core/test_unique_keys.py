@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
+from hypothesis import example, given
+from hypothesis import strategies as st
 
 from mongo_client_cache._core.unique_keys import (
     UniqueKeyDefinition,
@@ -10,7 +12,55 @@ from mongo_client_cache._core.unique_keys import (
     match_unique_key,
 )
 
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
 pytestmark = pytest.mark.unit
+
+_FIELD_NAME_POOL = ("a", "b", "c", "d")
+_COLLATIONS = (None, {"locale": "en", "strength": 2})
+_EQUALITY_VALUES = st.integers(min_value=-100, max_value=100) | st.text(max_size=5)
+_OPERATOR_VALUES = st.sampled_from(({"$in": [1, 2]}, {"$exists": True}, {"$gt": 1}))
+
+
+@st.composite
+def _unique_key_definitions(draw: st.DrawFn) -> UniqueKeyDefinition:
+    fields = tuple(
+        draw(
+            st.lists(
+                st.sampled_from(_FIELD_NAME_POOL), min_size=1, max_size=3, unique=True
+            )
+        )
+    )
+    collation = draw(st.sampled_from(_COLLATIONS))
+    return UniqueKeyDefinition(fields=fields, collation=collation)
+
+
+@st.composite
+def _filters_and_expected_matches(
+    draw: st.DrawFn,
+) -> tuple[UniqueKeyDefinition, dict[str, object], Mapping[str, Any] | None, bool]:
+    definition = draw(_unique_key_definitions())
+    shape = draw(st.sampled_from(("exact", "extra", "missing")))
+    field_is_equality = {field: draw(st.booleans()) for field in definition.fields}
+    if shape == "extra":
+        outside_fields = [
+            field for field in _FIELD_NAME_POOL if field not in definition.fields
+        ]
+        field_is_equality[draw(st.sampled_from(outside_fields))] = True
+    elif shape == "missing":
+        del field_is_equality[draw(st.sampled_from(definition.fields))]
+    filter_collation = draw(st.sampled_from((definition.collation, *_COLLATIONS)))
+    filter_query = {
+        field: draw(_EQUALITY_VALUES) if is_equality else draw(_OPERATOR_VALUES)
+        for field, is_equality in field_is_equality.items()
+    }
+    expected_match = (
+        shape == "exact"
+        and filter_collation == definition.collation
+        and all(field_is_equality.values())
+    )
+    return definition, filter_query, filter_collation, expected_match
 
 
 @pytest.mark.parametrize(
@@ -178,3 +228,60 @@ def test_match_unique_key_matches_simple_collation_index_against_default() -> No
     matched_key = match_unique_key({"email": "value"}, keys, None)
 
     assert matched_key == (keys[0], ("value",))
+
+
+@given(_filters_and_expected_matches())
+@example((UniqueKeyDefinition(fields=("a",), collation=None), {"a": 1}, None, True))
+def test_match_unique_key_matches_iff_field_set_collation_and_equality_align(
+    case: tuple[UniqueKeyDefinition, dict[str, object], Mapping[str, Any] | None, bool],
+) -> None:
+    definition, filter_query, filter_collation, expected_match = case
+
+    matched = match_unique_key(filter_query, [definition], filter_collation)
+
+    assert (matched is not None) == expected_match
+    if expected_match:
+        assert matched is not None
+        assert matched[0] == definition
+
+
+_INDEX_FIELD_NAMES = ("a", "b", "c")
+
+
+@st.composite
+def _index_specs(draw: st.DrawFn) -> dict[str, Any]:
+    fields = draw(
+        st.lists(
+            st.sampled_from(_INDEX_FIELD_NAMES), min_size=1, max_size=3, unique=True
+        )
+    )
+    key = {field: draw(st.sampled_from((1, -1, "hashed"))) for field in fields}
+    spec: dict[str, Any] = {"key": key, "name": "idx"}
+    if draw(st.booleans()):
+        spec["unique"] = True
+    if draw(st.booleans()):
+        spec["sparse"] = True
+    if draw(st.booleans()):
+        spec["partialFilterExpression"] = {fields[0]: {"$exists": True}}
+    return spec
+
+
+@given(_index_specs())
+def test_discover_unique_keys_includes_an_index_iff_eligible(
+    index_spec: dict[str, Any],
+) -> None:
+    discovered = discover_unique_keys([index_spec])
+
+    is_hashed = any(value == "hashed" for value in index_spec["key"].values())
+    expected_included = (
+        index_spec.get("unique", False) is True
+        and index_spec.get("sparse", False) is not True
+        and "partialFilterExpression" not in index_spec
+        and not is_hashed
+    )
+
+    assert bool(discovered) is expected_included
+    if expected_included:
+        assert discovered == (
+            UniqueKeyDefinition(fields=tuple(index_spec["key"]), collation=None),
+        )

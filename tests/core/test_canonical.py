@@ -1,11 +1,34 @@
 from __future__ import annotations
 
+import operator
+
 import pytest
+from hypothesis import example, given
+from hypothesis import strategies as st
 
 from mongo_client_cache._core.canonical import canonicalize
 from mongo_client_cache._core.errors import UnsupportedCacheRequestError
 
 pytestmark = pytest.mark.unit
+
+_BSON_LIKE_LEAVES = (
+    st.none()
+    | st.booleans()
+    | st.integers()
+    | st.floats(allow_nan=False)
+    | st.text(max_size=8)
+)
+
+
+def bson_like_values() -> st.SearchStrategy[object]:
+    return st.recursive(
+        _BSON_LIKE_LEAVES,
+        lambda children: (
+            st.lists(children, max_size=5)
+            | st.dictionaries(st.text(max_size=8), children, max_size=5)
+        ),
+        max_leaves=10,
+    )
 
 
 @pytest.mark.parametrize(
@@ -101,3 +124,35 @@ def test_canonicalize_rejects_values_unsuitable_as_cache_keys(value: object) -> 
 def test_canonicalize_is_idempotent_on_its_own_output(value: object) -> None:
     once = canonicalize(value)
     assert canonicalize(once) == once
+
+
+@given(bson_like_values())
+def test_canonicalize_is_idempotent_for_generated_bson_like_structures(
+    value: object,
+) -> None:
+    once = canonicalize(value)
+    assert canonicalize(once) == once
+
+
+@given(st.data())
+def test_canonicalize_is_unchanged_by_reordering_a_mappings_top_level_keys(
+    hypothesis_data: st.DataObject,
+) -> None:
+    items = hypothesis_data.draw(
+        st.lists(
+            st.tuples(st.text(max_size=8), bson_like_values()),
+            max_size=6,
+            unique_by=operator.itemgetter(0),
+        )
+    )
+    permuted = hypothesis_data.draw(st.permutations(items))
+    assert canonicalize(dict(items)) == canonicalize(dict(permuted))
+
+
+@given(bool_value=st.booleans(), int_value=st.integers())
+@example(bool_value=True, int_value=1)
+@example(bool_value=False, int_value=0)
+def test_canonicalize_never_conflates_a_bool_and_an_int(
+    bool_value: bool, int_value: int
+) -> None:
+    assert canonicalize(bool_value) != canonicalize(int_value)
