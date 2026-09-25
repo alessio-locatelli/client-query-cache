@@ -1,9 +1,9 @@
-"""Small, checked cache workloads for the pull-request timing guard."""
-
 from __future__ import annotations
 
+import argparse
 import asyncio
 import datetime
+import json
 import time
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
@@ -31,8 +31,11 @@ PROFILES: tuple[DocumentSizeProfile, ...] = (
     MEDIUM_DOCUMENT_PROFILE,
 )
 CASE_NAMES = ("sync_hit", "async_hit", "find_admission", "invalidation")
-DOCUMENT_COUNT = 32
-BATCH_OPERATIONS = 24
+DOCUMENT_COUNT = 64
+_HIT_OPERATIONS = 256
+_ADMISSION_OPERATIONS = 48
+_INVALIDATION_ENTRIES = 24
+_INVALIDATION_REPEATS = 64
 
 
 def _checked(*, condition: bool, reason: str) -> None:
@@ -71,7 +74,7 @@ def _sync_hit(
         )
         before = manager.cache_core.snapshot()
         started = time.perf_counter()
-        actual = [cached.find_one(query) for _ in range(BATCH_OPERATIONS)]
+        actual = [cached.find_one(query) for _ in range(_HIT_OPERATIONS)]
         elapsed = time.perf_counter() - started
         after = manager.cache_core.snapshot()
         _checked(
@@ -79,7 +82,7 @@ def _sync_hit(
             reason="sync hit returned wrong data",
         )
         _checked(
-            condition=_delta(before, after, "hits") == BATCH_OPERATIONS,
+            condition=_delta(before, after, "hits") == _HIT_OPERATIONS,
             reason="sync hit was bypassed",
         )
         _checked(
@@ -103,7 +106,7 @@ async def _async_hit(uri: str, documents: list[dict[str, object]]) -> float:
         )
         before = manager.cache_core.snapshot()
         started = time.perf_counter()
-        actual = [await cached.find_one(query) for _ in range(BATCH_OPERATIONS)]
+        actual = [await cached.find_one(query) for _ in range(_HIT_OPERATIONS)]
         elapsed = time.perf_counter() - started
         after = manager.cache_core.snapshot()
         _checked(
@@ -111,7 +114,7 @@ async def _async_hit(uri: str, documents: list[dict[str, object]]) -> float:
             reason="async hit returned wrong data",
         )
         _checked(
-            condition=_delta(before, after, "hits") == BATCH_OPERATIONS,
+            condition=_delta(before, after, "hits") == _HIT_OPERATIONS,
             reason="async hit was bypassed",
         )
         _checked(
@@ -130,7 +133,7 @@ def _find_admission(
         started = time.perf_counter()
         read_results = [
             cached.find({"index": {"$gte": index}}, sort=[("index", 1)], limit=4)
-            for index in range(BATCH_OPERATIONS)
+            for index in range(_ADMISSION_OPERATIONS)
         ]
         elapsed = time.perf_counter() - started
         after = manager.cache_core.snapshot()
@@ -140,7 +143,7 @@ def _find_admission(
                 reason="find admission returned wrong data",
             )
         _checked(
-            condition=_delta(before, after, "misses") == BATCH_OPERATIONS,
+            condition=_delta(before, after, "misses") == _ADMISSION_OPERATIONS,
             reason="find admission was missing",
         )
         _checked(
@@ -148,7 +151,7 @@ def _find_admission(
             reason="find admission was bypassed",
         )
         _checked(
-            condition=after.entry_count >= BATCH_OPERATIONS,
+            condition=after.entry_count >= _ADMISSION_OPERATIONS,
             reason="find result was not retained",
         )
         return elapsed
@@ -159,15 +162,17 @@ def _invalidation(
 ) -> float:
     with CacheManager(client) as manager:
         cached = manager["guard"]["documents"]
-        ids = [document["_id"] for document in documents[:BATCH_OPERATIONS]]
-        for document, document_id in zip(documents, ids, strict=False):
+        ids = [document["_id"] for document in documents[:_INVALIDATION_ENTRIES]]
+        for document, document_id in zip(
+            documents[:_INVALIDATION_ENTRIES], ids, strict=True
+        ):
             _checked(
                 condition=cached.find_one({"_id": document_id}) == document,
                 reason="invalidation priming returned wrong data",
             )
         before = manager.cache_core.snapshot()
         _checked(
-            condition=before.entry_count >= BATCH_OPERATIONS,
+            condition=before.entry_count >= _INVALIDATION_ENTRIES,
             reason="invalidation entries were not populated",
         )
         events = [
@@ -178,26 +183,22 @@ def _invalidation(
                 "wallTime": datetime.datetime.now(datetime.UTC),
             }
             for document_id in ids
+            for _ in range(_INVALIDATION_REPEATS)
         ]
         stream_before = manager.cache_core.stream_cost_snapshot("guard")
         started = time.perf_counter()
         for event in events:
             route_change_event(manager.cache_core, "guard", event)
         elapsed = time.perf_counter() - started
-        after = manager.cache_core.snapshot()
         stream_after = manager.cache_core.stream_cost_snapshot("guard")
         _checked(
-            condition=after.entry_count < before.entry_count,
-            reason="change events did not evict entries",
-        )
-        _checked(
             condition=stream_after.invalidations - stream_before.invalidations
-            == BATCH_OPERATIONS,
+            == len(events),
             reason="change events did not invalidate",
         )
         before_refresh = manager.cache_core.snapshot()
         for document, document_id in zip(
-            documents[:BATCH_OPERATIONS], ids, strict=True
+            documents[:_INVALIDATION_ENTRIES], ids, strict=True
         ):
             _checked(
                 condition=cached.find_one({"_id": document_id}) == document,
@@ -206,7 +207,7 @@ def _invalidation(
         after_refresh = manager.cache_core.snapshot()
         _checked(
             condition=_delta(before_refresh, after_refresh, "misses")
-            == BATCH_OPERATIONS,
+            == _INVALIDATION_ENTRIES,
             reason="some targeted entries survived invalidation",
         )
         _checked(
@@ -217,14 +218,6 @@ def _invalidation(
 
 
 def run_case(uri: str, case: str, profile_name: str) -> float:
-    """Run one guarded block while keeping application data within the process.
-
-    Returns:
-        Checked elapsed seconds for the block.
-
-    Raises:
-        ValueError: The case or profile is unknown.
-    """
     profile = next((item for item in PROFILES if item.name == profile_name), None)
     if profile is None or case not in CASE_NAMES:
         raise ValueError("unknown guard case or document profile")
@@ -237,3 +230,19 @@ def run_case(uri: str, case: str, profile_name: str) -> float:
             "invalidation": _invalidation,
         }
         return cases[case](client, documents)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Run one bounded guard case")
+    parser.add_argument("--uri", required=True)
+    parser.add_argument("--case", required=True, choices=CASE_NAMES)
+    parser.add_argument(
+        "--profile", required=True, choices=[profile.name for profile in PROFILES]
+    )
+    arguments = parser.parse_args()
+    elapsed_seconds = run_case(arguments.uri, arguments.case, arguments.profile)
+    print(json.dumps({"elapsed_seconds": elapsed_seconds}))
+
+
+if __name__ == "__main__":
+    main()

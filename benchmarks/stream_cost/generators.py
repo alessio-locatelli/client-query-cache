@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import bson
 from bson import ObjectId
 from faker import Faker
 
 from benchmarks.stream_cost.errors import BenchmarkConfigurationError
+
+if TYPE_CHECKING:
+    import datetime
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,6 +38,10 @@ def _deterministic_object_id(seed: int, index: int) -> ObjectId:
     return ObjectId(digest[:12])
 
 
+def _millisecond_precision(value: datetime.datetime) -> datetime.datetime:
+    return value.replace(microsecond=(value.microsecond // 1000) * 1000)
+
+
 def generate_seeded_documents(
     profile: DocumentSizeProfile, *, count: int, seed: int
 ) -> list[dict[str, object]]:
@@ -49,7 +57,7 @@ def generate_seeded_documents(
             "index": index,
             "name": faker.name(),
             "email": faker.email(),
-            "created_at": faker.date_time(),
+            "created_at": _millisecond_precision(faker.date_time()),
             "padding": "",
         }
         minimum_size = len(bson.encode(document))

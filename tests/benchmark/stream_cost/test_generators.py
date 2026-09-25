@@ -3,6 +3,8 @@ from __future__ import annotations
 import bson
 import pytest
 from bson import ObjectId
+from hypothesis import given
+from hypothesis import strategies as st
 
 from benchmarks.stream_cost.errors import BenchmarkConfigurationError
 from benchmarks.stream_cost.generators import (
@@ -95,6 +97,14 @@ def test_generate_seeded_documents_rejects_a_target_too_small_for_base_fields() 
 
     with pytest.raises(BenchmarkConfigurationError):
         generate_seeded_documents(tiny_profile, count=1, seed=1)
+
+
+@given(seed=st.integers(min_value=0, max_value=2**32 - 1))
+def test_generate_seeded_documents_survive_a_bson_round_trip(seed: int) -> None:
+    documents = generate_seeded_documents(MEDIUM_DOCUMENT_PROFILE, count=3, seed=seed)
+
+    for document in documents:
+        assert bson.decode(bson.encode(document)) == document
 
 
 def test_document_size_profiles_grow_from_small_to_large() -> None:

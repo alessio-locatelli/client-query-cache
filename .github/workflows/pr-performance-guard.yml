@@ -1,0 +1,69 @@
+name: PR performance guard
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  UV_VERSION: "0.12.3"
+  PYTHON_VERSION: "3.14"
+
+jobs:
+  guard:
+    name: Cache hot-path performance guard
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      BASE_REVISION: ${{ github.event.pull_request.base.sha }}
+      HEAD_REVISION: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - id: scope
+        run: |
+          requires_guard="$(
+            git diff --name-only "${BASE_REVISION}" "${HEAD_REVISION}" \
+              | python3 -m benchmarks.stream_cost.guard_scope
+          )"
+          echo "requires_guard=${requires_guard}" >> "${GITHUB_OUTPUT}"
+
+      - if: steps.scope.outputs.requires_guard != 'true'
+        run: |
+          echo "No Python, dependency, or guard input changed; skipping the timed comparison." \
+            >> "${GITHUB_STEP_SUMMARY}"
+
+      - if: steps.scope.outputs.requires_guard == 'true'
+        uses: $/.github/actions/setup-toolchain
+        with:
+          uv-version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - if: steps.scope.outputs.requires_guard == 'true'
+        run: uv sync --locked --all-groups
+
+      - if: steps.scope.outputs.requires_guard == 'true'
+        run: |
+          uv run -- python -m benchmarks.stream_cost.guard_check \
+            --repo-root "${GITHUB_WORKSPACE}" \
+            --base-revision "${BASE_REVISION}" \
+            --head-revision "${HEAD_REVISION}" \
+            --work-dir "${RUNNER_TEMP}/pr-performance-guard" \
+            --output guard-reports/guard.report.json \
+            >> "${GITHUB_STEP_SUMMARY}"
+
+      - if: always() && steps.scope.outputs.requires_guard == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pr-performance-guard-report
+          path: guard-reports/guard.report.json
+          if-no-files-found: warn
+          retention-days: 30

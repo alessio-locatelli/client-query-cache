@@ -63,7 +63,7 @@ def test_guard_case_checks_real_cache_outcome(
         ("sync_hit", "find_one", _uncached_find_one, "sync hit was bypassed"),
         ("sync_hit", "find_one", _wrong_find_one, "wrong data"),
         ("find_admission", "find", _uncached_find, "admission was missing"),
-        ("invalidation", "route_change_event", _ignore_event, "did not evict"),
+        ("invalidation", "route_change_event", _ignore_event, "did not invalidate"),
     ],
 )
 def test_guard_rejects_invalid_outcome(
