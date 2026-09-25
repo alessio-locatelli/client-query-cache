@@ -6,9 +6,41 @@ from benchmarks.stream_cost.guard_decision import BLOCK_PAIRS, Decision, evaluat
 
 BASE_BLOCK_SECONDS = 0.025
 # Small timing variation stays safely below the material-slowdown boundary.
-ORDINARY_NOISE_HEAD_BLOCKS = (0.0249, 0.025, 0.0251, 0.025, 0.0248, 0.0252, 0.025)
+ORDINARY_NOISE_HEAD_BLOCKS = (
+    0.0249,
+    0.025,
+    0.0251,
+    0.025,
+    0.0248,
+    0.0252,
+    0.025,
+    0.0249,
+    0.0251,
+    0.025,
+    0.0248,
+    0.0252,
+    0.025,
+    0.0249,
+    0.0251,
+)
 # Ratios span both sides of the 30% boundary; the spread makes this inconclusive.
-NOISY_HEAD_BLOCKS = (0.021, 0.022, 0.023, 0.03, 0.035, 0.04, 0.045)
+NOISY_HEAD_BLOCKS = (
+    0.021,
+    0.022,
+    0.023,
+    0.03,
+    0.035,
+    0.04,
+    0.045,
+    0.021,
+    0.022,
+    0.023,
+    0.03,
+    0.035,
+    0.04,
+    0.045,
+    0.03,
+)
 
 
 @pytest.mark.parametrize(

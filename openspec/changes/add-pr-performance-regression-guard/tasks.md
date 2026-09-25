@@ -4,18 +4,18 @@
 
 - [x] 1.1 Add bounded synchronous and asynchronous cached-read hit cases using real cache behavior and existing seeded data; verify their unit/integration tests assert returned results and hit outcomes for both document profiles.
 - [x] 1.2 Add bounded multi-document admission and populated-entry change-event invalidation cases; verify tests reject a bypass, missing admission, missing invalidation, or wrong result before timing is accepted.
-- [ ] 1.3 Reuse the existing workload generators, replica-set setup, and observability snapshots where applicable; verify the guard cases run without the 12-variant controlled matrix or decision-evidence runner.
+- [x] 1.3 Reuse the existing workload generators, replica-set setup, and observability snapshots where applicable; verify the guard cases run without the 12-variant controlled matrix or decision-evidence runner.
 
 ## 2. Relative comparison
 
-- [ ] 2.1 Add a runner that identifies exact base and tested PR revisions, applies one workload definition and equivalent seeded state to both, and alternates warm, isolated measurement blocks on one runner; verify tests detect revision, workload, environment, and outcome mismatches.
+- [x] 2.1 Add a runner that identifies exact base and tested PR revisions, applies one workload definition and equivalent seeded state to both, and alternates warm, isolated measurement blocks on one runner; verify tests detect revision, workload, environment, and outcome mismatches.
 - [ ] 2.2 Add a predeclared 30% material-slowdown rule with a stability bound and fixed sampling budget; verify deterministic tests distinguish clear regressions, ordinary noise, inconclusive comparisons, and missing/invalid baseline measurements.
-- [ ] 2.3 Produce concise per-case diagnostics and a bounded machine-readable result; verify tests cover failure and inconclusive output without including document contents or credentials.
+- [x] 2.3 Produce concise per-case diagnostics and a bounded machine-readable result; verify tests cover failure and inconclusive output without including document contents or credentials.
 
 ## 3. Pull-request integration and guidance
 
-- [ ] 3.1 Add a stable, unprivileged PR check that times relevant Python/dependency/guard changes, explicitly skips unrelated changes, enforces a runtime limit, and preserves targeted diagnostics; verify its event and path decisions for Python, dependency, guard, and documentation-only changes.
-- [ ] 3.2 Update `docs/stream-cost-benchmarks.md` to explain the guard's scope, the manual workflow's separate purpose, inconclusive results, and human-reviewed intentional trade-offs; verify the documented result fields and process match the check.
+- [x] 3.1 Add a stable, unprivileged PR check that times relevant Python/dependency/guard changes, explicitly skips unrelated changes, enforces a runtime limit, and preserves targeted diagnostics; verify its event and path decisions for Python, dependency, guard, and documentation-only changes.
+- [x] 3.2 Update `docs/stream-cost-benchmarks.md` to explain the guard's scope, the manual workflow's separate purpose, inconclusive results, and human-reviewed intentional trade-offs; verify the documented result fields and process match the check.
 
 ## 4. Gate rollout
 

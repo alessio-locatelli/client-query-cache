@@ -1,5 +1,3 @@
-"""Fixed, conservative decision policy for paired PR measurements."""
-
 from __future__ import annotations
 
 import math
@@ -8,14 +6,15 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 MATERIAL_SLOWDOWN = 1.30
-BLOCK_PAIRS = 7
-MINIMUM_BLOCK_SECONDS = 0.02
+BLOCK_PAIRS = 15
+MINIMUM_BLOCK_SECONDS = 0.005
 
 
 class Decision(StrEnum):
     WITHIN_BOUNDARY = "within_boundary"
     REGRESSION = "regression"
     INCONCLUSIVE = "inconclusive"
+    MEASUREMENT_ERROR = "measurement_error"
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,14 +29,6 @@ class CaseDecision:
 
 
 def evaluate_case(base: tuple[float, ...], head: tuple[float, ...]) -> CaseDecision:
-    """Use paired ratios and their median absolute deviation as a stability bound.
-
-    Returns:
-        The conservative decision and bounded timing summary.
-
-    Raises:
-        ValueError: The fixed paired sample budget or duration is invalid.
-    """
     if len(base) != BLOCK_PAIRS or len(head) != BLOCK_PAIRS:
         message = f"expected {BLOCK_PAIRS} paired blocks"
         raise ValueError(message)
@@ -50,9 +41,9 @@ def evaluate_case(base: tuple[float, ...], head: tuple[float, ...]) -> CaseDecis
         proposed / baseline for baseline, proposed in zip(base, head, strict=True)
     )
     median_ratio = statistics.median(ratios)
-    # A generous, fixed dispersion allowance makes a red status require a stable effect.
     deviation = statistics.median(abs(value - median_ratio) for value in ratios)
-    allowance = 3 * 1.4826 * deviation
+    standard_error = 1.4826 * deviation / math.sqrt(len(ratios))
+    allowance = 3 * standard_error
     lower = max(0.0, median_ratio - allowance)
     upper = median_ratio + allowance
     if lower > MATERIAL_SLOWDOWN:
