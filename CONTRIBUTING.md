@@ -51,4 +51,6 @@ include the leading `--`, mirroring `just podman -- <arguments>` below, since so
 (such as `-q` or `-v`) share a letter with `just`'s own short flags. Run `just lint` and
 `just format` for repository quality checks, and run `just ci-lint` after changing GitHub Actions.
 
+See the [CI validation cache inventory](docs/ci-validation-caches.md) for the tools run on GitHub Actions and their cache paths.
+
 Run host Podman commands from the contributor container with `just podman -- <arguments>`.
