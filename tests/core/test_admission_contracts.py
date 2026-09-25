@@ -348,6 +348,8 @@ def test_a_namespace_clear_reclaims_a_normally_completed_admission(
 def test_no_code_path_holds_the_namespace_lock_and_the_lru_lock_at_once(
     core: CacheCore, namespace: NamespaceId
 ) -> None:
+    # Eight workers repeat 50 operations each; five IDs per worker force reuse,
+    # and clearing every tenth iteration interleaves namespace invalidation.
     def worker(worker_id: int) -> None:
         for iteration in range(50):
             identity = f"doc-{worker_id}-{iteration % 5}"
