@@ -25,5 +25,5 @@
 
 ## 5. Code Quality
 
-- [ ] 5.1 Scan every edited or added test file in full, including pre-existing tests in those files, for the `AGENTS.md` Writing Tests rules; verify parametrization, fixture cleanup, and realistic generated values are applied where relevant.
+- [x] 5.1 Scan every edited or added test file in full, including pre-existing tests in those files, for the `AGENTS.md` Writing Tests rules; verify parametrization, fixture cleanup, and realistic generated values are applied where relevant.
 - [x] 5.2 Inapplicable for OpenAI Codex: the Claude Code prose restriction does not apply.

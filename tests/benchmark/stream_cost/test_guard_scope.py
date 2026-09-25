@@ -27,21 +27,21 @@ def test_changed_files_require_guard(paths: tuple[str, ...], *, expected: bool) 
     assert changed_files_require_guard(paths) is expected
 
 
-def test_main_prints_true_for_relevant_changes(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+@pytest.mark.parametrize(
+    ("stdin_text", "expected_stdout"),
+    [
+        ("src/module.py\n\n", "true\n"),
+        ("README.md\n", "false\n"),
+    ],
+)
+def test_main_prints_the_guard_requirement(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    stdin_text: str,
+    expected_stdout: str,
 ) -> None:
-    monkeypatch.setattr(sys, "stdin", io.StringIO("src/module.py\n\n"))
+    monkeypatch.setattr(sys, "stdin", io.StringIO(stdin_text))
 
     guard_scope.main()
 
-    assert capsys.readouterr().out == "true\n"
-
-
-def test_main_prints_false_for_unrelated_changes(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    monkeypatch.setattr(sys, "stdin", io.StringIO("README.md\n"))
-
-    guard_scope.main()
-
-    assert capsys.readouterr().out == "false\n"
+    assert capsys.readouterr().out == expected_stdout
