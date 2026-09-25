@@ -31,8 +31,14 @@ def _resolve_revision(repo_root: Path, revision: str) -> str:
 def _workload_digest(repo_root: Path) -> str:
     digest = hashlib.sha256()
     for name in _WORKLOAD_SOURCE_FILES:
+        path = repo_root / "benchmarks" / "stream_cost" / name
+        try:
+            content = path.read_bytes()
+        except FileNotFoundError:
+            message = f"{path} does not exist on this revision"
+            raise BenchmarkSetupError(message) from None
         digest.update(name.encode())
-        digest.update((repo_root / "benchmarks" / "stream_cost" / name).read_bytes())
+        digest.update(content)
     return digest.hexdigest()
 
 

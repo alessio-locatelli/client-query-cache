@@ -7,9 +7,11 @@ from itertools import product
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from benchmarks.stream_cost.errors import BenchmarkSetupError
 from benchmarks.stream_cost.guard_report import (
     build_guard_report,
     measure_and_evaluate_case,
+    measurement_error_report,
     report_to_json,
     report_to_summary,
 )
@@ -31,15 +33,22 @@ def run_guard(
     base_worktree: Path,
     head_worktree: Path,
 ) -> GuardReport:
-    base_environment = prepare_environment(
-        repo_root, base_revision, worktree_dir=base_worktree
-    )
-    head_environment = prepare_environment(
-        repo_root,
-        head_revision,
-        worktree_dir=head_worktree,
-        workload_source_root=base_environment.repo_root,
-    )
+    try:
+        base_environment = prepare_environment(
+            repo_root, base_revision, worktree_dir=base_worktree
+        )
+        head_environment = prepare_environment(
+            repo_root,
+            head_revision,
+            worktree_dir=head_worktree,
+            workload_source_root=base_environment.repo_root,
+        )
+    except BenchmarkSetupError as error:
+        cases = tuple(
+            measurement_error_report(case, profile.name, str(error))
+            for case, profile in product(CASE_NAMES, PROFILES)
+        )
+        return build_guard_report(base_revision, head_revision, cases)
     with IsolatedReplicaSet(_TOPOLOGY_LIMITS) as replica_set:
         cases = tuple(
             measure_and_evaluate_case(

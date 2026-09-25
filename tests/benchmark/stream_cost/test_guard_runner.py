@@ -133,6 +133,7 @@ def test_prepare_environment_copies_base_workload_source(
         ("worktree_add_failure", "could not add a worktree"),
         ("missing_uv", "uv is required"),
         ("uv_sync_failure", "could not sync locked dependencies"),
+        ("missing_workload_definition", "does not exist on this revision"),
     ],
 )
 def test_prepare_environment_reports_setup_faults(
@@ -142,7 +143,8 @@ def test_prepare_environment_reports_setup_faults(
     worktree_dir = tmp_path / "worktree"
     _write_workload_sources(repo_root, content="original")
     _write_python_executable(worktree_dir)
-    _write_workload_sources(worktree_dir, content="original")
+    if fault != "missing_workload_definition":
+        _write_workload_sources(worktree_dir, content="original")
 
     def fake_run(command: Sequence[str], *, cwd: Path | None = None) -> str:
         del cwd
@@ -158,6 +160,8 @@ def test_prepare_environment_reports_setup_faults(
             if fault == "uv_sync_failure":
                 raise subprocess.CalledProcessError(1, command, stderr="sync failed")
             return ""
+        if "-c" in command:
+            return "3.14.6\n"
         message = f"unexpected command {command}"
         raise AssertionError(message)
 
