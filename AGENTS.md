@@ -25,8 +25,7 @@ See [README.md](README.md).
 - Setup, teardown, or cleanup logic should be placed outside the test function itself. For example, a fixture can yield an object and perform cleanup.
 - Tests should not duplicate the same code (e.g., `try`/`finally` blocks or inner functions). Extract and reuse such logic instead.
 - Do not write tests for impossible scenarios solely to achieve 100% code coverage. If code is unused in production, delete it immediately—do not mask it with mocking or patching in tests.
-- Use Hypothesis for invariants and operation-ordering over a real input space, `faker` for realistic single-instance data, and fixed values when the exact input matters to the test.
-- Generate incidental values with `faker`. Give values that must stay exact a descriptive name, constant, fixture, or short explanatory comment, unless the file's git history already explains the choice.
+- Use Hypothesis for invariants and operation-ordering over a real input space. Generate incidental values with `faker`, including realistic single-instance data. When an exact value matters, give it a descriptive name, constant, fixture, or short explanatory comment unless the file's git history already explains the choice.
 
 ### Validation, linting, formatting, testing
 
