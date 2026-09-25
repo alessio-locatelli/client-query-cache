@@ -2,7 +2,7 @@
 
 ## Context
 
-See [proposal.md](proposal.md) for the gap. The manual [stream-cost workflow](../../../.github/workflows/stream-cost-benchmark.yml) runs the 12-variant controlled matrix for one revision and uploads reports. The [Python-validation workflow](../../../.github/workflows/test.yml) runs tests on relevant pull requests, including benchmark tests, but makes no timed base-versus-head comparison. The existing matrix measures raw/cache cost and captures server CPU, latency distributions, and stream telemetry; its report schema and calibration rules serve architectural analysis. The guard needs a narrower, same-host comparison of the shipped path itself.
+See [proposal.md](proposal.md) for the gap. The manual [stream-cost workflow](../../../../.github/workflows/stream-cost-benchmark.yml) runs the 12-variant controlled matrix for one revision and uploads reports. The [Python-validation workflow](../../../../.github/workflows/test.yml) runs tests on relevant pull requests, including benchmark tests, but makes no timed base-versus-head comparison. The existing matrix measures raw/cache cost and captures server CPU, latency distributions, and stream telemetry; its report schema and calibration rules serve architectural analysis. The guard needs a narrower, same-host comparison of the shipped path itself.
 
 ## Goals / Non-Goals
 
