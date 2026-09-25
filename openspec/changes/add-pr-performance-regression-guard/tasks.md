@@ -9,7 +9,7 @@
 ## 2. Relative comparison
 
 - [x] 2.1 Add a runner that identifies exact base and tested PR revisions, applies one workload definition and equivalent seeded state to both, and alternates warm, isolated measurement blocks on one runner; verify tests detect revision, workload, environment, and outcome mismatches.
-- [ ] 2.2 Add a predeclared 30% material-slowdown rule with a stability bound and fixed sampling budget; verify deterministic tests distinguish clear regressions, ordinary noise, inconclusive comparisons, and missing/invalid baseline measurements.
+- [x] 2.2 Add a predeclared 30% material-slowdown rule with a stability bound and fixed sampling budget; verify deterministic tests distinguish clear regressions, ordinary noise, inconclusive comparisons, and missing/invalid baseline measurements.
 - [x] 2.3 Produce concise per-case diagnostics and a bounded machine-readable result; verify tests cover failure and inconclusive output without including document contents or credentials.
 
 ## 3. Pull-request integration and guidance
@@ -19,7 +19,7 @@
 
 ## 4. Gate rollout
 
-- [ ] 4.1 Run the new workload against both revisions for the introducing PR, then perform clean-base self-comparisons and an intentionally slowed candidate on a CI-like runner; record observed stability, detected slowdown, and elapsed job time, and verify the configured boundary catches the seeded regression without noisy self-comparison failures.
+- [x] 4.1 Run the new workload against both revisions for the introducing PR, then perform clean-base self-comparisons and an intentionally slowed candidate on a CI-like runner; record observed stability, detected slowdown, and elapsed job time, and verify the configured boundary catches the seeded regression without noisy self-comparison failures.
 - [ ] 4.2 After the guard definition reaches the base branch, have repository administrators configure an auditable, maintainer-only merge-rule exception and document the accepted-slowdown review process; verify PR authors cannot use the exception or suppress a red guard result.
 - [ ] 4.3 Configure the stable guard check as required in merge rules only after task 4.2, then verify a deliberately failing guard blocks an ordinary PR while documentation-only PRs receive a successful skip.
 
