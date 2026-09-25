@@ -68,6 +68,8 @@ def client() -> AsyncMongoClient[dict[str, Any]]:
 async def tight_budget_cache_manager(
     raw_mongo_client: AsyncMongoClient[dict[str, Any]],
 ) -> AsyncIterator[CacheManager[dict[str, Any]]]:
+    # Five padded fake documents exceed the 200-byte budget; each exceeds
+    # the 50-byte entry limit, so neither individual nor combined reads cache.
     manager = CacheManager(
         raw_mongo_client,
         cache_config=CacheCoreConfig(shared_budget_bytes=200, max_entry_bytes=50),

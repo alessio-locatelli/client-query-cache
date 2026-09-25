@@ -14,6 +14,7 @@ from mongo_client_cache.asynchronous.streams import DatabaseStreamSupervisor
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable
 
+    from faker import Faker
     from pymongo.asynchronous.database import AsyncDatabase
 
     from tests.conftest import DatabaseName, MongoDbUri
@@ -66,25 +67,29 @@ async def test_update_invalidates_the_cached_document(
     independent_writer: AsyncMongoClient[dict[str, Any]],
     cached_database_name: DatabaseName,
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
+    faker: Faker,
 ) -> None:
+    document_id = faker.uuid4()
+    before_value = faker.random_int()
+    after_value = before_value + 1
     namespace = NamespaceId(cached_database_name, "items")
     await independent_writer[cached_database_name]["items"].insert_one(
-        {"_id": "doc-1", "v": 1}
+        {"_id": document_id, "v": before_value}
     )
     cache = CacheCore()
     supervisor = make_supervisor(raw_mongo_client[cached_database_name], cache)
     await supervisor.start()
 
-    capture = cache.begin_identity_admission(namespace, "doc-1")
-    cache.admit_identity(capture, "full", {"v": 1})
-    assert cache.lookup_identity(namespace, "doc-1", "full").hit is True
+    capture = cache.begin_identity_admission(namespace, document_id)
+    cache.admit_identity(capture, "full", {"v": before_value})
+    assert cache.lookup_identity(namespace, document_id, "full").hit is True
 
     await independent_writer[cached_database_name]["items"].update_one(
-        {"_id": "doc-1"}, {"$set": {"v": 2}}
+        {"_id": document_id}, {"$set": {"v": after_value}}
     )
 
     await _wait_until(
-        lambda: cache.lookup_identity(namespace, "doc-1", "full").hit is False
+        lambda: cache.lookup_identity(namespace, document_id, "full").hit is False
     )
 
 
@@ -93,23 +98,28 @@ async def test_delete_invalidates_the_cached_document(
     independent_writer: AsyncMongoClient[dict[str, Any]],
     cached_database_name: DatabaseName,
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
+    faker: Faker,
 ) -> None:
+    document_id = faker.uuid4()
+    before_value = faker.random_int()
     namespace = NamespaceId(cached_database_name, "items")
     await independent_writer[cached_database_name]["items"].insert_one(
-        {"_id": "doc-1", "v": 1}
+        {"_id": document_id, "v": before_value}
     )
     cache = CacheCore()
     supervisor = make_supervisor(raw_mongo_client[cached_database_name], cache)
     await supervisor.start()
 
-    capture = cache.begin_identity_admission(namespace, "doc-1")
-    cache.admit_identity(capture, "full", {"v": 1})
-    assert cache.lookup_identity(namespace, "doc-1", "full").hit is True
+    capture = cache.begin_identity_admission(namespace, document_id)
+    cache.admit_identity(capture, "full", {"v": before_value})
+    assert cache.lookup_identity(namespace, document_id, "full").hit is True
 
-    await independent_writer[cached_database_name]["items"].delete_one({"_id": "doc-1"})
+    await independent_writer[cached_database_name]["items"].delete_one(
+        {"_id": document_id}
+    )
 
     await _wait_until(
-        lambda: cache.lookup_identity(namespace, "doc-1", "full").hit is False
+        lambda: cache.lookup_identity(namespace, document_id, "full").hit is False
     )
 
 
@@ -118,23 +128,26 @@ async def test_drop_clears_the_namespace(
     independent_writer: AsyncMongoClient[dict[str, Any]],
     cached_database_name: DatabaseName,
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
+    faker: Faker,
 ) -> None:
+    document_id = faker.uuid4()
+    before_value = faker.random_int()
     namespace = NamespaceId(cached_database_name, "items")
     await independent_writer[cached_database_name]["items"].insert_one(
-        {"_id": "doc-1", "v": 1}
+        {"_id": document_id, "v": before_value}
     )
     cache = CacheCore()
     supervisor = make_supervisor(raw_mongo_client[cached_database_name], cache)
     await supervisor.start()
 
-    capture = cache.begin_identity_admission(namespace, "doc-1")
-    cache.admit_identity(capture, "full", {"v": 1})
-    assert cache.lookup_identity(namespace, "doc-1", "full").hit is True
+    capture = cache.begin_identity_admission(namespace, document_id)
+    cache.admit_identity(capture, "full", {"v": before_value})
+    assert cache.lookup_identity(namespace, document_id, "full").hit is True
 
     await independent_writer[cached_database_name].drop_collection("items")
 
     await _wait_until(
-        lambda: cache.lookup_identity(namespace, "doc-1", "full").hit is False
+        lambda: cache.lookup_identity(namespace, document_id, "full").hit is False
     )
 
 
@@ -143,11 +156,13 @@ async def test_rename_clears_source_and_destination_namespaces(
     independent_writer: AsyncMongoClient[dict[str, Any]],
     cached_database_name: DatabaseName,
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
+    faker: Faker,
 ) -> None:
+    document_id = faker.uuid4()
     source = NamespaceId(cached_database_name, "items_old")
     destination = NamespaceId(cached_database_name, "items_new")
     await independent_writer[cached_database_name]["items_old"].insert_one(
-        {"_id": "doc-1"}
+        {"_id": document_id}
     )
     cache = CacheCore()
     supervisor = make_supervisor(raw_mongo_client[cached_database_name], cache)
@@ -171,43 +186,48 @@ async def test_drop_database_clears_the_cache_and_the_stream_recovers(
     independent_writer: AsyncMongoClient[dict[str, Any]],
     cached_database_name: DatabaseName,
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
+    faker: Faker,
 ) -> None:
+    document_id = faker.uuid4()
+    other_document_id = faker.uuid4()
+    before_value = faker.random_int()
+    after_value = before_value + 1
     namespace = NamespaceId(cached_database_name, "items")
     await independent_writer[cached_database_name]["items"].insert_one(
-        {"_id": "doc-1", "v": 1}
+        {"_id": document_id, "v": before_value}
     )
     cache = CacheCore()
     supervisor = make_supervisor(raw_mongo_client[cached_database_name], cache)
     await supervisor.start()
 
-    capture = cache.begin_identity_admission(namespace, "doc-1")
-    cache.admit_identity(capture, "full", {"v": 1})
-    assert cache.lookup_identity(namespace, "doc-1", "full").hit is True
+    capture = cache.begin_identity_admission(namespace, document_id)
+    cache.admit_identity(capture, "full", {"v": before_value})
+    assert cache.lookup_identity(namespace, document_id, "full").hit is True
 
     await independent_writer.drop_database(cached_database_name)
 
     await _wait_until(
-        lambda: cache.lookup_identity(namespace, "doc-1", "full").hit is False
+        lambda: cache.lookup_identity(namespace, document_id, "full").hit is False
     )
     await _wait_until(lambda: supervisor.healthy)
 
     await independent_writer[cached_database_name]["items"].insert_one(
-        {"_id": "doc-2", "v": 1}
+        {"_id": other_document_id, "v": before_value}
     )
 
     def _admit_and_check_doc2() -> bool:
-        capture2 = cache.begin_identity_admission(namespace, "doc-2")
-        cache.admit_identity(capture2, "full", {"v": 1})
-        return cache.lookup_identity(namespace, "doc-2", "full").hit
+        capture2 = cache.begin_identity_admission(namespace, other_document_id)
+        cache.admit_identity(capture2, "full", {"v": before_value})
+        return cache.lookup_identity(namespace, other_document_id, "full").hit
 
     await _wait_until(_admit_and_check_doc2)
 
     await independent_writer[cached_database_name]["items"].update_one(
-        {"_id": "doc-2"}, {"$set": {"v": 2}}
+        {"_id": other_document_id}, {"$set": {"v": after_value}}
     )
 
     await _wait_until(
-        lambda: cache.lookup_identity(namespace, "doc-2", "full").hit is False
+        lambda: cache.lookup_identity(namespace, other_document_id, "full").hit is False
     )
 
 
@@ -230,7 +250,11 @@ async def test_recovers_from_a_resumable_disconnection(
     independent_writer: AsyncMongoClient[dict[str, Any]],
     cached_database_name: DatabaseName,
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
+    faker: Faker,
 ) -> None:
+    other_document_id = faker.uuid4()
+    before_value = faker.random_int()
+    after_value = before_value + 1
     namespace = NamespaceId(cached_database_name, "items")
     database = raw_mongo_client[cached_database_name]
     original_watch: Any = database.watch
@@ -258,18 +282,18 @@ async def test_recovers_from_a_resumable_disconnection(
     )
 
     await independent_writer[cached_database_name]["items"].insert_one(
-        {"_id": "doc-2", "v": 1}
+        {"_id": other_document_id, "v": before_value}
     )
-    capture = cache.begin_identity_admission(namespace, "doc-2")
-    cache.admit_identity(capture, "full", {"v": 1})
-    assert cache.lookup_identity(namespace, "doc-2", "full").hit is True
+    capture = cache.begin_identity_admission(namespace, other_document_id)
+    cache.admit_identity(capture, "full", {"v": before_value})
+    assert cache.lookup_identity(namespace, other_document_id, "full").hit is True
 
     await independent_writer[cached_database_name]["items"].update_one(
-        {"_id": "doc-2"}, {"$set": {"v": 2}}
+        {"_id": other_document_id}, {"$set": {"v": after_value}}
     )
 
     await _wait_until(
-        lambda: cache.lookup_identity(namespace, "doc-2", "full").hit is False
+        lambda: cache.lookup_identity(namespace, other_document_id, "full").hit is False
     )
 
 
@@ -278,7 +302,11 @@ async def test_clears_the_cache_when_resume_history_is_lost(
     independent_writer: AsyncMongoClient[dict[str, Any]],
     cached_database_name: DatabaseName,
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
+    faker: Faker,
 ) -> None:
+    other_document_id = faker.uuid4()
+    before_value = faker.random_int()
+    after_value = before_value + 1
     namespace = NamespaceId(cached_database_name, "items")
     database = raw_mongo_client[cached_database_name]
     original_watch: Any = database.watch
@@ -310,18 +338,18 @@ async def test_clears_the_cache_when_resume_history_is_lost(
     )
 
     await independent_writer[cached_database_name]["items"].insert_one(
-        {"_id": "doc-2", "v": 1}
+        {"_id": other_document_id, "v": before_value}
     )
-    capture = cache.begin_identity_admission(namespace, "doc-2")
-    cache.admit_identity(capture, "full", {"v": 1})
-    assert cache.lookup_identity(namespace, "doc-2", "full").hit is True
+    capture = cache.begin_identity_admission(namespace, other_document_id)
+    cache.admit_identity(capture, "full", {"v": before_value})
+    assert cache.lookup_identity(namespace, other_document_id, "full").hit is True
 
     await independent_writer[cached_database_name]["items"].update_one(
-        {"_id": "doc-2"}, {"$set": {"v": 2}}
+        {"_id": other_document_id}, {"$set": {"v": after_value}}
     )
 
     await _wait_until(
-        lambda: cache.lookup_identity(namespace, "doc-2", "full").hit is False
+        lambda: cache.lookup_identity(namespace, other_document_id, "full").hit is False
     )
 
 
@@ -357,10 +385,14 @@ async def test_a_cache_hit_concurrent_with_event_delivery_may_be_stale_but_not_a
     independent_writer: AsyncMongoClient[dict[str, Any]],
     cached_database_name: DatabaseName,
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
+    faker: Faker,
 ) -> None:
+    document_id = faker.uuid4()
+    before_value = faker.random_int()
+    after_value = before_value + 1
     namespace = NamespaceId(cached_database_name, "items")
     await independent_writer[cached_database_name]["items"].insert_one(
-        {"_id": "doc-1", "v": 1}
+        {"_id": document_id, "v": before_value}
     )
     database = raw_mongo_client[cached_database_name]
     original_watch: Any = database.watch
@@ -378,19 +410,19 @@ async def test_a_cache_hit_concurrent_with_event_delivery_may_be_stale_but_not_a
 
     await supervisor.start()
 
-    capture = cache.begin_identity_admission(namespace, "doc-1")
-    cache.admit_identity(capture, "full", {"v": 1})
-    assert cache.lookup_identity(namespace, "doc-1", "full").hit is True
+    capture = cache.begin_identity_admission(namespace, document_id)
+    cache.admit_identity(capture, "full", {"v": before_value})
+    assert cache.lookup_identity(namespace, document_id, "full").hit is True
 
     await independent_writer[cached_database_name]["items"].update_one(
-        {"_id": "doc-1"}, {"$set": {"v": 2}}
+        {"_id": document_id}, {"$set": {"v": after_value}}
     )
 
     await _wait_until(fetched_event.is_set)
-    assert cache.lookup_identity(namespace, "doc-1", "full").hit is True
+    assert cache.lookup_identity(namespace, document_id, "full").hit is True
 
     release_event.set()
 
     await _wait_until(
-        lambda: cache.lookup_identity(namespace, "doc-1", "full").hit is False
+        lambda: cache.lookup_identity(namespace, document_id, "full").hit is False
     )
