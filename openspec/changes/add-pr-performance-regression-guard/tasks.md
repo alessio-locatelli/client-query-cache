@@ -2,8 +2,8 @@
 
 ## 1. Guarded workloads
 
-- [ ] 1.1 Add bounded synchronous and asynchronous cached-read hit cases using real cache behavior and existing seeded data; verify their unit/integration tests assert returned results and hit outcomes for both document profiles.
-- [ ] 1.2 Add bounded multi-document admission and populated-entry change-event invalidation cases; verify tests reject a bypass, missing admission, missing invalidation, or wrong result before timing is accepted.
+- [x] 1.1 Add bounded synchronous and asynchronous cached-read hit cases using real cache behavior and existing seeded data; verify their unit/integration tests assert returned results and hit outcomes for both document profiles.
+- [x] 1.2 Add bounded multi-document admission and populated-entry change-event invalidation cases; verify tests reject a bypass, missing admission, missing invalidation, or wrong result before timing is accepted.
 - [ ] 1.3 Reuse the existing workload generators, replica-set setup, and observability snapshots where applicable; verify the guard cases run without the 12-variant controlled matrix or decision-evidence runner.
 
 ## 2. Relative comparison
