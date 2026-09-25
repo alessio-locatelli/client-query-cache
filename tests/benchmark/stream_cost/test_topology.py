@@ -163,29 +163,14 @@ def _raise_setup_error(_self: IsolatedReplicaSet) -> None:
     raise BenchmarkSetupError("boom")
 
 
+@pytest.mark.parametrize(
+    "fail_stop",
+    [pytest.param(False, id="stop_succeeds"), pytest.param(True, id="stop_also_fails")],
+)
 def test_enter_stops_container_when_post_start_setup_fails(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, fail_stop: bool
 ) -> None:
-    fake_container = _FakeDockerContainer()
-    monkeypatch.setattr(
-        "benchmarks.stream_cost.topology.DockerContainer",
-        lambda _image: fake_container,
-    )
-    monkeypatch.setattr(
-        IsolatedReplicaSet, "_await_writable_primary", _raise_setup_error
-    )
-    replica_set = IsolatedReplicaSet(ResourceLimits(cpus=1.0, memory="512m"))
-    with pytest.raises(BenchmarkSetupError, match="boom"):
-        replica_set.__enter__()
-    assert fake_container.stopped is True
-    with pytest.raises(BenchmarkSetupError, match="has not been started"):
-        _ = replica_set.uri
-
-
-def test_enter_preserves_original_error_when_cleanup_stop_also_fails(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    fake_container = _FakeDockerContainer(fail_stop=True)
+    fake_container = _FakeDockerContainer(fail_stop=fail_stop)
     monkeypatch.setattr(
         "benchmarks.stream_cost.topology.DockerContainer",
         lambda _image: fake_container,
@@ -249,18 +234,12 @@ def test_cpu_usage_reads_docker_stats() -> None:
         {"cpu_stats": {"cpu_usage": {"total_usage": float("nan")}}},
         {"cpu_stats": {"cpu_usage": {"total_usage": float("inf")}}},
         {"cpu_stats": {"cpu_usage": {"total_usage": -1}}},
+        pytest.param(iter(()), id="non_dict_stats"),
     ],
 )
-def test_cpu_usage_wraps_missing_evidence(stats: dict[str, Any] | None) -> None:
+def test_cpu_usage_wraps_missing_evidence(stats: object) -> None:
     replica_set = IsolatedReplicaSet(ResourceLimits(cpus=1.0, memory="512m"))
     replica_set._container = _FakeContainer(stats)  # type: ignore[assignment]
-    with pytest.raises(BenchmarkSetupError, match="cgroup/stats evidence"):
-        replica_set.container_cpu_usage_seconds()
-
-
-def test_cpu_usage_wraps_non_dict_stats() -> None:
-    replica_set = IsolatedReplicaSet(ResourceLimits(cpus=1.0, memory="512m"))
-    replica_set._container = _FakeContainer(iter(()))  # type: ignore[assignment]
     with pytest.raises(BenchmarkSetupError, match="cgroup/stats evidence"):
         replica_set.container_cpu_usage_seconds()
 

@@ -44,18 +44,32 @@ def test_confidence_interval_rejects_inverted_bounds() -> None:
         ConfidenceInterval(lower=1.0, upper=0.0, point_estimate=0.5)
 
 
-def test_block_bootstrap_rejects_empty_windows() -> None:
-    with pytest.raises(BenchmarkConfigurationError, match="at least 2 capture windows"):
+@pytest.mark.parametrize(
+    ("windows", "percentile", "match"),
+    [
+        pytest.param((), 0.5, "at least 2 capture windows", id="no_windows"),
+        pytest.param(
+            ((1.0, 2.0),), 0.5, "at least 2 capture windows", id="single_window"
+        ),
+        pytest.param(
+            ((1.0,), (2.0,)), 0.99, "required for", id="below_sample_count_floor"
+        ),
+        pytest.param(((), ()), 0.5, "must not be empty", id="all_empty_windows"),
+        pytest.param(
+            ((1.0, 2.0), (3.0,)),
+            0.5,
+            "must all be the same size",
+            id="unequal_window_sizes",
+        ),
+    ],
+)
+def test_block_bootstrap_rejects_invalid_windows(
+    windows: tuple[tuple[float, ...], ...], percentile: float, match: str
+) -> None:
+    with pytest.raises(BenchmarkConfigurationError, match=match):
         block_bootstrap_percentile_ci(
-            (), percentile=0.5, confidence_level=0.95, resample_count=10, seed=1
-        )
-
-
-def test_block_bootstrap_rejects_a_single_window() -> None:
-    with pytest.raises(BenchmarkConfigurationError, match="at least 2 capture windows"):
-        block_bootstrap_percentile_ci(
-            ((1.0, 2.0),),
-            percentile=0.5,
+            windows,
+            percentile=percentile,
             confidence_level=0.95,
             resample_count=10,
             seed=1,
@@ -87,29 +101,6 @@ def test_block_bootstrap_rejects_out_of_range_confidence(
             confidence_level=confidence_level,
             resample_count=10,
             seed=1,
-        )
-
-
-def test_block_bootstrap_rejects_below_sample_count_floor() -> None:
-    windows = ((1.0,), (2.0,))
-    with pytest.raises(BenchmarkConfigurationError, match="required for"):
-        block_bootstrap_percentile_ci(
-            windows, percentile=0.99, confidence_level=0.95, resample_count=10, seed=1
-        )
-
-
-def test_block_bootstrap_rejects_all_empty_windows() -> None:
-    with pytest.raises(BenchmarkConfigurationError, match="must not be empty"):
-        block_bootstrap_percentile_ci(
-            ((), ()), percentile=0.5, confidence_level=0.95, resample_count=10, seed=1
-        )
-
-
-def test_block_bootstrap_rejects_unequal_window_sizes() -> None:
-    windows = ((1.0, 2.0), (3.0,))
-    with pytest.raises(BenchmarkConfigurationError, match="must all be the same size"):
-        block_bootstrap_percentile_ci(
-            windows, percentile=0.5, confidence_level=0.95, resample_count=10, seed=1
         )
 
 

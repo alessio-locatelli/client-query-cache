@@ -60,11 +60,35 @@ def _wait_until(predicate: Callable[[], bool], *, timeout: float = 15.0) -> None
     )
 
 
-def test_update_invalidates_the_cached_document(
+@pytest.mark.parametrize(
+    "invalidate",
+    [
+        pytest.param(
+            lambda writer, database_name: writer[database_name]["items"].update_one(
+                {"_id": "doc-1"}, {"$set": {"v": 2}}
+            ),
+            id="update",
+        ),
+        pytest.param(
+            lambda writer, database_name: writer[database_name]["items"].delete_one(
+                {"_id": "doc-1"}
+            ),
+            id="delete",
+        ),
+        pytest.param(
+            lambda writer, database_name: writer[database_name].drop_collection(
+                "items"
+            ),
+            id="drop",
+        ),
+    ],
+)
+def test_write_invalidates_the_cached_document(
     raw_mongo_client: MongoClient[dict[str, Any]],
     independent_writer: MongoClient[dict[str, Any]],
     cached_database_name: DatabaseName,
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
+    invalidate: Callable[[MongoClient[dict[str, Any]], DatabaseName], object],
 ) -> None:
     namespace = NamespaceId(cached_database_name, "items")
     independent_writer[cached_database_name]["items"].insert_one(
@@ -78,55 +102,7 @@ def test_update_invalidates_the_cached_document(
     cache.admit_identity(capture, "full", {"v": 1})
     assert cache.lookup_identity(namespace, "doc-1", "full").hit is True
 
-    independent_writer[cached_database_name]["items"].update_one(
-        {"_id": "doc-1"}, {"$set": {"v": 2}}
-    )
-
-    _wait_until(lambda: cache.lookup_identity(namespace, "doc-1", "full").hit is False)
-
-
-def test_delete_invalidates_the_cached_document(
-    raw_mongo_client: MongoClient[dict[str, Any]],
-    independent_writer: MongoClient[dict[str, Any]],
-    cached_database_name: DatabaseName,
-    make_supervisor: Callable[..., DatabaseStreamSupervisor],
-) -> None:
-    namespace = NamespaceId(cached_database_name, "items")
-    independent_writer[cached_database_name]["items"].insert_one(
-        {"_id": "doc-1", "v": 1}
-    )
-    cache = CacheCore()
-    supervisor = make_supervisor(raw_mongo_client[cached_database_name], cache)
-    supervisor.start()
-
-    capture = cache.begin_identity_admission(namespace, "doc-1")
-    cache.admit_identity(capture, "full", {"v": 1})
-    assert cache.lookup_identity(namespace, "doc-1", "full").hit is True
-
-    independent_writer[cached_database_name]["items"].delete_one({"_id": "doc-1"})
-
-    _wait_until(lambda: cache.lookup_identity(namespace, "doc-1", "full").hit is False)
-
-
-def test_drop_clears_the_namespace(
-    raw_mongo_client: MongoClient[dict[str, Any]],
-    independent_writer: MongoClient[dict[str, Any]],
-    cached_database_name: DatabaseName,
-    make_supervisor: Callable[..., DatabaseStreamSupervisor],
-) -> None:
-    namespace = NamespaceId(cached_database_name, "items")
-    independent_writer[cached_database_name]["items"].insert_one(
-        {"_id": "doc-1", "v": 1}
-    )
-    cache = CacheCore()
-    supervisor = make_supervisor(raw_mongo_client[cached_database_name], cache)
-    supervisor.start()
-
-    capture = cache.begin_identity_admission(namespace, "doc-1")
-    cache.admit_identity(capture, "full", {"v": 1})
-    assert cache.lookup_identity(namespace, "doc-1", "full").hit is True
-
-    independent_writer[cached_database_name].drop_collection("items")
+    invalidate(independent_writer, cached_database_name)
 
     _wait_until(lambda: cache.lookup_identity(namespace, "doc-1", "full").hit is False)
 

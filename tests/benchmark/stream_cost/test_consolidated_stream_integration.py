@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from contextlib import closing
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -78,15 +79,12 @@ def test_reset_run_state_drops_the_database_and_returns_an_empty_cache(
     collection.find_one({"_id": "doc-1"})
     assert cache_manager.cache_core.snapshot().entry_count > 0
 
-    new_manager = reset_run_state(
-        raw_mongo_client, cache_manager, database=cached_database_name
-    )
-    try:
+    with closing(
+        reset_run_state(raw_mongo_client, cache_manager, database=cached_database_name)
+    ) as new_manager:
         assert new_manager.cache_core.snapshot().entry_count == 0
         assert new_manager.cache_core.active_stream_cost_databases() == []
         remaining_collections = raw_mongo_client[
             cached_database_name
         ].list_collection_names()
         assert persistent_collection_name not in remaining_collections
-    finally:
-        new_manager.close()

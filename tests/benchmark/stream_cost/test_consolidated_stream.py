@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import time
+from contextlib import closing
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, cast
 
@@ -417,27 +418,25 @@ class _FakeDropDatabaseClient:
 def test_reset_run_state_closes_the_previous_manager_and_drops_the_database() -> None:
     fake_client = _FakeDropDatabaseClient()
     fake_previous_manager = _FakeClosableManager()
-    new_manager = reset_run_state(
-        cast("MongoClient[dict[str, Any]]", fake_client),
-        cast("CacheManager[dict[str, Any]]", fake_previous_manager),
-        database="benchmark_db",
-    )
-    try:
+    with closing(
+        reset_run_state(
+            cast("MongoClient[dict[str, Any]]", fake_client),
+            cast("CacheManager[dict[str, Any]]", fake_previous_manager),
+            database="benchmark_db",
+        )
+    ) as new_manager:
         assert fake_previous_manager.closed is True
         assert fake_client.dropped_databases == ["benchmark_db"]
         assert isinstance(new_manager, CacheManager)
-    finally:
-        new_manager.close()
 
 
 def test_reset_run_state_accepts_no_previous_manager() -> None:
     fake_client = _FakeDropDatabaseClient()
-    new_manager = reset_run_state(
-        cast("MongoClient[dict[str, Any]]", fake_client),
-        None,
-        database="benchmark_db",
-    )
-    try:
+    with closing(
+        reset_run_state(
+            cast("MongoClient[dict[str, Any]]", fake_client),
+            None,
+            database="benchmark_db",
+        )
+    ):
         assert fake_client.dropped_databases == ["benchmark_db"]
-    finally:
-        new_manager.close()

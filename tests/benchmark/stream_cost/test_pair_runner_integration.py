@@ -52,13 +52,25 @@ def dedicated_client_and_listener(
     client.close()
 
 
+@pytest.fixture
+def database(
+    dedicated_client_and_listener: tuple[
+        MongoClient[dict[str, Any]], TopologyChangeListener
+    ],
+) -> Iterator[str]:
+    client, _listener = dedicated_client_and_listener
+    name = f"test_{uuid.uuid4().hex}"
+    yield name
+    client.drop_database(name)
+
+
 def test_run_consolidated_stream_pair_produces_a_lag_distribution_per_run(
     dedicated_client_and_listener: tuple[
         MongoClient[dict[str, Any]], TopologyChangeListener
     ],
+    database: str,
 ) -> None:
     client, listener = dedicated_client_and_listener
-    database = f"test_{uuid.uuid4().hex}"
     config = ConsolidatedStreamPairConfig(
         acceptable_lag_percentile=0.5,
         acceptable_lag_threshold_seconds=5.0,
@@ -108,9 +120,9 @@ def test_run_consolidated_stream_pair_rejects_a_run_with_too_few_lag_samples(
     dedicated_client_and_listener: tuple[
         MongoClient[dict[str, Any]], TopologyChangeListener
     ],
+    database: str,
 ) -> None:
     client, listener = dedicated_client_and_listener
-    database = f"test_{uuid.uuid4().hex}"
     config = ConsolidatedStreamPairConfig(
         acceptable_lag_percentile=0.5,
         acceptable_lag_threshold_seconds=5.0,
@@ -127,31 +139,26 @@ def test_run_consolidated_stream_pair_rejects_a_run_with_too_few_lag_samples(
     schedule = generate_relevant_write_schedule(1, total_duration_seconds=0.05, seed=1)
     order = counterbalanced_pair_order(config.pair_count)[0]
 
-    try:
-        with pytest.raises(BenchmarkSetupError, match="invalidation-lag samples"):
-            run_consolidated_stream_pair(
-                client,
-                listener,
-                database=database,
-                relevant_collection_names=["relevant_a", "relevant_b"],
-                unrelated_collection_name="unrelated",
-                config=config,
-                schedule=schedule,
-                order=order,
-            )
-    finally:
-        client.drop_database(database)
-
-    client.drop_database(database)
+    with pytest.raises(BenchmarkSetupError, match="invalidation-lag samples"):
+        run_consolidated_stream_pair(
+            client,
+            listener,
+            database=database,
+            relevant_collection_names=["relevant_a", "relevant_b"],
+            unrelated_collection_name="unrelated",
+            config=config,
+            schedule=schedule,
+            order=order,
+        )
 
 
 def test_run_consolidated_stream_pair_rejects_a_run_with_too_few_windows(
     dedicated_client_and_listener: tuple[
         MongoClient[dict[str, Any]], TopologyChangeListener
     ],
+    database: str,
 ) -> None:
     client, listener = dedicated_client_and_listener
-    database = f"test_{uuid.uuid4().hex}"
     config = ConsolidatedStreamPairConfig(
         acceptable_lag_percentile=0.5,
         acceptable_lag_threshold_seconds=5.0,
@@ -173,21 +180,18 @@ def test_run_consolidated_stream_pair_rejects_a_run_with_too_few_windows(
         )
     )
 
-    try:
-        with pytest.raises(BenchmarkSetupError, match="capture window"):
-            run_consolidated_stream_pair(
-                client,
-                listener,
-                database=database,
-                relevant_collection_names=["relevant_a", "relevant_b"],
-                unrelated_collection_name="unrelated",
-                config=config,
-                schedule=schedule,
-                order=order,
-                cache_config=cache_config,
-            )
-    finally:
-        client.drop_database(database)
+    with pytest.raises(BenchmarkSetupError, match="capture window"):
+        run_consolidated_stream_pair(
+            client,
+            listener,
+            database=database,
+            relevant_collection_names=["relevant_a", "relevant_b"],
+            unrelated_collection_name="unrelated",
+            config=config,
+            schedule=schedule,
+            order=order,
+            cache_config=cache_config,
+        )
 
 
 def test_execute_run_reports_observed_invalidations_not_the_schedule_length(
@@ -195,9 +199,9 @@ def test_execute_run_reports_observed_invalidations_not_the_schedule_length(
     dedicated_client_and_listener: tuple[
         MongoClient[dict[str, Any]], TopologyChangeListener
     ],
+    database: str,
 ) -> None:
     client, _listener = dedicated_client_and_listener
-    database = f"test_{uuid.uuid4().hex}"
     cache_config = CacheCoreConfig(
         lag_capture_window_config=LagCaptureWindowConfig(
             window_count=2, events_per_window=1, min_separation_events=0
@@ -248,7 +252,6 @@ def test_execute_run_reports_observed_invalidations_not_the_schedule_length(
         )
     finally:
         manager.close()
-        client.drop_database(database)
 
     assert run_result.relevant_write_count == 2
 
@@ -275,9 +278,9 @@ def test_execute_run_stops_the_unrelated_writer_when_replay_fails(
     dedicated_client_and_listener: tuple[
         MongoClient[dict[str, Any]], TopologyChangeListener
     ],
+    database: str,
 ) -> None:
     client, _listener = dedicated_client_and_listener
-    database = f"test_{uuid.uuid4().hex}"
     manager = CacheManager(client)
 
     _RecordingUnrelatedWriteWorkload.instances.clear()
@@ -321,7 +324,6 @@ def test_execute_run_stops_the_unrelated_writer_when_replay_fails(
             )
     finally:
         manager.close()
-        client.drop_database(database)
 
     assert len(_RecordingUnrelatedWriteWorkload.instances) == 1
     assert _RecordingUnrelatedWriteWorkload.instances[0].stopped is True
