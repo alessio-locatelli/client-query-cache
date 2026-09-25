@@ -8,6 +8,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from benchmarks.stream_cost import guard_check
+from benchmarks.stream_cost.errors import BenchmarkSetupError
 from benchmarks.stream_cost.guard_decision import Decision
 from benchmarks.stream_cost.guard_report import CaseReport, build_guard_report
 from benchmarks.stream_cost.guard_runner import RevisionEnvironment
@@ -96,6 +97,35 @@ def test_run_guard_measures_every_case_and_profile(
     assert sorted(observed_cases) == sorted(
         (case, profile.name) for case in CASE_NAMES for profile in PROFILES
     )
+
+
+def test_run_guard_reports_a_setup_failure_across_every_case(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fail_prepare_environment(
+        _repo_root: Path, revision: str, **_kwargs: object
+    ) -> RevisionEnvironment:
+        message = (
+            f"benchmarks/stream_cost/guard_workload.py does not exist on {revision}"
+        )
+        raise BenchmarkSetupError(message)
+
+    monkeypatch.setattr(guard_check, "prepare_environment", fail_prepare_environment)
+
+    report = guard_check.run_guard(
+        tmp_path,
+        "main",
+        "pr-merge",
+        base_worktree=tmp_path / "base-worktree",
+        head_worktree=tmp_path / "head-worktree",
+    )
+
+    assert report.base_revision == "main"
+    assert report.head_revision == "pr-merge"
+    assert report.passed is False
+    assert len(report.cases) == len(CASE_NAMES) * len(PROFILES)
+    assert all(case.decision is Decision.MEASUREMENT_ERROR for case in report.cases)
+    assert all("does not exist on main" in case.reason for case in report.cases)
 
 
 @pytest.mark.parametrize(("passed", "expects_exit"), [(True, False), (False, True)])

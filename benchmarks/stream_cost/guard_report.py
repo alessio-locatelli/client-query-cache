@@ -35,7 +35,7 @@ class CaseReport:
     upper_ratio: float | None
 
 
-def _measurement_error_report(case: str, profile: str, reason: str) -> CaseReport:
+def measurement_error_report(case: str, profile: str, reason: str) -> CaseReport:
     return CaseReport(
         case=case,
         profile=profile,
@@ -71,7 +71,7 @@ def measure_and_evaluate_case(
         )
         decision = evaluate_case(measurement.base_seconds, measurement.head_seconds)
     except (BenchmarkSetupError, ValueError) as error:
-        return _measurement_error_report(case, profile, str(error))
+        return measurement_error_report(case, profile, str(error))
     return CaseReport(
         case=case,
         profile=profile,
