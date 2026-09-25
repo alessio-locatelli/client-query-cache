@@ -114,23 +114,29 @@ def test_validate_report_rejects_an_unsupported_schema_version() -> None:
 
 
 @pytest.mark.parametrize(
-    "missing_field",
-    ["revision", "library_version", "python_version", "pymongo_version"],
+    ("section", "missing_field"),
+    [
+        pytest.param("identity", "revision", id="identity_revision"),
+        pytest.param("identity", "library_version", id="identity_library_version"),
+        pytest.param("identity", "python_version", id="identity_python_version"),
+        pytest.param("identity", "pymongo_version", id="identity_pymongo_version"),
+        pytest.param(
+            "environment", "mongodb_version", id="environment_mongodb_version"
+        ),
+        pytest.param("environment", "topology", id="environment_topology"),
+        pytest.param("environment", "member_count", id="environment_member_count"),
+        pytest.param(
+            "environment", "resource_limits", id="environment_resource_limits"
+        ),
+        pytest.param("workload", "name", id="workload_name"),
+        pytest.param("workload", "parameters", id="workload_parameters"),
+    ],
 )
-def test_validate_report_rejects_incomplete_identity(missing_field: str) -> None:
+def test_validate_report_rejects_an_incomplete_section(
+    section: str, missing_field: str
+) -> None:
     report = _valid_report()
-    del report["identity"][missing_field]
-
-    with pytest.raises(ReportValidationError):
-        validate_report(report)
-
-
-@pytest.mark.parametrize(
-    "missing_field", ["mongodb_version", "topology", "member_count", "resource_limits"]
-)
-def test_validate_report_rejects_incomplete_environment(missing_field: str) -> None:
-    report = _valid_report()
-    del report["environment"][missing_field]
+    del report[section][missing_field]
 
     with pytest.raises(ReportValidationError):
         validate_report(report)
@@ -147,15 +153,6 @@ def test_validate_report_rejects_a_non_string_resource_limit_value() -> None:
 def test_validate_report_rejects_a_non_scalar_workload_parameter_value() -> None:
     report = _valid_report()
     report["workload"]["parameters"]["nested"] = {"a": 1}
-
-    with pytest.raises(ReportValidationError):
-        validate_report(report)
-
-
-@pytest.mark.parametrize("missing_field", ["name", "parameters"])
-def test_validate_report_rejects_incomplete_workload(missing_field: str) -> None:
-    report = _valid_report()
-    del report["workload"][missing_field]
 
     with pytest.raises(ReportValidationError):
         validate_report(report)
@@ -189,17 +186,20 @@ def test_report_validation_error_collects_every_violation_message() -> None:
     assert len(excinfo.value.errors) >= 2
 
 
-def test_validate_report_rejects_a_non_json_serializable_value() -> None:
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        pytest.param(
+            "issued_at", datetime.datetime.now(datetime.UTC), id="non_serializable"
+        ),
+        pytest.param("ratio", float("nan"), id="non_finite_float"),
+    ],
+)
+def test_validate_report_rejects_a_non_json_serializable_value(
+    key: str, value: object
+) -> None:
     report = _valid_report()
-    report["workload"]["parameters"]["issued_at"] = datetime.datetime.now(datetime.UTC)
-
-    with pytest.raises(ReportValidationError, match="JSON-serializable"):
-        validate_report(report)
-
-
-def test_validate_report_rejects_a_non_finite_float() -> None:
-    report = _valid_report()
-    report["workload"]["parameters"]["ratio"] = float("nan")
+    report["workload"]["parameters"][key] = value
 
     with pytest.raises(ReportValidationError, match="JSON-serializable"):
         validate_report(report)

@@ -60,11 +60,18 @@ def test_proxy_config_accepts_fully_direct_topology() -> None:
 
 
 @pytest.fixture
-def echo_server() -> Iterator[int]:
+def bound_socket() -> Iterator[socket.socket]:
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     listener.bind(("127.0.0.1", 0))
     listener.listen()
+    yield listener
+    listener.close()
+
+
+@pytest.fixture
+def echo_server(bound_socket: socket.socket) -> Iterator[int]:
+    listener = bound_socket
 
     def _serve() -> None:
         connection, _ = listener.accept()
@@ -133,26 +140,20 @@ def test_local_port_before_start_raises() -> None:
         _ = proxy.local_port
 
 
-def test_accept_loop_exits_immediately_when_already_stopping() -> None:
+def test_accept_loop_exits_immediately_when_already_stopping(
+    bound_socket: socket.socket,
+) -> None:
     proxy = DirectPathByteProxy(_proxy_config())
-    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    listener.bind(("127.0.0.1", 0))
-    listener.listen()
-    try:
-        proxy._listener = listener
-        proxy._stopping.set()
-        proxy._accept_loop()
-    finally:
-        listener.close()
+    proxy._listener = bound_socket
+    proxy._stopping.set()
+    proxy._accept_loop()
 
 
 def test_accept_loop_bounds_the_upstream_connect_timeout(
     monkeypatch: pytest.MonkeyPatch,
+    bound_socket: socket.socket,
 ) -> None:
-    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    listener.bind(("127.0.0.1", 0))
-    listener.listen()
+    listener = bound_socket
 
     real_create_connection = socket.create_connection
     captured_kwargs: dict[str, Any] = {}
@@ -185,11 +186,10 @@ def test_accept_loop_bounds_the_upstream_connect_timeout(
     assert captured_kwargs.get("timeout") == pytest.approx(2.0)
 
 
-def test_accept_loop_continues_after_accept_timeout() -> None:
-    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    listener.bind(("127.0.0.1", 0))
-    listener.listen()
+def test_accept_loop_continues_after_accept_timeout(
+    bound_socket: socket.socket,
+) -> None:
+    listener = bound_socket
     listener.settimeout(0.01)
 
     proxy = DirectPathByteProxy(_proxy_config())
@@ -210,11 +210,10 @@ def test_accept_loop_returns_when_listener_is_closed() -> None:
     proxy._accept_loop()
 
 
-def test_accept_loop_closes_client_when_upstream_unreachable() -> None:
-    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    listener.bind(("127.0.0.1", 0))
-    listener.listen()
+def test_accept_loop_closes_client_when_upstream_unreachable(
+    bound_socket: socket.socket,
+) -> None:
+    listener = bound_socket
 
     probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     probe.bind(("127.0.0.1", 0))
@@ -239,11 +238,10 @@ def test_accept_loop_closes_client_when_upstream_unreachable() -> None:
     assert proxy._connection_threads == []
 
 
-def test_exit_force_closes_and_joins_still_active_connections() -> None:
-    upstream_listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    upstream_listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    upstream_listener.bind(("127.0.0.1", 0))
-    upstream_listener.listen()
+def test_exit_force_closes_and_joins_still_active_connections(
+    bound_socket: socket.socket,
+) -> None:
+    upstream_listener = bound_socket
     accepted: list[socket.socket] = []
 
     def _accept_and_hold() -> None:

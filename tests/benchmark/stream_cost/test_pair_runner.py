@@ -134,76 +134,57 @@ def _dummy_client() -> MongoClient[dict[str, Any]]:
     return cast("MongoClient[dict[str, Any]]", None)
 
 
-def test_rejects_too_few_relevant_collections() -> None:
-    with pytest.raises(BenchmarkConfigurationError, match="at least"):
-        run_consolidated_stream_pair(
-            _dummy_client(),
-            TopologyChangeListener(),
-            database="db",
-            relevant_collection_names=["only_one"],
-            unrelated_collection_name="unrelated",
-            config=_config(),
-            schedule=(0.0,),
-            order=_ORDER,
-        )
-
-
-def test_rejects_duplicate_relevant_collection_names() -> None:
-    with pytest.raises(BenchmarkConfigurationError, match="duplicate"):
-        run_consolidated_stream_pair(
-            _dummy_client(),
-            TopologyChangeListener(),
-            database="db",
-            relevant_collection_names=["a", "a"],
-            unrelated_collection_name="unrelated",
-            config=_config(),
-            schedule=(0.0,),
-            order=_ORDER,
-        )
-
-
-def test_rejects_an_unrelated_collection_that_is_also_relevant() -> None:
-    with pytest.raises(BenchmarkConfigurationError, match="unrelated_collection_name"):
-        run_consolidated_stream_pair(
-            _dummy_client(),
-            TopologyChangeListener(),
-            database="db",
-            relevant_collection_names=["a", "b"],
-            unrelated_collection_name="a",
-            config=_config(),
-            schedule=(0.0,),
-            order=_ORDER,
-        )
-
-
-def test_rejects_an_order_missing_a_variant() -> None:
-    with pytest.raises(BenchmarkConfigurationError, match="order must contain"):
-        run_consolidated_stream_pair(
-            _dummy_client(),
-            TopologyChangeListener(),
-            database="db",
-            relevant_collection_names=["a", "b"],
-            unrelated_collection_name="unrelated",
-            config=_config(),
-            schedule=(0.0,),
-            order=(PairVariant.CONTROL, PairVariant.CONTROL),
-        )
-
-
-def test_rejects_an_order_with_extra_duplicate_entries() -> None:
-    with pytest.raises(BenchmarkConfigurationError, match="order must contain"):
-        run_consolidated_stream_pair(
-            _dummy_client(),
-            TopologyChangeListener(),
-            database="db",
-            relevant_collection_names=["a", "b"],
-            unrelated_collection_name="unrelated",
-            config=_config(),
-            schedule=(0.0,),
-            order=cast(
+@pytest.mark.parametrize(
+    ("relevant_collection_names", "unrelated_collection_name", "order", "match"),
+    [
+        pytest.param(
+            ["only_one"], "unrelated", _ORDER, "at least", id="too_few_relevant"
+        ),
+        pytest.param(
+            ["a", "a"], "unrelated", _ORDER, "duplicate", id="duplicate_relevant"
+        ),
+        pytest.param(
+            ["a", "b"],
+            "a",
+            _ORDER,
+            "unrelated_collection_name",
+            id="unrelated_also_relevant",
+        ),
+        pytest.param(
+            ["a", "b"],
+            "unrelated",
+            (PairVariant.CONTROL, PairVariant.CONTROL),
+            "order must contain",
+            id="order_missing_a_variant",
+        ),
+        pytest.param(
+            ["a", "b"],
+            "unrelated",
+            cast(
                 "tuple[PairVariant, PairVariant]",
                 (PairVariant.CONTROL, PairVariant.LOADED, PairVariant.CONTROL),
             ),
+            "order must contain",
+            id="order_extra_duplicate_entries",
+        ),
+    ],
+)
+def test_rejects_invalid_collection_or_order_configuration(
+    relevant_collection_names: list[str],
+    unrelated_collection_name: str,
+    order: tuple[PairVariant, PairVariant],
+    match: str,
+) -> None:
+    with pytest.raises(BenchmarkConfigurationError, match=match):
+        run_consolidated_stream_pair(
+            _dummy_client(),
+            TopologyChangeListener(),
+            database="db",
+            relevant_collection_names=relevant_collection_names,
+            unrelated_collection_name=unrelated_collection_name,
+            config=_config(),
+            schedule=(0.0,),
+            order=order,
         )
 
 

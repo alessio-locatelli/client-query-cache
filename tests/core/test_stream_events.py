@@ -220,12 +220,21 @@ def test_rename_event_skips_an_untracked_source_and_destination() -> None:
     cache.clear_namespace.assert_not_called()
 
 
-def test_create_event_creates_the_namespace() -> None:
+@pytest.mark.parametrize(
+    ("operation_type", "method_name"),
+    [
+        pytest.param("create", "create_namespace", id="create"),
+        pytest.param("drop", "clear_namespace", id="drop"),
+    ],
+)
+def test_event_for_a_tracked_namespace_updates_the_cache(
+    operation_type: str, method_name: str
+) -> None:
     cache = Mock()
     cache.has_namespace.return_value = True
     namespace = NamespaceId("db", "coll")
     event = {
-        "operationType": "create",
+        "operationType": operation_type,
         "ns": {"db": "db", "coll": "coll"},
         "wallTime": _WALL_TIME,
     }
@@ -233,23 +242,7 @@ def test_create_event_creates_the_namespace() -> None:
     must_reopen = route_change_event(cache, "db", event)
 
     assert must_reopen is False
-    cache.create_namespace.assert_called_once_with(namespace)
-
-
-def test_drop_event_clears_the_namespace() -> None:
-    cache = Mock()
-    cache.has_namespace.return_value = True
-    namespace = NamespaceId("db", "coll")
-    event = {
-        "operationType": "drop",
-        "ns": {"db": "db", "coll": "coll"},
-        "wallTime": _WALL_TIME,
-    }
-
-    must_reopen = route_change_event(cache, "db", event)
-
-    assert must_reopen is False
-    cache.clear_namespace.assert_called_once_with(namespace)
+    getattr(cache, method_name).assert_called_once_with(namespace)
 
 
 def test_rename_event_clears_both_the_source_and_destination_namespaces() -> None:

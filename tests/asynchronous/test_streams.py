@@ -583,22 +583,21 @@ async def test_unexpected_stream_closure_triggers_reconnect(
     await _wait_until(lambda: supervisor.healthy)
 
 
-async def test_stream_poll_is_counted_even_when_next_raises() -> None:
+async def test_stream_poll_is_counted_even_when_next_raises(
+    make_supervisor: Callable[..., DatabaseStreamSupervisor],
+) -> None:
     cache = CacheCore()
     stream1 = _ScriptedStream([StopAsyncIteration()])
     database = _FakeDatabase("db", [stream1, _ScriptedStream([])])
-    supervisor = DatabaseStreamSupervisor(
-        _as_database(database), cache, backoff=_FAST_BACKOFF
-    )
+    supervisor = make_supervisor(_as_database(database), cache, backoff=_FAST_BACKOFF)
 
     await supervisor.start()
-    try:
-        await _wait_until(lambda: cache.stream_cost_snapshot("db").stream_polls >= 1)
-    finally:
-        await supervisor.stop()
+    await _wait_until(lambda: cache.stream_cost_snapshot("db").stream_polls >= 1)
 
 
-async def test_stream_survives_events_with_non_default_codec_values() -> None:
+async def test_stream_survives_events_with_non_default_codec_values(
+    make_supervisor: Callable[..., DatabaseStreamSupervisor],
+) -> None:
     cache = CacheCore()
     event = {
         "operationType": "insert",
@@ -610,25 +609,20 @@ async def test_stream_survives_events_with_non_default_codec_values() -> None:
     database.codec_options = CodecOptions(
         uuid_representation=UuidRepresentation.STANDARD
     )
-    supervisor = DatabaseStreamSupervisor(
-        _as_database(database), cache, backoff=_FAST_BACKOFF
-    )
+    supervisor = make_supervisor(_as_database(database), cache, backoff=_FAST_BACKOFF)
 
     await supervisor.start()
-    try:
-        await _wait_until(
-            lambda: cache.stream_cost_snapshot("db").logical_event_bytes > 0
-        )
-        assert supervisor.healthy
-    finally:
-        await supervisor.stop()
+    await _wait_until(lambda: cache.stream_cost_snapshot("db").logical_event_bytes > 0)
+    assert supervisor.healthy
 
 
 class _Unencodable:
     __slots__ = ()
 
 
-async def test_invalidation_survives_unencodable_logical_bytes() -> None:
+async def test_invalidation_survives_unencodable_logical_bytes(
+    make_supervisor: Callable[..., DatabaseStreamSupervisor],
+) -> None:
     cache = CacheCore()
     namespace = NamespaceId("db", "coll")
     capture = cache.begin_identity_admission(namespace, "doc-1")
@@ -640,18 +634,13 @@ async def test_invalidation_survives_unencodable_logical_bytes() -> None:
         "wallTime": _WALL_TIME,
     }
     database = _FakeDatabase("db", [_ScriptedStream([event]), _ScriptedStream([])])
-    supervisor = DatabaseStreamSupervisor(
-        _as_database(database), cache, backoff=_FAST_BACKOFF
-    )
+    supervisor = make_supervisor(_as_database(database), cache, backoff=_FAST_BACKOFF)
 
     await supervisor.start()
-    try:
-        await _wait_until(lambda: cache.stream_cost_snapshot("db").invalidations >= 1)
-        assert supervisor.healthy
-        assert cache.lookup_identity(namespace, "doc-1", "full").hit is False
-        assert cache.stream_cost_snapshot("db").logical_event_bytes == 0
-    finally:
-        await supervisor.stop()
+    await _wait_until(lambda: cache.stream_cost_snapshot("db").invalidations >= 1)
+    assert supervisor.healthy
+    assert cache.lookup_identity(namespace, "doc-1", "full").hit is False
+    assert cache.stream_cost_snapshot("db").logical_event_bytes == 0
 
 
 def test_clearing_namespaces_resets_stream_cost_statistics() -> None:
