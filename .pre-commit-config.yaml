@@ -19,6 +19,7 @@ repos:
         args: ["--fix=lf"]
       - id: check-case-conflict
       - id: check-merge-conflict
+      - id: no-commit-to-branch
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.16.8
