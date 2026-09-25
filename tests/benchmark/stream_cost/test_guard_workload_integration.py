@@ -28,10 +28,10 @@ def _uncached_find_one(
 
 def _wrong_find_one(
     collection: CachedCollection[dict[str, Any]], query: Mapping[str, Any]
-) -> dict[str, Any] | None:
+) -> dict[str, Any]:
     document = collection.raw.find_one(query)
-    if document is not None:
-        document["padding"] = "wrong"
+    assert document is not None
+    document["padding"] = "wrong"
     return document
 
 
