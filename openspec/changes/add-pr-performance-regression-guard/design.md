@@ -4,8 +4,6 @@
 
 See [proposal.md](proposal.md) for the gap. The manual [stream-cost workflow](../../../.github/workflows/stream-cost-benchmark.yml) runs the 12-variant controlled matrix for one revision and uploads reports. The [Python-validation workflow](../../../.github/workflows/test.yml) runs tests on relevant pull requests, including benchmark tests, but makes no timed base-versus-head comparison. The existing matrix measures raw/cache cost and captures server CPU, latency distributions, and stream telemetry; its report schema and calibration rules serve architectural analysis. The guard needs a narrower, same-host comparison of the shipped path itself.
 
-The current `test.yml` also spells its local setup action `$/.github/actions/setup-toolchain` in both jobs. This is an unrelated existing CI defect to repair during implementation so the validation context remains usable.
-
 ## Goals / Non-Goals
 
 **Goals:**
@@ -58,4 +56,4 @@ The existing manual `stream-cost-benchmark` workflow stays available for control
 
 ## Migration Plan
 
-Implement and validate the cases and decision logic, then run a clean-base self-comparison and an intentionally slowed candidate on CI-like runners. Confirm ordinary runs are stable within the boundary and the seeded slowdown fails. Add the pull-request workflow with a stable status and repair the existing local-action path. For the introducing PR, run the reviewed new workload against both revisions because the base lacks that definition. Once it merges and the pilot is acceptable, have repository administrators configure and verify the maintainer-only exception before marking the guard check required in merge rules. Revert the guard workflow and required-status setting together if it proves persistently noisy; the manual benchmark workflow and reports remain available throughout.
+Implement and validate the cases and decision logic, then run a clean-base self-comparison and an intentionally slowed candidate on CI-like runners. Confirm ordinary runs are stable within the boundary and the seeded slowdown fails. Add the pull-request workflow with a stable status. For the introducing PR, run the reviewed new workload against both revisions because the base lacks that definition. Once it merges and the pilot is acceptable, have repository administrators configure and verify the maintainer-only exception before marking the guard check required in merge rules. Revert the guard workflow and required-status setting together if it proves persistently noisy; the manual benchmark workflow and reports remain available throughout.
