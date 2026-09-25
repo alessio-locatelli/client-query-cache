@@ -34,6 +34,13 @@ jobs:
 
       - run: npm ci --silent
 
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: node_modules/.cache/prettier
+          key: prettier-${{ runner.os }}-node24-${{ hashFiles('package-lock.json', '.prettierrc*', '.prettierignore') }}-${{ github.sha }}
+          restore-keys: |
+            prettier-${{ runner.os }}-node24-${{ hashFiles('package-lock.json', '.prettierrc*', '.prettierignore') }}-
+
       - run: npm run format:check
 
       - run: npm exec -- openspec validate --all --strict
