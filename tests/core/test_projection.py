@@ -7,6 +7,8 @@ import bson
 import pytest
 from bson.codec_options import CodecOptions
 from bson.raw_bson import RawBSONDocument
+from hypothesis import given
+from hypothesis import strategies as st
 
 from mongo_client_cache._core.projection import (
     ensure_id_present_for_resolution,
@@ -17,6 +19,21 @@ if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
 pytestmark = pytest.mark.unit
+
+_PROJECTION_VALUES = st.sampled_from((0, 1, True, False))
+_INCLUSION_VALUES = st.sampled_from((1, True))
+_EXCLUSION_VALUES = st.sampled_from((0, False))
+_FIELD_NAMES = st.text(min_size=1, max_size=8).filter(lambda name: name != "_id")
+
+
+@st.composite
+def _projection_dicts(draw: st.DrawFn) -> dict[str, object]:
+    other_values = draw(st.sampled_from((_INCLUSION_VALUES, _EXCLUSION_VALUES)))
+    fields = draw(st.dictionaries(_FIELD_NAMES, other_values, max_size=5))
+    projection: dict[str, object] = dict(fields)
+    if draw(st.booleans()):
+        projection["_id"] = draw(_PROJECTION_VALUES)
+    return projection
 
 
 @pytest.mark.parametrize(
@@ -85,6 +102,19 @@ def test_never_produces_a_mixed_inclusion_exclusion_projection() -> None:
 
     values = set(cast("Mapping[str, Any]", server_projection).values())
     assert not (any(value for value in values) and any(not value for value in values))
+
+
+@given(_projection_dicts())
+def test_ensure_id_present_for_resolution_never_mixes_inclusion_and_exclusion(
+    projection: dict[str, object],
+) -> None:
+    server_projection, _exclude_id = ensure_id_present_for_resolution(projection)
+
+    assert isinstance(server_projection, dict)
+    other_values = [value for key, value in server_projection.items() if key != "_id"]
+    has_inclusion = any(value for value in other_values)
+    has_exclusion = any(not value for value in other_values)
+    assert not (has_inclusion and has_exclusion)
 
 
 _UNENCODABLE_VALUE = object()
