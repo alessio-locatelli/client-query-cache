@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -53,6 +54,12 @@ def _environment(
     )
 
 
+def test_run_returns_the_subprocess_stdout() -> None:
+    output = guard_runner._run([sys.executable, "-c", "print('hello')"])
+
+    assert output == "hello\n"
+
+
 def test_prepare_environment_succeeds(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -74,8 +81,8 @@ def test_prepare_environment_succeeds(
             return ""
         if "-c" in command:
             return "3.14.6\n"
-        message = f"unexpected command {command}"
-        raise AssertionError(message)
+        message = f"unexpected command {command}"  # pragma: no cover
+        raise AssertionError(message)  # pragma: no cover
 
     monkeypatch.setattr(guard_runner, "_run", fake_run)
     monkeypatch.setattr(shutil, "which", lambda _name: "/usr/bin/uv")
@@ -106,8 +113,8 @@ def test_prepare_environment_copies_base_workload_source(
             return ""
         if "-c" in command:
             return "3.14.6\n"
-        message = f"unexpected command {command}"
-        raise AssertionError(message)
+        message = f"unexpected command {command}"  # pragma: no cover
+        raise AssertionError(message)  # pragma: no cover
 
     monkeypatch.setattr(guard_runner, "_run", fake_run)
     monkeypatch.setattr(shutil, "which", lambda _name: "/usr/bin/uv")
@@ -134,6 +141,7 @@ def test_prepare_environment_copies_base_workload_source(
         ("missing_uv", "uv is required"),
         ("uv_sync_failure", "could not sync locked dependencies"),
         ("missing_workload_definition", "does not exist on this revision"),
+        ("missing_interpreter", "no interpreter was created"),
     ],
 )
 def test_prepare_environment_reports_setup_faults(
@@ -142,7 +150,8 @@ def test_prepare_environment_reports_setup_faults(
     repo_root = tmp_path / "repo"
     worktree_dir = tmp_path / "worktree"
     _write_workload_sources(repo_root, content="original")
-    _write_python_executable(worktree_dir)
+    if fault != "missing_interpreter":
+        _write_python_executable(worktree_dir)
     if fault != "missing_workload_definition":
         _write_workload_sources(worktree_dir, content="original")
 
@@ -162,8 +171,8 @@ def test_prepare_environment_reports_setup_faults(
             return ""
         if "-c" in command:
             return "3.14.6\n"
-        message = f"unexpected command {command}"
-        raise AssertionError(message)
+        message = f"unexpected command {command}"  # pragma: no cover
+        raise AssertionError(message)  # pragma: no cover
 
     monkeypatch.setattr(guard_runner, "_run", fake_run)
     monkeypatch.setattr(
