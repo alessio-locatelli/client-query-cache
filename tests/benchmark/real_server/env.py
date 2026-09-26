@@ -8,11 +8,12 @@ import pytest
 RealMongoDbUri = NewType("RealMongoDbUri", str)
 
 _CI_ENV_VARS = ("GITHUB_ACTIONS", "CI")
+_TRUTHY_VALUES = frozenset({"true", "1", "yes"})
 _URI_ENV_VAR = "REAL_MONGODB_URI"
 
 
 def resolve_real_mongodb_uri() -> RealMongoDbUri:
-    if any(os.environ.get(name) == "true" for name in _CI_ENV_VARS):
+    if any(os.environ.get(name, "").lower() in _TRUTHY_VALUES for name in _CI_ENV_VARS):
         pytest.skip("Real-server benchmark does not run in CI.")
     uri = os.environ.get(_URI_ENV_VAR)
     if not uri:
