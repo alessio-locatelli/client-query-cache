@@ -12,7 +12,7 @@ from pymongo.errors import OperationFailure
 from mongo_client_cache._core.keys import NamespaceId
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncIterator, Callable
 
     from faker import Faker
 
@@ -74,6 +74,13 @@ async def create_collection(
         )
     else:
         await collection.database.raw.create_collection(collection.name)
+
+
+async def wait_until(predicate: Callable[[], bool]) -> None:
+    deadline = monotonic() + 10
+    while not predicate():
+        assert monotonic() < deadline, "Timed out waiting for change-stream delivery"
+        await sleep(0.01)
 
 
 @pytest.fixture
@@ -208,15 +215,22 @@ async def test_collection_type_is_rechecked_after_absence(
         assert await collection.find_one({"_id": measurement["_id"]}) == measurement
         epoch = cache.current_epoch(namespace)
         await collection.database.raw.drop_collection(collection.name)
-        deadline = monotonic() + 10
-        while cache.current_epoch(namespace) == epoch:
-            assert monotonic() < deadline
-            await sleep(0.01)
+        await wait_until(lambda: cache.current_epoch(namespace) > epoch)
     assert await collection.find_one({"_id": measurement["_id"]}) is None
     assert await collection.find_one({"_id": measurement["_id"]}) is None
     assert cache.snapshot().entry_count == 0
+    generation_before_create = cache.capture_namespace_generation(namespace).generation
     await create_collection(collection, replacement)
     await collection.raw.insert_one(measurement)
+    if replacement == "collection":
+        # Wait for both the create and insert events before priming a cache hit.
+        expected_generation = generation_before_create + 2
+        await wait_until(
+            lambda: (
+                cache.capture_namespace_generation(namespace).generation
+                >= expected_generation
+            )
+        )
     assert await collection.find_one({"_id": measurement["_id"]}) == measurement
     before = cache.snapshot()
     assert await collection.find_one({"_id": measurement["_id"]}) == measurement
