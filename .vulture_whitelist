@@ -51,3 +51,5 @@ _.return_value  # unused attribute (tests/synchronous/test_streams.py:670)
 pytestmark  # unused variable (tests/synchronous/test_streams_integration.py:23)
 pytestmark  # unused variable (tests/test_removed_prototype_api.py:7)
 __class_getitem__  # unused function (tests/benchmark/stream_cost/test_client.py:17)
+_clear_real_server_env  # unused function (tests/benchmark/real_server/test_env.py:15)
+real_mongodb_uri  # unused function (tests/benchmark/real_server/conftest.py:8) - consumed starting in task group 2

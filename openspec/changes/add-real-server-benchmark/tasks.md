@@ -2,9 +2,9 @@
 
 ## 1. Dependency and connection setup
 
-- [ ] 1.1 Update `justfile`'s `pytest` and `tests_and_coverage` recipes to add `--env-file .env` to their `uv run`/`uv run -- coverage run` invocation only when `.env` exists at the repo root; verify both recipes still run with no error and no `--env-file` flag when `.env` is absent, and that a value from a temporary `.env` reaches a probe command's environment when it is present.
-- [ ] 1.2 Add `.env.example` documenting the new `REAL_MONGODB_URI` variable (a placeholder value, no real credentials), and add a short `CONTRIBUTING.md` section explaining what it is for, that it is loaded automatically via `uv run --env-file` once present, and pointing to a free-tier MongoDB Atlas cluster as one way to obtain a compatible deployment; verify by reading the rendered section for accuracy against the behavior implemented in this change.
-- [ ] 1.3 Create `tests/benchmark/real_server/__init__.py` and `tests/benchmark/real_server/conftest.py` with a session-scoped fixture that reads `REAL_MONGODB_URI` from `os.environ`; verify the fixture skips with an explicit reason when `GITHUB_ACTIONS` (or `CI`) is truthy or when the variable is unset/empty, and yields the URI otherwise, via a focused unit test that monkeypatches the environment.
+- [x] 1.1 Update `justfile`'s `pytest` and `tests_and_coverage` recipes to add `--env-file .env` to their `uv run`/`uv run -- coverage run` invocation only when `.env` exists at the repo root; verify both recipes still run with no error and no `--env-file` flag when `.env` is absent, and that a value from a temporary `.env` reaches a probe command's environment when it is present.
+- [x] 1.2 Add `.env.example` documenting the new `REAL_MONGODB_URI` variable (a placeholder value, no real credentials), and add a short `CONTRIBUTING.md` section explaining what it is for, that it is loaded automatically via `uv run --env-file` once present, and pointing to a free-tier MongoDB Atlas cluster as one way to obtain a compatible deployment; verify by reading the rendered section for accuracy against the behavior implemented in this change.
+- [x] 1.3 Create `tests/benchmark/real_server/__init__.py` and `tests/benchmark/real_server/conftest.py` with a session-scoped fixture that reads `REAL_MONGODB_URI` from `os.environ`; verify the fixture skips with an explicit reason when `GITHUB_ACTIONS` (or `CI`) is truthy or when the variable is unset/empty, and yields the URI otherwise, via a focused unit test that monkeypatches the environment.
 
 ## 2. Workload workers
 
