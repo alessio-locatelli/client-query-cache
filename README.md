@@ -51,6 +51,4 @@ Time-series collections bypass caching because MongoDB does not provide change s
 
 See [`docs/migration.md`](docs/migration.md) for the package and import-name migration.
 
-Project repository: [github.com/alessio-locatelli/client-query-cache](https://github.com/alessio-locatelli/client-query-cache).
-
 See [stream cost benchmark reports and workload guidance](docs/stream-cost-benchmarks.md) for the controlled workload matrix.
