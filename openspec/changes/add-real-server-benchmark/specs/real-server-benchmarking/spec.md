@@ -49,9 +49,19 @@ The benchmark SHALL measure the reading workload's performance once through the 
 
 ### Requirement: The benchmark guards against absolute performance and resource regressions
 
-The benchmark SHALL assert that its measured wall-clock time and its measured count of server round trips each stay within a fixed ceiling recorded from an initial run against the real deployment. The wall-clock ceiling SHALL carry enough margin above that initial measurement to tolerate ordinary shared-deployment variance without masking a material regression; the round-trip ceiling, being deterministic and independent of deployment variance, SHALL match the initial measurement exactly.
+The benchmark SHALL assert that its measured wall-clock time for each phase, and its measured count of server round trips for the direct, uncached phase, stay within a fixed ceiling recorded from an initial run against the real deployment. Each wall-clock ceiling SHALL carry enough margin above its initial measurement to tolerate ordinary shared-deployment variance without masking a material regression. The uncached phase's round-trip count is deterministic and independent of deployment variance, so its ceiling SHALL match the initial measurement exactly. The cached phase's round-trip count also has a fixed ceiling recorded from an initial run, carrying its own small margin, since a concurrently running writer can occasionally invalidate a document between reads and cause a small, non-deterministic number of cache-miss round trips even absent any regression.
 
-#### Scenario: A change makes either measured phase materially slower or chattier
+#### Scenario: A change makes either measured phase materially slower
 
-- **WHEN** the benchmark's measured wall-clock time or measured count of server round trips for either phase exceeds its recorded ceiling
-- **THEN** the benchmark fails and identifies which measurement exceeded its ceiling
+- **WHEN** the benchmark's measured wall-clock time for either phase exceeds its recorded ceiling
+- **THEN** the benchmark fails and identifies which phase exceeded its ceiling
+
+#### Scenario: A change makes the uncached phase send an unexpected number of round trips
+
+- **WHEN** the uncached phase's measured round-trip count differs from its recorded ceiling
+- **THEN** the benchmark fails
+
+#### Scenario: A change makes the cached phase materially chattier
+
+- **WHEN** the cached phase's measured round-trip count exceeds its recorded, margin-carrying ceiling
+- **THEN** the benchmark fails

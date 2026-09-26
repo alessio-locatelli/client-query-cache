@@ -1,0 +1,116 @@
+from __future__ import annotations
+
+import time
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
+
+from pymongo import MongoClient
+from pymongo.monitoring import CommandListener
+
+from client_query_cache.synchronous.manager import CacheManager
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+    from multiprocessing.synchronize import Event as EventClass
+
+    from pymongo.monitoring import CommandStartedEvent, CommandSucceededEvent
+
+DATABASE_NAME = "real_server_benchmark"
+COLLECTION_NAME = "documents"
+
+_FIND_COMMAND_NAME = "find"
+
+
+@dataclass(frozen=True, slots=True)
+class ReadPhaseResult:
+    duration_seconds: float
+    find_command_count: int
+
+
+class _FindCommandCounter(CommandListener):
+    def __init__(self) -> None:
+        self.find_command_count = 0
+
+    def started(self, event: CommandStartedEvent) -> None:
+        if event.command_name == _FIND_COMMAND_NAME:
+            self.find_command_count += 1
+
+    def succeeded(self, event: CommandSucceededEvent) -> None:
+        pass
+
+    def failed(self, event: Any) -> None:  # noqa: ANN401
+        pass
+
+
+def write_documents_until_stopped(
+    uri: str,
+    seed_documents: Sequence[dict[str, Any]],
+    document_ids: Sequence[str],
+    update_interval_seconds: float,
+    stop_event: EventClass,
+) -> None:
+    with MongoClient[dict[str, Any]](uri) as client:
+        collection = client[DATABASE_NAME][COLLECTION_NAME]
+        collection.delete_many({})
+        collection.insert_many(seed_documents)
+        update_index = 0
+        while not stop_event.is_set():
+            document_id = document_ids[update_index % len(document_ids)]
+            collection.update_one(
+                {"_id": document_id}, {"$set": {"counter": update_index}}
+            )
+            update_index += 1
+            stop_event.wait(update_interval_seconds)
+
+
+def _read_each_document(collection: Any, document_ids: Sequence[str]) -> None:  # noqa: ANN401
+    for document_id in document_ids:
+        collection.find_one({"_id": document_id})
+
+
+def _timed_read_cycles(
+    collection: Any,  # noqa: ANN401
+    document_ids: Sequence[str],
+    warmup_cycles: int,
+    measured_cycles: int,
+    counter: _FindCommandCounter,
+) -> ReadPhaseResult:
+    for _ in range(warmup_cycles):
+        _read_each_document(collection, document_ids)
+    counter.find_command_count = 0
+    start = time.perf_counter()
+    for _ in range(measured_cycles):
+        _read_each_document(collection, document_ids)
+    duration = time.perf_counter() - start
+    return ReadPhaseResult(
+        duration_seconds=duration, find_command_count=counter.find_command_count
+    )
+
+
+def read_documents_repeatedly(
+    uri: str,
+    document_ids: Sequence[str],
+    *,
+    use_cache: bool,
+    warmup_cycles: int,
+    measured_cycles: int,
+) -> ReadPhaseResult:
+    counter = _FindCommandCounter()
+    with MongoClient[dict[str, Any]](uri, event_listeners=[counter]) as client:
+        if use_cache:
+            manager = CacheManager(client)
+            try:
+                cached_collection = manager[DATABASE_NAME][COLLECTION_NAME]
+                return _timed_read_cycles(
+                    cached_collection,
+                    document_ids,
+                    warmup_cycles,
+                    measured_cycles,
+                    counter,
+                )
+            finally:
+                manager.close()
+        raw_collection = client[DATABASE_NAME][COLLECTION_NAME]
+        return _timed_read_cycles(
+            raw_collection, document_ids, warmup_cycles, measured_cycles, counter
+        )
