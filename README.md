@@ -93,3 +93,7 @@ A read bypasses the cache instead of using it whenever caching it safely isn't p
 - [API reference](docs/api-reference.md) — the complete public surface: construction, configuration, limits, ownership, and raw fallback.
 - [Architecture and operations](docs/architecture.md) — system requirements, capacity planning, retry/error handling, observability, security, and recovery behavior.
 - [Stream cost benchmarks](docs/stream-cost-benchmarks.md) — whether caching fits your workload, and the controlled benchmark reports backing that guidance.
+
+---
+
+> MongoDB is a registered trademark of MongoDB, Inc. This project is independent and is not affiliated with, sponsored by, or endorsed by MongoDB, Inc.
