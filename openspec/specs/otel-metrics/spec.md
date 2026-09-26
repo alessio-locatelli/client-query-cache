@@ -40,12 +40,16 @@ The adapter SHALL register an OpenTelemetry `ObservableCounter` for each cumulat
 
 ### Requirement: Point-in-time cache state is exposed as observable gauges
 
-The adapter SHALL register an OpenTelemetry `ObservableGauge` for entry count and one for the manager's shared resident-byte usage. The cache snapshot's `used_bytes` and each database's stream-cost snapshot `resident_bytes` are the same underlying manager-wide measurement exposed twice today under different names; the adapter SHALL report this measurement as a single gauge, not duplicate it per database or per source field, and that gauge SHALL NOT carry a `db.namespace` attribute, consistent with it being scoped to the manager's shared budget rather than to any one namespace, collection, or stream. Each gauge's reported value SHALL equal the corresponding snapshot field's current value at collection time, and SHALL NOT be treated as a monotonic or cumulative quantity.
+The adapter SHALL register an OpenTelemetry `ObservableGauge` for entry count and one for the manager's shared resident-byte usage. Each gauge's reported value SHALL equal the corresponding snapshot field's current value at collection time, and SHALL NOT be treated as a monotonic or cumulative quantity.
 
 #### Scenario: Resident bytes decreases between collection cycles
 
 - **WHEN** cache evictions or a namespace clear reduce the manager's resident bytes between two metrics collection cycles
 - **THEN** the reported gauge value decreases accordingly, without the adapter or the underlying instrument rejecting or clamping the decrease
+
+### Requirement: The resident-bytes gauge consolidates the cache and stream-cost measurement
+
+The cache snapshot's `used_bytes` and each database's stream-cost snapshot `resident_bytes` are the same underlying manager-wide measurement exposed twice today under different names. The adapter SHALL report this measurement as a single gauge, not duplicate it per database or per source field, and that gauge SHALL NOT carry a `db.namespace` attribute, consistent with it being scoped to the manager's shared budget rather than to any one namespace, collection, or stream.
 
 #### Scenario: Resident bytes is not duplicated per database
 
@@ -68,12 +72,25 @@ The adapter SHALL discover which databases currently have stream-cost telemetry 
 
 ### Requirement: Invalidation-delivery lag is exposed as derived percentile gauges
 
-The adapter SHALL expose the invalidation-delivery-lag distribution as one or more `ObservableGauge` instruments computed, at each collection cycle, from the manager's currently retained lag capture windows for each database — never as a synchronous per-event `Histogram`, since OpenTelemetry defines no observable or asynchronous Histogram instrument. Each reported percentile gauge's description or attributes SHALL carry the same clock-skew limitation already defined for the underlying raw lag distribution, so a consumer of the metric sees the same caveat the manager's own snapshot carries. When a database has no retained lag samples at collection time, the adapter SHALL omit that database's percentile observations for that cycle rather than report a fabricated or default value.
+The adapter SHALL expose the invalidation-delivery-lag distribution as one or more `ObservableGauge` instruments computed, at each collection cycle, from the manager's currently retained lag capture windows for each database — never as a synchronous per-event `Histogram`, since OpenTelemetry defines no observable or asynchronous Histogram instrument.
 
 #### Scenario: A percentile gauge is computed from retained capture windows
 
 - **WHEN** a metrics collection cycle runs while a database has retained invalidation-lag capture windows
-- **THEN** the adapter computes the configured percentile(s) from the currently retained windows and reports them as gauge values carrying the clock-skew limitation
+- **THEN** the adapter computes the configured percentile(s) from the currently retained windows and reports them as gauge values
+
+### Requirement: Percentile gauges carry the clock-skew limitation
+
+Each reported percentile gauge's description or attributes SHALL carry the same clock-skew limitation already defined for the underlying raw lag distribution, so a consumer of the metric sees the same caveat the manager's own snapshot carries.
+
+#### Scenario: A percentile gauge's description states the clock-skew limitation
+
+- **WHEN** a metrics collection cycle reports a percentile gauge value
+- **THEN** its description carries the same clock-skew limitation label as the manager's raw invalidation-lag snapshot
+
+### Requirement: A percentile gauge without retained samples is omitted, not fabricated
+
+When a database has no retained lag samples at collection time, the adapter SHALL omit that database's percentile observations for that cycle rather than report a fabricated or default value.
 
 #### Scenario: A database has no retained lag samples yet
 
