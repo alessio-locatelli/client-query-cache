@@ -14,7 +14,7 @@ Median latency from one of the [retained benchmark reports](docs/stream-cost-ben
 
 `client-query-cache` requires Python 3.14.6 or newer.
 
-Reads and writes work against any MongoDB deployment PyMongo supports. **Effective caching** additionally requires MongoDB 8.0 or newer running as a replica set or sharded cluster — caching relies on change streams, which aren't available on a standalone server or an older version. Against a deployment that can't provide them, the manager doesn't raise: it logs a warning and bypasses the cache for that database, executing every read as a normal, uncached PyMongo call.
+Reads and writes work against any MongoDB deployment PyMongo supports. **Effective caching** needs two separate things: a replica set or sharded cluster, since MongoDB only provides change streams on one of those topologies, not a standalone server; and MongoDB 8.0 or newer, a floor this library enforces itself at startup rather than a limit of change streams themselves. Against a deployment that doesn't meet both, the manager doesn't raise: it logs a warning and bypasses the cache for that database, executing every read as a normal, uncached PyMongo call.
 
 ## Install
 
@@ -80,7 +80,7 @@ asyncio.run(main())
 
 A read bypasses the cache instead of using it whenever caching it safely isn't possible — for example, a caller-selected session, read preference, or read concern; a view; a nondeterministic or cross-collection aggregation pipeline; a time-series collection; or a database whose change stream isn't healthy. See [Bypass conditions](docs/api-reference.md#bypass-conditions) in the API reference for the complete list.
 
-## Intentionally out of scope
+## Scope and constraints
 
 - **Writes aren't cached** — only the six read methods listed above are. See [why only reads are cached](docs/architecture.md#why-only-reads-are-cached) for the rationale.
 - **Each `CacheManager` is independent** — it owns its own in-process cache and its own change-stream cursors; nothing is shared between managers or processes. See [capacity planning](docs/architecture.md#capacity-estimation) before creating one per request or one per worker process.
