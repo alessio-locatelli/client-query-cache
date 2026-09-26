@@ -41,6 +41,14 @@ def test_database_attribute_access_returns_a_cached_collection_facade(
     assert collection.name == "items"
 
 
+def test_database_attribute_access_returns_a_plain_value_unwrapped(
+    manager: CacheManager[dict[str, Any]],
+) -> None:
+    database = manager["example"]
+
+    assert database.codec_options == database.raw.codec_options
+
+
 def test_database_get_collection_returns_a_cached_collection_facade(
     manager: CacheManager[dict[str, Any]],
 ) -> None:
