@@ -24,6 +24,44 @@ format:
     npm run format --silent
     just --fmt
 
+build:
+    uv build
+
+verify-release tag='': build
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    mapfile -t release_metadata <<< "$(uv run -- python -c 'import tomllib; metadata = tomllib.load(open("pyproject.toml", "rb"))["project"]; print(metadata["name"].replace("-", "_").replace(".", "_")); print(metadata["version"])')"
+    package_slug="${release_metadata[0]}"
+    declared_version="${release_metadata[1]}"
+
+    if [[ -n "{{ tag }}" ]]; then
+        expected_version="{{ tag }}"
+        expected_version="${expected_version#v}"
+        if [[ "${expected_version}" != "${declared_version}" ]]; then
+            printf 'Tag %s does not match the declared package version %s.\n' "{{ tag }}" "${declared_version}" >&2
+            exit 1
+        fi
+    fi
+
+    sdist="dist/${package_slug}-${declared_version}.tar.gz"
+    wheels=(dist/"${package_slug}"-"${declared_version}"-*.whl)
+    if [[ ! -f "${sdist}" ]]; then
+        printf 'Expected sdist %s was not produced by the build.\n' "${sdist}" >&2
+        exit 1
+    fi
+    if [[ ! -f "${wheels[0]}" ]]; then
+        printf 'Expected wheel for %s %s was not produced by the build.\n' "${package_slug}" "${declared_version}" >&2
+        exit 1
+    fi
+
+    for artifact in "${sdist}" "${wheels[@]}"; do
+        uv run --isolated --no-project --python "$(cat .python-version)" --with "${artifact}" -- \
+            python -I "{{ justfile_directory() }}/scripts/verify_release_artifacts.py"
+    done
+
+    printf 'Verified %s %s (%s, %s), no package published and no publishing credentials used.\n' "${package_slug}" "${declared_version}" "${sdist}" "${wheels[0]}"
+
 pytest *args:
     #!/usr/bin/env bash
     set -euo pipefail

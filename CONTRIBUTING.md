@@ -54,3 +54,17 @@ include the leading `--`, mirroring `just podman -- <arguments>` below, since so
 See the [CI validation cache inventory](docs/ci-validation-caches.md) for the tools run on GitHub Actions and their cache paths.
 
 Run host Podman commands from the contributor container with `just podman -- <arguments>`.
+
+## Release verification
+
+`just verify-release` builds the source and wheel distributions, installs each into its own isolated environment, and imports the public synchronous and asyncio API from each installation — the same check the "Static checks, packaging, and isolated install" CI job runs on every pull request that changes Python files, `pytest.ini`, `pyproject.toml`, or `uv.lock`. It publishes nothing and needs no credentials.
+
+Pass a candidate release tag to also check it against the version declared in `pyproject.toml`:
+
+```console
+just verify-release v1.2.3
+```
+
+A mismatch fails with an actionable error; a match succeeds without creating a tag or any other release state.
+
+The same check is also available as the manual "Release verification" GitHub Actions workflow (`workflow_dispatch`, with an optional `tag` input) for verifying a candidate release from the GitHub UI or `gh workflow run` without a local checkout.

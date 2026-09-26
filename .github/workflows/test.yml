@@ -47,13 +47,7 @@ jobs:
 
       - run: uv run -- python -m slotscheck src tests
 
-      - run: uv build
-
-      - run: |
-          for artifact in dist/*.tar.gz dist/*.whl; do
-            uv run --isolated --no-project --python "${PYTHON_VERSION}" --with "${artifact}" -- \
-              python -I -c "from client_query_cache import CacheManager, CachedCollection, CachedDatabase; from client_query_cache.asynchronous import CacheManager as AsyncCacheManager, CachedCollection as AsyncCachedCollection, CachedDatabase as AsyncCachedDatabase"
-          done
+      - run: just verify-release
 
   integration-e2e:
     name: Docker-backed integration, end-to-end, and coverage
