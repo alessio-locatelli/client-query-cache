@@ -53,6 +53,8 @@ with (
 
 `CacheManager` starts a background change-stream task the first time a read touches a database, so close it (or use it as a context manager, as above) alongside the client — closing only the client leaves that background task running against a closed connection.
 
+Cache and stream-cost statistics like the one printed above can also be bridged into OpenTelemetry metrics through an optional adapter — see [OpenTelemetry metrics](docs/architecture.md#opentelemetry-metrics).
+
 The same facades are available for `pymongo.AsyncMongoClient` under `client_query_cache.asynchronous`, with the same methods as coroutines:
 
 ```python

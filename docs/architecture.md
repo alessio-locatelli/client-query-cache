@@ -103,6 +103,40 @@ cases where a write happens to hand back a usable document.
   same telemetry the [stream-cost benchmark suite](stream-cost-benchmarks.md) uses; the lag samples carry an
   explicit clock-skew disclaimer since they compare the MongoDB server's clock to your application host's.
 
+### OpenTelemetry metrics
+
+Install the `otel` extra (`pip install client-query-cache[otel]`) and call `register_cache_metrics` to bridge the
+statistics above into a `Meter` from your application's own OpenTelemetry SDK setup:
+
+```python
+from opentelemetry.sdk.metrics import MeterProvider
+
+from client_query_cache.otel import register_cache_metrics
+
+provider = MeterProvider()  # configure your application's readers/exporters here
+meter = provider.get_meter("your-application")
+register_cache_metrics(meter, manager.cache_core)
+```
+
+`client_query_cache.otel` is a separate module from the rest of the package: only importing it requires
+`opentelemetry-api`, so the base install has no OpenTelemetry dependency. `register_cache_metrics` only registers
+instruments against the `Meter` you pass in — configuring a `MeterProvider`, exporter, and collection interval is
+your application's responsibility; see the
+[OpenTelemetry Python documentation](https://opentelemetry.io/docs/languages/python/) for that setup.
+
+| Instrument                                                                                       | Type    | Meaning                                                                                                                  |
+| ------------------------------------------------------------------------------------------------ | ------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `client_query_cache.cache.hits` / `.misses` / `.evictions` / `.bypasses` / `.bypasses.oversized` | counter | cumulative cache outcomes, manager-wide                                                                                  |
+| `client_query_cache.cache.entries`                                                               | gauge   | current resident entry count, manager-wide                                                                               |
+| `client_query_cache.cache.resident_bytes`                                                        | gauge   | current resident bytes across the shared budget, manager-wide                                                            |
+| `client_query_cache.stream.polls` / `.invalidations` / `.logical_event_bytes`                    | counter | cumulative stream activity, tagged per database with `db.namespace`                                                      |
+| `client_query_cache.stream.invalidation_lag`                                                     | gauge   | invalidation-delivery-lag percentiles (p50/p95/max by default), tagged per database with `db.namespace` and `percentile` |
+
+The lag gauge reports a simple order-statistic quantile over the samples the manager currently retains — a live,
+at-a-glance figure, not the calibrated, confidence-interval estimate the
+[stream-cost benchmark suite](stream-cost-benchmarks.md) produces for report-grade claims. It carries the same
+clock-skew disclaimer as the underlying stream telemetry.
+
 ## Security
 
 - The cache introduces no new network exposure or authentication mechanism of its own. Every connection,
