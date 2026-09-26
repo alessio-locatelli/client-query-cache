@@ -42,8 +42,10 @@ with (
 
     collection.find_one({"_id": "example"})  # cache miss: reads from MongoDB
     collection.find_one({"_id": "example"})  # cache hit: served from the cache
+
+    # Bridge stats like this into OpenTelemetry:
+    # docs/architecture.md#opentelemetry-metrics
     print(manager.cache_core.snapshot().hits)  # 1
-    # bridge stats like this into OpenTelemetry: docs/architecture.md#opentelemetry-metrics
 
     collection.raw.create_index("email", unique=True)
     collection.raw.insert_one({"_id": "user-1", "email": "a@example.com"})
