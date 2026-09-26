@@ -2,5 +2,6 @@
 plugins = covdefaults
 omit =
     tests/e2e/*
+    scripts/*
 
 [report]
