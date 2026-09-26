@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
@@ -44,6 +45,8 @@ class CachedDatabase[DocumentType: Mapping[str, Any]]:
             return CachedCollection(self, value)
         if isinstance(value, AsyncDatabase):
             return CachedDatabase(self._manager, value)
+        if inspect.iscoroutine(value):
+            return self._await_and_wrap(value)
         if not callable(value):
             return value
 
@@ -51,3 +54,6 @@ class CachedDatabase[DocumentType: Mapping[str, Any]]:
             return self._wrap_delegated(value(*args, **kwargs))
 
         return _delegate
+
+    async def _await_and_wrap(self, coroutine: Any) -> Any:  # noqa: ANN401
+        return self._wrap_delegated(await coroutine)
