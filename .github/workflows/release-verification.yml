@@ -1,0 +1,41 @@
+name: Release verification
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Candidate release tag (e.g. v1.2.3) to check against the declared package version. Leave empty to verify build and import only.
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  UV_VERSION: "0.12.3"
+  PYTHON_VERSION: "3.14"
+
+jobs:
+  release-verification:
+    name: Non-publishing release verification
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: $/.github/actions/setup-toolchain
+        with:
+          uv-version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - run: uv sync --locked --all-groups
+
+      - run: just verify-release "${INPUTS_TAG}"
+        env:
+          INPUTS_TAG: ${{ inputs.tag }}
