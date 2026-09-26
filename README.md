@@ -2,9 +2,11 @@
 
 Client-side caching for PyMongo, kept coherent using MongoDB change streams. For Python applications that already talk to MongoDB through PyMongo directly, it adds a coherent read cache without introducing a separate cache server or changing how you connect. The library supports synchronous and asyncio clients.
 
-The project targets realistic mixed workloads, including collections that rarely change alongside collections with frequent writes. Its intended design is to cache only operations whose results can be kept coherent safely and predictably, while falling back to direct MongoDB access for unsupported or ambiguous cases.
+It caches only operations whose results can be kept coherent safely and predictably, and falls back to direct MongoDB access for every other case — including all writes, which always go straight to MongoDB through `.raw`. Once the manager processes the change-stream event a write produces, it invalidates every cached result the write could have affected, so the next read re-fetches instead of returning stale data.
 
-Writes are expected to participate in cache coherence, typically by invalidating affected cached entries; populating the cache from writes should occur only when the authoritative post-write document is available or when explicitly supported. MongoDB views and other operations whose invalidation semantics cannot be determined safely should bypass caching unless dedicated support is implemented.
+![Bar chart: median read latency for a read-heavy workload with small documents — direct MongoDB read 120 microseconds versus cached read hit 61 microseconds, about 2 times faster](docs/assets/benchmark-latency-light.svg)
+
+Median latency from one of the [retained benchmark reports](docs/stream-cost-benchmarks.md) — a local, single-node measurement for one workload, not a universal performance guarantee. See [Stream cost benchmarks](docs/stream-cost-benchmarks.md) for the full workload matrix and how to reproduce it.
 
 ---
 
@@ -12,9 +14,15 @@ Writes are expected to participate in cache coherence, typically by invalidating
 
 `client-query-cache` requires Python 3.14.6 or newer and a MongoDB server version 8.0 or newer running as a replica set or sharded cluster — change streams, which this library relies on to invalidate cached data, aren't available against a standalone server. Against a server or topology that can't provide change streams, the manager doesn't raise: it logs a warning and every read for that database bypasses the cache instead of using it.
 
-Install the package with `pip install client-query-cache`.
+## Install
 
-## Status
+```bash
+uv add client-query-cache
+```
+
+Or with pip: `pip install client-query-cache`.
+
+## Usage
 
 `CacheManager` wraps a `pymongo.MongoClient` (or `pymongo.AsyncMongoClient`) that you construct and own. Its database and collection facades cache a narrow set of PyMongo's own read methods — `find_one`, `find`, `aggregate`, `count_documents`, `estimated_document_count`, and `distinct` — and keep cached results coherent as the underlying data changes. Every other operation, including all writes, remains available through the wrapped PyMongo object via `.raw`:
 
@@ -49,12 +57,9 @@ Leaving read concern unspecified (the common case) is treated as compatible with
 
 Time-series collections bypass caching because MongoDB does not provide change streams for them. Reads of a collection that does not yet exist also bypass caching and recheck its type on later reads. A missing document in an existing ordinary collection can still be cached. If a time-series collection is replaced with an ordinary collection, reads may continue to bypass until a new manager is created when MongoDB supplies no notification that refreshes the collection type.
 
-## Limitations
+## Intentionally out of scope
 
-- This is a process-local cache, not a distributed or shared one: cached data lives in one application process's memory and isn't shared across processes or with a separate cache server.
-- Only reads are cached. Writes always go straight to MongoDB through `.raw`.
-- Only the six read methods listed above are cached. Every other PyMongo operation, including administrative commands, is available only through `.raw`.
-- Caching requires a replica set or sharded cluster; it doesn't work against a standalone MongoDB server.
+**Writes aren't cached** — only the six read methods listed above are. See [why only reads are cached](docs/architecture.md#why-only-reads-are-cached) for the rationale.
 
 ## Documentation
 

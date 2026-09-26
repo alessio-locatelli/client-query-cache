@@ -58,6 +58,17 @@ writes and schema changes occur.
   per-write barrier — it does not wait for "catch-up" on every read, only guarantees that a processed write is never
   silently missed.
 
+### Why only reads are cached
+
+Writes always execute directly against MongoDB through `.raw`; the cache never intercepts or replays one. Once the
+manager processes the change-stream event a write produced, it invalidates every cached result the write could have
+affected, so the next read re-fetches instead of returning stale data — that invalidation step is sufficient on its
+own to keep the cache correct, without the cache needing to know what a write changed. Populating the cache directly
+from a write's own response isn't done either: many PyMongo write calls (an update, an upsert) don't return the
+resulting document at all, so caching "the write result" would still require an extra read to get one. Letting the
+next real read repopulate the cache after invalidation is simpler and correct in every case, rather than only the
+cases where a write happens to hand back a usable document.
+
 ## Retry and error handling
 
 - **Change-stream reconnection**: a dropped stream connection reconnects automatically using capped exponential
