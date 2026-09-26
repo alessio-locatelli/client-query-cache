@@ -1,10 +1,10 @@
-# Spec Delta
+# otel-metrics Specification
 
 ## Purpose
 
 This capability bridges the manager's existing cache and stream-cost snapshot statistics into OpenTelemetry metrics through an optional, import-guarded adapter, without adding OpenTelemetry as a dependency of the base package.
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: The adapter is optional and import-guarded
 
@@ -97,3 +97,12 @@ Every value, attribute, and description the adapter emits SHALL be limited to th
 
 - **WHEN** an application's OpenTelemetry pipeline exports the metrics this adapter registers
 - **THEN** the exported output contains no cached document, query, or credential value
+
+### Requirement: An invalid configured lag percentile is rejected at registration
+
+The adapter SHALL validate every caller-supplied lag percentile before registering any instrument. A percentile that is not a finite number in the range `[0.0, 1.0]` SHALL cause registration to fail immediately, rather than registering successfully and failing later during a metrics collection cycle.
+
+#### Scenario: A percentile outside the valid range is rejected
+
+- **WHEN** a caller supplies a lag percentile that is negative, greater than `1.0`, `NaN`, or infinite
+- **THEN** registration fails immediately with an actionable configuration error, and no instrument is registered
