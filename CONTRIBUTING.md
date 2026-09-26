@@ -55,6 +55,15 @@ See the [CI validation cache inventory](docs/ci-validation-caches.md) for the to
 
 Run host Podman commands from the contributor container with `just podman -- <arguments>`.
 
+## Real-server benchmark
+
+`just tests_and_coverage` and `just pytest` include a benchmark that measures the cache's benefit
+against a real, externally hosted MongoDB deployment — for example, a free-tier
+[MongoDB Atlas](https://www.mongodb.com/cloud/atlas/register) cluster. It reads a connection string
+from `REAL_MONGODB_URI` in a `.env` file at the repository root (see `.env.example`), which `uv`
+loads automatically once that file exists. Without a configured `.env`, or in CI, the benchmark
+skips with an explicit reason and every other test still runs.
+
 ## Release verification
 
 `just verify-release` builds the source and wheel distributions, installs each into its own isolated environment, and imports the public synchronous and asyncio API from each installation — the same check the "Static checks, packaging, and isolated install" CI job runs on every pull request that changes Python files, `pytest.ini`, `pyproject.toml`, or `uv.lock`. It publishes nothing and needs no credentials.
