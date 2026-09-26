@@ -490,24 +490,6 @@ async def test_find_by_id_cache_hit_is_isolated_from_caller_mutation(
     assert second == [{"_id": "doc-1", "tags": ["a", "b"]}]
 
 
-async def test_find_one_by_id_negative_result_is_cached(
-    cache_manager: CacheManager[dict[str, Any]],
-    cached_database_name: DatabaseName,
-    nonpersistent_collection_name: CollectionName,
-) -> None:
-    collection = cache_manager[cached_database_name][nonpersistent_collection_name]
-
-    with patch.object(
-        AsyncCollection, "find_one", autospec=True, side_effect=AsyncCollection.find_one
-    ) as spy:
-        first = await collection.find_one({"_id": "missing"})
-        second = await collection.find_one({"_id": "missing"})
-
-    assert first is None
-    assert second is None
-    assert spy.call_count == 1
-
-
 async def test_find_one_by_id_invalidates_after_an_independent_write(
     cache_manager: CacheManager[dict[str, Any]],
     independent_writer: AsyncMongoClient[dict[str, Any]],

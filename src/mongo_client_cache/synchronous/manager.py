@@ -66,11 +66,11 @@ class CacheManager[DocumentType: Mapping[str, Any]]:
                 return False
             cached = CollectionMetadata(
                 checked_epoch=current_epoch,
-                is_view=probe_result.is_view,
+                is_cacheable=probe_result.is_cacheable,
                 default_collation=probe_result.default_collation,
             )
             self._metadata.put(namespace, cached)
-        return not cached.is_view
+        return cached.is_cacheable
 
     def default_collation_for(self, namespace: NamespaceId) -> Mapping[str, Any] | None:
         cached = self._metadata.get(namespace)

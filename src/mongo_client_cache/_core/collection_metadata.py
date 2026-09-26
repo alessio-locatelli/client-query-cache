@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 @dataclass(frozen=True, slots=True)
 class CollectionMetadata:
     checked_epoch: int
-    is_view: bool
+    is_cacheable: bool
     default_collation: Mapping[str, Any] | None
 
 
@@ -37,15 +37,20 @@ class CollectionMetadataCache:
 
 @dataclass(frozen=True, slots=True)
 class CollectionProbeResult:
-    is_view: bool
+    is_cacheable: bool
     default_collation: Mapping[str, Any] | None
 
 
 def interpret_list_collections_entry(
     entry: Mapping[str, Any] | None,
-) -> CollectionProbeResult:
+) -> CollectionProbeResult | None:
     if entry is None:
-        return CollectionProbeResult(is_view=False, default_collation=None)
-    is_view = entry.get("type") == "view"
+        return None
+    collection_type = entry.get("type")
+    if collection_type not in {"collection", "view", "timeseries"}:
+        return None
     default_collation = normalize_collation(entry.get("options", {}).get("collation"))
-    return CollectionProbeResult(is_view=is_view, default_collation=default_collation)
+    return CollectionProbeResult(
+        is_cacheable=collection_type == "collection",
+        default_collation=default_collation,
+    )
