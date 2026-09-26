@@ -61,9 +61,11 @@ narrower contract than their PyMongo counterparts:
   contains a `$changeStream` stage, since that cursor has no natural end to materialize toward. Use
   `collection.raw.aggregate(...)` for a change-stream pipeline.
 
-Every other PyMongo collection method — all writes, and every read method not listed above (`find_one_and_update`,
-`find_raw_batches`, index management, and so on) — is only available through `.raw`; the facade does not expose or
-proxy it.
+Every other PyMongo collection or database method — all writes, and every read method not listed above
+(`find_one_and_update`, `find_raw_batches`, index management, and so on) — is directly callable on the facade: an
+attribute the facade doesn't itself define (for example `collection.insert_one(...)` or `database.create_collection(...)`)
+delegates unmodified to the wrapped PyMongo object, the same object `.raw` returns. Whether a given method is one of
+the six above — and therefore cached — is answered by this list, not by whether the facade lets you call it.
 
 ## Bypass conditions
 
@@ -151,18 +153,28 @@ Every wrapped object exposes the PyMongo object underneath:
 - `database.raw` — the wrapped `pymongo.Database`.
 - `manager.client` — the wrapped `pymongo.MongoClient` (or `AsyncMongoClient`).
 
-Use `.raw` for every write and every read the facade doesn't support. `.raw` calls never go through the cache and
-never affect it except through the invalidation that a write already triggers via the change stream — so writing
-through `.raw` and reading through the cached facade is the expected pattern, not something to work around.
+Writes and every other non-cached method don't need `.raw` — call them directly on the facade (`collection.insert_one(...)`,
+`database.create_collection(...)`); the facade delegates to the same wrapped object `.raw` returns, so the two forms are
+interchangeable in behavior. `.raw` remains necessary for one narrower purpose: reaching PyMongo's own semantics for the
+six cache-aware methods themselves — `find()` with a tailable, exhaust, or partial-result cursor, or `aggregate()` with a
+`$changeStream` pipeline — since calling `find`/`aggregate` directly on the facade always goes through the cache-aware
+override, which rejects those options with `UnsupportedCacheRequestError`.
+
+`.raw` also keeps one advantage direct calls don't have: because it's typed as the concrete PyMongo `Collection`/`Database`,
+mypy checks a `.raw` call's arguments and return type against PyMongo's real signature. A direct call on the facade for a
+method the facade doesn't override type-checks but without that argument/return validation, since the facade can't know in
+advance which PyMongo method a caller will reach for. Prefer `.raw` for a write or admin call where you want full static
+checking; either form behaves identically at runtime.
 
 ## Rollback to plain PyMongo
 
 Because `CacheManager` wraps a client you already own rather than replacing it, removing the cache layer is a
 mechanical change, not a migration: replace `manager["db"]["collection"]` calls with `client["db"]["collection"]`
-(PyMongo's own object), or keep using `.raw` everywhere the facade was already a thin pass-through. No data
-migration is needed — the manager never alters stored documents, it only caches read results in your process's
-memory — and no other application code needs to change, since a `CachedCollection`'s read methods accept the same
-arguments as the PyMongo methods they wrap.
+(PyMongo's own object). No other application code needs to change — a `CachedCollection`/`CachedDatabase` delegates
+every method it doesn't cache to the same wrapped object `client["db"]["collection"]` already is, so a write or admin
+call written directly against the facade (`collection.insert_one(...)`) keeps working unchanged once the facade is
+gone entirely. No data migration is needed either — the manager never alters stored documents, it only caches read
+results in your process's memory.
 
 ## Errors
 

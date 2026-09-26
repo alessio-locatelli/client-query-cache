@@ -9,6 +9,7 @@ from pymongo.collation import Collation
 from pymongo.cursor import CursorType
 from pymongo.errors import PyMongoError
 from pymongo.read_concern import ReadConcern
+from pymongo.synchronous.collection import Collection
 
 from client_query_cache._core.canonical import is_canonicalizable
 from client_query_cache._core.codec import codec_fingerprint
@@ -40,7 +41,6 @@ from client_query_cache._core.unique_keys import match_unique_key
 
 if TYPE_CHECKING:
     from pymongo.client_session import ClientSession
-    from pymongo.synchronous.collection import Collection
     from pymongo.synchronous.database import Database
 
     from client_query_cache._core.collection_metadata import CollectionProbeResult
@@ -113,6 +113,20 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
     @property
     def raw(self) -> Collection[DocumentType]:
         return self._collection
+
+    def __getattr__(self, name: str) -> Any:  # noqa: ANN401
+        return self._wrap_delegated(getattr(self._collection, name))
+
+    def _wrap_delegated(self, value: Any) -> Any:  # noqa: ANN401
+        if isinstance(value, Collection):
+            return CachedCollection(self._database, value)
+        if not callable(value):
+            return value
+
+        def _delegate(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+            return self._wrap_delegated(value(*args, **kwargs))
+
+        return _delegate
 
     def find_one(
         self,

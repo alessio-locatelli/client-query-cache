@@ -2,7 +2,7 @@
 
 Client-side caching for PyMongo, kept coherent using MongoDB change streams. For Python applications that already talk to MongoDB through PyMongo directly, it adds a coherent read cache without introducing a separate cache server or changing how you connect. The library supports synchronous and asyncio clients.
 
-It caches reads whose results the manager can invalidate correctly when the underlying data changes, and leaves everything else — including all writes — to go straight to MongoDB through `.raw`. Invalidation is asynchronous: a read running concurrently with a write can still return the previous cached value until the manager processes that write's change-stream event.
+It caches reads whose results the manager can invalidate correctly when the underlying data changes, and leaves everything else — including all writes — to go straight to MongoDB. Invalidation is asynchronous: a read running concurrently with a write can still return the previous cached value until the manager processes that write's change-stream event.
 
 ![Bar chart: median read latency for a read-heavy workload with small documents — direct MongoDB read 120 microseconds versus cached read hit 61 microseconds, about 2 times faster](docs/assets/benchmark-latency-light.svg)
 
@@ -26,7 +26,7 @@ Or with pip: `pip install client-query-cache`.
 
 ## Usage
 
-`CacheManager` wraps a `pymongo.MongoClient` (or `pymongo.AsyncMongoClient`) that you construct and own. Its database and collection facades cache a narrow set of PyMongo's own read methods — `find_one`, `find`, `aggregate`, `count_documents`, `estimated_document_count`, and `distinct` — and keep cached results coherent as the underlying data changes. Every other operation, including all writes, remains available through the wrapped PyMongo object via `.raw`:
+`CacheManager` wraps a `pymongo.MongoClient` (or `pymongo.AsyncMongoClient`) that you construct and own. Its database and collection facades cache a narrow set of PyMongo's own read methods — `find_one`, `find`, `aggregate`, `count_documents`, `estimated_document_count`, and `distinct` — and keep cached results coherent as the underlying data changes. Every other operation, including all writes, is called directly on the facade the same way you'd call it on the wrapped PyMongo object:
 
 ```python
 from pymongo import MongoClient
@@ -38,7 +38,7 @@ with (
     CacheManager(client) as manager,
 ):
     collection = manager["my_database"]["my_collection"]
-    collection.raw.insert_one({"_id": "example", "value": 42})
+    collection.insert_one({"_id": "example", "value": 42})
 
     collection.find_one({"_id": "example"})  # cache miss: reads from MongoDB
     collection.find_one({"_id": "example"})  # cache hit: served from the cache
@@ -47,8 +47,8 @@ with (
     # docs/architecture.md#opentelemetry-metrics
     print(manager.cache_core.snapshot().hits)  # 1
 
-    collection.raw.create_index("email", unique=True)
-    collection.raw.insert_one({"_id": "user-1", "email": "a@example.com"})
+    collection.create_index("email", unique=True)
+    collection.insert_one({"_id": "user-1", "email": "a@example.com"})
     collection.find_one({"email": "a@example.com"})  # also cached, like an `_id` lookup
 ```
 
@@ -72,7 +72,7 @@ async def main() -> None:
         CacheManager(client) as manager,
     ):
         collection = manager["my_database"]["my_collection"]
-        await collection.raw.insert_one({"_id": "example", "value": 42})
+        await collection.insert_one({"_id": "example", "value": 42})
 
         await collection.find_one({"_id": "example"})  # cache miss
         await collection.find_one({"_id": "example"})  # cache hit
