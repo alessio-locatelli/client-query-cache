@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import logging
 from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any, cast
@@ -120,6 +121,8 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
     def _wrap_delegated(self, value: Any) -> Any:  # noqa: ANN401
         if isinstance(value, AsyncCollection):
             return CachedCollection(self._database, value)
+        if inspect.iscoroutine(value):
+            return self._await_and_wrap(value)
         if not callable(value):
             return value
 
@@ -127,6 +130,9 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
             return self._wrap_delegated(value(*args, **kwargs))
 
         return _delegate
+
+    async def _await_and_wrap(self, coroutine: Any) -> Any:  # noqa: ANN401
+        return self._wrap_delegated(await coroutine)
 
     async def find_one(
         self,

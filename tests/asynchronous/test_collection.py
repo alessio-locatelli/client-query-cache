@@ -163,6 +163,19 @@ async def test_collection_create_index_is_directly_callable_without_raw(
     }
 
 
+async def test_database_create_collection_returns_a_cached_collection_facade(
+    cache_manager: CacheManager[dict[str, Any]],
+    cached_database_name: DatabaseName,
+    nonpersistent_collection_name: CollectionName,
+) -> None:
+    database = cache_manager[cached_database_name]
+
+    collection = await database.create_collection(nonpersistent_collection_name)
+
+    assert isinstance(collection, CachedCollection)
+    assert collection.name == nonpersistent_collection_name
+
+
 async def test_composed_facade_and_direct_client_access_can_mix_incrementally(
     cache_manager: CacheManager[dict[str, Any]],
     cached_database_name: DatabaseName,
