@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from mongo_client_cache._core.keys import NamespaceId, canonical_alias_key
+from client_query_cache._core.keys import NamespaceId, canonical_alias_key
 
 pytestmark = pytest.mark.unit
 

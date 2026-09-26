@@ -41,8 +41,8 @@ if TYPE_CHECKING:
     from benchmarks.stream_cost.consolidated_stream import (
         ConsolidatedStreamPairConfig,
     )
-    from mongo_client_cache._core.manager import CacheCoreConfig
-    from mongo_client_cache.synchronous.manager import CacheManager
+    from client_query_cache._core.manager import CacheCoreConfig
+    from client_query_cache.synchronous.manager import CacheManager
 
 _CALIBRATION_ROUNDS = 5
 _MINIMUM_RELEVANT_COLLECTIONS = 2

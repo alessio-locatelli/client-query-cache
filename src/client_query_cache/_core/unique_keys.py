@@ -5,12 +5,12 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from mongo_client_cache._core.canonical import is_canonicalizable
-from mongo_client_cache._core.collation import normalize_collation
-from mongo_client_cache._core.identity_reads import NO_IDENTITY, extract_equality_value
+from client_query_cache._core.canonical import is_canonicalizable
+from client_query_cache._core.collation import normalize_collation
+from client_query_cache._core.identity_reads import NO_IDENTITY, extract_equality_value
 
 if TYPE_CHECKING:
-    from mongo_client_cache._core.keys import NamespaceId
+    from client_query_cache._core.keys import NamespaceId
 
 
 @dataclass(frozen=True, slots=True)

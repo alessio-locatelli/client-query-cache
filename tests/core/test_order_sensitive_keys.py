@@ -7,8 +7,8 @@ from bson.int64 import Int64
 from hypothesis import example, given
 from hypothesis import strategies as st
 
-from mongo_client_cache._core.canonical import canonicalize
-from mongo_client_cache._core.order_sensitive_keys import (
+from client_query_cache._core.canonical import canonicalize
+from client_query_cache._core.order_sensitive_keys import (
     order_sensitive_discriminator_key,
     order_sensitive_key,
 )

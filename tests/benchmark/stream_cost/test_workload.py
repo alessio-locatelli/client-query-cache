@@ -31,7 +31,7 @@ from benchmarks.stream_cost.workload import (
     verify_oversized_primed,
     verify_primed,
 )
-from mongo_client_cache._core.snapshots import CacheSnapshot
+from client_query_cache._core.snapshots import CacheSnapshot
 
 if TYPE_CHECKING:
     from pymongo.synchronous.collection import Collection

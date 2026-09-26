@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from benchmarks.stream_cost.errors import BenchmarkConfigurationError
-from mongo_client_cache._core.codec import encode_value
+from client_query_cache._core.codec import encode_value
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence

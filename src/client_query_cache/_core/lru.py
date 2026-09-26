@@ -5,9 +5,9 @@ from collections import OrderedDict
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from mongo_client_cache._core.entries import CacheEntry
-    from mongo_client_cache._core.keys import CacheKey
-    from mongo_client_cache._core.locking import LockOrderGuard
+    from client_query_cache._core.entries import CacheEntry
+    from client_query_cache._core.keys import CacheKey
+    from client_query_cache._core.locking import LockOrderGuard
 
 
 class WeightedLru:

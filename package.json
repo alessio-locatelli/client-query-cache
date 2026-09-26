@@ -1,4 +1,5 @@
 {
+  "name": "client-query-cache",
   "private": true,
   "devDependencies": {
     "@fission-ai/openspec": "^1.13.0",

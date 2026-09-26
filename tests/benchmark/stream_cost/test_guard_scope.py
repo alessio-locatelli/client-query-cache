@@ -14,7 +14,7 @@ pytestmark = pytest.mark.unit
 @pytest.mark.parametrize(
     ("paths", "expected"),
     [
-        (("src/mongo_client_cache/synchronous/manager.py",), True),
+        (("src/client_query_cache/synchronous/manager.py",), True),
         (("benchmarks/stream_cost/guard_workload.py",), True),
         (("pyproject.toml",), True),
         (("uv.lock",), True),

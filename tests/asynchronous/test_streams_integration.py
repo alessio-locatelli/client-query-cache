@@ -7,9 +7,9 @@ import pytest
 from pymongo import AsyncMongoClient
 from pymongo.errors import ConnectionFailure, OperationFailure
 
-from mongo_client_cache._core.keys import NamespaceId
-from mongo_client_cache._core.manager import CacheCore
-from mongo_client_cache.asynchronous.streams import DatabaseStreamSupervisor
+from client_query_cache._core.keys import NamespaceId
+from client_query_cache._core.manager import CacheCore
+from client_query_cache.asynchronous.streams import DatabaseStreamSupervisor
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable

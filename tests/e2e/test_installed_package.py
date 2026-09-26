@@ -66,7 +66,12 @@ import os
 
 from pymongo import MongoClient
 
-from mongo_client_cache import CacheManager
+from client_query_cache import CacheManager
+from client_query_cache.asynchronous import (
+    CacheManager as AsyncCacheManager,
+    CachedCollection as AsyncCachedCollection,
+    CachedDatabase as AsyncCachedDatabase,
+)
 
 uri = os.environ["MONGODB_TEST_URI"]
 database_name = os.environ["MONGODB_TEST_DATABASE"]

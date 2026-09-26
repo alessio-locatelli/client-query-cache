@@ -1,8 +1,8 @@
 set positional-arguments
 set default-list
 
-dev_image := "localhost/mongodb-client-cache-dev:0.1.0"
-dev_container := "mongodb-client-cache-dev"
+dev_image := "localhost/client-query-cache-dev:0.1.0"
+dev_container := "client-query-cache-dev"
 export UV_LOCKED := "1"
 
 setup:
@@ -122,7 +122,7 @@ tests_and_coverage:
     #!/usr/bin/env bash
     set -euo pipefail
 
-    coverage_workspace="$(mktemp -d /tmp/mongodb-client-cache-coverage.XXXXXX)"
+    coverage_workspace="$(mktemp -d /tmp/client-query-cache-coverage.XXXXXX)"
     export COVERAGE_FILE="${coverage_workspace}/.coverage"
     source "{{ justfile_directory() }}/scripts/testcontainers-bridge.sh"
     pytest_log_args=()
@@ -131,5 +131,5 @@ tests_and_coverage:
     fi
     uv run -- coverage run -m pytest -qq "${pytest_log_args[@]}"
     uv run -- coverage report
-    uv run -- python -c 'from pathlib import Path; import sys; coverage_exclusions = [(path, line_number) for path in Path("src/mongo_client_cache").rglob("*.py") for line_number, line in enumerate(path.read_text().splitlines(), start=1) if "pragma: no cover" in line]; sys.stderr.write("".join(f"{path}:{line_number}: prohibited pragma: no cover\n" for path, line_number in coverage_exclusions)); sys.exit(bool(coverage_exclusions))'
+    uv run -- python -c 'from pathlib import Path; import sys; coverage_exclusions = [(path, line_number) for path in Path("src/client_query_cache").rglob("*.py") for line_number, line in enumerate(path.read_text().splitlines(), start=1) if "pragma: no cover" in line]; sys.stderr.write("".join(f"{path}:{line_number}: prohibited pragma: no cover\n" for path, line_number in coverage_exclusions)); sys.exit(bool(coverage_exclusions))'
     uv run -- strict-no-cover

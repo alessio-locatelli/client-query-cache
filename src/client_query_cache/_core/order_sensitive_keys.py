@@ -4,7 +4,7 @@ from collections.abc import Mapping, Sequence
 
 from bson.int64 import Int64
 
-from mongo_client_cache._core.canonical import _OWN_TAGS as _CANONICAL_OWN_TAGS
+from client_query_cache._core.canonical import _OWN_TAGS as _CANONICAL_OWN_TAGS
 
 
 class _OrderTag:

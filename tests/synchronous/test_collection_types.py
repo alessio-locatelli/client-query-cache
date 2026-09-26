@@ -8,15 +8,15 @@ import pytest
 from pymongo import MongoClient
 from pymongo.errors import OperationFailure
 
-from mongo_client_cache._core.keys import NamespaceId
+from client_query_cache._core.keys import NamespaceId
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
     from faker import Faker
 
-    from mongo_client_cache.synchronous.collection import CachedCollection
-    from mongo_client_cache.synchronous.manager import CacheManager
+    from client_query_cache.synchronous.collection import CachedCollection
+    from client_query_cache.synchronous.manager import CacheManager
     from tests.conftest import DatabaseName, MongoDbUri
 
 pytestmark = pytest.mark.integration

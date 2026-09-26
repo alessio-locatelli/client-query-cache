@@ -21,7 +21,7 @@ from benchmarks.stream_cost.workload import (
 )
 
 if TYPE_CHECKING:
-    from mongo_client_cache.synchronous.manager import CacheManager
+    from client_query_cache.synchronous.manager import CacheManager
     from tests.conftest import CollectionName, DatabaseName
 
 pytestmark = pytest.mark.integration

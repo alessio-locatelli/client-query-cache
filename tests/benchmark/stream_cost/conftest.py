@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 from pymongo import MongoClient
 
-from mongo_client_cache.synchronous.manager import CacheManager
+from client_query_cache.synchronous.manager import CacheManager
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

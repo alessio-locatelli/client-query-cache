@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
     from benchmarks.stream_cost.proxy import DirectPathByteProxy
     from benchmarks.stream_cost.topology import IsolatedReplicaSet
-    from mongo_client_cache.synchronous.manager import CacheManager
+    from client_query_cache.synchronous.manager import CacheManager
 
 
 @dataclass(frozen=True, slots=True)

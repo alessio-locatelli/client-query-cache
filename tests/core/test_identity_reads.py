@@ -11,7 +11,7 @@ from bson.binary import UuidRepresentation
 from bson.codec_options import CodecOptions
 from bson.regex import Regex
 
-from mongo_client_cache._core.identity_reads import (
+from client_query_cache._core.identity_reads import (
     NO_IDENTITY,
     extract_id_identity,
     normalize_identity_for_cache_key,

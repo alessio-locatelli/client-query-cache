@@ -6,13 +6,13 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from mongo_client_cache._core.canonical import canonicalize
-from mongo_client_cache._core.codec import encode_value
-from mongo_client_cache._core.entries import AdmissionOutcome, CacheEntry
-from mongo_client_cache._core.errors import UnsupportedCacheRequestError
-from mongo_client_cache._core.keys import IdentityCacheKey, NamespaceId
-from mongo_client_cache._core.locking import LockOrderViolationError
-from mongo_client_cache._core.manager import CacheCore, CacheCoreConfig
+from client_query_cache._core.canonical import canonicalize
+from client_query_cache._core.codec import encode_value
+from client_query_cache._core.entries import AdmissionOutcome, CacheEntry
+from client_query_cache._core.errors import UnsupportedCacheRequestError
+from client_query_cache._core.keys import IdentityCacheKey, NamespaceId
+from client_query_cache._core.locking import LockOrderViolationError
+from client_query_cache._core.manager import CacheCore, CacheCoreConfig
 from tests.core.conftest import (
     patch_conditional_put_hook as _patch_conditional_put_hook,
 )
@@ -20,8 +20,8 @@ from tests.core.conftest import (
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from mongo_client_cache._core.keys import CacheKey
-    from mongo_client_cache._core.lru import WeightedLru
+    from client_query_cache._core.keys import CacheKey
+    from client_query_cache._core.lru import WeightedLru
 
 pytestmark = pytest.mark.unit
 

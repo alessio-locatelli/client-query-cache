@@ -40,13 +40,13 @@ from benchmarks.stream_cost.workload import (
     run_workload_variant,
     seed_dataset,
 )
-from mongo_client_cache.synchronous.manager import CacheManager
+from client_query_cache.synchronous.manager import CacheManager
 
 if TYPE_CHECKING:
     from pymongo import MongoClient
     from pymongo.synchronous.collection import Collection
 
-    from mongo_client_cache.synchronous.collection import CachedCollection
+    from client_query_cache.synchronous.collection import CachedCollection
 
 _STREAM_SETTLE_TIMEOUT_SECONDS = 15.0
 _STREAM_SETTLE_POLL_SECONDS = 0.02
@@ -166,7 +166,7 @@ def _run_variant(
     config = BenchmarkConfig(
         identity=BenchmarkIdentity(
             revision=_revision(),
-            library_version=version("mongo-client-cache"),
+            library_version=version("client-query-cache"),
             python_version=platform.python_version(),
             pymongo_version=version("pymongo"),
         ),

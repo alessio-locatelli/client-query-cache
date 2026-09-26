@@ -14,14 +14,14 @@ tools on `PATH`.
 From the host, build the image and create a Toolbx container:
 
 ```console
-podman build --tag localhost/mongodb-client-cache-dev:0.1.0 --file Containerfile .
-podman container exists mongodb-client-cache-dev || toolbox create --image localhost/mongodb-client-cache-dev:0.1.0 mongodb-client-cache-dev
+podman build --tag localhost/client-query-cache-dev:0.1.0 --file Containerfile .
+podman container exists client-query-cache-dev || toolbox create --image localhost/client-query-cache-dev:0.1.0 client-query-cache-dev
 ```
 
 For Distrobox, use:
 
 ```console
-podman container exists mongodb-client-cache-dev || distrobox create --image localhost/mongodb-client-cache-dev:0.1.0 --name mongodb-client-cache-dev
+podman container exists client-query-cache-dev || distrobox create --image localhost/client-query-cache-dev:0.1.0 --name client-query-cache-dev
 ```
 
 Inside the container, open the checkout and run:

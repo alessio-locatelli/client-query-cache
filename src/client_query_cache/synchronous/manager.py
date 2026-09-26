@@ -3,28 +3,28 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, Self
 
-from mongo_client_cache._core.collection_metadata import (
+from client_query_cache._core.collection_metadata import (
     CollectionMetadata,
     CollectionMetadataCache,
 )
-from mongo_client_cache._core.manager import CacheCore
-from mongo_client_cache._core.unique_keys import (
+from client_query_cache._core.manager import CacheCore
+from client_query_cache._core.unique_keys import (
     UniqueKeyMetadata,
     UniqueKeyMetadataCache,
     discover_unique_keys,
 )
-from mongo_client_cache.synchronous.database import CachedDatabase
-from mongo_client_cache.synchronous.streams import ChangeStreamCoordinator
+from client_query_cache.synchronous.database import CachedDatabase
+from client_query_cache.synchronous.streams import ChangeStreamCoordinator
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
     from pymongo import MongoClient
 
-    from mongo_client_cache._core.collection_metadata import CollectionProbeResult
-    from mongo_client_cache._core.keys import NamespaceId
-    from mongo_client_cache._core.manager import CacheCoreConfig
-    from mongo_client_cache._core.unique_keys import UniqueKeyDefinition
+    from client_query_cache._core.collection_metadata import CollectionProbeResult
+    from client_query_cache._core.keys import NamespaceId
+    from client_query_cache._core.manager import CacheCoreConfig
+    from client_query_cache._core.unique_keys import UniqueKeyDefinition
 
 
 class CacheManager[DocumentType: Mapping[str, Any]]:

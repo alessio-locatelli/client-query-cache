@@ -6,7 +6,7 @@ import pytest
 from hypothesis import example, given
 from hypothesis import strategies as st
 
-from mongo_client_cache._core.unique_keys import (
+from client_query_cache._core.unique_keys import (
     UniqueKeyDefinition,
     discover_unique_keys,
     match_unique_key,

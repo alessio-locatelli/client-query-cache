@@ -9,8 +9,8 @@ from benchmarks.stream_cost.oversized_result import (
     measure_oversized_result_workload,
 )
 from benchmarks.stream_cost.workload import verify_oversized_primed
-from mongo_client_cache._core.manager import CacheCoreConfig
-from mongo_client_cache.synchronous.manager import CacheManager
+from client_query_cache._core.manager import CacheCoreConfig
+from client_query_cache.synchronous.manager import CacheManager
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

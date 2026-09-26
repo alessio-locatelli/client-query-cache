@@ -9,13 +9,13 @@ import bson
 from bson.errors import BSONError
 from pymongo.errors import OperationFailure, PyMongoError
 
-from mongo_client_cache._core.errors import StreamLifecycleError, StreamStartupError
-from mongo_client_cache._core.stream_events import (
+from client_query_cache._core.errors import StreamLifecycleError, StreamStartupError
+from client_query_cache._core.stream_events import (
     build_change_stream_pipeline,
     is_unresumable_change_stream_error,
     route_change_event,
 )
-from mongo_client_cache._core.stream_health import RetryBackoff, StreamHealth
+from client_query_cache._core.stream_health import RetryBackoff, StreamHealth
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from pymongo.synchronous.change_stream import DatabaseChangeStream
     from pymongo.synchronous.database import Database
 
-    from mongo_client_cache._core.manager import CacheCore
+    from client_query_cache._core.manager import CacheCore
 
 MINIMUM_SERVER_VERSION = (8, 0)
 DEFAULT_MAX_AWAIT_TIME_MS = 1_000
@@ -103,7 +103,7 @@ class DatabaseStreamSupervisor:
             self._set_health(StreamHealth.HEALTHY)
             self._thread = threading.Thread(
                 target=self._run,
-                name=f"mongo-client-cache-stream-{self._database.name}",
+                name=f"client-query-cache-stream-{self._database.name}",
                 daemon=True,
             )
             self._thread.start()
@@ -133,7 +133,7 @@ class DatabaseStreamSupervisor:
         if version < MINIMUM_SERVER_VERSION:
             message = (
                 f"MongoDB server version {server_info['version']} is not supported; "
-                "mongo_client_cache requires MongoDB 8.0 or newer"
+                "client_query_cache requires MongoDB 8.0 or newer"
             )
             raise StreamStartupError(message)
 

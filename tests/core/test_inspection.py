@@ -5,11 +5,11 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from mongo_client_cache._core.entries import AdmissionOutcome
-from mongo_client_cache._core.manager import CacheCore, CacheCoreConfig
+from client_query_cache._core.entries import AdmissionOutcome
+from client_query_cache._core.manager import CacheCore, CacheCoreConfig
 
 if TYPE_CHECKING:
-    from mongo_client_cache._core.keys import NamespaceId
+    from client_query_cache._core.keys import NamespaceId
 
 pytestmark = pytest.mark.unit
 
@@ -75,7 +75,7 @@ def test_logs_never_include_document_query_credential_or_resume_token_content(
         "resume-token-abc123",
         "credential-xyz",
     )
-    with caplog.at_level("DEBUG", logger="mongo_client_cache._core.manager"):
+    with caplog.at_level("DEBUG", logger="client_query_cache._core.manager"):
         capture = core.begin_identity_admission(
             namespace, {"credential": "credential-xyz"}
         )

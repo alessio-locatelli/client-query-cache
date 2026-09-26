@@ -8,10 +8,10 @@ import pytest
 from pymongo import MongoClient
 from pymongo.errors import ConnectionFailure, OperationFailure
 
-from mongo_client_cache._core.keys import NamespaceId
-from mongo_client_cache._core.manager import CacheCore
-from mongo_client_cache.synchronous import streams as streams_module
-from mongo_client_cache.synchronous.streams import DatabaseStreamSupervisor
+from client_query_cache._core.keys import NamespaceId
+from client_query_cache._core.manager import CacheCore
+from client_query_cache.synchronous import streams as streams_module
+from client_query_cache.synchronous.streams import DatabaseStreamSupervisor
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator

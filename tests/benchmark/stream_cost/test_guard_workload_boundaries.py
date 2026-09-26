@@ -43,7 +43,7 @@ def test_guard_workload_does_not_import_controlled_matrix_or_decision_runner() -
 def test_guard_workload_reuses_shared_generators_and_cache_snapshots() -> None:
     imported = _imported_module_names(guard_workload)
     assert "benchmarks.stream_cost.generators" in imported
-    assert "mongo_client_cache._core.stream_events" in imported
+    assert "client_query_cache._core.stream_events" in imported
 
 
 @pytest.mark.parametrize(

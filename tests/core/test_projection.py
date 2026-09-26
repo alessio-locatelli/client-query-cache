@@ -10,7 +10,7 @@ from bson.raw_bson import RawBSONDocument
 from hypothesis import given
 from hypothesis import strategies as st
 
-from mongo_client_cache._core.projection import (
+from client_query_cache._core.projection import (
     ensure_id_present_for_resolution,
     without_id,
 )

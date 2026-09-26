@@ -1,5 +1,5 @@
-from mongo_client_cache._core.entries import AdmissionOutcome, LookupResult
-from mongo_client_cache._core.errors import (
+from client_query_cache._core.entries import AdmissionOutcome, LookupResult
+from client_query_cache._core.errors import (
     CacheClosedError,
     CacheConfigurationError,
     CacheError,
@@ -7,20 +7,20 @@ from mongo_client_cache._core.errors import (
     StreamStartupError,
     UnsupportedCacheRequestError,
 )
-from mongo_client_cache._core.keys import NamespaceId
-from mongo_client_cache._core.lifecycle import CacheLifecycleState
-from mongo_client_cache._core.manager import (
+from client_query_cache._core.keys import NamespaceId
+from client_query_cache._core.lifecycle import CacheLifecycleState
+from client_query_cache._core.manager import (
     CacheCore,
     CacheCoreConfig,
     IdentityCapture,
     NamespaceCapture,
 )
-from mongo_client_cache._core.snapshots import CacheSnapshot
-from mongo_client_cache._core.stream_cost import (
+from client_query_cache._core.snapshots import CacheSnapshot
+from client_query_cache._core.stream_cost import (
     LagCaptureWindowConfig,
     StreamCostSnapshot,
 )
-from mongo_client_cache._core.stream_health import StreamHealth
+from client_query_cache._core.stream_health import StreamHealth
 
 __all__ = [
     "AdmissionOutcome",

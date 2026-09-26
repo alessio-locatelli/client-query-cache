@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from mongo_client_cache._core.collation import normalize_collation
+from client_query_cache._core.collation import normalize_collation
 
 if TYPE_CHECKING:
     from collections.abc import Mapping

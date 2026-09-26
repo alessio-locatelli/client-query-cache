@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 from pymongo import AsyncMongoClient
 
-from mongo_client_cache.asynchronous.manager import CacheManager
+from client_query_cache.asynchronous.manager import CacheManager
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator

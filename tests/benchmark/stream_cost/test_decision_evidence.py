@@ -6,7 +6,7 @@ import subprocess
 import sys
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, cast
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, call
 
 import pytest
 
@@ -175,12 +175,21 @@ def test_run_decision_evidence_records_provenance_and_closes_client(
         "check_output",
         lambda *_args, **_kwargs: "abc123\n",
     )
+    version_lookup = MagicMock(return_value="0.1.0")
+    monkeypatch.setattr(decision_evidence, "version", version_lookup)
 
     if git_available:
         evidence = decision_evidence.run_decision_evidence()
+        assert evidence["schema_version"] == 2
         assert evidence["revision"] == "abc123"
         assert evidence["mongodb_container_cpu_seconds"] == pytest.approx(2.0)
         assert evidence["consolidated_stream"] == {"healthy": True}
+        versions = cast("dict[str, str]", evidence["versions"])
+        assert versions["client_query_cache"] == "0.1.0"
+        assert version_lookup.call_args_list == [
+            call("pymongo"),
+            call("client-query-cache"),
+        ]
     else:
         with pytest.raises(RuntimeError, match="git is required"):
             decision_evidence.run_decision_evidence()
@@ -193,7 +202,7 @@ def test_main_writes_decision_evidence(
     output = tmp_path / "nested" / "evidence.json"
     monkeypatch.setattr(sys, "argv", ["decision_evidence", "--output", str(output)])
     monkeypatch.setattr(
-        decision_evidence, "run_decision_evidence", lambda: {"schema_version": 1}
+        decision_evidence, "run_decision_evidence", lambda: {"schema_version": 2}
     )
     decision_evidence.main()
-    assert json.loads(output.read_text()) == {"schema_version": 1}
+    assert json.loads(output.read_text()) == {"schema_version": 2}
