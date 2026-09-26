@@ -82,6 +82,34 @@ def test_collection_retains_access_to_the_caller_owned_raw_collection(
     assert collection.name == "items"
 
 
+def test_collection_attribute_access_returns_a_cached_sub_collection_facade(
+    client: MongoClient[dict[str, Any]],
+) -> None:
+    collection = CachedCollection(
+        CacheManager(client)["example"], client["example"]["items"]
+    )
+
+    sub_collection = collection.chunks
+
+    assert isinstance(sub_collection, CachedCollection)
+    assert sub_collection.name == "items.chunks"
+    assert sub_collection.database is collection.database
+
+
+def test_collection_with_options_returns_a_cached_collection_facade(
+    client: MongoClient[dict[str, Any]],
+) -> None:
+    collection = CachedCollection(
+        CacheManager(client)["example"], client["example"]["items"]
+    )
+
+    retargeted = collection.with_options(read_preference=ReadPreference.SECONDARY)
+
+    assert isinstance(retargeted, CachedCollection)
+    assert retargeted.database is collection.database
+    assert retargeted.raw.read_preference == ReadPreference.SECONDARY
+
+
 def test_raw_collection_is_a_fully_functional_pymongo_escape_hatch(
     cache_manager: CacheManager[dict[str, Any]],
     cached_database_name: DatabaseName,
@@ -95,6 +123,33 @@ def test_raw_collection_is_a_fully_functional_pymongo_escape_hatch(
 
     assert collection.raw.find_one({"_id": document["_id"]}) == document
     assert collection.raw.count_documents({}) == 1
+
+
+def test_collection_insert_one_is_directly_callable_without_raw(
+    cache_manager: CacheManager[dict[str, Any]],
+    cached_database_name: DatabaseName,
+    nonpersistent_collection_name: CollectionName,
+    make_fake_document: Callable[..., dict[str, Any]],
+) -> None:
+    collection = cache_manager[cached_database_name][nonpersistent_collection_name]
+    document = make_fake_document()
+
+    insert_result = collection.insert_one(document)
+
+    assert insert_result.inserted_id == document["_id"]
+    assert collection.raw.find_one({"_id": document["_id"]}) == document
+
+
+def test_collection_create_index_is_directly_callable_without_raw(
+    cache_manager: CacheManager[dict[str, Any]],
+    cached_database_name: DatabaseName,
+    nonpersistent_collection_name: CollectionName,
+) -> None:
+    collection = cache_manager[cached_database_name][nonpersistent_collection_name]
+
+    index_name = collection.create_index("email", unique=True)
+
+    assert index_name in {entry["name"] for entry in collection.raw.list_indexes()}
 
 
 def test_composed_facade_and_direct_client_access_can_mix_incrementally(

@@ -3,11 +3,12 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
+from pymongo.asynchronous.collection import AsyncCollection
+from pymongo.asynchronous.database import AsyncDatabase
+
 from client_query_cache.asynchronous.collection import CachedCollection
 
 if TYPE_CHECKING:
-    from pymongo.asynchronous.database import AsyncDatabase
-
     from client_query_cache.asynchronous.manager import CacheManager
 
 
@@ -34,3 +35,19 @@ class CachedDatabase[DocumentType: Mapping[str, Any]]:
 
     def __getitem__(self, name: str) -> CachedCollection[DocumentType]:
         return CachedCollection(self, self._database[name])
+
+    def __getattr__(self, name: str) -> Any:  # noqa: ANN401
+        return self._wrap_delegated(getattr(self._database, name))
+
+    def _wrap_delegated(self, value: Any) -> Any:  # noqa: ANN401
+        if isinstance(value, AsyncCollection):
+            return CachedCollection(self, value)
+        if isinstance(value, AsyncDatabase):
+            return CachedDatabase(self._manager, value)
+        if not callable(value):
+            return value
+
+        def _delegate(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+            return self._wrap_delegated(value(*args, **kwargs))
+
+        return _delegate

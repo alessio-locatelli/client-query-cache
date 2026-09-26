@@ -23,7 +23,8 @@ your application code
         │
         ▼
 CachedCollection / CachedDatabase   (facade: find_one, find, aggregate, count_documents,
-        │                            estimated_document_count, distinct — everything else via .raw)
+        │                            estimated_document_count, distinct — everything else
+        │                            called directly, delegated to the wrapped PyMongo object)
         ▼
    CacheManager                     (one per MongoClient/AsyncMongoClient you want cached)
         │
@@ -60,7 +61,8 @@ writes and schema changes occur.
 
 ### Why only reads are cached
 
-Writes always execute directly against MongoDB through `.raw`; the cache never intercepts or replays one. Once the
+Writes always execute directly against MongoDB, whether called on the facade directly or through `.raw`; the cache
+never intercepts or replays one. Once the
 manager processes the change-stream event a write produced, it invalidates every cached result the write could have
 affected, so the next read re-fetches instead of returning stale data — that invalidation step is sufficient on its
 own to keep the cache correct, without the cache needing to know what a write changed. Populating the cache directly

@@ -5,6 +5,7 @@ from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any, cast
 
 from pymongo import ReadPreference
+from pymongo.asynchronous.collection import AsyncCollection
 from pymongo.collation import Collation
 from pymongo.cursor import CursorType
 from pymongo.errors import PyMongoError
@@ -40,7 +41,6 @@ from client_query_cache._core.unique_keys import match_unique_key
 
 if TYPE_CHECKING:
     from pymongo.asynchronous.client_session import AsyncClientSession
-    from pymongo.asynchronous.collection import AsyncCollection
     from pymongo.asynchronous.database import AsyncDatabase
 
     from client_query_cache._core.collection_metadata import CollectionProbeResult
@@ -113,6 +113,20 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
     @property
     def raw(self) -> AsyncCollection[DocumentType]:
         return self._collection
+
+    def __getattr__(self, name: str) -> Any:  # noqa: ANN401
+        return self._wrap_delegated(getattr(self._collection, name))
+
+    def _wrap_delegated(self, value: Any) -> Any:  # noqa: ANN401
+        if isinstance(value, AsyncCollection):
+            return CachedCollection(self._database, value)
+        if not callable(value):
+            return value
+
+        def _delegate(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+            return self._wrap_delegated(value(*args, **kwargs))
+
+        return _delegate
 
     async def find_one(
         self,
