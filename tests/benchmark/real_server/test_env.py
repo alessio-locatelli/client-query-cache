@@ -23,7 +23,9 @@ def _clear_real_server_env(monkeypatch: pytest.MonkeyPatch) -> None:
     ("env", "match"),
     [
         pytest.param({"GITHUB_ACTIONS": "true"}, "CI", id="github_actions"),
+        pytest.param({"GITHUB_ACTIONS": "True"}, "CI", id="github_actions_capitalized"),
         pytest.param({"CI": "true"}, "CI", id="ci"),
+        pytest.param({"CI": "1"}, "CI", id="ci_numeric"),
         pytest.param({}, "REAL_MONGODB_URI", id="missing_uri"),
     ],
 )
