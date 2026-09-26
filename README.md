@@ -45,6 +45,8 @@ A read bypasses the cache — falling back to a normal PyMongo call — whenever
 
 Leaving read concern unspecified (the common case) is treated as compatible with caching, not as a bypass condition: a cache miss reads at majority concern, which is stronger, and can be slower or less available during a network partition, than the server's own default read concern an uncached call would otherwise use.
 
+Time-series collections bypass caching because MongoDB does not provide change streams for them. Reads of a collection that does not yet exist also bypass caching and recheck its type on later reads. A missing document in an existing ordinary collection can still be cached. If a time-series collection is replaced with an ordinary collection, reads may continue to bypass until a new manager is created when MongoDB supplies no notification that refreshes the collection type.
+
 See [`docs/migration.md`](docs/migration.md) for what changed since the earlier prototype.
 
 See [stream cost benchmark reports and workload guidance](docs/stream-cost-benchmarks.md) for the controlled workload matrix.
