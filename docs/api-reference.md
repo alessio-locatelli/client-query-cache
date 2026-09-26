@@ -50,9 +50,9 @@ wrapped PyMongo object.
 
 `CachedCollection` exposes six read methods with the same names and signatures as their PyMongo equivalents:
 `find_one`, `find`, `aggregate`, `count_documents`, `estimated_document_count`, and `distinct`. Each either returns a
-cached result, admits a fresh result to the cache, or transparently bypasses to a direct PyMongo call — see the
-[README](../README.md) for the conditions that decide which of the three happens. Two methods have a narrower
-contract than their PyMongo counterparts:
+cached result, admits a fresh result to the cache, or transparently bypasses to a direct PyMongo call — see
+[Bypass conditions](#bypass-conditions) below for what decides which of the three happens. Two methods have a
+narrower contract than their PyMongo counterparts:
 
 - `find()` always returns a fully materialized `list`, not a cursor, and raises `UnsupportedCacheRequestError` if
   called with an option that only makes sense for a cursor (`cursor_type` other than `NON_TAILABLE`, or
@@ -64,6 +64,30 @@ contract than their PyMongo counterparts:
 Every other PyMongo collection method — all writes, and every read method not listed above (`find_one_and_update`,
 `find_raw_batches`, index management, and so on) — is only available through `.raw`; the facade does not expose or
 proxy it.
+
+## Bypass conditions
+
+A read bypasses the cache — executing as a normal PyMongo call instead of a lookup or admission — whenever caching
+it safely isn't possible:
+
+- The caller supplies a session, a read preference other than primary, or a read concern other than majority.
+  Leaving read concern unspecified (the common case) is treated as compatible with caching, not as a bypass
+  condition: a cache miss reads at majority concern, which is stronger, and can be slower or less available during a
+  network partition, than the server's own default read concern an uncached call would otherwise use.
+- The collection is a MongoDB view.
+- An aggregation pipeline joins another collection, writes, reports live statistics, or is otherwise
+  nondeterministic (for example a `$sample` stage or a `$rand` expression).
+- A `find`, `count_documents`, or `distinct` filter is nondeterministic.
+- The collection is a time-series collection — MongoDB does not provide change streams for time-series collections,
+  so caching bypasses unconditionally for them. If a time-series collection is later replaced with an ordinary
+  collection, reads may keep bypassing until a new manager is created, since MongoDB supplies no notification that
+  refreshes a collection's type once it's been determined to be time-series.
+- The target collection does not yet exist. Later reads recheck its type: a missing document in an existing
+  ordinary collection can still be cached, and a namespace later created as an ordinary collection can be cached
+  normally from then on.
+- The manager's change stream for that database can't be established at all (an unsupported MongoDB version or
+  topology; see [system requirements](architecture.md#system-requirements)) or is temporarily unhealthy (see
+  [recovery behavior](architecture.md#recovery-behavior)).
 
 ## Configuration
 
