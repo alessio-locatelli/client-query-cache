@@ -1,5 +1,32 @@
 # Stream cost benchmark reports
 
+## Is caching a good fit for your workload?
+
+Before enabling the cache for a workload, weigh these factors — each is covered by the retained reports below or by
+[the architecture doc](architecture.md):
+
+- **Read/write ratio.** Caching benefits read-heavy and balanced workloads the most; a write-dominant workload pays
+  the cost of processing a change-stream event and invalidating cache entries on every write, while a shrinking
+  share of reads ever reach a warm entry before it's invalidated again. Compare the `read_heavy`, `balanced`, and
+  `write_dominant` reports below for a sense of the difference.
+- **Topology and process model.** Caching a database costs one change-stream cursor per active database per
+  `CacheManager` instance (see [capacity estimation](architecture.md#capacity-estimation)); a high-fan-out or
+  short-lived-process deployment, or a manager watching many databases, pays that fixed cost more often or more
+  times over, which can outweigh the benefit for that deployment shape even when the read/write ratio looks
+  favorable.
+- **Document size.** Larger documents cost more to admit and encode into the cache and are more likely to exceed
+  `max_entry_bytes` and bypass entirely. Compare the small/medium/large report variants for a workload with a
+  document size similar to yours.
+- **Stream health.** Caching only helps while a database's change stream is healthy; a database with frequent
+  network interruptions, or a MongoDB server or topology that can't provide change streams at all (see
+  [system requirements](architecture.md#system-requirements)), bypasses the cache for that traffic instead of
+  raising an error.
+
+None of the reports below establishes a performance guarantee for your own workload, host, or MongoDB topology —
+use them to decide what to measure on your own deployment before relying on the cache in production.
+
+## Reports
+
 The [initial versioned reports](../reports/stream-cost/v1/) cover idle, read-heavy, balanced, and write-dominant workloads at small, medium, and large document sizes. Each JSON file names its workload and records the revision, versions, resource limits, workload parameters, warmup counters, latency distributions, aggregate elapsed time, process CPU, MongoDB container CPU, and logical cache and stream measurements.
 
 Run the same matrix locally with an isolated MongoDB replica set:
