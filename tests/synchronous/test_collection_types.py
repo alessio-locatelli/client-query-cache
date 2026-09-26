@@ -11,7 +11,7 @@ from pymongo.errors import OperationFailure
 from mongo_client_cache._core.keys import NamespaceId
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
 
     from faker import Faker
 
@@ -73,6 +73,13 @@ def create_collection(
         )
     else:
         collection.database.raw.create_collection(collection.name)
+
+
+def wait_until(predicate: Callable[[], bool]) -> None:
+    deadline = monotonic() + 10
+    while not predicate():
+        assert monotonic() < deadline, "Timed out waiting for change-stream delivery"
+        sleep(0.01)
 
 
 @pytest.fixture
@@ -207,15 +214,22 @@ def test_collection_type_is_rechecked_after_absence(
         assert collection.find_one({"_id": measurement["_id"]}) == measurement
         epoch = cache.current_epoch(namespace)
         collection.database.raw.drop_collection(collection.name)
-        deadline = monotonic() + 10
-        while cache.current_epoch(namespace) == epoch:
-            assert monotonic() < deadline
-            sleep(0.01)
+        wait_until(lambda: cache.current_epoch(namespace) > epoch)
     assert collection.find_one({"_id": measurement["_id"]}) is None
     assert collection.find_one({"_id": measurement["_id"]}) is None
     assert cache.snapshot().entry_count == 0
+    generation_before_create = cache.capture_namespace_generation(namespace).generation
     create_collection(collection, replacement)
     collection.raw.insert_one(measurement)
+    if replacement == "collection":
+        # Wait for both the create and insert events before priming a cache hit.
+        expected_generation = generation_before_create + 2
+        wait_until(
+            lambda: (
+                cache.capture_namespace_generation(namespace).generation
+                >= expected_generation
+            )
+        )
     assert collection.find_one({"_id": measurement["_id"]}) == measurement
     before = cache.snapshot()
     assert collection.find_one({"_id": measurement["_id"]}) == measurement
