@@ -1,6 +1,6 @@
-# mongodb-client-cache
+# client-query-cache
 
-A high-performance, process-local caching layer for PyMongo (sync and asyncio), designed to invalidate cached reads via MongoDB change streams rather than relying primarily on time-based expiry.
+Client-side caching for PyMongo, kept coherent using MongoDB change streams. The library supports synchronous and asyncio clients.
 
 The project targets realistic mixed workloads, including collections that rarely change alongside collections with frequent writes. Its intended design is to cache only operations whose results can be kept coherent safely and predictably, while falling back to direct MongoDB access for unsupported or ambiguous cases.
 
@@ -10,7 +10,9 @@ Writes are expected to participate in cache coherence, typically by invalidating
 
 ## Requirements
 
-`mongo_client_cache` requires a MongoDB server version 8.0 or newer; the manager fails to start caching against an older server.
+`client-query-cache` requires a MongoDB server version 8.0 or newer; the manager fails to start caching against an older server.
+
+Install the package with `pip install client-query-cache`.
 
 ## Status
 
@@ -19,7 +21,7 @@ Writes are expected to participate in cache coherence, typically by invalidating
 ```python
 from pymongo import MongoClient
 
-from mongo_client_cache import CacheManager
+from client_query_cache import CacheManager
 
 with (
     MongoClient("mongodb://localhost:27017") as client,
@@ -39,7 +41,7 @@ with (
 
 `CacheManager` starts a background change-stream task the first time a read touches a database, so close it (or use it as a context manager, as above) alongside the client — closing only the client leaves that background task running against a closed connection.
 
-The same facades are available for `pymongo.AsyncMongoClient` under `mongo_client_cache.asynchronous`, with the same methods as coroutines.
+The same facades are available for `pymongo.AsyncMongoClient` under `client_query_cache.asynchronous`, with the same methods as coroutines.
 
 A read bypasses the cache — falling back to a normal PyMongo call — whenever caching it safely isn't possible: when the caller supplies a session, a read preference other than primary, or a read concern other than majority; when the collection is a MongoDB view; when an aggregation pipeline joins another collection, writes, reports live statistics, or is otherwise nondeterministic; or when a `find`/`count_documents`/`distinct` filter is nondeterministic. `find()` always returns a fully materialized list rather than a cursor, so it does not support a tailable, exhaust, or partial-result read — use `collection.raw.find(...)` for those.
 
@@ -47,6 +49,8 @@ Leaving read concern unspecified (the common case) is treated as compatible with
 
 Time-series collections bypass caching because MongoDB does not provide change streams for them. Reads of a collection that does not yet exist also bypass caching and recheck its type on later reads. A missing document in an existing ordinary collection can still be cached. If a time-series collection is replaced with an ordinary collection, reads may continue to bypass until a new manager is created when MongoDB supplies no notification that refreshes the collection type.
 
-See [`docs/migration.md`](docs/migration.md) for what changed since the earlier prototype.
+See [`docs/migration.md`](docs/migration.md) for the package and import-name migration.
+
+Project repository: [github.com/alessio-locatelli/client-query-cache](https://github.com/alessio-locatelli/client-query-cache).
 
 See [stream cost benchmark reports and workload guidance](docs/stream-cost-benchmarks.md) for the controlled workload matrix.

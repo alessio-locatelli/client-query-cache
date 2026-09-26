@@ -13,7 +13,7 @@ The optional `--direct-path-proxy` flag also measures bytes on the dedicated cli
 To reproduce the [decision evidence](../reports/stream-cost/v1/decision-evidence.report.v1.json) for the consolidated stream and oversized result on your host, run:
 
 ```sh
-uv run -- python -m benchmarks.stream_cost.decision_evidence --output decision-evidence.report.v1.json
+uv run -- python -m benchmarks.stream_cost.decision_evidence --output decision-evidence.report.v2.json
 ```
 
 The runner uses the [recorded workload and decision thresholds](../reports/stream-cost/v1/decision-pre-registration.json). Compare its outcomes only with a comparable host and topology; the retained report supports decisions for its stated workload.

@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from mongo_client_cache._core.locking import LockOrderGuard, LockOrderViolationError
+from client_query_cache._core.locking import LockOrderGuard, LockOrderViolationError
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator

@@ -16,7 +16,7 @@ from benchmarks.stream_cost.errors import (
     BenchmarkConfigurationError,
     BenchmarkSetupError,
 )
-from mongo_client_cache.synchronous.manager import CacheManager
+from client_query_cache.synchronous.manager import CacheManager
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from pymongo import MongoClient
     from pymongo.synchronous.collection import Collection
 
-    from mongo_client_cache._core.manager import CacheCoreConfig
+    from client_query_cache._core.manager import CacheCoreConfig
 
 MINIMUM_REPEATED_PAIRS = 3
 _MAX_UNRELATED_WRITE_TIMESTAMPS = 10_000

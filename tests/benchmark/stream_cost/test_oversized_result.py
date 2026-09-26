@@ -12,7 +12,7 @@ from benchmarks.stream_cost.oversized_result import (
     measure_oversized_result_workload,
     time_encoder_invocations,
 )
-from mongo_client_cache._core.codec import encode_value
+from client_query_cache._core.codec import encode_value
 
 pytestmark = pytest.mark.unit
 

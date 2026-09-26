@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from mongo_client_cache._core.collection_metadata import (
+from client_query_cache._core.collection_metadata import (
     interpret_list_collections_entry,
 )
 

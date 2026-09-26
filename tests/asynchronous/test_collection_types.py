@@ -9,15 +9,15 @@ import pytest
 from pymongo import AsyncMongoClient
 from pymongo.errors import OperationFailure
 
-from mongo_client_cache._core.keys import NamespaceId
+from client_query_cache._core.keys import NamespaceId
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable
 
     from faker import Faker
 
-    from mongo_client_cache.asynchronous.collection import CachedCollection
-    from mongo_client_cache.asynchronous.manager import CacheManager
+    from client_query_cache.asynchronous.collection import CachedCollection
+    from client_query_cache.asynchronous.manager import CacheManager
     from tests.conftest import DatabaseName, MongoDbUri
 
 pytestmark = pytest.mark.integration

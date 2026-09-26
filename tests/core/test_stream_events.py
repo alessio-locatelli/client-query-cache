@@ -7,9 +7,9 @@ from unittest.mock import ANY, Mock, call
 import pytest
 from pymongo.errors import OperationFailure
 
-from mongo_client_cache._core.keys import NamespaceId
-from mongo_client_cache._core.manager import CacheCore
-from mongo_client_cache._core.stream_events import (
+from client_query_cache._core.keys import NamespaceId
+from client_query_cache._core.manager import CacheCore
+from client_query_cache._core.stream_events import (
     CHANGE_STREAM_PROJECTION,
     INDEX_OPERATION_TYPES,
     RELEVANT_OPERATION_TYPES,

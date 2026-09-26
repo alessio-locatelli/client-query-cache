@@ -2,17 +2,17 @@ import importlib
 
 import pytest
 
-import mongo_client_cache
+import client_query_cache
 
 pytestmark = pytest.mark.unit
 
 REMOVED_MODULES = (
-    "mongo_client_cache.synchronous.mongo_client",
-    "mongo_client_cache.synchronous.cursor",
-    "mongo_client_cache.cache",
-    "mongo_client_cache._types",
-    "mongo_client_cache._misc",
-    "mongo_client_cache.logger",
+    "client_query_cache.synchronous.mongo_client",
+    "client_query_cache.synchronous.cursor",
+    "client_query_cache.cache",
+    "client_query_cache._types",
+    "client_query_cache._misc",
+    "client_query_cache.logger",
 )
 
 REMOVED_TOP_LEVEL_NAMES = (
@@ -30,4 +30,4 @@ def test_prototype_module_no_longer_importable(module_name: str) -> None:
 
 @pytest.mark.parametrize("name", REMOVED_TOP_LEVEL_NAMES)
 def test_prototype_top_level_export_removed(name: str) -> None:
-    assert not hasattr(mongo_client_cache, name)
+    assert not hasattr(client_query_cache, name)

@@ -8,15 +8,15 @@ from concurrent.futures import ThreadPoolExecutor
 import pytest
 from bson.datetime_ms import DatetimeMS
 
-from mongo_client_cache._core.errors import CacheConfigurationError
-from mongo_client_cache._core.keys import NamespaceId
-from mongo_client_cache._core.manager import CacheCore, CacheCoreConfig
-from mongo_client_cache._core.stream_cost import (
+from client_query_cache._core.errors import CacheConfigurationError
+from client_query_cache._core.keys import NamespaceId
+from client_query_cache._core.manager import CacheCore, CacheCoreConfig
+from client_query_cache._core.stream_cost import (
     InvalidationApplyReading,
     LagCaptureWindowConfig,
     LagCaptureWindows,
 )
-from mongo_client_cache._core.stream_events import route_change_event
+from client_query_cache._core.stream_events import route_change_event
 
 pytestmark = pytest.mark.unit
 

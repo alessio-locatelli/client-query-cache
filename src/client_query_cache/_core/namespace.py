@@ -5,9 +5,9 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from mongo_client_cache._core.canonical import Canonical
-    from mongo_client_cache._core.entries import CacheEntry
-    from mongo_client_cache._core.keys import AliasKey, CacheKey, NamespaceId
+    from client_query_cache._core.canonical import Canonical
+    from client_query_cache._core.entries import CacheEntry
+    from client_query_cache._core.keys import AliasKey, CacheKey, NamespaceId
 
 
 @dataclass(slots=True)

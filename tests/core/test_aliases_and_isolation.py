@@ -4,14 +4,14 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from mongo_client_cache._core.entries import AdmissionOutcome
-from mongo_client_cache._core.keys import canonical_alias_key
-from mongo_client_cache._core.manager import CacheCore, CacheCoreConfig
+from client_query_cache._core.entries import AdmissionOutcome
+from client_query_cache._core.keys import canonical_alias_key
+from client_query_cache._core.manager import CacheCore, CacheCoreConfig
 from tests.core.conftest import patch_conditional_put_hook
 
 if TYPE_CHECKING:
-    from mongo_client_cache._core.entries import CacheEntry
-    from mongo_client_cache._core.keys import CacheKey, NamespaceId
+    from client_query_cache._core.entries import CacheEntry
+    from client_query_cache._core.keys import CacheKey, NamespaceId
 
 pytestmark = pytest.mark.unit
 

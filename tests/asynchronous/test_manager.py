@@ -5,10 +5,10 @@ import pytest
 from pymongo import AsyncMongoClient
 from pymongo.asynchronous.database import AsyncDatabase
 
-from mongo_client_cache._core.keys import NamespaceId
-from mongo_client_cache._core.lifecycle import CacheLifecycleState
-from mongo_client_cache.asynchronous.database import CachedDatabase
-from mongo_client_cache.asynchronous.manager import CacheManager
+from client_query_cache._core.keys import NamespaceId
+from client_query_cache._core.lifecycle import CacheLifecycleState
+from client_query_cache.asynchronous.database import CachedDatabase
+from client_query_cache.asynchronous.manager import CacheManager
 
 pytestmark = pytest.mark.unit
 

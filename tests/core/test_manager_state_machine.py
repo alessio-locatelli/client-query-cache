@@ -11,9 +11,9 @@ from hypothesis.stateful import (
     run_state_machine_as_test,
 )
 
-from mongo_client_cache._core.entries import AdmissionOutcome
-from mongo_client_cache._core.keys import NamespaceId
-from mongo_client_cache._core.manager import CacheCore
+from client_query_cache._core.entries import AdmissionOutcome
+from client_query_cache._core.keys import NamespaceId
+from client_query_cache._core.manager import CacheCore
 
 pytestmark = pytest.mark.unit
 

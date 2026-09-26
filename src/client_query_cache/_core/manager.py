@@ -8,26 +8,26 @@ from typing import TYPE_CHECKING
 
 from bson.errors import BSONError
 
-from mongo_client_cache._core.canonical import canonicalize, is_canonicalizable
-from mongo_client_cache._core.codec import decode_value, encode_value
-from mongo_client_cache._core.entries import AdmissionOutcome, CacheEntry, LookupResult
-from mongo_client_cache._core.errors import (
+from client_query_cache._core.canonical import canonicalize, is_canonicalizable
+from client_query_cache._core.codec import decode_value, encode_value
+from client_query_cache._core.entries import AdmissionOutcome, CacheEntry, LookupResult
+from client_query_cache._core.errors import (
     CacheClosedError,
     CacheConfigurationError,
     UnsupportedCacheRequestError,
 )
-from mongo_client_cache._core.keys import (
+from client_query_cache._core.keys import (
     IdentityCacheKey,
     NamespaceCacheKey,
     canonical_alias_key,
 )
-from mongo_client_cache._core.lifecycle import CacheLifecycleState
-from mongo_client_cache._core.locking import LockOrderGuard
-from mongo_client_cache._core.lru import WeightedLru
-from mongo_client_cache._core.namespace import IdentityState, NamespaceState
-from mongo_client_cache._core.order_sensitive_keys import order_sensitive_key
-from mongo_client_cache._core.snapshots import CacheSnapshot, CacheStatistics
-from mongo_client_cache._core.stream_cost import (
+from client_query_cache._core.lifecycle import CacheLifecycleState
+from client_query_cache._core.locking import LockOrderGuard
+from client_query_cache._core.lru import WeightedLru
+from client_query_cache._core.namespace import IdentityState, NamespaceState
+from client_query_cache._core.order_sensitive_keys import order_sensitive_key
+from client_query_cache._core.snapshots import CacheSnapshot, CacheStatistics
+from client_query_cache._core.stream_cost import (
     DEFAULT_LAG_CAPTURE_WINDOW_CONFIG,
     LagCaptureWindowConfig,
     StreamCostRegistry,
@@ -40,8 +40,8 @@ if TYPE_CHECKING:
 
     from bson.codec_options import CodecOptions
 
-    from mongo_client_cache._core.canonical import Canonical
-    from mongo_client_cache._core.keys import AliasKey, CacheKey, NamespaceId
+    from client_query_cache._core.canonical import Canonical
+    from client_query_cache._core.keys import AliasKey, CacheKey, NamespaceId
 
 DEFAULT_SHARED_BUDGET_BYTES = 64 * 1024 * 1024
 DEFAULT_MAX_ENTRY_BYTES = 1 * 1024 * 1024

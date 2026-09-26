@@ -18,10 +18,10 @@ from pymongo.cursor import CursorType
 from pymongo.errors import ConnectionFailure, OperationFailure
 from pymongo.read_concern import ReadConcern
 
-from mongo_client_cache._core.errors import UnsupportedCacheRequestError
-from mongo_client_cache._core.manager import CacheCore, CacheCoreConfig
-from mongo_client_cache.asynchronous.collection import CachedCollection
-from mongo_client_cache.asynchronous.manager import CacheManager
+from client_query_cache._core.errors import UnsupportedCacheRequestError
+from client_query_cache._core.manager import CacheCore, CacheCoreConfig
+from client_query_cache.asynchronous.collection import CachedCollection
+from client_query_cache.asynchronous.manager import CacheManager
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable, Coroutine
@@ -628,7 +628,7 @@ async def test_find_one_bypasses_cache_when_view_inspection_fails(
         raise probe_error
 
     with (
-        caplog.at_level("WARNING", logger="mongo_client_cache.asynchronous.collection"),
+        caplog.at_level("WARNING", logger="client_query_cache.asynchronous.collection"),
         patch.object(AsyncDatabase, "list_collections", side_effect=_raise),
         patch.object(
             AsyncCollection,
@@ -1001,7 +1001,7 @@ async def test_find_one_bypasses_when_identity_normalization_yields_an_unhashabl
 
     with (
         patch(
-            "mongo_client_cache.asynchronous.collection.normalize_identity_for_cache_key",
+            "client_query_cache.asynchronous.collection.normalize_identity_for_cache_key",
             return_value={1, 2, 3},
         ),
         patch.object(

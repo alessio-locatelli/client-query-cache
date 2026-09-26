@@ -6,14 +6,14 @@ from typing import TYPE_CHECKING, Any
 
 from bson.datetime_ms import DatetimeMS
 
-from mongo_client_cache._core.keys import NamespaceId
+from client_query_cache._core.keys import NamespaceId
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from pymongo.errors import OperationFailure
 
-    from mongo_client_cache._core.manager import CacheCore
+    from client_query_cache._core.manager import CacheCore
 
 NONRESUMABLE_CHANGE_STREAM_ERROR_LABEL = "NonResumableChangeStreamError"
 CHANGE_STREAM_HISTORY_LOST_CODE = 286

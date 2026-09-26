@@ -4,12 +4,12 @@ import threading
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from mongo_client_cache._core.collation import normalize_collation
+from client_query_cache._core.collation import normalize_collation
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from mongo_client_cache._core.keys import NamespaceId
+    from client_query_cache._core.keys import NamespaceId
 
 
 @dataclass(frozen=True, slots=True)

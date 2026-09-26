@@ -30,9 +30,9 @@ from benchmarks.stream_cost.oversized_result import measure_oversized_result_wor
 from benchmarks.stream_cost.pair_runner import PairResult, run_consolidated_stream_pairs
 from benchmarks.stream_cost.topology import IsolatedReplicaSet, ResourceLimits
 from benchmarks.stream_cost.workload import verify_oversized_primed
-from mongo_client_cache._core.manager import CacheCoreConfig
-from mongo_client_cache._core.stream_cost import LagCaptureWindowConfig
-from mongo_client_cache.synchronous.manager import CacheManager
+from client_query_cache._core.manager import CacheCoreConfig
+from client_query_cache._core.stream_cost import LagCaptureWindowConfig
+from client_query_cache.synchronous.manager import CacheManager
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -299,14 +299,14 @@ def run_decision_evidence() -> dict[str, object]:
     if git_path is None:
         raise RuntimeError("git is required to identify the benchmark revision")
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "revision": subprocess.check_output(  # noqa: S603 - fixed git arguments
             [git_path, "rev-parse", "--short=7", "HEAD"], text=True, shell=False
         ).strip(),
         "versions": {
             "python": platform.python_version(),
             "pymongo": version("pymongo"),
-            "mongo_client_cache": version("mongo-client-cache"),
+            "client_query_cache": version("client-query-cache"),
             "mongodb": mongodb_version,
         },
         "topology": "isolated single-member replica set",

@@ -10,25 +10,25 @@ from pymongo import AsyncMongoClient
 from pymongo.asynchronous.collection import AsyncCollection
 from pymongo.errors import ConnectionFailure, OperationFailure
 
-from mongo_client_cache._core.canonical import canonicalize
-from mongo_client_cache._core.codec import codec_fingerprint
-from mongo_client_cache._core.keys import (
+from client_query_cache._core.canonical import canonicalize
+from client_query_cache._core.codec import codec_fingerprint
+from client_query_cache._core.keys import (
     IdentityCacheKey,
     NamespaceId,
     canonical_alias_key,
 )
-from mongo_client_cache._core.manager import CacheCore, CacheCoreConfig
-from mongo_client_cache._core.order_sensitive_keys import (
+from client_query_cache._core.manager import CacheCore, CacheCoreConfig
+from client_query_cache._core.order_sensitive_keys import (
     order_sensitive_discriminator_key,
 )
-from mongo_client_cache.asynchronous.manager import CacheManager
+from client_query_cache.asynchronous.manager import CacheManager
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable, Coroutine, Iterator
 
     from faker import Faker
 
-    from mongo_client_cache.asynchronous.collection import CachedCollection
+    from client_query_cache.asynchronous.collection import CachedCollection
     from tests.conftest import CollectionName, DatabaseName, MongoDbUri
 
 pytestmark = pytest.mark.integration
@@ -727,7 +727,7 @@ async def test_unique_key_match_skips_admission_for_an_uncacheable_identity(
 
     with (
         patch(
-            "mongo_client_cache.asynchronous.collection.normalize_identity_for_cache_key",
+            "client_query_cache.asynchronous.collection.normalize_identity_for_cache_key",
             return_value=cache_identity,
         ),
         patch.object(
@@ -774,7 +774,7 @@ async def test_unique_key_read_bypasses_cache_when_index_inspection_fails(
         raise probe_error
 
     with (
-        caplog.at_level("WARNING", logger="mongo_client_cache.asynchronous.collection"),
+        caplog.at_level("WARNING", logger="client_query_cache.asynchronous.collection"),
         patch.object(AsyncCollection, "list_indexes", side_effect=_raise),
         patch.object(
             AsyncCollection,

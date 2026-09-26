@@ -25,9 +25,9 @@ if TYPE_CHECKING:
 
     from pymongo.synchronous.collection import Collection
 
-    from mongo_client_cache._core.snapshots import CacheSnapshot
-    from mongo_client_cache.synchronous.collection import CachedCollection
-    from mongo_client_cache.synchronous.manager import CacheManager
+    from client_query_cache._core.snapshots import CacheSnapshot
+    from client_query_cache.synchronous.collection import CachedCollection
+    from client_query_cache.synchronous.manager import CacheManager
 
 _WARMUP_READ_REPEATS = 2
 

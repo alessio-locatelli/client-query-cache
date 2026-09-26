@@ -9,10 +9,10 @@ from hypothesis.stateful import (
     run_state_machine_as_test,
 )
 
-from mongo_client_cache._core.entries import CacheEntry
-from mongo_client_cache._core.keys import NamespaceCacheKey, NamespaceId
-from mongo_client_cache._core.locking import LockOrderGuard
-from mongo_client_cache._core.lru import WeightedLru
+from client_query_cache._core.entries import CacheEntry
+from client_query_cache._core.keys import NamespaceCacheKey, NamespaceId
+from client_query_cache._core.locking import LockOrderGuard
+from client_query_cache._core.lru import WeightedLru
 
 pytestmark = pytest.mark.unit
 

@@ -13,12 +13,12 @@ from bson.binary import UuidRepresentation
 from bson.codec_options import CodecOptions
 from pymongo.errors import ConnectionFailure, OperationFailure
 
-from mongo_client_cache._core.entries import AdmissionOutcome
-from mongo_client_cache._core.errors import StreamLifecycleError, StreamStartupError
-from mongo_client_cache._core.keys import NamespaceId
-from mongo_client_cache._core.manager import CacheCore
-from mongo_client_cache._core.stream_health import RetryBackoff, StreamHealth
-from mongo_client_cache.asynchronous.streams import (
+from client_query_cache._core.entries import AdmissionOutcome
+from client_query_cache._core.errors import StreamLifecycleError, StreamStartupError
+from client_query_cache._core.keys import NamespaceId
+from client_query_cache._core.manager import CacheCore
+from client_query_cache._core.stream_health import RetryBackoff, StreamHealth
+from client_query_cache.asynchronous.streams import (
     ChangeStreamCoordinator,
     DatabaseStreamSupervisor,
 )

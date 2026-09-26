@@ -3,11 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, NamedTuple
 
-from mongo_client_cache._core.canonical import canonicalize
-from mongo_client_cache._core.order_sensitive_keys import order_sensitive_key
+from client_query_cache._core.canonical import canonicalize
+from client_query_cache._core.order_sensitive_keys import order_sensitive_key
 
 if TYPE_CHECKING:
-    from mongo_client_cache._core.canonical import Canonical
+    from client_query_cache._core.canonical import Canonical
 
 
 class NamespaceId(NamedTuple):

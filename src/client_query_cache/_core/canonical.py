@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Hashable, Mapping, Sequence
 
-from mongo_client_cache._core.errors import UnsupportedCacheRequestError
+from client_query_cache._core.errors import UnsupportedCacheRequestError
 
 type Canonical = Hashable
 

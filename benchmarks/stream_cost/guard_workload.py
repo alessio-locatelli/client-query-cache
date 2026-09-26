@@ -17,14 +17,14 @@ from benchmarks.stream_cost.generators import (
     DocumentSizeProfile,
     generate_seeded_documents,
 )
-from mongo_client_cache._core.stream_events import route_change_event
-from mongo_client_cache.asynchronous.manager import CacheManager as AsyncCacheManager
-from mongo_client_cache.synchronous.manager import CacheManager
+from client_query_cache._core.stream_events import route_change_event
+from client_query_cache.asynchronous.manager import CacheManager as AsyncCacheManager
+from client_query_cache.synchronous.manager import CacheManager
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from mongo_client_cache._core.snapshots import CacheSnapshot
+    from client_query_cache._core.snapshots import CacheSnapshot
 
 PROFILES: tuple[DocumentSizeProfile, ...] = (
     SMALL_DOCUMENT_PROFILE,

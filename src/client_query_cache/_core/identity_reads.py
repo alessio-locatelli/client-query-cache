@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 from bson.errors import BSONError
 from bson.regex import Regex
 
-from mongo_client_cache._core.codec import decode_value, encode_value
+from client_query_cache._core.codec import decode_value, encode_value
 
 if TYPE_CHECKING:
     from bson.codec_options import CodecOptions

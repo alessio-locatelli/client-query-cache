@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from mongo_client_cache._core.stream_health import RetryBackoff
+from client_query_cache._core.stream_health import RetryBackoff
 
 pytestmark = pytest.mark.unit
 

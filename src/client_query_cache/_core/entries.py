@@ -5,8 +5,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from mongo_client_cache._core.canonical import Canonical
-    from mongo_client_cache._core.keys import NamespaceId
+    from client_query_cache._core.canonical import Canonical
+    from client_query_cache._core.keys import NamespaceId
 
 
 class AdmissionOutcome(enum.Enum):

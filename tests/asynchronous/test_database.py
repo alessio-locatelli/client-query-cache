@@ -4,9 +4,9 @@ import pytest
 from pymongo import AsyncMongoClient
 from pymongo.asynchronous.collection import AsyncCollection
 
-from mongo_client_cache.asynchronous.collection import CachedCollection
-from mongo_client_cache.asynchronous.database import CachedDatabase
-from mongo_client_cache.asynchronous.manager import CacheManager
+from client_query_cache.asynchronous.collection import CachedCollection
+from client_query_cache.asynchronous.database import CachedDatabase
+from client_query_cache.asynchronous.manager import CacheManager
 
 pytestmark = pytest.mark.unit
 

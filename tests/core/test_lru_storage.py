@@ -4,14 +4,14 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from mongo_client_cache._core.entries import AdmissionOutcome
-from mongo_client_cache._core.errors import CacheConfigurationError
-from mongo_client_cache._core.manager import CacheCore, CacheCoreConfig
+from client_query_cache._core.entries import AdmissionOutcome
+from client_query_cache._core.errors import CacheConfigurationError
+from client_query_cache._core.manager import CacheCore, CacheCoreConfig
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from mongo_client_cache._core.keys import NamespaceId
+    from client_query_cache._core.keys import NamespaceId
 
 pytestmark = pytest.mark.unit
 

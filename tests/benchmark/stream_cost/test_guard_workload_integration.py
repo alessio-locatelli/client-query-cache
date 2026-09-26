@@ -7,14 +7,14 @@ import pytest
 from benchmarks.stream_cost import guard_workload
 from benchmarks.stream_cost.errors import BenchmarkSetupError
 from benchmarks.stream_cost.guard_workload import CASE_NAMES, PROFILES, run_case
-from mongo_client_cache._core.stream_events import route_change_event
-from mongo_client_cache.synchronous.collection import CachedCollection
+from client_query_cache._core.stream_events import route_change_event
+from client_query_cache.synchronous.collection import CachedCollection
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
     from typing import Any
 
-    from mongo_client_cache._core.manager import CacheCore
+    from client_query_cache._core.manager import CacheCore
     from tests.conftest import MongoDbUri
 
 pytestmark = pytest.mark.integration

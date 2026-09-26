@@ -3,19 +3,19 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
-from mongo_client_cache.asynchronous.collection import CachedCollection
+from client_query_cache.synchronous.collection import CachedCollection
 
 if TYPE_CHECKING:
-    from pymongo.asynchronous.database import AsyncDatabase
+    from pymongo.synchronous.database import Database
 
-    from mongo_client_cache.asynchronous.manager import CacheManager
+    from client_query_cache.synchronous.manager import CacheManager
 
 
 class CachedDatabase[DocumentType: Mapping[str, Any]]:
     __slots__ = ("_database", "_manager")
 
     def __init__(
-        self, manager: CacheManager[DocumentType], database: AsyncDatabase[DocumentType]
+        self, manager: CacheManager[DocumentType], database: Database[DocumentType]
     ) -> None:
         self._manager = manager
         self._database = database
@@ -29,7 +29,7 @@ class CachedDatabase[DocumentType: Mapping[str, Any]]:
         return self._database.name
 
     @property
-    def raw(self) -> AsyncDatabase[DocumentType]:
+    def raw(self) -> Database[DocumentType]:
         return self._database
 
     def __getitem__(self, name: str) -> CachedCollection[DocumentType]:

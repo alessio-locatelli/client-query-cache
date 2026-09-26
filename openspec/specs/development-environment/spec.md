@@ -10,7 +10,7 @@ This capability gives every contributor a reproducible local build, dependency, 
 
 The repository SHALL use `uv` for dependency resolution, environments, and package builds, SHALL
 configure `uv_build` with `module-root = "src"` for the
-`src/mongo_client_cache/` package, SHALL commit `uv.lock`, and SHALL support CPython 3.14+. Its
+`src/client_query_cache/` package, SHALL commit `uv.lock`, and SHALL support CPython 3.14+. Its
 published PyMongo dependency SHALL declare the lower bound required for the supported native async
 API. The declared dependency metadata SHALL be the sole maintained source of that concrete lower
 bound: the minimum-version validation SHALL resolve and exercise it without repeating a version in
@@ -28,7 +28,7 @@ Published runtime dependencies SHALL remain distinct from development tooling.
 #### Scenario: Source-layout distributions are built
 
 - **WHEN** a contributor builds the project distribution
-- **THEN** each resulting source and wheel distribution contains `mongo_client_cache` and imports
+- **THEN** each resulting source and wheel distribution contains `client_query_cache` and imports
   successfully in a clean environment
 
 #### Scenario: The minimum PyMongo version is exercised

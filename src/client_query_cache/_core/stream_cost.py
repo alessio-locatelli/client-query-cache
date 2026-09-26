@@ -4,7 +4,7 @@ import threading
 from collections import deque
 from dataclasses import dataclass
 
-from mongo_client_cache._core.errors import CacheConfigurationError
+from client_query_cache._core.errors import CacheConfigurationError
 
 INVALIDATION_LAG_CLOCK_SKEW_LIMITATION = (
     "raw invalidation-delivery-lag values include unmeasured clock offset between "

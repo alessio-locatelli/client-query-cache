@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 
-from mongo_client_cache._core.read_validation import (
+from client_query_cache._core.read_validation import (
     is_filter_cacheable,
     is_pipeline_cacheable,
     is_projection_cacheable,

@@ -5,17 +5,17 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from mongo_client_cache._core.errors import CacheClosedError
-from mongo_client_cache._core.keys import NamespaceId
-from mongo_client_cache._core.lifecycle import CacheLifecycleState
-from mongo_client_cache._core.manager import CacheCore
+from client_query_cache._core.errors import CacheClosedError
+from client_query_cache._core.keys import NamespaceId
+from client_query_cache._core.lifecycle import CacheLifecycleState
+from client_query_cache._core.manager import CacheCore
 from tests.core.conftest import patch_conditional_put_hook
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from mongo_client_cache._core.entries import CacheEntry
-    from mongo_client_cache._core.keys import CacheKey
+    from client_query_cache._core.entries import CacheEntry
+    from client_query_cache._core.keys import CacheKey
 
 pytestmark = pytest.mark.unit
 

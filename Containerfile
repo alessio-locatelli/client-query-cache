@@ -33,4 +33,4 @@ RUN dnf install --assumeyes \
     && test "$(taplo --version)" = "taplo ${TAPLO_TOOL_VERSION}"
 
 LABEL com.github.containers.toolbox="true" \
-      org.opencontainers.image.title="mongodb-client-cache development environment"
+      org.opencontainers.image.title="client-query-cache development environment"

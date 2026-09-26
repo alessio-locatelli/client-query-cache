@@ -19,9 +19,9 @@ from benchmarks.stream_cost.consolidated_stream import (
 )
 from benchmarks.stream_cost.errors import BenchmarkSetupError
 from benchmarks.stream_cost.pair_runner import run_consolidated_stream_pair
-from mongo_client_cache._core.manager import CacheCoreConfig
-from mongo_client_cache._core.stream_cost import LagCaptureWindowConfig
-from mongo_client_cache.synchronous.manager import CacheManager
+from client_query_cache._core.manager import CacheCoreConfig
+from client_query_cache._core.stream_cost import LagCaptureWindowConfig
+from client_query_cache.synchronous.manager import CacheManager
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -62,6 +62,25 @@ def database(
     name = f"test_{uuid.uuid4().hex}"
     yield name
     client.drop_database(name)
+
+
+@pytest.fixture
+def cache_manager_factory(
+    dedicated_client_and_listener: tuple[
+        MongoClient[dict[str, Any]], TopologyChangeListener
+    ],
+    request: pytest.FixtureRequest,
+) -> Callable[[CacheCoreConfig | None], CacheManager[dict[str, Any]]]:
+    client, _listener = dedicated_client_and_listener
+
+    def create_cache_manager(
+        cache_config: CacheCoreConfig | None = None,
+    ) -> CacheManager[dict[str, Any]]:
+        manager = CacheManager(client, cache_config=cache_config)
+        request.addfinalizer(manager.close)
+        return manager
+
+    return create_cache_manager
 
 
 def test_run_consolidated_stream_pair_produces_a_lag_distribution_per_run(
@@ -196,18 +215,17 @@ def test_run_consolidated_stream_pair_rejects_a_run_with_too_few_windows(
 
 def test_execute_run_reports_observed_invalidations_not_the_schedule_length(
     monkeypatch: pytest.MonkeyPatch,
-    dedicated_client_and_listener: tuple[
-        MongoClient[dict[str, Any]], TopologyChangeListener
-    ],
     database: str,
+    cache_manager_factory: Callable[
+        [CacheCoreConfig | None], CacheManager[dict[str, Any]]
+    ],
 ) -> None:
-    client, _listener = dedicated_client_and_listener
     cache_config = CacheCoreConfig(
         lag_capture_window_config=LagCaptureWindowConfig(
             window_count=2, events_per_window=1, min_separation_events=0
         )
     )
-    manager = CacheManager(client, cache_config=cache_config)
+    manager = cache_manager_factory(cache_config)
 
     def double_issue_replay(
         issue_write: Callable[[], None], *_args: object, **_kwargs: object
@@ -240,18 +258,15 @@ def test_execute_run_reports_observed_invalidations_not_the_schedule_length(
         warmup_duration_seconds=0.01,
     )
 
-    try:
-        run_result = pair_runner._execute_run(
-            manager,
-            database=database,
-            relevant_collection_names=["relevant_a", "relevant_b"],
-            unrelated_collection_name="unrelated",
-            config=config,
-            schedule=(0.0,),
-            variant=PairVariant.CONTROL,
-        )
-    finally:
-        manager.close()
+    run_result = pair_runner._execute_run(
+        manager,
+        database=database,
+        relevant_collection_names=["relevant_a", "relevant_b"],
+        unrelated_collection_name="unrelated",
+        config=config,
+        schedule=(0.0,),
+        variant=PairVariant.CONTROL,
+    )
 
     assert run_result.relevant_write_count == 2
 
@@ -275,13 +290,12 @@ class _RecordingUnrelatedWriteWorkload:
 
 def test_execute_run_stops_the_unrelated_writer_when_replay_fails(
     monkeypatch: pytest.MonkeyPatch,
-    dedicated_client_and_listener: tuple[
-        MongoClient[dict[str, Any]], TopologyChangeListener
-    ],
     database: str,
+    cache_manager_factory: Callable[
+        [CacheCoreConfig | None], CacheManager[dict[str, Any]]
+    ],
 ) -> None:
-    client, _listener = dedicated_client_and_listener
-    manager = CacheManager(client)
+    manager = cache_manager_factory(None)
 
     _RecordingUnrelatedWriteWorkload.instances.clear()
     monkeypatch.setattr(
@@ -311,19 +325,16 @@ def test_execute_run_stops_the_unrelated_writer_when_replay_fails(
         warmup_duration_seconds=0.01,
     )
 
-    try:
-        with pytest.raises(BenchmarkSetupError, match="simulated replay failure"):
-            pair_runner._execute_run(
-                manager,
-                database=database,
-                relevant_collection_names=["relevant_a", "relevant_b"],
-                unrelated_collection_name="unrelated",
-                config=config,
-                schedule=(0.0,),
-                variant=PairVariant.LOADED,
-            )
-    finally:
-        manager.close()
+    with pytest.raises(BenchmarkSetupError, match="simulated replay failure"):
+        pair_runner._execute_run(
+            manager,
+            database=database,
+            relevant_collection_names=["relevant_a", "relevant_b"],
+            unrelated_collection_name="unrelated",
+            config=config,
+            schedule=(0.0,),
+            variant=PairVariant.LOADED,
+        )
 
     assert len(_RecordingUnrelatedWriteWorkload.instances) == 1
     assert _RecordingUnrelatedWriteWorkload.instances[0].stopped is True

@@ -6,8 +6,8 @@ import pytest
 from hypothesis import example, given
 from hypothesis import strategies as st
 
-from mongo_client_cache._core.canonical import canonicalize
-from mongo_client_cache._core.errors import UnsupportedCacheRequestError
+from client_query_cache._core.canonical import canonicalize
+from client_query_cache._core.errors import UnsupportedCacheRequestError
 
 pytestmark = pytest.mark.unit
 
