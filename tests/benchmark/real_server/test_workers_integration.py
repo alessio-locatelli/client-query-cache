@@ -43,6 +43,7 @@ def test_writer_seeds_and_repeatedly_updates_documents(
     document_ids: list[str],
 ) -> None:
     stop_event = multiprocessing.Event()
+    ready_event = multiprocessing.Event()
     writer = threading.Thread(
         target=write_documents_until_stopped,
         args=(mongodb_uri, seed_documents, document_ids),
@@ -50,6 +51,7 @@ def test_writer_seeds_and_repeatedly_updates_documents(
             "update_interval_seconds": _WRITER_UPDATE_INTERVAL_SECONDS,
             "stop_event": stop_event,
             "collection_name": COLLECTION_NAME,
+            "ready_event": ready_event,
         },
     )
     writer.start()
