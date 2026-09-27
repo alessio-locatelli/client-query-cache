@@ -2,7 +2,7 @@
 
 ## Context
 
-Every existing benchmark (`tests/benchmark/stream_cost/`) and integration/e2e tier runs against a `testcontainers`-managed, single-node local replica set (`tests/conftest.py::mongodb_uri`). None of that infrastructure reaches a real, network-attached deployment, so it can't be reused for connection setup here — this benchmark needs its own, separate fixture chain. See proposal.md for the motivating gap and for what changes.
+See proposal.md - Why and What Changes. The existing `tests/conftest.py::mongodb_uri` fixture only reaches a local `testcontainers` deployment, so it can't be reused for this benchmark's connection setup — this benchmark needs its own, separate fixture chain.
 
 ## Non-Goals
 
