@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import multiprocessing
 import time
-from concurrent.futures import ProcessPoolExecutor
 from typing import TYPE_CHECKING
 
 import pytest
@@ -10,7 +9,7 @@ import pytest
 from tests.benchmark.real_server.workers import (
     ReadPhaseResult,
     drop_benchmark_collection,
-    read_documents_repeatedly,
+    read_documents_repeatedly_into_queue,
     write_documents_until_stopped,
 )
 
@@ -28,6 +27,7 @@ _MEASURED_CYCLES = 4
 _WRITER_UPDATE_INTERVAL_SECONDS = 0.1
 _WRITER_SEED_SETTLE_SECONDS = 1.0
 _READER_PHASE_TIMEOUT_SECONDS = 15.0
+_WRITER_SHUTDOWN_TIMEOUT_SECONDS = 5.0
 _MAXIMUM_TOTAL_DURATION_SECONDS = 20.0
 
 _MINIMUM_CACHE_SPEEDUP_FACTOR = 2.0
@@ -59,16 +59,28 @@ _CACHED_DURATION_CEILING_SECONDS = (
 def _run_reader_phase(
     uri: RealMongoDbUri, document_ids: list[str], *, use_cache: bool
 ) -> ReadPhaseResult:
-    with ProcessPoolExecutor(max_workers=1) as executor:
-        future = executor.submit(
-            read_documents_repeatedly,
-            uri,
-            document_ids,
-            use_cache=use_cache,
-            warmup_cycles=_WARMUP_CYCLES,
-            measured_cycles=_MEASURED_CYCLES,
-        )
-        return future.result(timeout=_READER_PHASE_TIMEOUT_SECONDS)
+    result_queue: multiprocessing.Queue[ReadPhaseResult] = multiprocessing.Queue()
+    reader = multiprocessing.Process(
+        target=read_documents_repeatedly_into_queue,
+        args=(result_queue, uri, document_ids),
+        kwargs={
+            "use_cache": use_cache,
+            "warmup_cycles": _WARMUP_CYCLES,
+            "measured_cycles": _MEASURED_CYCLES,
+        },
+    )
+    reader.start()
+    try:
+        reader.join(timeout=_READER_PHASE_TIMEOUT_SECONDS)
+        if reader.is_alive():
+            reader.terminate()  # pragma: no cover (requires a stalled real deployment)
+            reader.join()  # pragma: no cover (requires a stalled real deployment)
+            raise TimeoutError(
+                "reader phase did not complete within its timeout"
+            )  # pragma: no cover (requires a stalled real deployment)
+        return result_queue.get_nowait()
+    finally:
+        result_queue.close()
 
 
 def test_cache_provides_at_least_2x_benefit_over_direct_pymongo(
@@ -89,10 +101,10 @@ def test_cache_provides_at_least_2x_benefit_over_direct_pymongo(
         ),
     )
     overall_start = time.perf_counter()
-    writer.start()
-    time.sleep(_WRITER_SEED_SETTLE_SECONDS)
 
     try:
+        writer.start()
+        time.sleep(_WRITER_SEED_SETTLE_SECONDS)
         cached_result = _run_reader_phase(
             real_mongodb_uri, document_ids, use_cache=True
         )
@@ -101,7 +113,10 @@ def test_cache_provides_at_least_2x_benefit_over_direct_pymongo(
         )
     finally:
         stop_event.set()
-        writer.join()
+        writer.join(timeout=_WRITER_SHUTDOWN_TIMEOUT_SECONDS)
+        if writer.is_alive():
+            writer.terminate()  # pragma: no cover (requires a stalled real deployment)
+            writer.join()  # pragma: no cover (requires a stalled real deployment)
         drop_benchmark_collection(real_mongodb_uri)
 
     overall_duration = time.perf_counter() - overall_start

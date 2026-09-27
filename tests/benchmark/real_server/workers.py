@@ -11,6 +11,7 @@ from client_query_cache.synchronous.manager import CacheManager
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+    from multiprocessing import Queue
     from multiprocessing.synchronize import Event as EventClass
 
     from pymongo.monitoring import CommandStartedEvent, CommandSucceededEvent
@@ -134,3 +135,22 @@ def read_documents_repeatedly(
         return _timed_read_cycles(
             raw_collection, document_ids, warmup_cycles, measured_cycles, counter
         )
+
+
+def read_documents_repeatedly_into_queue(
+    result_queue: Queue[ReadPhaseResult],
+    uri: str,
+    document_ids: Sequence[str],
+    *,
+    use_cache: bool,
+    warmup_cycles: int,
+    measured_cycles: int,
+) -> None:
+    read_result = read_documents_repeatedly(
+        uri,
+        document_ids,
+        use_cache=use_cache,
+        warmup_cycles=warmup_cycles,
+        measured_cycles=measured_cycles,
+    )
+    result_queue.put(read_result)

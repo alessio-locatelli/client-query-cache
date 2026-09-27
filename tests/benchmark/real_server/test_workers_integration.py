@@ -11,6 +11,7 @@ from tests.benchmark.real_server.workers import (
     COLLECTION_NAME,
     DATABASE_NAME,
     read_documents_repeatedly,
+    read_documents_repeatedly_into_queue,
     write_documents_until_stopped,
 )
 
@@ -99,3 +100,25 @@ def test_reader_find_command_count(
         0 if use_cache else len(document_ids) * _MEASURED_CYCLES
     )
     assert read_result.find_command_count == expected_find_command_count
+
+
+def test_read_documents_repeatedly_into_queue_puts_the_result(
+    mongodb_uri: MongoDbUri,
+    seed_documents: list[dict[str, Any]],
+    document_ids: list[str],
+) -> None:
+    with MongoClient[dict[str, Any]](mongodb_uri) as client:
+        client[DATABASE_NAME][COLLECTION_NAME].insert_many(seed_documents)
+
+    result_queue: multiprocessing.Queue[Any] = multiprocessing.Queue()
+    read_documents_repeatedly_into_queue(
+        result_queue,
+        mongodb_uri,
+        document_ids,
+        use_cache=False,
+        warmup_cycles=1,
+        measured_cycles=_MEASURED_CYCLES,
+    )
+
+    read_result = result_queue.get(timeout=5)
+    assert read_result.find_command_count == len(document_ids) * _MEASURED_CYCLES
