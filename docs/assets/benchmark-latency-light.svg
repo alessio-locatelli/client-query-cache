@@ -1,12 +1,26 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 190" width="560" height="190" role="img" aria-label="Local server: median read latency, direct MongoDB read 120 microseconds versus cached read hit 61 microseconds, about 2.0 times faster">
-  <rect x="0" y="0" width="560" height="190" fill="#fcfcfb" rx="8"/>
-  <text x="16" y="26" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="15" font-weight="600" fill="#0b0b0b">Local server: ~2.0&#215; faster median latency</text>
-  <line x1="190" y1="40" x2="190" y2="140" stroke="#d8d7d2" stroke-width="1"/>
-  <text x="16" y="64" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="12" fill="#0b0b0b">Direct MongoDB read</text>
-  <path d="M190,48 L469.8,48 Q473.8,48 473.8,52 L473.8,68 Q473.8,72 469.8,72 L190,72 Z" fill="#2a78d6"/>
-  <text x="481.8" y="64" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="12" font-weight="600" fill="#0b0b0b">120 &#181;s</text>
-  <text x="16" y="120" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="12" fill="#0b0b0b">Cached read (hit)</text>
-  <path d="M190,104 L328.6,104 Q332.6,104 332.6,108 L332.6,124 Q332.6,128 328.6,128 L190,128 Z" fill="#eb6834"/>
-  <text x="340.6" y="120" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="12" font-weight="600" fill="#0b0b0b">61 &#181;s</text>
-  <text x="16" y="164" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="11" fill="#52514e">read_heavy workload &#183; small documents &#183; local single-node benchmark, p50</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 280" width="700" height="280" role="img" aria-label="Cached reads are up to about 1200 times faster than a direct read, and roughly the same speed whether the server is local or a real remote deployment. Direct local server read 120 microseconds, direct real deployment (Atlas M0 free tier) read 79.4 milliseconds, cached read about 61 microseconds either way. Bars use a logarithmic scale.">
+  <rect x="0" y="0" width="700" height="280" fill="#fcfcfb" rx="8"/>
+  <text x="16" y="32" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="20" font-weight="600" fill="#0b0b0b">Cached reads: up to ~1,200&#215; faster (log scale)</text>
+  <line x1="245" y1="55" x2="245" y2="220" stroke="#d8d7d2" stroke-width="1"/>
+  <text x="16" y="89" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="15" fill="#0b0b0b">Direct read &#8212; local server</text>
+  <path d="M245,70 L337.1,70 Q342.1,70 342.1,75 L342.1,93 Q342.1,98 337.1,98 L245,98 Z" fill="#2a78d6"/>
+  <text x="356.1" y="89" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="15" font-weight="600" fill="#0b0b0b">120 &#181;s</text>
+  <text x="16" y="144" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="15" fill="#0b0b0b">Direct read &#8212; M0 deployment</text>
+  <path d="M245,125 L591,125 Q596,125 596,130 L596,148 Q596,153 591,153 L245,153 Z" fill="#2a78d6"/>
+  <text x="610" y="144" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="15" font-weight="600" fill="#0b0b0b">79.4 ms</text>
+  <text x="16" y="199" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="15" fill="#0b0b0b">Cached read &#8212; either one</text>
+  <path d="M245,180 L310.65,180 Q315.65,180 315.65,185 L315.65,203 Q315.65,208 310.65,208 L245,208 Z" fill="#eb6834"/>
+  <text x="329.65" y="199" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="15" font-weight="600" fill="#0b0b0b">61 &#181;s</text>
+  <line x1="245" y1="220" x2="605" y2="220" stroke="#d8d7d2" stroke-width="1"/>
+  <line x1="245" y1="220" x2="245" y2="226" stroke="#d8d7d2" stroke-width="1"/>
+  <line x1="335" y1="220" x2="335" y2="226" stroke="#d8d7d2" stroke-width="1"/>
+  <line x1="425" y1="220" x2="425" y2="226" stroke="#d8d7d2" stroke-width="1"/>
+  <line x1="515" y1="220" x2="515" y2="226" stroke="#d8d7d2" stroke-width="1"/>
+  <line x1="605" y1="220" x2="605" y2="226" stroke="#d8d7d2" stroke-width="1"/>
+  <text x="245" y="240" text-anchor="middle" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="12" fill="#52514e">10&#181;s</text>
+  <text x="335" y="240" text-anchor="middle" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="12" fill="#52514e">100&#181;s</text>
+  <text x="425" y="240" text-anchor="middle" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="12" fill="#52514e">1ms</text>
+  <text x="515" y="240" text-anchor="middle" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="12" fill="#52514e">10ms</text>
+  <text x="605" y="240" text-anchor="middle" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="12" fill="#52514e">100ms</text>
+  <text x="16" y="266" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="13" fill="#52514e">read_heavy workload &#183; small documents &#183; local is p50, M0 is mean of one batch &#183; log-scaled axis</text>
 </svg>
