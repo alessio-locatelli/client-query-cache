@@ -19,12 +19,34 @@ DATABASE_NAME = "real_server_benchmark"
 COLLECTION_NAME = "documents"
 
 _FIND_COMMAND_NAME = "find"
+_CONNECT_TIMEOUT_MS = 5_000
+_SERVER_SELECTION_TIMEOUT_MS = 5_000
+_SOCKET_TIMEOUT_MS = 5_000
 
 
 @dataclass(frozen=True, slots=True)
 class ReadPhaseResult:
     duration_seconds: float
     find_command_count: int
+
+
+def _bounded_mongo_client(
+    uri: str, *, event_listeners: Sequence[CommandListener] = ()
+) -> MongoClient[dict[str, Any]]:
+    return MongoClient[dict[str, Any]](
+        uri,
+        connectTimeoutMS=_CONNECT_TIMEOUT_MS,
+        serverSelectionTimeoutMS=_SERVER_SELECTION_TIMEOUT_MS,
+        socketTimeoutMS=_SOCKET_TIMEOUT_MS,
+        event_listeners=event_listeners,
+    )
+
+
+def delete_documents(uri: str, document_ids: Sequence[str]) -> None:
+    with _bounded_mongo_client(uri) as client:
+        client[DATABASE_NAME][COLLECTION_NAME].delete_many(
+            {"_id": {"$in": list(document_ids)}}
+        )
 
 
 class _FindCommandCounter(CommandListener):
@@ -49,9 +71,9 @@ def write_documents_until_stopped(
     update_interval_seconds: float,
     stop_event: EventClass,
 ) -> None:
-    with MongoClient[dict[str, Any]](uri) as client:
+    with _bounded_mongo_client(uri) as client:
         collection = client[DATABASE_NAME][COLLECTION_NAME]
-        collection.delete_many({})
+        collection.delete_many({"_id": {"$in": list(document_ids)}})
         collection.insert_many(seed_documents)
         update_index = 0
         while not stop_event.is_set():
@@ -96,7 +118,7 @@ def read_documents_repeatedly(
     measured_cycles: int,
 ) -> ReadPhaseResult:
     counter = _FindCommandCounter()
-    with MongoClient[dict[str, Any]](uri, event_listeners=[counter]) as client:
+    with _bounded_mongo_client(uri, event_listeners=[counter]) as client:
         if use_cache:
             manager = CacheManager(client)
             try:
