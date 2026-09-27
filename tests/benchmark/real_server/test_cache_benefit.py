@@ -17,6 +17,8 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from typing import Any
 
+    from faker import Faker
+
     from tests.benchmark.real_server.env import RealMongoDbUri
 
 pytestmark = pytest.mark.benchmark
@@ -57,7 +59,11 @@ _CACHED_DURATION_CEILING_SECONDS = (
 
 
 def _run_reader_phase(
-    uri: RealMongoDbUri, document_ids: list[str], *, use_cache: bool
+    uri: RealMongoDbUri,
+    document_ids: list[str],
+    collection_name: str,
+    *,
+    use_cache: bool,
 ) -> ReadPhaseResult:
     result_queue: multiprocessing.Queue[ReadPhaseResult] = multiprocessing.Queue()
     reader = multiprocessing.Process(
@@ -67,6 +73,7 @@ def _run_reader_phase(
             "use_cache": use_cache,
             "warmup_cycles": _WARMUP_CYCLES,
             "measured_cycles": _MEASURED_CYCLES,
+            "collection_name": collection_name,
         },
     )
     reader.start()
@@ -84,21 +91,23 @@ def _run_reader_phase(
 
 
 def test_cache_provides_at_least_2x_benefit_over_direct_pymongo(
-    real_mongodb_uri: RealMongoDbUri, make_fake_document: Callable[..., dict[str, Any]]
+    real_mongodb_uri: RealMongoDbUri,
+    make_fake_document: Callable[..., dict[str, Any]],
+    faker: Faker,
 ) -> None:
+    collection_name = f"documents-{faker.uuid4()}"
     seed_documents = [make_fake_document() for _ in range(_DOCUMENT_COUNT)]
     document_ids = [document["_id"] for document in seed_documents]
 
     stop_event = multiprocessing.Event()
     writer = multiprocessing.Process(
         target=write_documents_until_stopped,
-        args=(
-            real_mongodb_uri,
-            seed_documents,
-            document_ids,
-            _WRITER_UPDATE_INTERVAL_SECONDS,
-            stop_event,
-        ),
+        args=(real_mongodb_uri, seed_documents, document_ids),
+        kwargs={
+            "update_interval_seconds": _WRITER_UPDATE_INTERVAL_SECONDS,
+            "stop_event": stop_event,
+            "collection_name": collection_name,
+        },
     )
     overall_start = time.perf_counter()
 
@@ -106,10 +115,10 @@ def test_cache_provides_at_least_2x_benefit_over_direct_pymongo(
         writer.start()
         time.sleep(_WRITER_SEED_SETTLE_SECONDS)
         cached_result = _run_reader_phase(
-            real_mongodb_uri, document_ids, use_cache=True
+            real_mongodb_uri, document_ids, collection_name, use_cache=True
         )
         uncached_result = _run_reader_phase(
-            real_mongodb_uri, document_ids, use_cache=False
+            real_mongodb_uri, document_ids, collection_name, use_cache=False
         )
     finally:
         stop_event.set()
@@ -117,7 +126,7 @@ def test_cache_provides_at_least_2x_benefit_over_direct_pymongo(
         if writer.is_alive():
             writer.terminate()  # pragma: no cover (requires a stalled real deployment)
             writer.join()  # pragma: no cover (requires a stalled real deployment)
-        drop_benchmark_collection(real_mongodb_uri)
+        drop_benchmark_collection(real_mongodb_uri, collection_name)
 
     overall_duration = time.perf_counter() - overall_start
 

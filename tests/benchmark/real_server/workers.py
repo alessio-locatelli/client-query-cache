@@ -43,9 +43,9 @@ def _bounded_mongo_client(
     )
 
 
-def drop_benchmark_collection(uri: str) -> None:
+def drop_benchmark_collection(uri: str, collection_name: str) -> None:
     with _bounded_mongo_client(uri) as client:
-        client[DATABASE_NAME][COLLECTION_NAME].drop()
+        client[DATABASE_NAME][collection_name].drop()
 
 
 class _FindCommandCounter(CommandListener):
@@ -67,12 +67,14 @@ def write_documents_until_stopped(
     uri: str,
     seed_documents: Sequence[dict[str, Any]],
     document_ids: Sequence[str],
+    *,
     update_interval_seconds: float,
     stop_event: EventClass,
+    collection_name: str,
 ) -> None:
-    drop_benchmark_collection(uri)
+    drop_benchmark_collection(uri, collection_name)
     with _bounded_mongo_client(uri) as client:
-        collection = client[DATABASE_NAME][COLLECTION_NAME]
+        collection = client[DATABASE_NAME][collection_name]
         collection.insert_many(seed_documents)
         update_index = 0
         while not stop_event.is_set():
@@ -115,13 +117,14 @@ def read_documents_repeatedly(
     use_cache: bool,
     warmup_cycles: int,
     measured_cycles: int,
+    collection_name: str,
 ) -> ReadPhaseResult:
     counter = _FindCommandCounter()
     with _bounded_mongo_client(uri, event_listeners=[counter]) as client:
         if use_cache:
             manager = CacheManager(client)
             try:
-                cached_collection = manager[DATABASE_NAME][COLLECTION_NAME]
+                cached_collection = manager[DATABASE_NAME][collection_name]
                 return _timed_read_cycles(
                     cached_collection,
                     document_ids,
@@ -131,7 +134,7 @@ def read_documents_repeatedly(
                 )
             finally:
                 manager.close()
-        raw_collection = client[DATABASE_NAME][COLLECTION_NAME]
+        raw_collection = client[DATABASE_NAME][collection_name]
         return _timed_read_cycles(
             raw_collection, document_ids, warmup_cycles, measured_cycles, counter
         )
@@ -145,6 +148,7 @@ def read_documents_repeatedly_into_queue(
     use_cache: bool,
     warmup_cycles: int,
     measured_cycles: int,
+    collection_name: str,
 ) -> None:
     read_result = read_documents_repeatedly(
         uri,
@@ -152,5 +156,6 @@ def read_documents_repeatedly_into_queue(
         use_cache=use_cache,
         warmup_cycles=warmup_cycles,
         measured_cycles=measured_cycles,
+        collection_name=collection_name,
     )
     result_queue.put(read_result)
