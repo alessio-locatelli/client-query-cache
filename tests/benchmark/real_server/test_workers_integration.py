@@ -67,10 +67,22 @@ def test_writer_seeds_and_repeatedly_updates_documents(
         writer.join()
 
 
-def test_uncached_reader_sends_one_find_command_per_read(
+_MEASURED_CYCLES = 3
+
+
+@pytest.mark.parametrize(
+    ("use_cache", "warmup_cycles"),
+    [
+        pytest.param(False, 2, id="uncached_sends_one_find_per_read"),
+        pytest.param(True, 5, id="cached_excludes_warmup_and_change_stream_polling"),
+    ],
+)
+def test_reader_find_command_count(
     mongodb_uri: MongoDbUri,
     seed_documents: list[dict[str, Any]],
     document_ids: list[str],
+    use_cache: bool,
+    warmup_cycles: int,
 ) -> None:
     with MongoClient[dict[str, Any]](mongodb_uri) as client:
         client[DATABASE_NAME][COLLECTION_NAME].insert_many(seed_documents)
@@ -78,28 +90,12 @@ def test_uncached_reader_sends_one_find_command_per_read(
     read_result = read_documents_repeatedly(
         mongodb_uri,
         document_ids,
-        use_cache=False,
-        warmup_cycles=2,
-        measured_cycles=3,
+        use_cache=use_cache,
+        warmup_cycles=warmup_cycles,
+        measured_cycles=_MEASURED_CYCLES,
     )
 
-    assert read_result.find_command_count == len(document_ids) * 3
-
-
-def test_cached_reader_excludes_warmup_and_change_stream_polling(
-    mongodb_uri: MongoDbUri,
-    seed_documents: list[dict[str, Any]],
-    document_ids: list[str],
-) -> None:
-    with MongoClient[dict[str, Any]](mongodb_uri) as client:
-        client[DATABASE_NAME][COLLECTION_NAME].insert_many(seed_documents)
-
-    read_result = read_documents_repeatedly(
-        mongodb_uri,
-        document_ids,
-        use_cache=True,
-        warmup_cycles=5,
-        measured_cycles=3,
+    expected_find_command_count = (
+        0 if use_cache else len(document_ids) * _MEASURED_CYCLES
     )
-
-    assert read_result.find_command_count == 0
+    assert read_result.find_command_count == expected_find_command_count
