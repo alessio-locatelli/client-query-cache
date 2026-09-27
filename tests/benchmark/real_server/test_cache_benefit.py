@@ -9,7 +9,7 @@ import pytest
 
 from tests.benchmark.real_server.workers import (
     ReadPhaseResult,
-    delete_documents,
+    drop_benchmark_collection,
     read_documents_repeatedly,
     write_documents_until_stopped,
 )
@@ -22,21 +22,21 @@ if TYPE_CHECKING:
 
 pytestmark = pytest.mark.benchmark
 
-_DOCUMENT_COUNT = 10
-_WARMUP_CYCLES = 1
-_MEASURED_CYCLES = 5
-_WRITER_UPDATE_INTERVAL_SECONDS = 0.2
+_DOCUMENT_COUNT = 18
+_WARMUP_CYCLES = 2
+_MEASURED_CYCLES = 4
+_WRITER_UPDATE_INTERVAL_SECONDS = 0.1
 _WRITER_SEED_SETTLE_SECONDS = 1.0
 _READER_PHASE_TIMEOUT_SECONDS = 15.0
 _MAXIMUM_TOTAL_DURATION_SECONDS = 20.0
 
 _MINIMUM_CACHE_SPEEDUP_FACTOR = 2.0
 
-_FIRST_MEASURED_UNCACHED_DURATION_SECONDS = 3.3444
-_FIRST_MEASURED_CACHED_FIND_COMMAND_COUNT = 3
+_FIRST_MEASURED_UNCACHED_DURATION_SECONDS = 5.7138
+_FIRST_MEASURED_CACHED_FIND_COMMAND_COUNT = 0
 
 _DURATION_CEILING_MARGIN_FACTOR = 3.0
-_CACHED_FIND_COMMAND_COUNT_MARGIN = 7
+_CACHED_FIND_COMMAND_COUNT_MARGIN = 5
 
 _UNCACHED_FIND_COMMAND_COUNT = _DOCUMENT_COUNT * _MEASURED_CYCLES
 _CACHED_FIND_COMMAND_COUNT_CEILING = (
@@ -102,7 +102,7 @@ def test_cache_provides_at_least_2x_benefit_over_direct_pymongo(
     finally:
         stop_event.set()
         writer.join()
-        delete_documents(real_mongodb_uri, document_ids)
+        drop_benchmark_collection(real_mongodb_uri)
 
     overall_duration = time.perf_counter() - overall_start
 
