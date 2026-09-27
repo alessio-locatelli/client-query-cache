@@ -27,7 +27,7 @@ _DOCUMENT_COUNT = 18
 _WARMUP_CYCLES = 2
 _MEASURED_CYCLES = 4
 _WRITER_UPDATE_INTERVAL_SECONDS = 0.1
-_WRITER_SEED_SETTLE_SECONDS = 1.0
+_WRITER_SEED_TIMEOUT_SECONDS = 10.0
 _READER_PHASE_TIMEOUT_SECONDS = 15.0
 _WRITER_SHUTDOWN_TIMEOUT_SECONDS = 5.0
 _MAXIMUM_TOTAL_DURATION_SECONDS = 20.0
@@ -100,6 +100,7 @@ def test_cache_provides_at_least_2x_benefit_over_direct_pymongo(
     document_ids = [document["_id"] for document in seed_documents]
 
     stop_event = multiprocessing.Event()
+    ready_event = multiprocessing.Event()
     writer = multiprocessing.Process(
         target=write_documents_until_stopped,
         args=(real_mongodb_uri, seed_documents, document_ids),
@@ -107,13 +108,17 @@ def test_cache_provides_at_least_2x_benefit_over_direct_pymongo(
             "update_interval_seconds": _WRITER_UPDATE_INTERVAL_SECONDS,
             "stop_event": stop_event,
             "collection_name": collection_name,
+            "ready_event": ready_event,
         },
     )
     overall_start = time.perf_counter()
 
     try:
         writer.start()
-        time.sleep(_WRITER_SEED_SETTLE_SECONDS)
+        if not ready_event.wait(timeout=_WRITER_SEED_TIMEOUT_SECONDS):
+            raise TimeoutError(  # pragma: no cover (requires a stalled real deployment)
+                "writer did not seed its documents within the timeout"
+            )
         cached_result = _run_reader_phase(
             real_mongodb_uri, document_ids, collection_name, use_cache=True
         )

@@ -71,11 +71,13 @@ def write_documents_until_stopped(
     update_interval_seconds: float,
     stop_event: EventClass,
     collection_name: str,
+    ready_event: EventClass,
 ) -> None:
     drop_benchmark_collection(uri, collection_name)
     with _bounded_mongo_client(uri) as client:
         collection = client[DATABASE_NAME][collection_name]
         collection.insert_many(seed_documents)
+        ready_event.set()
         update_index = 0
         while not stop_event.is_set():
             document_id = document_ids[update_index % len(document_ids)]
