@@ -42,11 +42,9 @@ def _bounded_mongo_client(
     )
 
 
-def delete_documents(uri: str, document_ids: Sequence[str]) -> None:
+def drop_benchmark_collection(uri: str) -> None:
     with _bounded_mongo_client(uri) as client:
-        client[DATABASE_NAME][COLLECTION_NAME].delete_many(
-            {"_id": {"$in": list(document_ids)}}
-        )
+        client[DATABASE_NAME][COLLECTION_NAME].drop()
 
 
 class _FindCommandCounter(CommandListener):
@@ -71,9 +69,9 @@ def write_documents_until_stopped(
     update_interval_seconds: float,
     stop_event: EventClass,
 ) -> None:
+    drop_benchmark_collection(uri)
     with _bounded_mongo_client(uri) as client:
         collection = client[DATABASE_NAME][COLLECTION_NAME]
-        collection.delete_many({"_id": {"$in": list(document_ids)}})
         collection.insert_many(seed_documents)
         update_index = 0
         while not stop_event.is_set():
