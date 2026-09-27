@@ -12,7 +12,7 @@
     "library_version": "0.1.0",
     "pymongo_version": "4.18.1",
     "python_version": "3.14.6",
-    "revision": "3db4883"
+    "revision": "1d5027b"
   },
   "limitations": [
     {
@@ -26,11 +26,40 @@
     {
       "description": "Raw event delivery lag includes server-to-host clock skew.",
       "label": "clock-skew"
+    },
+    {
+      "description": "counts bytes only on this proxy's direct benchmark path between the dedicated client and the replica-set primary; not a substitute for universal wire-traffic accounting",
+      "label": "direct-path-bytes"
+    },
+    {
+      "description": "change_stream_cost_comparison's container_cpu_seconds and direct_path_bytes each cover the whole raw-path or cache-path run (sampled reads, shared writes, and - for the cache path - change-stream polling), not the change stream in isolation; only the delta between the two paths approximates the stream's added cost.",
+      "label": "change-stream-cost-bytes"
     }
   ],
   "measurement": {
-    "container_cpu_seconds": 0.12543300000000002,
-    "direct_path_bytes": null,
+    "change_stream_cost_comparison": {
+      "container_cpu_seconds": {
+        "cache": 0.07966399999999996,
+        "raw": 0.052947999999999995
+      },
+      "direct_path_bytes": {
+        "available": true,
+        "cache": {
+          "received": 56600,
+          "sent": 31500
+        },
+        "raw": {
+          "received": 36000,
+          "sent": 35550
+        }
+      }
+    },
+    "container_cpu_seconds": 0.11011799999999994,
+    "direct_path_bytes": {
+      "received": 98090,
+      "scope": "dedicated direct benchmark path only",
+      "sent": 61622
+    },
     "logical_metrics": {
       "cache": {
         "bypasses": 0,
@@ -55,24 +84,24 @@
         }
       ]
     },
-    "process_cpu_seconds": 0.082722603,
+    "process_cpu_seconds": 0.09978379600000009,
     "variants": [
       {
         "by_outcome": [
           {
             "operation": "read",
             "outcome": "raw",
-            "p50_seconds": 0.00011025599997083191,
-            "p95_seconds": 0.00043664199984050356,
-            "p99_seconds": 0.0005087450008431915,
+            "p50_seconds": 0.000539499000296928,
+            "p95_seconds": 0.0007815250137355179,
+            "p99_seconds": 0.0008958810067269951,
             "sample_count": 50
           },
           {
             "operation": "write",
             "outcome": "shared_write",
-            "p50_seconds": 0.004059240000060527,
-            "p95_seconds": 0.00610058799975377,
-            "p99_seconds": 0.006160547000035876,
+            "p50_seconds": 0.004455101996427402,
+            "p95_seconds": 0.006719847995555028,
+            "p99_seconds": 0.007437883992679417,
             "sample_count": 50
           }
         ],
@@ -85,25 +114,25 @@
           {
             "operation": "read",
             "outcome": "hit",
-            "p50_seconds": 6.027600102243014e-5,
-            "p95_seconds": 0.000114922000648221,
-            "p99_seconds": 0.000114922000648221,
+            "p50_seconds": 0.00014215799455996603,
+            "p95_seconds": 0.0002259070024592802,
+            "p99_seconds": 0.0002259070024592802,
             "sample_count": 13
           },
           {
             "operation": "read",
             "outcome": "miss",
-            "p50_seconds": 0.0002164229990739841,
-            "p95_seconds": 0.0007299530007003341,
-            "p99_seconds": 0.0007573390012112213,
+            "p50_seconds": 0.0008306279923999682,
+            "p95_seconds": 0.0012686849950114265,
+            "p99_seconds": 0.0017878460057545453,
             "sample_count": 37
           },
           {
             "operation": "write",
             "outcome": "shared_write",
-            "p50_seconds": 0.004059240000060527,
-            "p95_seconds": 0.00610058799975377,
-            "p99_seconds": 0.006160547000035876,
+            "p50_seconds": 0.004455101996427402,
+            "p95_seconds": 0.006719847995555028,
+            "p99_seconds": 0.007437883992679417,
             "sample_count": 50
           }
         ],
@@ -112,7 +141,7 @@
         "operation_count": 100
       }
     ],
-    "wall_seconds": 0.2709008599995286,
+    "wall_seconds": 0.32458204799331725,
     "warmup": {
       "admissions": 1,
       "hits": 1

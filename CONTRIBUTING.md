@@ -64,6 +64,13 @@ from `REAL_MONGODB_URI` in a `.env` file at the repository root (see `.env.examp
 loads automatically once that file exists. Without a configured `.env`, or in CI, the benchmark
 skips with an explicit reason and every other test still runs.
 
+If `.env` also sets `REAL_MONGODB_ATLAS_PROJECT_ID` to your MongoDB Atlas project's ID, and the
+[Atlas CLI](https://www.mongodb.com/docs/atlas/cli/current/) is installed and authenticated, the
+benchmark additionally collects that project's network-bandwidth metrics around its cached and
+uncached phases and logs them for your own inspection. This evidence never gates the benchmark's
+pass/fail result: without `REAL_MONGODB_ATLAS_PROJECT_ID`, without the Atlas CLI, or if a metrics
+call fails, the benchmark logs the gap and continues running as usual.
+
 ## Release verification
 
 `just verify-release` builds the source and wheel distributions, installs each into its own isolated environment, and imports the public synchronous and asyncio API from each installation — the same check the "Static checks, packaging, and isolated install" CI job runs on every pull request that changes Python files, `pytest.ini`, `pyproject.toml`, or `uv.lock`. It publishes nothing and needs no credentials.

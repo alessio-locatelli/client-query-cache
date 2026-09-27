@@ -1,11 +1,27 @@
 from __future__ import annotations
 
 import os
-from typing import NewType
 
 import pytest
 
-RealMongoDbUri = NewType("RealMongoDbUri", str)
+_REDACTED = "<redacted>"
+
+
+class RealMongoDbUri:
+    __slots__ = ("_raw",)
+
+    def __init__(self, raw: str) -> None:
+        self._raw = raw
+
+    def get_secret_value(self) -> str:
+        return self._raw
+
+    def __repr__(self) -> str:
+        return f"RealMongoDbUri({_REDACTED})"
+
+    def __str__(self) -> str:
+        return _REDACTED
+
 
 _CI_ENV_VARS = ("GITHUB_ACTIONS", "CI")
 _TRUTHY_VALUES = frozenset({"true", "1", "yes"})

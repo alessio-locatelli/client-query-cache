@@ -1,15 +1,21 @@
 from __future__ import annotations
 
+import logging
 import multiprocessing
 import time
 from typing import TYPE_CHECKING
 
 import pytest
 
+from tests.benchmark.real_server.atlas_bandwidth import (
+    collect_bandwidth_evidence,
+    resolve_atlas_project_id,
+)
 from tests.benchmark.real_server.workers import (
     ReadPhaseResult,
     drop_benchmark_collection,
     read_documents_repeatedly_into_queue,
+    run_preflight_and_start_clock,
     write_documents_until_stopped,
 )
 
@@ -20,6 +26,8 @@ if TYPE_CHECKING:
     from faker import Faker
 
     from tests.benchmark.real_server.env import RealMongoDbUri
+
+logger = logging.getLogger(__name__)
 
 pytestmark = pytest.mark.benchmark
 
@@ -58,6 +66,20 @@ _CACHED_DURATION_CEILING_SECONDS = (
 )
 
 
+def _log_bandwidth_evidence_excluding_its_duration(
+    atlas_project_id: str | None, *, phase_name: str
+) -> float:
+    if atlas_project_id is None:
+        return 0.0
+    collection_start = time.perf_counter()
+    logger.info(
+        "%s-phase Atlas bandwidth evidence: %s",
+        phase_name,
+        collect_bandwidth_evidence(atlas_project_id),
+    )
+    return time.perf_counter() - collection_start
+
+
 def _run_reader_phase(
     uri: RealMongoDbUri,
     document_ids: list[str],
@@ -68,7 +90,7 @@ def _run_reader_phase(
     result_queue: multiprocessing.Queue[ReadPhaseResult] = multiprocessing.Queue()
     reader = multiprocessing.Process(
         target=read_documents_repeatedly_into_queue,
-        args=(result_queue, uri, document_ids),
+        args=(result_queue, uri.get_secret_value(), document_ids),
         kwargs={
             "use_cache": use_cache,
             "warmup_cycles": _WARMUP_CYCLES,
@@ -103,7 +125,7 @@ def test_cache_provides_at_least_2x_benefit_over_direct_pymongo(
     ready_event = multiprocessing.Event()
     writer = multiprocessing.Process(
         target=write_documents_until_stopped,
-        args=(real_mongodb_uri, seed_documents, document_ids),
+        args=(real_mongodb_uri.get_secret_value(), seed_documents, document_ids),
         kwargs={
             "update_interval_seconds": _WRITER_UPDATE_INTERVAL_SECONDS,
             "stop_event": stop_event,
@@ -111,7 +133,8 @@ def test_cache_provides_at_least_2x_benefit_over_direct_pymongo(
             "ready_event": ready_event,
         },
     )
-    overall_start = time.perf_counter()
+    overall_start = run_preflight_and_start_clock(real_mongodb_uri.get_secret_value())
+    bandwidth_evidence_overhead_seconds = 0.0
 
     try:
         writer.start()
@@ -119,11 +142,22 @@ def test_cache_provides_at_least_2x_benefit_over_direct_pymongo(
             raise TimeoutError(  # pragma: no cover (requires a stalled real deployment)
                 "writer did not seed its documents within the timeout"
             )
+        atlas_project_id = resolve_atlas_project_id()
         cached_result = _run_reader_phase(
             real_mongodb_uri, document_ids, collection_name, use_cache=True
         )
+        bandwidth_evidence_overhead_seconds += (
+            _log_bandwidth_evidence_excluding_its_duration(
+                atlas_project_id, phase_name="cached"
+            )
+        )
         uncached_result = _run_reader_phase(
             real_mongodb_uri, document_ids, collection_name, use_cache=False
+        )
+        bandwidth_evidence_overhead_seconds += (
+            _log_bandwidth_evidence_excluding_its_duration(
+                atlas_project_id, phase_name="uncached"
+            )
         )
     finally:
         stop_event.set()
@@ -131,9 +165,11 @@ def test_cache_provides_at_least_2x_benefit_over_direct_pymongo(
         if writer.is_alive():
             writer.terminate()  # pragma: no cover (requires a stalled real deployment)
             writer.join()  # pragma: no cover (requires a stalled real deployment)
-        drop_benchmark_collection(real_mongodb_uri, collection_name)
+        drop_benchmark_collection(real_mongodb_uri.get_secret_value(), collection_name)
 
-    overall_duration = time.perf_counter() - overall_start
+    overall_duration = (
+        time.perf_counter() - overall_start - bandwidth_evidence_overhead_seconds
+    )
 
     assert overall_duration < _MAXIMUM_TOTAL_DURATION_SECONDS
     assert (

@@ -25,6 +25,7 @@ from benchmarks.stream_cost.config import (
 )
 from benchmarks.stream_cost.errors import BenchmarkSetupError
 from benchmarks.stream_cost.measurement import (
+    ChangeStreamCostComparison,
     measure_controlled,
     snapshot_logical_metrics,
 )
@@ -34,11 +35,17 @@ from benchmarks.stream_cost.topology import IsolatedReplicaSet, ResourceLimits
 from benchmarks.stream_cost.workload import (
     STANDARD_WORKLOAD_VARIANTS,
     SeededDataset,
+    WorkloadKind,
     WorkloadVariant,
     WorkloadVariantOutcome,
     insert_dataset,
+    issue_writes,
+    perform_cache_only_reads,
+    perform_raw_only_reads,
     run_workload_variant,
+    sample_operation_ids,
     seed_dataset,
+    verify_primed,
 )
 from client_query_cache.synchronous.manager import CacheManager
 
@@ -131,6 +138,62 @@ def _run_matrix_with_client(
     return tuple(report_paths)
 
 
+def _measure_change_stream_cost_comparison(
+    variant: WorkloadVariant,
+    dataset: SeededDataset,
+    *,
+    client: MongoClient[dict[str, Any]],
+    replica_set: IsolatedReplicaSet,
+    proxy: DirectPathByteProxy | None,
+    database_name: str,
+) -> ChangeStreamCostComparison:
+    database = client[database_name]
+    read_ids = sample_operation_ids(dataset, variant.sampling.reads, seed=variant.seed)
+
+    raw_collection_name = "measured_change_stream_cost_raw"
+    database.drop_collection(raw_collection_name)
+    raw_only_collection = database[raw_collection_name]
+    insert_dataset(raw_only_collection, dataset)
+
+    def _raw_only_operation() -> None:
+        perform_raw_only_reads(raw_only_collection, read_ids)
+        issue_writes(
+            raw_only_collection, dataset, variant.sampling.writes, seed=variant.seed + 1
+        )
+
+    _, raw_measurement = measure_controlled(
+        _raw_only_operation, replica_set=replica_set, proxy=proxy
+    )
+
+    cache_collection_name = "measured_change_stream_cost_cache"
+    database.drop_collection(cache_collection_name)
+    cache_only_raw_collection = database[cache_collection_name]
+    insert_dataset(cache_only_raw_collection, dataset)
+    with CacheManager(client) as manager:
+        cache_only_collection = manager[database_name][cache_collection_name]
+        before = manager.cache_core.snapshot()
+        for _ in range(variant.warmup.reads):
+            for document_id in read_ids:
+                cache_only_collection.find_one({"_id": document_id})
+        after = manager.cache_core.snapshot()
+        verify_primed(before, after, variant_name=f"{variant.name}-change-stream-cost")
+
+        def _cache_only_operation() -> None:
+            perform_cache_only_reads(cache_only_collection, read_ids)
+            issue_writes(
+                cache_only_raw_collection,
+                dataset,
+                variant.sampling.writes,
+                seed=variant.seed + 1,
+            )
+
+        _, cache_measurement = measure_controlled(
+            _cache_only_operation, replica_set=replica_set, proxy=proxy
+        )
+
+    return ChangeStreamCostComparison(raw=raw_measurement, cache=cache_measurement)
+
+
 def _run_variant(
     variant: WorkloadVariant,
     *,
@@ -162,6 +225,19 @@ def _run_variant(
             proxy=proxy,
         )
         logical_metrics = snapshot_logical_metrics(manager)
+
+    change_stream_cost = (
+        _measure_change_stream_cost_comparison(
+            variant,
+            dataset,
+            client=client,
+            replica_set=replica_set,
+            proxy=proxy,
+            database_name=database_name,
+        )
+        if variant.kind is WorkloadKind.BALANCED
+        else None
+    )
 
     config = BenchmarkConfig(
         identity=BenchmarkIdentity(
@@ -206,9 +282,30 @@ def _run_variant(
                 if proxy is not None
                 else ()
             ),
+            *(
+                (
+                    Limitation(
+                        "change-stream-cost-bytes",
+                        "change_stream_cost_comparison's container_cpu_seconds and "
+                        "direct_path_bytes each cover the whole raw-path or "
+                        "cache-path run (sampled reads, shared writes, and - for "
+                        "the cache path - change-stream polling), not the change "
+                        "stream in isolation; only the delta between the two paths "
+                        "approximates the stream's added cost.",
+                    ),
+                )
+                if change_stream_cost is not None
+                else ()
+            ),
         ),
     )
-    report = build_report(config, measurement, outcome, logical_metrics)
+    report = build_report(
+        config,
+        measurement,
+        outcome,
+        logical_metrics,
+        change_stream_cost=change_stream_cost,
+    )
     validate_report(report)
     report_path = output_dir / f"{variant.name}.report.v1.json"
     report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")

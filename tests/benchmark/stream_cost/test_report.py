@@ -15,7 +15,11 @@ from benchmarks.stream_cost.config import (
     WorkloadParameters,
 )
 from benchmarks.stream_cost.errors import ReportValidationError
-from benchmarks.stream_cost.measurement import ControlledMeasurement, OperationLatency
+from benchmarks.stream_cost.measurement import (
+    ChangeStreamCostComparison,
+    ControlledMeasurement,
+    OperationLatency,
+)
 from benchmarks.stream_cost.report import build_report, validate_report
 from benchmarks.stream_cost.workload import (
     STANDARD_WORKLOAD_VARIANTS,
@@ -313,6 +317,78 @@ def test_validate_report_rejects_proxy_bytes_without_direct_path_scope() -> None
         "sent": 10,
         "received": 10,
         "scope": "all wire traffic",
+    }
+
+    with pytest.raises(ReportValidationError):
+        validate_report(report)
+
+
+def test_build_report_omits_change_stream_cost_comparison_by_default() -> None:
+    assert "change_stream_cost_comparison" not in _valid_report()["measurement"]
+
+
+@pytest.mark.parametrize(
+    ("raw_measurement", "cache_measurement", "expected_direct_path_bytes"),
+    [
+        pytest.param(
+            ControlledMeasurement(1.0, 0.1, 0.2, None, None),
+            ControlledMeasurement(1.0, 0.1, 0.3, None, None),
+            {"available": False, "raw": None, "cache": None},
+            id="without_a_proxy",
+        ),
+        pytest.param(
+            ControlledMeasurement(1.0, 0.1, 0.2, 100, 200),
+            ControlledMeasurement(1.0, 0.1, 0.3, 150, 250),
+            {
+                "available": True,
+                "raw": {"sent": 100, "received": 200},
+                "cache": {"sent": 150, "received": 250},
+            },
+            id="with_a_proxy",
+        ),
+    ],
+)
+def test_build_report_change_stream_cost_comparison_direct_path_bytes(
+    raw_measurement: ControlledMeasurement,
+    cache_measurement: ControlledMeasurement,
+    expected_direct_path_bytes: dict[str, object],
+) -> None:
+    variant = STANDARD_WORKLOAD_VARIANTS[0]
+    outcome = WorkloadVariantOutcome(
+        variant=variant,
+        reads=PairedReadOutcome(variant=variant, raw_results=(), cache_results=()),
+        writes_issued=0,
+        warmup_delta=PrimingDelta(admissions=1, hits=1),
+    )
+    report = cast(
+        "dict[str, Any]",
+        build_report(
+            _valid_config(),
+            ControlledMeasurement(1.0, 0.1, 0.2, None, None),
+            outcome,
+            _logical_metrics(),
+            change_stream_cost=ChangeStreamCostComparison(
+                raw=raw_measurement, cache=cache_measurement
+            ),
+        ),
+    )
+
+    validate_report(report)
+    comparison = report["measurement"]["change_stream_cost_comparison"]
+    assert comparison == {
+        "container_cpu_seconds": {
+            "raw": raw_measurement.container_cpu_seconds,
+            "cache": cache_measurement.container_cpu_seconds,
+        },
+        "direct_path_bytes": expected_direct_path_bytes,
+    }
+
+
+def test_validate_report_rejects_an_incomplete_change_stream_cost_comparison() -> None:
+    report = _valid_report()
+    report["measurement"]["change_stream_cost_comparison"] = {
+        "container_cpu_seconds": {"raw": 0.1},
+        "direct_path_bytes": {"available": False, "raw": None, "cache": None},
     }
 
     with pytest.raises(ReportValidationError):

@@ -278,6 +278,20 @@ def run_paired_reads(
     )
 
 
+def perform_raw_only_reads(
+    raw_collection: Collection[dict[str, Any]], ids: Sequence[object]
+) -> None:
+    for document_id in ids:
+        raw_collection.find_one({"_id": document_id})
+
+
+def perform_cache_only_reads(
+    cache_collection: CachedCollection[dict[str, Any]], ids: Sequence[object]
+) -> None:
+    for document_id in ids:
+        cache_collection.find_one({"_id": document_id})
+
+
 def issue_writes(
     collection: Collection[dict[str, Any]],
     dataset: SeededDataset,

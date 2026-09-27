@@ -4,7 +4,7 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from pymongo import MongoClient
+from pymongo import MongoClient, ReadPreference
 from pymongo.monitoring import CommandListener
 
 from client_query_cache.synchronous.manager import CacheManager
@@ -47,6 +47,16 @@ def _bounded_mongo_client(
 def drop_benchmark_collection(uri: str, collection_name: str) -> None:
     with _bounded_mongo_client(uri) as client:
         client[DATABASE_NAME][collection_name].drop()
+
+
+def preflight_ping(uri: str) -> None:
+    with _bounded_mongo_client(uri) as client:
+        client.admin.command("hello", read_preference=ReadPreference.PRIMARY)
+
+
+def run_preflight_and_start_clock(uri: str) -> float:
+    preflight_ping(uri)
+    return time.perf_counter()
 
 
 class _FindCommandCounter(CommandListener):
