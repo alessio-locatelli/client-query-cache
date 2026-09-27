@@ -31,6 +31,12 @@ class ControlledMeasurement:
     direct_path_bytes_received: int | None
 
 
+@dataclass(frozen=True, slots=True)
+class ChangeStreamCostComparison:
+    raw: ControlledMeasurement
+    cache: ControlledMeasurement
+
+
 def _percentile(sorted_values: Sequence[float], fraction: float) -> float:
     return sorted_values[math.ceil(fraction * len(sorted_values)) - 1]
 

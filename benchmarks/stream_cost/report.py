@@ -13,7 +13,10 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from benchmarks.stream_cost.config import BenchmarkConfig
-    from benchmarks.stream_cost.measurement import ControlledMeasurement
+    from benchmarks.stream_cost.measurement import (
+        ChangeStreamCostComparison,
+        ControlledMeasurement,
+    )
     from benchmarks.stream_cost.workload import WorkloadVariantOutcome
 
 SCHEMA_VERSION = "1"
@@ -22,11 +25,42 @@ _SCHEMA_PATH = Path(__file__).with_name("schemas") / "report.v1.schema.json"
 _SCHEMA: Mapping[str, Any] = json.loads(_SCHEMA_PATH.read_text())
 
 
+def _direct_path_bytes_pair(
+    measurement: ControlledMeasurement,
+) -> dict[str, int] | None:
+    sent = measurement.direct_path_bytes_sent
+    received = measurement.direct_path_bytes_received
+    if sent is None or received is None:
+        return None
+    return {"sent": sent, "received": received}
+
+
+def _change_stream_cost_comparison_payload(
+    comparison: ChangeStreamCostComparison,
+) -> dict[str, object]:
+    raw_bytes = _direct_path_bytes_pair(comparison.raw)
+    cache_bytes = _direct_path_bytes_pair(comparison.cache)
+    available = raw_bytes is not None and cache_bytes is not None
+    return {
+        "container_cpu_seconds": {
+            "raw": comparison.raw.container_cpu_seconds,
+            "cache": comparison.cache.container_cpu_seconds,
+        },
+        "direct_path_bytes": {
+            "available": available,
+            "raw": raw_bytes if available else None,
+            "cache": cache_bytes if available else None,
+        },
+    }
+
+
 def build_report(
     config: BenchmarkConfig,
     measurement: ControlledMeasurement,
     outcome: WorkloadVariantOutcome,
     logical_metrics: Mapping[str, object],
+    *,
+    change_stream_cost: ChangeStreamCostComparison | None = None,
 ) -> dict[str, object]:
     report: dict[str, object] = {
         "schema_version": SCHEMA_VERSION,
@@ -84,6 +118,12 @@ def build_report(
             "logical_metrics": dict(logical_metrics),
         },
     }
+    if change_stream_cost is not None:
+        measurement_section = report["measurement"]
+        assert isinstance(measurement_section, dict)
+        measurement_section["change_stream_cost_comparison"] = (
+            _change_stream_cost_comparison_payload(change_stream_cost)
+        )
     return report
 
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, cast
+from unittest.mock import Mock
 
 import pytest
 
@@ -23,6 +24,8 @@ from benchmarks.stream_cost.workload import (
     assert_identical_results,
     assert_identical_workload_parameters,
     insert_dataset,
+    perform_cache_only_reads,
+    perform_raw_only_reads,
     prime_read_variant,
     priming_delta,
     sample_operation_ids,
@@ -34,6 +37,8 @@ from benchmarks.stream_cost.workload import (
 from client_query_cache._core.snapshots import CacheSnapshot
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from pymongo.synchronous.collection import Collection
 
 pytestmark = pytest.mark.unit
@@ -294,3 +299,20 @@ def test_time_call_returns_the_result_and_a_non_negative_elapsed_time() -> None:
     result, elapsed_seconds = time_call(lambda: 42)
     assert result == 42
     assert elapsed_seconds >= 0
+
+
+@pytest.mark.parametrize(
+    "perform_reads",
+    [
+        pytest.param(perform_raw_only_reads, id="raw_only"),
+        pytest.param(perform_cache_only_reads, id="cache_only"),
+    ],
+)
+def test_perform_reads_helpers_issue_one_find_per_id(
+    perform_reads: Callable[[Any, tuple[int, ...]], None],
+) -> None:
+    collection = Mock(find_one=Mock(return_value={"_id": 1}))
+
+    perform_reads(collection, (1, 2, 3))
+
+    assert collection.find_one.call_count == 3

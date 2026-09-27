@@ -10,6 +10,7 @@ from pymongo import MongoClient
 from tests.benchmark.real_server.workers import (
     COLLECTION_NAME,
     DATABASE_NAME,
+    preflight_ping,
     read_documents_repeatedly,
     read_documents_repeatedly_into_queue,
     write_documents_until_stopped,
@@ -37,6 +38,12 @@ def seed_documents(
 @pytest.fixture
 def document_ids(seed_documents: list[dict[str, Any]]) -> list[str]:
     return [document["_id"] for document in seed_documents]
+
+
+def test_preflight_ping_succeeds_against_a_reachable_deployment(
+    mongodb_uri: MongoDbUri,
+) -> None:
+    preflight_ping(mongodb_uri)
 
 
 def test_writer_seeds_and_repeatedly_updates_documents(

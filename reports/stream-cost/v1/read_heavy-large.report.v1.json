@@ -12,7 +12,7 @@
     "library_version": "0.1.0",
     "pymongo_version": "4.18.1",
     "python_version": "3.14.6",
-    "revision": "3db4883"
+    "revision": "1d5027b"
   },
   "limitations": [
     {
@@ -26,11 +26,19 @@
     {
       "description": "Raw event delivery lag includes server-to-host clock skew.",
       "label": "clock-skew"
+    },
+    {
+      "description": "counts bytes only on this proxy's direct benchmark path between the dedicated client and the replica-set primary; not a substitute for universal wire-traffic accounting",
+      "label": "direct-path-bytes"
     }
   ],
   "measurement": {
-    "container_cpu_seconds": 0.016006000000000076,
-    "direct_path_bytes": null,
+    "container_cpu_seconds": 0.06128100000000003,
+    "direct_path_bytes": {
+      "received": 3315480,
+      "scope": "dedicated direct benchmark path only",
+      "sent": 62969
+    },
     "logical_metrics": {
       "cache": {
         "bypasses": 0,
@@ -55,24 +63,24 @@
         }
       ]
     },
-    "process_cpu_seconds": 0.039261163999999904,
+    "process_cpu_seconds": 0.10783085399999992,
     "variants": [
       {
         "by_outcome": [
           {
             "operation": "read",
             "outcome": "raw",
-            "p50_seconds": 0.00013172100079827942,
-            "p95_seconds": 0.0002394519997324096,
-            "p99_seconds": 0.0002965300009236671,
+            "p50_seconds": 0.000555209000594914,
+            "p95_seconds": 0.001365649004583247,
+            "p99_seconds": 0.0017548239993629977,
             "sample_count": 100
           },
           {
             "operation": "write",
             "outcome": "shared_write",
-            "p50_seconds": 0.0034741780000331346,
-            "p95_seconds": 0.004105734000404482,
-            "p99_seconds": 0.004105734000404482,
+            "p50_seconds": 0.0049663969984976575,
+            "p95_seconds": 0.011279376005404629,
+            "p99_seconds": 0.011279376005404629,
             "sample_count": 10
           }
         ],
@@ -85,25 +93,25 @@
           {
             "operation": "read",
             "outcome": "hit",
-            "p50_seconds": 6.256900087464601e-5,
-            "p95_seconds": 8.502300079271663e-5,
-            "p99_seconds": 0.00010571900020295288,
+            "p50_seconds": 0.00015402999997604638,
+            "p95_seconds": 0.00031623699760530144,
+            "p99_seconds": 0.0003635259927250445,
             "sample_count": 38
           },
           {
             "operation": "read",
             "outcome": "miss",
-            "p50_seconds": 0.00025087599897233304,
-            "p95_seconds": 0.0004538970006251475,
-            "p99_seconds": 0.0036880480001855176,
+            "p50_seconds": 0.0007751539960736409,
+            "p95_seconds": 0.0017900399980135262,
+            "p99_seconds": 0.0022480250045191497,
             "sample_count": 62
           },
           {
             "operation": "write",
             "outcome": "shared_write",
-            "p50_seconds": 0.0034741780000331346,
-            "p95_seconds": 0.004105734000404482,
-            "p99_seconds": 0.004105734000404482,
+            "p50_seconds": 0.0049663969984976575,
+            "p95_seconds": 0.011279376005404629,
+            "p99_seconds": 0.011279376005404629,
             "sample_count": 10
           }
         ],
@@ -112,7 +120,7 @@
         "operation_count": 110
       }
     ],
-    "wall_seconds": 0.09687019500051974,
+    "wall_seconds": 0.2190180609904928,
     "warmup": {
       "admissions": 1,
       "hits": 1

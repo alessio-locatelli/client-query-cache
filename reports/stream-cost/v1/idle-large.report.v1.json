@@ -12,7 +12,7 @@
     "library_version": "0.1.0",
     "pymongo_version": "4.18.1",
     "python_version": "3.14.6",
-    "revision": "3db4883"
+    "revision": "1d5027b"
   },
   "limitations": [
     {
@@ -26,11 +26,19 @@
     {
       "description": "Raw event delivery lag includes server-to-host clock skew.",
       "label": "clock-skew"
+    },
+    {
+      "description": "counts bytes only on this proxy's direct benchmark path between the dedicated client and the replica-set primary; not a substitute for universal wire-traffic accounting",
+      "label": "direct-path-bytes"
     }
   ],
   "measurement": {
-    "container_cpu_seconds": 0.0012780000000000014,
-    "direct_path_bytes": null,
+    "container_cpu_seconds": 0.0032889999999999864,
+    "direct_path_bytes": {
+      "received": 23204,
+      "scope": "dedicated direct benchmark path only",
+      "sent": 1849
+    },
     "logical_metrics": {
       "cache": {
         "bypasses": 0,
@@ -55,7 +63,7 @@
         }
       ]
     },
-    "process_cpu_seconds": 0.0012673579999999962,
+    "process_cpu_seconds": 0.0036504179999999886,
     "variants": [
       {
         "by_outcome": [],
@@ -70,7 +78,7 @@
         "operation_count": 0
       }
     ],
-    "wall_seconds": 0.002522917000533198,
+    "wall_seconds": 0.007184955989941955,
     "warmup": {
       "admissions": 1,
       "hits": 1

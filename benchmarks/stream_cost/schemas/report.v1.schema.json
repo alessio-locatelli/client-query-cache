@@ -114,6 +114,48 @@
             { "$ref": "#/$defs/cacheVariant" }
           ]
         },
+        "change_stream_cost_comparison": {
+          "type": "object",
+          "required": ["container_cpu_seconds", "direct_path_bytes"],
+          "properties": {
+            "container_cpu_seconds": {
+              "type": "object",
+              "required": ["raw", "cache"],
+              "properties": {
+                "raw": { "type": "number", "minimum": 0 },
+                "cache": { "type": "number", "minimum": 0 }
+              },
+              "additionalProperties": false
+            },
+            "direct_path_bytes": {
+              "type": "object",
+              "required": ["available", "raw", "cache"],
+              "properties": {
+                "available": { "type": "boolean" },
+                "raw": {},
+                "cache": {}
+              },
+              "additionalProperties": false,
+              "oneOf": [
+                {
+                  "properties": {
+                    "available": { "const": false },
+                    "raw": { "type": "null" },
+                    "cache": { "type": "null" }
+                  }
+                },
+                {
+                  "properties": {
+                    "available": { "const": true },
+                    "raw": { "$ref": "#/$defs/directPathBytesPair" },
+                    "cache": { "$ref": "#/$defs/directPathBytesPair" }
+                  }
+                }
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
         "logical_metrics": {
           "type": "object",
           "required": ["cache", "streams"],
@@ -260,6 +302,15 @@
         { "$ref": "#/$defs/variant" },
         { "properties": { "name": { "const": "cache" } } }
       ]
+    },
+    "directPathBytesPair": {
+      "type": "object",
+      "required": ["sent", "received"],
+      "properties": {
+        "sent": { "type": "integer", "minimum": 0 },
+        "received": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
     }
   }
 }
