@@ -45,13 +45,12 @@ def test_writer_seeds_and_repeatedly_updates_documents(
     stop_event = multiprocessing.Event()
     writer = threading.Thread(
         target=write_documents_until_stopped,
-        args=(
-            mongodb_uri,
-            seed_documents,
-            document_ids,
-            _WRITER_UPDATE_INTERVAL_SECONDS,
-            stop_event,
-        ),
+        args=(mongodb_uri, seed_documents, document_ids),
+        kwargs={
+            "update_interval_seconds": _WRITER_UPDATE_INTERVAL_SECONDS,
+            "stop_event": stop_event,
+            "collection_name": COLLECTION_NAME,
+        },
     )
     writer.start()
     try:
@@ -94,6 +93,7 @@ def test_reader_find_command_count(
         use_cache=use_cache,
         warmup_cycles=warmup_cycles,
         measured_cycles=_MEASURED_CYCLES,
+        collection_name=COLLECTION_NAME,
     )
 
     expected_find_command_count = (
@@ -118,6 +118,7 @@ def test_read_documents_repeatedly_into_queue_puts_the_result(
         use_cache=False,
         warmup_cycles=1,
         measured_cycles=_MEASURED_CYCLES,
+        collection_name=COLLECTION_NAME,
     )
 
     read_result = result_queue.get(timeout=5)
