@@ -9,6 +9,7 @@ import pytest
 
 from tests.benchmark.real_server.workers import (
     ReadPhaseResult,
+    delete_documents,
     read_documents_repeatedly,
     write_documents_until_stopped,
 )
@@ -26,6 +27,7 @@ _WARMUP_CYCLES = 1
 _MEASURED_CYCLES = 5
 _WRITER_UPDATE_INTERVAL_SECONDS = 0.2
 _WRITER_SEED_SETTLE_SECONDS = 1.0
+_READER_PHASE_TIMEOUT_SECONDS = 15.0
 _MAXIMUM_TOTAL_DURATION_SECONDS = 20.0
 
 _MINIMUM_CACHE_SPEEDUP_FACTOR = 2.0
@@ -66,7 +68,7 @@ def _run_reader_phase(
             warmup_cycles=_WARMUP_CYCLES,
             measured_cycles=_MEASURED_CYCLES,
         )
-        return future.result()
+        return future.result(timeout=_READER_PHASE_TIMEOUT_SECONDS)
 
 
 def test_cache_provides_at_least_2x_benefit_over_direct_pymongo(
@@ -100,6 +102,7 @@ def test_cache_provides_at_least_2x_benefit_over_direct_pymongo(
     finally:
         stop_event.set()
         writer.join()
+        delete_documents(real_mongodb_uri, document_ids)
 
     overall_duration = time.perf_counter() - overall_start
 
