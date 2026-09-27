@@ -26,6 +26,6 @@ Every existing benchmark and integration tier runs against a disposable, single-
 ## Impact
 
 - New test module(s) under `tests/benchmark/` plus a small helper module (connection-string loading, workload driver, hard-coded thresholds) under `benchmarks/` or `tests/benchmark/`, following the existing `benchmarks/stream_cost` + `tests/benchmark/stream_cost` split.
-- `justfile`'s `pytest` and `tests_and_coverage` recipes gain a conditional `uv run --env-file .env` when `.env` exists at the repo root, so the connection string reaches the test process without a new runtime dependency (`uv` already refuses a missing `--env-file` path outright, so the recipes must guard the flag on the file's presence).
+- `justfile`'s `pytest` and `tests_and_coverage` recipes gain a conditional `uv run --env-file .env` when `.env` exists at the repo root (see design.md for why the flag must stay conditional).
 - `CONTRIBUTING.md` gains a short section on the new `.env` variable and free-tier cluster setup.
 - No production code in `src/client_query_cache` changes.

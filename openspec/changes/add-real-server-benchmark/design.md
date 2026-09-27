@@ -2,19 +2,9 @@
 
 ## Context
 
-Every existing benchmark (`tests/benchmark/stream_cost/`) and integration/e2e tier runs against a `testcontainers`-managed, single-node local replica set (`tests/conftest.py::mongodb_uri`). None of that infrastructure reaches a real, network-attached deployment, so it can't be reused for connection setup here — this benchmark needs its own, separate fixture chain. See proposal.md for the motivating gap.
+Every existing benchmark (`tests/benchmark/stream_cost/`) and integration/e2e tier runs against a `testcontainers`-managed, single-node local replica set (`tests/conftest.py::mongodb_uri`). None of that infrastructure reaches a real, network-attached deployment, so it can't be reused for connection setup here — this benchmark needs its own, separate fixture chain. See proposal.md for the motivating gap and for what changes.
 
-`uv run` already supports `--env-file <path>` (and its `UV_ENV_FILE` environment-variable form) to load a `.env` file into the invoked process's environment, so no new third-party package is needed to read it. That flag errors outright when the named file does not exist, so any shared recipe that always passes it would break every contributor and CI itself; the recipes must only pass it when `.env` is actually present.
-
-## Goals / Non-Goals
-
-**Goals:**
-
-- Prove, with a real external deployment, that the cache is worth its cost, and catch a regression in that benefit or in the cache's network chattiness.
-- Keep the test self-contained: any contributor without the real-deployment credentials sees a clean, explicit skip, never a failure.
-- Stay inside a free-tier shared cluster's throughput/storage limits and inside a ~20 second budget.
-
-**Non-Goals:**
+## Non-Goals
 
 - A general-purpose, manually dispatched benchmark runner or a versioned report format like `benchmarks/stream_cost` provides — this is a single pytest-driven comparison, not a report-producing tool, so it does not need its own CLI entry point or JSON schema.
 - Measuring raw on-wire byte counts. A real SRV-resolved, TLS-encrypted Atlas connection has no local proxy point to intercept bytes the way `benchmarks/stream_cost/proxy.py` does for a `testcontainers` deployment. See Decisions.
@@ -54,10 +44,10 @@ A fixed, small document set (documents generated via `faker`/`make_fake_document
 ## Risks / Trade-offs
 
 - **Shared free-tier cluster variance could still cause a flaky failure.** → The cache-benefit ratio and the command-count ceiling are both insulated from cluster jitter (relative comparison; deterministic count). Only the absolute wall-clock ceiling is exposed to it, and it carries a documented margin for that reason.
-- **Hard-coded thresholds go stale as the cluster's baseline performance drifts over months.** → This is an accepted, documented limitation (not solved by this change): if the benchmark starts failing for a contributor with no corresponding code change, the fix is to re-run once and update the recorded constants, exactly as the proposal's "measure and hard-code" instruction describes. `tasks.md` records the constants with a comment naming this as their origin.
+- **Hard-coded thresholds go stale as the cluster's baseline performance drifts over months.** → This is an accepted, documented limitation (not solved by this change): if the benchmark starts failing for a contributor with no corresponding code change, the fix is to re-run once and update the recorded constants, exactly as the proposal's "measure and hard-code" instruction describes. The constants' origin and rationale live in this file and in the commits that recorded them, not as inline code comments (the project bans those).
 - **Connecting to a real deployment is inherently slower and less deterministic than `testcontainers`.** → Handled by excluding connection/warmup latency from the measured window and by keeping the workload small enough that the two measured phases plus that fixed overhead comfortably fit the ~20 second budget.
 - **Multiprocessing workers must be picklable.** → Worker bodies are top-level functions taking only plain-data arguments (URI string, document IDs, rate/duration constants), not closures over fixtures.
 
 ## Migration Plan
 
-Purely additive: a new test module, a small conditional addition to two `justfile` recipes, and a new `CONTRIBUTING.md` section. Nothing existing changes behavior when `.env` is absent, which is every contributor's and CI's default state. Rollback is deleting the new test directory, the `justfile` conditional, and the doc section; no data or schema migration is involved.
+Purely additive (see proposal.md Impact for the changed files); nothing existing changes behavior when `.env` is absent, which is every contributor's and CI's default state. Rollback is deleting the new test directory, the `justfile` conditional, and the doc section; no data or schema migration is involved.
