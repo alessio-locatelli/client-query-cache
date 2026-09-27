@@ -18,6 +18,8 @@ from tests.benchmark.real_server.workers import (
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from faker import Faker
+
     from tests.conftest import MongoDbUri
 
 pytestmark = pytest.mark.integration
@@ -102,6 +104,33 @@ def test_reader_find_command_count(
         0 if use_cache else len(document_ids) * _MEASURED_CYCLES
     )
     assert read_result.find_command_count == expected_find_command_count
+
+
+def test_reader_tracks_the_max_observed_counter_and_handles_missing_documents(
+    mongodb_uri: MongoDbUri,
+    seed_documents: list[dict[str, Any]],
+    document_ids: list[str],
+    faker: Faker,
+) -> None:
+    updated_counter = 7
+    with MongoClient[dict[str, Any]](mongodb_uri) as client:
+        collection = client[DATABASE_NAME][COLLECTION_NAME]
+        collection.insert_many(seed_documents)
+        collection.update_one(
+            {"_id": document_ids[0]}, {"$set": {"counter": updated_counter}}
+        )
+
+    missing_id = faker.uuid4()
+    read_result = read_documents_repeatedly(
+        mongodb_uri,
+        [*document_ids, missing_id],
+        use_cache=False,
+        warmup_cycles=0,
+        measured_cycles=1,
+        collection_name=COLLECTION_NAME,
+    )
+
+    assert read_result.max_observed_counter == updated_counter
 
 
 def test_read_documents_repeatedly_into_queue_puts_the_result(

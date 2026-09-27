@@ -29,6 +29,7 @@ _SOCKET_TIMEOUT_MS = 5_000
 class ReadPhaseResult:
     duration_seconds: float
     find_command_count: int
+    max_observed_counter: int
 
 
 def _bounded_mongo_client(
@@ -88,9 +89,13 @@ def write_documents_until_stopped(
             stop_event.wait(update_interval_seconds)
 
 
-def _read_each_document(collection: Any, document_ids: Sequence[str]) -> None:  # noqa: ANN401
+def _read_each_document(collection: Any, document_ids: Sequence[str]) -> int:  # noqa: ANN401
+    max_counter = -1
     for document_id in document_ids:
-        collection.find_one({"_id": document_id})
+        document = collection.find_one({"_id": document_id})
+        if document is not None:
+            max_counter = max(max_counter, document.get("counter", -1))
+    return max_counter
 
 
 def _timed_read_cycles(
@@ -104,11 +109,16 @@ def _timed_read_cycles(
         _read_each_document(collection, document_ids)
     counter.find_command_count = 0
     start = time.perf_counter()
+    max_observed_counter = -1
     for _ in range(measured_cycles):
-        _read_each_document(collection, document_ids)
+        max_observed_counter = max(
+            max_observed_counter, _read_each_document(collection, document_ids)
+        )
     duration = time.perf_counter() - start
     return ReadPhaseResult(
-        duration_seconds=duration, find_command_count=counter.find_command_count
+        duration_seconds=duration,
+        find_command_count=counter.find_command_count,
+        max_observed_counter=max_observed_counter,
     )
 
 

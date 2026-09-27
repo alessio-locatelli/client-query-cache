@@ -144,3 +144,5 @@ def test_cache_provides_at_least_2x_benefit_over_direct_pymongo(
     assert uncached_result.duration_seconds <= _UNCACHED_DURATION_CEILING_SECONDS
     assert uncached_result.find_command_count == _UNCACHED_FIND_COMMAND_COUNT
     assert cached_result.find_command_count <= _CACHED_FIND_COMMAND_COUNT_CEILING
+    assert cached_result.max_observed_counter >= 0
+    assert uncached_result.max_observed_counter >= 0
