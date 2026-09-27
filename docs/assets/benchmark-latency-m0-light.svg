@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 196" width="560" height="196" role="img" aria-label="Atlas M0 free tier: median read latency, direct MongoDB read 79.4 milliseconds versus cached read hit 65 microseconds, about 1200 times faster. Bars use a logarithmic scale.">
+  <rect x="0" y="0" width="560" height="196" fill="#fcfcfb" rx="8"/>
+  <text x="16" y="26" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="15" font-weight="600" fill="#0b0b0b">Real deployment (Atlas M0): ~1,200&#215; faster median latency</text>
+  <line x1="190" y1="40" x2="190" y2="140" stroke="#d8d7d2" stroke-width="1"/>
+  <text x="16" y="64" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="12" fill="#0b0b0b">Direct MongoDB read</text>
+  <path d="M190,48 L459,48 Q463,48 463,52 L463,68 Q463,72 459,72 L190,72 Z" fill="#2a78d6"/>
+  <text x="475" y="64" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="12" font-weight="600" fill="#0b0b0b">79.4 ms</text>
+  <text x="16" y="120" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="12" fill="#0b0b0b">Cached read (hit)</text>
+  <path d="M190,104 L242.9,104 Q246.9,104 246.9,108 L246.9,124 Q246.9,128 242.9,128 L190,128 Z" fill="#eb6834"/>
+  <text x="258.9" y="120" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="12" font-weight="600" fill="#0b0b0b">65 &#181;s</text>
+  <line x1="190" y1="140" x2="470" y2="140" stroke="#d8d7d2" stroke-width="1"/>
+  <line x1="190" y1="140" x2="190" y2="145" stroke="#d8d7d2" stroke-width="1"/>
+  <line x1="260" y1="140" x2="260" y2="145" stroke="#d8d7d2" stroke-width="1"/>
+  <line x1="330" y1="140" x2="330" y2="145" stroke="#d8d7d2" stroke-width="1"/>
+  <line x1="400" y1="140" x2="400" y2="145" stroke="#d8d7d2" stroke-width="1"/>
+  <line x1="470" y1="140" x2="470" y2="145" stroke="#d8d7d2" stroke-width="1"/>
+  <text x="190" y="156" text-anchor="middle" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="9" fill="#52514e">10&#181;s</text>
+  <text x="260" y="156" text-anchor="middle" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="9" fill="#52514e">100&#181;s</text>
+  <text x="330" y="156" text-anchor="middle" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="9" fill="#52514e">1ms</text>
+  <text x="400" y="156" text-anchor="middle" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="9" fill="#52514e">10ms</text>
+  <text x="470" y="156" text-anchor="middle" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="9" fill="#52514e">100ms</text>
+  <text x="16" y="182" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="11" fill="#52514e">read_heavy workload &#183; small documents &#183; free-tier Atlas cluster, p50 &#183; log-scaled axis</text>
+</svg>
