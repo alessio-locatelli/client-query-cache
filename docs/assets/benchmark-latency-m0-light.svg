@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 196" width="560" height="196" role="img" aria-label="Atlas M0 free tier: median read latency, direct MongoDB read 79.4 milliseconds versus cached read hit 65 microseconds, about 1200 times faster. Bars use a logarithmic scale.">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 196" width="560" height="196" role="img" aria-label="Atlas M0 free tier: average read latency, direct MongoDB read 79.4 milliseconds versus cached read hit 65 microseconds, about 1200 times faster. Bars use a logarithmic scale.">
   <rect x="0" y="0" width="560" height="196" fill="#fcfcfb" rx="8"/>
-  <text x="16" y="26" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="15" font-weight="600" fill="#0b0b0b">Real deployment (Atlas M0): ~1,200&#215; faster median latency</text>
+  <text x="16" y="26" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="15" font-weight="600" fill="#0b0b0b">Real deployment (Atlas M0): ~1,200&#215; faster average latency</text>
   <line x1="190" y1="40" x2="190" y2="140" stroke="#d8d7d2" stroke-width="1"/>
   <text x="16" y="64" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="12" fill="#0b0b0b">Direct MongoDB read</text>
   <path d="M190,48 L459,48 Q463,48 463,52 L463,68 Q463,72 459,72 L190,72 Z" fill="#2a78d6"/>
@@ -19,5 +19,5 @@
   <text x="330" y="156" text-anchor="middle" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="9" fill="#52514e">1ms</text>
   <text x="400" y="156" text-anchor="middle" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="9" fill="#52514e">10ms</text>
   <text x="470" y="156" text-anchor="middle" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="9" fill="#52514e">100ms</text>
-  <text x="16" y="182" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="11" fill="#52514e">read_heavy workload &#183; small documents &#183; free-tier Atlas cluster, p50 &#183; log-scaled axis</text>
+  <text x="16" y="182" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="11" fill="#52514e">read_heavy workload &#183; small documents &#183; free-tier Atlas cluster, mean per read &#183; log-scaled axis</text>
 </svg>
