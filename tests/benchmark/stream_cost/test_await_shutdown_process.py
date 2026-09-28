@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-import json
 import multiprocessing
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from pymongo.errors import ConnectionFailure
 
 from benchmarks.stream_cost import await_run
+from benchmarks.stream_cost.await_configuration import load_await_configuration
 from benchmarks.stream_cost.errors import BenchmarkSetupError
 
 if TYPE_CHECKING:
@@ -20,9 +20,8 @@ pytestmark = pytest.mark.unit
 
 @pytest.fixture
 def configuration() -> AwaitConfiguration:
-    return cast(
-        "AwaitConfiguration",
-        json.loads(Path("reports/stream-cost/await-v1/config.v1.json").read_bytes()),
+    return load_await_configuration(
+        Path("reports/stream-cost/await-v1/config.v1.json").read_bytes()
     )
 
 

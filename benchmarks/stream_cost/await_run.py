@@ -22,6 +22,7 @@ from pymongo import AsyncMongoClient, MongoClient
 from pymongo.errors import PyMongoError
 
 from benchmarks.stream_cost.await_commands import AwaitCommandListener
+from benchmarks.stream_cost.await_configuration import load_await_configuration
 from benchmarks.stream_cost.await_decision import evaluate_await_decision
 from benchmarks.stream_cost.await_model import (
     AwaitConfiguration,
@@ -499,7 +500,7 @@ def run_matrix(output: Path) -> None:
     if output.exists() or output.with_suffix(".decision.json").exists():
         raise BenchmarkSetupError("use a new output path to preserve retained evidence")
     configuration_bytes = _CONFIG_PATH.read_bytes()
-    configuration = cast("AwaitConfiguration", json.loads(configuration_bytes))
+    configuration = load_await_configuration(configuration_bytes)
     digest = configuration_hash(configuration_bytes)
     git_path = shutil.which("git")
     if git_path is None:
@@ -614,9 +615,7 @@ def main() -> None:
     )
     arguments = parser.parse_args()
     if arguments.validate_only:
-        configuration = cast(
-            "AwaitConfiguration", json.loads(_CONFIG_PATH.read_bytes())
-        )
+        configuration = load_await_configuration(_CONFIG_PATH.read_bytes())
         report = json.loads(arguments.output.read_bytes())
         write_decision(report, configuration, arguments.output)
     else:

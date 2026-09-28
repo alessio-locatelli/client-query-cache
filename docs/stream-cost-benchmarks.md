@@ -68,6 +68,56 @@ The GitHub Actions **Stream cost benchmark** workflow runs when someone starts i
 
 Run it after a cache or stream change to capture a repeatable report set for that revision. Download the **stream-cost-reports** artifact from the completed run, then compare matching workload and size rows with the retained reports or another run on a comparable runner. Use differences in cache outcomes, latency, CPU, and logical stream activity to choose what to investigate next. Runner performance varies, so timing differences are evidence to inspect rather than an automatic pass/fail threshold; setup and report-validation failures still fail the workflow.
 
+### Change-stream await time
+
+The default is **1,000 ms**. The [measurement summary](../reports/stream-cost/await-v1/summary.md) is **inconclusive**:
+no larger wait qualified under the frozen rule. All four larger candidates passed the idle byte-savings,
+idle process-CPU, and shutdown gates in both execution models, but none passed the async paced-write
+invalidation-lag gate.
+
+The run retained 236 measured windows and four explicit failures across 240 planned windows. Write dispatch
+exceeded its registered schedule tolerance in the baseline's block 4 synchronous paced and burst windows,
+the baseline's block 6 asynchronous burst window, and the 5,000 ms candidate's block 6 synchronous paced
+window. These failures leave required paired comparisons unresolved; they do not establish a latency
+regression or a performance win. The default therefore remains the conservative fallback.
+
+The await-time benchmark compares 1,000, 5,000, 10,000, 30,000, and 60,000 ms with both synchronous and
+asynchronous managers. Its [frozen configuration](../reports/stream-cost/await-v1/config.v1.json) specifies six
+counterbalanced blocks, fresh manager state for each window, at least 120 seconds and two complete `getMore`
+waits per idle window, 200 writes per paced or burst window, and separate in-flight shutdown trials.
+
+Reproduce the matrix from the repository root with the [benchmark prerequisites](../CONTRIBUTING.md):
+
+```console
+uv run -- python -m benchmarks.stream_cost.await_run --output benchmark-reports/await.report.v1.json
+```
+
+Allow roughly three hours on a comparable host. The output path must be new. The runner records actual
+`getMore` counts and requested `maxTimeMS` values without retaining command bodies. Its decision file retains
+all registered comparisons, paired-block bootstrap distributions, nominal 95% one-sided bounds, and
+Holm-Bonferroni adjusted results.
+Missing measurements and unstable ratio denominators cannot establish a saving or noninferiority.
+
+A larger wait qualifies only when the adjusted bounds pass every safety gate in both execution models:
+active p95 invalidation lag within 10% of the 1,000 ms baseline, active server and process CPU within 5%,
+idle process CPU within 5%, and p95 shutdown at most two seconds. It must also save at least 5% idle server
+CPU or 10% idle bytes in each model. Among qualifying candidates, selection prefers a decisive idle server
+CPU advantage over all others in both models, followed by bytes, and otherwise the shortest wait.
+If none qualifies, the default remains 1,000 ms.
+
+Keep generated raw results out of Git. Validate your local report and recompute its decision with:
+
+```console
+uv run -- python -m benchmarks.stream_cost.await_run --output benchmark-reports/await.report.v1.json --validate-only
+```
+
+The isolated single-member replica set uses MongoDB 8.0.4, one CPU, and 512 MiB of memory, with no TLS or wire
+compression. Direct-path bytes cover the measured manager's client connections; process CPU includes the
+writer, proxy, and observation overhead. Container CPU covers the MongoDB process and its background work.
+These measurements do not establish results for sharded clusters, other hosts, or network-failure detection.
+See [the manager's await-time option and timeout interaction](api-reference.md#change-stream-await-time) before
+choosing an override.
+
 ### Wire compression
 
 The compression benchmark compares no compression against PyMongo's Snappy, zlib, and Zstandard wire compressors on the same isolated replica set, matching an idle window and balanced/write-dominant workloads at small and large document sizes, each with and without the library's change stream watching the traffic. Every mode ran for 4 repeated, counterbalanced blocks so run-order and host noise are visible in the [retained decision evidence](../reports/stream-cost/compression-v1/wire-compression.report.v1.decision.json), which records every per-block, per-workload threshold check alongside each mode's median added CPU and stream-path bytes.

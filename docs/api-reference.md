@@ -123,6 +123,9 @@ The default is 1,000 ms. Each manager keeps its own setting across its databases
 integers from 1 through 2,147,483,647; booleans and other invalid values raise `CacheConfigurationError` at
 construction.
 
+See the [await-time measurements](stream-cost-benchmarks.md#change-stream-await-time) for the default's
+selection rule, retained evidence, and limitations.
+
 This bounds an idle `getMore` wait. Event delivery and failure detection also depend on the server, network, and
 client timeouts. If you set a nonzero PyMongo `timeoutMS`, it must be greater than `max_await_time_ms`, as required
 by the [driver's change-stream timeout rules](https://github.com/mongodb/specifications/blob/master/source/client-side-operations-timeout/client-side-operations-timeout.md#change-streams).

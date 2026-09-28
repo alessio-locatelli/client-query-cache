@@ -9,14 +9,16 @@
 ## 2. Default decision
 
 - [x] 2.1 Freeze and review a versioned pre-run configuration before taking any samples, including candidate order, six blocks, window durations, write schedules, shutdown trials, one-sided paired-block bounds with 95% family-wise coverage and Holm-Bonferroni adjustment, denominator resolution rule, and all selection gates from `design.md`; verify decision tests reject altered configuration hashes and choose by decisive results in both execution models, then shorter wait.
-- [ ] 2.2 Run the frozen matrix, validate and retain its per-candidate decision evidence with the configuration hash, revision, and environment, and select the default strictly from that evidence; verify the retained report passes its validator and identifies every candidate's server and client CPU, bytes, latency, and shutdown outcome.
-- [ ] 2.3 Document the chosen value, measured rationale, timeout and topology limits, and a link to retained evidence in `docs/stream-cost-benchmarks.md`; verify every numerical claim against the report and reproduce the benchmark command from the documented configuration.
+- [x] 2.2 Run the frozen matrix, validate and retain its per-candidate decision evidence with the configuration hash, revision, and environment, and select the default strictly from that evidence; verify the retained report passes its validator and identifies every candidate's server and client CPU, bytes, latency, and shutdown outcome.
+- [x] 2.3 Document the chosen value, measured rationale, timeout and topology limits, and a link to retained evidence in `docs/stream-cost-benchmarks.md`; verify every numerical claim against the report and reproduce the benchmark command from the documented configuration.
+
+- [x] 2.4 Keep raw results untracked, commit a prose Markdown summary and a readable configuration under 200 lines, and document the repository rule; verify compact configuration expansion preserves the exact frozen protocol.
 
 ## 3. Public configuration
 
-- [ ] 3.1 Add one shared selected default and positive-integer validation, then thread an optional per-manager `max_await_time_ms` through synchronous and asynchronous coordinators to initial and reopened streams; verify parametrized tests cover omission, two managers with different overrides, reconnects, booleans, invalid numbers, and range limits.
-- [ ] 3.2 Verify representative real-server sync and async event delivery, interruption/recovery, and in-flight shutdown with the selected default and at least one larger override; resolve any failure against the existing coherency contract before accepting the default.
-- [ ] 3.3 Document the manager argument and its timeout interaction in `docs/api-reference.md`, update the README's public usage guidance only where needed, and add one final-behavior changelog entry; verify documented constructor examples run with the public API.
+- [x] 3.1 Add one shared selected default and positive-integer validation, then thread an optional per-manager `max_await_time_ms` through synchronous and asynchronous coordinators to initial and reopened streams; verify parametrized tests cover omission, two managers with different overrides, reconnects, booleans, invalid numbers, and range limits.
+- [x] 3.2 Verify representative real-server sync and async event delivery, interruption/recovery, and in-flight shutdown with the selected default and at least one larger override; resolve any failure against the existing coherency contract before accepting the default.
+- [x] 3.3 Document the manager argument and its timeout interaction in `docs/api-reference.md`, update the README's public usage guidance only where needed, and add one final-behavior changelog entry; verify documented constructor examples run with the public API.
 
 ## 4. Code Quality
 

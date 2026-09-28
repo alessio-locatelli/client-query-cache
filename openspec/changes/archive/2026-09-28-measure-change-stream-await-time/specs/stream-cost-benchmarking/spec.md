@@ -80,6 +80,12 @@ The report SHALL retain each candidate's decision evidence, including failed and
 - **WHEN** a candidate fails a registered limit or its improvement is inconclusive after adjustment for all candidate and workload comparisons
 - **THEN** its evidence remains in the report and cannot be omitted from the decision
 
+#### Scenario: Commit reproducible evidence as a summary
+
+- **WHEN** benchmark evidence is added to source control
+- **THEN** a prose Markdown summary records every candidate outcome, failures, limitations, configuration hash, revision, environment, and reproduction commands
+- **AND** raw results remain untracked, with only a genuinely useful reproduction configuration under 200 lines retained as JSON
+
 ### Requirement: Inconclusive await-time comparisons retain the default
 
 Measurement noise SHALL NOT justify changing the 1,000 ms default; public guidance SHALL state the evidence and limitations.
@@ -96,4 +102,4 @@ Public guidance SHALL name the selected value, link retained evidence, explain r
 #### Scenario: A default is published
 
 - **WHEN** the library documents its chosen `max_await_time_ms`
-- **THEN** readers can find the measured rationale, retained report, trade-offs, and the limits of the tested environment
+- **THEN** readers can find the measured rationale, committed summary, trade-offs, and the limits of the tested environment

@@ -6,7 +6,7 @@ The manager currently supplies a 1,000 ms change-stream await time without a mea
 
 ## What Changes
 
-- Compare several await times under matched idle and active change-stream workloads, including the current 1,000 ms baseline. Retain the measured decision evidence and the rule used to choose a default.
+- Compare several await times under matched idle and active change-stream workloads, including the current 1,000 ms baseline. Commit a prose Markdown summary of the measured decision and a compact reproduction configuration; keep regenerable raw results untracked.
 - Apply the selected default to synchronous and asynchronous managers, and offer a validated, per-manager public override. Do not read an environment variable for this setting.
 - Document the selected value, its measured rationale and limits, and the relationship to PyMongo timeouts in the API and performance guidance.
 - Correct the scope of the existing `stream_polls` measurement so it is not used as a count of MongoDB `getMore` commands.
