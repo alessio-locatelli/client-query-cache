@@ -76,12 +76,21 @@ The cached phase's round-trip count SHALL also carry a fixed ceiling recorded fr
 
 ### Requirement: The benchmark records network-bandwidth evidence from the real deployment
 
-Around the existing cached and uncached read phases, the benchmark SHALL collect network-bandwidth measurements (bytes in, bytes out, request count, and query-operation count) for the real deployment's primary process via the Atlas Admin API, invoked through the contributor's already-authenticated `atlas` CLI session. These measurements SHALL be recorded alongside each phase's existing wall-clock and round-trip-count results as retained evidence.
+After the existing cached and uncached read phases both complete, the benchmark SHALL collect one combined network-bandwidth measurement (bytes in, bytes out, request count, and query-operation count) for the real deployment's primary process via the Atlas Admin API, invoked through the contributor's already-authenticated `atlas` CLI session.
 
-#### Scenario: Bandwidth evidence accompanies both phases
+#### Scenario: Bandwidth evidence accompanies the reader phases
 
 - **WHEN** the benchmark completes its cached and uncached phases
-- **THEN** the recorded output includes network-bandwidth evidence for each phase, and neither phase's pass/fail result depends on that evidence
+- **THEN** the recorded output includes network-bandwidth evidence covering both phases combined, and neither phase's pass/fail result depends on that evidence
+
+### Requirement: The benchmark's bandwidth evidence is not attributable to either reader phase
+
+The deployment's supported measurement granularity spans multiple minutes while each read phase completes in seconds, so the collected measurement SHALL cover both phases, plus the concurrent writer's traffic, together, and SHALL NOT be presented as belonging to either phase individually.
+
+#### Scenario: The combined measurement cannot be split by phase
+
+- **WHEN** the benchmark logs its collected bandwidth evidence
+- **THEN** the log identifies the evidence as covering both reader phases combined rather than attributing it to the cached or uncached phase alone
 
 ### Requirement: The benchmark's bandwidth evidence does not gate its result
 
