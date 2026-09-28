@@ -99,11 +99,12 @@ cases where a write happens to hand back a usable document.
   lifecycle state, resident bytes, configured budget and max entry size, entry count, and cumulative hits, misses,
   evictions, bypasses, and oversized bypasses. None of these fields expose document contents, queries, or
   credentials, so the snapshot is safe to log or export to a metrics system directly.
-- **Per-database stream telemetry**: `manager.cache_core.stream_cost_snapshot(database_name)` returns stream polls,
+- **Per-database stream telemetry**: `manager.cache_core.stream_cost_snapshot(database_name)` returns manager iteration-call counts,
   logical event bytes, invalidation counts, and invalidation-delivery-lag samples for one database, and
   `manager.cache_core.active_stream_cost_databases()` lists which databases currently have telemetry. This is the
   same telemetry the [stream-cost benchmark suite](stream-cost-benchmarks.md) uses; the lag samples carry an
   explicit clock-skew disclaimer since they compare the MongoDB server's clock to your application host's.
+  The `stream_polls` field counts calls to change-stream iteration; one call can issue multiple `getMore` commands.
 
 ### OpenTelemetry metrics
 
