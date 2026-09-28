@@ -11,6 +11,7 @@ from benchmarks.stream_cost.measurement import (
     OperationLatency,
     latency_distribution,
     measure_controlled,
+    scalar_latency_distribution,
 )
 from benchmarks.stream_cost.workload import STANDARD_WORKLOAD_VARIANTS, run_paired_reads
 
@@ -66,6 +67,22 @@ def test_latency_distribution_preserves_outcome_groups() -> None:
         "p50_seconds": 0.1,
         "p95_seconds": 0.2,
         "p99_seconds": 0.2,
+    }
+
+
+def test_scalar_latency_distribution_marks_an_idle_window_with_no_samples() -> None:
+    distribution = scalar_latency_distribution(())
+    assert distribution == {"sample_count": 0, "no_latency_samples": True}
+
+
+def test_scalar_latency_distribution_computes_percentiles() -> None:
+    distribution = scalar_latency_distribution((0.1, 0.2, 0.5))
+    assert distribution == {
+        "sample_count": 3,
+        "no_latency_samples": False,
+        "p50_seconds": 0.2,
+        "p95_seconds": 0.5,
+        "p99_seconds": 0.5,
     }
 
 

@@ -34,6 +34,7 @@ if TYPE_CHECKING:
     from pymongo.synchronous.collection import Collection
 
     from benchmarks.stream_cost.client import WireCompressor
+    from benchmarks.stream_cost.compressor_preflight import CompressorPreflightResult
     from benchmarks.stream_cost.proxy import DirectPathByteProxy
     from benchmarks.stream_cost.topology import IsolatedReplicaSet
     from client_query_cache._core.stream_cost import InvalidationApplyReading
@@ -331,9 +332,9 @@ def run_compression_mode_block(
     replica_set: IsolatedReplicaSet,
     proxy: DirectPathByteProxy | None,
     database_prefix: str,
-) -> tuple[CompressionWindowResult, ...]:
+) -> tuple[CompressorPreflightResult, tuple[CompressionWindowResult, ...]]:
     preflight_database = f"{database_prefix}_preflight"
-    verify_compressor_negotiation(
+    negotiation = verify_compressor_negotiation(
         client, admin_client, compressor=mode, database_name=preflight_database
     )
     compression_window_results: list[CompressionWindowResult] = []
@@ -352,4 +353,4 @@ def run_compression_mode_block(
                     database_name=database_name,
                 )
             )
-    return tuple(compression_window_results)
+    return negotiation, tuple(compression_window_results)

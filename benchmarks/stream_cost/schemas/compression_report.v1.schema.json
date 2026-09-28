@@ -1,0 +1,320 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:mongo-client-cache:benchmarks:stream-cost:compression-report:v1",
+  "title": "Wire compression benchmark report (v1)",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "identity",
+    "environment",
+    "compressors",
+    "windows",
+    "block_count",
+    "blocks",
+    "negotiations",
+    "samples",
+    "stream_minus_control",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": { "const": "1" },
+    "identity": {
+      "type": "object",
+      "required": [
+        "revision",
+        "library_version",
+        "python_version",
+        "pymongo_version"
+      ],
+      "properties": {
+        "revision": { "type": "string", "minLength": 1 },
+        "library_version": { "type": "string", "minLength": 1 },
+        "python_version": { "type": "string", "minLength": 1 },
+        "pymongo_version": { "type": "string", "minLength": 1 }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "required": [
+        "mongodb_version",
+        "topology",
+        "member_count",
+        "resource_limits"
+      ],
+      "properties": {
+        "mongodb_version": { "type": "string", "minLength": 1 },
+        "topology": { "type": "string", "minLength": 1 },
+        "member_count": { "type": "integer", "minimum": 1 },
+        "resource_limits": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    },
+    "compressors": {
+      "type": "array",
+      "items": { "enum": ["none", "snappy", "zlib", "zstd"] },
+      "minItems": 4,
+      "uniqueItems": true
+    },
+    "windows": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "kind",
+          "data_size",
+          "duration_seconds",
+          "sampling"
+        ],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "kind": { "type": "string", "minLength": 1 },
+          "data_size": { "type": ["string", "null"] },
+          "duration_seconds": { "type": "number", "exclusiveMinimum": 0 },
+          "sampling": {
+            "type": "object",
+            "required": ["reads", "writes"],
+            "properties": {
+              "reads": { "type": "integer", "minimum": 0 },
+              "writes": { "type": "integer", "minimum": 0 }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "block_count": { "type": "integer", "minimum": 4 },
+    "blocks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["block_index", "mode_order", "path_order"],
+        "properties": {
+          "block_index": { "type": "integer", "minimum": 0 },
+          "mode_order": {
+            "type": "array",
+            "items": { "enum": ["none", "snappy", "zlib", "zstd"] },
+            "minItems": 4,
+            "uniqueItems": true
+          },
+          "path_order": {
+            "type": "array",
+            "items": { "enum": ["no_stream", "stream_watching"] },
+            "minItems": 2,
+            "maxItems": 2,
+            "uniqueItems": true
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "negotiations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["block_index", "mode", "verified", "counter_deltas"],
+        "properties": {
+          "block_index": { "type": "integer", "minimum": 0 },
+          "mode": { "enum": ["none", "snappy", "zlib", "zstd"] },
+          "verified": { "const": true },
+          "counter_deltas": {
+            "type": "object",
+            "additionalProperties": { "type": "integer" }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "samples": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/sample" }
+    },
+    "stream_minus_control": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "block_index",
+          "mode",
+          "window",
+          "container_cpu_seconds_delta",
+          "direct_path_bytes_delta"
+        ],
+        "properties": {
+          "block_index": { "type": "integer", "minimum": 0 },
+          "mode": { "enum": ["none", "snappy", "zlib", "zstd"] },
+          "window": { "type": "string", "minLength": 1 },
+          "container_cpu_seconds_delta": { "type": "number" },
+          "direct_path_bytes_delta": {
+            "oneOf": [
+              { "type": "null" },
+              { "$ref": "#/$defs/directPathBytesDelta" }
+            ]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "limitations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["label", "description"],
+        "properties": {
+          "label": { "type": "string", "minLength": 1 },
+          "description": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "outcomeBucket": {
+      "type": "object",
+      "required": [
+        "operation",
+        "outcome",
+        "sample_count",
+        "p50_seconds",
+        "p95_seconds",
+        "p99_seconds"
+      ],
+      "properties": {
+        "operation": { "type": "string", "minLength": 1 },
+        "outcome": { "type": "string", "minLength": 1 },
+        "sample_count": { "type": "integer", "minimum": 1 },
+        "p50_seconds": { "type": "number", "minimum": 0 },
+        "p95_seconds": { "type": "number", "minimum": 0 },
+        "p99_seconds": { "type": "number", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "outcomeDistribution": {
+      "type": "object",
+      "required": ["operation_count", "no_latency_samples", "by_outcome"],
+      "properties": {
+        "operation_count": { "type": "integer", "minimum": 0 },
+        "no_latency_samples": { "type": "boolean" },
+        "by_outcome": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/outcomeBucket" }
+        }
+      },
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "properties": {
+            "operation_count": { "const": 0 },
+            "no_latency_samples": { "const": true },
+            "by_outcome": { "maxItems": 0 }
+          }
+        },
+        {
+          "properties": {
+            "operation_count": { "minimum": 1 },
+            "no_latency_samples": { "const": false },
+            "by_outcome": { "minItems": 1 }
+          }
+        }
+      ]
+    },
+    "scalarDistribution": {
+      "type": "object",
+      "required": ["sample_count", "no_latency_samples"],
+      "properties": {
+        "sample_count": { "type": "integer", "minimum": 0 },
+        "no_latency_samples": { "type": "boolean" },
+        "p50_seconds": { "type": "number", "minimum": 0 },
+        "p95_seconds": { "type": "number", "minimum": 0 },
+        "p99_seconds": { "type": "number", "minimum": 0 }
+      },
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "properties": {
+            "sample_count": { "const": 0 },
+            "no_latency_samples": { "const": true }
+          },
+          "not": { "required": ["p50_seconds"] }
+        },
+        {
+          "properties": {
+            "sample_count": { "minimum": 1 },
+            "no_latency_samples": { "const": false }
+          },
+          "required": ["p50_seconds", "p95_seconds", "p99_seconds"]
+        }
+      ]
+    },
+    "directPathBytesDelta": {
+      "type": "object",
+      "required": ["sent", "received"],
+      "properties": {
+        "sent": { "type": "integer" },
+        "received": { "type": "integer" }
+      },
+      "additionalProperties": false
+    },
+    "sample": {
+      "type": "object",
+      "required": [
+        "block_index",
+        "mode",
+        "path",
+        "window",
+        "window_kind",
+        "data_size",
+        "wall_seconds",
+        "process_cpu_seconds",
+        "container_cpu_seconds",
+        "direct_path_bytes",
+        "expected_reads",
+        "expected_writes",
+        "reads_issued",
+        "writes_issued",
+        "read_latency",
+        "write_latency",
+        "invalidation_latency"
+      ],
+      "properties": {
+        "block_index": { "type": "integer", "minimum": 0 },
+        "mode": { "enum": ["none", "snappy", "zlib", "zstd"] },
+        "path": { "enum": ["no_stream", "stream_watching"] },
+        "window": { "type": "string", "minLength": 1 },
+        "window_kind": { "type": "string", "minLength": 1 },
+        "data_size": { "type": ["string", "null"] },
+        "wall_seconds": { "type": "number", "minimum": 0 },
+        "process_cpu_seconds": { "type": "number", "minimum": 0 },
+        "container_cpu_seconds": { "type": "number", "minimum": 0 },
+        "direct_path_bytes": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "required": ["sent", "received", "scope"],
+              "properties": {
+                "sent": { "type": "integer", "minimum": 0 },
+                "received": { "type": "integer", "minimum": 0 },
+                "scope": { "const": "dedicated direct benchmark path only" }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "expected_reads": { "type": "integer", "minimum": 0 },
+        "expected_writes": { "type": "integer", "minimum": 0 },
+        "reads_issued": { "type": "integer", "minimum": 0 },
+        "writes_issued": { "type": "integer", "minimum": 0 },
+        "read_latency": { "$ref": "#/$defs/outcomeDistribution" },
+        "write_latency": { "$ref": "#/$defs/outcomeDistribution" },
+        "invalidation_latency": { "$ref": "#/$defs/scalarDistribution" }
+      },
+      "additionalProperties": false
+    }
+  }
+}
