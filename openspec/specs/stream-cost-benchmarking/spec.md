@@ -395,6 +395,8 @@ For every matched window, the report SHALL record MongoDB-container CPU time, mo
 
 Public performance guidance SHALL link retained decision evidence from a versioned four-mode comparison and name one recommended PyMongo client compressor setting for the measured workload, including no compression when warranted. The recommendation SHALL prioritize server CPU cost and write-to-invalidation latency associated with watching the change stream, then consider direct-path byte savings, and SHALL disclose material workload and environment limits. If the measurements do not distinguish the modes reliably, guidance SHALL retain the current no-compression PyMongo default and state that the comparison is inconclusive; it SHALL NOT claim that mode is universally fastest or cheapest. The benchmark SHALL NOT change the public cache API or silently override the caller's client configuration.
 
+Only the decision evidence is retained in version control, not the full per-repetition raw report: at four modes times four blocks times five windows times two paths, the raw report is several thousand lines of JSON that a fresh run regenerates deterministically from the recorded revision, and the decision evidence already carries the per-block, per-window numbers needed to audit the recommendation. Leaving the raw report out of version control is an accepted, deliberate trade-off against that storage cost, not a gap to close.
+
 #### Scenario: One mode offers a clear trade-off
 
 - **WHEN** repeated measurements support a recommendation under the registered decision rule
