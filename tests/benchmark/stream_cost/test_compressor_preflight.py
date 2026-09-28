@@ -131,21 +131,37 @@ def test_verify_compressor_negotiation_accepts_a_clean_no_compression_match() ->
     assert all(delta == 0 for delta in preflight_result.counter_deltas.values())
 
 
-def test_verify_compressor_negotiation_rejects_fallback_to_no_compression() -> None:
-    with pytest.raises(BenchmarkSetupError, match="fell back to no compression"):
-        _run(WireCompressor.ZSTD, _ZERO_COUNTERS, _ZERO_COUNTERS)
-
-
-def test_verify_compressor_negotiation_rejects_a_mislabeled_compressor() -> None:
-    with pytest.raises(BenchmarkSetupError, match="fell back to no compression"):
-        _run(WireCompressor.ZSTD, _ZERO_COUNTERS, _counters(snappy=500))
-
-
-def test_verify_compressor_negotiation_rejects_ambiguous_negotiation() -> None:
-    with pytest.raises(BenchmarkSetupError, match="could not be verified"):
-        _run(WireCompressor.ZSTD, _ZERO_COUNTERS, _counters(zstd=500, snappy=200))
-
-
-def test_verify_compressor_negotiation_rejects_unexpected_compression() -> None:
-    with pytest.raises(BenchmarkSetupError, match="was not verified as uncompressed"):
-        _run(WireCompressor.NONE, _ZERO_COUNTERS, _counters(zlib=300))
+@pytest.mark.parametrize(
+    ("compressor", "after", "match"),
+    [
+        pytest.param(
+            WireCompressor.ZSTD,
+            _ZERO_COUNTERS,
+            "fell back to no compression",
+            id="fallback_to_no_compression",
+        ),
+        pytest.param(
+            WireCompressor.ZSTD,
+            _counters(snappy=500),
+            "fell back to no compression",
+            id="mislabeled_compressor",
+        ),
+        pytest.param(
+            WireCompressor.ZSTD,
+            _counters(zstd=500, snappy=200),
+            "could not be verified",
+            id="ambiguous_negotiation",
+        ),
+        pytest.param(
+            WireCompressor.NONE,
+            _counters(zlib=300),
+            "was not verified as uncompressed",
+            id="unexpected_compression",
+        ),
+    ],
+)
+def test_verify_compressor_negotiation_rejects_a_bad_negotiation(
+    compressor: WireCompressor, after: _Counters, match: str
+) -> None:
+    with pytest.raises(BenchmarkSetupError, match=match):
+        _run(compressor, _ZERO_COUNTERS, after)

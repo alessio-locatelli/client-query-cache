@@ -24,7 +24,7 @@ from benchmarks.stream_cost.topology import IsolatedReplicaSet, ResourceLimits
 from benchmarks.stream_cost.workload import OperationCounts, WorkloadKind
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
 
     from pymongo import MongoClient
 
@@ -164,47 +164,61 @@ def test_run_compression_mode_block_produces_finite_values(
                 assert result.invalidation_latencies_seconds == ()
 
 
-def test_run_compression_window_rejects_missed_write_schedule_tolerance(
-    compression_replica_set: IsolatedReplicaSet,
-    compression_proxy: DirectPathByteProxy,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def _shrink_write_schedule_tolerance(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(runner_module, "_SCHEDULE_TOLERANCE_SECONDS", 1e-9)
-    with (
-        _client_for_mode(compression_proxy, WireCompressor.NONE) as client,
-        pytest.raises(BenchmarkSetupError, match="deviates from its scheduled"),
-    ):
-        run_compression_window(
-            _ACTIVE_WINDOW,
-            mode=WireCompressor.NONE,
-            path=WirePath.NO_STREAM,
-            block_index=0,
-            client=client,
-            replica_set=compression_replica_set,
-            proxy=compression_proxy,
-            database_name="compression_missed_tolerance",
-        )
 
 
-def test_run_compression_window_rejects_missing_invalidation_events(
+def _force_a_settle_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    def _always_times_out(*_args: object, **_kwargs: object) -> None:
+        message = "stream invalidations did not settle for a forced test failure"
+        raise BenchmarkSetupError(message)
+
+    monkeypatch.setattr(
+        runner_module, "wait_for_invalidations_to_settle", _always_times_out
+    )
+
+
+@pytest.mark.parametrize(
+    ("apply_patch", "path", "match", "database_name"),
+    [
+        pytest.param(
+            _shrink_write_schedule_tolerance,
+            WirePath.NO_STREAM,
+            "deviates from its scheduled",
+            "compression_missed_tolerance",
+            id="missed_write_schedule_tolerance",
+        ),
+        pytest.param(
+            _force_a_settle_timeout,
+            WirePath.STREAM_WATCHING,
+            "did not settle",
+            "compression_missing_events",
+            id="missing_invalidation_events",
+        ),
+    ],
+)
+def test_run_compression_window_rejects_a_setup_failure(
     compression_replica_set: IsolatedReplicaSet,
     compression_proxy: DirectPathByteProxy,
     monkeypatch: pytest.MonkeyPatch,
+    *,
+    apply_patch: Callable[[pytest.MonkeyPatch], None],
+    path: WirePath,
+    match: str,
+    database_name: str,
 ) -> None:
-    monkeypatch.setattr(
-        "benchmarks.stream_cost.workload._STREAM_SETTLE_TIMEOUT_SECONDS", 1e-9
-    )
+    apply_patch(monkeypatch)
     with (
         _client_for_mode(compression_proxy, WireCompressor.NONE) as client,
-        pytest.raises(BenchmarkSetupError, match="did not settle"),
+        pytest.raises(BenchmarkSetupError, match=match),
     ):
         run_compression_window(
             _ACTIVE_WINDOW,
             mode=WireCompressor.NONE,
-            path=WirePath.STREAM_WATCHING,
+            path=path,
             block_index=0,
             client=client,
             replica_set=compression_replica_set,
             proxy=compression_proxy,
-            database_name="compression_missing_events",
+            database_name=database_name,
         )
