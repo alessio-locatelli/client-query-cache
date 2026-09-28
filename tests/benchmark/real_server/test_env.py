@@ -71,6 +71,9 @@ def test_real_mongodb_uri_does_not_leak_through_a_failing_test_traceback(
 ) -> None:
     secret_uri = faker.uri()
     monkeypatch.setenv(_URI_UNDER_TEST_ENV_VAR, secret_uri)
+    pytester.makefile(
+        ".ini", pytest="[pytest]\nasyncio_default_fixture_loop_scope = function\n"
+    )
     pytester.makepyfile(
         f"""
         import os

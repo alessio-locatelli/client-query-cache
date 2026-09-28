@@ -41,15 +41,26 @@ def _change_stream_cost_comparison_payload(
     raw_bytes = _direct_path_bytes_pair(comparison.raw)
     cache_bytes = _direct_path_bytes_pair(comparison.cache)
     available = raw_bytes is not None and cache_bytes is not None
+    raw_cpu = comparison.raw.container_cpu_seconds
+    cache_cpu = comparison.cache.container_cpu_seconds
     return {
         "container_cpu_seconds": {
-            "raw": comparison.raw.container_cpu_seconds,
-            "cache": comparison.cache.container_cpu_seconds,
+            "raw": raw_cpu,
+            "cache": cache_cpu,
+            "delta_seconds": cache_cpu - raw_cpu,
         },
         "direct_path_bytes": {
             "available": available,
             "raw": raw_bytes if available else None,
             "cache": cache_bytes if available else None,
+            "delta": (
+                {
+                    "sent": cache_bytes["sent"] - raw_bytes["sent"],
+                    "received": cache_bytes["received"] - raw_bytes["received"],
+                }
+                if available and cache_bytes is not None and raw_bytes is not None
+                else None
+            ),
         },
     }
 

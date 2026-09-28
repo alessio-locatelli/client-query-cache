@@ -12,7 +12,7 @@
     "library_version": "0.1.0",
     "pymongo_version": "4.18.1",
     "python_version": "3.14.6",
-    "revision": "1d5027b"
+    "revision": "cf3c1ff"
   },
   "limitations": [
     {
@@ -39,8 +39,9 @@
   "measurement": {
     "change_stream_cost_comparison": {
       "container_cpu_seconds": {
-        "cache": 0.06998899999999986,
-        "raw": 0.072519
+        "cache": 0.07795900000000011,
+        "delta_seconds": 0.004015000000000102,
+        "raw": 0.07394400000000001
       },
       "direct_path_bytes": {
         "available": true,
@@ -48,13 +49,17 @@
           "received": 56600,
           "sent": 31500
         },
+        "delta": {
+          "received": -969400,
+          "sent": -4050
+        },
         "raw": {
           "received": 1026000,
           "sent": 35550
         }
       }
     },
-    "container_cpu_seconds": 0.09168299999999996,
+    "container_cpu_seconds": 0.1037459999999999,
     "direct_path_bytes": {
       "received": 1901246,
       "scope": "dedicated direct benchmark path only",
@@ -84,24 +89,24 @@
         }
       ]
     },
-    "process_cpu_seconds": 0.08812258099999992,
+    "process_cpu_seconds": 0.08503927399999966,
     "variants": [
       {
         "by_outcome": [
           {
             "operation": "read",
             "outcome": "raw",
-            "p50_seconds": 0.0005774200108135119,
-            "p95_seconds": 0.0007232259958982468,
-            "p99_seconds": 0.0016131459997268394,
+            "p50_seconds": 0.0004965469997841865,
+            "p95_seconds": 0.0007217529928311706,
+            "p99_seconds": 0.0007690620113862678,
             "sample_count": 50
           },
           {
             "operation": "write",
             "outcome": "shared_write",
-            "p50_seconds": 0.0042221220064675435,
-            "p95_seconds": 0.006799469003453851,
-            "p99_seconds": 0.007482537010218948,
+            "p50_seconds": 0.0038608689937973395,
+            "p95_seconds": 0.005389855999965221,
+            "p99_seconds": 0.018906544995843433,
             "sample_count": 50
           }
         ],
@@ -114,25 +119,25 @@
           {
             "operation": "read",
             "outcome": "hit",
-            "p50_seconds": 0.00014332999126054347,
-            "p95_seconds": 0.00017001100059133023,
-            "p99_seconds": 0.00017001100059133023,
+            "p50_seconds": 0.00013763998867943883,
+            "p95_seconds": 0.00017779599875211716,
+            "p99_seconds": 0.00017779599875211716,
             "sample_count": 10
           },
           {
             "operation": "read",
             "outcome": "miss",
-            "p50_seconds": 0.0007876669988036156,
-            "p95_seconds": 0.0010248750040773302,
-            "p99_seconds": 0.0011508729949127883,
+            "p50_seconds": 0.0007098999922163785,
+            "p95_seconds": 0.0008743009966565296,
+            "p99_seconds": 0.00185736600542441,
             "sample_count": 40
           },
           {
             "operation": "write",
             "outcome": "shared_write",
-            "p50_seconds": 0.0042221220064675435,
-            "p95_seconds": 0.006799469003453851,
-            "p99_seconds": 0.007482537010218948,
+            "p50_seconds": 0.0038608689937973395,
+            "p95_seconds": 0.005389855999965221,
+            "p99_seconds": 0.018906544995843433,
             "sample_count": 50
           }
         ],
@@ -141,7 +146,7 @@
         "operation_count": 100
       }
     ],
-    "wall_seconds": 0.30167640100989956,
+    "wall_seconds": 0.3021128919936018,
     "warmup": {
       "admissions": 1,
       "hits": 1

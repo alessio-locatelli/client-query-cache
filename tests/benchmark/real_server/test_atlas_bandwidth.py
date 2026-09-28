@@ -5,6 +5,7 @@ import stat
 import sys
 from typing import TYPE_CHECKING
 
+import dns.resolver
 import pytest
 
 from tests.benchmark.real_server import atlas_bandwidth
@@ -17,26 +18,88 @@ from tests.benchmark.real_server.atlas_bandwidth import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from pathlib import Path
 
 pytestmark = pytest.mark.unit
 
 _PROJECT_ID = "1234567890abcdef12345678"
+_MONGODB_URI = (
+    "mongodb+srv://user:pass@cluster0.example.mongodb.net/"  # pragma: allowlist secret
+)
+_MEMBER_ALIAS = "ac-example-shard-00-01.example.mongodb.net"
+_MEMBER_PORT = 27017
 _HOST_ID = "atlas-example-shard-00-01.example.mongodb.net:27017"
 
 _SECONDARY_HOST_ID = "atlas-example-shard-00-00.example.mongodb.net:27017"
+_UNRELATED_ALIAS = "ac-other-shard-00-01.other.mongodb.net"
 
 _PROCESSES_LIST_RESPONSE = json.dumps(
     {
         "results": [
-            {"id": _SECONDARY_HOST_ID, "typeName": "REPLICA_SECONDARY"},
-            {"id": _HOST_ID, "typeName": "REPLICA_PRIMARY"},
+            {
+                "id": _SECONDARY_HOST_ID,
+                "typeName": "REPLICA_SECONDARY",
+                "userAlias": "ac-example-shard-00-00.example.mongodb.net",
+                "port": _MEMBER_PORT,
+            },
+            {
+                "id": _HOST_ID,
+                "typeName": "REPLICA_PRIMARY",
+                "userAlias": _MEMBER_ALIAS,
+                "port": _MEMBER_PORT,
+            },
+        ]
+    }
+)
+
+_PROCESSES_LIST_RESPONSE_UNRELATED_PRIMARY = json.dumps(
+    {
+        "results": [
+            {
+                "id": "atlas-other-shard-00-01.other.mongodb.net:27017",
+                "typeName": "REPLICA_PRIMARY",
+                "userAlias": _UNRELATED_ALIAS,
+                "port": _MEMBER_PORT,
+            },
+            {
+                "id": _HOST_ID,
+                "typeName": "REPLICA_SECONDARY",
+                "userAlias": _MEMBER_ALIAS,
+                "port": _MEMBER_PORT,
+            },
         ]
     }
 )
 
 _PROCESSES_LIST_RESPONSE_NO_PRIMARY = json.dumps(
-    {"results": [{"id": "a:27017", "typeName": "REPLICA_SECONDARY"}]}
+    {
+        "results": [
+            {
+                "id": _SECONDARY_HOST_ID,
+                "typeName": "REPLICA_SECONDARY",
+                "userAlias": _MEMBER_ALIAS,
+                "port": _MEMBER_PORT,
+            }
+        ]
+    }
+)
+
+_PROCESSES_LIST_RESPONSE_HOSTNAME_FALLBACK = json.dumps(
+    {
+        "results": [
+            {
+                "id": "atlas-portless.example.mongodb.net:27017",
+                "typeName": "REPLICA_PRIMARY",
+            },
+            {
+                "id": _HOST_ID,
+                "typeName": "REPLICA_PRIMARY",
+                "hostname": _MEMBER_ALIAS,
+                "port": _MEMBER_PORT,
+            },
+        ]
+    }
 )
 
 _METRICS_RESPONSE_WITH_DATA = json.dumps(
@@ -66,10 +129,35 @@ _METRICS_RESPONSE_ALL_EMPTY = json.dumps(
 )
 
 
+class _FakeSrvRecord:
+    __slots__ = ("port", "target")
+
+    def __init__(self, target: str, port: int) -> None:
+        self.target = f"{target}."
+        self.port = port
+
+
+def _fake_resolve(records: Sequence[_FakeSrvRecord]) -> object:
+    def resolve(qname: str, rdtype: str) -> Sequence[_FakeSrvRecord]:
+        assert rdtype == "SRV"
+        assert qname == "_mongodb._tcp.cluster0.example.mongodb.net"
+        return records
+
+    return resolve
+
+
+def _mock_srv_resolution(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        dns.resolver,
+        "resolve",
+        _fake_resolve([_FakeSrvRecord(_MEMBER_ALIAS, _MEMBER_PORT)]),
+    )
+
+
 def _write_fake_atlas(tmp_path: Path, *, dispatch: dict[str, str]) -> None:
     fake_atlas = tmp_path / "atlas"
     branches = "\n".join(
-        f"""    if {marker!r} in argv:
+        f"""    if argv[:1] == [{marker!r}]:
         print({response!r})
         raise SystemExit(0)"""
         for marker, response in dispatch.items()
@@ -111,29 +199,76 @@ def test_requested_metric_types_never_includes_process_cpu_metrics() -> None:
     assert not any("CPU" in metric_type for metric_type in requested_metric_types())
 
 
+def test_collect_bandwidth_evidence_returns_none_when_the_uri_is_not_srv(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("PATH", str(tmp_path))
+
+    uri = (
+        "mongodb://user:pass@cluster0.example.mongodb.net/"  # pragma: allowlist secret
+    )
+    assert collect_bandwidth_evidence(_PROJECT_ID, uri) is None
+
+
+def test_collect_bandwidth_evidence_returns_none_when_the_uri_has_no_hostname(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("PATH", str(tmp_path))
+
+    assert collect_bandwidth_evidence(_PROJECT_ID, "mongodb+srv://") is None
+
+
+def test_collect_bandwidth_evidence_returns_none_when_srv_resolution_fails(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("PATH", str(tmp_path))
+
+    def _raise_nxdomain(*_args: object) -> Sequence[_FakeSrvRecord]:
+        raise dns.resolver.NXDOMAIN
+
+    monkeypatch.setattr(dns.resolver, "resolve", _raise_nxdomain)
+
+    assert collect_bandwidth_evidence(_PROJECT_ID, _MONGODB_URI) is None
+
+
 @pytest.mark.parametrize(
     "dispatch",
     [
-        pytest.param(None, id="atlas_cli_is_absent"),
         pytest.param({}, id="atlas_cli_fails"),
         pytest.param(
-            {"list": _PROCESSES_LIST_RESPONSE_NO_PRIMARY},
+            {"processes": _PROCESSES_LIST_RESPONSE_NO_PRIMARY},
             id="no_primary_process_is_found",
         ),
         pytest.param(
-            {"list": _PROCESSES_LIST_RESPONSE, "metrics": _METRICS_RESPONSE_ALL_EMPTY},
+            {"processes": _PROCESSES_LIST_RESPONSE_UNRELATED_PRIMARY},
+            id="only_an_unrelated_primary_is_found",
+        ),
+        pytest.param(
+            {
+                "processes": _PROCESSES_LIST_RESPONSE,
+                "metrics": _METRICS_RESPONSE_ALL_EMPTY,
+            },
             id="all_data_points_are_empty",
         ),
     ],
 )
 def test_collect_bandwidth_evidence_returns_none(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, dispatch: dict[str, str] | None
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, dispatch: dict[str, str]
 ) -> None:
-    if dispatch is not None:
-        _write_fake_atlas(tmp_path, dispatch=dispatch)
+    _mock_srv_resolution(monkeypatch)
+    _write_fake_atlas(tmp_path, dispatch=dispatch)
     monkeypatch.setenv("PATH", str(tmp_path))
 
-    assert collect_bandwidth_evidence(_PROJECT_ID) is None
+    assert collect_bandwidth_evidence(_PROJECT_ID, _MONGODB_URI) is None
+
+
+def test_collect_bandwidth_evidence_returns_none_when_atlas_cli_is_absent(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _mock_srv_resolution(monkeypatch)
+    monkeypatch.setenv("PATH", str(tmp_path))
+
+    assert collect_bandwidth_evidence(_PROJECT_ID, _MONGODB_URI) is None
 
 
 @pytest.mark.parametrize(
@@ -141,7 +276,7 @@ def test_collect_bandwidth_evidence_returns_none(
     [
         pytest.param({}, id="atlas_cli_fails"),
         pytest.param(
-            {"list": _PROCESSES_LIST_RESPONSE_NO_PRIMARY},
+            {"processes": _PROCESSES_LIST_RESPONSE_NO_PRIMARY},
             id="no_primary_process_is_found",
         ),
     ],
@@ -152,11 +287,12 @@ def test_collect_bandwidth_evidence_never_logs_the_project_id(
     caplog: pytest.LogCaptureFixture,
     dispatch: dict[str, str],
 ) -> None:
+    _mock_srv_resolution(monkeypatch)
     _write_fake_atlas(tmp_path, dispatch=dispatch)
     monkeypatch.setenv("PATH", str(tmp_path))
 
     with caplog.at_level("WARNING"):
-        collect_bandwidth_evidence(_PROJECT_ID)
+        collect_bandwidth_evidence(_PROJECT_ID, _MONGODB_URI)
 
     assert _PROJECT_ID not in caplog.text
 
@@ -164,28 +300,50 @@ def test_collect_bandwidth_evidence_never_logs_the_project_id(
 def test_collect_bandwidth_evidence_returns_none_when_atlas_cli_times_out(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    _mock_srv_resolution(monkeypatch)
     fake_atlas = tmp_path / "atlas"
     fake_atlas.write_text(f"#!{sys.executable}\nimport time\ntime.sleep(5)\n")
     fake_atlas.chmod(fake_atlas.stat().st_mode | stat.S_IEXEC)
     monkeypatch.setenv("PATH", str(tmp_path))
     monkeypatch.setattr(atlas_bandwidth, "_ATLAS_TIMEOUT_SECONDS", 0.05)
 
-    assert collect_bandwidth_evidence(_PROJECT_ID) is None
+    assert collect_bandwidth_evidence(_PROJECT_ID, _MONGODB_URI) is None
 
 
 def test_collect_bandwidth_evidence_returns_evidence_when_data_is_available(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    _mock_srv_resolution(monkeypatch)
     _write_fake_atlas(
         tmp_path,
         dispatch={
-            "list": _PROCESSES_LIST_RESPONSE,
+            "processes": _PROCESSES_LIST_RESPONSE,
             "metrics": _METRICS_RESPONSE_WITH_DATA,
         },
     )
     monkeypatch.setenv("PATH", str(tmp_path))
 
-    evidence = collect_bandwidth_evidence(_PROJECT_ID)
+    evidence = collect_bandwidth_evidence(_PROJECT_ID, _MONGODB_URI)
+
+    assert evidence == BandwidthEvidence(
+        host_id=_HOST_ID, measurements={"NETWORK_BYTES_IN": (1633.7,)}
+    )
+
+
+def test_collect_bandwidth_evidence_falls_back_to_the_hostname_field(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _mock_srv_resolution(monkeypatch)
+    _write_fake_atlas(
+        tmp_path,
+        dispatch={
+            "processes": _PROCESSES_LIST_RESPONSE_HOSTNAME_FALLBACK,
+            "metrics": _METRICS_RESPONSE_WITH_DATA,
+        },
+    )
+    monkeypatch.setenv("PATH", str(tmp_path))
+
+    evidence = collect_bandwidth_evidence(_PROJECT_ID, _MONGODB_URI)
 
     assert evidence == BandwidthEvidence(
         host_id=_HOST_ID, measurements={"NETWORK_BYTES_IN": (1633.7,)}

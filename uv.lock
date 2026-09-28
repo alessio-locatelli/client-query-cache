@@ -276,6 +276,7 @@ otel = [
 dev = [
     { name = "covdefaults" },
     { name = "coverage" },
+    { name = "dnspython" },
     { name = "faker" },
     { name = "hypothesis" },
     { name = "jsonschema" },
@@ -311,6 +312,7 @@ provides-extras = ["otel"]
 dev = [
     { name = "covdefaults", specifier = ">=2.3.0" },
     { name = "coverage", specifier = ">=7.16.1" },
+    { name = "dnspython", specifier = ">=2.8.0" },
     { name = "faker", specifier = ">=40.38.0" },
     { name = "hypothesis", specifier = ">=6.168.0" },
     { name = "jsonschema", specifier = ">=4.26.0" },

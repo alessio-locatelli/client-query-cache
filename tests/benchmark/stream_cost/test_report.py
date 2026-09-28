@@ -333,7 +333,7 @@ def test_build_report_omits_change_stream_cost_comparison_by_default() -> None:
         pytest.param(
             ControlledMeasurement(1.0, 0.1, 0.2, None, None),
             ControlledMeasurement(1.0, 0.1, 0.3, None, None),
-            {"available": False, "raw": None, "cache": None},
+            {"available": False, "raw": None, "cache": None, "delta": None},
             id="without_a_proxy",
         ),
         pytest.param(
@@ -343,6 +343,7 @@ def test_build_report_omits_change_stream_cost_comparison_by_default() -> None:
                 "available": True,
                 "raw": {"sent": 100, "received": 200},
                 "cache": {"sent": 150, "received": 250},
+                "delta": {"sent": 50, "received": 50},
             },
             id="with_a_proxy",
         ),
@@ -379,6 +380,10 @@ def test_build_report_change_stream_cost_comparison_direct_path_bytes(
         "container_cpu_seconds": {
             "raw": raw_measurement.container_cpu_seconds,
             "cache": cache_measurement.container_cpu_seconds,
+            "delta_seconds": (
+                cache_measurement.container_cpu_seconds
+                - raw_measurement.container_cpu_seconds
+            ),
         },
         "direct_path_bytes": expected_direct_path_bytes,
     }
