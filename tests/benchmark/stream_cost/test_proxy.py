@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from benchmarks.stream_cost.client import BenchmarkClientTopologyConfig
+from benchmarks.stream_cost.client import BenchmarkClientTopologyConfig, WireCompressor
 from benchmarks.stream_cost.errors import (
     BenchmarkConfigurationError,
     BenchmarkSetupError,
@@ -24,27 +24,26 @@ if TYPE_CHECKING:
 pytestmark = pytest.mark.unit
 
 
-def _direct_topology(**overrides: bool) -> BenchmarkClientTopologyConfig:
-    defaults: dict[str, bool] = {
+def _direct_topology(**overrides: object) -> BenchmarkClientTopologyConfig:
+    defaults: dict[str, object] = {
         "tls_enabled": False,
-        "compression_enabled": False,
+        "compressor": WireCompressor.NONE,
         "discovery_enabled": False,
         "shared_connections": False,
     }
     defaults.update(overrides)
-    return BenchmarkClientTopologyConfig(**defaults)
+    return BenchmarkClientTopologyConfig(**defaults)  # type: ignore[arg-type]
 
 
 @pytest.mark.parametrize(
     "override",
     [
         {"tls_enabled": True},
-        {"compression_enabled": True},
         {"discovery_enabled": True},
         {"shared_connections": True},
     ],
 )
-def test_proxy_config_rejects_unsupported_topology(override: dict[str, bool]) -> None:
+def test_proxy_config_rejects_unsupported_topology(override: dict[str, object]) -> None:
     with pytest.raises(BenchmarkConfigurationError):
         DirectPathProxyConfig(
             client_topology=_direct_topology(**override),
@@ -56,6 +55,18 @@ def test_proxy_config_rejects_unsupported_topology(override: dict[str, bool]) ->
 def test_proxy_config_accepts_fully_direct_topology() -> None:
     DirectPathProxyConfig(
         client_topology=_direct_topology(), upstream_host="127.0.0.1", upstream_port=1
+    )
+
+
+@pytest.mark.parametrize(
+    "compressor",
+    [WireCompressor.SNAPPY, WireCompressor.ZLIB, WireCompressor.ZSTD],
+)
+def test_proxy_config_accepts_a_compressed_topology(compressor: WireCompressor) -> None:
+    DirectPathProxyConfig(
+        client_topology=_direct_topology(compressor=compressor),
+        upstream_host="127.0.0.1",
+        upstream_port=1,
     )
 
 

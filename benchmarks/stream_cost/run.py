@@ -14,6 +14,7 @@ from urllib.parse import urlparse
 
 from benchmarks.stream_cost.client import (
     BenchmarkClientTopologyConfig,
+    WireCompressor,
     build_dedicated_client,
 )
 from benchmarks.stream_cost.config import (
@@ -95,7 +96,7 @@ def run_standard_matrix(
     output_dir.mkdir(parents=True, exist_ok=True)
     client_topology = BenchmarkClientTopologyConfig(
         tls_enabled=False,
-        compression_enabled=False,
+        compressor=WireCompressor.NONE,
         discovery_enabled=False,
         shared_connections=False,
     )
