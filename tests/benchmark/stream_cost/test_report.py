@@ -333,7 +333,13 @@ def test_build_report_omits_change_stream_cost_comparison_by_default() -> None:
         pytest.param(
             ControlledMeasurement(1.0, 0.1, 0.2, None, None),
             ControlledMeasurement(1.0, 0.1, 0.3, None, None),
-            {"available": False, "raw": None, "cache": None, "delta": None},
+            {
+                "available": False,
+                "raw": None,
+                "cache": None,
+                "delta": None,
+                "delta_percent": None,
+            },
             id="without_a_proxy",
         ),
         pytest.param(
@@ -344,8 +350,21 @@ def test_build_report_omits_change_stream_cost_comparison_by_default() -> None:
                 "raw": {"sent": 100, "received": 200},
                 "cache": {"sent": 150, "received": 250},
                 "delta": {"sent": 50, "received": 50},
+                "delta_percent": {"sent": 50.0, "received": 25.0},
             },
             id="with_a_proxy",
+        ),
+        pytest.param(
+            ControlledMeasurement(1.0, 0.1, 0.0, 0, 0),
+            ControlledMeasurement(1.0, 0.1, 0.05, 10, 20),
+            {
+                "available": True,
+                "raw": {"sent": 0, "received": 0},
+                "cache": {"sent": 10, "received": 20},
+                "delta": {"sent": 10, "received": 20},
+                "delta_percent": {"sent": None, "received": None},
+            },
+            id="zero_baseline",
         ),
     ],
 )
@@ -376,14 +395,20 @@ def test_build_report_change_stream_cost_comparison_direct_path_bytes(
 
     validate_report(report)
     comparison = report["measurement"]["change_stream_cost_comparison"]
+    delta_seconds = (
+        cache_measurement.container_cpu_seconds - raw_measurement.container_cpu_seconds
+    )
+    delta_percent = (
+        delta_seconds / raw_measurement.container_cpu_seconds * 100
+        if raw_measurement.container_cpu_seconds
+        else None
+    )
     assert comparison == {
         "container_cpu_seconds": {
             "raw": raw_measurement.container_cpu_seconds,
             "cache": cache_measurement.container_cpu_seconds,
-            "delta_seconds": (
-                cache_measurement.container_cpu_seconds
-                - raw_measurement.container_cpu_seconds
-            ),
+            "delta_seconds": delta_seconds,
+            "delta_percent": delta_percent,
         },
         "direct_path_bytes": expected_direct_path_bytes,
     }

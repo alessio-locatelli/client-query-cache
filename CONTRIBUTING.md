@@ -64,12 +64,22 @@ from `REAL_MONGODB_URI` in a `.env` file at the repository root (see `.env.examp
 loads automatically once that file exists. Without a configured `.env`, or in CI, the benchmark
 skips with an explicit reason and every other test still runs.
 
+Run just this benchmark with:
+
+```console
+just pytest tests/benchmark/real_server/test_cache_benefit.py
+```
+
+Its logged evidence, including any Atlas bandwidth evidence described below, lands in `pytest.log`
+at the repository root; search that file for the test's name instead of scrolling the full suite's
+output.
+
 If `.env` also sets `REAL_MONGODB_ATLAS_PROJECT_ID` to your MongoDB Atlas project's ID, and the
 [Atlas CLI](https://www.mongodb.com/docs/atlas/cli/current/) is installed and authenticated, the
-benchmark additionally collects that project's network-bandwidth metrics around its cached and
-uncached phases and logs them for your own inspection. This evidence never gates the benchmark's
-pass/fail result: without `REAL_MONGODB_ATLAS_PROJECT_ID`, without the Atlas CLI, or if a metrics
-call fails, the benchmark logs the gap and continues running as usual.
+benchmark additionally collects that project's network-bandwidth metrics covering its combined
+cached-and-uncached read phases and logs them for your own inspection. This evidence never gates the
+benchmark's pass/fail result: without `REAL_MONGODB_ATLAS_PROJECT_ID`, without the Atlas CLI, or if a
+metrics call fails, the benchmark logs the gap and continues running as usual.
 
 ## Release verification
 

@@ -40,6 +40,7 @@
     "change_stream_cost_comparison": {
       "container_cpu_seconds": {
         "cache": 0.08059600000000011,
+        "delta_percent": 25.78973654638524,
         "delta_seconds": 0.016523999999999983,
         "raw": 0.06407200000000013
       },
@@ -52,6 +53,10 @@
         "delta": {
           "received": -69350,
           "sent": -4050
+        },
+        "delta_percent": {
+          "received": -55.0178500595002,
+          "sent": -11.360448807854137
         },
         "raw": {
           "received": 126050,

@@ -6,6 +6,7 @@ import logging
 import os
 import shutil
 import subprocess
+import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
@@ -30,6 +31,7 @@ _GRANULARITY = "PT1M"
 _PERIOD = "PT5M"
 _PRIMARY_PROCESS_TYPE_NAME = "REPLICA_PRIMARY"
 _ATLAS_TIMEOUT_SECONDS = 30.0
+_ATLAS_COLLECTION_BUDGET_SECONDS = 8.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,7 +48,7 @@ def resolve_atlas_project_id() -> str | None:
     return os.environ.get(ATLAS_PROJECT_ID_ENV_VAR) or None
 
 
-def _run_atlas(arguments: Sequence[str]) -> str:
+def _run_atlas(arguments: Sequence[str], *, timeout: float) -> str:
     atlas_path = shutil.which("atlas")
     if atlas_path is None:
         message = "the atlas CLI is not installed or not on PATH"
@@ -55,7 +57,7 @@ def _run_atlas(arguments: Sequence[str]) -> str:
         [atlas_path, *arguments, "--output", "json"],
         capture_output=True,
         text=True,
-        timeout=_ATLAS_TIMEOUT_SECONDS,
+        timeout=timeout,
         check=True,
     )
     return completed.stdout
@@ -97,9 +99,11 @@ def _process_matches_srv_members(
 
 
 def _primary_process_host_id(
-    project_id: str, members: frozenset[tuple[str, int]]
+    project_id: str, members: frozenset[tuple[str, int]], *, timeout: float
 ) -> str:
-    payload = json.loads(_run_atlas(["processes", "list", "--projectId", project_id]))
+    payload = json.loads(
+        _run_atlas(["processes", "list", "--projectId", project_id], timeout=timeout)
+    )
     for process in payload.get("results", ()):
         if process.get(
             "typeName"
@@ -127,30 +131,57 @@ def _measurements_by_type(payload: Mapping[str, Any]) -> dict[str, tuple[float, 
     return measurements
 
 
+def _fetch_process_and_metrics(
+    project_id: str, mongodb_uri: str, deadline: float
+) -> tuple[str, Mapping[str, Any]] | None:
+    members = _resolve_srv_members(mongodb_uri)
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        logger.warning(
+            "Atlas bandwidth evidence unavailable: collection budget "
+            "exhausted before listing processes"
+        )
+        return None
+    host_id = _primary_process_host_id(
+        project_id, members, timeout=min(_ATLAS_TIMEOUT_SECONDS, remaining)
+    )
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        logger.warning(
+            "Atlas bandwidth evidence unavailable: collection budget "
+            "exhausted before fetching metrics"
+        )
+        return None
+    type_arguments = itertools.chain.from_iterable(
+        ("--type", metric_type) for metric_type in _METRIC_TYPES
+    )
+    payload = json.loads(
+        _run_atlas(
+            [
+                "metrics",
+                "processes",
+                host_id,
+                "--projectId",
+                project_id,
+                "--granularity",
+                _GRANULARITY,
+                "--period",
+                _PERIOD,
+                *type_arguments,
+            ],
+            timeout=min(_ATLAS_TIMEOUT_SECONDS, remaining),
+        )
+    )
+    return host_id, payload
+
+
 def collect_bandwidth_evidence(
     project_id: str, mongodb_uri: str
 ) -> BandwidthEvidence | None:
+    deadline = time.monotonic() + _ATLAS_COLLECTION_BUDGET_SECONDS
     try:
-        members = _resolve_srv_members(mongodb_uri)
-        host_id = _primary_process_host_id(project_id, members)
-        type_arguments = itertools.chain.from_iterable(
-            ("--type", metric_type) for metric_type in _METRIC_TYPES
-        )
-        payload = json.loads(
-            _run_atlas(
-                [
-                    "metrics",
-                    "processes",
-                    host_id,
-                    "--projectId",
-                    project_id,
-                    "--granularity",
-                    _GRANULARITY,
-                    "--period",
-                    _PERIOD,
-                    *type_arguments,
-                ]
-            )
+        process_and_metrics = _fetch_process_and_metrics(
+            project_id, mongodb_uri, deadline
         )
     except subprocess.CalledProcessError as error:
         logger.warning(
@@ -164,6 +195,9 @@ def collect_bandwidth_evidence(
     except (OSError, RuntimeError, ValueError, dns.exception.DNSException) as error:
         logger.warning("Atlas bandwidth evidence unavailable: %s", error)
         return None
+    if process_and_metrics is None:
+        return None
+    host_id, payload = process_and_metrics
     measurements = _measurements_by_type(payload)
     if not measurements:
         logger.warning("Atlas returned no bandwidth data points for host %r", host_id)

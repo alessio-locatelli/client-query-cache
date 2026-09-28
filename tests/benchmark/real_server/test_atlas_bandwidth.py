@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import stat
 import sys
+import time
 from typing import TYPE_CHECKING
 
 import dns.resolver
@@ -295,6 +296,41 @@ def test_collect_bandwidth_evidence_never_logs_the_project_id(
         collect_bandwidth_evidence(_PROJECT_ID, _MONGODB_URI)
 
     assert _PROJECT_ID not in caplog.text
+
+
+def test_collect_bandwidth_evidence_returns_none_when_the_budget_is_exhausted_early(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _mock_srv_resolution(monkeypatch)
+    monkeypatch.setenv("PATH", str(tmp_path))
+    monotonic_values = iter([0.0, 100.0])
+    monkeypatch.setattr(time, "monotonic", lambda: next(monotonic_values))
+
+    def _fail_if_called(*_args: object, **_kwargs: object) -> str:
+        raise AssertionError("atlas CLI must not run once the budget is exhausted")
+
+    monkeypatch.setattr(atlas_bandwidth, "_primary_process_host_id", _fail_if_called)
+
+    assert collect_bandwidth_evidence(_PROJECT_ID, _MONGODB_URI) is None
+
+
+def test_collect_bandwidth_evidence_returns_none_when_the_budget_runs_out_between_calls(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _mock_srv_resolution(monkeypatch)
+    monkeypatch.setenv("PATH", str(tmp_path))
+    monotonic_values = iter([0.0, 0.0, 100.0])
+    monkeypatch.setattr(time, "monotonic", lambda: next(monotonic_values))
+    monkeypatch.setattr(
+        atlas_bandwidth, "_primary_process_host_id", lambda *_args, **_kwargs: _HOST_ID
+    )
+
+    def _fail_if_called(*_args: object, **_kwargs: object) -> str:
+        raise AssertionError("metrics must not be fetched once the budget is exhausted")
+
+    monkeypatch.setattr(atlas_bandwidth, "_run_atlas", _fail_if_called)
+
+    assert collect_bandwidth_evidence(_PROJECT_ID, _MONGODB_URI) is None
 
 
 def test_collect_bandwidth_evidence_returns_none_when_atlas_cli_times_out(
