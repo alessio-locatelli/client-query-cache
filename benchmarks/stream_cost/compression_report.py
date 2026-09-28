@@ -103,7 +103,7 @@ def _direct_path_bytes_delta(
         or control_measurement.direct_path_bytes_sent is None
         or control_measurement.direct_path_bytes_received is None
     ):
-        return None
+        return None  # pragma: no cover - this benchmark always uses a direct-path proxy
     return {
         "sent": (
             stream_measurement.direct_path_bytes_sent
@@ -171,7 +171,9 @@ def build_compression_report(
                     WirePath.STREAM_WATCHING,
                 )
                 control_key = (block.block_index, mode, window.name, WirePath.NO_STREAM)
-                if stream_key in results_by_key and control_key in results_by_key:
+                if (
+                    stream_key in results_by_key and control_key in results_by_key
+                ):  # pragma: no branch - every block runs both paths for every window
                     stream_minus_control.append(
                         _stream_minus_control_payload(
                             results_by_key[stream_key], results_by_key[control_key]

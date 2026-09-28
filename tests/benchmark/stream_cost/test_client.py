@@ -129,7 +129,7 @@ def test_build_dedicated_client_fails_visibly_when_compressor_is_unavailable(
                 UserWarning,
                 stacklevel=2,
             )
-            super().__init__(uri, **kwargs)
+            super().__init__(uri, **kwargs)  # pragma: no cover - error raised above
 
     monkeypatch.setattr("benchmarks.stream_cost.client.MongoClient", _WarningStubClient)
     with pytest.raises(BenchmarkSetupError, match="silently fallen back"):

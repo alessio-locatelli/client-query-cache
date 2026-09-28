@@ -57,7 +57,7 @@ _ADMIN_TOPOLOGY = BenchmarkClientTopologyConfig(
 
 def _revision() -> str:
     git_path = shutil.which("git")
-    if git_path is None:
+    if git_path is None:  # pragma: no cover - git always installed in CI
         raise RuntimeError("git is required to identify the benchmark revision")
     return subprocess.check_output(  # noqa: S603 - fixed git arguments
         [git_path, "rev-parse", "--short=7", "HEAD"], text=True, shell=False
@@ -193,7 +193,7 @@ def run_compression_matrix(
     return report
 
 
-def main() -> None:
+def main() -> None:  # pragma: no cover - manual CLI entry point, unused in CI
     parser = argparse.ArgumentParser(
         description="Run the isolated four-mode wire compression matrix"
     )

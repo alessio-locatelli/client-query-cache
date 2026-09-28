@@ -10,6 +10,7 @@ from benchmarks.stream_cost import compression_matrix_runner as runner_module
 from benchmarks.stream_cost.compression_matrix import CompressionWindowSpec
 from benchmarks.stream_cost.compression_matrix_runner import (
     _invalidation_latencies,
+    _issue_cache_reads,
     _prime_cache_reads,
     _run_stream_watching_window,
     _seed_window_dataset,
@@ -139,6 +140,24 @@ class _FakeCacheCore:
 
     def active_stream_cost_databases(self) -> list[str]:
         return self._active_databases
+
+
+class _StaticCacheManager:
+    __slots__ = ("cache_core",)
+
+    def __init__(self) -> None:
+        self.cache_core = self
+
+    @staticmethod
+    def snapshot() -> _FakeSnapshot:
+        return _FakeSnapshot(hits=0, misses=0)
+
+
+def test_issue_cache_reads_rejects_a_primed_read_that_was_not_a_hit() -> None:
+    collection: Any = _RecordingCachedCollection()
+    manager: Any = _StaticCacheManager()
+    with pytest.raises(BenchmarkSetupError, match="was not a hit"):
+        _issue_cache_reads(collection, manager, ["missing_id"], latencies=[])
 
 
 class _FakeCachedCollection:

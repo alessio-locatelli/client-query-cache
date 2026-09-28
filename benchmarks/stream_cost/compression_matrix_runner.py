@@ -103,13 +103,13 @@ def _issue_cache_reads(
         cache_collection.find_one({"_id": document_id})
         seconds = time.monotonic() - started
         after = manager.cache_core.snapshot()
-        if after.hits > before.hits:
-            outcome = "hit"
-        elif after.misses > before.misses:
-            outcome = "miss"
-        else:
-            outcome = "bypass"
-        latencies.append(OperationLatency("read", outcome, seconds))
+        if after.hits <= before.hits:
+            message = (
+                f"cache read for {document_id!r} was not a hit despite priming; "
+                "the shared cache budget may be too small for this window's dataset"
+            )
+            raise BenchmarkSetupError(message)
+        latencies.append(OperationLatency("read", "hit", seconds))
 
 
 def _issue_scheduled_writes(
@@ -263,7 +263,7 @@ def _run_stream_watching_window(
             )
             if window.kind is WorkloadKind.IDLE:
                 time.sleep(window.duration_seconds)
-            elif actual_offsets:
+            elif actual_offsets:  # pragma: no branch - writes always scheduled
                 wait_for_invalidations_to_settle(
                     manager,
                     database_name,
@@ -282,7 +282,7 @@ def _run_stream_watching_window(
         )
 
         active = manager.cache_core.active_stream_cost_databases()
-        if active != [database_name]:
+        if active != [database_name]:  # pragma: no cover - stream never fails here
             message = (
                 f"stream serving database {database_name!r} was no longer healthy "
                 f"after sampling; active streams: {active}"

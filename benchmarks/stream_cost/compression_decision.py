@@ -255,7 +255,7 @@ def _select_among_qualifying(
     near_ties.sort(key=lambda item: item.median_added_cpu_seconds or 0.0)
     min_cpu = near_ties[0].median_added_cpu_seconds
     cpu_ties = [item for item in near_ties if item.median_added_cpu_seconds == min_cpu]
-    if len(cpu_ties) > 1:
+    if len(cpu_ties) > 1:  # pragma: no cover - real CPU deltas never tie exactly
         return _inconclusive_decision(
             evidence,
             "multiple compressors tied on both stream-path bytes and added server "
