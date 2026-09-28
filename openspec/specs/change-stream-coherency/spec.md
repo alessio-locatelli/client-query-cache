@@ -6,9 +6,27 @@ This capability keeps a process-local cache safe to use only while a database-sc
 
 ## Requirements
 
-### Requirement: A manager owns one database-scoped invalidation stream
+### Requirement: Managers use one invalidation stream per database
 
-For every active cached database, the manager SHALL use exactly one database-scoped stream opened with `show_expanded_events=True` to route insert, update, replace, delete, drop, `dropDatabase`, rename, `create`, `createIndexes`, `dropIndexes`, and invalidation events to all affected cache namespaces. The manager SHALL require MongoDB server version 8.0 or newer and SHALL fail closed during startup when the server cannot support the expanded-events option. The stream projection SHALL retain the resume token and fields required for routing while omitting unnecessary full documents and update descriptions. A `create` event SHALL advance the affected namespace's epoch and generation and SHALL physically reclaim any entries cached against that namespace while it did not yet exist, the same as a clear, so a namespace coming into existence invalidates any determination a caller made about it before it existed and does not leave pre-existence entries consuming shared budget. A `createIndexes` or `dropIndexes` event SHALL be routed to the affected namespace without being treated as a document write or a namespace-wide document-cache invalidation, since an index change has no `documentKey` and no bearing on which documents are cached. Database-wide invalidation SHALL enumerate only namespaces registered for the affected database and SHALL not traverse namespace metadata for other databases.
+A manager SHALL use one database-scoped change stream for each database it caches, opened with `show_expanded_events=True`.
+
+#### Scenario: A client caches multiple databases
+
+- **WHEN** a caller activates cached collections in more than one database through the same client
+- **THEN** the manager maintains one independent database-scoped stream for each active cached database, and an event in one database cannot be routed as an invalidation for another database
+
+### Requirement: Change-stream projection retains routing fields
+
+The stream projection SHALL retain resume tokens and fields needed for event routing while omitting full documents and update descriptions.
+
+#### Scenario: A projected change event reaches the router
+
+- **WHEN** the database stream projects a change event
+- **THEN** its resume token and routing fields remain available without fetching unnecessary full-document or update-description content
+
+### Requirement: Change events invalidate affected cache entries
+
+A routed insert, update, replace, delete, drop, `dropDatabase`, rename, or invalidation event SHALL invalidate affected cached identities or namespaces before a later hit.
 
 #### Scenario: An external update is received
 
@@ -25,20 +43,14 @@ For every active cached database, the manager SHALL use exactly one database-sco
 - **WHEN** the manager processes a `dropDatabase` or its resulting invalidation event
 - **THEN** it clears every cache namespace for that database, bypasses cache use while reopening the stream, and resumes only from a safe post-invalidation position
 
-#### Scenario: The server cannot provide expanded events
-
-- **WHEN** the manager starts against a MongoDB server older than 8.0 or a server that rejects `show_expanded_events=True`
-- **THEN** startup fails closed and the manager does not mark the cache eligible for hits or admission
-
-#### Scenario: A client caches multiple databases
-
-- **WHEN** a caller activates cached collections in more than one database through the same client
-- **THEN** the manager maintains one independent database-scoped stream for each active cached database, and an event in one database cannot be routed as an invalidation for another database
-
 #### Scenario: A database-wide invalidation has unrelated namespaces
 
 - **WHEN** the manager clears a database while the cache tracks namespaces from other databases
 - **THEN** it enumerates and clears only the affected database's namespaces
+
+### Requirement: Namespace and index events refresh cache metadata
+
+Creation and index change events SHALL advance the relevant namespace metadata generations.
 
 #### Scenario: A namespace is created after being absent
 
@@ -50,9 +62,18 @@ For every active cached database, the manager SHALL use exactly one database-sco
 - **WHEN** the manager processes a `createIndexes` or `dropIndexes` event for a namespace
 - **THEN** it routes the event to that namespace for consumers that track index metadata, without advancing the namespace's document-cache generation or epoch and without requiring a `documentKey`
 
-### Requirement: Cache use fails closed during stream uncertainty
+### Requirement: Unsupported change-stream features disable caching
 
-The manager SHALL permit cache use only after stream startup establishes the documented healthy state. During recovery and shutdown it SHALL bypass cache admission and hits. A cache admission capture created while the stream is unavailable, or before an intervening unavailable-to-healthy transition, SHALL be rejected even if the stream is healthy when admission completes. Health and cache-availability transitions SHALL be serialized so a terminal stopped or failed supervisor cannot leave its database cache-eligible. A supervisor SHALL disable cache availability before waiting for stream or worker shutdown. If continuity cannot be resumed, it SHALL clear the affected cache before re-establishing the stream.
+The manager SHALL require MongoDB 8.0 or newer and fail closed during startup if the server cannot support expanded change events.
+
+#### Scenario: The server cannot provide expanded events
+
+- **WHEN** the manager starts against a MongoDB server older than 8.0 or a server that rejects `show_expanded_events=True`
+- **THEN** startup fails closed and the manager does not mark the cache eligible for hits or admission
+
+### Requirement: Stream uncertainty bypasses cache reads
+
+The manager SHALL bypass cache lookup and admission while its stream position is uncertain.
 
 #### Scenario: Resume history is unavailable
 
@@ -63,6 +84,10 @@ The manager SHALL permit cache use only after stream startup establishes the doc
 
 - **WHEN** a read begins cache admission while its database stream is unavailable and the stream becomes healthy before the read completes
 - **THEN** the completed read is not admitted to the cache
+
+### Requirement: Shutdown terminates recovery and cleanup
+
+Stopping the manager SHALL prevent recovery from reopening streams and SHALL report cleanup failures.
 
 #### Scenario: A stop races stream recovery
 
