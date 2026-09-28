@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import math
 from dataclasses import fields
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
+from benchmarks.stream_cost.await_configuration import load_await_configuration
 from benchmarks.stream_cost.await_model import (
     AwaitConfiguration,
     AwaitWindow,
@@ -17,10 +17,10 @@ from benchmarks.stream_cost.errors import BenchmarkConfigurationError
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
-# Content hash of the reviewed pre-run configuration.
+# Content hash of the compact reviewed configuration.
 CONFIGURATION_SHA256 = (
     # pragma: allowlist nextline secret
-    "d4797f8d8d10c71f4b41d83dfcc51486c1923e47b1f0704133fd6854861a9fc9"
+    "3285da5566b0afc9ecb29acd3de9aad8915bb4365e3fa6644b44764a1eb44bf9"
 )
 CONFIGURATION_PATH = Path("reports/stream-cost/await-v1/config.v1.json")
 
@@ -141,11 +141,13 @@ def _window(raw: object) -> AwaitWindow:
 
 
 def validate_await_report(
-    report: Mapping[str, object], configuration: AwaitConfiguration, digest: str
+    report: Mapping[str, object],
+    configuration: AwaitConfiguration,
+    digest: str,
 ) -> tuple[AwaitWindow, ...]:
     frozen_bytes = CONFIGURATION_PATH.read_bytes()
     _require(
-        condition=configuration == json.loads(frozen_bytes)
+        condition=configuration == load_await_configuration(frozen_bytes)
         and configuration_hash(frozen_bytes) == digest,
         message="decision configuration differs from the frozen configuration",
     )

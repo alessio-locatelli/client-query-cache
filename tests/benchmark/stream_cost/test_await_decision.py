@@ -14,6 +14,10 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from benchmarks.stream_cost import await_report, await_run
+from benchmarks.stream_cost.await_configuration import (
+    expand_await_configuration,
+    load_await_configuration,
+)
 from benchmarks.stream_cost.await_decision import evaluate_await_decision
 from benchmarks.stream_cost.await_model import AwaitWindow
 from benchmarks.stream_cost.await_statistics import exact_block_bootstrap, holm_adjusted
@@ -37,7 +41,7 @@ _SHUTDOWN_SECONDS = 0.1
 
 @pytest.fixture
 def configuration() -> AwaitConfiguration:
-    return cast("AwaitConfiguration", json.loads(_CONFIGURATION_PATH.read_bytes()))
+    return load_await_configuration(_CONFIGURATION_PATH.read_bytes())
 
 
 @pytest.fixture
@@ -117,10 +121,8 @@ def windows(configuration: AwaitConfiguration) -> tuple[AwaitWindow, ...]:
 def report(
     windows: tuple[AwaitWindow, ...],
     configuration: AwaitConfiguration,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> dict[str, object]:
-    digest = hashlib.sha256(_CONFIGURATION_PATH.read_bytes()).hexdigest()
-    monkeypatch.setattr(await_report, "CONFIGURATION_SHA256", digest)
+    digest = await_report.configuration_hash(_CONFIGURATION_PATH.read_bytes())
     return {
         "schema_version": 1,
         "configuration_sha256": digest,
@@ -136,6 +138,22 @@ def report(
         "samples": [asdict(window) for window in windows],
         "failures": [],
     }
+
+
+def test_compact_configuration_expands_to_the_frozen_original_semantics(
+    configuration: AwaitConfiguration,
+) -> None:
+    canonical = json.dumps(configuration, sort_keys=True, separators=(",", ":"))
+    assert hashlib.sha256(canonical.encode()).hexdigest() == (
+        # pragma: allowlist nextline secret
+        "792be6aeb1e08383fae2cde4f3b749c53e4effa3302461da8f89a3acf3aca661"
+    )
+    assert expand_await_configuration(configuration) == configuration
+
+
+def test_configuration_loader_rejects_an_incomplete_compact_definition() -> None:
+    with pytest.raises(BenchmarkConfigurationError, match="invalid await-time"):
+        load_await_configuration(b'{"comparison_plan": {}}')
 
 
 def test_report_retains_matched_complete_measurements(

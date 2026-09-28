@@ -13,6 +13,12 @@ See [README.md](README.md).
 - Performance is critical, and you must fight for every micro- and macro-optimization. For each major change, you must record profiling and benchmark measurements in the commit body.
 - Keep the usage documentation in `README.md` and `docs/` in sync with the code's public interface. Document examples, hints, gotchas, and common misuse patterns. OpenSpec files are internal specifications for development—they are not intended for end-user consumption.
 
+### Generated artifacts
+
+- Do not commit raw benchmark results, regardless of size: they can be regenerated. Store only a concise prose summary in Markdown, including the commands needed to reproduce the measurements.
+- Include a JSON file only when it is genuinely important for future developers (for example, a fixed reproduction configuration), and keep it under 200 lines. Do not minify or reformat large payloads to evade this limit.
+- Keep reproducible raw benchmark and diagnostic outputs untracked.
+
 ### OpenSpec completion
 
 - After an OpenSpec change is fully applied and has passed review, proactively run `openspec-sync-specs`, run `openspec-archive-change`, and commit every file that belongs to the completed change. Treat these as one continuous completion sequence and do not ask for confirmation between steps.

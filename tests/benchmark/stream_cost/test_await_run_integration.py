@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 from unittest.mock import Mock
 
 import pytest
 
+from benchmarks.stream_cost.await_configuration import load_await_configuration
 from benchmarks.stream_cost.await_run import (
     run_bounded_shutdown,
     run_shutdown,
@@ -39,9 +39,8 @@ def await_replica() -> Iterator[IsolatedReplicaSet]:
 
 @pytest.fixture
 def instrumentation_configuration() -> AwaitConfiguration:
-    configuration = cast(
-        "AwaitConfiguration",
-        json.loads(Path("reports/stream-cost/await-v1/config.v1.json").read_bytes()),
+    configuration = load_await_configuration(
+        Path("reports/stream-cost/await-v1/config.v1.json").read_bytes()
     )
     configuration.update(
         {
