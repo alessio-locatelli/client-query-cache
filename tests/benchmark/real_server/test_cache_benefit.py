@@ -67,7 +67,7 @@ _CACHED_DURATION_CEILING_SECONDS = (
 
 
 def _log_bandwidth_evidence_excluding_its_duration(
-    atlas_project_id: str | None, *, phase_name: str
+    atlas_project_id: str | None, mongodb_uri: str, *, phase_name: str
 ) -> float:
     if atlas_project_id is None:
         return 0.0
@@ -75,7 +75,7 @@ def _log_bandwidth_evidence_excluding_its_duration(
     logger.info(
         "%s-phase Atlas bandwidth evidence: %s",
         phase_name,
-        collect_bandwidth_evidence(atlas_project_id),
+        collect_bandwidth_evidence(atlas_project_id, mongodb_uri),
     )
     return time.perf_counter() - collection_start
 
@@ -148,7 +148,9 @@ def test_cache_provides_at_least_2x_benefit_over_direct_pymongo(
         )
         bandwidth_evidence_overhead_seconds += (
             _log_bandwidth_evidence_excluding_its_duration(
-                atlas_project_id, phase_name="cached"
+                atlas_project_id,
+                real_mongodb_uri.get_secret_value(),
+                phase_name="cached",
             )
         )
         uncached_result = _run_reader_phase(
@@ -156,7 +158,9 @@ def test_cache_provides_at_least_2x_benefit_over_direct_pymongo(
         )
         bandwidth_evidence_overhead_seconds += (
             _log_bandwidth_evidence_excluding_its_duration(
-                atlas_project_id, phase_name="uncached"
+                atlas_project_id,
+                real_mongodb_uri.get_secret_value(),
+                phase_name="uncached",
             )
         )
     finally:

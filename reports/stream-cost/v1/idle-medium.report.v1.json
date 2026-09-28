@@ -12,7 +12,7 @@
     "library_version": "0.1.0",
     "pymongo_version": "4.18.1",
     "python_version": "3.14.6",
-    "revision": "1d5027b"
+    "revision": "cf3c1ff"
   },
   "limitations": [
     {
@@ -33,7 +33,7 @@
     }
   ],
   "measurement": {
-    "container_cpu_seconds": 0.0030200000000000227,
+    "container_cpu_seconds": 0.002869999999999928,
     "direct_path_bytes": {
       "received": 5207,
       "scope": "dedicated direct benchmark path only",
@@ -63,7 +63,7 @@
         }
       ]
     },
-    "process_cpu_seconds": 0.0036796199999999946,
+    "process_cpu_seconds": 0.004097025999999948,
     "variants": [
       {
         "by_outcome": [],
@@ -78,7 +78,7 @@
         "operation_count": 0
       }
     ],
-    "wall_seconds": 0.00685798900667578,
+    "wall_seconds": 0.007547489003627561,
     "warmup": {
       "admissions": 1,
       "hits": 1

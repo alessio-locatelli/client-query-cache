@@ -74,24 +74,32 @@ The cached phase's round-trip count SHALL also carry a fixed ceiling recorded fr
 - **WHEN** the cached phase's measured round-trip count exceeds its recorded, margin-carrying ceiling
 - **THEN** the benchmark fails
 
-### Requirement: The benchmark records non-gating network-bandwidth evidence from the real deployment
+### Requirement: The benchmark records network-bandwidth evidence from the real deployment
 
-Around the existing cached and uncached read phases, the benchmark SHALL collect network-bandwidth measurements (bytes in, bytes out, request count, and query-operation count) for the real deployment's primary process via the Atlas Admin API, invoked through the contributor's already-authenticated `atlas` CLI session. These measurements SHALL be recorded alongside each phase's existing wall-clock and round-trip-count results as retained evidence, and SHALL NOT gate the benchmark's pass/fail result: at the deployment's supported measurement granularity, and given the shared deployment's background activity, a numeric bandwidth threshold from a single run is not reliable enough to certify a regression, so this measurement informs investigation rather than failing the benchmark. The benchmark SHALL NOT attempt to collect process-level CPU measurements from the real deployment, since the configured deployment's tier returns no data points for those measurement types.
+Around the existing cached and uncached read phases, the benchmark SHALL collect network-bandwidth measurements (bytes in, bytes out, request count, and query-operation count) for the real deployment's primary process via the Atlas Admin API, invoked through the contributor's already-authenticated `atlas` CLI session. These measurements SHALL be recorded alongside each phase's existing wall-clock and round-trip-count results as retained evidence.
 
 #### Scenario: Bandwidth evidence accompanies both phases
 
 - **WHEN** the benchmark completes its cached and uncached phases
 - **THEN** the recorded output includes network-bandwidth evidence for each phase, and neither phase's pass/fail result depends on that evidence
 
-#### Scenario: The deployment tier returns no CPU data
+### Requirement: The benchmark's bandwidth evidence does not gate its result
 
-- **WHEN** the benchmark queries the real deployment's process measurements
-- **THEN** it does not request or report process-level CPU values, and an empty CPU result from the API is not treated as a failure
+This bandwidth evidence SHALL NOT gate the benchmark's pass/fail result: at the deployment's supported measurement granularity, and given the shared deployment's background activity, a numeric bandwidth threshold from a single run is not reliable enough to certify a regression, so this measurement informs investigation rather than failing the benchmark.
 
 #### Scenario: Atlas metrics are transiently unavailable
 
 - **WHEN** the Atlas Admin API call for bandwidth measurements fails or times out
 - **THEN** the benchmark still completes and reports the missing evidence rather than failing the benchmark on account of non-gating evidence
+
+### Requirement: The benchmark does not collect real-deployment CPU measurements
+
+The benchmark SHALL NOT attempt to collect process-level CPU measurements from the real deployment, since the configured deployment's tier returns no data points for those measurement types.
+
+#### Scenario: The deployment tier returns no CPU data
+
+- **WHEN** the benchmark queries the real deployment's process measurements
+- **THEN** it does not request or report process-level CPU values, and an empty CPU result from the API is not treated as a failure
 
 ### Requirement: The real connection string is never exposed through default failure output
 

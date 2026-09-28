@@ -8,6 +8,10 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlparse
+
+import dns.exception
+import dns.resolver
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -57,14 +61,55 @@ def _run_atlas(arguments: Sequence[str]) -> str:
     return completed.stdout
 
 
-def _primary_process_host_id(project_id: str) -> str:
+def _resolve_srv_members(mongodb_uri: str) -> frozenset[tuple[str, int]]:
+    parsed = urlparse(mongodb_uri)
+    if parsed.scheme != "mongodb+srv":
+        message = (
+            "Atlas bandwidth evidence requires a mongodb+srv:// connection "
+            "string to resolve the deployment's cluster members"
+        )
+        raise RuntimeError(message)
+    hostname = parsed.hostname
+    if not hostname:
+        message = (
+            "could not determine a hostname from the real deployment's "
+            "connection string to resolve its cluster members"
+        )
+        raise RuntimeError(message)
+    answer = dns.resolver.resolve(f"_mongodb._tcp.{hostname}", "SRV")
+    return frozenset(
+        (str(record.target).rstrip(".").lower(), record.port) for record in answer
+    )
+
+
+def _process_matches_srv_members(
+    process: Mapping[str, Any], members: frozenset[tuple[str, int]]
+) -> bool:
+    port = process.get("port")
+    if not port:
+        return False
+    candidate_hostnames = (process.get("userAlias"), process.get("hostname"))
+    return any(
+        (str(hostname).lower(), int(port)) in members
+        for hostname in candidate_hostnames
+        if hostname
+    )
+
+
+def _primary_process_host_id(
+    project_id: str, members: frozenset[tuple[str, int]]
+) -> str:
     payload = json.loads(_run_atlas(["processes", "list", "--projectId", project_id]))
     for process in payload.get("results", ()):
-        if process.get("typeName") == _PRIMARY_PROCESS_TYPE_NAME:
+        if process.get(
+            "typeName"
+        ) == _PRIMARY_PROCESS_TYPE_NAME and _process_matches_srv_members(
+            process, members
+        ):
             return str(process["id"])
     message = (
-        f"no {_PRIMARY_PROCESS_TYPE_NAME} process was found "
-        "for the configured Atlas project"
+        f"no {_PRIMARY_PROCESS_TYPE_NAME} process matching the configured "
+        "deployment's SRV-resolved members was found in the configured Atlas project"
     )
     raise RuntimeError(message)
 
@@ -82,9 +127,12 @@ def _measurements_by_type(payload: Mapping[str, Any]) -> dict[str, tuple[float, 
     return measurements
 
 
-def collect_bandwidth_evidence(project_id: str) -> BandwidthEvidence | None:
+def collect_bandwidth_evidence(
+    project_id: str, mongodb_uri: str
+) -> BandwidthEvidence | None:
     try:
-        host_id = _primary_process_host_id(project_id)
+        members = _resolve_srv_members(mongodb_uri)
+        host_id = _primary_process_host_id(project_id, members)
         type_arguments = itertools.chain.from_iterable(
             ("--type", metric_type) for metric_type in _METRIC_TYPES
         )
@@ -113,7 +161,7 @@ def collect_bandwidth_evidence(project_id: str) -> BandwidthEvidence | None:
     except subprocess.TimeoutExpired:
         logger.warning("Atlas bandwidth evidence unavailable: atlas CLI timed out")
         return None
-    except (OSError, RuntimeError, ValueError) as error:
+    except (OSError, RuntimeError, ValueError, dns.exception.DNSException) as error:
         logger.warning("Atlas bandwidth evidence unavailable: %s", error)
         return None
     measurements = _measurements_by_type(payload)

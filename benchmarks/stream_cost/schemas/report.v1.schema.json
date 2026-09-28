@@ -120,20 +120,22 @@
           "properties": {
             "container_cpu_seconds": {
               "type": "object",
-              "required": ["raw", "cache"],
+              "required": ["raw", "cache", "delta_seconds"],
               "properties": {
                 "raw": { "type": "number", "minimum": 0 },
-                "cache": { "type": "number", "minimum": 0 }
+                "cache": { "type": "number", "minimum": 0 },
+                "delta_seconds": { "type": "number" }
               },
               "additionalProperties": false
             },
             "direct_path_bytes": {
               "type": "object",
-              "required": ["available", "raw", "cache"],
+              "required": ["available", "raw", "cache", "delta"],
               "properties": {
                 "available": { "type": "boolean" },
                 "raw": {},
-                "cache": {}
+                "cache": {},
+                "delta": {}
               },
               "additionalProperties": false,
               "oneOf": [
@@ -141,14 +143,16 @@
                   "properties": {
                     "available": { "const": false },
                     "raw": { "type": "null" },
-                    "cache": { "type": "null" }
+                    "cache": { "type": "null" },
+                    "delta": { "type": "null" }
                   }
                 },
                 {
                   "properties": {
                     "available": { "const": true },
                     "raw": { "$ref": "#/$defs/directPathBytesPair" },
-                    "cache": { "$ref": "#/$defs/directPathBytesPair" }
+                    "cache": { "$ref": "#/$defs/directPathBytesPair" },
+                    "delta": { "$ref": "#/$defs/directPathBytesDelta" }
                   }
                 }
               ]
@@ -309,6 +313,15 @@
       "properties": {
         "sent": { "type": "integer", "minimum": 0 },
         "received": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "directPathBytesDelta": {
+      "type": "object",
+      "required": ["sent", "received"],
+      "properties": {
+        "sent": { "type": "integer" },
+        "received": { "type": "integer" }
       },
       "additionalProperties": false
     }

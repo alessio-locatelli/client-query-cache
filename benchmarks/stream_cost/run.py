@@ -59,6 +59,27 @@ _STREAM_SETTLE_TIMEOUT_SECONDS = 15.0
 _STREAM_SETTLE_POLL_SECONDS = 0.02
 
 
+def _wait_for_invalidations_to_settle(
+    manager: CacheManager[dict[str, Any]],
+    database_name: str,
+    expected_count: int,
+    *,
+    context: str,
+) -> None:
+    deadline = time.monotonic() + _STREAM_SETTLE_TIMEOUT_SECONDS
+    while (
+        manager.cache_core.stream_cost_snapshot(database_name).invalidations
+        < expected_count
+    ):
+        if time.monotonic() >= deadline:
+            message = (
+                f"stream invalidations did not settle for {context} "
+                f"within {_STREAM_SETTLE_TIMEOUT_SECONDS:.0f} seconds"
+            )
+            raise BenchmarkSetupError(message)
+        time.sleep(_STREAM_SETTLE_POLL_SECONDS)
+
+
 def _revision() -> str:
     git_path = shutil.which("git")
     if git_path is None:
@@ -180,11 +201,17 @@ def _measure_change_stream_cost_comparison(
 
         def _cache_only_operation() -> None:
             perform_cache_only_reads(cache_only_collection, read_ids)
-            issue_writes(
+            writes_issued = issue_writes(
                 cache_only_raw_collection,
                 dataset,
                 variant.sampling.writes,
                 seed=variant.seed + 1,
+            )
+            _wait_for_invalidations_to_settle(
+                manager,
+                database_name,
+                writes_issued,
+                context=f"{variant.name}-change-stream-cost",
             )
 
         _, cache_measurement = measure_controlled(
@@ -325,18 +352,9 @@ def _sample_variant(
         manager, raw_collection, cache_collection, variant, dataset
     )
     if outcome.writes_issued:
-        deadline = time.monotonic() + _STREAM_SETTLE_TIMEOUT_SECONDS
-        while (
-            manager.cache_core.stream_cost_snapshot(database_name).invalidations
-            < outcome.writes_issued
-        ):
-            if time.monotonic() >= deadline:
-                message = (
-                    f"stream invalidations did not settle for {variant.name} "
-                    f"within {_STREAM_SETTLE_TIMEOUT_SECONDS:.0f} seconds"
-                )
-                raise BenchmarkSetupError(message)
-            time.sleep(_STREAM_SETTLE_POLL_SECONDS)
+        _wait_for_invalidations_to_settle(
+            manager, database_name, outcome.writes_issued, context=variant.name
+        )
     return outcome
 
 
