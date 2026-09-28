@@ -393,12 +393,12 @@ For every matched window, the report SHALL record MongoDB-container CPU time, mo
 
 ### Requirement: Compression guidance follows retained measurements
 
-Public performance guidance SHALL link a retained, versioned four-mode report and name one recommended PyMongo client compressor setting for the measured workload, including no compression when warranted. The recommendation SHALL prioritize server CPU cost and write-to-invalidation latency associated with watching the change stream, then consider direct-path byte savings, and SHALL disclose material workload and environment limits. If the measurements do not distinguish the modes reliably, guidance SHALL retain the current no-compression PyMongo default and state that the comparison is inconclusive; it SHALL NOT claim that mode is universally fastest or cheapest. The benchmark SHALL NOT change the public cache API or silently override the caller's client configuration.
+Public performance guidance SHALL link retained decision evidence from a versioned four-mode comparison and name one recommended PyMongo client compressor setting for the measured workload, including no compression when warranted. The recommendation SHALL prioritize server CPU cost and write-to-invalidation latency associated with watching the change stream, then consider direct-path byte savings, and SHALL disclose material workload and environment limits. If the measurements do not distinguish the modes reliably, guidance SHALL retain the current no-compression PyMongo default and state that the comparison is inconclusive; it SHALL NOT claim that mode is universally fastest or cheapest. The benchmark SHALL NOT change the public cache API or silently override the caller's client configuration.
 
 #### Scenario: One mode offers a clear trade-off
 
 - **WHEN** repeated measurements support a recommendation under the registered decision rule
-- **THEN** the guidance names that mode, links the report, and explains its CPU, latency, and network trade-offs for the library's change-stream workload
+- **THEN** the guidance names that mode, links the retained decision evidence, and explains its CPU, latency, and network trade-offs for the library's change-stream workload
 
 #### Scenario: Differences are within measurement noise
 
