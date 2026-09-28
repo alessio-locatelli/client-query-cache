@@ -15,7 +15,7 @@
 ## 3. Report and decision
 
 - [x] 3.1 Add a separate versioned compression report schema and validator covering all raw windows, metadata, negotiation evidence, scope limits, per-mode stream-minus-control values, and missing-data rejection; verify report tests accept a complete matrix and reject incomplete or mislabeled cases.
-- [ ] 3.2 Implement the pre-registered CPU, invalidation-latency, and total-byte decision rule with an explicit inconclusive outcome; verify parameterized cases for a qualifying mode, CPU or latency regression, insufficient byte savings, and noisy idle data.
+- [x] 3.2 Implement the pre-registered CPU, invalidation-latency, and total-byte decision rule with an explicit inconclusive outcome; verify parameterized cases for a qualifying mode, CPU or latency regression, insufficient byte savings, and noisy idle data.
 
 ## 4. Retained evidence and public guidance
 
