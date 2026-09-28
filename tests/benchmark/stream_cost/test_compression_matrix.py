@@ -5,6 +5,7 @@ import pytest
 from benchmarks.stream_cost.compression_matrix import (
     MINIMUM_COMPRESSION_BLOCKS,
     STANDARD_COMPRESSION_WINDOWS,
+    WARMUP_READ_REPEATS,
     WIRE_COMPRESSION_MODES,
     CompressionWindowSpec,
     WirePath,
@@ -17,6 +18,8 @@ from benchmarks.stream_cost.generators import SMALL_DOCUMENT_PROFILE
 from benchmarks.stream_cost.workload import OperationCounts, WorkloadKind
 
 pytestmark = pytest.mark.unit
+
+_WARMUP = OperationCounts(reads=WARMUP_READ_REPEATS, writes=0)
 
 
 def test_standard_compression_windows_covers_every_registered_combination() -> None:
@@ -42,62 +45,43 @@ def test_idle_window_has_no_sampled_operations() -> None:
         if window.kind is WorkloadKind.IDLE
     )
     assert idle_window.sampling == OperationCounts(reads=0, writes=0)
-    assert idle_window.idle_duration_seconds is not None
-    assert idle_window.idle_duration_seconds > 0
+    assert idle_window.duration_seconds > 0
 
 
-@pytest.mark.parametrize(
-    "window",
-    [
-        window
-        for window in STANDARD_COMPRESSION_WINDOWS
-        if window.kind != WorkloadKind.IDLE
-    ],
-    ids=lambda window: window.name,
-)
+_ACTIVE_WINDOWS = [
+    window
+    for window in STANDARD_COMPRESSION_WINDOWS
+    if window.kind != WorkloadKind.IDLE
+]
+
+
+@pytest.mark.parametrize("window", _ACTIVE_WINDOWS, ids=lambda window: window.name)
 def test_active_windows_sample_at_least_one_operation(
     window: CompressionWindowSpec,
 ) -> None:
     assert window.sampling.reads or window.sampling.writes
-    assert window.idle_duration_seconds is None
+    assert window.duration_seconds > 0
 
 
 @pytest.mark.parametrize(
-    ("kind", "idle_duration_seconds", "sampling", "match"),
+    ("kind", "sampling", "match"),
     [
         pytest.param(
             WorkloadKind.IDLE,
-            None,
-            OperationCounts(reads=0, writes=0),
-            "idle_duration_seconds",
-            id="idle_without_duration",
-        ),
-        pytest.param(
-            WorkloadKind.IDLE,
-            5.0,
             OperationCounts(reads=1, writes=0),
             "must not sample",
             id="idle_with_sampling",
         ),
         pytest.param(
             WorkloadKind.BALANCED,
-            5.0,
-            OperationCounts(reads=1, writes=0),
-            "only idle windows",
-            id="active_with_duration",
-        ),
-        pytest.param(
-            WorkloadKind.BALANCED,
-            None,
             OperationCounts(reads=0, writes=0),
             "at least one read or write",
             id="active_without_sampling",
         ),
     ],
 )
-def test_compression_window_spec_rejects_inconsistent_fields(
+def test_compression_window_spec_rejects_inconsistent_sampling(
     kind: WorkloadKind,
-    idle_duration_seconds: float | None,
     sampling: OperationCounts,
     match: str,
 ) -> None:
@@ -106,22 +90,44 @@ def test_compression_window_spec_rejects_inconsistent_fields(
             kind=kind,
             data_size=SMALL_DOCUMENT_PROFILE,
             document_count=10,
-            idle_duration_seconds=idle_duration_seconds,
+            duration_seconds=5.0,
+            warmup=_WARMUP,
             sampling=sampling,
             seed=0,
         )
 
 
-def test_compression_window_spec_rejects_non_positive_document_count() -> None:
-    with pytest.raises(BenchmarkConfigurationError, match="document_count"):
-        CompressionWindowSpec(
-            kind=WorkloadKind.IDLE,
-            data_size=SMALL_DOCUMENT_PROFILE,
-            document_count=0,
-            idle_duration_seconds=5.0,
-            sampling=OperationCounts(reads=0, writes=0),
-            seed=0,
-        )
+@pytest.mark.parametrize(
+    ("field_name", "value", "match"),
+    [
+        pytest.param("document_count", 0, "document_count", id="zero_document_count"),
+        pytest.param("duration_seconds", 0.0, "duration_seconds", id="zero_duration"),
+        pytest.param(
+            "duration_seconds", float("nan"), "duration_seconds", id="nan_duration"
+        ),
+        pytest.param(
+            "warmup",
+            OperationCounts(reads=1, writes=0),
+            "warmup.reads",
+            id="insufficient_warmup_reads",
+        ),
+    ],
+)
+def test_compression_window_spec_rejects_invalid_fields(
+    field_name: str, value: object, match: str
+) -> None:
+    defaults: dict[str, object] = {
+        "kind": WorkloadKind.IDLE,
+        "data_size": SMALL_DOCUMENT_PROFILE,
+        "document_count": 10,
+        "duration_seconds": 5.0,
+        "warmup": _WARMUP,
+        "sampling": OperationCounts(reads=0, writes=0),
+        "seed": 0,
+    }
+    defaults[field_name] = value
+    with pytest.raises(BenchmarkConfigurationError, match=match):
+        CompressionWindowSpec(**defaults)  # type: ignore[arg-type]
 
 
 @pytest.mark.parametrize("block_index", range(8))

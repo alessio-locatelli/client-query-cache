@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
-from unittest.mock import Mock
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
@@ -33,6 +34,7 @@ from benchmarks.stream_cost.workload import (
     time_call,
     verify_oversized_primed,
     verify_primed,
+    wait_for_invalidations_to_settle,
 )
 from client_query_cache._core.snapshots import CacheSnapshot
 
@@ -316,3 +318,27 @@ def test_perform_reads_helpers_issue_one_find_per_id(
     perform_reads(collection, (1, 2, 3))
 
     assert collection.find_one.call_count == 3
+
+
+def test_wait_for_invalidations_to_settle_returns_once_the_count_is_reached() -> None:
+    manager = MagicMock()
+    manager.cache_core.stream_cost_snapshot.return_value = SimpleNamespace(
+        invalidations=2
+    )
+
+    wait_for_invalidations_to_settle(manager, "measured", 2, context="test")
+
+
+def test_wait_for_invalidations_to_settle_times_out() -> None:
+    manager = MagicMock()
+    manager.cache_core.stream_cost_snapshot.return_value = SimpleNamespace(
+        invalidations=0
+    )
+
+    with (
+        patch(
+            "benchmarks.stream_cost.workload.time.monotonic", side_effect=[0.0, 16.0]
+        ),
+        pytest.raises(BenchmarkSetupError, match="stream invalidations did not settle"),
+    ):
+        wait_for_invalidations_to_settle(manager, "measured", 1, context="test")

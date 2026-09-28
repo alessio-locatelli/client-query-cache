@@ -6,7 +6,6 @@ import json
 import platform
 import shutil
 import subprocess
-import time
 from importlib.metadata import version
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -24,7 +23,6 @@ from benchmarks.stream_cost.config import (
     Limitation,
     WorkloadParameters,
 )
-from benchmarks.stream_cost.errors import BenchmarkSetupError
 from benchmarks.stream_cost.measurement import (
     ChangeStreamCostComparison,
     measure_controlled,
@@ -47,6 +45,7 @@ from benchmarks.stream_cost.workload import (
     sample_operation_ids,
     seed_dataset,
     verify_primed,
+    wait_for_invalidations_to_settle,
 )
 from client_query_cache.synchronous.manager import CacheManager
 
@@ -55,30 +54,6 @@ if TYPE_CHECKING:
     from pymongo.synchronous.collection import Collection
 
     from client_query_cache.synchronous.collection import CachedCollection
-
-_STREAM_SETTLE_TIMEOUT_SECONDS = 15.0
-_STREAM_SETTLE_POLL_SECONDS = 0.02
-
-
-def _wait_for_invalidations_to_settle(
-    manager: CacheManager[dict[str, Any]],
-    database_name: str,
-    expected_count: int,
-    *,
-    context: str,
-) -> None:
-    deadline = time.monotonic() + _STREAM_SETTLE_TIMEOUT_SECONDS
-    while (
-        manager.cache_core.stream_cost_snapshot(database_name).invalidations
-        < expected_count
-    ):
-        if time.monotonic() >= deadline:
-            message = (
-                f"stream invalidations did not settle for {context} "
-                f"within {_STREAM_SETTLE_TIMEOUT_SECONDS:.0f} seconds"
-            )
-            raise BenchmarkSetupError(message)
-        time.sleep(_STREAM_SETTLE_POLL_SECONDS)
 
 
 def _revision() -> str:
@@ -208,7 +183,7 @@ def _measure_change_stream_cost_comparison(
                 variant.sampling.writes,
                 seed=variant.seed + 1,
             )
-            _wait_for_invalidations_to_settle(
+            wait_for_invalidations_to_settle(
                 manager,
                 database_name,
                 writes_issued,
@@ -353,7 +328,7 @@ def _sample_variant(
         manager, raw_collection, cache_collection, variant, dataset
     )
     if outcome.writes_issued:
-        _wait_for_invalidations_to_settle(
+        wait_for_invalidations_to_settle(
             manager, database_name, outcome.writes_issued, context=variant.name
         )
     return outcome

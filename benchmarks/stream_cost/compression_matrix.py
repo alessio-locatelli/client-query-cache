@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import enum
+import math
 from dataclasses import dataclass
 
 from benchmarks.stream_cost.client import WireCompressor
@@ -13,6 +14,7 @@ from benchmarks.stream_cost.generators import (
 from benchmarks.stream_cost.workload import OperationCounts, WorkloadKind
 
 MINIMUM_COMPRESSION_BLOCKS = 4
+WARMUP_READ_REPEATS = 2
 
 WIRE_COMPRESSION_MODES: tuple[WireCompressor, ...] = (
     WireCompressor.NONE,
@@ -24,6 +26,8 @@ WIRE_COMPRESSION_MODES: tuple[WireCompressor, ...] = (
 _IDLE_DOCUMENT_COUNT = 20
 _ACTIVE_DOCUMENT_COUNT = 100
 _IDLE_WINDOW_DURATION_SECONDS = 5.0
+_ACTIVE_WINDOW_DURATION_SECONDS = 10.0
+_WARMUP = OperationCounts(reads=WARMUP_READ_REPEATS, writes=0)
 _BALANCED_SAMPLING = OperationCounts(reads=50, writes=50)
 _WRITE_DOMINANT_SAMPLING = OperationCounts(reads=10, writes=100)
 
@@ -38,7 +42,8 @@ class CompressionWindowSpec:
     kind: WorkloadKind
     data_size: DocumentSizeProfile
     document_count: int
-    idle_duration_seconds: float | None
+    duration_seconds: float
+    warmup: OperationCounts
     sampling: OperationCounts
     seed: int
 
@@ -46,20 +51,22 @@ class CompressionWindowSpec:
         if self.document_count <= 0:
             message = "document_count must be positive"
             raise BenchmarkConfigurationError(message)
+        if not math.isfinite(self.duration_seconds) or self.duration_seconds <= 0:
+            message = "duration_seconds must be a positive, finite number"
+            raise BenchmarkConfigurationError(message)
+        if self.warmup.reads < WARMUP_READ_REPEATS:
+            message = (
+                f"warmup.reads ({self.warmup.reads}) must be at least "
+                f"{WARMUP_READ_REPEATS} to exercise both an admission and a hit"
+            )
+            raise BenchmarkConfigurationError(message)
         if self.kind is WorkloadKind.IDLE:
-            if self.idle_duration_seconds is None or self.idle_duration_seconds <= 0:
-                message = "idle windows must declare a positive idle_duration_seconds"
-                raise BenchmarkConfigurationError(message)
             if self.sampling.reads or self.sampling.writes:
                 message = "idle windows must not sample reads or writes"
                 raise BenchmarkConfigurationError(message)
-        else:
-            if self.idle_duration_seconds is not None:
-                message = "only idle windows declare idle_duration_seconds"
-                raise BenchmarkConfigurationError(message)
-            if self.sampling.reads <= 0 and self.sampling.writes <= 0:
-                message = "active windows must sample at least one read or write"
-                raise BenchmarkConfigurationError(message)
+        elif self.sampling.reads <= 0 and self.sampling.writes <= 0:
+            message = "active windows must sample at least one read or write"
+            raise BenchmarkConfigurationError(message)
 
     @property
     def name(self) -> str:
@@ -72,7 +79,8 @@ _IDLE_WINDOW = CompressionWindowSpec(
     kind=WorkloadKind.IDLE,
     data_size=SMALL_DOCUMENT_PROFILE,
     document_count=_IDLE_DOCUMENT_COUNT,
-    idle_duration_seconds=_IDLE_WINDOW_DURATION_SECONDS,
+    duration_seconds=_IDLE_WINDOW_DURATION_SECONDS,
+    warmup=_WARMUP,
     sampling=OperationCounts(reads=0, writes=0),
     seed=0,
 )
@@ -93,7 +101,8 @@ STANDARD_COMPRESSION_WINDOWS: tuple[CompressionWindowSpec, ...] = (
             kind=kind,
             data_size=data_size,
             document_count=_ACTIVE_DOCUMENT_COUNT,
-            idle_duration_seconds=None,
+            duration_seconds=_ACTIVE_WINDOW_DURATION_SECONDS,
+            warmup=_WARMUP,
             sampling=sampling,
             seed=index + 1,
         )
