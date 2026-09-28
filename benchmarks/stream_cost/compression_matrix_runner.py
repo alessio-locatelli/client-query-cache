@@ -191,6 +191,24 @@ def _run_no_stream_window(
     return measurement, read_latencies, write_latencies
 
 
+def _prime_cache_reads(
+    cache_collection: CachedCollection[dict[str, Any]],
+    *,
+    dataset: SeededDataset,
+    read_ids: Sequence[object],
+    warmup_reads: int,
+) -> None:
+    if read_ids:
+        distinct_ids = list(dict.fromkeys(read_ids))
+        for document_id in distinct_ids:
+            cache_collection.find_one({"_id": document_id})
+        cache_collection.find_one({"_id": distinct_ids[0]})
+        return
+    warmup_id = dataset.ids[0]
+    for _ in range(warmup_reads):
+        cache_collection.find_one({"_id": warmup_id})
+
+
 def _run_stream_watching_window(
     window: CompressionWindowSpec,
     dataset: SeededDataset,
@@ -209,10 +227,17 @@ def _run_stream_watching_window(
         cache_collection = manager[database_name][_COLLECTION_NAME]
         raw_collection = manager[database_name].raw[_COLLECTION_NAME]
 
-        warmup_id = dataset.ids[0]
+        read_ids = sample_operation_ids(
+            dataset, window.sampling.reads, seed=window.seed
+        )
+
         before = manager.cache_core.snapshot()
-        for _ in range(window.warmup.reads):
-            cache_collection.find_one({"_id": warmup_id})
+        _prime_cache_reads(
+            cache_collection,
+            dataset=dataset,
+            read_ids=read_ids,
+            warmup_reads=window.warmup.reads,
+        )
         after = manager.cache_core.snapshot()
         verify_primed(before, after, variant_name=window.name)
 
@@ -224,9 +249,6 @@ def _run_stream_watching_window(
             )
             raise BenchmarkSetupError(message)
 
-        read_ids = sample_operation_ids(
-            dataset, window.sampling.reads, seed=window.seed
-        )
         read_latencies: list[OperationLatency] = []
         write_latencies: list[OperationLatency] = []
         invalidation_latencies: tuple[float, ...] = ()

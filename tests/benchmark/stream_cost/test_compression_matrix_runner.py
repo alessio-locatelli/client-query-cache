@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Self
+from typing import Any, Self
 from unittest.mock import MagicMock
 
 import pytest
@@ -10,6 +10,7 @@ from benchmarks.stream_cost import compression_matrix_runner as runner_module
 from benchmarks.stream_cost.compression_matrix import CompressionWindowSpec
 from benchmarks.stream_cost.compression_matrix_runner import (
     _invalidation_latencies,
+    _prime_cache_reads,
     _run_stream_watching_window,
     _seed_window_dataset,
     _write_schedule,
@@ -83,6 +84,40 @@ def test_invalidation_latencies_rejects_fewer_readings_than_writes() -> None:
     readings = (_reading(100.0),)
     with pytest.raises(BenchmarkSetupError, match="invalidation-apply readings"):
         _invalidation_latencies((0.0, 1.0), 100.0, readings)
+
+
+class _RecordingCachedCollection:
+    __slots__ = ("finds",)
+
+    def __init__(self) -> None:
+        self.finds: list[object] = []
+
+    def find_one(self, query: dict[str, object]) -> None:
+        self.finds.append(query["_id"])
+
+
+def test_prime_cache_reads_touches_every_distinct_sampled_id_plus_one_repeat() -> None:
+    collection: Any = _RecordingCachedCollection()
+    dataset = _seed_window_dataset(_window())
+    read_ids = (dataset.ids[2], dataset.ids[5], dataset.ids[2], dataset.ids[7])
+
+    _prime_cache_reads(collection, dataset=dataset, read_ids=read_ids, warmup_reads=2)
+
+    assert collection.finds == [
+        dataset.ids[2],
+        dataset.ids[5],
+        dataset.ids[7],
+        dataset.ids[2],
+    ]
+
+
+def test_prime_cache_reads_falls_back_to_the_first_dataset_id_when_idle() -> None:
+    collection: Any = _RecordingCachedCollection()
+    dataset = _seed_window_dataset(_window())
+
+    _prime_cache_reads(collection, dataset=dataset, read_ids=(), warmup_reads=2)
+
+    assert collection.finds == [dataset.ids[0], dataset.ids[0]]
 
 
 @dataclass(frozen=True, slots=True)
