@@ -19,8 +19,8 @@
 
 ## 4. Retained evidence and public guidance
 
-- [ ] 4.1 Run the full isolated four-mode matrix and retain its validated versioned report; verify it contains repeated matched CPU, latency, and byte measurements with no missing mode or path.
-- [ ] 4.2 Document the measured default in `docs/stream-cost-benchmarks.md` and link it from the README as needed, including PyMongo configuration, stream-cost rationale, limitations, and reproduction command; verify every numeric claim against the retained report and the command against the implemented runner.
+- [x] 4.1 Run the full isolated four-mode matrix and retain its validated versioned report; verify it contains repeated matched CPU, latency, and byte measurements with no missing mode or path.
+- [x] 4.2 Document the measured default in `docs/stream-cost-benchmarks.md` and link it from the README as needed, including PyMongo configuration, stream-cost rationale, limitations, and reproduction command; verify every numeric claim against the retained report and the command against the implemented runner.
 
 ## 5. Code Quality
 

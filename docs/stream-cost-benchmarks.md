@@ -66,6 +66,22 @@ The GitHub Actions **Stream cost benchmark** workflow runs when someone starts i
 
 Run it after a cache or stream change to capture a repeatable report set for that revision. Download the **stream-cost-reports** artifact from the completed run, then compare matching workload and size rows with the retained reports or another run on a comparable runner. Use differences in cache outcomes, latency, CPU, and logical stream activity to choose what to investigate next. Runner performance varies, so timing differences are evidence to inspect rather than an automatic pass/fail threshold; setup and report-validation failures still fail the workflow.
 
+### Wire compression
+
+The [compression benchmark](../reports/stream-cost/compression-v1/wire-compression.report.v1.json) compares no compression against PyMongo's Snappy, zlib, and Zstandard wire compressors on the same isolated replica set, matching an idle window and balanced/write-dominant workloads at small and large document sizes, each with and without the library's change stream watching the traffic. Every mode ran for 4 repeated, counterbalanced blocks so run-order and host noise are visible in the [retained report](../reports/stream-cost/compression-v1/wire-compression.report.v1.json) and its [decision file](../reports/stream-cost/compression-v1/wire-compression.report.v1.decision.json).
+
+None of the three compressors met the pre-registered decision rule on this host: each required, in every one of the 4 blocks and all four active workloads, that the compressor's server CPU and its added CPU over no compression stay within 5% of the uncompressed CPU, its p95 invalidation latency stay within 10%, and its wire bytes fall at least 10%. Snappy's byte savings (a median 13% across the active workloads) came with CPU and latency swings that broke the budget in several block/workload combinations, most often on the large-document workloads, where the byte savings themselves also fell short of 10% in some blocks. zlib and Zstandard saved far more (a median 30% and 29%), but their idle-window CPU delta against no compression changed sign from one repeated block to the next — sometimes costing more CPU than no compression, sometimes less — so the measurements can't reliably tell whether either one adds idle cost on this host. The recommendation therefore stays at **no compression**, PyMongo's own default, and is labeled inconclusive rather than a measured win for any mode.
+
+Wire compression is a caller-owned PyMongo client setting, not something `CacheManager` configures: pass `compressors=` (and, for zlib, `zlibCompressionLevel=`) to your own `MongoClient`/`AsyncMongoClient` call, as documented by [PyMongo](https://pymongo.readthedocs.io/) — the setting affects every operation on that client, not only the ones this library serves through the cache.
+
+Reproduce the matrix locally against a fresh isolated replica set:
+
+```console
+uv run -- python -m benchmarks.stream_cost.compression_run --output benchmark-reports/wire-compression.report.v1.json --blocks 4
+```
+
+The isolated container was limited to 1 CPU and 1 GiB of memory; a busier or larger host may see different — and more or less noisy — results. The reported CPU and byte figures cover only the dedicated benchmark connection the runner measures, and the report's stream-minus-control figures approximate the change stream's own added cost rather than attributing it exactly. As with the rest of this page, treat these numbers as evidence for your own investigation, not a performance guarantee — measure your own workload, document sizes, and host before choosing a non-default compressor.
+
 ## Pull-request performance guard
 
 Every pull request runs a required **Cache hot-path performance guard** check. It compares the base and proposed revisions on the same runner for a small set of representative operations: cached `find_one` hits (synchronous and asynchronous), bounded `find` admission, and change-event invalidation, each at two document sizes. The check skips its timed comparison, and passes immediately, when a pull request changes no Python code, dependency lockfile, or guard input.
