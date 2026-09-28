@@ -35,6 +35,12 @@ def _direct_path_bytes_pair(
     return {"sent": sent, "received": received}
 
 
+def _percent_change(baseline: float, delta: float) -> float | None:
+    if baseline == 0:
+        return None
+    return (delta / baseline) * 100
+
+
 def _change_stream_cost_comparison_payload(
     comparison: ChangeStreamCostComparison,
 ) -> dict[str, object]:
@@ -43,24 +49,36 @@ def _change_stream_cost_comparison_payload(
     available = raw_bytes is not None and cache_bytes is not None
     raw_cpu = comparison.raw.container_cpu_seconds
     cache_cpu = comparison.cache.container_cpu_seconds
+    delta_seconds = cache_cpu - raw_cpu
+    delta = (
+        {
+            "sent": cache_bytes["sent"] - raw_bytes["sent"],
+            "received": cache_bytes["received"] - raw_bytes["received"],
+        }
+        if available and cache_bytes is not None and raw_bytes is not None
+        else None
+    )
+    delta_percent = (
+        {
+            "sent": _percent_change(raw_bytes["sent"], delta["sent"]),
+            "received": _percent_change(raw_bytes["received"], delta["received"]),
+        }
+        if available and delta is not None and raw_bytes is not None
+        else None
+    )
     return {
         "container_cpu_seconds": {
             "raw": raw_cpu,
             "cache": cache_cpu,
-            "delta_seconds": cache_cpu - raw_cpu,
+            "delta_seconds": delta_seconds,
+            "delta_percent": _percent_change(raw_cpu, delta_seconds),
         },
         "direct_path_bytes": {
             "available": available,
             "raw": raw_bytes if available else None,
             "cache": cache_bytes if available else None,
-            "delta": (
-                {
-                    "sent": cache_bytes["sent"] - raw_bytes["sent"],
-                    "received": cache_bytes["received"] - raw_bytes["received"],
-                }
-                if available and cache_bytes is not None and raw_bytes is not None
-                else None
-            ),
+            "delta": delta,
+            "delta_percent": delta_percent,
         },
     }
 
