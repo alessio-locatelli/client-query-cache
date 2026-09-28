@@ -1,0 +1,112 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from types import MappingProxyType
+from typing import TYPE_CHECKING, Any
+
+from benchmarks.stream_cost.client import WireCompressor
+from benchmarks.stream_cost.errors import BenchmarkSetupError
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from pymongo import MongoClient
+
+_PYMONGO_COMPRESSOR_NAMES: dict[WireCompressor, str] = {
+    WireCompressor.SNAPPY: "snappy",
+    WireCompressor.ZLIB: "zlib",
+    WireCompressor.ZSTD: "zstd",
+}
+
+_PREFLIGHT_DOCUMENT_COUNT = 50
+_PREFLIGHT_PADDING_BYTES = 4_096
+_PREFLIGHT_COLLECTION_NAME = "compressor_preflight"
+
+
+@dataclass(frozen=True, slots=True)
+class CompressorPreflightResult:
+    compressor: WireCompressor
+    counter_deltas: Mapping[str, int]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "counter_deltas", MappingProxyType(dict(self.counter_deltas))
+        )
+
+
+def _compression_counters(
+    admin_client: MongoClient[dict[str, Any]],
+) -> Mapping[str, Mapping[str, Mapping[str, int]]]:
+    status = admin_client.admin.command("serverStatus")
+    compression = status["network"]["compression"]
+    assert isinstance(compression, dict)
+    return compression
+
+
+def _counter_bytes_in(
+    counters: Mapping[str, Mapping[str, Mapping[str, int]]], name: str
+) -> int:
+    entry = counters[name]
+    return entry["compressor"]["bytesIn"] + entry["decompressor"]["bytesIn"]
+
+
+def _counter_deltas(
+    before: Mapping[str, Mapping[str, Mapping[str, int]]],
+    after: Mapping[str, Mapping[str, Mapping[str, int]]],
+) -> dict[str, int]:
+    return {
+        name: _counter_bytes_in(after, name) - _counter_bytes_in(before, name)
+        for name in before
+    }
+
+
+def verify_compressor_negotiation(
+    measured_client: MongoClient[dict[str, Any]],
+    admin_client: MongoClient[dict[str, Any]],
+    *,
+    compressor: WireCompressor,
+    database_name: str,
+) -> CompressorPreflightResult:
+    collection = measured_client[database_name][_PREFLIGHT_COLLECTION_NAME]
+    collection.drop()
+    documents = [
+        {"_id": index, "padding": "x" * _PREFLIGHT_PADDING_BYTES}
+        for index in range(_PREFLIGHT_DOCUMENT_COUNT)
+    ]
+    before = _compression_counters(admin_client)
+    collection.insert_many(documents)
+    list(collection.find({}))
+    collection.drop()
+    after = _compression_counters(admin_client)
+    deltas = _counter_deltas(before, after)
+
+    if compressor is WireCompressor.NONE:
+        advanced = sorted(name for name, delta in deltas.items() if delta > 0)
+        if advanced:
+            message = (
+                "no compression was requested for this preflight, but the "
+                f"server's compression counter(s) advanced for {advanced}; the "
+                "connection was not verified as uncompressed"
+            )
+            raise BenchmarkSetupError(message)
+        return CompressorPreflightResult(compressor=compressor, counter_deltas=deltas)
+
+    expected_name = _PYMONGO_COMPRESSOR_NAMES[compressor]
+    if deltas.get(expected_name, 0) <= 0:
+        message = (
+            f"the {compressor.value!r} compressor was requested but its "
+            "server-side compression counter did not advance during preflight; "
+            "negotiation likely fell back to no compression"
+        )
+        raise BenchmarkSetupError(message)
+    other_advanced = sorted(
+        name for name, delta in deltas.items() if name != expected_name and delta > 0
+    )
+    if other_advanced:
+        message = (
+            f"the {compressor.value!r} compressor was requested but "
+            f"{other_advanced} also advanced during preflight, so the negotiated "
+            "compressor could not be verified unambiguously"
+        )
+        raise BenchmarkSetupError(message)
+    return CompressorPreflightResult(compressor=compressor, counter_deltas=deltas)

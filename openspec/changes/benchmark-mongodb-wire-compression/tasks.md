@@ -4,7 +4,7 @@
 
 - [ ] 1.1 Add the benchmark-only Snappy dependency and a four-mode dedicated-client configuration using Python 3.14's built-in Zstandard and zlib modules; verify each requested mode reaches PyMongo and missing optional modules fail setup visibly.
 - [x] 1.2 Let the direct-path proxy forward compressed traffic while retaining its TLS, discovery, and shared-connection guards; verify unit and isolated-server cases count compressed path bytes in both directions.
-- [ ] 1.3 Add isolated-server compressor preflight through the measured client, with a separate uncompressed admin sampler; verify tests reject unavailable, unnegotiated, or mislabeled modes before sampling.
+- [x] 1.3 Add isolated-server compressor preflight through the measured client, with a separate uncompressed admin sampler; verify tests reject unavailable, unnegotiated, or mislabeled modes before sampling.
 
 ## 2. Matched workload runner
 
