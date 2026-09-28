@@ -1,22 +1,41 @@
 from __future__ import annotations
 
+import enum
+import warnings
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from pymongo import MongoClient
 
-from benchmarks.stream_cost.errors import BenchmarkConfigurationError
+from benchmarks.stream_cost.errors import (
+    BenchmarkConfigurationError,
+    BenchmarkSetupError,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-_COMPRESSOR = "zstd"
+
+class WireCompressor(enum.Enum):
+    NONE = "none"
+    SNAPPY = "snappy"
+    ZLIB = "zlib"
+    ZSTD = "zstd"
+
+
+_PYMONGO_COMPRESSOR_NAMES: dict[WireCompressor, str] = {
+    WireCompressor.SNAPPY: "snappy",
+    WireCompressor.ZLIB: "zlib",
+    WireCompressor.ZSTD: "zstd",
+}
+
+_ZLIB_COMPRESSION_LEVEL = -1
 
 
 @dataclass(frozen=True, slots=True)
 class BenchmarkClientTopologyConfig:
     tls_enabled: bool
-    compression_enabled: bool
+    compressor: WireCompressor
     discovery_enabled: bool
     shared_connections: bool
 
@@ -39,6 +58,18 @@ def build_dedicated_client(
         "tls": config.tls_enabled,
         "event_listeners": list(event_listeners),
     }
-    if config.compression_enabled:
-        kwargs["compressors"] = _COMPRESSOR
-    return MongoClient[dict[str, Any]](uri, **kwargs)
+    if config.compressor is not WireCompressor.NONE:
+        kwargs["compressors"] = _PYMONGO_COMPRESSOR_NAMES[config.compressor]
+        kwargs["zlibCompressionLevel"] = _ZLIB_COMPRESSION_LEVEL
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        try:
+            return MongoClient[dict[str, Any]](uri, **kwargs)
+        except UserWarning as error:
+            message = (
+                f"the {config.compressor.value!r} wire compressor was requested "
+                "but PyMongo could not use it in this Python build, so the "
+                f"connection would have silently fallen back to no compression: "
+                f"{error}"
+            )
+            raise BenchmarkSetupError(message) from error

@@ -37,9 +37,6 @@ class DirectPathProxyConfig:
         if topology.tls_enabled:
             message = "direct-path byte proxy does not support TLS-enabled clients"
             raise BenchmarkConfigurationError(message)
-        if topology.compression_enabled:
-            message = "direct-path byte proxy does not support wire compression"
-            raise BenchmarkConfigurationError(message)
         if topology.discovery_enabled:
             message = "direct-path byte proxy does not support topology discovery"
             raise BenchmarkConfigurationError(message)

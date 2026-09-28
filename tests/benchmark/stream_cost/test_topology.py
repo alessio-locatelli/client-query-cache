@@ -8,7 +8,7 @@ from docker.errors import DockerException
 from pymongo.errors import PyMongoError
 from testcontainers.core.exceptions import ContainerStartException
 
-from benchmarks.stream_cost.client import BenchmarkClientTopologyConfig
+from benchmarks.stream_cost.client import BenchmarkClientTopologyConfig, WireCompressor
 from benchmarks.stream_cost.errors import (
     BenchmarkConfigurationError,
     BenchmarkSetupError,
@@ -434,15 +434,15 @@ def test_await_writable_primary_times_out_waiting_for_reachability(
         replica_set._await_writable_primary()
 
 
-def _client_topology(**overrides: bool) -> BenchmarkClientTopologyConfig:
-    defaults: dict[str, bool] = {
+def _client_topology(**overrides: object) -> BenchmarkClientTopologyConfig:
+    defaults: dict[str, object] = {
         "tls_enabled": False,
-        "compression_enabled": False,
+        "compressor": WireCompressor.NONE,
         "discovery_enabled": False,
         "shared_connections": False,
     }
     defaults.update(overrides)
-    return BenchmarkClientTopologyConfig(**defaults)
+    return BenchmarkClientTopologyConfig(**defaults)  # type: ignore[arg-type]
 
 
 def test_build_client_rejects_discovery() -> None:

@@ -21,6 +21,7 @@ from benchmarks.stream_cost.bootstrap import (
 from benchmarks.stream_cost.calibration import TopologyChangeListener
 from benchmarks.stream_cost.client import (
     BenchmarkClientTopologyConfig,
+    WireCompressor,
     build_dedicated_client,
 )
 from benchmarks.stream_cost.consolidated_stream import (
@@ -44,7 +45,7 @@ _PREREGISTRATION = (
 )
 _TOPOLOGY = BenchmarkClientTopologyConfig(
     tls_enabled=False,
-    compression_enabled=False,
+    compressor=WireCompressor.NONE,
     discovery_enabled=False,
     shared_connections=False,
 )
