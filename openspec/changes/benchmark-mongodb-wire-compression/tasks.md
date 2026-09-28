@@ -24,5 +24,5 @@
 
 ## 5. Code Quality
 
-- [ ] 5.1 Scan every edited or added test file, including pre-existing tests within those files, for compliance with the `AGENTS.md` Writing Tests guidelines; verify repeated cases use parametrization and reusable setup.
+- [x] 5.1 Scan every edited or added test file, including pre-existing tests within those files, for compliance with the `AGENTS.md` Writing Tests guidelines; verify repeated cases use parametrization and reusable setup.
 - [x] 5.2 Not applicable: the Claude Code prose restriction does not apply to OpenAI Codex.
