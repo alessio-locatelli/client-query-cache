@@ -29,9 +29,9 @@ The adapter SHALL accept a caller-supplied OpenTelemetry `Meter` and SHALL regis
 - **WHEN** an application constructs its own `MeterProvider` and passes one of its `Meter`s to the adapter
 - **THEN** the adapter registers its instruments against that `Meter` and does not create or replace any global OpenTelemetry provider
 
-### Requirement: Cumulative cache and stream-cost counts are exposed as observable counters
+### Requirement: Cumulative counts are observable counters
 
-The adapter SHALL register an OpenTelemetry `ObservableCounter` for each cumulative, monotonically increasing statistic already exposed by the manager's cache snapshot and stream-cost snapshot: cache hits, misses, evictions, bypasses, oversized bypasses, stream polls, invalidations, and logical event bytes. Each counter's reported value SHALL equal the corresponding snapshot field's current cumulative total at collection time.
+The adapter SHALL expose hits, misses, evictions, bypasses, oversized bypasses, stream polls, invalidations, and logical event bytes as OpenTelemetry `ObservableCounter` instruments equal to current snapshot totals.
 
 #### Scenario: A metrics collection cycle reads current cumulative counts
 
@@ -47,18 +47,18 @@ The adapter SHALL register an OpenTelemetry `ObservableGauge` for entry count an
 - **WHEN** cache evictions or a namespace clear reduce the manager's resident bytes between two metrics collection cycles
 - **THEN** the reported gauge value decreases accordingly, without the adapter or the underlying instrument rejecting or clamping the decrease
 
-### Requirement: The resident-bytes gauge consolidates the cache and stream-cost measurement
+### Requirement: Resident bytes has one manager-wide gauge
 
-The cache snapshot's `used_bytes` and each database's stream-cost snapshot `resident_bytes` are the same underlying manager-wide measurement exposed twice today under different names. The adapter SHALL report this measurement as a single gauge, not duplicate it per database or per source field, and that gauge SHALL NOT carry a `db.namespace` attribute, consistent with it being scoped to the manager's shared budget rather than to any one namespace, collection, or stream.
+The adapter SHALL report resident cache bytes once as a manager-wide gauge without a `db.namespace` attribute.
 
 #### Scenario: Resident bytes is not duplicated per database
 
 - **WHEN** the manager has stream-cost telemetry active for more than one database
 - **THEN** the resident-bytes gauge reports one manager-wide observation, not one observation per active database
 
-### Requirement: Per-database stream-cost metrics are dimensioned by database without prior enumeration
+### Requirement: Stream-cost observations discover active databases
 
-The adapter SHALL discover which databases currently have stream-cost telemetry at each collection cycle, using the manager's existing accessor for active stream-cost databases, rather than requiring the caller to declare database names in advance. Each per-database counter or gauge observation SHALL carry the observed database name as an attribute using OpenTelemetry's `db.namespace` semantic-convention attribute key.
+At each collection cycle, the adapter SHALL discover active stream-cost databases and label per-database observations with `db.namespace`.
 
 #### Scenario: A new database begins reporting stream-cost telemetry
 

@@ -6,24 +6,27 @@ This capability gives external contributors hosted, repeatable evidence that the
 
 ## Requirements
 
-### Requirement: CI verifies the locked package and local gates
+### Requirement: Every pull request runs basic quality gates
 
-GitHub Actions SHALL run Prek and validate Justfile formatting for every pull request. It SHALL run
-Prettier and Markdownlint when a pull request changes a file supported by the configured Prettier
-invocation or its formatting configuration. It SHALL synchronize the committed `uv.lock` without
-modification, run static Python checks, build source and wheel distributions, and install the wheel in an
-isolated environment only when a pull request changes Python files, `pytest.ini`, `pyproject.toml`, or
-`uv.lock`. It SHALL test CPython 3.14.
+GitHub Actions SHALL run Prek and Justfile formatting validation for every pull request, and formatting checks when supported files change.
 
 #### Scenario: A documentation file changes
 
 - **WHEN** a pull request changes only Markdown files
 - **THEN** Prek and the formatting workflow run, and the Python-validation workflow does not run
 
+### Requirement: CI rejects unlocked dependencies
+
+When the Python gate runs, CI SHALL synchronize committed `uv.lock` without modification.
+
 #### Scenario: Dependency metadata is unlocked
 
 - **WHEN** a change modifies dependency metadata without the corresponding lockfile update
 - **THEN** the Python-validation workflow fails before accepting the change
+
+### Requirement: Python changes run build and test gates
+
+Python, pytest, project-metadata, or lockfile changes SHALL run static checks, build source and wheel distributions, install the wheel in isolation, and test CPython 3.14.
 
 #### Scenario: A Python file changes
 

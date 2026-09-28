@@ -6,9 +6,9 @@ This capability keeps the project's public repository, installable distribution,
 
 ## Requirements
 
-### Requirement: The project has a consistent public name
+### Requirement: Public project identity uses one name
 
-The project SHALL identify itself as `client-query-cache` in its repository name, installable Python distribution, current user and contributor guidance, and user-visible diagnostics that identify the library. Its canonical repository URL SHALL be `https://github.com/alessio-locatelli/client-query-cache`. Public positioning SHALL describe client-side caching for PyMongo, kept coherent using MongoDB change streams, without implying that the project is produced or endorsed by MongoDB.
+The repository, distribution, guidance, and diagnostics SHALL identify the project as `client-query-cache` at `https://github.com/alessio-locatelli/client-query-cache`.
 
 #### Scenario: A user finds and installs the project
 
@@ -19,6 +19,15 @@ The project SHALL identify itself as `client-query-cache` in its repository name
 
 - **WHEN** synchronous or asynchronous cache startup reports an error that names the library
 - **THEN** the diagnostic uses the new identity rather than `mongo_client_cache`
+
+### Requirement: Public positioning describes independent PyMongo caching
+
+Public guidance SHALL describe client-side caching for PyMongo kept coherent by MongoDB change streams without implying MongoDB produced or endorsed the project.
+
+#### Scenario: A user reads the project description
+
+- **WHEN** public guidance describes the library's purpose
+- **THEN** it explains the PyMongo cache and change-stream coherency without claiming MongoDB authorship or endorsement
 
 ### Requirement: The public import package uses the new name
 

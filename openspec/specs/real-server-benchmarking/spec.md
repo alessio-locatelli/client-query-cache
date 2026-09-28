@@ -29,9 +29,9 @@ The benchmark SHALL skip, with a visible and explicit reason, whenever it runs i
 - **WHEN** a contributor without a configured real-deployment connection string runs the documented local benchmark command
 - **THEN** the benchmark reports an explicit skip identifying the missing configuration, and every other test in the command continues to run
 
-### Requirement: The benchmark workload models concurrent independent applications within a small shared deployment's limits
+### Requirement: Real-server workload models concurrent applications
 
-The benchmark's workload SHALL run a writing/updating workload and a reading workload as independent, concurrently running processes against the same real deployment, modeling two independent application components sharing one database. The workload's size and rate SHALL stay within the throughput and storage limits of a small, shared, free-tier deployment, and the benchmark SHALL complete in under 20 seconds.
+The benchmark SHALL run independent writer and reader processes concurrently against one real deployment, within small shared-tier limits and in under 20 seconds.
 
 #### Scenario: The benchmark runs against a configured real deployment
 
@@ -92,9 +92,9 @@ The deployment's supported measurement granularity spans multiple minutes while 
 - **WHEN** the benchmark logs its collected bandwidth evidence
 - **THEN** the log identifies the evidence as covering both reader phases combined rather than attributing it to the cached or uncached phase alone
 
-### Requirement: The benchmark's bandwidth evidence reflects the deployment's baseline traffic, not the benchmark's own footprint
+### Requirement: Bandwidth readings represent deployment baseline traffic
 
-A small shared-tier deployment's underlying metrics collection samples on an irregular interval coarser than the one-minute granularity requested, and the most recent few minutes carry no sample yet at query time, so most requested one-minute buckets read as zero rather than as missing data. Because a read phase completes in seconds, this coarse and lagged sampling SHALL NOT be expected to isolate the benchmark's own traffic from the deployment's ambient baseline traffic.
+The benchmark SHALL treat coarse, lagged shared-tier bandwidth readings as deployment baseline evidence, even when recent one-minute buckets are zero.
 
 #### Scenario: The collected evidence reads as zero or unchanged
 
@@ -119,9 +119,9 @@ The benchmark SHALL NOT attempt to collect process-level CPU measurements from t
 - **WHEN** the benchmark queries the real deployment's process measurements
 - **THEN** it does not request or report process-level CPU values, and an empty CPU result from the API is not treated as a failure
 
-### Requirement: The real connection string is never exposed through default failure output
+### Requirement: Default failure output redacts the real connection string
 
-The fixture holding the real deployment's connection string SHALL NOT expose the plaintext connection string (credentials included) through its default string representation. Its `repr()` and `str()` output SHALL be redacted, distinct from the raw value actually used to open connections, so that a test failure's default traceback output does not leak the plaintext connection string to logs or a terminal, independent of any `-s`, `-v`, or `--showlocals` flag choice.
+The real connection-string fixture SHALL redact credentials in `str()` and `repr()` while retaining the raw value for opening connections.
 
 #### Scenario: A test using the real connection string fails
 
