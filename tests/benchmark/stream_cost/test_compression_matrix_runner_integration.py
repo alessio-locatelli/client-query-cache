@@ -160,6 +160,9 @@ def test_run_compression_mode_block_produces_finite_values(
                 assert len(result.invalidation_latencies_seconds) == (
                     result.window.sampling.writes
                 )
+                assert all(
+                    latency.outcome == "hit" for latency in result.read_latencies
+                )
             else:
                 assert result.invalidation_latencies_seconds == ()
 
