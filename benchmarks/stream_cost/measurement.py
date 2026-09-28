@@ -109,6 +109,19 @@ def latency_distribution(samples: Sequence[OperationLatency]) -> dict[str, objec
     }
 
 
+def scalar_latency_distribution(samples: Sequence[float]) -> dict[str, object]:
+    if not samples:
+        return {"sample_count": 0, "no_latency_samples": True}
+    values = sorted(samples)
+    return {
+        "sample_count": len(values),
+        "no_latency_samples": False,
+        "p50_seconds": _percentile(values, 0.5),
+        "p95_seconds": _percentile(values, 0.95),
+        "p99_seconds": _percentile(values, 0.99),
+    }
+
+
 def snapshot_logical_metrics(
     manager: CacheManager[dict[str, object]],
 ) -> dict[str, object]:

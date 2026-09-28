@@ -120,7 +120,7 @@ def test_run_compression_mode_block_produces_finite_values(
     mode: WireCompressor,
 ) -> None:
     with _client_for_mode(compression_proxy, mode) as client:
-        block_results = run_compression_mode_block(
+        negotiation, block_results = run_compression_mode_block(
             _TEST_WINDOWS,
             mode=mode,
             path_order=(WirePath.NO_STREAM, WirePath.STREAM_WATCHING),
@@ -132,6 +132,7 @@ def test_run_compression_mode_block_produces_finite_values(
             database_prefix=f"compression_block_{mode.value}",
         )
 
+    assert negotiation.compressor is mode
     assert len(block_results) == len(_TEST_WINDOWS) * 2
     for result in block_results:
         measurement = result.measurement
