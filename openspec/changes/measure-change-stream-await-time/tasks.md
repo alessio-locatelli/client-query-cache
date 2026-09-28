@@ -2,7 +2,7 @@
 
 ## 1. Measurement foundation
 
-- [ ] 1.1 Clarify `stream_polls` as manager iteration calls in telemetry labels and relevant documentation; verify existing sync and async counter tests still describe the observed count accurately.
+- [x] 1.1 Clarify `stream_polls` as manager iteration calls in telemetry labels and relevant documentation; verify existing sync and async counter tests still describe the observed count accurately.
 - [ ] 1.2 Add an isolated await-time benchmark that observes actual `getMore` commands and requested `maxTimeMS`, captures idle CPU and direct-path bytes, and retains no command bodies; verify instrumentation with a real replica-set run and tests that distinguish one `next()` call from multiple `getMore` commands.
 - [ ] 1.3 Add matched idle, paced-write, burst-write, and idle-shutdown windows for sync and async managers, with fresh state and counterbalanced repetitions; verify report validation rejects missing measurements, unequal schedules or events, and mismatched topology.
 

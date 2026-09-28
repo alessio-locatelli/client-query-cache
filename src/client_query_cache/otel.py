@@ -54,7 +54,7 @@ _STREAM_COUNTER_FIELDS: tuple[tuple[str, str, str, str], ...] = (
         "client_query_cache.stream.polls",
         "stream_polls",
         "1",
-        "Cumulative change-stream polls, per database.",
+        "Cumulative manager calls to change-stream iteration, per database.",
     ),
     (
         "client_query_cache.stream.invalidations",
