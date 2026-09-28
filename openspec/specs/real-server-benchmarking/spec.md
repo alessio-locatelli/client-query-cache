@@ -92,6 +92,15 @@ The deployment's supported measurement granularity spans multiple minutes while 
 - **WHEN** the benchmark logs its collected bandwidth evidence
 - **THEN** the log identifies the evidence as covering both reader phases combined rather than attributing it to the cached or uncached phase alone
 
+### Requirement: The benchmark's bandwidth evidence reflects the deployment's baseline traffic, not the benchmark's own footprint
+
+A small shared-tier deployment's underlying metrics collection samples on an irregular interval coarser than the one-minute granularity requested, and the most recent few minutes carry no sample yet at query time, so most requested one-minute buckets read as zero rather than as missing data. Because a read phase completes in seconds, this coarse and lagged sampling SHALL NOT be expected to isolate the benchmark's own traffic from the deployment's ambient baseline traffic.
+
+#### Scenario: The collected evidence reads as zero or unchanged
+
+- **WHEN** the benchmark's bandwidth-evidence collection runs immediately after its reader phases complete
+- **THEN** a zero or baseline-level reading reflects this tier's sampling interval and lag rather than indicating a caching regression or a broken measurement
+
 ### Requirement: The benchmark's bandwidth evidence does not gate its result
 
 This bandwidth evidence SHALL NOT gate the benchmark's pass/fail result: at the deployment's supported measurement granularity, and given the shared deployment's background activity, a numeric bandwidth threshold from a single run is not reliable enough to certify a regression, so this measurement informs investigation rather than failing the benchmark.

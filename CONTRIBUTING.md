@@ -81,6 +81,14 @@ cached-and-uncached read phases and logs them for your own inspection. This evid
 benchmark's pass/fail result: without `REAL_MONGODB_ATLAS_PROJECT_ID`, without the Atlas CLI, or if a
 metrics call fails, the benchmark logs the gap and continues running as usual.
 
+A small shared-tier deployment's metrics only refresh every few minutes, on an irregular interval,
+and the freshest couple of minutes never have a sample yet by the time the benchmark asks — so this
+evidence frequently reads as all zero, and even a non-zero reading is dominated by the deployment's
+ambient baseline traffic rather than this specific run's few seconds of reads and writes. A zero or
+unchanged reading here does not mean the cache did something wrong; it means this tier's metrics are
+too coarse to isolate a single local benchmark run. Look for a real bandwidth anomaly on a longer
+timescale in the Atlas UI instead of from a single run's logged evidence.
+
 ## Release verification
 
 `just verify-release` builds the source and wheel distributions, installs each into its own isolated environment, and imports the public synchronous and asyncio API from each installation — the same check the "Static checks, packaging, and isolated install" CI job runs on every pull request that changes Python files, `pytest.ini`, `pyproject.toml`, or `uv.lock`. It publishes nothing and needs no credentials.
