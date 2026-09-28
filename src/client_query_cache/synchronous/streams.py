@@ -16,6 +16,7 @@ from client_query_cache._core.stream_events import (
     route_change_event,
 )
 from client_query_cache._core.stream_health import RetryBackoff, StreamHealth
+from client_query_cache._core.stream_options import DEFAULT_MAX_AWAIT_TIME_MS
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -27,7 +28,6 @@ if TYPE_CHECKING:
     from client_query_cache._core.manager import CacheCore
 
 MINIMUM_SERVER_VERSION = (8, 0)
-DEFAULT_MAX_AWAIT_TIME_MS = 1_000
 
 logger = logging.getLogger(__name__)
 
@@ -240,10 +240,24 @@ class DatabaseStreamSupervisor:
 
 
 class ChangeStreamCoordinator:
-    __slots__ = ("_cache", "_client", "_closed", "_lock", "_supervisors")
+    __slots__ = (
+        "_cache",
+        "_client",
+        "_closed",
+        "_lock",
+        "_max_await_time_ms",
+        "_supervisors",
+    )
 
-    def __init__(self, client: MongoClient[Any], cache: CacheCore) -> None:
+    def __init__(
+        self,
+        client: MongoClient[Any],
+        cache: CacheCore,
+        *,
+        max_await_time_ms: int = DEFAULT_MAX_AWAIT_TIME_MS,
+    ) -> None:
         self._client = client
+        self._max_await_time_ms = max_await_time_ms
         self._cache = cache
         self._supervisors: dict[str, DatabaseStreamSupervisor] = {}
         self._closed = False
@@ -255,7 +269,11 @@ class ChangeStreamCoordinator:
                 raise StreamLifecycleError("coordinator is closed")
             supervisor = self._supervisors.get(name)
             if supervisor is None:
-                supervisor = DatabaseStreamSupervisor(self._client[name], self._cache)
+                supervisor = DatabaseStreamSupervisor(
+                    self._client[name],
+                    self._cache,
+                    max_await_time_ms=self._max_await_time_ms,
+                )
                 try:
                     supervisor.start()
                 except StreamStartupError:
