@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -27,6 +28,9 @@ from benchmarks.stream_cost.errors import ReportValidationError
 from benchmarks.stream_cost.generators import SMALL_DOCUMENT_PROFILE
 from benchmarks.stream_cost.measurement import ControlledMeasurement, OperationLatency
 from benchmarks.stream_cost.workload import OperationCounts, WorkloadKind
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 pytestmark = pytest.mark.unit
 
@@ -161,6 +165,16 @@ def _full_report() -> dict[str, object]:
     )
 
 
+def _first_sample(
+    samples: list[object], predicate: Callable[[dict[str, object]], bool]
+) -> dict[str, object]:
+    for sample in samples:
+        assert isinstance(sample, dict)
+        if predicate(sample):
+            return sample
+    pytest.fail("no matching sample")  # pragma: no cover - always matches
+
+
 def test_a_complete_four_mode_matrix_report_is_accepted() -> None:
     validate_compression_report(_full_report())
 
@@ -180,13 +194,8 @@ def test_report_rejects_fewer_writes_than_scheduled() -> None:
     samples = report["samples"]
     assert isinstance(samples, list)
     assert samples
-    for (
-        sample
-    ) in samples:  # pragma: no branch - break always fires before the loop exhausts
-        assert isinstance(sample, dict)
-        if sample["writes_issued"] == 2:
-            sample["writes_issued"] = 1
-            break
+    sample = _first_sample(samples, lambda item: item["writes_issued"] == 2)
+    sample["writes_issued"] = 1
     with pytest.raises(ReportValidationError, match="expected"):
         validate_compression_report(report)
 
@@ -196,28 +205,21 @@ def test_report_rejects_idle_samples_with_latency_data() -> None:
     samples = report["samples"]
     assert isinstance(samples, list)
     assert samples
-    for (
-        sample
-    ) in samples:  # pragma: no branch - break always fires before the loop exhausts
-        assert isinstance(sample, dict)
-        if (
-            sample["window_kind"] == "idle"
-        ):  # pragma: no branch - the idle window is first in _WINDOWS
-            sample["read_latency"] = {
-                "operation_count": 1,
-                "no_latency_samples": False,
-                "by_outcome": [
-                    {
-                        "operation": "read",
-                        "outcome": "raw",
-                        "sample_count": 1,
-                        "p50_seconds": 0.01,
-                        "p95_seconds": 0.01,
-                        "p99_seconds": 0.01,
-                    }
-                ],
+    idle_sample = _first_sample(samples, lambda item: item["window_kind"] == "idle")
+    idle_sample["read_latency"] = {
+        "operation_count": 1,
+        "no_latency_samples": False,
+        "by_outcome": [
+            {
+                "operation": "read",
+                "outcome": "raw",
+                "sample_count": 1,
+                "p50_seconds": 0.01,
+                "p95_seconds": 0.01,
+                "p99_seconds": 0.01,
             }
-            break
+        ],
+    }
     with pytest.raises(ReportValidationError, match="idle"):
         validate_compression_report(report)
 
@@ -247,13 +249,8 @@ def test_report_rejects_fewer_reads_than_scheduled() -> None:
     samples = report["samples"]
     assert isinstance(samples, list)
     assert samples
-    for (
-        sample
-    ) in samples:  # pragma: no branch - break always fires before the loop exhausts
-        assert isinstance(sample, dict)
-        if sample["reads_issued"] == 2:
-            sample["reads_issued"] = 1
-            break
+    sample = _first_sample(samples, lambda item: item["reads_issued"] == 2)
+    sample["reads_issued"] = 1
     with pytest.raises(ReportValidationError, match="expected"):
         validate_compression_report(report)
 
@@ -275,19 +272,17 @@ def test_report_rejects_a_no_stream_sample_with_invalidation_latency_data() -> N
     samples = report["samples"]
     assert isinstance(samples, list)
     assert samples
-    for (
-        sample
-    ) in samples:  # pragma: no branch - break always fires before the loop exhausts
-        assert isinstance(sample, dict)
-        if sample["path"] == "no_stream" and sample["window_kind"] != "idle":
-            sample["invalidation_latency"] = {
-                "sample_count": 1,
-                "no_latency_samples": False,
-                "p50_seconds": 0.01,
-                "p95_seconds": 0.01,
-                "p99_seconds": 0.01,
-            }
-            break
+    sample = _first_sample(
+        samples,
+        lambda item: item["path"] == "no_stream" and item["window_kind"] != "idle",
+    )
+    sample["invalidation_latency"] = {
+        "sample_count": 1,
+        "no_latency_samples": False,
+        "p50_seconds": 0.01,
+        "p95_seconds": 0.01,
+        "p99_seconds": 0.01,
+    }
     with pytest.raises(ReportValidationError, match="invalidation_latency"):
         validate_compression_report(report)
 
@@ -329,15 +324,15 @@ def test_report_rejects_a_stream_watching_sample_missing_invalidation_latency() 
     samples = report["samples"]
     assert isinstance(samples, list)
     assert samples
-    for (
-        sample
-    ) in samples:  # pragma: no branch - break always fires before the loop exhausts
-        assert isinstance(sample, dict)
-        if sample["path"] == "stream_watching" and sample["window_kind"] != "idle":
-            sample["invalidation_latency"] = {
-                "sample_count": 0,
-                "no_latency_samples": True,
-            }
-            break
+    sample = _first_sample(
+        samples,
+        lambda item: (
+            item["path"] == "stream_watching" and item["window_kind"] != "idle"
+        ),
+    )
+    sample["invalidation_latency"] = {
+        "sample_count": 0,
+        "no_latency_samples": True,
+    }
     with pytest.raises(ReportValidationError, match="invalidation_latency"):
         validate_compression_report(report)
