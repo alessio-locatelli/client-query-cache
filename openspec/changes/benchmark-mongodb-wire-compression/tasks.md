@@ -8,7 +8,7 @@
 
 ## 2. Matched workload runner
 
-- [ ] 2.1 Add the idle, balanced, and write-heavy small/large schedules and repeat/order configuration; verify schedule and counterbalancing tests cover all four modes and both paths.
+- [x] 2.1 Add the idle, balanced, and write-heavy small/large schedules and repeat/order configuration; verify schedule and counterbalancing tests cover all four modes and both paths.
 - [ ] 2.2 Run fresh no-stream and primed stream-watching windows under each mode using the existing replica set, CPU sampler, and proxy; verify integration cases detect mismatched operations, missed write timing, unhealthy streams, or missing events.
 - [ ] 2.3 Collect read, write, and monotonic write-to-invalidation samples from matched windows, including idle zero-sample markers; verify integration cases produce finite CPU, latency, and byte values for all four modes.
 
