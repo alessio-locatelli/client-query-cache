@@ -169,6 +169,7 @@ def test_report_rejects_a_missing_sample() -> None:
     report = copy.deepcopy(_full_report())
     samples = report["samples"]
     assert isinstance(samples, list)
+    assert samples
     samples.pop()
     with pytest.raises(ReportValidationError, match="missing sample"):
         validate_compression_report(report)
@@ -178,6 +179,7 @@ def test_report_rejects_fewer_writes_than_scheduled() -> None:
     report = copy.deepcopy(_full_report())
     samples = report["samples"]
     assert isinstance(samples, list)
+    assert samples
     for (
         sample
     ) in samples:  # pragma: no branch - break always fires before the loop exhausts
@@ -193,6 +195,7 @@ def test_report_rejects_idle_samples_with_latency_data() -> None:
     report = copy.deepcopy(_full_report())
     samples = report["samples"]
     assert isinstance(samples, list)
+    assert samples
     for (
         sample
     ) in samples:  # pragma: no branch - break always fires before the loop exhausts
@@ -223,6 +226,7 @@ def test_report_rejects_a_missing_negotiation() -> None:
     report = copy.deepcopy(_full_report())
     negotiations = report["negotiations"]
     assert isinstance(negotiations, list)
+    assert negotiations
     negotiations.pop()
     with pytest.raises(ReportValidationError, match="negotiation"):
         validate_compression_report(report)
@@ -232,6 +236,7 @@ def test_report_rejects_a_duplicate_sample() -> None:
     report = copy.deepcopy(_full_report())
     samples = report["samples"]
     assert isinstance(samples, list)
+    assert samples
     samples.append(copy.deepcopy(samples[0]))
     with pytest.raises(ReportValidationError, match="duplicate sample"):
         validate_compression_report(report)
@@ -241,6 +246,7 @@ def test_report_rejects_fewer_reads_than_scheduled() -> None:
     report = copy.deepcopy(_full_report())
     samples = report["samples"]
     assert isinstance(samples, list)
+    assert samples
     for (
         sample
     ) in samples:  # pragma: no branch - break always fires before the loop exhausts
@@ -256,6 +262,7 @@ def test_report_rejects_a_sample_referencing_an_undeclared_window() -> None:
     report = copy.deepcopy(_full_report())
     samples = report["samples"]
     assert isinstance(samples, list)
+    assert samples
     first_sample = samples[0]
     assert isinstance(first_sample, dict)
     first_sample["window"] = "unknown_window"
@@ -267,6 +274,7 @@ def test_report_rejects_a_no_stream_sample_with_invalidation_latency_data() -> N
     report = copy.deepcopy(_full_report())
     samples = report["samples"]
     assert isinstance(samples, list)
+    assert samples
     for (
         sample
     ) in samples:  # pragma: no branch - break always fires before the loop exhausts
@@ -288,6 +296,7 @@ def test_report_rejects_a_duplicate_stream_minus_control_entry() -> None:
     report = copy.deepcopy(_full_report())
     stream_minus_control = report["stream_minus_control"]
     assert isinstance(stream_minus_control, list)
+    assert stream_minus_control
     stream_minus_control.append(copy.deepcopy(stream_minus_control[0]))
     with pytest.raises(ReportValidationError, match="duplicate stream-minus-control"):
         validate_compression_report(report)
@@ -297,6 +306,7 @@ def test_report_rejects_a_missing_stream_minus_control_entry() -> None:
     report = copy.deepcopy(_full_report())
     stream_minus_control = report["stream_minus_control"]
     assert isinstance(stream_minus_control, list)
+    assert stream_minus_control
     stream_minus_control.pop()
     with pytest.raises(ReportValidationError, match="missing stream-minus-control"):
         validate_compression_report(report)
@@ -306,6 +316,7 @@ def test_report_rejects_a_report_containing_a_non_finite_number() -> None:
     report = copy.deepcopy(_full_report())
     samples = report["samples"]
     assert isinstance(samples, list)
+    assert samples
     first_sample = samples[0]
     assert isinstance(first_sample, dict)
     first_sample["wall_seconds"] = float("nan")
@@ -317,6 +328,7 @@ def test_report_rejects_a_stream_watching_sample_missing_invalidation_latency() 
     report = copy.deepcopy(_full_report())
     samples = report["samples"]
     assert isinstance(samples, list)
+    assert samples
     for (
         sample
     ) in samples:  # pragma: no branch - break always fires before the loop exhausts
