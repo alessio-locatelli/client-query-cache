@@ -8,6 +8,10 @@ from client_query_cache._core.collection_metadata import (
     CollectionMetadataCache,
 )
 from client_query_cache._core.manager import CacheCore
+from client_query_cache._core.stream_options import (
+    DEFAULT_MAX_AWAIT_TIME_MS,
+    validate_max_await_time_ms,
+)
 from client_query_cache._core.unique_keys import (
     UniqueKeyMetadata,
     UniqueKeyMetadataCache,
@@ -35,10 +39,14 @@ class CacheManager[DocumentType: Mapping[str, Any]]:
         client: MongoClient[DocumentType],
         *,
         cache_config: CacheCoreConfig | None = None,
+        max_await_time_ms: int = DEFAULT_MAX_AWAIT_TIME_MS,
     ) -> None:
+        validate_max_await_time_ms(max_await_time_ms)
         self._client = client
         self._cache = CacheCore(cache_config)
-        self._coordinator = ChangeStreamCoordinator(client, self._cache)
+        self._coordinator = ChangeStreamCoordinator(
+            client, self._cache, max_await_time_ms=max_await_time_ms
+        )
         self._metadata = CollectionMetadataCache()
         self._unique_keys = UniqueKeyMetadataCache()
 

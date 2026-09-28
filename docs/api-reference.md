@@ -16,12 +16,11 @@ from client_query_cache import CacheManager
 manager = CacheManager(client)
 ```
 
-`CacheManager(client, *, cache_config=None)` wraps a caller-constructed and caller-owned `MongoClient` (or
+`CacheManager(client, *, cache_config=None, max_await_time_ms=1_000)` wraps a caller-constructed and caller-owned `MongoClient` (or
 `AsyncMongoClient`). It never closes that client and never mutates it.
 
 - `manager.client` — the wrapped PyMongo client, unchanged.
-- `manager.cache_core` — the manager's cache storage and bookkeeping object; see [Observability](#observability)
-  below.
+- `manager.cache_core` — the manager's cache storage and bookkeeping object; see [Observability](architecture.md#observability).
 - `manager.close()` (`await manager.close()` for asyncio) — stops every change stream the manager opened and
   releases cached data. Does not close `manager.client`.
 - `CacheManager` is also a context manager (`with` / `async with`), calling `close()` on exit.
@@ -103,14 +102,32 @@ manager = CacheManager(
 )
 ```
 
-| Field                       | Default   | Meaning                                                                                                                                                                                                                                                                          |
-| --------------------------- | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `shared_budget_bytes`       | 64 MiB    | Total BSON-encoded size the manager's cache may hold at once, shared across every database and collection that manager caches.                                                                                                                                                   |
-| `max_entry_bytes`           | 1 MiB     | The largest single cached value (one document, or one `find`/`aggregate`/`distinct` result) the cache accepts.                                                                                                                                                                   |
-| `lag_capture_window_config` | see below | Sizes the invalidation-lag sample windows used by the stream-cost telemetry described in [Observability](#observability). Most applications never need to change this; it exists for the benchmark suite documented in [`stream-cost-benchmarks.md`](stream-cost-benchmarks.md). |
+| Field                       | Default                  | Meaning                                                                                                                                                                                                                                                                                         |
+| --------------------------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `shared_budget_bytes`       | 64 MiB                   | Total BSON-encoded size the manager's cache may hold at once, shared across every database and collection that manager caches.                                                                                                                                                                  |
+| `max_entry_bytes`           | 1 MiB                    | The largest single cached value (one document, or one `find`/`aggregate`/`distinct` result) the cache accepts.                                                                                                                                                                                  |
+| `lag_capture_window_config` | 10 windows of 100 events | Sizes the invalidation-lag sample windows used by the stream-cost telemetry described in [Observability](architecture.md#observability). Most applications never need to change this; it exists for the benchmark suite documented in [`stream-cost-benchmarks.md`](stream-cost-benchmarks.md). |
 
 `CacheCoreConfig` raises `CacheConfigurationError` if `shared_budget_bytes` or `max_entry_bytes` is not positive, or
 if `max_entry_bytes` exceeds `shared_budget_bytes`.
+
+### Change-stream await time
+
+Set `max_await_time_ms` directly on either manager to choose the maximum idle server wait for a change-stream batch:
+
+```python
+manager = CacheManager(client, max_await_time_ms=5_000)
+```
+
+The default is 1,000 ms. Each manager keeps its own setting across its databases and reconnects. Values must be
+integers from 1 through 2,147,483,647; booleans and other invalid values raise `CacheConfigurationError` at
+construction.
+
+This bounds an idle `getMore` wait. Event delivery and failure detection also depend on the server, network, and
+client timeouts. If you set a nonzero PyMongo `timeoutMS`, it must be greater than `max_await_time_ms`, as required
+by the [driver's change-stream timeout rules](https://github.com/mongodb/specifications/blob/master/source/client-side-operations-timeout/client-side-operations-timeout.md#change-streams).
+Consider `socketTimeoutMS` and network infrastructure idle timeouts when choosing a value; the manager leaves
+your client's timeout settings unchanged.
 
 ## Limits
 

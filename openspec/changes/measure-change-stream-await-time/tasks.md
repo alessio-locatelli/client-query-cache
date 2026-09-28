@@ -3,12 +3,12 @@
 ## 1. Measurement foundation
 
 - [x] 1.1 Clarify `stream_polls` as manager iteration calls in telemetry labels and relevant documentation; verify existing sync and async counter tests still describe the observed count accurately.
-- [ ] 1.2 Add an isolated await-time benchmark that observes actual `getMore` commands and requested `maxTimeMS`, captures idle CPU and direct-path bytes, and retains no command bodies; verify instrumentation with a real replica-set run and tests that distinguish one `next()` call from multiple `getMore` commands.
-- [ ] 1.3 Add matched idle, paced-write, burst-write, and idle-shutdown windows for sync and async managers, with fresh state and counterbalanced repetitions; verify report validation rejects missing measurements, unequal schedules or events, and mismatched topology.
+- [x] 1.2 Add an isolated await-time benchmark that observes actual `getMore` commands and requested `maxTimeMS`, captures idle CPU and direct-path bytes, and retains no command bodies; verify instrumentation with a real replica-set run and tests that distinguish one `next()` call from multiple `getMore` commands.
+- [x] 1.3 Add matched idle, paced-write, burst-write, and idle-shutdown windows for sync and async managers, with fresh state and counterbalanced repetitions; verify report validation rejects missing measurements, unequal schedules or events, and mismatched topology.
 
 ## 2. Default decision
 
-- [ ] 2.1 Freeze and review a versioned pre-run configuration before taking any samples, including candidate order, six blocks, window durations, write schedules, shutdown trials, one-sided paired-block bounds with 95% family-wise coverage and Holm-Bonferroni adjustment, denominator resolution rule, and all selection gates from `design.md`; verify decision tests reject altered configuration hashes and choose by decisive results in both execution models, then shorter wait.
+- [x] 2.1 Freeze and review a versioned pre-run configuration before taking any samples, including candidate order, six blocks, window durations, write schedules, shutdown trials, one-sided paired-block bounds with 95% family-wise coverage and Holm-Bonferroni adjustment, denominator resolution rule, and all selection gates from `design.md`; verify decision tests reject altered configuration hashes and choose by decisive results in both execution models, then shorter wait.
 - [ ] 2.2 Run the frozen matrix, validate and retain its per-candidate decision evidence with the configuration hash, revision, and environment, and select the default strictly from that evidence; verify the retained report passes its validator and identifies every candidate's server and client CPU, bytes, latency, and shutdown outcome.
 - [ ] 2.3 Document the chosen value, measured rationale, timeout and topology limits, and a link to retained evidence in `docs/stream-cost-benchmarks.md`; verify every numerical claim against the report and reproduce the benchmark command from the documented configuration.
 
@@ -20,5 +20,5 @@
 
 ## 4. Code Quality
 
-- [ ] 4.1 Scan every edited or added test file in full, including pre-existing tests in those files, for the `AGENTS.md` Writing Tests guidelines; verify repeated cases use parametrization and cleanup is outside test bodies.
+- [x] 4.1 Scan every edited or added test file in full, including pre-existing tests in those files, for the `AGENTS.md` Writing Tests guidelines; verify repeated cases use parametrization and cleanup is outside test bodies.
 - [x] 4.2 Confirm no new prose was added to code under the Claude Code rule (inapplicable: this change is planned for OpenAI Codex).

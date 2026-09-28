@@ -129,3 +129,36 @@ pytestmark  # unused variable (tests/test_mongodb_fixture.py:15)
 __class_getitem__  # unused function (tests/test_mongodb_fixture.py:25)
 pytestmark  # unused variable (tests/test_otel.py:26)
 pytestmark  # unused variable (tests/test_removed_prototype_api.py:7)
+
+# Await-time evidence fields are serialized with dataclasses.asdict.
+nominal_upper
+holm_step_upper
+adjusted_p_value
+holm_rank
+holm_step_alpha
+bootstrap_distribution
+manager_iteration_calls
+
+# Await-time configuration TypedDict keys are read through JSON mappings.
+resampling
+one_sided_p_value
+multiplicity
+unresolved_denominator
+candidates_ms
+models
+block_orders
+model_orders
+warmup_seconds
+idle_minimum_seconds
+idle_minimum_completed_commands
+active_window_seconds
+write_offsets_seconds
+write_schedule_tolerance_seconds
+event_settle_timeout_seconds
+shutdown_schedule_tolerance_seconds
+shutdown_window_timeout_seconds
+shutdown_trial_offsets_seconds
+client_options
+selection
+
+_.side_effect  # unittest.mock failure injection in await shutdown tests.
