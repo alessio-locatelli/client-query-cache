@@ -71,7 +71,9 @@ def test_controlled_run_fails_if_stream_delivery_does_not_settle() -> None:
     outcome = SimpleNamespace(writes_issued=1)
     with (
         patch("benchmarks.stream_cost.run.run_workload_variant", return_value=outcome),
-        patch("benchmarks.stream_cost.run.time.monotonic", side_effect=[0.0, 16.0]),
+        patch(
+            "benchmarks.stream_cost.workload.time.monotonic", side_effect=[0.0, 16.0]
+        ),
         pytest.raises(RuntimeError, match="stream invalidations did not settle"),
     ):
         _sample_variant(

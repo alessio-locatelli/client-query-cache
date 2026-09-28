@@ -30,6 +30,8 @@ if TYPE_CHECKING:
     from client_query_cache.synchronous.manager import CacheManager
 
 _WARMUP_READ_REPEATS = 2
+_STREAM_SETTLE_TIMEOUT_SECONDS = 15.0
+_STREAM_SETTLE_POLL_SECONDS = 0.02
 
 
 class WorkloadKind(enum.Enum):
@@ -365,3 +367,24 @@ def time_call[T](call: Callable[[], T]) -> tuple[T, float]:
     call_result = call()
     elapsed_seconds = time.monotonic() - start
     return call_result, elapsed_seconds
+
+
+def wait_for_invalidations_to_settle(
+    manager: CacheManager[dict[str, Any]],
+    database_name: str,
+    expected_count: int,
+    *,
+    context: str,
+) -> None:
+    deadline = time.monotonic() + _STREAM_SETTLE_TIMEOUT_SECONDS
+    while (
+        manager.cache_core.stream_cost_snapshot(database_name).invalidations
+        < expected_count
+    ):
+        if time.monotonic() >= deadline:
+            message = (
+                f"stream invalidations did not settle for {context} "
+                f"within {_STREAM_SETTLE_TIMEOUT_SECONDS:.0f} seconds"
+            )
+            raise BenchmarkSetupError(message)
+        time.sleep(_STREAM_SETTLE_POLL_SECONDS)
