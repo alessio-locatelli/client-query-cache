@@ -26,7 +26,7 @@ def _is_eligible_index(index_spec: Mapping[str, Any]) -> bool:
         return False
     if index_spec.get("sparse", False):
         return False
-    return not any(value == "hashed" for value in index_spec.get("key", {}).values())
+    return not any(value == "hashed" for value in index_spec["key"].values())
 
 
 def discover_unique_keys(

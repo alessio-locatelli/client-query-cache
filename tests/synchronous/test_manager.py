@@ -42,7 +42,7 @@ def test_manager_used_as_a_context_manager_closes_its_own_cache(
     with CacheManager(client) as manager:
         core = manager.cache_core
 
-    assert core.lifecycle_state is CacheLifecycleState.CLOSED
+    assert core.snapshot().lifecycle == CacheLifecycleState.CLOSED.value
 
 
 def test_manager_close_does_not_close_the_caller_owned_client(

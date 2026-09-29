@@ -275,10 +275,6 @@ class _CacheCoreBase:
 class _CacheCoreLifecycle(_CacheCoreBase):
     __slots__ = ()
 
-    @property
-    def lifecycle_state(self) -> CacheLifecycleState:
-        return self._lifecycle
-
     def close(self) -> None:
         with self._lifecycle_lock:
             if self._is_closed():
@@ -817,47 +813,6 @@ class _CacheCoreLookup(_CacheCoreBase):
         state = self._namespace(namespace)
         with self._namespace_section(state):
             return state.aliases.get(alias_key)
-
-    def lookup_by_alias(
-        self,
-        namespace: NamespaceId,
-        definition: object,
-        value: object,
-        collation: object,
-        read_shape: object,
-        *,
-        codec_options: CodecOptions[Any] | None = None,
-    ) -> LookupResult:
-        self._ensure_active()
-        if not self._is_database_available(namespace.database):
-            self._statistics.record_bypass()
-            return LookupResult(hit=False)
-        alias_key = canonical_alias_key(definition, value, collation)
-        state = self._namespace(namespace)
-        with self._namespace_section(state):
-            identity = state.aliases.get(alias_key)
-        if identity is None:
-            self._statistics.record_miss()
-            return LookupResult(hit=False)
-        key = IdentityCacheKey(namespace, identity, canonicalize(read_shape))
-        entry = self._lru.peek(key)
-        if entry is None:
-            self._statistics.record_miss()
-            return LookupResult(hit=False)
-        entry_generation_key = (entry.generation_key[0], entry.generation_key[1])
-        with self._namespace_section(state):
-            still_aliased = state.aliases.get(alias_key) == identity
-            matched = (
-                _match_identity_state(state, identity, entry_generation_key)
-                if still_aliased
-                else None
-            )
-        if matched is None:
-            self._statistics.record_miss()
-            return LookupResult(hit=False)
-        self._lru.touch(key)
-        self._statistics.record_hit()
-        return LookupResult(hit=True, value=decode_value(entry.value, codec_options))
 
 
 class _CacheCoreStreamCostTelemetry(_CacheCoreBase):

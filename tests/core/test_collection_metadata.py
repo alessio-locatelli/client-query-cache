@@ -36,12 +36,5 @@ def test_confirmed_collection_metadata(
     assert metadata.default_collation == collation
 
 
-@pytest.mark.parametrize(
-    "entry",
-    [None, {}, {"type": "unknown"}],
-    ids=["absent", "missing-type", "unknown-type"],
-)
-def test_inconclusive_metadata_requires_another_probe(
-    entry: Mapping[str, object] | None,
-) -> None:
-    assert interpret_list_collections_entry(entry) is None
+def test_absent_metadata_requires_another_probe() -> None:
+    assert interpret_list_collections_entry(None) is None

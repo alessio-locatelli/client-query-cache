@@ -43,13 +43,6 @@ _LOOKUPS = [
         lambda core, namespace: core.lookup_namespace(namespace, ("find", {})),
         id="lookup_namespace",
     ),
-    pytest.param(
-        _seed_alias,
-        lambda core, namespace: core.lookup_by_alias(
-            namespace, "email", "a@example.com", None, "full"
-        ),
-        id="lookup_by_alias",
-    ),
 ]
 
 _ADMISSIONS = [

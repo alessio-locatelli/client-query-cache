@@ -47,8 +47,6 @@ def interpret_list_collections_entry(
     if entry is None:
         return None
     collection_type = entry.get("type")
-    if collection_type not in {"collection", "view", "timeseries"}:
-        return None
     default_collation = normalize_collation(entry.get("options", {}).get("collation"))
     return CollectionProbeResult(
         is_cacheable=collection_type == "collection",

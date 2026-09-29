@@ -21,7 +21,7 @@ pytestmark = pytest.mark.unit
 
 
 def test_a_new_manager_starts_active() -> None:
-    assert CacheCore().lifecycle_state is CacheLifecycleState.ACTIVE
+    assert CacheCore().snapshot().lifecycle == CacheLifecycleState.ACTIVE.value
 
 
 def test_close_transitions_to_closed_and_releases_storage(
@@ -33,7 +33,7 @@ def test_close_transitions_to_closed_and_releases_storage(
 
     core.close()
 
-    assert core.lifecycle_state is CacheLifecycleState.CLOSED
+    assert core.snapshot().lifecycle == CacheLifecycleState.CLOSED.value
     used_bytes, entry_count = core._lru.snapshot_usage()
     assert used_bytes == 0
     assert entry_count == 0
@@ -43,7 +43,7 @@ def test_close_is_idempotent() -> None:
     core = CacheCore()
     core.close()
     core.close()
-    assert core.lifecycle_state is CacheLifecycleState.CLOSED
+    assert core.snapshot().lifecycle == CacheLifecycleState.CLOSED.value
 
 
 @pytest.mark.parametrize(

@@ -66,25 +66,6 @@ def test_the_published_alias_survives_so_a_later_read_takes_the_identity_path(
     assert core.lookup_identity(namespace, resolved_identity, "full").hit is True
 
 
-def test_lookup_by_alias_reaches_the_value_admitted_by_a_unique_key_match(
-    core: CacheCore, namespace: NamespaceId
-) -> None:
-    alias = canonical_alias_key(("email",), ("a@example.com",), None)
-    namespace_capture = core.capture_namespace_generation(namespace)
-    document = {"email": "a@example.com", "name": "Ada"}
-
-    core.admit_unique_key_match(
-        namespace_capture, (alias, "full"), "doc-1", "full", document, alias=alias
-    )
-
-    lookup_result = core.lookup_by_alias(
-        namespace, ("email",), ("a@example.com",), None, "full"
-    )
-
-    assert lookup_result.hit is True
-    assert lookup_result.value == document
-
-
 def test_a_write_to_the_matched_document_invalidates_both_entries_and_the_alias(
     core: CacheCore, namespace: NamespaceId
 ) -> None:
@@ -326,9 +307,11 @@ def test_a_racing_write_does_not_leave_a_stale_alias_reachable(
     assert core.resolve_alias(namespace, ("email",), ("a@example.com",), None) == (
         "doc-new"
     )
-    lookup_result = core.lookup_by_alias(
-        namespace, ("email",), ("a@example.com",), None, "full"
+    resolved_identity = core.resolve_alias(
+        namespace, ("email",), ("a@example.com",), None
     )
+    assert resolved_identity == "doc-new"
+    lookup_result = core.lookup_identity(namespace, resolved_identity, "full")
     assert lookup_result.hit
     assert lookup_result.value == {"v": "fresh"}
 
@@ -356,10 +339,6 @@ def test_a_rolled_back_identity_admission_does_not_leave_the_alias_orphaned(
 
     assert outcome is AdmissionOutcome.DECLINED_STALE
     assert core.resolve_alias(namespace, ("email",), ("a@example.com",), None) is None
-    lookup_result = core.lookup_by_alias(
-        namespace, ("email",), ("a@example.com",), None, "full"
-    )
-    assert lookup_result.hit is False
 
 
 def test_the_alias_survives_when_the_identity_entry_is_already_cached(
@@ -375,9 +354,11 @@ def test_the_alias_survives_when_the_identity_entry_is_already_cached(
         namespace_capture, (alias, "full"), "doc-1", "full", document, alias=alias
     )
 
-    lookup_result = core.lookup_by_alias(
-        namespace, ("email",), ("a@example.com",), None, "full"
+    resolved_identity = core.resolve_alias(
+        namespace, ("email",), ("a@example.com",), None
     )
+    assert resolved_identity == "doc-1"
+    lookup_result = core.lookup_identity(namespace, resolved_identity, "full")
     assert lookup_result.hit is True
     assert lookup_result.value == document
 
