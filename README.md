@@ -4,6 +4,8 @@ Client-side caching for PyMongo, kept coherent using MongoDB change streams. For
 
 It caches reads whose results the manager can invalidate correctly when the underlying data changes, and leaves everything else — including all writes — to go straight to MongoDB. Invalidation is asynchronous: a read running concurrently with a write can still return the previous cached value until the manager processes that write's change-stream event.
 
+**Built for production:** 100% covered, extensively tested from cache-core invariants through real MongoDB deployments, continuously benchmarked, and protected by an automated pull-request performance regression guard.
+
 ![Cached reads are up to about 1,200 times faster than a direct read, and roughly the same speed whether the server is local or a real remote deployment. Direct local server read 120 microseconds, direct real deployment (Atlas M0 free tier) read 79.4 milliseconds, cached read about 61 microseconds either way. Bars use a logarithmic scale.](docs/assets/benchmark-latency-light.svg)
 
 Read latency across two different deployments, so you can see the range: the local-server row is the median from one of the [retained local benchmark reports](docs/stream-cost-benchmarks.md); the M0-deployment row is the mean of one batch from the [real-server benchmark](CONTRIBUTING.md#real-server-benchmark) against a free-tier Atlas (M0) cluster — plotted on a logarithmic axis given the size of the gap. Cached-read latency barely moves between the two, since a cache hit never touches the network. Neither number is a universal performance guarantee for your own workload or deployment — see [Stream cost benchmarks](docs/stream-cost-benchmarks.md) for the full local workload matrix and how to reproduce it.
