@@ -267,8 +267,9 @@ class ChangeStreamCoordinator:
         with self._lock:
             if self._closed:
                 raise StreamLifecycleError("coordinator is closed")
-            supervisor = self._supervisors.get(name)
-            if supervisor is None:
+            try:
+                supervisor = self._supervisors[name]
+            except KeyError:
                 supervisor = DatabaseStreamSupervisor(
                     self._client[name],
                     self._cache,

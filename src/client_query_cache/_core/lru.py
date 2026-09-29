@@ -51,7 +51,10 @@ class WeightedLru:
 
     def peek(self, key: CacheKey) -> CacheEntry | None:
         with self._guard.lru_section(), self._lock:
-            return self._order.get(key)
+            try:
+                return self._order[key]
+            except KeyError:
+                return None
 
     def touch(self, key: CacheKey) -> None:
         with self._guard.lru_section(), self._lock:
@@ -63,7 +66,10 @@ class WeightedLru:
     ) -> tuple[bool, CacheEntry | None, list[CacheEntry]]:
         evicted: list[CacheEntry] = []
         with self._guard.lru_section(), self._lock:
-            current = self._order.get(key)
+            try:
+                current = self._order[key]
+            except KeyError:
+                current = None
             if current is not None and current.generation_key >= entry.generation_key:
                 return False, None, evicted
             if current is not None:
@@ -80,11 +86,18 @@ class WeightedLru:
 
     def contains_exact(self, key: CacheKey, entry: CacheEntry) -> bool:
         with self._guard.lru_section(), self._lock:
-            return self._order.get(key) is entry
+            try:
+                return self._order[key] is entry
+            except KeyError:
+                return False
 
     def remove_exact(self, key: CacheKey, entry: CacheEntry) -> bool:
         with self._guard.lru_section(), self._lock:
-            if self._order.get(key) is entry:
+            try:
+                current = self._order[key]
+            except KeyError:
+                return False
+            if current is entry:
                 del self._order[key]
                 self._used_bytes -= entry.weight
                 return True

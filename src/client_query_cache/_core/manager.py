@@ -114,8 +114,9 @@ def _match_identity_state(
     identity: Canonical,
     generation_key: tuple[int, int],
 ) -> IdentityState | None:
-    identity_state = state.identities.get(identity)
-    if identity_state is None:
+    try:
+        identity_state = state.identities[identity]
+    except KeyError:
         return None
     if (state.epoch, identity_state.generation) != generation_key:
         return None
@@ -162,16 +163,18 @@ class _CacheCoreBase:
 
     def _is_database_available(self, database: str) -> bool:
         with self._availability_lock:
-            available, _generation = self._database_availability.get(
-                database, _DEFAULT_DATABASE_AVAILABILITY
-            )
+            try:
+                available, _generation = self._database_availability[database]
+            except KeyError:
+                available, _generation = _DEFAULT_DATABASE_AVAILABILITY
             return available
 
     def _capture_database_availability(self, database: str) -> int:
         with self._availability_lock:
-            _available, generation = self._database_availability.get(
-                database, _DEFAULT_DATABASE_AVAILABILITY
-            )
+            try:
+                _available, generation = self._database_availability[database]
+            except KeyError:
+                _available, generation = _DEFAULT_DATABASE_AVAILABILITY
             return generation
 
     @contextmanager
@@ -182,9 +185,12 @@ class _CacheCoreBase:
         weight: int,
     ) -> Iterator[AdmissionOutcome | None]:
         with self._availability_lock:
-            available, current_generation = self._database_availability.get(
-                namespace.database, _DEFAULT_DATABASE_AVAILABILITY
-            )
+            try:
+                available, current_generation = self._database_availability[
+                    namespace.database
+                ]
+            except KeyError:
+                available, current_generation = _DEFAULT_DATABASE_AVAILABILITY
             if not available or availability_generation != current_generation:
                 self._statistics.record_bypass()
                 yield AdmissionOutcome.DECLINED_UNAVAILABLE
@@ -202,8 +208,9 @@ class _CacheCoreBase:
 
     def _namespace(self, namespace: NamespaceId) -> NamespaceState:
         with self._namespaces_lock:
-            state = self._namespaces.get(namespace)
-            if state is None:
+            try:
+                state = self._namespaces[namespace]
+            except KeyError:
                 state = NamespaceState(namespace=namespace)
                 if not self._is_closed():
                     self._namespaces[namespace] = state
@@ -313,7 +320,11 @@ class _CacheCoreNamespaceLifecycle(_CacheCoreBase):
 
     def namespaces_for_database(self, database: str) -> list[NamespaceId]:
         with self._namespaces_lock:
-            return list(self._database_namespaces.get(database, {}))
+            try:
+                namespaces = self._database_namespaces[database]
+            except KeyError:
+                namespaces = {}
+            return list(namespaces)
 
     def has_namespace(self, namespace: NamespaceId) -> bool:
         with self._namespaces_lock:
@@ -343,12 +354,14 @@ class _CacheCoreNamespaceLifecycle(_CacheCoreBase):
             state.generation += 1
             if not is_canonicalizable(identity):
                 return
-            identity_state = state.identities.get(canonicalize(identity))
-            if identity_state is not None:
-                identity_state.generation += 1
-                for alias_key in identity_state.alias_keys:
-                    state.aliases.pop(alias_key, None)
-                identity_state.alias_keys.clear()
+            try:
+                identity_state = state.identities[canonicalize(identity)]
+            except KeyError:
+                return
+            identity_state.generation += 1
+            for alias_key in identity_state.alias_keys:
+                state.aliases.pop(alias_key, None)
+            identity_state.alias_keys.clear()
 
     def clear_namespace(self, namespace: NamespaceId) -> None:
         self._ensure_active()
@@ -395,9 +408,10 @@ class _CacheCoreDatabaseAvailability(_CacheCoreBase):
 
     def set_database_available(self, database: str, *, available: bool) -> None:
         with self._availability_lock:
-            current_available, generation = self._database_availability.get(
-                database, _DEFAULT_DATABASE_AVAILABILITY
-            )
+            try:
+                current_available, generation = self._database_availability[database]
+            except KeyError:
+                current_available, generation = _DEFAULT_DATABASE_AVAILABILITY
             if available != current_available:
                 self._database_availability[database] = (available, generation + 1)
 
@@ -418,8 +432,9 @@ class _CacheCoreIdentityAdmission(_CacheCoreBase):
         )
         state = self._namespace(namespace)
         with self._namespace_section(state):
-            identity_state = state.identities.get(canonical_identity)
-            if identity_state is None:
+            try:
+                identity_state = state.identities[canonical_identity]
+            except KeyError:
                 identity_state = IdentityState(
                     generation=state.identity_generation_watermark
                 )
@@ -510,8 +525,9 @@ class _CacheCoreIdentityAdmission(_CacheCoreBase):
         capture.released = True
         state = self._namespace(capture.namespace)
         with self._namespace_section(state):
-            identity_state = state.identities.get(capture.identity)
-            if identity_state is None:
+            try:
+                identity_state = state.identities[capture.identity]
+            except KeyError:
                 return
             identity_state.inflight_ref_count -= 1
             _maybe_prune_identity_locked(state, capture.identity, identity_state)
@@ -520,7 +536,10 @@ class _CacheCoreIdentityAdmission(_CacheCoreBase):
 def _publish_alias_locked(
     state: NamespaceState, alias: AliasKey, identity: Canonical
 ) -> None:
-    previous_identity = state.aliases.get(alias)
+    try:
+        previous_identity = state.aliases[alias]
+    except KeyError:
+        previous_identity = None
     if previous_identity is not None and previous_identity != identity:
         state.identities[previous_identity].alias_keys.discard(alias)
     state.aliases[alias] = identity
@@ -530,7 +549,11 @@ def _publish_alias_locked(
 def _discard_alias_locked(
     state: NamespaceState, alias: AliasKey, expected_identity: Canonical
 ) -> None:
-    if state.aliases.get(alias) != expected_identity:
+    try:
+        current_identity = state.aliases[alias]
+    except KeyError:
+        return
+    if current_identity != expected_identity:
         return
     del state.aliases[alias]
     identity_state = state.identities[expected_identity]
@@ -663,8 +686,9 @@ class _CacheCoreUniqueKeyAdmission(_CacheCoreBase):
                     or state.generation != namespace_capture.generation
                 ):
                     return AdmissionOutcome.DECLINED_STALE
-                identity_state = state.identities.get(canonical_identity)
-                if identity_state is None:
+                try:
+                    identity_state = state.identities[canonical_identity]
+                except KeyError:
                     identity_state = IdentityState(
                         generation=state.identity_generation_watermark
                     )
@@ -726,7 +750,10 @@ class _CacheCoreUniqueKeyAdmission(_CacheCoreBase):
         )
         if identity_outcome is not AdmissionOutcome.ADMITTED:
             with self._namespace_section(state):
-                current_identity_state = state.identities.get(canonical_identity)
+                try:
+                    current_identity_state = state.identities[canonical_identity]
+                except KeyError:
+                    current_identity_state = None
                 if (
                     current_identity_state is None
                     or not current_identity_state.is_referenced
@@ -812,7 +839,10 @@ class _CacheCoreLookup(_CacheCoreBase):
         alias_key = canonical_alias_key(definition, value, collation)
         state = self._namespace(namespace)
         with self._namespace_section(state):
-            return state.aliases.get(alias_key)
+            try:
+                return state.aliases[alias_key]
+            except KeyError:
+                return None
 
 
 class _CacheCoreStreamCostTelemetry(_CacheCoreBase):

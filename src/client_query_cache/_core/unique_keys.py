@@ -20,11 +20,19 @@ class UniqueKeyDefinition:
 
 
 def _is_eligible_index(index_spec: Mapping[str, Any]) -> bool:
-    if not index_spec.get("unique", False):
+    try:
+        is_unique = index_spec["unique"]
+    except KeyError:
+        is_unique = False
+    if not is_unique:
         return False
     if "partialFilterExpression" in index_spec:
         return False
-    if index_spec.get("sparse", False):
+    try:
+        is_sparse = index_spec["sparse"]
+    except KeyError:
+        is_sparse = False
+    if is_sparse:
         return False
     return not any(value == "hashed" for value in index_spec["key"].values())
 
@@ -32,14 +40,21 @@ def _is_eligible_index(index_spec: Mapping[str, Any]) -> bool:
 def discover_unique_keys(
     index_specs: Sequence[Mapping[str, Any]],
 ) -> tuple[UniqueKeyDefinition, ...]:
-    return tuple(
-        UniqueKeyDefinition(
-            fields=tuple(index_spec["key"]),
-            collation=normalize_collation(index_spec.get("collation")),
+    unique_keys = []
+    for index_spec in index_specs:
+        if not _is_eligible_index(index_spec):
+            continue
+        try:
+            collation = index_spec["collation"]
+        except KeyError:
+            collation = None
+        unique_keys.append(
+            UniqueKeyDefinition(
+                fields=tuple(index_spec["key"]),
+                collation=normalize_collation(collation),
+            )
         )
-        for index_spec in index_specs
-        if _is_eligible_index(index_spec)
-    )
+    return tuple(unique_keys)
 
 
 def _extract_ordered_values(
@@ -94,7 +109,10 @@ class UniqueKeyMetadataCache:
 
     def get(self, namespace: NamespaceId) -> UniqueKeyMetadata | None:
         with self._lock:
-            return self._entries.get(namespace)
+            try:
+                return self._entries[namespace]
+            except KeyError:
+                return None
 
     def put(self, namespace: NamespaceId, metadata: UniqueKeyMetadata) -> None:
         with self._lock:
