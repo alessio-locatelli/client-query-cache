@@ -1,3 +1,30 @@
+nominal_upper  # unused variable (benchmarks/stream_cost/await_decision.py:33)
+holm_step_upper  # unused variable (benchmarks/stream_cost/await_decision.py:34)
+adjusted_p_value  # unused variable (benchmarks/stream_cost/await_decision.py:36)
+holm_rank  # unused variable (benchmarks/stream_cost/await_decision.py:39)
+holm_step_alpha  # unused variable (benchmarks/stream_cost/await_decision.py:40)
+bootstrap_distribution  # unused variable (benchmarks/stream_cost/await_decision.py:41)
+resampling  # unused variable (benchmarks/stream_cost/await_model.py:34)
+one_sided_p_value  # unused variable (benchmarks/stream_cost/await_model.py:36)
+multiplicity  # unused variable (benchmarks/stream_cost/await_model.py:38)
+unresolved_denominator  # unused variable (benchmarks/stream_cost/await_model.py:40)
+candidates_ms  # unused variable (benchmarks/stream_cost/await_model.py:45)
+models  # unused variable (benchmarks/stream_cost/await_model.py:46)
+block_orders  # unused variable (benchmarks/stream_cost/await_model.py:47)
+model_orders  # unused variable (benchmarks/stream_cost/await_model.py:48)
+warmup_seconds  # unused variable (benchmarks/stream_cost/await_model.py:49)
+idle_minimum_seconds  # unused variable (benchmarks/stream_cost/await_model.py:50)
+idle_minimum_completed_commands  # unused variable (benchmarks/stream_cost/await_model.py:51)
+active_window_seconds  # unused variable (benchmarks/stream_cost/await_model.py:52)
+write_offsets_seconds  # unused variable (benchmarks/stream_cost/await_model.py:53)
+write_schedule_tolerance_seconds  # unused variable (benchmarks/stream_cost/await_model.py:56)
+event_settle_timeout_seconds  # unused variable (benchmarks/stream_cost/await_model.py:59)
+shutdown_schedule_tolerance_seconds  # unused variable (benchmarks/stream_cost/await_model.py:60)
+shutdown_window_timeout_seconds  # unused variable (benchmarks/stream_cost/await_model.py:61)
+shutdown_trial_offsets_seconds  # unused variable (benchmarks/stream_cost/await_model.py:62)
+client_options  # unused variable (benchmarks/stream_cost/await_model.py:64)
+selection  # unused variable (benchmarks/stream_cost/await_model.py:67)
+manager_iteration_calls  # unused variable (benchmarks/stream_cost/await_model.py:87)
 _.clear_all  # unused method (src/client_query_cache/_core/lru.py:93)
 alias_keys  # unused variable (src/client_query_cache/_core/namespace.py:18)
 _.is_referenced  # unused property (src/client_query_cache/_core/namespace.py:20)
@@ -15,38 +42,44 @@ StreamCostRegistry  # unused class (src/client_query_cache/_core/stream_cost.py:
 _.reset_all  # unused method (src/client_query_cache/_core/stream_cost.py:204)
 STARTING  # unused variable (src/client_query_cache/_core/stream_health.py:17)
 CONNECTING  # unused variable (src/client_query_cache/_core/stream_health.py:18)
-pytestmark  # unused variable (tests/asynchronous/test_collection.py:31)
+pytestmark  # unused variable (tests/asynchronous/test_collection.py:36)
 pytestmark  # unused variable (tests/asynchronous/test_collection_types.py:23)
 pytestmark  # unused variable (tests/asynchronous/test_database.py:11)
 pytestmark  # unused variable (tests/asynchronous/test_manager.py:13)
 pytestmark  # unused variable (tests/asynchronous/test_streams.py:31)
-_.return_value  # unused attribute (tests/asynchronous/test_streams.py:177)
-_.return_value  # unused attribute (tests/asynchronous/test_streams.py:666)
-_.return_value  # unused attribute (tests/asynchronous/test_streams.py:686)
-_.return_value  # unused attribute (tests/asynchronous/test_streams.py:733)
-pytestmark  # unused variable (tests/asynchronous/test_streams_integration.py:22)
+pytestmark  # unused variable (tests/asynchronous/test_streams_integration.py:28)
 pytestmark  # unused variable (tests/asynchronous/test_unique_key_reads.py:34)
-pytestmark  # unused variable (tests/benchmark/real_server/test_atlas_bandwidth.py:24)
-_clear_atlas_project_id_env  # unused function (tests/benchmark/real_server/test_atlas_bandwidth.py:181)
+pytestmark  # unused variable (tests/benchmark/real_server/test_atlas_bandwidth.py:25)
+_clear_atlas_project_id_env  # unused function (tests/benchmark/real_server/test_atlas_bandwidth.py:182)
 pytestmark  # unused variable (tests/benchmark/real_server/test_cache_benefit.py:32)
 pytest_plugins  # unused variable (tests/benchmark/real_server/test_env.py:14)
 pytestmark  # unused variable (tests/benchmark/real_server/test_env.py:16)
 _clear_real_server_env  # unused function (tests/benchmark/real_server/test_env.py:19)
 pytestmark  # unused variable (tests/benchmark/real_server/test_preflight_timing.py:9)
 pytestmark  # unused variable (tests/benchmark/real_server/test_workers_integration.py:26)
-_.succeeded  # unused method (tests/benchmark/real_server/workers.py:70)
-_.failed  # unused method (tests/benchmark/real_server/workers.py:73)
+pytestmark  # unused variable (tests/benchmark/stream_cost/test_await_commands.py:15)
+pytestmark  # unused variable (tests/benchmark/stream_cost/test_await_commands_integration.py:20)
+pytestmark  # unused variable (tests/benchmark/stream_cost/test_await_decision.py:32)
+pytestmark  # unused variable (tests/benchmark/stream_cost/test_await_managers_integration.py:23)
+pytestmark  # unused variable (tests/benchmark/stream_cost/test_await_run_integration.py:28)
+pytestmark  # unused variable (tests/benchmark/stream_cost/test_await_shutdown_process.py:18)
+_.side_effect  # unused attribute (tests/benchmark/stream_cost/test_await_shutdown_process.py:48)
 pytestmark  # unused variable (tests/benchmark/stream_cost/test_bootstrap.py:17)
 pytestmark  # unused variable (tests/benchmark/stream_cost/test_calibration.py:40)
-pytestmark  # unused variable (tests/benchmark/stream_cost/test_client.py:13)
-__class_getitem__  # unused function (tests/benchmark/stream_cost/test_client.py:21)
+pytestmark  # unused variable (tests/benchmark/stream_cost/test_client.py:19)
+__class_getitem__  # unused function (tests/benchmark/stream_cost/test_client.py:27)
+pytestmark  # unused variable (tests/benchmark/stream_cost/test_compression_decision.py:10)
+pytestmark  # unused variable (tests/benchmark/stream_cost/test_compression_matrix.py:20)
+pytestmark  # unused variable (tests/benchmark/stream_cost/test_compression_matrix_runner.py:24)
+pytestmark  # unused variable (tests/benchmark/stream_cost/test_compression_matrix_runner_integration.py:31)
+pytestmark  # unused variable (tests/benchmark/stream_cost/test_compression_report.py:35)
+pytestmark  # unused variable (tests/benchmark/stream_cost/test_compression_run_integration.py:13)
+pytestmark  # unused variable (tests/benchmark/stream_cost/test_compressor_preflight.py:14)
+pytestmark  # unused variable (tests/benchmark/stream_cost/test_compressor_preflight_integration.py:23)
 pytestmark  # unused variable (tests/benchmark/stream_cost/test_config.py:16)
 pytestmark  # unused variable (tests/benchmark/stream_cost/test_consolidated_stream.py:36)
 pytestmark  # unused variable (tests/benchmark/stream_cost/test_consolidated_stream_integration.py:23)
 pytestmark  # unused variable (tests/benchmark/stream_cost/test_decision_evidence.py:30)
-_.return_value  # unused attribute (tests/benchmark/stream_cost/test_decision_evidence.py:111)
-_.return_value  # unused attribute (tests/benchmark/stream_cost/test_decision_evidence.py:147)
-_.return_value  # unused attribute (tests/benchmark/stream_cost/test_decision_evidence.py:151)
 pytestmark  # unused variable (tests/benchmark/stream_cost/test_generators.py:18)
 pytestmark  # unused variable (tests/benchmark/stream_cost/test_guard_check.py:20)
 pytestmark  # unused variable (tests/benchmark/stream_cost/test_guard_report.py:24)
@@ -54,21 +87,22 @@ pytestmark  # unused variable (tests/benchmark/stream_cost/test_guard_runner.py:
 pytestmark  # unused variable (tests/benchmark/stream_cost/test_guard_scope.py:11)
 pytestmark  # unused variable (tests/benchmark/stream_cost/test_guard_workload_boundaries.py:17)
 pytestmark  # unused variable (tests/benchmark/stream_cost/test_guard_workload_integration.py:20)
-pytestmark  # unused variable (tests/benchmark/stream_cost/test_measurement.py:17)
+pytestmark  # unused variable (tests/benchmark/stream_cost/test_measurement.py:18)
 pytestmark  # unused variable (tests/benchmark/stream_cost/test_oversized_result.py:17)
 pytestmark  # unused variable (tests/benchmark/stream_cost/test_oversized_result_integration.py:22)
 pytestmark  # unused variable (tests/benchmark/stream_cost/test_pair_runner.py:37)
-pytestmark  # unused variable (tests/benchmark/stream_cost/test_pair_runner_integration.py:33)
+pytestmark  # unused variable (tests/benchmark/stream_cost/test_pair_runner_integration.py:34)
 pytestmark  # unused variable (tests/benchmark/stream_cost/test_proxy.py:24)
 pytestmark  # unused variable (tests/benchmark/stream_cost/test_report.py:31)
 pytestmark  # unused variable (tests/benchmark/stream_cost/test_run.py:16)
-_.return_value  # unused attribute (tests/benchmark/stream_cost/test_run.py:68)
 pytestmark  # unused variable (tests/benchmark/stream_cost/test_run_integration.py:17)
 pytestmark  # unused variable (tests/benchmark/stream_cost/test_topology.py:18)
 __class_getitem__  # unused function (tests/benchmark/stream_cost/test_topology.py:54)
 pytestmark  # unused variable (tests/benchmark/stream_cost/test_topology_integration.py:10)
-pytestmark  # unused variable (tests/benchmark/stream_cost/test_workload.py:44)
+pytestmark  # unused variable (tests/benchmark/stream_cost/test_workload.py:46)
 pytestmark  # unused variable (tests/benchmark/stream_cost/test_workload_integration.py:27)
+bson_type  # unused variable (tests/codec_helpers.py:15)
+_.transform_bson  # unused method (tests/codec_helpers.py:17)
 log_when_test_starts  # unused function (tests/conftest.py:51)
 pytestmark  # unused variable (tests/core/test_admission_contracts.py:26)
 pytestmark  # unused variable (tests/core/test_aliases_and_isolation.py:16)
@@ -97,72 +131,20 @@ pytestmark  # unused variable (tests/core/test_projection.py:21)
 pytestmark  # unused variable (tests/core/test_read_validation.py:14)
 pytestmark  # unused variable (tests/core/test_stream_cost.py:21)
 pytestmark  # unused variable (tests/core/test_stream_events.py:25)
-_.return_value  # unused attribute (tests/core/test_stream_events.py:73)
-_.return_value  # unused attribute (tests/core/test_stream_events.py:74)
-_.return_value  # unused attribute (tests/core/test_stream_events.py:108)
-_.return_value  # unused attribute (tests/core/test_stream_events.py:128)
-_.return_value  # unused attribute (tests/core/test_stream_events.py:199)
-_.return_value  # unused attribute (tests/core/test_stream_events.py:209)
-_.return_value  # unused attribute (tests/core/test_stream_events.py:234)
-_.return_value  # unused attribute (tests/core/test_stream_events.py:250)
-_.return_value  # unused attribute (tests/core/test_stream_events.py:268)
-_.return_value  # unused attribute (tests/core/test_stream_events.py:287)
-_.return_value  # unused attribute (tests/core/test_stream_events.py:308)
-_.return_value  # unused attribute (tests/core/test_stream_events.py:321)
 pytestmark  # unused variable (tests/core/test_stream_health.py:7)
+pytestmark  # unused variable (tests/core/test_stream_options.py:16)
 pytestmark  # unused variable (tests/core/test_unique_key_admission.py:17)
 pytestmark  # unused variable (tests/core/test_unique_keys.py:18)
 pytestmark  # unused variable (tests/e2e/test_installed_package.py:14)
-pytestmark  # unused variable (tests/synchronous/test_collection.py:31)
+pytestmark  # unused variable (tests/synchronous/test_collection.py:36)
 pytestmark  # unused variable (tests/synchronous/test_collection_types.py:22)
 pytestmark  # unused variable (tests/synchronous/test_database.py:11)
 pytestmark  # unused variable (tests/synchronous/test_manager.py:12)
 pytestmark  # unused variable (tests/synchronous/test_streams.py:33)
-_.return_value  # unused attribute (tests/synchronous/test_streams.py:175)
-_.return_value  # unused attribute (tests/synchronous/test_streams.py:701)
-_.return_value  # unused attribute (tests/synchronous/test_streams.py:721)
-_.return_value  # unused attribute (tests/synchronous/test_streams.py:768)
-pytestmark  # unused variable (tests/synchronous/test_streams_integration.py:24)
+pytestmark  # unused variable (tests/synchronous/test_streams_integration.py:29)
 pytestmark  # unused variable (tests/synchronous/test_unique_key_reads.py:34)
-pytestmark  # unused variable (tests/test_docs_otel_example.py:10)
+pytestmark  # unused variable (tests/test_docs_otel_example.py:16)
 pytestmark  # unused variable (tests/test_mongodb_fixture.py:15)
 __class_getitem__  # unused function (tests/test_mongodb_fixture.py:25)
 pytestmark  # unused variable (tests/test_otel.py:26)
 pytestmark  # unused variable (tests/test_removed_prototype_api.py:7)
-
-# PyMongo reads the decode-only test codec protocol by attribute name.
-bson_type
-_.transform_bson
-
-# Await-time evidence fields are serialized with dataclasses.asdict.
-nominal_upper
-holm_step_upper
-adjusted_p_value
-holm_rank
-holm_step_alpha
-bootstrap_distribution
-manager_iteration_calls
-
-# Await-time configuration TypedDict keys are read through JSON mappings.
-resampling
-one_sided_p_value
-multiplicity
-unresolved_denominator
-candidates_ms
-models
-block_orders
-model_orders
-warmup_seconds
-idle_minimum_seconds
-idle_minimum_completed_commands
-active_window_seconds
-write_offsets_seconds
-write_schedule_tolerance_seconds
-event_settle_timeout_seconds
-shutdown_schedule_tolerance_seconds
-shutdown_window_timeout_seconds
-shutdown_trial_offsets_seconds
-client_options
-selection
-
-_.side_effect  # unittest.mock failure injection in await shutdown tests.
