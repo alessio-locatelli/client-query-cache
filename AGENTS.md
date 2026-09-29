@@ -32,6 +32,8 @@ See [README.md](README.md).
 - Tests should not duplicate the same code (e.g., `try`/`finally` blocks or inner functions). Extract and reuse such logic instead.
 - Do not write tests for impossible scenarios solely to achieve 100% code coverage. If code is unused in production, delete it immediately—do not mask it with mocking or patching in tests.
 - Use Hypothesis for invariants and operation-ordering over a real input space. Generate incidental values with `faker`, including realistic single-instance data. When an exact value matters, give it a descriptive name, constant, fixture, or short explanatory comment unless the file's git history already explains the choice.
+- Never write tests merely to achieve 100% coverage by masking code that never runs in a real application. Either delete dead code, or add a `# pragma: lax no cover` for cases that are flaky across runs, or add `# pragma: no cover` with a concise rationale.
+- Do not write tests for helper utilities located inside the `tests/` directory. These internal test utilities do not require their own test coverage. Delete lines that are not exercised by the full test suite. Cases that genuinely depend on CI or other environment properties may use a pragma comment with a clear rationale.
 
 ### Validation, linting, formatting, testing
 
