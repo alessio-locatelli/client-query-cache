@@ -114,7 +114,10 @@ class _CacheCoreMachine(RuleBasedStateMachine):
             for identity in _IDENTITIES:
                 for read_shape in _READ_SHAPES:
                     identity_key = (namespace, identity, read_shape)
-                    expected_identity = self.identity_values.get(identity_key)
+                    try:
+                        expected_identity = self.identity_values[identity_key]
+                    except KeyError:
+                        expected_identity = None
                     identity_valid = (
                         expected_identity is not None
                         and expected_identity[1]
@@ -131,7 +134,10 @@ class _CacheCoreMachine(RuleBasedStateMachine):
                         assert not identity_result.hit
             for discriminator in _DISCRIMINATORS:
                 namespace_key = (namespace, discriminator)
-                expected_namespace = self.namespace_values.get(namespace_key)
+                try:
+                    expected_namespace = self.namespace_values[namespace_key]
+                except KeyError:
+                    expected_namespace = None
                 namespace_valid = (
                     expected_namespace is not None
                     and expected_namespace[1] == self.namespace_generation[namespace]

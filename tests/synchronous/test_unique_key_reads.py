@@ -345,13 +345,20 @@ def test_an_independent_write_invalidates_a_resolved_unique_key_read(
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
     collection.raw.create_index("email", unique=True)
     collection.raw.insert_one({"_id": document_id, "email": email, "v": 1})
-    assert (collection.find_one({"email": email}) or {}).get("v") == 1
+    document = collection.find_one({"email": email})
+    assert document is not None
+    assert document["v"] == 1
 
     independent_writer[cached_database_name][nonpersistent_collection_name].update_one(
         {"_id": document_id}, {"$set": {"v": 2}}
     )
 
-    _wait_until(lambda: (collection.find_one({"email": email}) or {}).get("v") == 2)
+    _wait_until(
+        lambda: (
+            (document := collection.find_one({"email": email})) is not None
+            and document["v"] == 2
+        )
+    )
 
 
 def test_an_independent_write_invalidates_an_unresolved_negative_unique_key_read(
@@ -417,7 +424,9 @@ def test_a_drop_and_recreate_reusing_the_same_id_does_not_leak_the_old_document(
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
     collection.raw.create_index("email", unique=True)
     collection.raw.insert_one({"_id": document_id, "email": email, "v": "old"})
-    assert (collection.find_one({"email": email}) or {}).get("v") == "old"
+    document = collection.find_one({"email": email})
+    assert document is not None
+    assert document["v"] == "old"
 
     independent_writer[cached_database_name].drop_collection(
         nonpersistent_collection_name
@@ -426,7 +435,12 @@ def test_a_drop_and_recreate_reusing_the_same_id_does_not_leak_the_old_document(
         {"_id": document_id, "email": email, "v": "new"}
     )
 
-    _wait_until(lambda: (collection.find_one({"email": email}) or {}).get("v") == "new")
+    _wait_until(
+        lambda: (
+            (document := collection.find_one({"email": email})) is not None
+            and document["v"] == "new"
+        )
+    )
 
 
 def _evict_identity_entry_via_filler_pressure(

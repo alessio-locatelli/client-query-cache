@@ -242,7 +242,10 @@ def test_per_database_stream_counters_emit_nothing_when_no_database_is_active(
 
     register_cache_metrics(meter, cache_core)  # type: ignore[arg-type]
 
-    metric = _collect_metrics(reader).get("client_query_cache.stream.polls")
+    try:
+        metric = _collect_metrics(reader)["client_query_cache.stream.polls"]
+    except KeyError:
+        metric = None
     assert metric is None or metric.data.data_points == ()
 
 
@@ -317,7 +320,10 @@ def test_invalidation_lag_gauge_omits_a_database_with_no_retained_samples(
 
     register_cache_metrics(meter, cache_core)  # type: ignore[arg-type]
 
-    metric = _collect_metrics(reader).get("client_query_cache.stream.invalidation_lag")
+    try:
+        metric = _collect_metrics(reader)["client_query_cache.stream.invalidation_lag"]
+    except KeyError:
+        metric = None
     assert metric is None or metric.data.data_points == ()
 
 

@@ -366,7 +366,7 @@ async def test_find_one_by_a_uuid_id_invalidates_after_an_independent_write(
 
     async def _settled() -> bool:
         updated_document = await collection.find_one({"_id": identifier})
-        return (updated_document or {}).get("v") == 2
+        return updated_document is not None and updated_document["v"] == 2
 
     await _wait_until(_settled)
 
@@ -438,7 +438,7 @@ async def test_find_one_by_a_compound_id_invalidates_after_an_independent_write(
 
     async def _settled() -> bool:
         updated_document = await collection.find_one({"_id": identity})
-        return (updated_document or {}).get("v") == 2
+        return updated_document is not None and updated_document["v"] == 2
 
     await _wait_until(_settled)
 
@@ -623,8 +623,13 @@ async def test_find_one_by_id_invalidates_after_an_independent_write(
     ].update_one({"_id": document["_id"]}, {"$set": {"marker": "updated"}})
 
     async def _settled() -> bool:
-        updated_document = await collection.find_one({"_id": document["_id"]})
-        return (updated_document or {}).get("marker") == "updated"
+        try:
+            marker = (await collection.find_one({"_id": document["_id"]}) or {})[
+                "marker"
+            ]
+        except KeyError:
+            return False
+        return bool(marker == "updated")
 
     await _wait_until(_settled)
 
@@ -1237,7 +1242,7 @@ async def test_find_one_by_a_numeric_id_invalidates_regardless_of_int_or_float_s
 
     async def _settled() -> bool:
         updated_document = await collection.find_one({"_id": 1.0})
-        return (updated_document or {}).get("v") == 2
+        return updated_document is not None and updated_document["v"] == 2
 
     await _wait_until(_settled)
 

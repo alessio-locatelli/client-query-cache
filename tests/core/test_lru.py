@@ -176,7 +176,10 @@ class _WeightedLruMachine(RuleBasedStateMachine):
     ) -> None:
         entry = make_entry(generation_key, weight=weight)
         admitted, _displaced, _evicted = self.lru.conditional_put(key, entry)
-        current = self.resident_generation.get(key)
+        try:
+            current = self.resident_generation[key]
+        except KeyError:
+            current = None
         should_admit = current is None or generation_key > current
         assert admitted is should_admit
         if admitted:

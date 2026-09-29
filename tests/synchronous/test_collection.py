@@ -336,7 +336,12 @@ def test_find_one_by_a_uuid_id_invalidates_after_an_independent_write(
         {"_id": binary_identifier}, {"$set": {"v": 2}}
     )
 
-    _wait_until(lambda: (collection.find_one({"_id": identifier}) or {}).get("v") == 2)
+    _wait_until(
+        lambda: (
+            (document := collection.find_one({"_id": identifier})) is not None
+            and document["v"] == 2
+        )
+    )
 
 
 def test_find_with_different_uuid_codecs_do_not_share_a_cache_entry(
@@ -404,7 +409,12 @@ def test_find_one_by_a_compound_id_invalidates_after_an_independent_write(
         {"_id": identity}, {"$set": {"v": 2}}
     )
 
-    _wait_until(lambda: (collection.find_one({"_id": identity}) or {}).get("v") == 2)
+    _wait_until(
+        lambda: (
+            (document := collection.find_one({"_id": identity})) is not None
+            and document["v"] == 2
+        )
+    )
 
 
 def test_find_one_with_a_non_id_filter_bypasses_cache(
@@ -583,12 +593,14 @@ def test_find_one_by_id_invalidates_after_an_independent_write(
         {"_id": document["_id"]}, {"$set": {"marker": "updated"}}
     )
 
-    _wait_until(
-        lambda: (
-            (collection.find_one({"_id": document["_id"]}) or {}).get("marker")
-            == "updated"
-        )
-    )
+    def _settled() -> bool:
+        try:
+            marker = (collection.find_one({"_id": document["_id"]}) or {})["marker"]
+        except KeyError:
+            return False
+        return bool(marker == "updated")
+
+    _wait_until(_settled)
 
 
 def test_find_one_against_a_view_bypasses_cache(
@@ -1176,7 +1188,12 @@ def test_find_one_by_a_numeric_id_invalidates_regardless_of_int_or_float_spellin
         {"_id": 1}, {"$set": {"v": 2}}
     )
 
-    _wait_until(lambda: (collection.find_one({"_id": 1.0}) or {}).get("v") == 2)
+    _wait_until(
+        lambda: (
+            (document := collection.find_one({"_id": 1.0})) is not None
+            and document["v"] == 2
+        )
+    )
 
 
 @pytest.mark.parametrize(

@@ -104,8 +104,17 @@ def _read_each_document(collection: Any, document_ids: Sequence[str]) -> int:  #
     for document_id in document_ids:
         document = collection.find_one({"_id": document_id})
         if document is not None:
-            max_counter = max(max_counter, document.get("counter", -1))
+            counter = _counter_or_default(document)
+            max_counter = max(max_counter, counter)
     return max_counter
+
+
+def _counter_or_default(document: dict[str, Any]) -> int:
+    try:
+        counter: int = document["counter"]
+    except KeyError:
+        return -1
+    return counter
 
 
 def _timed_read_cycles(

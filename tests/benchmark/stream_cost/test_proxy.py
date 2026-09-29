@@ -194,7 +194,7 @@ def test_accept_loop_bounds_the_upstream_connect_timeout(
         listener.close()
         thread.join(timeout=5)
 
-    assert captured_kwargs.get("timeout") == pytest.approx(2.0)
+    assert captured_kwargs["timeout"] == pytest.approx(2.0)
 
 
 def test_accept_loop_continues_after_accept_timeout(
