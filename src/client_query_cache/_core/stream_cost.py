@@ -169,15 +169,19 @@ class StreamCostRegistry:
 
     def _get_or_create(self, database: str) -> StreamCostStatistics:
         with self._lock:
-            stats = self._streams.get(database)
-            if stats is None:
+            try:
+                return self._streams[database]
+            except KeyError:
                 stats = StreamCostStatistics(self._lag_config)
                 self._streams[database] = stats
-            return stats
+                return stats
 
     def _get(self, database: str) -> StreamCostStatistics | None:
         with self._lock:
-            return self._streams.get(database)
+            try:
+                return self._streams[database]
+            except KeyError:
+                return None
 
     def record_poll(self, database: str) -> None:
         self._get_or_create(database).record_poll()

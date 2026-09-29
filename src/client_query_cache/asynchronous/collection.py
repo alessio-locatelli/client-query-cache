@@ -66,10 +66,17 @@ def _collation_document(collation: _CollationIn | None) -> Mapping[str, Any] | N
 
 
 def _blocks_full_materialization(kwargs: Mapping[str, object]) -> bool:
-    cursor_type = kwargs.get("cursor_type", CursorType.NON_TAILABLE)
+    try:
+        cursor_type = kwargs["cursor_type"]
+    except KeyError:
+        cursor_type = CursorType.NON_TAILABLE
     if cursor_type != CursorType.NON_TAILABLE:
         return True
-    return bool(kwargs.get("allow_partial_results", False))
+    try:
+        allow_partial_results = kwargs["allow_partial_results"]
+    except KeyError:
+        allow_partial_results = False
+    return bool(allow_partial_results)
 
 
 def _count_documents_kwargs(

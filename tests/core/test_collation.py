@@ -29,7 +29,15 @@ def test_normalize_collation_collapses_simple_collation_to_none(
     assert normalize_collation(collation) is None
 
 
-def test_normalize_collation_leaves_a_non_simple_collation_untouched() -> None:
-    collation = {"locale": "en", "strength": 2}
+@pytest.mark.parametrize(
+    "collation",
+    [
+        pytest.param({"locale": "en", "strength": 2}, id="locale-present"),
+        pytest.param({"strength": 2}, id="locale-absent"),
+    ],
+)
+def test_normalize_collation_leaves_a_non_simple_collation_untouched(
+    collation: Mapping[str, Any],
+) -> None:
 
     assert normalize_collation(collation) == collation

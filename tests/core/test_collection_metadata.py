@@ -38,3 +38,11 @@ def test_confirmed_collection_metadata(
 
 def test_absent_metadata_requires_another_probe() -> None:
     assert interpret_list_collections_entry(None) is None
+
+
+def test_collection_without_options_has_no_default_collation() -> None:
+    metadata = interpret_list_collections_entry({"type": "collection"})
+
+    assert metadata is not None
+    assert metadata.is_cacheable
+    assert metadata.default_collation is None

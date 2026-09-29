@@ -28,7 +28,10 @@ class CollectionMetadataCache:
 
     def get(self, namespace: NamespaceId) -> CollectionMetadata | None:
         with self._lock:
-            return self._entries.get(namespace)
+            try:
+                return self._entries[namespace]
+            except KeyError:
+                return None
 
     def put(self, namespace: NamespaceId, metadata: CollectionMetadata) -> None:
         with self._lock:
@@ -46,8 +49,16 @@ def interpret_list_collections_entry(
 ) -> CollectionProbeResult | None:
     if entry is None:
         return None
-    collection_type = entry.get("type")
-    default_collation = normalize_collation(entry.get("options", {}).get("collation"))
+    collection_type = entry["type"]
+    try:
+        options = entry["options"]
+    except KeyError:
+        options = {}
+    try:
+        collation = options["collation"]
+    except KeyError:
+        collation = None
+    default_collation = normalize_collation(collation)
     return CollectionProbeResult(
         is_cacheable=collection_type == "collection",
         default_collation=default_collation,

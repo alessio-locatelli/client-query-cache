@@ -11,6 +11,12 @@ _SIMPLE_LOCALE = "simple"
 def normalize_collation(
     collation: Mapping[str, Any] | None,
 ) -> Mapping[str, Any] | None:
-    if collation is None or collation.get("locale") == _SIMPLE_LOCALE:
+    if collation is None:
+        return None
+    try:
+        locale = collation["locale"]
+    except KeyError:
+        locale = None
+    if locale == _SIMPLE_LOCALE:
         return None
     return collation
