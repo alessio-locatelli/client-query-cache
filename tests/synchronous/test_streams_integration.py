@@ -5,13 +5,18 @@ import time
 from typing import TYPE_CHECKING, Any
 
 import pytest
+from bson.codec_options import DatetimeConversion
 from pymongo import MongoClient
 from pymongo.errors import ConnectionFailure, OperationFailure
 
 from client_query_cache._core.keys import NamespaceId
-from client_query_cache._core.manager import CacheCore
+from client_query_cache._core.manager import CacheCore, CacheCoreConfig
 from client_query_cache.synchronous import streams as streams_module
 from client_query_cache.synchronous.streams import DatabaseStreamSupervisor
+from tests.stream_helpers import (
+    SINGLE_EVENT_LAG_WINDOW,
+    assert_lag_matches_write_interval,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -19,7 +24,7 @@ if TYPE_CHECKING:
     from faker import Faker
     from pymongo.synchronous.database import Database
 
-    from tests.conftest import DatabaseName, MongoDbUri
+    from tests.conftest import CollectionName, DatabaseName, MongoDbUri
 
 pytestmark = pytest.mark.integration
 
@@ -29,6 +34,21 @@ def independent_writer(
     mongodb_uri: MongoDbUri,
 ) -> Iterator[MongoClient[dict[str, Any]]]:
     with MongoClient[dict[str, Any]](mongodb_uri) as client:
+        yield client
+
+
+@pytest.fixture(
+    params=[
+        pytest.param({"tz_aware": True}, id="tz_aware"),
+        pytest.param(
+            {"datetime_conversion": DatetimeConversion.DATETIME_MS}, id="datetime_ms"
+        ),
+    ]
+)
+def wall_time_client(
+    mongodb_uri: MongoDbUri, request: pytest.FixtureRequest
+) -> Iterator[MongoClient[dict[str, Any]]]:
+    with MongoClient[dict[str, Any]](mongodb_uri, **request.param) as client:
         yield client
 
 
@@ -113,6 +133,46 @@ def test_write_invalidates_the_cached_document(
     _wait_until(
         lambda: cache.lookup_identity(namespace, document_id, "full").hit is False
     )
+
+
+def test_configured_wall_time_stream_records_invalidation_lag(
+    wall_time_client: MongoClient[dict[str, Any]],
+    independent_writer: MongoClient[dict[str, Any]],
+    cached_database_name: DatabaseName,
+    persistent_collection_name: CollectionName,
+    make_supervisor: Callable[..., DatabaseStreamSupervisor],
+    *,
+    faker: Faker,
+) -> None:
+    document_id = faker.uuid4()
+    before_value = faker.random_int()
+    namespace = NamespaceId(cached_database_name, persistent_collection_name)
+    writer_collection = independent_writer[cached_database_name][
+        persistent_collection_name
+    ]
+    writer_collection.insert_one({"_id": document_id, "v": before_value})
+    cache = CacheCore(
+        CacheCoreConfig(lag_capture_window_config=SINGLE_EVENT_LAG_WINDOW)
+    )
+    supervisor = make_supervisor(wall_time_client[cached_database_name], cache)
+    supervisor.start()
+
+    capture = cache.begin_identity_admission(namespace, document_id)
+    cache.admit_identity(capture, "full", {"v": before_value})
+    assert cache.lookup_identity(namespace, document_id, "full").hit
+
+    write_started = time.time()
+    writer_collection.update_one(
+        {"_id": document_id}, {"$set": {"v": before_value + 1}}
+    )
+    write_finished = time.time()
+
+    _wait_until(
+        lambda: cache.stream_cost_snapshot(cached_database_name).invalidations >= 1
+    )
+    assert cache.lookup_identity(namespace, document_id, "full").hit is False
+    snapshot = cache.stream_cost_snapshot(cached_database_name)
+    assert_lag_matches_write_interval(snapshot, write_started, write_finished)
 
 
 def test_rename_clears_source_and_destination_namespaces(
