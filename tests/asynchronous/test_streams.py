@@ -68,7 +68,11 @@ class _ScriptedStream:
         if isinstance(item, Exception):
             raise item
         assert isinstance(item, dict)
-        self.resume_token = item.get("_id", self.resume_token)
+        try:
+            resume_token = item["_id"]
+        except KeyError:
+            resume_token = self.resume_token
+        self.resume_token = resume_token
         return item
 
     async def close(self) -> None:

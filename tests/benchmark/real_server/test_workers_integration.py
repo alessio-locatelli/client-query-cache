@@ -10,6 +10,7 @@ from pymongo import MongoClient
 from tests.benchmark.real_server.workers import (
     COLLECTION_NAME,
     DATABASE_NAME,
+    _counter_or_default,
     preflight_ping,
     read_documents_repeatedly,
     read_documents_repeatedly_into_queue,
@@ -70,7 +71,7 @@ def test_writer_seeds_and_repeatedly_updates_documents(
 
             def _has_been_updated() -> bool:
                 document = collection.find_one({"_id": document_ids[0]})
-                return document is not None and document.get("counter", -1) >= 0
+                return document is not None and _counter_or_default(document) >= 0
 
             assert any(_has_been_updated() or stop_event.wait(0.05) for _ in range(100))
     finally:

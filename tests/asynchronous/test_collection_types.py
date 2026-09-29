@@ -164,7 +164,15 @@ async def test_timeseries_delegation_preserves_options_and_errors(
     ):
         await getattr(collection, method)(*arguments, **options)
     assert raised.value is expected_error
-    assert operation.call_args.kwargs.get("comment") == options.get("comment")
+    try:
+        actual_comment = operation.call_args.kwargs["comment"]
+    except KeyError:
+        actual_comment = None
+    try:
+        expected_comment = options["comment"]
+    except KeyError:
+        expected_comment = None
+    assert actual_comment == expected_comment
 
 
 @pytest.mark.parametrize(

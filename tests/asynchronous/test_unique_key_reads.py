@@ -357,7 +357,8 @@ async def test_an_independent_write_invalidates_a_resolved_unique_key_read(
     await collection.raw.create_index("email", unique=True)
     await collection.raw.insert_one({"_id": document_id, "email": email, "v": 1})
     first = await collection.find_one({"email": email})
-    assert (first or {}).get("v") == 1
+    assert first is not None
+    assert first["v"] == 1
 
     await independent_writer[cached_database_name][
         nonpersistent_collection_name
@@ -365,7 +366,7 @@ async def test_an_independent_write_invalidates_a_resolved_unique_key_read(
 
     async def _updated() -> bool:
         current = await collection.find_one({"email": email})
-        return (current or {}).get("v") == 2
+        return current is not None and current["v"] == 2
 
     await _wait_until(_updated)
 
@@ -440,7 +441,8 @@ async def test_a_drop_and_recreate_reusing_the_same_id_does_not_leak_the_old_doc
     await collection.raw.create_index("email", unique=True)
     await collection.raw.insert_one({"_id": document_id, "email": email, "v": "old"})
     first = await collection.find_one({"email": email})
-    assert (first or {}).get("v") == "old"
+    assert first is not None
+    assert first["v"] == "old"
 
     await independent_writer[cached_database_name].drop_collection(
         nonpersistent_collection_name
@@ -451,7 +453,7 @@ async def test_a_drop_and_recreate_reusing_the_same_id_does_not_leak_the_old_doc
 
     async def _recreated_document_visible() -> bool:
         current = await collection.find_one({"email": email})
-        return (current or {}).get("v") == "new"
+        return current is not None and current["v"] == "new"
 
     await _wait_until(_recreated_document_visible)
 

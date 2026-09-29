@@ -87,14 +87,23 @@ def _resolve_srv_members(mongodb_uri: str) -> frozenset[tuple[str, int]]:
 def _process_matches_srv_members(
     process: Mapping[str, Any], members: frozenset[tuple[str, int]]
 ) -> bool:
-    port = process.get("port")
-    if not port:
+    try:
+        port = process["port"]
+    except KeyError:
         return False
-    candidate_hostnames = (process.get("userAlias"), process.get("hostname"))
+    try:
+        user_alias = process["userAlias"]
+    except KeyError:
+        user_alias = None
+    try:
+        hostname = process["hostname"]
+    except KeyError:
+        hostname = None
+    candidate_hostnames = (user_alias, hostname)
     return any(
         (str(hostname).lower(), int(port)) in members
         for hostname in candidate_hostnames
-        if hostname
+        if hostname and port
     )
 
 
@@ -104,11 +113,9 @@ def _primary_process_host_id(
     payload = json.loads(
         _run_atlas(["processes", "list", "--projectId", project_id], timeout=timeout)
     )
-    for process in payload.get("results", ()):
-        if process.get(
-            "typeName"
-        ) == _PRIMARY_PROCESS_TYPE_NAME and _process_matches_srv_members(
-            process, members
+    for process in payload["results"]:
+        if process["typeName"] == _PRIMARY_PROCESS_TYPE_NAME and (
+            _process_matches_srv_members(process, members)
         ):
             return str(process["id"])
     message = (
@@ -120,14 +127,14 @@ def _primary_process_host_id(
 
 def _measurements_by_type(payload: Mapping[str, Any]) -> dict[str, tuple[float, ...]]:
     measurements: dict[str, tuple[float, ...]] = {}
-    for measurement in payload.get("measurements", ()):
-        values = tuple(
-            point["value"]
-            for point in measurement.get("dataPoints", ())
-            if point.get("value") is not None
-        )
+    for measurement in payload["measurements"]:
+        values: list[float] = []
+        for point in measurement["dataPoints"]:
+            value = point["value"]
+            if value is not None:
+                values.append(value)
         if values:
-            measurements[measurement["name"]] = values
+            measurements[measurement["name"]] = tuple(values)
     return measurements
 
 

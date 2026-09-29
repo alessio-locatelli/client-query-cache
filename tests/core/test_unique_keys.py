@@ -273,9 +273,17 @@ def test_discover_unique_keys_includes_an_index_iff_eligible(
     discovered = discover_unique_keys([index_spec])
 
     is_hashed = any(value == "hashed" for value in index_spec["key"].values())
+    try:
+        is_unique = index_spec["unique"] is True
+    except KeyError:
+        is_unique = False
+    try:
+        is_sparse = index_spec["sparse"] is True
+    except KeyError:
+        is_sparse = False
     expected_included = (
-        index_spec.get("unique", False) is True
-        and index_spec.get("sparse", False) is not True
+        is_unique
+        and not is_sparse
         and "partialFilterExpression" not in index_spec
         and not is_hashed
     )
