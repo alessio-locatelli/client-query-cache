@@ -11,6 +11,7 @@ Two mechanically distinct kinds of dead weight have accumulated in `src/`: publi
 - For each branch confirmed always-true (or always-false) against real data with no caller-configurable dependency: delete the dead alternate branch outright, with no replacement guard, assertion, or comment; delete unit tests that only existed to hit the removed branch.
 - Convert `mapping.get(key, default)` calls on driver-sourced mappings to `mapping[key]` guarded by `try`/`except KeyError` where the key is expected to almost always be present, keeping the conversion permanently and using an always-uncovered `except` branch under the non-unit suites as the dead-fallback proof.
 - Where a removed branch's condition was hiding a real, currently-unhandled input class (rather than being provably unreachable), leave the code unchanged and record the finding instead of deleting it.
+- Where a branch is confirmed real but reached only through a caller-configurable `CodecOptions` setting the non-unit suites never exercise (`_wall_time_seconds`'s `tz_aware` dependency, `without_id`'s custom-decoder dependency), add an integration/e2e test that configures that setting for real, instead of leaving the branch permanently untested. The non-unit suites currently measure 88% coverage on `src/`; target >95% on the same command after this change.
 
 ## Capabilities
 
@@ -20,4 +21,5 @@ No specification delta: this removes internal dead code and proven-always-true/a
 
 - Affected files: `src/client_query_cache/_core/manager.py` (`lifecycle_state`, `lookup_by_alias`), `src/client_query_cache/_core/collection_metadata.py` (`interpret_list_collections_entry`), `src/client_query_cache/_core/unique_keys.py` (`_is_eligible_index`/`discover_unique_keys`), and any other `src/` module where the coverage report confirms a test-only symbol with no production caller. `src/client_query_cache/_core/stream_events.py` and `src/client_query_cache/_core/projection.py` are explicitly out of scope — design.md's audit inventory found both guard a caller-configurable `CodecOptions` setting, not an impossible MongoDB shape.
 - Corresponding unit tests in `tests/core/`, `tests/asynchronous/`, and `tests/synchronous/` that exist only to exercise removed code.
+- New integration tests in `tests/synchronous/test_streams_integration.py`, `tests/asynchronous/test_streams_integration.py`, `tests/synchronous/test_collection.py`, and `tests/asynchronous/test_collection.py` covering the `tz_aware` and custom-`CodecOptions` cases found above.
 - No public API, dependency, or runtime behavior changes for callers who only exercise real MongoDB-backed paths.
