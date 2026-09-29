@@ -130,6 +130,10 @@ __class_getitem__  # unused function (tests/test_mongodb_fixture.py:25)
 pytestmark  # unused variable (tests/test_otel.py:26)
 pytestmark  # unused variable (tests/test_removed_prototype_api.py:7)
 
+# PyMongo reads the decode-only test codec protocol by attribute name.
+bson_type
+_.transform_bson
+
 # Await-time evidence fields are serialized with dataclasses.asdict.
 nominal_upper
 holm_step_upper

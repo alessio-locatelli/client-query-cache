@@ -9,7 +9,9 @@ from bson import Binary
 from bson.binary import UuidRepresentation
 from bson.code import Code
 from bson.codec_options import CodecOptions
+from bson.decimal128 import Decimal128
 from bson.int64 import Int64
+from bson.raw_bson import RawBSONDocument
 from pymongo import MongoClient, ReadPreference
 from pymongo.collation import Collation
 from pymongo.cursor import CursorType
@@ -22,9 +24,12 @@ from client_query_cache._core.errors import UnsupportedCacheRequestError
 from client_query_cache._core.manager import CacheCore, CacheCoreConfig
 from client_query_cache.synchronous.collection import CachedCollection
 from client_query_cache.synchronous.manager import CacheManager
+from tests.codec_helpers import DecodedPriceCase, decode_only_decimal_options
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
+
+    from faker import Faker
 
     from tests.conftest import CollectionName, DatabaseName, MongoDbUri
 
@@ -53,6 +58,37 @@ def _wait_until(predicate: Callable[[], bool], *, timeout: float = 15.0) -> None
 @pytest.fixture
 def client() -> MongoClient[dict[str, Any]]:
     return MongoClient("mongodb://localhost:27017", connect=False)
+
+
+@pytest.fixture
+def decoded_price_case(
+    mongodb_uri: MongoDbUri,
+    independent_writer: MongoClient[dict[str, Any]],
+    cached_database_name: DatabaseName,
+    nonpersistent_collection_name: CollectionName,
+    faker: Faker,
+) -> Iterator[DecodedPriceCase[CachedCollection[RawBSONDocument]]]:
+    email = faker.email()
+    price = faker.pydecimal(left_digits=3, right_digits=2, positive=True)
+    document_id = Decimal128(str(faker.pydecimal(left_digits=3, right_digits=2)))
+    options = decode_only_decimal_options()
+    writer_collection = independent_writer[cached_database_name][
+        nonpersistent_collection_name
+    ]
+    writer_collection.create_index("email", unique=True)
+    writer_collection.insert_one(
+        {"_id": document_id, "email": email, "price": Decimal128(str(price))}
+    )
+    with (
+        MongoClient[RawBSONDocument](
+            mongodb_uri,
+            document_class=RawBSONDocument,
+            type_registry=options.type_registry,
+        ) as client,
+        CacheManager(client) as manager,
+    ):
+        collection = manager[cached_database_name][nonpersistent_collection_name]
+        yield DecodedPriceCase(collection, email, price)
 
 
 @pytest.fixture
@@ -486,6 +522,16 @@ def test_find_one_by_id_projection_does_not_collide_with_full_document_read(
     assert full_again == full
     assert projected_again == projected
     assert spy.call_count == 2
+
+
+def test_unique_key_projection_with_decode_only_codec_strips_id(
+    decoded_price_case: DecodedPriceCase[CachedCollection[RawBSONDocument]],
+) -> None:
+    document = decoded_price_case.collection.find_one(
+        {"email": decoded_price_case.email}, {"_id": 0, "price": 1}
+    )
+
+    assert document == {"price": decoded_price_case.price}
 
 
 def test_find_one_by_id_cache_hit_is_isolated_from_caller_mutation(
