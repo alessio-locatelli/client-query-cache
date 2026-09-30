@@ -55,6 +55,10 @@ See the [CI validation cache inventory](docs/ci-validation-caches.md) for the to
 
 Run host Podman commands from the contributor container with `just podman -- <arguments>`.
 
+## Changelog
+
+Every user-facing change adds a one-line entry under `CHANGELOG.md`'s "Unreleased" section describing the final behavior, not the review history that led to it.
+
 ## Real-server benchmark
 
 `just tests_and_coverage` and `just pytest` include a benchmark that measures the cache's benefit
@@ -102,3 +106,32 @@ just verify-release v1.2.3
 A mismatch fails with an actionable error; a match succeeds without creating a tag or any other release state.
 
 The same check is also available as the manual "Release verification" GitHub Actions workflow (`workflow_dispatch`, with an optional `tag` input) for verifying a candidate release from the GitHub UI or `gh workflow run` without a local checkout.
+
+## Releasing
+
+### One-time setup
+
+Before the first release, the repository owner completes two one-time steps outside this repository:
+
+1. On [PyPI](https://pypi.org/manage/account/publishing/), register a pending trusted publisher with:
+   - PyPI project name: `client-query-cache`
+   - Owner: `alessio-locatelli`
+   - Repository name: `client-query-cache`
+   - Workflow filename: `publish.yml`
+   - Environment name: `pypi`
+2. In the repository's GitHub Settings → Environments, create an environment named `pypi` and add at
+   least one required reviewer. Without a required reviewer, the environment does not pause the
+   publish workflow for approval.
+
+### Per-release steps
+
+1. Bump the `version` field in `pyproject.toml`'s `[project]` table to the new `X.Y.Z`.
+2. In `CHANGELOG.md`, rename "Unreleased" to `[X.Y.Z] - YYYY-MM-DD` and open a new empty
+   "Unreleased" section above it.
+3. Commit these changes.
+4. Tag the commit: `git tag vX.Y.Z`.
+5. Push the tag: `git push origin vX.Y.Z`.
+
+Pushing the tag triggers the `publish.yml` workflow, which builds and verifies the release
+artifacts, then pauses for the `pypi` environment's required reviewer to approve before uploading to
+PyPI and creating the matching GitHub Release.

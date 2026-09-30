@@ -1,5 +1,11 @@
 {
-  "globs": ["README.md", "AGENTS.md", "CLAUDE.md", "CONTRIBUTING.md"],
+  "globs": [
+    "README.md",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "CONTRIBUTING.md",
+    "CHANGELOG.md",
+  ],
   "noBanner": true,
   "ignores": ["specifications/**"],
   "config": {
