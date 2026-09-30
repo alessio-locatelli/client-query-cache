@@ -28,6 +28,14 @@ jobs:
         with:
           persist-credentials: false
 
+      - run: |
+          if [[ ! "${RELEASE_TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            printf 'Tag %s is not a stable vX.Y.Z release tag.\n' "${RELEASE_TAG}" >&2
+            exit 1
+          fi
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+
       - uses: $/.github/actions/setup-toolchain
         with:
           uv-version: ${{ env.UV_VERSION }}
