@@ -28,7 +28,7 @@ Or with pip: `pip install client-query-cache`.
 
 ## Usage
 
-`CacheManager` wraps a `pymongo.MongoClient` (or `pymongo.AsyncMongoClient`) that you construct and own. Its database and collection facades cache a narrow set of PyMongo's own read methods — `find_one`, `find`, `aggregate`, `count_documents`, `estimated_document_count`, and `distinct` — and keep cached results coherent as the underlying data changes. Every other operation, including all writes, is called directly on the facade the same way you'd call it on the wrapped PyMongo object:
+`CacheManager` wraps a `pymongo.MongoClient` (or `pymongo.AsyncMongoClient`) that you construct and own. Keep using your PyMongo collection for writes and everything else, and ask the manager for a cached view of that collection for six reads — `find_one`, `find`, `aggregate`, `count_documents`, `estimated_document_count`, and `distinct`. The cache keeps those results coherent as the underlying data changes:
 
 ```python
 from pymongo import MongoClient
@@ -37,28 +37,35 @@ from client_query_cache import CacheManager
 
 with (
     MongoClient("mongodb://localhost:27017") as client,
-    CacheManager(client) as manager,
+    CacheManager(client) as cache_manager,
 ):
-    collection = manager["my_database"]["my_collection"]
+    collection = client["my_database"]["my_collection"]
+    cached_collection = cache_manager.cached(collection)
+
     collection.insert_one({"_id": "example", "value": 42})
 
-    collection.find_one({"_id": "example"})  # cache miss: reads from MongoDB
-    collection.find_one({"_id": "example"})  # cache hit: served from the cache
+    # Cache miss: reads from MongoDB.
+    cached_collection.find_one({"_id": "example"})
+    # Cache hit: served from the cache.
+    cached_collection.find_one({"_id": "example"})
 
-    # Bridge stats like this into OpenTelemetry:
+    # Prints 1. Bridge stats like this into OpenTelemetry:
     # docs/architecture.md#opentelemetry-metrics
-    print(manager.cache_core.snapshot().hits)  # 1
+    print(cache_manager.cache_core.snapshot().hits)
 
     collection.create_index("email", unique=True)
     collection.insert_one({"_id": "user-1", "email": "a@example.com"})
-    collection.find_one({"email": "a@example.com"})  # also cached, like an `_id` lookup
+    # Also cached, like an `_id` lookup.
+    cached_collection.find_one({"email": "a@example.com"})
 ```
+
+`collection` is PyMongo's own object, so your editor and type checker see PyMongo's real methods and signatures. `cached_collection` has only the six cached reads; `find` and `aggregate` on it return a list instead of a cursor. Use `cached_collection.raw` (the same `collection`) whenever you need PyMongo's own cursor behavior.
 
 `find_one` caches a lookup by `_id` and by any other field the database enforces as unique, discovered automatically from the collection's own indexes — there's nothing to declare. Only a plain unique index qualifies: a partial, sparse, or hashed unique index, or a read whose collation doesn't match the index's collation, falls back to an uncached read instead.
 
 `CacheManager` starts a background change-stream task the first time a read touches a database, so close it (or use it as a context manager, as above) alongside the client — closing only the client leaves that background task running against a closed connection.
 
-The same facades are available for `pymongo.AsyncMongoClient` under `client_query_cache.asynchronous`, with the same methods as coroutines:
+The same API is available for `pymongo.AsyncMongoClient` under `client_query_cache.asynchronous`, with the cached reads as coroutines:
 
 ```python
 import asyncio
@@ -71,13 +78,19 @@ from client_query_cache.asynchronous import CacheManager
 async def main() -> None:
     async with (
         AsyncMongoClient("mongodb://localhost:27017") as client,
-        CacheManager(client) as manager,
+        CacheManager(client) as cache_manager,
     ):
-        collection = manager["my_database"]["my_collection"]
+        collection = client["my_database"]["my_collection"]
+        cached_collection = cache_manager.cached(collection)
+
         await collection.insert_one({"_id": "example", "value": 42})
 
-        await collection.find_one({"_id": "example"})  # cache miss
-        await collection.find_one({"_id": "example"})  # cache hit
+        # Cache miss.
+        await cached_collection.find_one({"_id": "example"})
+        # Cache hit.
+        await cached_collection.find_one({"_id": "example"})
+        # A list, not a cursor.
+        await cached_collection.find({"value": 42})
 
 
 asyncio.run(main())

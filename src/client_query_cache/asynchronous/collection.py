@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import inspect
 import logging
 from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any, cast
@@ -38,6 +37,10 @@ from client_query_cache._core.read_validation import (
     is_projection_cacheable,
     pipeline_blocks_full_materialization,
 )
+from client_query_cache._core.traversal import (
+    declared_attribute_names,
+    ensure_subcollection_name,
+)
 from client_query_cache._core.unique_keys import match_unique_key
 
 if TYPE_CHECKING:
@@ -51,6 +54,7 @@ if TYPE_CHECKING:
 
 _FORCED_READ_CONCERN = ReadConcern("majority")
 _ACCEPTABLE_READ_CONCERN_LEVELS = (None, "majority")
+_COLLECTION_ATTRIBUTE_NAMES = declared_attribute_names(AsyncCollection)
 
 logger = logging.getLogger(__name__)
 
@@ -122,24 +126,12 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
     def raw(self) -> AsyncCollection[DocumentType]:
         return self._collection
 
-    def __getattr__(self, name: str) -> Any:  # noqa: ANN401
-        return self._wrap_delegated(getattr(self._collection, name))
+    def __getitem__(self, name: str) -> CachedCollection[DocumentType]:
+        return CachedCollection(self._database, self._collection[name])
 
-    def _wrap_delegated(self, value: Any) -> Any:  # noqa: ANN401
-        if isinstance(value, AsyncCollection):
-            return CachedCollection(self._database, value)
-        if inspect.iscoroutine(value):
-            return self._await_and_wrap(value)
-        if not callable(value):
-            return value
-
-        def _delegate(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
-            return self._wrap_delegated(value(*args, **kwargs))
-
-        return _delegate
-
-    async def _await_and_wrap(self, coroutine: Any) -> Any:  # noqa: ANN401
-        return self._wrap_delegated(await coroutine)
+    def __getattr__(self, name: str) -> CachedCollection[DocumentType]:
+        ensure_subcollection_name(self, name, _COLLECTION_ATTRIBUTE_NAMES)
+        return self[name]
 
     async def find_one(
         self,

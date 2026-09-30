@@ -1,13 +1,21 @@
-from typing import Any
+from operator import itemgetter
+from typing import TYPE_CHECKING, Any
 
 import pytest
-from pymongo import MongoClient
+from bson.codec_options import CodecOptions
+from pymongo import MongoClient, ReadPreference
 from pymongo.synchronous.database import Database
 
 from client_query_cache._core.keys import NamespaceId
 from client_query_cache._core.lifecycle import CacheLifecycleState
+from client_query_cache.synchronous.collection import CachedCollection
 from client_query_cache.synchronous.database import CachedDatabase
 from client_query_cache.synchronous.manager import CacheManager
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from pymongo.synchronous.collection import Collection
 
 pytestmark = pytest.mark.unit
 
@@ -64,3 +72,63 @@ def test_unique_keys_for_rejects_a_probe_racing_a_concurrent_index_change(
         return [{"key": {"email": 1}, "name": "email_1", "unique": True}]
 
     assert manager.unique_keys_for(namespace, racing_list_indexes) == ()
+
+
+@pytest.mark.parametrize(
+    "get_raw_collection",
+    [
+        pytest.param(itemgetter("items"), id="plain"),
+        pytest.param(
+            lambda database: database["items"].with_options(
+                read_preference=ReadPreference.SECONDARY
+            ),
+            id="with_options",
+        ),
+        pytest.param(
+            lambda database: database.get_collection(
+                "items", codec_options=CodecOptions(tz_aware=True)
+            ),
+            id="get_collection",
+        ),
+    ],
+)
+def test_cached_view_retains_the_exact_supplied_collection(
+    client: MongoClient[dict[str, Any]],
+    get_raw_collection: Callable[
+        [Database[dict[str, Any]]], Collection[dict[str, Any]]
+    ],
+) -> None:
+    manager = CacheManager(client)
+    raw_collection = get_raw_collection(client["example"])
+
+    collection = manager.cached(raw_collection)
+
+    assert isinstance(collection, CachedCollection)
+    assert collection.raw is raw_collection
+    assert collection.database.raw is raw_collection.database
+    assert collection.database.manager is manager
+
+
+def test_cached_rejects_a_collection_owned_by_another_client(
+    client: MongoClient[dict[str, Any]],
+) -> None:
+    manager = CacheManager(client)
+    foreign_client = MongoClient[dict[str, Any]](
+        "mongodb://localhost:27017", connect=False
+    )
+
+    with pytest.raises(ValueError, match="different client"):
+        manager.cached(foreign_client["example"]["items"])
+
+
+def test_repeated_cached_views_share_the_manager_and_raw_collection(
+    client: MongoClient[dict[str, Any]],
+) -> None:
+    manager = CacheManager(client)
+    raw_collection = client["example"]["items"]
+
+    first = manager.cached(raw_collection)
+    second = manager.cached(raw_collection)
+
+    assert first.raw is second.raw is raw_collection
+    assert first.database.manager is second.database.manager is manager

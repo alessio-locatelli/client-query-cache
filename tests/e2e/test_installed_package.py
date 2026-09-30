@@ -76,10 +76,11 @@ from client_query_cache.asynchronous import (
 uri = os.environ["MONGODB_TEST_URI"]
 database_name = os.environ["MONGODB_TEST_DATABASE"]
 collection_name = os.environ["MONGODB_TEST_COLLECTION"]
-with MongoClient(uri) as client, CacheManager(client) as manager:
-    collection = manager[database_name][collection_name]
-    collection.raw.insert_one({"_id": "independent-write", "value": 42})
-    document = collection.find_one({"_id": "independent-write"})
+with MongoClient(uri) as client, CacheManager(client) as cache_manager:
+    collection = client[database_name][collection_name]
+    cached_collection = cache_manager.cached(collection)
+    collection.insert_one({"_id": "independent-write", "value": 42})
+    document = cached_collection.find_one({"_id": "independent-write"})
     assert document == {"_id": "independent-write", "value": 42}
     client.drop_database(database_name)
 """

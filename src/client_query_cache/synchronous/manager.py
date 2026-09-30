@@ -17,6 +17,7 @@ from client_query_cache._core.unique_keys import (
     UniqueKeyMetadataCache,
     discover_unique_keys,
 )
+from client_query_cache.synchronous.collection import CachedCollection
 from client_query_cache.synchronous.database import CachedDatabase
 from client_query_cache.synchronous.streams import ChangeStreamCoordinator
 
@@ -24,6 +25,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
     from pymongo import MongoClient
+    from pymongo.synchronous.collection import Collection
 
     from client_query_cache._core.collection_metadata import CollectionProbeResult
     from client_query_cache._core.keys import NamespaceId
@@ -106,6 +108,17 @@ class CacheManager[DocumentType: Mapping[str, Any]]:
 
     def __getitem__(self, name: str) -> CachedDatabase[DocumentType]:
         return CachedDatabase(self, self._client[name])
+
+    def cached(
+        self, collection: Collection[DocumentType]
+    ) -> CachedCollection[DocumentType]:
+        if collection.database.client is not self._client:
+            message = (
+                f"Collection {collection.full_name!r} belongs to a different client "
+                f"than this {type(self).__name__}."
+            )
+            raise ValueError(message)
+        return CachedCollection(CachedDatabase(self, collection.database), collection)
 
     def close(self) -> None:
         self._coordinator.close()

@@ -1,4 +1,4 @@
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from pymongo import AsyncMongoClient, ReadPreference
@@ -7,6 +7,11 @@ from pymongo.asynchronous.collection import AsyncCollection
 from client_query_cache.asynchronous.collection import CachedCollection
 from client_query_cache.asynchronous.database import CachedDatabase
 from client_query_cache.asynchronous.manager import CacheManager
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from pymongo.asynchronous.database import AsyncDatabase
 
 pytestmark = pytest.mark.unit
 
@@ -41,33 +46,65 @@ def test_database_attribute_access_returns_a_cached_collection_facade(
     assert collection.name == "items"
 
 
-def test_database_attribute_access_returns_a_plain_value_unwrapped(
-    manager: CacheManager[dict[str, Any]],
+@pytest.mark.parametrize(
+    "name",
+    [
+        "codec_options",
+        "command",
+        "create_collection",
+        "get_collection",
+        "with_options",
+        "_private",
+    ],
+)
+def test_database_does_not_expose_undeclared_pymongo_attributes(
+    manager: CacheManager[dict[str, Any]], name: str
 ) -> None:
     database = manager["example"]
 
-    assert database.codec_options == database.raw.codec_options
+    with pytest.raises(AttributeError, match=repr(name)):
+        getattr(database, name)
 
 
-def test_database_get_collection_returns_a_cached_collection_facade(
+def test_database_index_access_names_a_collection_colliding_with_a_pymongo_method(
     manager: CacheManager[dict[str, Any]],
 ) -> None:
-    collection = manager["example"].get_collection("items")
+    collection = manager["example"]["create_collection"]
 
     assert isinstance(collection, CachedCollection)
-    assert collection.name == "items"
+    assert collection.name == "create_collection"
 
 
-def test_database_with_options_returns_a_cached_database_facade(
+@pytest.mark.parametrize(
+    "get_raw_collection",
+    [
+        pytest.param(
+            lambda database: database.get_collection(
+                "items", read_preference=ReadPreference.SECONDARY
+            ),
+            id="get_collection",
+        ),
+        pytest.param(
+            lambda database: database.with_options(
+                read_preference=ReadPreference.SECONDARY
+            )["items"],
+            id="with_options",
+        ),
+    ],
+)
+def test_optioned_raw_database_collection_keeps_its_options_through_the_cached_view(
     manager: CacheManager[dict[str, Any]],
+    get_raw_collection: Callable[
+        [AsyncDatabase[dict[str, Any]]], AsyncCollection[dict[str, Any]]
+    ],
 ) -> None:
-    database = manager["example"]
+    raw_collection = get_raw_collection(manager["example"].raw)
 
-    retargeted = database.with_options(read_preference=ReadPreference.SECONDARY)
+    collection = manager.cached(raw_collection)
 
-    assert isinstance(retargeted, CachedDatabase)
-    assert retargeted.manager is database.manager
-    assert retargeted.raw.read_preference == ReadPreference.SECONDARY
+    assert collection.raw is raw_collection
+    assert collection.name == "items"
+    assert collection.raw.read_preference == ReadPreference.SECONDARY
 
 
 def test_database_builds_a_collection_facade_around_its_raw_database(

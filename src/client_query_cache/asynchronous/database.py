@@ -1,16 +1,21 @@
 from __future__ import annotations
 
-import inspect
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
-from pymongo.asynchronous.collection import AsyncCollection
 from pymongo.asynchronous.database import AsyncDatabase
 
+from client_query_cache._core.traversal import (
+    declared_attribute_names,
+    ensure_subcollection_name,
+)
 from client_query_cache.asynchronous.collection import CachedCollection
 
 if TYPE_CHECKING:
     from client_query_cache.asynchronous.manager import CacheManager
+
+
+_DATABASE_ATTRIBUTE_NAMES = declared_attribute_names(AsyncDatabase)
 
 
 class CachedDatabase[DocumentType: Mapping[str, Any]]:
@@ -37,23 +42,6 @@ class CachedDatabase[DocumentType: Mapping[str, Any]]:
     def __getitem__(self, name: str) -> CachedCollection[DocumentType]:
         return CachedCollection(self, self._database[name])
 
-    def __getattr__(self, name: str) -> Any:  # noqa: ANN401
-        return self._wrap_delegated(getattr(self._database, name))
-
-    def _wrap_delegated(self, value: Any) -> Any:  # noqa: ANN401
-        if isinstance(value, AsyncCollection):
-            return CachedCollection(self, value)
-        if isinstance(value, AsyncDatabase):
-            return CachedDatabase(self._manager, value)
-        if inspect.iscoroutine(value):
-            return self._await_and_wrap(value)
-        if not callable(value):
-            return value
-
-        def _delegate(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
-            return self._wrap_delegated(value(*args, **kwargs))
-
-        return _delegate
-
-    async def _await_and_wrap(self, coroutine: Any) -> Any:  # noqa: ANN401
-        return self._wrap_delegated(await coroutine)
+    def __getattr__(self, name: str) -> CachedCollection[DocumentType]:
+        ensure_subcollection_name(self, name, _DATABASE_ATTRIBUTE_NAMES)
+        return self[name]
