@@ -56,7 +56,7 @@ verify-release tag='': build
     fi
 
     for artifact in "${sdist}" "${wheels[@]}"; do
-        uv run --isolated --no-project --python "$(cat .python-version)" --with "${artifact}" -- \
+        unset UV_LOCKED && uv run --isolated --no-project --python "$(cat .python-version)" --with "${artifact}" -- \
             python -I "{{ justfile_directory() }}/scripts/verify_release_artifacts.py"
     done
 
