@@ -18,7 +18,7 @@ pytestmark = pytest.mark.unit
         (("benchmarks/stream_cost/guard_workload.py",), True),
         (("pyproject.toml",), True),
         (("uv.lock",), True),
-        ((".github/workflows/pr-performance-guard.yml",), True),
+        ((".github/workflows/test.yml",), True),
         (("docs/stream-cost-benchmarks.md", "README.md"), False),
         ((), False),
     ],

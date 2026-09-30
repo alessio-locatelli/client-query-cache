@@ -11,7 +11,7 @@ _RELEVANT_PATTERNS = (
     "*.py",
     "pyproject.toml",
     "uv.lock",
-    ".github/workflows/pr-performance-guard.yml",
+    ".github/workflows/test.yml",
 )
 
 
