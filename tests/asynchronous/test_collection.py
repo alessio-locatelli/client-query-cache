@@ -1,6 +1,7 @@
 import asyncio
 import re
 import uuid
+from operator import itemgetter
 from typing import TYPE_CHECKING, Any
 from unittest.mock import patch
 
@@ -24,10 +25,11 @@ from client_query_cache._core.errors import UnsupportedCacheRequestError
 from client_query_cache._core.manager import CacheCore, CacheCoreConfig
 from client_query_cache.asynchronous.collection import CachedCollection
 from client_query_cache.asynchronous.manager import CacheManager
+from client_query_cache.asynchronous.streams import DatabaseStreamSupervisor
 from tests.codec_helpers import DecodedPriceCase, decode_only_decimal_options
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Callable, Coroutine
+    from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine
 
     from faker import Faker
 
@@ -58,6 +60,12 @@ async def _wait_until(
             await _poll()
     except TimeoutError:  # pragma: no cover (test timeout diagnostic)
         pytest.fail("condition was not met within the timeout")
+
+
+async def _find_first(
+    collection: CachedCollection[dict[str, Any]],
+) -> dict[str, Any] | None:
+    return (await collection.find({}))[0]
 
 
 async def _sorted_distinct(collection: CachedCollection[dict[str, Any]]) -> list[Any]:
@@ -101,6 +109,28 @@ async def decoded_price_case(
 
 
 @pytest.fixture
+def make_uuid_collection(
+    cache_manager: CacheManager[dict[str, Any]],
+    cached_database_name: DatabaseName,
+    nonpersistent_collection_name: CollectionName,
+) -> Callable[[int], CachedCollection[dict[str, Any]]]:
+    raw_collection = cache_manager.client[cached_database_name][
+        nonpersistent_collection_name
+    ]
+
+    def _make_uuid_collection(
+        uuid_representation: int,
+    ) -> CachedCollection[dict[str, Any]]:
+        return cache_manager.cached(
+            raw_collection.with_options(
+                codec_options=CodecOptions(uuid_representation=uuid_representation)
+            )
+        )
+
+    return _make_uuid_collection
+
+
+@pytest.fixture
 async def tight_budget_cache_manager(
     raw_mongo_client: AsyncMongoClient[dict[str, Any]],
 ) -> AsyncIterator[CacheManager[dict[str, Any]]]:
@@ -114,45 +144,46 @@ async def tight_budget_cache_manager(
     await manager.close()
 
 
-def test_collection_retains_access_to_the_caller_owned_raw_collection(
+@pytest.mark.parametrize(
+    ("get_sub_collection", "expected_name"),
+    [
+        pytest.param(lambda collection: collection.chunks, "items.chunks", id="attr"),
+        pytest.param(itemgetter("chunks"), "items.chunks", id="index"),
+        pytest.param(
+            itemgetter("insert_one"),
+            "items.insert_one",
+            id="index-colliding-with-a-pymongo-method",
+        ),
+    ],
+)
+def test_collection_sub_collection_access_returns_a_cached_facade(
     client: AsyncMongoClient[dict[str, Any]],
+    get_sub_collection: Callable[
+        [CachedCollection[dict[str, Any]]], CachedCollection[dict[str, Any]]
+    ],
+    expected_name: str,
 ) -> None:
-    manager = CacheManager(client)
-    raw_collection = client["example"]["items"]
+    collection = CacheManager(client).cached(client["example"]["items"])
 
-    collection = CachedCollection(manager["example"], raw_collection)
-
-    assert collection.raw is raw_collection
-    assert collection.database.raw == manager["example"].raw
-    assert collection.name == "items"
-
-
-def test_collection_attribute_access_returns_a_cached_sub_collection_facade(
-    client: AsyncMongoClient[dict[str, Any]],
-) -> None:
-    collection = CachedCollection(
-        CacheManager(client)["example"], client["example"]["items"]
-    )
-
-    sub_collection = collection.chunks
+    sub_collection = get_sub_collection(collection)
 
     assert isinstance(sub_collection, CachedCollection)
-    assert sub_collection.name == "items.chunks"
+    assert sub_collection.name == expected_name
+    assert sub_collection.raw.full_name == f"example.{expected_name}"
     assert sub_collection.database is collection.database
 
 
-def test_collection_with_options_returns_a_cached_collection_facade(
-    client: AsyncMongoClient[dict[str, Any]],
+@pytest.mark.parametrize(
+    "name",
+    ["insert_one", "create_index", "drop", "with_options", "codec_options", "_private"],
+)
+def test_collection_does_not_expose_undeclared_pymongo_attributes(
+    client: AsyncMongoClient[dict[str, Any]], name: str
 ) -> None:
-    collection = CachedCollection(
-        CacheManager(client)["example"], client["example"]["items"]
-    )
+    collection = CacheManager(client).cached(client["example"]["items"])
 
-    retargeted = collection.with_options(read_preference=ReadPreference.SECONDARY)
-
-    assert isinstance(retargeted, CachedCollection)
-    assert retargeted.database is collection.database
-    assert retargeted.raw.read_preference == ReadPreference.SECONDARY
+    with pytest.raises(AttributeError, match=repr(name)):
+        getattr(collection, name)
 
 
 async def test_raw_collection_is_a_fully_functional_pymongo_escape_hatch(
@@ -165,51 +196,83 @@ async def test_raw_collection_is_a_fully_functional_pymongo_escape_hatch(
     document = make_fake_document()
 
     await collection.raw.insert_one(document)
+    index_name = await collection.raw.create_index("email", unique=True)
 
     assert await collection.raw.find_one({"_id": document["_id"]}) == document
     assert await collection.raw.count_documents({}) == 1
+    assert index_name in await collection.raw.index_information()
+    await collection.raw.drop()
+    assert nonpersistent_collection_name not in (
+        await cache_manager.client[cached_database_name].list_collection_names()
+    )
 
 
-async def test_collection_insert_one_is_directly_callable_without_raw(
+def test_optioned_raw_collection_keeps_its_options_through_the_cached_view(
+    cache_manager: CacheManager[dict[str, Any]],
+    cached_database_name: DatabaseName,
+    nonpersistent_collection_name: CollectionName,
+) -> None:
+    raw_collection = cache_manager.client[cached_database_name][
+        nonpersistent_collection_name
+    ].with_options(read_preference=ReadPreference.SECONDARY)
+
+    collection = cache_manager.cached(raw_collection)
+
+    assert collection.raw is raw_collection
+    assert collection.raw.read_preference == ReadPreference.SECONDARY
+
+
+async def test_created_raw_collection_is_readable_through_the_cached_view(
+    cache_manager: CacheManager[dict[str, Any]],
+    cached_database_name: DatabaseName,
+    nonpersistent_collection_name: CollectionName,
+) -> None:
+    raw_collection = await cache_manager.client[cached_database_name].create_collection(
+        nonpersistent_collection_name
+    )
+
+    collection = cache_manager.cached(raw_collection)
+
+    assert collection.raw is raw_collection
+    assert await collection.find({}) == []
+
+
+async def test_repeated_cached_views_share_entries_and_one_database_stream(
     cache_manager: CacheManager[dict[str, Any]],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
     make_fake_document: Callable[..., dict[str, Any]],
 ) -> None:
-    collection = cache_manager[cached_database_name][nonpersistent_collection_name]
+    raw_collection = cache_manager.client[cached_database_name][
+        nonpersistent_collection_name
+    ]
     document = make_fake_document()
+    await raw_collection.insert_one(document)
 
-    insert_result = await collection.insert_one(document)
+    with (
+        patch.object(
+            DatabaseStreamSupervisor,
+            "start",
+            autospec=True,
+            side_effect=DatabaseStreamSupervisor.start,
+        ) as start_spy,
+        patch.object(
+            AsyncCollection,
+            "find_one",
+            autospec=True,
+            side_effect=AsyncCollection.find_one,
+        ) as find_one_spy,
+    ):
+        admitted = await cache_manager.cached(raw_collection).find_one(
+            {"_id": document["_id"]}
+        )
+        hit = await cache_manager.cached(raw_collection).find_one(
+            {"_id": document["_id"]}
+        )
 
-    assert insert_result.inserted_id == document["_id"]
-    assert await collection.raw.find_one({"_id": document["_id"]}) == document
-
-
-async def test_collection_create_index_is_directly_callable_without_raw(
-    cache_manager: CacheManager[dict[str, Any]],
-    cached_database_name: DatabaseName,
-    nonpersistent_collection_name: CollectionName,
-) -> None:
-    collection = cache_manager[cached_database_name][nonpersistent_collection_name]
-
-    index_name = await collection.create_index("email", unique=True)
-
-    assert index_name in {
-        entry["name"] async for entry in await collection.raw.list_indexes()
-    }
-
-
-async def test_database_create_collection_returns_a_cached_collection_facade(
-    cache_manager: CacheManager[dict[str, Any]],
-    cached_database_name: DatabaseName,
-    nonpersistent_collection_name: CollectionName,
-) -> None:
-    database = cache_manager[cached_database_name]
-
-    collection = await database.create_collection(nonpersistent_collection_name)
-
-    assert isinstance(collection, CachedCollection)
-    assert collection.name == nonpersistent_collection_name
+    assert admitted == hit == document
+    assert find_one_spy.call_count == 1
+    assert start_spy.call_count == 1
 
 
 async def test_composed_facade_and_direct_client_access_can_mix_incrementally(
@@ -298,11 +361,10 @@ async def test_find_one_by_id_bypasses_cache_for_an_incompatible_read_profile(
     make_fake_document: Callable[..., dict[str, Any]],
     with_options_kwargs: dict[str, Any],
 ) -> None:
-    database = cache_manager[cached_database_name]
-    raw_collection = database.raw[nonpersistent_collection_name].with_options(
-        **with_options_kwargs
-    )
-    collection = CachedCollection(database, raw_collection)
+    raw_collection = cache_manager.client[cached_database_name][
+        nonpersistent_collection_name
+    ].with_options(**with_options_kwargs)
+    collection = cache_manager.cached(raw_collection)
     document = make_fake_document()
     await collection.raw.insert_one(document)
 
@@ -318,17 +380,9 @@ async def test_find_one_by_id_bypasses_cache_for_an_incompatible_read_profile(
 
 
 async def test_find_one_by_id_preserves_a_non_default_uuid_representation(
-    cache_manager: CacheManager[dict[str, Any]],
-    cached_database_name: DatabaseName,
-    nonpersistent_collection_name: CollectionName,
+    make_uuid_collection: Callable[[int], CachedCollection[dict[str, Any]]],
 ) -> None:
-    database = cache_manager[cached_database_name]
-    raw_collection: AsyncCollection[dict[str, Any]] = database.raw[
-        nonpersistent_collection_name
-    ].with_options(
-        codec_options=CodecOptions(uuid_representation=UuidRepresentation.STANDARD)
-    )
-    collection = CachedCollection(database, raw_collection)
+    collection = make_uuid_collection(UuidRepresentation.STANDARD)
     identifier = uuid.uuid4()
     await collection.raw.insert_one({"_id": "doc-1", "token": identifier})
 
@@ -340,18 +394,12 @@ async def test_find_one_by_id_preserves_a_non_default_uuid_representation(
 
 
 async def test_find_one_by_a_uuid_id_invalidates_after_an_independent_write(
-    cache_manager: CacheManager[dict[str, Any]],
     independent_writer: AsyncMongoClient[dict[str, Any]],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
+    make_uuid_collection: Callable[[int], CachedCollection[dict[str, Any]]],
 ) -> None:
-    database = cache_manager[cached_database_name]
-    raw_collection: AsyncCollection[dict[str, Any]] = database.raw[
-        nonpersistent_collection_name
-    ].with_options(
-        codec_options=CodecOptions(uuid_representation=UuidRepresentation.STANDARD)
-    )
-    collection = CachedCollection(database, raw_collection)
+    collection = make_uuid_collection(UuidRepresentation.STANDARD)
     identifier = uuid.uuid4()
     await collection.raw.insert_one({"_id": identifier, "v": 1})
     assert await collection.find_one({"_id": identifier}) == {
@@ -372,25 +420,10 @@ async def test_find_one_by_a_uuid_id_invalidates_after_an_independent_write(
 
 
 async def test_find_with_different_uuid_codecs_do_not_share_a_cache_entry(
-    cache_manager: CacheManager[dict[str, Any]],
-    cached_database_name: DatabaseName,
-    nonpersistent_collection_name: CollectionName,
+    make_uuid_collection: Callable[[int], CachedCollection[dict[str, Any]]],
 ) -> None:
-    database = cache_manager[cached_database_name]
-    standard_collection = CachedCollection(
-        database,
-        database.raw[nonpersistent_collection_name].with_options(
-            codec_options=CodecOptions(uuid_representation=UuidRepresentation.STANDARD)
-        ),
-    )
-    legacy_collection = CachedCollection(
-        database,
-        database.raw[nonpersistent_collection_name].with_options(
-            codec_options=CodecOptions(
-                uuid_representation=UuidRepresentation.JAVA_LEGACY
-            )
-        ),
-    )
+    standard_collection = make_uuid_collection(UuidRepresentation.STANDARD)
+    legacy_collection = make_uuid_collection(UuidRepresentation.JAVA_LEGACY)
     identifier = uuid.uuid4()
     await standard_collection.raw.insert_one({"_id": "doc-1", "u": identifier})
 
@@ -573,37 +606,33 @@ async def test_unique_key_projection_with_decode_only_codec_strips_id(
     assert document == {"price": decoded_price_case.price}
 
 
-async def test_find_one_by_id_cache_hit_is_isolated_from_caller_mutation(
+@pytest.mark.parametrize(
+    "read_document",
+    [
+        pytest.param(
+            lambda collection: collection.find_one({"_id": "doc-1"}), id="find_one"
+        ),
+        pytest.param(_find_first, id="find"),
+    ],
+)
+async def test_cache_hit_is_isolated_from_caller_mutation(
     cache_manager: CacheManager[dict[str, Any]],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
+    read_document: Callable[
+        [CachedCollection[dict[str, Any]]], Awaitable[dict[str, Any] | None]
+    ],
 ) -> None:
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
     await collection.raw.insert_one({"_id": "doc-1", "tags": ["a", "b"]})
 
-    first = await collection.find_one({"_id": "doc-1"})
+    first = await read_document(collection)
     assert first is not None
     first["tags"].append("mutated")
 
-    second = await collection.find_one({"_id": "doc-1"})
+    second = await read_document(collection)
 
     assert second == {"_id": "doc-1", "tags": ["a", "b"]}
-
-
-async def test_find_by_id_cache_hit_is_isolated_from_caller_mutation(
-    cache_manager: CacheManager[dict[str, Any]],
-    cached_database_name: DatabaseName,
-    nonpersistent_collection_name: CollectionName,
-) -> None:
-    collection = cache_manager[cached_database_name][nonpersistent_collection_name]
-    await collection.raw.insert_one({"_id": "doc-1", "tags": ["a", "b"]})
-
-    first = await collection.find({})
-    first[0]["tags"].append("mutated")
-
-    second = await collection.find({})
-
-    assert second == [{"_id": "doc-1", "tags": ["a", "b"]}]
 
 
 async def test_find_one_by_id_invalidates_after_an_independent_write(
@@ -745,12 +774,9 @@ async def test_find_one_bypasses_cache_when_view_inspection_fails(
     document = make_fake_document()
     await collection.raw.insert_one(document)
 
-    def _raise(*_args: object, **_kwargs: object) -> None:
-        raise probe_error
-
     with (
         caplog.at_level("WARNING", logger="client_query_cache.asynchronous.collection"),
-        patch.object(AsyncDatabase, "list_collections", side_effect=_raise),
+        patch.object(AsyncDatabase, "list_collections", side_effect=probe_error),
         patch.object(
             AsyncCollection,
             "find_one",
@@ -788,10 +814,7 @@ async def test_view_inspection_failure_is_not_memoized_as_a_permanent_view(
     document = make_fake_document()
     await collection.raw.insert_one(document)
 
-    def _raise(*_args: object, **_kwargs: object) -> None:
-        raise probe_error
-
-    with patch.object(AsyncDatabase, "list_collections", side_effect=_raise):
+    with patch.object(AsyncDatabase, "list_collections", side_effect=probe_error):
         await collection.find_one({"_id": document["_id"]})
 
     with patch.object(
@@ -915,11 +938,10 @@ async def test_find_one_by_id_discards_admission_when_the_query_fails(
     document = make_fake_document()
     await collection.raw.insert_one(document)
 
-    def _raise(*_args: object, **_kwargs: object) -> None:
-        raise RuntimeError("boom")
-
     with (
-        patch.object(AsyncCollection, "find_one", autospec=True, side_effect=_raise),
+        patch.object(
+            AsyncCollection, "find_one", autospec=True, side_effect=RuntimeError("boom")
+        ),
         pytest.raises(RuntimeError, match="boom"),
     ):
         await collection.find_one({"_id": document["_id"]})
@@ -1072,44 +1094,30 @@ async def test_find_shapes_do_not_collide(
     assert spy.call_count == 3
 
 
-async def test_find_with_an_embedded_document_filter_is_order_sensitive(
+@pytest.mark.parametrize(
+    ("first_value", "second_value"),
+    [
+        pytest.param({"a": 1, "b": 2}, {"b": 2, "a": 1}, id="embedded-field-order"),
+        pytest.param({"a": 1}, [["a", 1]], id="mapping-vs-sequence"),
+    ],
+)
+async def test_find_filters_on_distinct_equivalent_looking_values_do_not_collide(
     cache_manager: CacheManager[dict[str, Any]],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
+    first_value: object,
+    second_value: object,
 ) -> None:
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
     await collection.raw.insert_many(
-        [
-            {"_id": "doc1", "x": {"a": 1, "b": 2}},
-            {"_id": "doc2", "x": {"b": 2, "a": 1}},
-        ]
+        [{"_id": "doc1", "x": first_value}, {"_id": "doc2", "x": second_value}]
     )
 
-    first = await collection.find({"x": {"a": 1, "b": 2}})
-    second = await collection.find({"x": {"b": 2, "a": 1}})
+    first = await collection.find({"x": first_value})
+    second = await collection.find({"x": second_value})
 
-    assert first == [{"_id": "doc1", "x": {"a": 1, "b": 2}}]
-    assert second == [{"_id": "doc2", "x": {"b": 2, "a": 1}}]
-
-
-async def test_find_with_a_mapping_filter_does_not_collide_with_an_equivalent_sequence(
-    cache_manager: CacheManager[dict[str, Any]],
-    cached_database_name: DatabaseName,
-    nonpersistent_collection_name: CollectionName,
-) -> None:
-    collection = cache_manager[cached_database_name][nonpersistent_collection_name]
-    await collection.raw.insert_many(
-        [
-            {"_id": "doc1", "x": {"a": 1}},
-            {"_id": "doc2", "x": [["a", 1]]},
-        ]
-    )
-
-    first = await collection.find({"x": {"a": 1}})
-    second = await collection.find({"x": [["a", 1]]})
-
-    assert first == [{"_id": "doc1", "x": {"a": 1}}]
-    assert second == [{"_id": "doc2", "x": [["a", 1]]}]
+    assert first == [{"_id": "doc1", "x": first_value}]
+    assert second == [{"_id": "doc2", "x": second_value}]
 
 
 async def test_find_one_bypasses_when_identity_normalization_yields_an_unhashable_value(
@@ -1190,27 +1198,19 @@ async def test_aggregate_with_a_multi_field_sort_is_order_sensitive(
     assert [doc["_id"] for doc in by_y_then_x] == ["b", "c", "a"]
 
 
-async def test_aggregate_with_a_literal_int_and_float_do_not_collide(
+@pytest.mark.parametrize(
+    ("other_literal", "other_type"),
+    [
+        pytest.param(1.0, "double", id="float"),
+        pytest.param(Int64(1), "long", id="int64"),
+    ],
+)
+async def test_aggregate_with_equal_int_and_other_numeric_literals_do_not_collide(
     cache_manager: CacheManager[dict[str, Any]],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
-) -> None:
-    collection = cache_manager[cached_database_name][nonpersistent_collection_name]
-    await collection.raw.insert_one({"_id": "a"})
-
-    int_result = await collection.aggregate([{"$project": {"v": {"$literal": 1}}}])
-    float_result = await collection.aggregate([{"$project": {"v": {"$literal": 1.0}}}])
-
-    assert int_result == [{"_id": "a", "v": 1}]
-    assert float_result == [{"_id": "a", "v": 1.0}]
-    assert isinstance(int_result[0]["v"], int)
-    assert isinstance(float_result[0]["v"], float)
-
-
-async def test_aggregate_with_a_literal_int_and_int64_do_not_collide(
-    cache_manager: CacheManager[dict[str, Any]],
-    cached_database_name: DatabaseName,
-    nonpersistent_collection_name: CollectionName,
+    other_literal: object,
+    other_type: str,
 ) -> None:
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
     await collection.raw.insert_one({"_id": "a"})
@@ -1218,12 +1218,12 @@ async def test_aggregate_with_a_literal_int_and_int64_do_not_collide(
     int_result = await collection.aggregate(
         [{"$project": {"t": {"$type": {"$literal": 1}}}}]
     )
-    int64_result = await collection.aggregate(
-        [{"$project": {"t": {"$type": {"$literal": Int64(1)}}}}]
+    other_result = await collection.aggregate(
+        [{"$project": {"t": {"$type": {"$literal": other_literal}}}}]
     )
 
     assert int_result == [{"_id": "a", "t": "int"}]
-    assert int64_result == [{"_id": "a", "t": "long"}]
+    assert other_result == [{"_id": "a", "t": other_type}]
 
 
 async def test_find_one_by_a_numeric_id_invalidates_regardless_of_int_or_float_spelling(

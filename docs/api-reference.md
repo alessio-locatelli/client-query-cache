@@ -13,58 +13,65 @@ exposed as a coroutine. Everything below applies to both; only the import path a
 ```python
 from client_query_cache import CacheManager
 
-manager = CacheManager(client)
+cache_manager = CacheManager(client)
 ```
 
 `CacheManager(client, *, cache_config=None, max_await_time_ms=1_000)` wraps a caller-constructed and caller-owned `MongoClient` (or
 `AsyncMongoClient`). It never closes that client and never mutates it.
 
-- `manager.client` — the wrapped PyMongo client, unchanged.
-- `manager.cache_core` — the manager's cache storage and bookkeeping object; see [Observability](architecture.md#observability).
-- `manager.close()` (`await manager.close()` for asyncio) — stops every change stream the manager opened and
-  releases cached data. Does not close `manager.client`.
+- `cache_manager.client` — the wrapped PyMongo client, unchanged.
+- `cache_manager.cache_core` — the manager's cache storage and bookkeeping object; see [Observability](architecture.md#observability).
+- `cache_manager.cached(collection)` — a cached read view of one of your PyMongo collections; see [Cached collection views](#cached-collection-views).
+- `cache_manager.close()` (`await cache_manager.close()` for asyncio) — stops every change stream the manager opened and releases cached data. Does not close `cache_manager.client`.
 - `CacheManager` is also a context manager (`with` / `async with`), calling `close()` on exit.
 
 Close the manager (or use it as a context manager) whenever you close the client it wraps. A manager starts a
 background change-stream task the first time a read touches a database; leaving the manager open after closing the
 client leaves that task running against a closed connection.
 
-## Accessing databases and collections
+## Cached collection views
+
+Keep two handles for a collection: PyMongo's own collection for writes, administration, and any read you don't want cached, and a cached view of it for the six cached reads.
 
 ```python
-collection = manager["my_database"]["my_collection"]
+collection = client["my_database"]["my_collection"]
+cached_collection = cache_manager.cached(collection)
+
+collection.insert_one({"_id": "example", "value": 42})
+cached_collection.find_one({"_id": "example"})
 ```
 
-`manager[name]` returns a `CachedDatabase`; `database[name]` returns a `CachedCollection`. Both are lightweight
-views constructed on each access — they carry no state of their own beyond a reference to the manager and the
-wrapped PyMongo object.
+The asyncio version is identical except that both calls are awaited:
+
+```python
+collection = client["my_database"]["my_collection"]
+cached_collection = cache_manager.cached(collection)
+
+await collection.insert_one({"_id": "example", "value": 42})
+await cached_collection.find_one({"_id": "example"})
+```
+
+`cache_manager.cached(collection)` returns a `CachedCollection` whose `.raw` is exactly the collection you passed, including options you chose with `get_collection(...)` or `with_options(...)` — those options decide whether a read can use the cache (see [Bypass conditions](#bypass-conditions)). The collection must come from the manager's own client; a collection from any other client raises `ValueError`.
+
+Calling `cached(collection)` more than once is safe and cheap: every view from one manager shares that manager's cache and its single change stream per database, so a result cached through one view is a hit through another. Each call may return a new view object, so don't rely on two views being the same object; keep one around when convenient.
+
+`cache_manager[name]` returns a `CachedDatabase`, and `database[name]` returns a `CachedCollection`, as a shorthand for cached reads when you don't already hold a PyMongo collection. Attribute access (`database.users`, `cached_collection.chunks`) also returns a cached view of that collection or sub-collection. Index access always works, including for a collection named like a PyMongo method (`database["create_collection"]`).
 
 - `CachedDatabase.name`, `CachedCollection.name` — the wrapped object's name.
-- `CachedDatabase.raw`, `CachedCollection.raw` — the wrapped PyMongo `Database`/`Collection`; see
-  [Raw fallback](#raw-fallback).
+- `CachedDatabase.raw`, `CachedCollection.raw` — the wrapped PyMongo `Database`/`Collection`; see [Raw fallback](#raw-fallback).
 - `CachedDatabase.manager` — the owning `CacheManager`.
 - `CachedCollection.database` — the owning `CachedDatabase`.
 
+Cached views expose nothing else. PyMongo methods such as `insert_one`, `create_index`, `drop`, `with_options`, or `create_collection` raise `AttributeError` on a view — call them on your PyMongo object or on `.raw`.
+
 ## Cached read methods
 
-`CachedCollection` exposes six read methods with the same names and signatures as their PyMongo equivalents:
-`find_one`, `find`, `aggregate`, `count_documents`, `estimated_document_count`, and `distinct`. Each either returns a
-cached result, admits a fresh result to the cache, or transparently bypasses to a direct PyMongo call — see
-[Bypass conditions](#bypass-conditions) below for what decides which of the three happens. Two methods have a
-narrower contract than their PyMongo counterparts:
+`CachedCollection` exposes six read methods named after their PyMongo equivalents and accepting their arguments: `find_one`, `find`, `aggregate`, `count_documents`, `estimated_document_count`, and `distinct`. Each either returns a cached result, admits a fresh result to the cache, or transparently bypasses to a direct PyMongo call — see [Bypass conditions](#bypass-conditions) below for what decides which of the three happens. Two methods return something different from their PyMongo counterparts:
 
-- `find()` always returns a fully materialized `list`, not a cursor, and raises `UnsupportedCacheRequestError` if
-  called with an option that only makes sense for a cursor (`cursor_type` other than `NON_TAILABLE`, or
-  `allow_partial_results=True`). Use `collection.raw.find(...)` for a tailable, exhaust, or partial-result cursor.
-- `aggregate()` also always fully materializes its result and raises `UnsupportedCacheRequestError` if the pipeline
-  contains a `$changeStream` stage, since that cursor has no natural end to materialize toward. Use
-  `collection.raw.aggregate(...)` for a change-stream pipeline.
+- `find()` always returns a fully materialized `list`, not a cursor, and raises `UnsupportedCacheRequestError` if called with an option that only makes sense for a cursor (`cursor_type` other than `NON_TAILABLE`, or `allow_partial_results=True`). In asyncio, you `await` `find()` for that list. Use `cached_collection.raw.find(...)` for a cursor.
+- `aggregate()` also always fully materializes its result into a `list` and raises `UnsupportedCacheRequestError` if the pipeline contains a `$changeStream` stage, since that cursor has no natural end to materialize toward. Use `cached_collection.raw.aggregate(...)` for a change-stream pipeline.
 
-Every other PyMongo collection or database method — all writes, and every read method not listed above
-(`find_one_and_update`, `find_raw_batches`, index management, and so on) — is directly callable on the facade: an
-attribute the facade doesn't itself define (for example `collection.insert_one(...)` or `database.create_collection(...)`)
-delegates unmodified to the wrapped PyMongo object, the same object `.raw` returns. Whether a given method is one of
-the six above — and therefore cached — is answered by this list, not by whether the facade lets you call it.
+Every other method — all writes, and every other read (`find_one_and_update`, `find_raw_batches`, index management, and so on) — belongs on the PyMongo object.
 
 ## Bypass conditions
 
@@ -97,7 +104,7 @@ Pass a `CacheCoreConfig` to size a manager's cache:
 ```python
 from client_query_cache import CacheCoreConfig, CacheManager
 
-manager = CacheManager(
+cache_manager = CacheManager(
     client, cache_config=CacheCoreConfig(shared_budget_bytes=128 * 1024 * 1024)
 )
 ```
@@ -116,7 +123,7 @@ if `max_entry_bytes` exceeds `shared_budget_bytes`.
 Set `max_await_time_ms` directly on either manager to choose the maximum idle server wait for a change-stream batch:
 
 ```python
-manager = CacheManager(client, max_await_time_ms=5_000)
+cache_manager = CacheManager(client, max_await_time_ms=5_000)
 ```
 
 The default is 1,000 ms. Each manager keeps its own setting across its databases and reconnects. Values must be
@@ -169,40 +176,24 @@ each keep an independent budget and independent change-stream cursors; see
 
 Every wrapped object exposes the PyMongo object underneath:
 
-- `collection.raw` — the wrapped `pymongo.Collection` (or its asyncio equivalent).
+- `cached_collection.raw` — the wrapped `pymongo.Collection` (or its asyncio equivalent).
 - `database.raw` — the wrapped `pymongo.Database`.
-- `manager.client` — the wrapped `pymongo.MongoClient` (or `AsyncMongoClient`).
+- `cache_manager.client` — the wrapped `pymongo.MongoClient` (or `AsyncMongoClient`).
 
-Writes and every other non-cached method don't need `.raw` — call them directly on the facade (`collection.insert_one(...)`,
-`database.create_collection(...)`); the facade delegates to the same wrapped object `.raw` returns, so the two forms are
-interchangeable in behavior. `.raw` remains necessary for one narrower purpose: reaching PyMongo's own semantics for the
-six cache-aware methods themselves — `find()` with a tailable, exhaust, or partial-result cursor, or `aggregate()` with a
-`$changeStream` pipeline — since calling `find`/`aggregate` directly on the facade always goes through the cache-aware
-override, which rejects those options with `UnsupportedCacheRequestError`.
-
-`.raw` also keeps one advantage direct calls don't have: because it's typed as the concrete PyMongo `Collection`/`Database`,
-mypy checks a `.raw` call's arguments and return type against PyMongo's real signature. A direct call on the facade for a
-method the facade doesn't override type-checks but without that argument/return validation, since the facade can't know in
-advance which PyMongo method a caller will reach for. Prefer `.raw` for a write or admin call where you want full static
-checking; either form behaves identically at runtime.
+`.raw` is typed as PyMongo's own class, so your editor and type checker see PyMongo's real signatures for every call made through it. Use it for writes and administration when you only hold a view, and for PyMongo's own semantics of the six cached method names — `find()` with a cursor, or `aggregate()` with a `$changeStream` pipeline. Calls through `.raw` never use the cache.
 
 ## Rollback to plain PyMongo
 
-Because `CacheManager` wraps a client you already own rather than replacing it, removing the cache layer is a
-mechanical change, not a migration: replace `manager["db"]["collection"]` calls with `client["db"]["collection"]`
-(PyMongo's own object). No other application code needs to change — a `CachedCollection`/`CachedDatabase` delegates
-every method it doesn't cache to the same wrapped object `client["db"]["collection"]` already is, so a write or admin
-call written directly against the facade (`collection.insert_one(...)`) keeps working unchanged once the facade is
-gone entirely. No data migration is needed either — the manager never alters stored documents, it only caches read
-results in your process's memory.
+Because `CacheManager` wraps a client you already own rather than replacing it, removing the cache layer is a mechanical change: make each `cached_collection` read on the PyMongo collection instead, wrapping `find()` and `aggregate()` in `list(...)` where your code needs a list. Writes and administration already go through PyMongo and need no change. No data migration is needed either — the manager never alters stored documents, it only caches read results in your process's memory.
 
 ## Errors
 
-| Exception                      | Raised when                                                                                                                   | What to do                                                           |
-| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| `CacheConfigurationError`      | A `CacheCoreConfig` value is invalid (non-positive, or `max_entry_bytes` exceeds `shared_budget_bytes`).                      | Fix the configuration value.                                         |
-| `CacheClosedError`             | A cached read is attempted after `manager.close()`.                                                                           | Don't use a manager (or a facade obtained from it) after closing it. |
-| `UnsupportedCacheRequestError` | `find()` is called with a tailable/exhaust/partial-result option, or `aggregate()` is called with a `$changeStream` pipeline. | Use `.raw` for that call.                                            |
+| Exception                      | Raised when                                                                                                                   | What to do                                                         |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `CacheConfigurationError`      | A `CacheCoreConfig` value is invalid (non-positive, or `max_entry_bytes` exceeds `shared_budget_bytes`).                      | Fix the configuration value.                                       |
+| `CacheClosedError`             | A cached read is attempted after `cache_manager.close()`.                                                                     | Don't use a manager (or a view obtained from it) after closing it. |
+| `UnsupportedCacheRequestError` | `find()` is called with a tailable/exhaust/partial-result option, or `aggregate()` is called with a `$changeStream` pipeline. | Use `.raw` for that call.                                          |
+| `ValueError`                   | `cache_manager.cached(collection)` receives a collection from a different client.                                             | Pass a collection from `cache_manager.client`.                     |
 
 Every other unsupported or ambiguous condition — an incompatible read preference or read concern, a session-bound
 read, a nondeterministic filter or pipeline, a view, a time-series collection, an oversized result, a database whose

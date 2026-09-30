@@ -22,9 +22,9 @@ recovery behavior. See the [README](../README.md) for the conceptual overview an
 your application code
         │
         ▼
-CachedCollection / CachedDatabase   (facade: find_one, find, aggregate, count_documents,
+CachedCollection / CachedDatabase   (view: find_one, find, aggregate, count_documents,
         │                            estimated_document_count, distinct — everything else
-        │                            called directly, delegated to the wrapped PyMongo object)
+        │                            called on the PyMongo object or `.raw`)
         ▼
    CacheManager                     (one per MongoClient/AsyncMongoClient you want cached)
         │
@@ -61,15 +61,7 @@ writes and schema changes occur.
 
 ### Why only reads are cached
 
-Writes always execute directly against MongoDB, whether called on the facade directly or through `.raw`; the cache
-never intercepts or replays one. Once the
-manager processes the change-stream event a write produced, it invalidates every cached result the write could have
-affected, so the next read re-fetches instead of returning stale data — that invalidation step is sufficient on its
-own to keep the cache correct, without the cache needing to know what a write changed. Populating the cache directly
-from a write's own response isn't done either: many PyMongo write calls (an update, an upsert) don't return the
-resulting document at all, so caching "the write result" would still require an extra read to get one. Letting the
-next real read repopulate the cache after invalidation is simpler and correct in every case, rather than only the
-cases where a write happens to hand back a usable document.
+Writes always execute directly against MongoDB through PyMongo's own collection or `.raw`; the cache never intercepts or replays one. Once the manager processes the change-stream event a write produced, it invalidates every cached result the write could have affected, so the next read re-fetches instead of returning stale data — that invalidation step is sufficient on its own to keep the cache correct, without the cache needing to know what a write changed. Populating the cache directly from a write's own response isn't done either: many PyMongo write calls (an update, an upsert) don't return the resulting document at all, so caching "the write result" would still require an extra read to get one. Letting the next real read repopulate the cache after invalidation is simpler and correct in every case, rather than only the cases where a write happens to hand back a usable document.
 
 ## Retry and error handling
 
@@ -82,7 +74,7 @@ cases where a write happens to hand back a usable document.
   safe.
 - **Errors raised to callers** are narrow and mean the caller asked for something the cache genuinely cannot do:
   `CacheConfigurationError` (invalid `CacheCoreConfig` values), `CacheClosedError` (a cached read attempted after
-  `manager.close()`), and `UnsupportedCacheRequestError` (`find()` with a tailable/exhaust/partial-result option, or
+  `cache_manager.close()`), and `UnsupportedCacheRequestError` (`find()` with a tailable/exhaust/partial-result option, or
   `aggregate()` with a `$changeStream` pipeline — use `.raw` for these). See the
   [API reference's error table](api-reference.md#errors) for the complete list.
 - **Everything else bypasses instead of raising.** An incompatible read preference or read concern, a session-bound
@@ -95,13 +87,13 @@ cases where a write happens to hand back a usable document.
 - **Logging**: every component logs through the standard `logging` module under `client_query_cache.*` logger
   names (for example, `client_query_cache.synchronous.streams` logs stream reconnects and shutdown warnings). Attach
   handlers the same way you would for any other library; no separate configuration mechanism exists.
-- **Runtime cache statistics**: `manager.cache_core.snapshot()` returns an immutable snapshot with the manager's
+- **Runtime cache statistics**: `cache_manager.cache_core.snapshot()` returns an immutable snapshot with the manager's
   lifecycle state, resident bytes, configured budget and max entry size, entry count, and cumulative hits, misses,
   evictions, bypasses, and oversized bypasses. None of these fields expose document contents, queries, or
   credentials, so the snapshot is safe to log or export to a metrics system directly.
-- **Per-database stream telemetry**: `manager.cache_core.stream_cost_snapshot(database_name)` returns manager iteration-call counts,
+- **Per-database stream telemetry**: `cache_manager.cache_core.stream_cost_snapshot(database_name)` returns manager iteration-call counts,
   logical event bytes, invalidation counts, and invalidation-delivery-lag samples for one database, and
-  `manager.cache_core.active_stream_cost_databases()` lists which databases currently have telemetry. This is the
+  `cache_manager.cache_core.active_stream_cost_databases()` lists which databases currently have telemetry. This is the
   same telemetry the [stream-cost benchmark suite](stream-cost-benchmarks.md) uses; the lag samples carry an
   explicit clock-skew disclaimer since they compare the MongoDB server's clock to your application host's.
   The `stream_polls` field counts calls to change-stream iteration; one call can issue multiple `getMore` commands.
@@ -116,9 +108,10 @@ from opentelemetry.sdk.metrics import MeterProvider
 
 from client_query_cache.otel import register_cache_metrics
 
-provider = MeterProvider()  # configure your application's readers/exporters here
+# Configure your application's readers/exporters here.
+provider = MeterProvider()
 meter = provider.get_meter("your-application")
-register_cache_metrics(meter, manager.cache_core)
+register_cache_metrics(meter, cache_manager.cache_core)
 ```
 
 `client_query_cache.otel` is a separate module from the rest of the package: only importing it requires
@@ -152,7 +145,7 @@ clock-skew disclaimer as the underlying stream telemetry.
   authorized to read when it was fetched. A cached document keeps returning from the cache until the underlying
   document changes or the entry is evicted — an unrelated permission change alone does not invalidate it. If your
   application depends on re-authorizing every read (for example, after changing a user's access), read that data
-  through `.raw` instead of the cached facade.
+  through `.raw` instead of the cached view.
 
 ## Connection-pool behavior
 
@@ -167,7 +160,7 @@ that many concurrent long-poll consumers in mind, alongside your application's o
 
 Each database's change-stream supervisor moves through a small set of states: starting, connecting, healthy,
 reconnecting, and closed. Caching is only permitted while a database's supervisor reports healthy; every other state
-bypasses cache use for that database. Shutting down a manager (`manager.close()`, or exiting it as a context
+bypasses cache use for that database. Shutting down a manager (`cache_manager.close()`, or exiting it as a context
 manager) marks every active database unavailable _before_ it waits for a stream or its background worker to stop —
 so a slow shutdown never leaves a window where reads could still hit a cache that is mid-teardown.
 
