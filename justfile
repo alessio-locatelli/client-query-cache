@@ -14,8 +14,18 @@ setup:
 lint:
     uv run -- prek run --all-files
     uv run -- mypy --install-types
+    just typecheck-examples
     just --fmt --check
     npm exec -- openspec validate --all --strict
+
+typecheck-examples:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    for example in examples/*.py; do
+        env -u UV_LOCKED uv sync --quiet --script "${example}"
+        uv run -- mypy --python-executable "$(uv python find --script "${example}")" "${example}"
+    done
 
 ci-lint:
     ZIZMOR_OFFLINE=true zizmor --fix=all -q --persona=auditor .github
@@ -159,6 +169,9 @@ test-e2e:
         pytest_log_args=(--log-file-level=WARNING)
     fi
     uv run -- pytest -m e2e "${pytest_log_args[@]}"
+
+examples:
+    just pytest -- tests/examples
 
 tests_and_coverage:
     #!/usr/bin/env bash

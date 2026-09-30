@@ -45,6 +45,8 @@ jobs:
 
       - run: uv run -- mypy --install-types
 
+      - run: just typecheck-examples
+
       - run: uv run -- python -m slotscheck src tests
 
       - run: just verify-release
