@@ -35,7 +35,7 @@ Observed state of the integration targets (PyPI releases and the upstream reposi
 
 ### D1. Dependencies via PEP 723 inline script metadata
 
-Each example starts with a `# /// script` block declaring `requires-python = ">=3.14.6"`, `dependencies = ["client-query-cache", "<library>>=<tested version>"]`, and `[tool.uv.sources] client-query-cache = { path = "..", editable = true }`. `uv run examples/<example>.py` then builds an isolated, cached script environment that uses the working-tree package. This was verified with uv 0.12.9: a relative `path` source resolves against the script's directory, and `UV_LOCKED=1` does not reject an unlocked script. The type check reuses the same block via `uv run --with-requirements examples/<example>.py -- mypy examples/<example>.py`, which was verified to install the script's dependencies into the project environment for that one invocation.
+Each example starts with a `# /// script` block declaring `requires-python = ">=3.14.6"`, `dependencies = ["client-query-cache", "<library>>=<tested version>"]`, and `[tool.uv.sources] client-query-cache = { path = "..", editable = true }`. `uv run examples/<example>.py` then builds an isolated, cached script environment that uses the working-tree package. This was verified with uv 0.12.9: a relative `path` source resolves against the script's directory, and `UV_LOCKED=1` does not reject an unlocked script. The type check reuses the same block: `uv sync --script examples/<example>.py` builds the script environment, and the project's mypy checks the example against it with `--python-executable "$(uv python find --script examples/<example>.py)"`. `uv sync --script` rejects `UV_LOCKED=1` without a script lockfile, so the recipe runs it with `UV_LOCKED` unset, as `verify-release` already does. `uv run --with-requirements examples/<example>.py -- mypy ...` is rejected: verified with uv 0.12.9, the overlay ignores the script's `[tool.uv.sources]` and installs the published `client-query-cache` from PyPI, so it would type-check the example against the last release instead of the working tree.
 
 Alternatives: `uv run --with requests-cache python examples/...` works too, but repeats the dependency list in the README, the justfile, the pytest parametrization, and the mypy step, where the lists can drift apart. The inline block is packaging metadata, not prose, so the no-comments rule does not apply to it. Adding an optional-dependency group to `pyproject.toml` is ruled out by the request.
 
@@ -44,7 +44,7 @@ Alternatives: `uv run --with requests-cache python examples/...` works too, but 
 `examples/requests_cache_example.py` defines:
 
 - `CachedMongoDict(MongoDict)`, constructed with a `CacheManager`. It keeps `self.collection` as the raw PyMongo collection for every write and admin call, and holds `self.cached_collection = cache_manager.cached(self.collection)`. It overrides only `__getitem__` (`cached_collection.find_one({'_id': key})`), `__iter__` (`cached_collection.find({}, {'_id': True})`), and `__len__` (`cached_collection.estimated_document_count()`), keeping upstream's result handling (`'data'` unwrapping, `KeyError`, `deserialize`).
-- `CachedMongoCache(MongoCache)`, which takes a caller-owned `MongoClient` and `CacheManager` and installs `CachedMongoDict` instances as `responses` and `redirects`, preserving upstream's serializer arguments: `responses` keeps the default BSON-document serializer with `decode_content`, and `redirects` uses `serializer=None`.
+- `CachedMongoCache(MongoCache)`, which takes a `CacheManager`, reuses its caller-owned `MongoClient` (`cache_manager.client`, so `cached()` never sees a collection from another client), and installs `CachedMongoDict` instances as `responses` and `redirects`, preserving upstream's serializer arguments: `responses` keeps the default BSON-document serializer with `decode_content`, and `redirects` uses `serializer=None`.
 - `main()`: opens `MongoClient(MONGODB_URI)` and `CacheManager(client)` with `with`, clears the example database, starts the local HTTP server (D3), builds `requests_cache.CachedSession(backend=CachedMongoCache(...))`, then runs the scenario in D4.
 
 Swapping `self.collection` for the cached view is not possible, because the view deliberately has no write methods. Upstream calls writes on the same attribute. Needing to subclass and override three methods is itself a friction data point (D6).
@@ -68,7 +68,7 @@ Each check that fails prints what was missing and exits via `SystemExit` with a 
 
 - `tests/examples/test_examples.py` (`pytestmark = pytest.mark.integration`) parametrizes over example file names. Each case runs `uv run <example>` as a subprocess from the repository root with `MONGODB_URI` from the session `mongodb_uri` fixture, and asserts exit status 0, attaching stdout/stderr to the failure message. It uses a raised `@pytest.mark.timeout`, because the first run downloads packages. It is an integration test rather than e2e, because it runs the working tree and not a built wheel (see the `test-environment` tier definitions).
 - `just examples` → `just pytest -- tests/examples`, one verification path with no second runner to keep in sync.
-- `just lint` and the CI `package` job run a loop that type-checks each `examples/*.py` with `uv run --with-requirements "$f" -- mypy "$f"`. The main mypy `files` setting stays unchanged, so the main run never needs the example libraries.
+- `just lint` and the CI `package` job run a loop that syncs each `examples/*.py` script environment and type-checks the example against it (D1). The main mypy `files` setting stays unchanged, so the main run never needs the example libraries.
 
 Alternative: a standalone `just examples` that runs scripts against `docker-compose.yaml`. Rejected, because a second runner duplicates the example list and needs a manually started replica set, while the pytest fixture already provides a disposable one.
 
@@ -88,3 +88,17 @@ This change carries the task in a blocked state. Once upstream #415 releases a P
 - [Examples use the cache's negative caching and "collection doesn't exist yet" bypass paths] → The self-check tolerates the first post-write miss (D4 step 2) instead of asserting exact counts.
 - [The change cannot be archived while the aiohttp task is blocked] → This is intended by the user. The blocked task names its upstream unblock condition.
 - [Ruff may flag `examples/*.py` (for example, implicit namespace package)] → Add a narrow `examples/*` per-file ignore in `ruff.toml` only for rules that fire, and do not add `__init__.py`.
+
+## Friction log
+
+Confirmed while writing `examples/requests_cache_example.py`:
+
+- **No drop-in collection-shaped object** (D6 candidate, confirmed). requests-cache calls reads and writes on one `self.collection` attribute, and the cached view has no writes, so the example keeps `self.collection` raw, adds a second `cached_collection` attribute (`examples/requests_cache_example.py:56`), and re-implements upstream's `__getitem__` result handling (`'data'` unwrapping, `KeyError`, `deserialize`) only to change which object it calls (`examples/requests_cache_example.py:58`). Every read-path override copies upstream code that can drift. Proposed follow-up: `evaluate-read-through-collection-adapter`, which weighs an opt-in object that serves supported reads from the cache and forwards writes to PyMongo against the explicit-view decision.
+- **No public way to wait for a write's invalidation** (D6 candidate, confirmed). After `session.cache.delete(...)`, the example can only poll a cached read against a hand-picked deadline (`examples/requests_cache_example.py:167`–`176`). The loop cannot tell a slow change stream from a lost event. Proposed follow-up: `add-invalidation-wait-primitive`.
+- **Statistics only through `cache_core`** (D6 candidate, confirmed). Reporting hits needs `cache_manager.cache_core.snapshot()` and a `CacheCore` type import (`examples/requests_cache_example.py:153`, `184`, `205`). "Core" reads as an internal layer, not the user-facing statistics entry point. Proposed follow-up: `add-manager-statistics-accessor`.
+- **Bypasses carry no reason**. A clean run reports `bypasses: 5` (`examples/requests_cache_example.py:189`). Lookups in the never-created `redirects` collection bypass on every request, but the snapshot gives an adopter no way to tell this expected bypass from a misconfiguration such as a non-primary read preference. Proposed follow-up: `add-bypass-reason-statistics`.
+
+Dropped, because the cause is upstream and not `client-query-cache`:
+
+- requests-cache's `MongoDict.close()` closes the `MongoClient` it was given, so a caller-owned client shared with a `CacheManager` needs `CachedSession(..., autoclose=False)` (`examples/requests_cache_example.py:202`).
+- `MongoCache` has no hook for the storage class, so `CachedMongoCache` calls `BaseCache.__init__` directly and rebuilds both storages (`examples/requests_cache_example.py:84`).

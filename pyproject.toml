@@ -59,6 +59,7 @@ require-subclass = true
 exclude-modules = '''
 (
   ^specifications
+  | ^examples
 )
 '''
 
