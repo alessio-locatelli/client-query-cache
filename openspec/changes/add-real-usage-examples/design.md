@@ -45,7 +45,7 @@ Alternatives: `uv run --with requests-cache python examples/...` works too, but 
 
 - `CachedMongoDict(MongoDict)`, constructed with a `CacheManager`. It keeps `self.collection` as the raw PyMongo collection for every write and admin call, and holds `self.cached_collection = cache_manager.cached(self.collection)`. It overrides only `__getitem__` (`cached_collection.find_one({'_id': key})`), `__iter__` (`cached_collection.find({}, {'_id': True})`), and `__len__` (`cached_collection.estimated_document_count()`), keeping upstream's result handling (`'data'` unwrapping, `KeyError`, `deserialize`).
 - `CachedMongoCache(MongoCache)`, which takes a `CacheManager`, reuses its caller-owned `MongoClient` (`cache_manager.client`, so `cached()` never sees a collection from another client), and installs `CachedMongoDict` instances as `responses` and `redirects`, preserving upstream's serializer arguments: `responses` keeps the default BSON-document serializer with `decode_content`, and `redirects` uses `serializer=None`.
-- `main()`: opens `MongoClient(MONGODB_URI)` and `CacheManager(client)` with `with`, clears the example database, starts the local HTTP server (D3), builds `requests_cache.CachedSession(backend=CachedMongoCache(...))`, then runs the scenario in D4.
+- `main()`: opens `MongoClient(MONGODB_URI)` and `CacheManager(client)` with `with`, clears the example database, starts the local HTTP server (D3), builds `requests_cache.CachedSession(backend=CachedMongoCache(...), autoclose=False)` so that closing the session leaves the caller-owned client open, then runs the scenario in D4.
 
 Swapping `self.collection` for the cached view is not possible, because the view deliberately has no write methods. Upstream calls writes on the same attribute. Needing to subclass and override three methods is itself a friction data point (D6).
 
@@ -59,7 +59,7 @@ Alternative: a from-scratch `BaseStorage`. Rejected because it would not show ho
 
 1. `GET /item` → origin hits 1. requests-cache writes the response through raw `replace_one`.
 2. Repeat `GET /item` N times. Each requests-cache lookup calls `CachedMongoDict.__getitem__`. Assert origin hits stay 1 and `snapshot().hits` grew by at least N−1, since the first post-write lookup may be a miss that admits the entry.
-3. Invalidate with a storage write through upstream's public API, `session.cache.delete(urls=[url])`, which issues raw `delete_many`. Poll `session.cache.contains(url=url)`, which reads through the cached `find_one`, until it returns `False`, bounded by a deadline (5 s). This is what a real adopter must do given asynchronous invalidation.
+3. Invalidate with a storage write through upstream's public API, `session.cache.delete(urls=[url])`, which deletes a single key through raw `find_one_and_delete` (upstream switches to `delete_many` only for several keys). Poll `session.cache.contains(url=url)`, which reads through the cached `find_one`, until it returns `False`, bounded by a deadline (5 s). This is what a real adopter must do given asynchronous invalidation.
 4. `GET /item` again → origin hits 2.
 
 Each check that fails prints what was missing and exits via `SystemExit` with a non-zero status. On success, the example prints origin hits and the snapshot's `hits`, `misses`, and `bypasses`. Checks use plain `if` statements and not `assert`, so they survive `python -O`. The database name is a fixed constant (`client_query_cache_example_requests_cache`), dropped at start, so reruns stay deterministic. `MONGODB_URI` defaults to `mongodb://localhost:27017/?directConnection=true`, which matches `docker-compose.yaml`.
@@ -74,7 +74,7 @@ Alternative: a standalone `just examples` that runs scripts against `docker-comp
 
 ### D6. Friction log
 
-While implementing each example, record every point where the public interface made the integration awkward, surprising, or impossible in a `## Friction log` section appended to this design. Each entry names the observed symptom, the example line that shows it, and a proposed follow-up change name. Candidates to evaluate, not yet confirmed: no drop-in collection-shaped object for libraries that call reads and writes on one attribute (D2); no public way to wait for a specific write's invalidation (D4); stats reachable only via `cache_manager.cache_core.snapshot()`. Follow-up changes are proposed separately and are not tracked as open tasks here.
+While implementing each example, record every point where the public interface made the integration awkward, surprising, or impossible in a `## Friction log` section appended to this design. Each entry names the observed symptom, the example code that shows it (by symbol, since line numbers drift), the constraints a follow-up proposal must respect, and a proposed follow-up change name. Candidates to evaluate, not yet confirmed: no drop-in collection-shaped object for libraries that call reads and writes on one attribute (D2); no public way to wait for a specific write's invalidation (D4); stats reachable only via `cache_manager.cache_core.snapshot()`. Follow-up changes are proposed separately and are not tracked as open tasks here.
 
 ### D7. aiohttp-client-cache example: blocked placeholder
 
@@ -91,14 +91,28 @@ This change carries the task in a blocked state. Once upstream #415 releases a P
 
 ## Friction log
 
-Confirmed while writing `examples/requests_cache_example.py`:
+Observed while writing `examples/requests_cache_example.py` against requests-cache 1.3.3. Code is cited by symbol rather than line number. Paths are relative to the repository root.
 
-- **No drop-in collection-shaped object** (D6 candidate, confirmed). requests-cache calls reads and writes on one `self.collection` attribute, and the cached view has no writes, so the example keeps `self.collection` raw, adds a second `cached_collection` attribute (`examples/requests_cache_example.py:56`), and re-implements upstream's `__getitem__` result handling (`'data'` unwrapping, `KeyError`, `deserialize`) only to change which object it calls (`examples/requests_cache_example.py:58`). Every read-path override copies upstream code that can drift. Proposed follow-up: `evaluate-read-through-collection-adapter`, which weighs an opt-in object that serves supported reads from the cache and forwards writes to PyMongo against the explicit-view decision.
-- **No public way to wait for a write's invalidation** (D6 candidate, confirmed). After `session.cache.delete(...)`, the example can only poll a cached read against a hand-picked deadline (`examples/requests_cache_example.py:167`–`176`). The loop cannot tell a slow change stream from a lost event. Proposed follow-up: `add-invalidation-wait-primitive`.
-- **Statistics only through `cache_core`** (D6 candidate, confirmed). Reporting hits needs `cache_manager.cache_core.snapshot()` and a `CacheCore` type import (`examples/requests_cache_example.py:153`, `184`, `205`). "Core" reads as an internal layer, not the user-facing statistics entry point. Proposed follow-up: `add-manager-statistics-accessor`.
-- **Bypasses carry no reason**. A clean run reports `bypasses: 5` (`examples/requests_cache_example.py:189`). Lookups in the never-created `redirects` collection bypass on every request, but the snapshot gives an adopter no way to tell this expected bypass from a misconfiguration such as a non-primary read preference. Proposed follow-up: `add-bypass-reason-statistics`.
+Confirmed:
 
-Dropped, because the cause is upstream and not `client-query-cache`:
+- **No drop-in collection-shaped object** (D6 candidate, confirmed).
+  - Symptom: requests-cache's `MongoDict` calls reads and writes on the same `self.collection` attribute, and `CachedCollection` has no write methods. The example therefore keeps `self.collection` as the raw PyMongo collection, adds a second attribute, `CachedMongoDict.cached_collection`, and overrides `CachedMongoDict.__getitem__`, `__iter__`, and `__len__`. The `__getitem__` override copies upstream's result handling (`'data'` unwrapping, `KeyError`, `deserialize`) only to change which object it calls, so it can drift from upstream.
+  - Constraint: views without write methods were a deliberate decision. `openspec/changes/archive/2026-09-30-restore-pymongo-method-navigation/design.md` removed attribute forwarding from the views and lists "make cached reads drop-in PyMongo cursor operations" as a non-goal. `openspec/changes/archive/2026-09-26-proxy-cached-facades/design.md` holds the earlier forwarding design. A proposal must either work within that decision or explicitly revisit it. Note that `find` returns a list, not a cursor.
+  - Proposed follow-up: `evaluate-read-through-collection-adapter`, which weighs an opt-in object that serves the six cached reads from the cache and forwards writes to PyMongo.
+- **No public way to wait for a write's invalidation** (D6 candidate, confirmed).
+  - Symptom: after `session.cache.delete(...)` in `run_scenario`, the example can only poll `session.cache.contains(...)` against a fixed deadline (`INVALIDATION_TIMEOUT_SECONDS`). The loop cannot tell a slow change stream from a lost event. A clean run observes invalidation after about 6 ms on a local replica set.
+  - Constraint: invalidation arrives asynchronously from a per-database change stream (`src/client_query_cache/synchronous/streams.py`). The public API has no mapping from a completed write to a change-stream position (for example, the write's operation time compared with the stream's resume point). A proposal must define that mapping for both the synchronous and asyncio packages.
+  - Proposed follow-up: `add-invalidation-wait-primitive`.
+- **Statistics only through `cache_core`** (D6 candidate, confirmed).
+  - Symptom: to report hits, `main` and `run_scenario` go through `cache_manager.cache_core.snapshot()` and import `CacheCore` just for a type annotation. The name "core" reads as an internal layer, not a user-facing statistics entry point.
+  - Existing surface: `CacheManager.cache_core` is a public, documented property (`docs/api-reference.md`, `docs/architecture.md` "Observability"). `snapshot()` returns `CacheSnapshot` (`src/client_query_cache/_core/snapshots.py`), whose fields include `hits`, `misses`, `evictions`, `bypasses`, `oversized_bypasses`, and `entry_count`. `client_query_cache.otel.register_cache_metrics` also takes `cache_core`. A proposal changes only where users reach statistics, not what is counted.
+  - Proposed follow-up: `add-manager-statistics-accessor`.
+- **Bypasses carry no reason**.
+  - Symptom: a clean run reports `bypasses: 5`. Instrumenting `CachedMongoDict.__getitem__` and `__iter__` attributed them as follows: one `responses` lookup during the first request, before requests-cache has created the `responses` collection, and four `redirects` reads (three lookups and one iteration), because the scenario never creates the `redirects` collection. All five are expected, because reads against a collection that does not exist yet bypass the cache. `CacheSnapshot` gives an adopter no way to tell these apart from a misconfiguration such as a non-primary read preference or a session argument.
+  - Constraint: bypasses are counted by one untyped call. `CachedCollection._record_bypass` in both `src/client_query_cache/synchronous/collection.py` and `src/client_query_cache/asynchronous/collection.py` is called from every bypass branch in the view, and `CacheCore` records further bypasses internally (`src/client_query_cache/_core/manager.py`, calls to `self._statistics.record_bypass()`). A reason has to be passed at each of these call sites. The OpenTelemetry bridge in `src/client_query_cache/otel.py` exports the counter and would need a matching attribute.
+  - Proposed follow-up: `add-bypass-reason-statistics`.
 
-- requests-cache's `MongoDict.close()` closes the `MongoClient` it was given, so a caller-owned client shared with a `CacheManager` needs `CachedSession(..., autoclose=False)` (`examples/requests_cache_example.py:202`).
-- `MongoCache` has no hook for the storage class, so `CachedMongoCache` calls `BaseCache.__init__` directly and rebuilds both storages (`examples/requests_cache_example.py:84`).
+Dropped, because the cause is upstream and not in this package:
+
+- requests-cache's `MongoDict.close()` closes the `MongoClient` it was given, even one supplied through `connection=`. A client shared with a `CacheManager` therefore needs `CachedSession(..., autoclose=False)` in `main`.
+- `MongoCache` has no hook for the storage class, so `CachedMongoCache.__init__` calls `BaseCache.__init__` directly and rebuilds both storages.
