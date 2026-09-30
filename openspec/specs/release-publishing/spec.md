@@ -58,9 +58,14 @@ Publishing a version SHALL create a GitHub Release for that tag whose notes are 
 
 ### Requirement: The release workflow is documented for maintainers
 
-`CONTRIBUTING.md` SHALL document how to maintain the changelog, bump the version, and create a release tag.
+`CONTRIBUTING.md` SHALL document how to maintain the changelog, bump the version, and create a release tag. The project's documentation SHALL also document the one-time PyPI trusted-publisher and environment-reviewer setup required before the first release, linked from `CONTRIBUTING.md`'s release section.
 
 #### Scenario: A maintainer cuts a release
 
 - **WHEN** a maintainer follows the documented release section
 - **THEN** they can identify every per-release step needed to publish successfully
+
+#### Scenario: A maintainer prepares the first release
+
+- **WHEN** a maintainer follows the documented release section before any release has been published
+- **THEN** they can find the one-time PyPI trusted-publisher and environment-reviewer setup steps and every value to enter

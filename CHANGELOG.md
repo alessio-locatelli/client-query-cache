@@ -4,4 +4,6 @@
 
 <!-- Describe final behavior once, one line per change. -->
 
-- Synchronous and asynchronous cache managers accept a per-manager `max_await_time_ms` setting for change streams.
+## [0.1.0] - 2026-09-30
+
+- Initial release of `client-query-cache`.

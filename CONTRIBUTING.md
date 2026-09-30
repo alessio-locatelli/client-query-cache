@@ -109,6 +109,8 @@ The same check is also available as the manual "Release verification" GitHub Act
 
 ## Releasing
 
+Before the first release, complete the [one-time PyPI publishing setup](docs/pypi-publishing-setup.md).
+
 ### Per-release steps
 
 1. Bump the `version` field in `pyproject.toml`'s `[project]` table to the new `X.Y.Z`.
