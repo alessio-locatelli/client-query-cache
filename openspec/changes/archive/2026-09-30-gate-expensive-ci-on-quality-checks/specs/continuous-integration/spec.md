@@ -1,10 +1,6 @@
-# continuous-integration Specification
+# Spec Delta
 
-## Purpose
-
-This capability gives external contributors hosted, repeatable evidence that the locked project and its database-backed test tiers work together.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Every pull request runs basic quality gates
 
@@ -50,6 +46,8 @@ retain safe diagnostic artifacts on failure and SHALL not depend on a shared ext
 - **WHEN** a pull request changes only files outside the Python-validation path set
 - **THEN** the Docker-backed job is not started
 
+## ADDED Requirements
+
 ### Requirement: Expensive pull request validation waits for quality checks
 
 GitHub Actions SHALL complete applicable linting and formatting checks successfully before starting package validation, database-backed tests, or the pull request performance comparison. Those expensive checks SHALL be skipped when a required quality check fails. Independent checks within each stage SHALL remain able to run concurrently.
@@ -68,17 +66,3 @@ GitHub Actions SHALL complete applicable linting and formatting checks successfu
 
 - **WHEN** applicable quality checks pass on a Python change
 - **THEN** package validation, database-backed tests, and the performance comparison can start concurrently
-
-### Requirement: CI preserves reusable validation caches
-
-GitHub Actions SHALL restore and save reusable caches produced by validation tools across compatible runs. Cache keys SHALL prevent reuse across incompatible toolchains or dependency sets, while allowing later commits to reuse prior compatible cache entries. Validation results SHALL remain authoritative when a cache is absent or stale.
-
-#### Scenario: A later pull request run checks unchanged inputs
-
-- **WHEN** a validation job runs with a compatible toolchain and dependency set after an earlier run saved a cache
-- **THEN** the job restores that cache and saves updated reusable state for a subsequent run
-
-#### Scenario: A validation cache is unavailable
-
-- **WHEN** a compatible cache cannot be restored
-- **THEN** the validation job still runs the full required checks and reports their actual results
