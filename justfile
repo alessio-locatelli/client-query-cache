@@ -23,8 +23,8 @@ typecheck-examples:
     set -euo pipefail
 
     for example in examples/*.py; do
-        env -u UV_LOCKED uv sync --quiet --script "${example}"
-        uv run -- mypy --python-executable "$(uv python find --script "${example}")" "${example}"
+        script_python="$(env -u UV_LOCKED uv sync --quiet --script "${example}" --output-format json | uv run -- python -c 'import json, sys; print(json.load(sys.stdin)["sync"]["environment"]["python"]["path"])')"
+        uv run -- mypy --python-executable "${script_python}" "${example}"
     done
 
 ci-lint:
