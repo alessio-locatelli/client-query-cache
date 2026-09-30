@@ -109,20 +109,6 @@ The same check is also available as the manual "Release verification" GitHub Act
 
 ## Releasing
 
-### One-time setup
-
-Before the first release, the repository owner completes two one-time steps outside this repository:
-
-1. On [PyPI](https://pypi.org/manage/account/publishing/), register a pending trusted publisher with:
-   - PyPI project name: `client-query-cache`
-   - Owner: `alessio-locatelli`
-   - Repository name: `client-query-cache`
-   - Workflow filename: `publish.yml`
-   - Environment name: `pypi`
-2. In the repository's GitHub Settings → Environments, create an environment named `pypi` and add at
-   least one required reviewer. Without a required reviewer, the environment does not pause the
-   publish workflow for approval.
-
 ### Per-release steps
 
 1. Bump the `version` field in `pyproject.toml`'s `[project]` table to the new `X.Y.Z`.
