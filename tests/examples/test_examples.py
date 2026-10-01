@@ -15,7 +15,11 @@ REPOSITORY = Path(__file__).parents[2]
 
 
 @pytest.mark.timeout(300)
-@pytest.mark.parametrize("name", ["requests_cache_example.py"])
+@pytest.mark.parametrize(
+    "name",
+    ["requests_cache_example.py", "celery_example.py", "py_abac_example.py"],
+    ids=["requests-cache", "celery", "py-abac"],
+)
 def test_example_runs(name: str, mongodb_uri: MongoDbUri) -> None:
     uv = shutil.which("uv")
     assert uv is not None

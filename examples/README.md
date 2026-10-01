@@ -16,3 +16,5 @@ Run each command from the repository root.
 | Example                                                  | Library                                                            | Run                                         |
 | -------------------------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------- |
 | [`requests_cache_example.py`](requests_cache_example.py) | [requests-cache](https://github.com/requests-cache/requests-cache) | `uv run examples/requests_cache_example.py` |
+| [`celery_example.py`](celery_example.py)                 | [Celery](https://github.com/celery/celery)                         | `uv run examples/celery_example.py`         |
+| [`py_abac_example.py`](py_abac_example.py)               | [py-abac](https://github.com/ketgo/py-abac)                        | `uv run examples/py_abac_example.py`        |
