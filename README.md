@@ -61,7 +61,17 @@ with (
 
 `collection` is PyMongo's own object, so your editor and type checker see PyMongo's real methods and signatures. `cached_collection` has only the six cached reads; `find` and `aggregate` on it return a list instead of a cursor. Use `cached_collection.raw` (the same `collection`) whenever you need PyMongo's own cursor behavior.
 
-`find_one` caches a lookup by `_id` and by any other field the database enforces as unique, discovered automatically from the collection's own indexes — there's nothing to declare. Only a plain unique index qualifies: a partial, sparse, or hashed unique index, or a read whose collation doesn't match the index's collation, falls back to an uncached read instead.
+`find_one` caches deterministic single-document queries, including compound filters, match-all reads and missing results. Use `sort` to choose the first matching document and `collation` to control string matching:
+
+```python
+cached_collection.find_one(
+    {"status": "active"},
+    sort=[("updated_at", -1)],
+    collation={"locale": "en", "strength": 2},
+)
+```
+
+Exact `_id` lookups and qualifying unique indexes allow cached reads to survive writes to other documents. Other queries are refreshed after any write to the collection. Updates become visible after the manager processes their change-stream events; use the PyMongo collection for reads that must immediately observe a preceding write.
 
 `CacheManager` starts a background change-stream task the first time a read touches a database, so close it (or use it as a context manager, as above) alongside the client — closing only the client leaves that background task running against a closed connection.
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any, Self
+from typing import TYPE_CHECKING, Any, Self, overload
 
 from client_query_cache._core.collection_metadata import (
     CollectionMetadata,
@@ -86,14 +86,28 @@ class CacheManager[DocumentType: Mapping[str, Any]]:
         cached = self._metadata.get(namespace)
         return cached.default_collation if cached is not None else None
 
+    @overload
     def unique_keys_for(
         self,
         namespace: NamespaceId,
         list_indexes: Callable[[], Sequence[Mapping[str, Any]] | None],
-    ) -> tuple[UniqueKeyDefinition, ...]:
+    ) -> tuple[UniqueKeyDefinition, ...]: ...
+
+    @overload
+    def unique_keys_for(
+        self, namespace: NamespaceId, list_indexes: None = None
+    ) -> tuple[UniqueKeyDefinition, ...] | None: ...
+
+    def unique_keys_for(
+        self,
+        namespace: NamespaceId,
+        list_indexes: Callable[[], Sequence[Mapping[str, Any]] | None] | None = None,
+    ) -> tuple[UniqueKeyDefinition, ...] | None:
         current_generation = self._cache.current_index_generation(namespace)
         cached = self._unique_keys.get(namespace)
         if cached is None or cached.checked_index_generation != current_generation:
+            if list_indexes is None:
+                return None
             index_specs = list_indexes()
             if index_specs is None:
                 return ()

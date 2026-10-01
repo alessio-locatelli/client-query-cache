@@ -4,6 +4,8 @@
 
 <!-- Describe final behavior once, one line per change. -->
 
+- `find_one` caches deterministic filters and missing results, with explicit sorting and collation support in synchronous and asyncio views.
+
 - `CacheManager.cached(collection)` returns a cached read view of your own PyMongo collection; call writes and other PyMongo methods on that collection or on `.raw`, since cached views no longer forward them.
 - Runnable examples in `examples/` show how to add the cache to real MongoDB-backed libraries, starting with requests-cache.
 

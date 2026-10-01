@@ -12,6 +12,10 @@ from hypothesis.stateful import (
 )
 
 from client_query_cache._core.entries import AdmissionOutcome
+from client_query_cache._core.find_one_reads import (
+    find_one_read_shape,
+    generic_find_one_discriminator,
+)
 from client_query_cache._core.keys import NamespaceId
 from client_query_cache._core.manager import CacheCore
 
@@ -23,7 +27,20 @@ _NAMESPACES = [
 ]
 _IDENTITIES = ["id-0", "id-1", "id-2", "id-3"]
 _READ_SHAPES = ["shape-a", "shape-b"]
-_DISCRIMINATORS = ["disc-a", "disc-b"]
+_DISCRIMINATORS = [
+    "disc-a",
+    "disc-b",
+    generic_find_one_discriminator(
+        {"rank": {"$gte": 1}}, find_one_read_shape(None, None, None, "codec"), 0
+    ),
+    generic_find_one_discriminator(
+        {},
+        find_one_read_shape(
+            {"rank": 1}, [("rank", -1)], {"locale": "en", "strength": 2}, "codec"
+        ),
+        0,
+    ),
+]
 _VALUES = st.integers(min_value=-1_000, max_value=1_000)
 _NAMESPACE_STRATEGY = st.sampled_from(_NAMESPACES)
 _IDENTITY_STRATEGY = st.sampled_from(_IDENTITIES)
@@ -38,9 +55,9 @@ class _CacheCoreMachine(RuleBasedStateMachine):
         self.namespace_generation: dict[NamespaceId, int] = defaultdict(int)
         self.identity_epoch: dict[tuple[NamespaceId, str], int] = defaultdict(int)
         self.identity_values: dict[tuple[NamespaceId, str, str], tuple[int, int]] = {}
-        self.namespace_values: dict[tuple[NamespaceId, str], tuple[int, int]] = {}
+        self.namespace_values: dict[tuple[NamespaceId, object], tuple[object, int]] = {}
         self.resident_identity_keys: set[tuple[NamespaceId, str, str]] = set()
-        self.resident_namespace_keys: set[tuple[NamespaceId, str]] = set()
+        self.resident_namespace_keys: set[tuple[NamespaceId, object]] = set()
 
     @rule(
         namespace=_NAMESPACE_STRATEGY,
@@ -73,10 +90,10 @@ class _CacheCoreMachine(RuleBasedStateMachine):
     @rule(
         namespace=_NAMESPACE_STRATEGY,
         discriminator=_DISCRIMINATOR_STRATEGY,
-        value=_VALUES,
+        value=st.one_of(_VALUES, st.none()),
     )
     def capture_and_admit_namespace(
-        self, namespace: NamespaceId, discriminator: str, value: int
+        self, namespace: NamespaceId, discriminator: object, value: object
     ) -> None:
         capture = self.core.capture_namespace_generation(namespace)
         outcome = self.core.admit_namespace(capture, discriminator, value)

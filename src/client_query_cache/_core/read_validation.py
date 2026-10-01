@@ -43,7 +43,7 @@ def _contains_unsafe_construct(
 ) -> bool:
     if isinstance(node, Mapping):
         for key, value in node.items():
-            if key in unsafe_keys:
+            if not isinstance(key, str) or key in unsafe_keys:
                 return True
             if _contains_unsafe_construct(value, unsafe_keys, unsafe_variables):
                 return True

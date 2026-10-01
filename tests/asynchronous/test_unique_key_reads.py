@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from typing import TYPE_CHECKING, Any
 from unittest.mock import patch
 
@@ -8,6 +7,7 @@ import pytest
 from bson.decimal128 import Decimal128
 from pymongo import AsyncMongoClient
 from pymongo.asynchronous.collection import AsyncCollection
+from pymongo.collation import Collation
 from pymongo.errors import ConnectionFailure, OperationFailure
 
 from client_query_cache._core.canonical import canonicalize
@@ -22,6 +22,8 @@ from client_query_cache._core.order_sensitive_keys import (
     order_sensitive_discriminator_key,
 )
 from client_query_cache.asynchronous.manager import CacheManager
+from tests.polling import wait_until_async as _wait_until
+from tests.polling import wait_until_value_async
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable, Coroutine, Iterator
@@ -60,22 +62,6 @@ async def tight_budget_cache_manager(
     await manager.close()
 
 
-async def _wait_until(
-    predicate: Callable[[], Coroutine[Any, Any, bool]],
-    *,
-    timeout_seconds: float = 15.0,
-) -> None:
-    async def _poll() -> None:
-        while not await predicate():  # noqa: ASYNC110
-            await asyncio.sleep(0.05)
-
-    try:
-        async with asyncio.timeout(timeout_seconds):
-            await _poll()
-    except TimeoutError:  # pragma: no cover (test timeout diagnostic)
-        pytest.fail("condition was not met within the timeout")
-
-
 @pytest.mark.parametrize(
     "seed_document",
     [
@@ -105,11 +91,15 @@ async def test_unique_key_read_is_cached_after_the_first_lookup(
         AsyncCollection, "find_one", autospec=True, side_effect=AsyncCollection.find_one
     ) as spy:
         first = await collection.find_one({"email": email})
+        before = cache_manager.cache_core.snapshot()
         second = await collection.find_one({"email": email})
+        after = cache_manager.cache_core.snapshot()
 
     assert first == expected
     assert second == expected
     assert spy.call_count == 1
+    assert after.hits == before.hits + 1
+    assert after.misses == before.misses
 
 
 @pytest.mark.parametrize(
@@ -127,9 +117,13 @@ async def test_unique_key_read_is_cached_after_the_first_lookup(
             lambda raw: raw.create_index("email", unique=True, sparse=True),
             id="sparse",
         ),
+        pytest.param(
+            lambda raw: raw.create_index([("email", "hashed")]),
+            id="hashed",
+        ),
     ],
 )
-async def test_partial_or_sparse_unique_indexes_are_not_used_as_a_unique_key(
+async def test_partial_sparse_or_hashed_indexes_use_generic_caching(
     cache_manager: CacheManager[dict[str, Any]],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
@@ -153,7 +147,7 @@ async def test_partial_or_sparse_unique_indexes_are_not_used_as_a_unique_key(
 
     assert first == document
     assert second == document
-    assert spy.call_count == 2
+    assert spy.call_count == 1
 
 
 async def test_a_read_collation_not_matching_the_index_is_not_used(
@@ -179,35 +173,76 @@ async def test_a_read_collation_not_matching_the_index_is_not_used(
 
     assert first == document
     assert second == document
-    assert spy.call_count == 2
+    assert spy.call_count == 1
 
 
-async def test_a_unique_index_inheriting_the_collections_default_collation_is_used(
+@pytest.mark.parametrize(
+    ("collation_kind", "uses_alias"),
+    [
+        ("inherited", True),
+        ("full-mapping", True),
+        ("full-object", True),
+        ("short-explicit", False),
+        ("mismatch", False),
+    ],
+    ids=["inherited", "full-mapping", "full-object", "short-explicit", "mismatch"],
+)
+async def test_unique_key_collation_matching_requires_confirmed_equivalence(
     cache_manager: CacheManager[dict[str, Any]],
     cached_database_name: DatabaseName,
     persistent_collection_name: CollectionName,
     faker: Faker,
+    *,
+    collation_kind: str,
+    uses_alias: bool,
 ) -> None:
-    document_id = faker.uuid4()
-    email = faker.email()
     database = cache_manager[cached_database_name]
     await database.raw.create_collection(
         persistent_collection_name, collation={"locale": "en", "strength": 2}
     )
     collection = database[persistent_collection_name]
     await collection.raw.create_index("email", unique=True)
-    document = {"_id": document_id, "email": email, "name": faker.first_name()}
+    email = faker.email()
+    document = {"_id": faker.uuid4(), "email": email}
     await collection.raw.insert_one(document)
-
+    index_specs = await (await collection.raw.list_indexes()).to_list()
+    index_collation = next(
+        spec["collation"] for spec in index_specs if spec["name"] == "email_1"
+    )
+    explicit_collation = {
+        key: value for key, value in index_collation.items() if key != "version"
+    }
+    options = {
+        "inherited": None,
+        "full-mapping": explicit_collation,
+        "full-object": Collation(**explicit_collation),
+        "short-explicit": {"locale": "en", "strength": 2},
+        "mismatch": {"locale": "en", "strength": 3},
+    }
+    selected = options[collation_kind]
     with patch.object(
         AsyncCollection, "find_one", autospec=True, side_effect=AsyncCollection.find_one
     ) as spy:
-        first = await collection.find_one({"email": email})
-        second = await collection.find_one({"email": email})
-
-    assert first == document
-    assert second == document
-    assert spy.call_count == 1
+        assert (
+            await collection.find_one({"email": email}, collation=selected) == document
+        )
+        assert (
+            await collection.find_one({"email": email}, collation=selected) == document
+        )
+        assert (
+            await collection.find_one({"_id": document["_id"]}, collation=selected)
+            == document
+        )
+        assert (
+            await collection.find_one({"_id": document["_id"]}, collation=selected)
+            == document
+        )
+    assert spy.call_count == 2
+    namespace = NamespaceId(cached_database_name, persistent_collection_name)
+    alias = cache_manager.cache_core.resolve_alias(
+        namespace, ("email",), (email,), index_collation
+    )
+    assert (alias is not None) == uses_alias
 
 
 async def test_discovery_is_shared_across_handles_from_the_same_manager(
@@ -249,48 +284,34 @@ async def test_an_index_created_on_a_live_collection_is_detected_and_used(
     nonpersistent_collection_name: CollectionName,
     faker: Faker,
 ) -> None:
-    document_id = faker.uuid4()
-    email = faker.email()
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
-    document = {"_id": document_id, "email": email, "name": faker.first_name()}
+    email = faker.email()
+    document = {"_id": faker.uuid4(), "email": email}
     await collection.raw.insert_one(document)
-
+    assert await collection.find_one({"email": email}) == document
+    writer = independent_writer[cached_database_name][nonpersistent_collection_name]
+    namespace = NamespaceId(cached_database_name, nonpersistent_collection_name)
+    before = cache_manager.cache_core.current_index_generation(namespace)
+    await writer.create_index("email", unique=True)
+    await _wait_until(
+        lambda: cache_manager.cache_core.current_index_generation(namespace) > before
+    )
+    assert await collection.find_one({"email": email}) == document
+    assert (
+        cache_manager.cache_core.resolve_alias(namespace, ("email",), (email,), None)
+        is not None
+    )
+    before = cache_manager.cache_core.current_index_generation(namespace)
+    await writer.drop_index("email_1")
+    await _wait_until(
+        lambda: cache_manager.cache_core.current_index_generation(namespace) > before
+    )
     with patch.object(
         AsyncCollection, "find_one", autospec=True, side_effect=AsyncCollection.find_one
     ) as spy:
-        await collection.find_one({"email": email})
-        await collection.find_one({"email": email})
-    assert spy.call_count == 2
-
-    await independent_writer[cached_database_name][
-        nonpersistent_collection_name
-    ].create_index("email", unique=True)
-
-    async def _round_trips_for_two_reads() -> int:
-        with patch.object(
-            AsyncCollection,
-            "find_one",
-            autospec=True,
-            side_effect=AsyncCollection.find_one,
-        ) as spy:
-            await collection.find_one({"email": email})
-            await collection.find_one({"email": email})
-        return spy.call_count
-
-    async def _is_settling() -> bool:
-        return (await _round_trips_for_two_reads()) <= 1
-
-    await _wait_until(_is_settling)
-    assert await _round_trips_for_two_reads() == 0
-
-    await independent_writer[cached_database_name][
-        nonpersistent_collection_name
-    ].drop_index("email_1")
-
-    async def _is_uncached_again() -> bool:
-        return (await _round_trips_for_two_reads()) == 2
-
-    await _wait_until(_is_uncached_again)
+        assert await collection.find_one({"email": email}) == document
+        assert await collection.find_one({"email": email}) == document
+    assert spy.call_count == 1
 
 
 async def test_an_inclusion_projection_excluding_id_resolves_without_leaking_id(
@@ -364,11 +385,10 @@ async def test_an_independent_write_invalidates_a_resolved_unique_key_read(
         nonpersistent_collection_name
     ].update_one({"_id": document_id}, {"$set": {"v": 2}})
 
-    async def _updated() -> bool:
-        current = await collection.find_one({"email": email})
-        return current is not None and current["v"] == 2
-
-    await _wait_until(_updated)
+    await wait_until_value_async(
+        lambda: collection.find_one({"email": email}),
+        lambda current: current is not None and current["v"] == 2,
+    )
 
 
 async def test_an_independent_write_invalidates_an_unresolved_negative_unique_key_read(
@@ -388,10 +408,10 @@ async def test_an_independent_write_invalidates_an_unresolved_negative_unique_ke
         nonpersistent_collection_name
     ].insert_one({"_id": document_id, "email": email, "v": 1})
 
-    async def _appeared() -> bool:
-        return (await collection.find_one({"email": email})) is not None
-
-    await _wait_until(_appeared)
+    await wait_until_value_async(
+        lambda: collection.find_one({"email": email}),
+        lambda current: current is not None,
+    )
 
 
 async def test_a_key_field_change_is_not_masked_by_a_stale_resolved_identity(
@@ -417,10 +437,9 @@ async def test_a_key_field_change_is_not_masked_by_a_stale_resolved_identity(
         nonpersistent_collection_name
     ].update_one({"_id": document_id}, {"$set": {"email": other_email}})
 
-    async def _old_email_no_longer_matches() -> bool:
-        return (await collection.find_one({"email": email})) is None
-
-    await _wait_until(_old_email_no_longer_matches)
+    await wait_until_value_async(
+        lambda: collection.find_one({"email": email}), lambda current: current is None
+    )
     assert await collection.find_one({"email": other_email}) == {
         "_id": document_id,
         "email": other_email,
@@ -451,11 +470,10 @@ async def test_a_drop_and_recreate_reusing_the_same_id_does_not_leak_the_old_doc
         nonpersistent_collection_name
     ].insert_one({"_id": document_id, "email": email, "v": "new"})
 
-    async def _recreated_document_visible() -> bool:
-        current = await collection.find_one({"email": email})
-        return current is not None and current["v"] == "new"
-
-    await _wait_until(_recreated_document_visible)
+    await wait_until_value_async(
+        lambda: collection.find_one({"email": email}),
+        lambda current: current is not None and current["v"] == "new",
+    )
 
 
 async def _evict_identity_entry_via_filler_pressure(
@@ -467,6 +485,7 @@ async def _evict_identity_entry_via_filler_pressure(
     cache = cache_manager.cache_core
     lru = cache._lru
     filler_count = 60
+    before = cache.capture_namespace_generation(namespace).generation
     await collection.raw.insert_many(
         [
             {"_id": f"filler-{index}", "email": f"filler-{index}@example.com"}
@@ -474,12 +493,12 @@ async def _evict_identity_entry_via_filler_pressure(
         ]
     )
 
-    async def _namespace_generation_has_settled() -> bool:
-        first = cache.capture_namespace_generation(namespace).generation
-        await asyncio.sleep(0.2)
-        return first == cache.capture_namespace_generation(namespace).generation
-
-    await _wait_until(_namespace_generation_has_settled, timeout_seconds=20.0)
+    await _wait_until(
+        lambda: (
+            cache.capture_namespace_generation(namespace).generation
+            >= before + filler_count
+        )
+    )
 
     for index in range(filler_count):
         if lru.peek(identity_key) is None:
@@ -509,7 +528,7 @@ async def test_a_still_accurate_resolved_alias_refreshes_with_a_single_round_tri
 
     namespace = NamespaceId(cached_database_name, nonpersistent_collection_name)
     read_shape = order_sensitive_discriminator_key(
-        ("find_one", None, codec_fingerprint(collection.raw.codec_options))
+        ("find_one", None, None, None, codec_fingerprint(collection.raw.codec_options))
     )
     resolved_identity = tight_budget_cache_manager.cache_core.resolve_alias(
         namespace, ("email",), (email,), None
@@ -557,7 +576,7 @@ async def test_a_resolved_alias_with_no_remaining_match_discards_the_alias(
 
     namespace = NamespaceId(cached_database_name, nonpersistent_collection_name)
     read_shape = order_sensitive_discriminator_key(
-        ("find_one", None, codec_fingerprint(collection.raw.codec_options))
+        ("find_one", None, None, None, codec_fingerprint(collection.raw.codec_options))
     )
     resolved_identity = tight_budget_cache_manager.cache_core.resolve_alias(
         namespace, ("email",), (email,), None
@@ -606,7 +625,7 @@ async def test_a_revalidated_positive_match_overwrites_a_stale_namespace_entry(
     namespace = NamespaceId(cached_database_name, nonpersistent_collection_name)
     alias = canonical_alias_key(("email",), (email,), None)
     read_shape = order_sensitive_discriminator_key(
-        ("find_one", None, codec_fingerprint(collection.raw.codec_options))
+        ("find_one", None, None, None, codec_fingerprint(collection.raw.codec_options))
     )
     cache = cache_manager.cache_core
     identity = cache.resolve_alias(namespace, ("email",), (email,), None)
@@ -643,7 +662,7 @@ async def test_an_uncanonicalizable_revalidated_identity_discards_the_stale_alia
     namespace = NamespaceId(cached_database_name, nonpersistent_collection_name)
     alias = canonical_alias_key(("email",), (email,), None)
     read_shape = order_sensitive_discriminator_key(
-        ("find_one", None, codec_fingerprint(collection.raw.codec_options))
+        ("find_one", None, None, None, codec_fingerprint(collection.raw.codec_options))
     )
     cache = cache_manager.cache_core
     identity = cache.resolve_alias(namespace, ("email",), (email,), None)
@@ -756,7 +775,7 @@ async def test_unique_key_match_skips_admission_for_an_uncacheable_identity(
         ),
     ],
 )
-async def test_unique_key_read_bypasses_cache_when_index_inspection_fails(
+async def test_generic_read_caches_when_index_inspection_fails(
     cache_manager: CacheManager[dict[str, Any]],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
@@ -772,12 +791,11 @@ async def test_unique_key_read_bypasses_cache_when_index_inspection_fails(
     document = {"_id": document_id, "email": email, "name": faker.first_name()}
     await collection.raw.insert_one(document)
 
-    def _raise(*_args: object, **_kwargs: object) -> None:
-        raise probe_error
-
     with (
         caplog.at_level("WARNING", logger="client_query_cache.asynchronous.collection"),
-        patch.object(AsyncCollection, "list_indexes", side_effect=_raise),
+        patch.object(
+            AsyncCollection, "list_indexes", side_effect=probe_error
+        ) as index_spy,
         patch.object(
             AsyncCollection,
             "find_one",
@@ -790,7 +808,8 @@ async def test_unique_key_read_bypasses_cache_when_index_inspection_fails(
 
     assert first == document
     assert second == document
-    assert spy.call_count == 2
+    assert spy.call_count == 1
+    assert index_spy.call_count == 1
     assert caplog.records
     assert all(record.levelname == "WARNING" for record in caplog.records)
 
@@ -818,11 +837,18 @@ async def test_index_inspection_failure_is_not_memoized_as_a_permanent_absence(
     document = {"_id": document_id, "email": email, "name": faker.first_name()}
     await collection.raw.insert_one(document)
 
-    def _raise(*_args: object, **_kwargs: object) -> None:
-        raise probe_error
-
-    with patch.object(AsyncCollection, "list_indexes", side_effect=_raise):
+    with patch.object(AsyncCollection, "list_indexes", side_effect=probe_error):
         await collection.find_one({"email": email})
+
+    namespace = NamespaceId(cached_database_name, nonpersistent_collection_name)
+    before = cache_manager.cache_core.capture_namespace_generation(namespace).generation
+    await collection.raw.insert_one({"_id": faker.uuid4(), "email": faker.email()})
+    await _wait_until(
+        lambda: (
+            cache_manager.cache_core.capture_namespace_generation(namespace).generation
+            > before
+        )
+    )
 
     with patch.object(
         AsyncCollection, "find_one", autospec=True, side_effect=AsyncCollection.find_one
