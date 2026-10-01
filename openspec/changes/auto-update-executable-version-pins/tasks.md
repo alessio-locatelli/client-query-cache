@@ -1,0 +1,29 @@
+# Tasks
+
+## 1. Ownership and custom extraction
+
+- [ ] 1.1 Add `renovate.json5` with only `custom.regex` enabled, explicit file allowlists, monthly scheduling, seven-day minimum release age where available, no automerge, and the release-track rules in design.md. Preserve Dependabot ownership of existing manifests and FROM/Compose images. Verify configuration validation and extracted dependencies show no overlap.
+- [ ] 1.2 Annotate both MongoDB Python pins, all four CI uv pins, the just action input, Prek and Zizmor selections, `.python-version`, and the Node 24 selector using the chosen datasources. Match `.python-version` through an exact file-specific regex, without inserting comments that would break its consumer format; do not annotate the workflow Python selections removed by task 2.2. Group coupled occurrences and add configuration extraction/replacement cases demonstrating both MongoDB replacements, all CI uv replacements, and exclusion of `reports/`, test data, package release metadata, and compatibility floors. Verify the initial annotation diff changes no selected release.
+- [ ] 1.3 Add the concise ownership inventory and reproduction commands to contributor documentation, linking official Renovate onboarding guidance. Verify every executable occurrence in design.md is assigned once, including selectors that intentionally retain a major track; document administrator activation as an external deployment step, not an automatic repository-setting change.
+
+## 2. Coupled toolchain and container pins
+
+- [ ] 2.1 Derive the Prek install and cache key from one named CI selection, keeping its Containerfile PyPI occurrence in the same Renovate update group. Add a replacement case verifying the new cache identity and both installs agree without a separate cache-key version pin.
+- [ ] 2.2 Read `.python-version` after checkout in the setup-toolchain composite action, pass the exact output to setup-uv, and expose it for workflow cache keys; remove the four workflow Python selections. Copy/read that file in the Containerfile installation RUN and remove the duplicate Python ARG. Preserve the 3.14 track and published floors; document that CI now selects the committed exact patch. Add scope/consumer cases proving each workflow and the container use the selected version; document the canonical selection in the contributor ownership inventory.
+- [ ] 2.3 Configure Fedora 44 RPM extraction and `rpm` ordering for bash, just, nodejs24, nodejs24-npm, and uv, grouping Node/npm. Prove architecture and epoch preservation with fixture metadata and a real lookup for the existing epoch-bearing Node/npm pins. Perform this proof before adding RPM update annotations. If stock lookup cannot preserve epochs or constrain architectures, stop RPM implementation and report the full-coverage activation blocker described in design.md; do not invent a repository-helper datasource or silently omit these pins. Verify the generated package selections resolve in the development-container DNF transaction; do not substitute upstream release versions.
+- [ ] 2.4 Add Taplo release-attachment extraction/replacement spanning its ARG, ADD URL, and SHA256. Add successful replacement and unavailable/mismatched digest cases; verify a candidate build preserves the compressed linux-x86_64 artifact, checksum verification, and expected `taplo --version`. Keep diagnostic raw output untracked and document the reproduction command.
+
+## 3. Consumer validation
+
+- [ ] 3.1 Extend `scripts/ci_scope.py` and `.github/workflows/test.yml` with container and isolated-benchmark scopes and route `.python-version` and shared Python-tool inputs into the Python gates. Add parametrized path-selection cases covering each managed input and unrelated documentation; verify no pin-only update bypasses its consumer checks.
+- [ ] 3.2 Add development-container build/tool smoke checks and a bounded isolated benchmark replica-set startup check after applicable lint/format jobs. Verify a Containerfile-only replacement builds and checks installed tools, a MongoDB-only replacement runs integration/e2e plus startup validation, and unrelated documentation triggers neither added expensive check. Preserve stable required-check identities and document any administrator ruleset prerequisites.
+- [ ] 3.3 Adapt guard environment preparation to use the proposed selected interpreter for both revisions when guarded inputs change alongside Python. Add behavior cases proving equal interpreters, retained mismatch rejection, and visible failure when the base cannot run. Verify guard evidence records the actual interpreter without exempting bot PRs.
+
+## 4. Coverage and activation evidence
+
+- [ ] 4.1 Produce a concise Markdown extraction/replacement proof with reproducible commands and the complete ownership inventory, including Fedora epoch/architecture and Taplo digest results. Demonstrate no uncovered executable selections, no overlap with Dependabot, unchanged historical evidence, and visible lookup failures. Keep raw registry responses and dry-run logs untracked; activate Renovate only through the documented administrator step after this proof is complete.
+
+## 5. Code Quality
+
+- [ ] 5.1 Scan every file containing edited or added tests, including pre-existing tests in those files, and apply AGENTS.md Writing Tests guidelines, including parametrization; verify the resulting test diff follows those rules.
+- [x] 5.2 Claude Code prose restriction is inapplicable: this proposal is prepared by OpenAI Codex; Codex is exempt.
