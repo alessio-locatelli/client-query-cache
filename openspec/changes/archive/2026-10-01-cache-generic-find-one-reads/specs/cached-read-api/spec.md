@@ -84,7 +84,7 @@ Both execution models SHALL expose explicit keyword-only sorting and collation o
 
 ### Requirement: Unique-key eligibility follows index metadata
 
-The facades SHALL use only unconditional unique indexes with matching effective collation for unique-key aliases. A single-document read's effective collation SHALL include a supported explicit override or the collection's default when no override is supplied. A deterministic mapping predicate that does not qualify for a unique-key alias SHALL use the generic namespace-guarded path when its remaining eligibility conditions are satisfied.
+The facades SHALL use only unconditional unique indexes with locally confirmed matching effective collation for unique-key aliases. A single-document read's effective collation SHALL include a supported explicit override or the collection's default when no override is supplied. An explicit collation whose omitted locale-specific defaults prevent locally confirming equivalence SHALL use generic namespace caching. A deterministic mapping predicate, including a regex-ID query, that does not qualify for a unique-key alias SHALL use the generic namespace-guarded path when its remaining eligibility conditions are satisfied.
 
 #### Scenario: A unique index is discovered and used
 
@@ -108,5 +108,44 @@ The facades SHALL use only unconditional unique indexes with matching effective 
 
 #### Scenario: An explicit collation matches a unique index
 
-- **WHEN** a supported explicit read collation matches a qualifying unique index and the equality predicate matches its complete key definition
+- **WHEN** a fully specified supported explicit read collation matches a qualifying unique index and the equality predicate matches its complete key definition
 - **THEN** the facade can use the unique-key path under that effective collation without reusing an alias from different collation semantics
+
+#### Scenario: Explicit collation equivalence cannot be confirmed locally
+
+- **WHEN** an explicit read collation omits locale-specific defaults required to confirm equality with expanded index metadata
+- **THEN** the read uses generic namespace caching rather than assuming equivalent collation semantics or performing another database operation to resolve defaults
+
+### Requirement: Variable or live data bypasses caching
+
+Reads whose results can change without a collection write SHALL bypass cache admission.
+
+#### Scenario: An aggregation pipeline is nondeterministic
+
+- **WHEN** a caller runs an aggregation pipeline containing a `$sample` stage or a `$rand`/`$sampleRate` expression
+- **THEN** the facade executes the pipeline and returns its result without admitting it to the cache, so a later call is not frozen to the first random result
+
+#### Scenario: An aggregation pipeline is time-dependent
+
+- **WHEN** a caller runs an aggregation pipeline using the `$$NOW` or `$$CLUSTER_TIME` system variable
+- **THEN** the facade executes the pipeline and returns its result without admitting it to the cache, so a later call is not frozen to the first computed timestamp
+
+#### Scenario: A plain filter is nondeterministic
+
+- **WHEN** a caller runs a `find_one`, `find`, `count_documents`, or `distinct` read whose filter contains `$where`, or an `$expr` embedding `$rand`, `$sampleRate`, `$$NOW`, or `$$CLUSTER_TIME`
+- **THEN** the facade executes the read and returns its result without admitting it to the cache, so a later call is not frozen to the first result
+
+#### Scenario: An aggregation pipeline executes caller-supplied JavaScript
+
+- **WHEN** a caller runs an aggregation pipeline containing a `$function` or `$accumulator` expression
+- **THEN** the facade executes the pipeline and returns its result without admitting it to the cache, regardless of what the JavaScript body does
+
+#### Scenario: An aggregation pipeline reports live statistics
+
+- **WHEN** a caller runs an aggregation pipeline containing a `$collStats`, `$indexStats`, or `$planCacheStats` stage
+- **THEN** the facade executes the pipeline and returns its result without admitting it to the cache, so a later call is not frozen to statistics captured at the first execution
+
+#### Scenario: A plain filter executes caller-supplied JavaScript
+
+- **WHEN** a caller runs a `find_one`, `find`, `count_documents`, or `distinct` read whose filter contains an `$expr` embedding `$function` or `$accumulator`
+- **THEN** the facade executes the read and returns its result without admitting it to the cache, regardless of what the JavaScript body does

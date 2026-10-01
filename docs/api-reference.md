@@ -73,6 +73,39 @@ Cached views expose nothing else. PyMongo methods such as `insert_one`, `create_
 
 Every other method — all writes, and every other read (`find_one_and_update`, `find_raw_batches`, index management, and so on) — belongs on the PyMongo object.
 
+## Single-document reads
+
+Both synchronous and asyncio views accept
+`find_one(filter=None, projection=None, *, sort=None, collation=None, session=None, **kwargs)`
+and return a document or `None`. Deterministic filters, including compound predicates, regular expressions and
+match-all reads, can be cached. Repeated missing results can also hit the cache.
+
+```python
+cached_collection.find_one(
+    {"status": "active", "region": "Europe"},
+    {"name": 1, "_id": 0},
+    sort=[("priority", -1), ("name", 1)],
+    collation={"locale": "en", "strength": 2},
+)
+```
+
+Use `await` with the same arguments on an asyncio view. `sort` accepts a sequence of field/direction pairs,
+with directions `1` or `-1`; collation accepts a PyMongo `Collation` or a dictionary. Omitting collation uses
+the collection default. Sorting follows MongoDB's ordering guarantees, including its handling of ties.
+Different filters, projections, sorts, collations and decoding options retain their own results.
+
+Exact `_id` lookups under simple collation and qualifying unique indexes can retain a cached result after
+writes to other documents. Partial, sparse and hashed indexes do not qualify for this optimization.
+Unique-index collation must have a confirmed match: inherited defaults and fully specified explicit matches
+qualify; an explicit collation with omitted defaults may use collection-wide invalidation instead.
+Other eligible single-document queries are refreshed after any write to the collection, including writes
+that could introduce a match for a cached missing result.
+
+Cache invalidation is eventual. A cached read can return its previous value until the manager processes
+the relevant change-stream event. Use the PyMongo collection or a session-bound read when you need to
+immediately observe a preceding write. Additional keyword options execute directly through PyMongo;
+malformed arguments preserve the driver's errors.
+
 ## Bypass conditions
 
 A read bypasses the cache — executing as a normal PyMongo call instead of a lookup or admission — whenever caching
@@ -85,7 +118,7 @@ it safely isn't possible:
 - The collection is a MongoDB view.
 - An aggregation pipeline joins another collection, writes, reports live statistics, or is otherwise
   nondeterministic (for example a `$sample` stage or a `$rand` expression).
-- A `find`, `count_documents`, or `distinct` filter is nondeterministic.
+- A `find_one`, `find`, `count_documents`, or `distinct` filter is nondeterministic.
 - The collection is a time-series collection — MongoDB does not provide change streams for time-series collections,
   so caching bypasses unconditionally for them. If a time-series collection is later replaced with an ordinary
   collection, reads may keep bypassing until a new manager is created, since MongoDB supplies no notification that

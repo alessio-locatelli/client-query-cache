@@ -75,6 +75,19 @@ def _extract_ordered_values(
     return tuple(values)
 
 
+def _collations_match(
+    index_collation: Mapping[str, Any] | None,
+    effective_collation: Mapping[str, Any] | None,
+) -> bool:
+    if index_collation is None or effective_collation is None:
+        return index_collation == effective_collation
+    index_options = dict(index_collation)
+    index_options.pop("version", None)
+    read_options = dict(effective_collation)
+    read_options.pop("version", None)
+    return index_options == read_options
+
+
 def match_unique_key(
     filter_query: object,
     keys: Sequence[UniqueKeyDefinition],
@@ -84,7 +97,7 @@ def match_unique_key(
         return None
     filter_fields = set(filter_query)
     for key in keys:
-        if key.collation != effective_collation:
+        if not _collations_match(key.collation, effective_collation):
             continue
         if filter_fields != set(key.fields):
             continue
