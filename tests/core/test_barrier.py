@@ -91,6 +91,7 @@ def client() -> object:
         math.nan,
         math.inf,
         MAX_BARRIER_TIMEOUT_SECONDS * 2,
+        10**1000,
         True,
         "1",
         None,

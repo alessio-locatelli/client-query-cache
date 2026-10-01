@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import enum
-import math
 import threading
 import time
 from dataclasses import dataclass, field
@@ -124,7 +123,6 @@ def barrier_deadline(timeout: float) -> float:
     if (
         isinstance(timeout, bool)
         or not isinstance(timeout, int | float)
-        or not math.isfinite(timeout)
         or not 0 < timeout <= MAX_BARRIER_TIMEOUT_SECONDS
     ):
         message = (
