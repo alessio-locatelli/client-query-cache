@@ -126,6 +126,14 @@ Activation and acquisition deadline: `server_info()` against an unreachable addr
 
 Ordinary cached reads do not touch any of this: the hit path is unchanged, and the only supervisor change is calling `try_next()` instead of `next()`. Normal-hit overhead, allocation, and many-waiter contention are measured against the runtime code in task 4.1.
 
+## Implemented progress semantics
+
+- Both supervisors iterate with `try_next()`. After each call they route the returned event, if any, then save the stream's resume token and publish its `_data` string as the database's frontier under the same lock or event-loop step that registers waiters. A stream that stops being `alive` without an event takes the existing reconnect path.
+- Opening or reopening a stream publishes nothing: a token reported before the first iteration may precede events the stream has not routed yet. A stream that fails before its first iteration has no resume token, so the supervisor treats it as lost continuity, as it does for an unresumable reopen.
+- A reopen with `resume_after` or `start_after` keeps the frontier and pending waiters. An unresumable reopen clears the database's namespaces, fails pending waiters with `BarrierContinuityError`, and makes the first token published by the next stream the floor below which later targets fail.
+- `wait_for_boundary()` acquires the target from a temporary stream under `pymongo.timeout()`, registers one waiter, and removes it on every exit path. Stopping a supervisor fails pending and later waiters with `BarrierClosedError`.
+- Supervisor threads and tasks run in a fresh `contextvars.Context`.
+
 ## Decisions
 
 1. **Cross-shard transactions on sharded clusters are an unsupported boundary.** The guarantee covers replica sets, including committed transactions, and non-transactional writes on sharded clusters. The library cannot tell from public session state that the last operation committed a transaction, so this is a documented precondition. Applications that commit cross-shard transactions keep reading from the database or polling.

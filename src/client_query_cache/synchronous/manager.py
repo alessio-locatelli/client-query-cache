@@ -3,6 +3,12 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, Self, overload
 
+from client_query_cache._core.barrier import (
+    CausalBoundary,
+    barrier_deadline,
+    capture_boundary,
+    require_owned_boundary,
+)
 from client_query_cache._core.collection_metadata import (
     CollectionMetadata,
     CollectionMetadataCache,
@@ -25,6 +31,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
     from pymongo import MongoClient
+    from pymongo.synchronous.client_session import ClientSession
     from pymongo.synchronous.collection import Collection
 
     from client_query_cache._core.collection_metadata import CollectionProbeResult
@@ -133,6 +140,17 @@ class CacheManager[DocumentType: Mapping[str, Any]]:
             )
             raise ValueError(message)
         return CachedCollection(CachedDatabase(self, collection.database), collection)
+
+    def causal_boundary(self, session: ClientSession) -> CausalBoundary:
+        return capture_boundary(self, self._client, session)
+
+    def wait_for_invalidations(
+        self, database: str, boundary: CausalBoundary, *, timeout: float
+    ) -> None:
+        deadline = barrier_deadline(timeout)
+        require_owned_boundary(self, boundary)
+        supervisor = self._coordinator.activate_database_until(database, deadline)
+        supervisor.wait_for_boundary(boundary.operation_time, deadline)
 
     def close(self) -> None:
         self._coordinator.close()

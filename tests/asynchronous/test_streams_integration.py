@@ -292,14 +292,14 @@ async def test_drop_database_clears_the_cache_and_the_stream_recovers(
     )
 
 
-class _NextFailsOnceStream:
+class _FailingStream:
     __slots__ = ("_error", "_real_stream")
 
     def __init__(self, real_stream: object, error: Exception) -> None:
         self._real_stream = real_stream
         self._error = error
 
-    async def next(self) -> dict[str, object]:
+    async def try_next(self) -> dict[str, object]:
         raise self._error
 
     async def close(self) -> None:
@@ -326,7 +326,7 @@ async def test_recovers_from_a_resumable_disconnection(
         call_count += 1
         real_stream = await original_watch(*args, **kwargs)
         if call_count == 1:
-            return _NextFailsOnceStream(
+            return _FailingStream(
                 real_stream, ConnectionFailure("simulated transient disconnect")
             )
         return real_stream
@@ -380,7 +380,7 @@ async def test_clears_the_cache_when_resume_history_is_lost(
         call_count += 1
         if call_count == 1:
             real_stream = await original_watch(*args, **kwargs)
-            return _NextFailsOnceStream(
+            return _FailingStream(
                 real_stream, ConnectionFailure("simulated transient disconnect")
             )
         if call_count == unresumable_watch_call:
@@ -415,7 +415,7 @@ async def test_clears_the_cache_when_resume_history_is_lost(
 
 
 class _PausingStream:
-    __slots__ = ("_fetched_event", "_real_stream", "_release_event")
+    __slots__ = ("_fetched_event", "_real_stream", "_release_event", "empty_polls")
 
     def __init__(
         self,
@@ -426,12 +426,19 @@ class _PausingStream:
         self._real_stream = real_stream
         self._fetched_event = fetched_event
         self._release_event = release_event
+        self.empty_polls = 0
 
-    async def next(self) -> dict[str, object]:
-        event: dict[str, object] = await self._real_stream.next()  # type: ignore[attr-defined]
-        self._fetched_event.set()
-        await self._release_event.wait()
+    async def try_next(self) -> dict[str, object] | None:
+        event: dict[str, object] | None = await self._real_stream.try_next()  # type: ignore[attr-defined]
+        self.empty_polls += event is None
+        if event is not None:
+            self._fetched_event.set()
+            await self._release_event.wait()
         return event
+
+    @property
+    def alive(self) -> bool:
+        return self._real_stream.alive  # type: ignore[attr-defined,no-any-return]
 
     @property
     def resume_token(self) -> object:
@@ -460,16 +467,20 @@ async def test_a_cache_hit_concurrent_with_event_delivery_may_be_stale_but_not_a
     fetched_event = asyncio.Event()
     release_event = asyncio.Event()
 
+    streams: list[_PausingStream] = []
+
     async def patched_watch(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
         real_stream = await original_watch(*args, **kwargs)
-        return _PausingStream(real_stream, fetched_event, release_event)
+        streams.append(_PausingStream(real_stream, fetched_event, release_event))
+        return streams[-1]
 
     database.watch = patched_watch  # type: ignore[method-assign]
 
     cache = CacheCore()
-    supervisor = make_supervisor(database, cache)
+    supervisor = make_supervisor(database, cache, max_await_time_ms=10)
 
     await supervisor.start()
+    await _wait_until(lambda: streams[0].empty_polls >= 1)
 
     capture = cache.begin_identity_admission(namespace, document_id)
     cache.admit_identity(capture, "full", {"v": before_value})

@@ -29,7 +29,7 @@ use them to decide what to measure on your own deployment before relying on the 
 
 The [initial versioned reports](../reports/stream-cost/v1/) cover idle, read-heavy, balanced, and write-dominant workloads at small, medium, and large document sizes. Each JSON file names its workload and records the revision, versions, resource limits, workload parameters, warmup counters, latency distributions, aggregate elapsed time, process CPU, MongoDB container CPU, and logical cache and stream measurements.
 
-The logical `stream_polls` counter counts manager calls to change-stream iteration. One call can issue multiple MongoDB `getMore` commands before returning an event, so this counter cannot measure wire-command traffic. Actual command counts require command-level observation.
+The logical `stream_polls` counter counts the manager's change-stream iterations. Each iteration issues at most one `getMore`, but automatic resumes add other commands, so this counter still isn't a measure of wire-command traffic. Actual command counts require command-level observation. Compare `stream_polls` only between reports from the same revision.
 
 Run the same matrix locally with an isolated MongoDB replica set:
 

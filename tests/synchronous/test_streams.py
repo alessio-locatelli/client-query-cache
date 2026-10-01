@@ -1,24 +1,35 @@
 from __future__ import annotations
 
+import contextvars
 import datetime
 import threading
 import time
 import uuid
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import suppress
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import Mock
 
+import pymongo
 import pytest
+from bson import Timestamp
 from bson.binary import UuidRepresentation
 from bson.codec_options import CodecOptions
-from pymongo.errors import ConnectionFailure, OperationFailure
+from pymongo.errors import ConnectionFailure, NetworkTimeout, OperationFailure
 
 from client_query_cache._core.entries import AdmissionOutcome
-from client_query_cache._core.errors import StreamLifecycleError, StreamStartupError
+from client_query_cache._core.errors import (
+    BarrierClosedError,
+    BarrierContinuityError,
+    BarrierTimeoutError,
+    BarrierUnavailableError,
+    StreamLifecycleError,
+    StreamStartupError,
+)
 from client_query_cache._core.keys import NamespaceId
 from client_query_cache._core.manager import CacheCore
+from client_query_cache._core.stream_events import CHANGE_STREAM_HISTORY_LOST_CODE
 from client_query_cache._core.stream_health import RetryBackoff, StreamHealth
 from client_query_cache.synchronous.streams import (
     ChangeStreamCoordinator,
@@ -33,6 +44,7 @@ if TYPE_CHECKING:
 pytestmark = pytest.mark.unit
 
 _FAST_BACKOFF = RetryBackoff(base_seconds=0.001, max_seconds=0.002)
+_BOUNDARY = Timestamp(1_700_000_000, 7)
 _WALL_TIME = datetime.datetime(2024, 1, 1, tzinfo=datetime.UTC)
 
 
@@ -45,41 +57,66 @@ class _FixedDelayBackoff:
     def next_delay(self) -> float:
         return self._delay
 
-    def reset(self) -> None:
-        pass
-
 
 def _long_backoff(delay: float = 5.0) -> RetryBackoff:
     return cast("RetryBackoff", _FixedDelayBackoff(delay))
 
 
+class _EmptyBatch:
+    __slots__ = ("token",)
+
+    def __init__(self, token: str) -> None:
+        self.token: dict[str, object] = {"_data": token}
+
+
 class _ScriptedStream:
-    __slots__ = ("_closed_event", "_events", "closed", "resume_token")
+    __slots__ = ("_changed", "_events", "alive", "closed", "resume_token")
 
     def __init__(self, events: list[object]) -> None:
         self._events = list(events)
         self.resume_token: dict[str, object] | None = None
+        self.alive = True
         self.closed = False
-        self._closed_event = threading.Event()
+        self._changed = threading.Event()
 
-    def next(self) -> dict[str, object]:
-        if not self._events:
-            self._closed_event.wait()
-            raise StopIteration
+    def push(self, item: object) -> None:
+        self._events.append(item)
+        self._changed.set()
+
+    def try_next(self) -> dict[str, object] | None:
+        while not self._events:
+            if self.closed:
+                self.alive = False
+                return None
+            self._changed.wait()
+            self._changed.clear()
         item = self._events.pop(0)
+        if isinstance(item, StopIteration):
+            self.alive = False
+            return None
         if isinstance(item, Exception):
             raise item
+        if isinstance(item, _EmptyBatch):
+            self.resume_token = item.token
+            return None
         assert isinstance(item, dict)
-        try:
-            resume_token = item["_id"]
-        except KeyError:
-            resume_token = self.resume_token
-        self.resume_token = resume_token
+        self.resume_token = item["_id"]
         return item
 
     def close(self) -> None:
         self.closed = True
-        self._closed_event.set()
+        self._changed.set()
+
+
+class _TargetStream:
+    __slots__ = ("closed", "resume_token")
+
+    def __init__(self, token: str) -> None:
+        self.resume_token = {"_data": token}
+        self.closed = False
+
+    def close(self) -> None:
+        self.closed = True
 
 
 class _BlockingCloseStream(_ScriptedStream):
@@ -97,16 +134,17 @@ class _BlockingCloseStream(_ScriptedStream):
 
 
 class _CloseRaisesStream:
-    __slots__ = ("close_started", "release_next", "resume_token")
+    __slots__ = ("alive", "close_started", "release_next", "resume_token")
 
     def __init__(self) -> None:
         self.close_started = threading.Event()
         self.release_next = threading.Event()
-        self.resume_token: dict[str, object] | None = None
+        self.resume_token = {"_data": "0"}
+        self.alive = True
 
-    def next(self) -> dict[str, object]:
+    def try_next(self) -> None:
         self.release_next.wait(timeout=2)
-        raise StopIteration
+        self.alive = False
 
     def close(self) -> None:
         self.close_started.set()
@@ -119,9 +157,9 @@ class _StreamStopsThenFails:
     def __init__(self, stop_event: threading.Event, error: Exception) -> None:
         self._stop_event = stop_event
         self._error = error
-        self.resume_token: dict[str, object] | None = None
+        self.resume_token = {"_data": "0"}
 
-    def next(self) -> dict[str, object]:
+    def try_next(self) -> dict[str, object]:
         self._stop_event.set()
         raise self._error
 
@@ -159,7 +197,7 @@ class _FakeDatabase:
         self.watch_calls: list[dict[str, object]] = []
         self._before_watch = before_watch
 
-    def watch(self, _pipeline: object, **kwargs: object) -> object:
+    def watch(self, _pipeline: object = None, **kwargs: object) -> object:
         index = len(self.watch_calls)
         self.watch_calls.append(kwargs)
         if self._before_watch is not None:
@@ -184,9 +222,29 @@ def _is_healthy(supervisor: DatabaseStreamSupervisor) -> bool:
     return supervisor.healthy
 
 
+def _deadline(seconds: float = 2.0) -> float:
+    return time.monotonic() + seconds
+
+
+def _start_barrier(
+    executor: ThreadPoolExecutor,
+    supervisor: DatabaseStreamSupervisor,
+    *,
+    seconds: float = 2.0,
+) -> Future[None]:
+    waiters_before = len(supervisor._progress._waiters)
+    barrier = executor.submit(
+        supervisor.wait_for_boundary, _BOUNDARY, _deadline(seconds)
+    )
+    _wait_until(
+        lambda: barrier.done() or len(supervisor._progress._waiters) > waiters_before
+    )
+    return barrier
+
+
 def _insert_event(marker: str = "tok-1") -> dict[str, object]:
     return {
-        "_id": {"tok": marker},
+        "_id": {"_data": marker},
         "operationType": "insert",
         "ns": {"db": "db", "coll": "coll"},
         "documentKey": {"_id": "doc-1"},
@@ -209,6 +267,16 @@ def _wait_until(predicate: Callable[[], bool], *, timeout: float = 2.0) -> None:
     pytest.fail(  # pragma: no cover (test timeout diagnostic)
         "condition was not met within the timeout"
     )
+
+
+@pytest.fixture
+def caller_marker() -> Iterator[contextvars.ContextVar[str]]:
+    marker: contextvars.ContextVar[str] = contextvars.ContextVar(
+        "marker", default="fresh"
+    )
+    token = marker.set("caller")
+    yield marker
+    marker.reset(token)
 
 
 @pytest.fixture
@@ -241,15 +309,6 @@ def make_coordinator() -> Iterator[Callable[..., ChangeStreamCoordinator]]:
     yield _make
     for coordinator in coordinators:
         coordinator.close()
-
-
-def test_fixed_delay_backoff_returns_the_configured_delay_and_ignores_reset() -> None:
-    delay = 2.5
-    backoff = _FixedDelayBackoff(delay)
-
-    assert backoff.next_delay() == delay
-    backoff.reset()
-    assert backoff.next_delay() == delay
 
 
 @pytest.mark.parametrize(
@@ -428,7 +487,7 @@ def test_reconnects_using_the_saved_resume_token(
 
     supervisor.start()
     _wait_until(lambda: len(database.watch_calls) == watch_calls_after_reconnect)
-    assert database.watch_calls[1]["resume_after"] == {"tok": "tok-1"}
+    assert database.watch_calls[1]["resume_after"] == {"_data": "tok-1"}
     assert "start_after" not in database.watch_calls[1]
     _wait_until(lambda: supervisor.healthy)
     _wait_until(lambda: stream1.closed)
@@ -466,10 +525,10 @@ def test_a_stop_racing_a_successful_reopen_does_not_report_healthy(
             supervisor._stop_event.set()
 
     database._before_watch = before_watch
-    watch_calls_after_reopen = 2
+    reopen_calls = 2
 
     supervisor.start()
-    _wait_until(lambda: len(database.watch_calls) == watch_calls_after_reopen)
+    _wait_until(lambda: len(database.watch_calls) == reopen_calls)
     assert supervisor._thread is not None
     supervisor._thread.join(timeout=2)
 
@@ -622,7 +681,7 @@ def test_unexpected_stream_closure_triggers_reconnect_instead_of_staying_healthy
     _wait_until(lambda: supervisor.healthy)
 
 
-def test_stream_poll_is_counted_even_when_next_raises(
+def test_stream_poll_is_counted_even_when_iteration_raises(
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
 ) -> None:
     cache = CacheCore()
@@ -639,6 +698,7 @@ def test_stream_survives_events_with_non_default_codec_values(
 ) -> None:
     cache = CacheCore()
     event = {
+        "_id": {"_data": "01"},
         "operationType": "insert",
         "ns": {"db": "db", "coll": "coll"},
         "documentKey": {"_id": uuid.uuid4()},
@@ -667,6 +727,7 @@ def test_invalidation_survives_unencodable_logical_bytes(
     capture = cache.begin_identity_admission(namespace, "doc-1")
     cache.admit_identity(capture, "full", {"v": 1})
     event = {
+        "_id": {"_data": "01"},
         "operationType": "insert",
         "ns": {"db": "db", "coll": "coll"},
         "documentKey": {"_id": "doc-1", "unencodable": _Unencodable()},
@@ -748,7 +809,7 @@ def test_clears_known_namespaces_when_resume_history_is_lost(
     [
         pytest.param(
             {
-                "_id": {"tok": "drop"},
+                "_id": {"_data": "drop"},
                 "operationType": "dropDatabase",
                 "wallTime": _WALL_TIME,
             },
@@ -756,7 +817,7 @@ def test_clears_known_namespaces_when_resume_history_is_lost(
         ),
         pytest.param(
             {
-                "_id": {"tok": "inv"},
+                "_id": {"_data": "inv"},
                 "operationType": "invalidate",
                 "wallTime": _WALL_TIME,
             },
@@ -773,10 +834,10 @@ def test_reopens_with_start_after_following_a_database_invalidation_event(
     stream1 = _ScriptedStream([_insert_event("tok-1"), invalidate_event])
     database = _FakeDatabase("db", [stream1, _ScriptedStream([])])
     supervisor = make_supervisor(_as_database(database), cache, backoff=_FAST_BACKOFF)
-    watch_calls_after_reopen = 2
+    reopen_calls = 2
 
     supervisor.start()
-    _wait_until(lambda: len(database.watch_calls) == watch_calls_after_reopen)
+    _wait_until(lambda: len(database.watch_calls) == reopen_calls)
     assert database.watch_calls[1]["start_after"] == invalidate_event["_id"]
     assert "resume_after" not in database.watch_calls[1]
     calls_to_clear = 2
@@ -989,3 +1050,325 @@ def test_a_fresh_start_clears_cache_state_left_over_from_before_it_existed(
     _wait_until(lambda: supervisor.healthy)
 
     assert cache.lookup_identity(namespace, "doc-1", "full").hit is False
+
+
+@pytest.fixture
+def executor() -> Iterator[ThreadPoolExecutor]:
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        yield pool
+
+
+def test_a_barrier_waits_for_every_event_sharing_the_boundary_time(
+    make_supervisor: Callable[..., DatabaseStreamSupervisor],
+    executor: ThreadPoolExecutor,
+) -> None:
+    cache = _mock_cache()
+    stream = _ScriptedStream([])
+    database = _FakeDatabase("db", [stream, _TargetStream("11")])
+    supervisor = make_supervisor(_as_database(database), cache)
+    supervisor.start()
+    barrier = _start_barrier(executor, supervisor)
+    group_size = 3
+
+    for marker in ("10a", "10b", "10c"):
+        stream.push(_insert_event(marker))
+    _wait_until(lambda: cache.record_write.call_count == group_size)
+    assert not barrier.done()
+    stream.push(_EmptyBatch("11"))
+
+    assert barrier.result(timeout=2) is None
+    assert database.watch_calls[1]["start_at_operation_time"] == Timestamp(
+        1_700_000_000, 8
+    )
+    assert database.watch_calls[1]["batch_size"] == 0
+
+
+def test_receiving_an_event_does_not_release_a_barrier_before_routing_it(
+    make_supervisor: Callable[..., DatabaseStreamSupervisor],
+    executor: ThreadPoolExecutor,
+) -> None:
+    routing_started = threading.Event()
+    release_routing = threading.Event()
+    cache = _mock_cache()
+
+    def _blocking_record_write(*_args: object) -> None:
+        routing_started.set()
+        release_routing.wait(timeout=2)
+
+    cache.record_write.side_effect = _blocking_record_write
+    stream = _ScriptedStream([])
+    database = _FakeDatabase("db", [stream, _TargetStream("11")])
+    supervisor = make_supervisor(_as_database(database), cache)
+    supervisor.start()
+    barrier = _start_barrier(executor, supervisor)
+
+    stream.push(_insert_event("12"))
+    assert routing_started.wait(timeout=2)
+    assert not barrier.done()
+    release_routing.set()
+
+    assert barrier.result(timeout=2) is None
+
+
+@pytest.mark.parametrize(
+    ("pushed_before", "pushed_after"),
+    [
+        pytest.param([_EmptyBatch("12")], [], id="frontier_already_passed"),
+        pytest.param([], [_EmptyBatch("11")], id="filtered_or_empty_batch"),
+    ],
+)
+def test_a_barrier_completes_from_resume_progress_without_a_relevant_event(
+    make_supervisor: Callable[..., DatabaseStreamSupervisor],
+    executor: ThreadPoolExecutor,
+    pushed_before: list[object],
+    pushed_after: list[object],
+) -> None:
+    cache = _mock_cache()
+    stream = _ScriptedStream(pushed_before)
+    database = _FakeDatabase("db", [stream, _TargetStream("11")])
+    supervisor = make_supervisor(_as_database(database), cache)
+    supervisor.start()
+    _wait_until(lambda: supervisor._progress._frontier is not None or not pushed_before)
+    barrier = _start_barrier(executor, supervisor)
+
+    for item in pushed_after:
+        stream.push(item)
+
+    assert barrier.result(timeout=2) is None
+    cache.record_write.assert_not_called()
+    assert not supervisor._progress._waiters
+
+
+@pytest.mark.parametrize(
+    ("interruption", "reopen_option"),
+    [
+        pytest.param(
+            [_insert_event("10"), OperationFailure("blip", code=1)],
+            "resume_after",
+            id="resumable_failure",
+        ),
+        pytest.param(
+            [
+                {
+                    "_id": {"_data": "10"},
+                    "operationType": "invalidate",
+                    "wallTime": _WALL_TIME,
+                }
+            ],
+            "start_after",
+            id="invalidation",
+        ),
+    ],
+)
+def test_a_continuous_reopen_keeps_a_pending_barrier(
+    make_supervisor: Callable[..., DatabaseStreamSupervisor],
+    executor: ThreadPoolExecutor,
+    interruption: list[object],
+    reopen_option: str,
+) -> None:
+    stream1 = _ScriptedStream([])
+    stream2 = _ScriptedStream([])
+    database = _FakeDatabase("db", [stream1, _TargetStream("11"), stream2])
+    supervisor = make_supervisor(
+        _as_database(database), _mock_cache(), backoff=_FAST_BACKOFF
+    )
+    supervisor.start()
+    barrier = _start_barrier(executor, supervisor)
+    reopen_calls = 3
+
+    for item in interruption:
+        stream1.push(item)
+    _wait_until(
+        lambda: supervisor.healthy and len(database.watch_calls) == reopen_calls
+    )
+    assert not barrier.done()
+    stream2.push(_EmptyBatch("11"))
+
+    assert barrier.result(timeout=2) is None
+    assert database.watch_calls[2][reopen_option] == {"_data": "10"}
+
+
+def test_losing_resume_history_fails_pending_and_older_barriers(
+    make_supervisor: Callable[..., DatabaseStreamSupervisor],
+    executor: ThreadPoolExecutor,
+) -> None:
+    stream1 = _ScriptedStream([])
+    recovered = _ScriptedStream([_EmptyBatch("20")])
+    database = _FakeDatabase(
+        "db",
+        [
+            stream1,
+            _TargetStream("11"),
+            OperationFailure("history lost", code=CHANGE_STREAM_HISTORY_LOST_CODE),
+            recovered,
+            _TargetStream("15"),
+            _TargetStream("25"),
+        ],
+    )
+    supervisor = make_supervisor(
+        _as_database(database), _mock_cache(), backoff=_FAST_BACKOFF
+    )
+    supervisor.start()
+    pending = _start_barrier(executor, supervisor)
+
+    stream1.push(_EmptyBatch("05"))
+    stream1.push(OperationFailure("blip", code=1))
+
+    with pytest.raises(BarrierContinuityError):
+        pending.result(timeout=2)
+    _wait_until(lambda: supervisor._progress._floor == "20")
+    with pytest.raises(BarrierContinuityError):
+        supervisor.wait_for_boundary(_BOUNDARY, _deadline())
+    newer = _start_barrier(executor, supervisor)
+    recovered.push(_EmptyBatch("25"))
+    assert newer.result(timeout=2) is None
+    assert database.watch_calls[2]["resume_after"] == {"_data": "05"}
+    assert "resume_after" not in database.watch_calls[3]
+
+
+def test_stopping_the_supervisor_fails_pending_and_later_barriers(
+    make_supervisor: Callable[..., DatabaseStreamSupervisor],
+    executor: ThreadPoolExecutor,
+) -> None:
+    database = _FakeDatabase(
+        "db", [_ScriptedStream([]), _TargetStream("11"), _TargetStream("11")]
+    )
+    supervisor = make_supervisor(_as_database(database), _mock_cache())
+    supervisor.start()
+    pending = _start_barrier(executor, supervisor)
+    watch_calls_for_both_barriers = 3
+
+    supervisor.stop()
+
+    with pytest.raises(BarrierClosedError):
+        pending.result(timeout=2)
+    with pytest.raises(BarrierClosedError):
+        supervisor.wait_for_boundary(_BOUNDARY, _deadline())
+    assert len(database.watch_calls) == watch_calls_for_both_barriers
+
+
+def test_a_barrier_times_out_and_releases_its_waiter(
+    make_supervisor: Callable[..., DatabaseStreamSupervisor],
+) -> None:
+    database = _FakeDatabase("db", [_ScriptedStream([]), _TargetStream("11")])
+    supervisor = make_supervisor(_as_database(database), _mock_cache())
+    supervisor.start()
+
+    with pytest.raises(BarrierTimeoutError):
+        supervisor.wait_for_boundary(_BOUNDARY, _deadline(0.05))
+
+    assert not supervisor._progress._waiters
+
+
+@pytest.mark.parametrize(
+    ("failure", "error"),
+    [
+        pytest.param(NetworkTimeout("slow"), BarrierTimeoutError, id="timeout"),
+        pytest.param(
+            OperationFailure("gone", code=CHANGE_STREAM_HISTORY_LOST_CODE),
+            BarrierContinuityError,
+            id="history_lost",
+        ),
+        pytest.param(ConnectionFailure("down"), BarrierUnavailableError, id="other"),
+    ],
+)
+def test_a_failed_target_acquisition_raises_an_explicit_barrier_error(
+    make_supervisor: Callable[..., DatabaseStreamSupervisor],
+    failure: Exception,
+    error: type[Exception],
+) -> None:
+    database = _FakeDatabase("db", [_ScriptedStream([]), failure])
+    supervisor = make_supervisor(_as_database(database), _mock_cache())
+    supervisor.start()
+
+    with pytest.raises(error):
+        supervisor.wait_for_boundary(_BOUNDARY, _deadline())
+
+    assert not supervisor._progress._waiters
+
+
+def test_the_stream_worker_does_not_inherit_the_starting_callers_context(
+    make_supervisor: Callable[..., DatabaseStreamSupervisor],
+    caller_marker: contextvars.ContextVar[str],
+) -> None:
+    seen: list[str] = []
+
+    class _RecordingStream(_ScriptedStream):
+        __slots__ = ()
+
+        def try_next(self) -> dict[str, object] | None:
+            seen.append(caller_marker.get())
+            return super().try_next()
+
+    database = _FakeDatabase("db", [_RecordingStream([_insert_event()])])
+    supervisor = make_supervisor(_as_database(database), _mock_cache())
+    assert caller_marker.get() == "caller"
+
+    with pymongo.timeout(5):
+        supervisor.start()
+
+    _wait_until(lambda: len(seen) >= 1)
+    assert seen[0] == "fresh"
+
+
+def test_barrier_activation_reuses_the_permanent_stream(
+    make_coordinator: Callable[..., ChangeStreamCoordinator],
+) -> None:
+    database = _FakeDatabase("db", [_ScriptedStream([])])
+    client = Mock()
+    client.__getitem__ = Mock(return_value=_as_database(database))
+    coordinator = make_coordinator(client, _mock_cache())
+
+    activated = coordinator.activate_database_until("db", _deadline())
+
+    assert coordinator.activate_database("db") is activated
+    assert coordinator.activate_database_until("db", _deadline()) is activated
+    assert len(database.watch_calls) == 1
+
+
+@pytest.mark.parametrize(
+    ("script", "version_array", "error"),
+    [
+        pytest.param([], [5, 0, 9], BarrierUnavailableError, id="unsupported_server"),
+        pytest.param(
+            [ConnectionFailure("down")], None, BarrierUnavailableError, id="failure"
+        ),
+        pytest.param(
+            [NetworkTimeout("slow")], None, BarrierTimeoutError, id="driver_timeout"
+        ),
+    ],
+)
+def test_barrier_activation_failures_raise_explicit_errors_and_leave_no_stream(
+    make_coordinator: Callable[..., ChangeStreamCoordinator],
+    script: list[object],
+    version_array: list[int] | None,
+    error: type[Exception],
+) -> None:
+    database = _FakeDatabase("db", script, version_array=version_array)
+    client = Mock()
+    client.__getitem__ = Mock(return_value=_as_database(database))
+    coordinator = make_coordinator(client, CacheCore())
+
+    with pytest.raises(error):
+        coordinator.activate_database_until("db", _deadline())
+
+    assert not coordinator._supervisors
+
+
+def test_barrier_activation_after_close_raises_closed(
+    make_coordinator: Callable[..., ChangeStreamCoordinator],
+) -> None:
+    coordinator = make_coordinator(Mock(), _mock_cache())
+    coordinator.close()
+
+    with pytest.raises(BarrierClosedError):
+        coordinator.activate_database_until("db", _deadline())
+
+
+def test_barrier_activation_stops_waiting_for_a_busy_coordinator_at_its_deadline(
+    make_coordinator: Callable[..., ChangeStreamCoordinator],
+) -> None:
+    coordinator = make_coordinator(Mock(), _mock_cache())
+
+    with coordinator._lock, pytest.raises(BarrierTimeoutError):
+        coordinator.activate_database_until("db", _deadline(0.05))

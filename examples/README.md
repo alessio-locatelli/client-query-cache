@@ -2,6 +2,8 @@
 
 Each example is a complete program that adds `client-query-cache` to a real library that already stores its data in MongoDB. Writes still go to PyMongo, and the library's reads are served from the cache. Each run prints cache statistics as evidence that repeated reads came from the cache and that a later write invalidated the cached entry, and exits with an error if either did not happen.
 
+These libraries write through their own PyMongo calls without exposing the session they use, so there is no write position to pass to [`wait_for_invalidations()`](../docs/api-reference.md#waiting-for-your-own-writes). After a write, each example instead polls through the library until the cached entry is invalidated.
+
 ## Prerequisites
 
 - A MongoDB 8.0+ replica set. The repository's [`docker-compose.yaml`](../docker-compose.yaml) starts one on `localhost:27017`, which the examples use by default. To use another deployment, set `MONGODB_URI` to its connection string.

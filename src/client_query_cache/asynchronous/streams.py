@@ -2,14 +2,29 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import contextvars
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import bson
+import pymongo
 from bson.errors import BSONError
 from pymongo.errors import OperationFailure, PyMongoError
 
-from client_query_cache._core.errors import StreamLifecycleError, StreamStartupError
+from client_query_cache._core.barrier import (
+    BarrierOutcome,
+    BarrierProgress,
+    barrier_error_for_driver_failure,
+    barrier_error_for_startup_failure,
+    raise_for_outcome,
+    remaining_seconds,
+    target_start_time,
+)
+from client_query_cache._core.errors import (
+    BarrierClosedError,
+    StreamLifecycleError,
+    StreamStartupError,
+)
 from client_query_cache._core.stream_events import (
     build_change_stream_pipeline,
     is_unresumable_change_stream_error,
@@ -21,6 +36,7 @@ from client_query_cache._core.stream_options import DEFAULT_MAX_AWAIT_TIME_MS
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
+    from bson import Timestamp
     from pymongo import AsyncMongoClient
     from pymongo.asynchronous.change_stream import AsyncDatabaseChangeStream
     from pymongo.asynchronous.database import AsyncDatabase
@@ -32,13 +48,27 @@ MINIMUM_SERVER_VERSION = (8, 0)
 logger = logging.getLogger(__name__)
 
 
+class _FutureWaiter:
+    __slots__ = ("future", "target")
+
+    def __init__(self, target: str, future: asyncio.Future[BarrierOutcome]) -> None:
+        self.target = target
+        self.future = future
+
+    def resolve(self, outcome: BarrierOutcome) -> None:
+        if not self.future.done():
+            self.future.set_result(outcome)
+
+
 class DatabaseStreamSupervisor:
     __slots__ = (
         "_backoff",
         "_cache",
+        "_continuity_lost",
         "_database",
         "_health",
         "_max_await_time_ms",
+        "_progress",
         "_resume_token",
         "_stop_event",
         "_stream",
@@ -60,6 +90,8 @@ class DatabaseStreamSupervisor:
         self._health = StreamHealth.STARTING
         self._stream: AsyncDatabaseChangeStream[Any] | None = None
         self._resume_token: Mapping[str, Any] | None = None
+        self._continuity_lost = False
+        self._progress = BarrierProgress()
         self._stop_event = asyncio.Event()
         self._task: asyncio.Task[None] | None = None
         self._cache.set_database_available(self._database.name, available=False)
@@ -101,11 +133,14 @@ class DatabaseStreamSupervisor:
             message = "stop() was called while start() was still connecting"
             raise StreamLifecycleError(message)
         self._set_health(StreamHealth.HEALTHY)
-        self._task = asyncio.ensure_future(self._run())
+        self._task = asyncio.get_running_loop().create_task(
+            self._run(), context=contextvars.Context()
+        )
 
     async def stop(self) -> None:
         self._stop_event.set()
         self._set_health(StreamHealth.CLOSED)
+        self._progress.close()
         task = self._task
         if task is not None:
             task.cancel()
@@ -176,15 +211,57 @@ class DatabaseStreamSupervisor:
             assert self._stream is not None
             self._cache.record_stream_poll(self._database.name)
             try:
-                event = await self._stream.next()
-            except StopAsyncIteration, PyMongoError:
+                event = await self._stream.try_next()
+            except PyMongoError:
                 await self._handle_stream_failure()
                 continue
-            self._resume_token = self._stream.resume_token
+            token = cast("Mapping[str, Any]", self._stream.resume_token)
+            if event is None:
+                if not self._stream.alive:
+                    await self._handle_stream_failure()
+                    continue
+                self._publish_progress(token)
+                continue
             must_reopen = route_change_event(self._cache, self._database.name, event)
             self._record_logical_event_bytes(event)
+            self._publish_progress(token)
             if must_reopen:
                 await self._reopen_after_invalidate()
+
+    def _publish_progress(self, token: Mapping[str, Any]) -> None:
+        self._resume_token = token
+        if self._continuity_lost:
+            self._continuity_lost = False
+            self._progress.restart(token["_data"])
+        else:
+            self._progress.advance(token["_data"])
+
+    async def wait_for_boundary(
+        self, operation_time: Timestamp, deadline: float
+    ) -> None:
+        target = await self._acquire_target(operation_time, deadline)
+        waiter = _FutureWaiter(target, asyncio.get_running_loop().create_future())
+        outcome = self._progress.register(waiter)
+        if outcome is None:
+            try:
+                outcome = await waiter.future
+            finally:
+                self._progress.discard(waiter)
+        raise_for_outcome(outcome)
+
+    async def _acquire_target(self, operation_time: Timestamp, deadline: float) -> str:
+        try:
+            with pymongo.timeout(remaining_seconds(deadline)):
+                stream = await self._database.watch(
+                    start_at_operation_time=target_start_time(operation_time),
+                    batch_size=0,
+                )
+                token = cast("Mapping[str, Any]", stream.resume_token)
+                with contextlib.suppress(PyMongoError):
+                    await stream.close()
+        except PyMongoError as exc:
+            raise barrier_error_for_driver_failure(exc) from exc
+        return cast("str", token["_data"])
 
     def _record_logical_event_bytes(self, event: Mapping[str, Any]) -> None:
         try:
@@ -200,7 +277,7 @@ class DatabaseStreamSupervisor:
             return
         self._set_health(StreamHealth.RECONNECTING)
         if self._resume_token is None:
-            self._clear_namespaces_for_database()
+            self._lose_continuity()
         await self._reopen_with_backoff(use_start_after=False)
 
     async def _reopen_after_invalidate(self) -> None:
@@ -217,8 +294,7 @@ class DatabaseStreamSupervisor:
                 if isinstance(
                     exc, OperationFailure
                 ) and is_unresumable_change_stream_error(exc):
-                    self._clear_namespaces_for_database()
-                    self._resume_token = None
+                    self._lose_continuity()
                     use_start_after = False
                     continue
                 delay = self._backoff.next_delay()
@@ -235,6 +311,12 @@ class DatabaseStreamSupervisor:
                 if not self._stop_event.is_set():
                     self._set_health(StreamHealth.HEALTHY)
                 return
+
+    def _lose_continuity(self) -> None:
+        self._clear_namespaces_for_database()
+        self._resume_token = None
+        self._continuity_lost = True
+        self._progress.lose_continuity()
 
     def _clear_namespaces_for_database(self) -> None:
         for namespace in self._cache.namespaces_for_database(self._database.name):
@@ -271,25 +353,48 @@ class ChangeStreamCoordinator:
             if self._closed:
                 raise StreamLifecycleError("coordinator is closed")
             try:
-                supervisor = self._supervisors[name]
+                return self._supervisors[name]
             except KeyError:
-                supervisor = DatabaseStreamSupervisor(
-                    self._client[name],
-                    self._cache,
-                    max_await_time_ms=self._max_await_time_ms,
-                )
-                try:
-                    await supervisor.start()
-                except StreamStartupError:
-                    logger.warning(
-                        "change stream startup failed for database %r; reads for "
-                        "this database will bypass the cache",
-                        name,
-                        exc_info=True,
-                    )
-                    return None
-                self._supervisors[name] = supervisor
-            return supervisor
+                pass
+            try:
+                return await self._start_supervisor(name)
+            except StreamStartupError:
+                return None
+
+    async def activate_database_until(
+        self, name: str, deadline: float
+    ) -> DatabaseStreamSupervisor:
+        async with self._lock:
+            if self._closed:
+                raise BarrierClosedError("the manager was closed")
+            try:
+                return self._supervisors[name]
+            except KeyError:
+                pass
+            try:
+                with pymongo.timeout(remaining_seconds(deadline)):
+                    return await self._start_supervisor(name)
+            except StreamStartupError as exc:
+                raise barrier_error_for_startup_failure(exc) from exc
+
+    async def _start_supervisor(self, name: str) -> DatabaseStreamSupervisor:
+        supervisor = DatabaseStreamSupervisor(
+            self._client[name],
+            self._cache,
+            max_await_time_ms=self._max_await_time_ms,
+        )
+        try:
+            await supervisor.start()
+        except StreamStartupError:
+            logger.warning(
+                "change stream startup failed for database %r; reads for "
+                "this database will bypass the cache",
+                name,
+                exc_info=True,
+            )
+            raise
+        self._supervisors[name] = supervisor
+        return supervisor
 
     async def close(self) -> None:
         async with self._lock:

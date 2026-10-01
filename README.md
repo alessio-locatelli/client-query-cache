@@ -71,7 +71,7 @@ cached_collection.find_one(
 )
 ```
 
-Exact `_id` lookups and qualifying unique indexes allow cached reads to survive writes to other documents. Other queries are refreshed after any write to the collection. Updates become visible after the manager processes their change-stream events; use the PyMongo collection for reads that must immediately observe a preceding write.
+Exact `_id` lookups and qualifying unique indexes allow cached reads to survive writes to other documents. Other queries are refreshed after any write to the collection. Updates become visible after the manager processes their change-stream events. To make cached reads reflect a write you just made, capture the write's session position and wait for it with `cache_manager.wait_for_invalidations()` (see [Waiting for your own writes](docs/api-reference.md#waiting-for-your-own-writes)), or read through the PyMongo collection.
 
 `CacheManager` starts a background change-stream task the first time a read touches a database, so close it (or use it as a context manager, as above) alongside the client — closing only the client leaves that background task running against a closed connection.
 

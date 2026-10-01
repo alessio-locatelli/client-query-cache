@@ -57,7 +57,8 @@ writes and schema changes occur.
   an independent write may still return the pre-write value until this library's change-stream worker processes
   that write's event; once processed, every later read is guaranteed to see the invalidation. This is not a
   per-write barrier — it does not wait for "catch-up" on every read, only guarantees that a processed write is never
-  silently missed.
+  silently missed. An application that needs cached reads to reflect a specific write waits for it explicitly with
+  `wait_for_invalidations()`; see [Waiting for your own writes](api-reference.md#waiting-for-your-own-writes).
 
 ### Why only reads are cached
 
@@ -71,11 +72,13 @@ Writes always execute directly against MongoDB through PyMongo's own collection 
   serving from a cache that might have missed an invalidation.
 - **Unresumable interruptions**: if the stream's resume position is no longer available on the server (for example,
   after an extended outage), the affected database's cache is cleared before the stream reopens, rather than assumed
-  safe.
+  safe. Any `wait_for_invalidations()` call pending on that database fails with `BarrierContinuityError`, as does a
+  later call whose boundary precedes the reopened stream.
 - **Errors raised to callers** are narrow and mean the caller asked for something the cache genuinely cannot do:
   `CacheConfigurationError` (invalid `CacheCoreConfig` values), `CacheClosedError` (a cached read attempted after
   `cache_manager.close()`), and `UnsupportedCacheRequestError` (`find()` with a tailable/exhaust/partial-result option, or
-  `aggregate()` with a `$changeStream` pipeline — use `.raw` for these). See the
+  `aggregate()` with a `$changeStream` pipeline — use `.raw` for these). `wait_for_invalidations()` additionally
+  raises the barrier errors when it cannot prove that a write was applied in time. See the
   [API reference's error table](api-reference.md#errors) for the complete list.
 - **Everything else bypasses instead of raising.** An incompatible read preference or read concern, a session-bound
   read, a nondeterministic filter or pipeline, a view, a time-series collection, an oversized result, or a database
@@ -96,7 +99,8 @@ Writes always execute directly against MongoDB through PyMongo's own collection 
   `cache_manager.cache_core.active_stream_cost_databases()` lists which databases currently have telemetry. This is the
   same telemetry the [stream-cost benchmark suite](stream-cost-benchmarks.md) uses; the lag samples carry an
   explicit clock-skew disclaimer since they compare the MongoDB server's clock to your application host's.
-  The `stream_polls` field counts calls to change-stream iteration; one call can issue multiple `getMore` commands.
+  The `stream_polls` field counts change-stream iterations; each issues at most one `getMore`, plus the commands
+  of an automatic resume.
 
 ### OpenTelemetry metrics
 
@@ -155,6 +159,8 @@ pin a connection to the cursor for its entire lifetime (outside of session-pinni
 database competes for pool connections the same way one more long-running caller would, rather than permanently
 reserving one. If you activate caching for many databases through one client, size that client's `maxPoolSize` with
 that many concurrent long-poll consumers in mind, alongside your application's own concurrent reads and writes.
+Each `wait_for_invalidations()` call also borrows a connection briefly to open and close one short-lived
+change-stream cursor.
 
 ## Recovery behavior
 

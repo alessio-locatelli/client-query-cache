@@ -1,11 +1,19 @@
+import math
+import time
 from operator import itemgetter
 from typing import TYPE_CHECKING, Any
 
 import pytest
+from bson import Timestamp
 from bson.codec_options import CodecOptions
 from pymongo import MongoClient, ReadPreference
 from pymongo.synchronous.database import Database
 
+from client_query_cache._core.errors import (
+    BarrierArgumentError,
+    BarrierClosedError,
+    BarrierTimeoutError,
+)
 from client_query_cache._core.keys import NamespaceId
 from client_query_cache._core.lifecycle import CacheLifecycleState
 from client_query_cache.synchronous.collection import CachedCollection
@@ -13,9 +21,11 @@ from client_query_cache.synchronous.database import CachedDatabase
 from client_query_cache.synchronous.manager import CacheManager
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterator
 
     from pymongo.synchronous.collection import Collection
+
+    from client_query_cache._core.barrier import CausalBoundary
 
 pytestmark = pytest.mark.unit
 
@@ -132,3 +142,111 @@ def test_repeated_cached_views_share_the_manager_and_raw_collection(
 
     assert first.raw is second.raw is raw_collection
     assert first.database.manager is second.database.manager is manager
+
+
+_UNREACHABLE_URI = "mongodb://localhost:1/?serverSelectionTimeoutMS=30000"
+_OPERATION_TIME = Timestamp(1_700_000_000, 7)
+
+
+@pytest.fixture
+def manager(client: MongoClient[dict[str, Any]]) -> Iterator[CacheManager[Any]]:
+    with CacheManager(client) as cache_manager:
+        yield cache_manager
+
+
+@pytest.fixture
+def unreachable_manager() -> Iterator[CacheManager[Any]]:
+    with (
+        MongoClient[dict[str, Any]](_UNREACHABLE_URI, connect=False) as client,
+        CacheManager(client) as cache_manager,
+    ):
+        yield cache_manager
+
+
+def _boundary_after_operation(manager: CacheManager[Any]) -> CausalBoundary:
+    with manager.client.start_session() as session:
+        session.advance_operation_time(_OPERATION_TIME)
+        return manager.causal_boundary(session)
+
+
+def test_causal_boundary_copies_the_sessions_operation_time(
+    manager: CacheManager[Any],
+) -> None:
+    assert _boundary_after_operation(manager).operation_time == _OPERATION_TIME
+
+
+def test_causal_boundary_rejects_a_session_without_an_operation(
+    manager: CacheManager[Any],
+) -> None:
+    with (
+        manager.client.start_session() as session,
+        pytest.raises(BarrierArgumentError, match="not completed any operation"),
+    ):
+        manager.causal_boundary(session)
+
+
+def test_causal_boundary_rejects_an_open_transaction(
+    manager: CacheManager[Any],
+) -> None:
+    with manager.client.start_session() as session:
+        session.advance_operation_time(_OPERATION_TIME)
+        session.start_transaction()
+
+        with pytest.raises(BarrierArgumentError, match="open transaction"):
+            manager.causal_boundary(session)
+
+
+def test_causal_boundary_rejects_a_session_of_another_client(
+    manager: CacheManager[Any], unreachable_manager: CacheManager[Any]
+) -> None:
+    with unreachable_manager.client.start_session() as session:
+        session.advance_operation_time(_OPERATION_TIME)
+
+        with pytest.raises(BarrierArgumentError, match="different client"):
+            manager.causal_boundary(session)
+
+
+@pytest.mark.parametrize("timeout", [0, -1, math.nan, math.inf, True, None])
+def test_wait_for_invalidations_validates_the_timeout_before_activation(
+    manager: CacheManager[Any], timeout: object
+) -> None:
+    boundary = _boundary_after_operation(manager)
+
+    with pytest.raises(BarrierArgumentError):
+        manager.wait_for_invalidations("example", boundary, timeout=timeout)  # type: ignore[arg-type]
+
+    assert not manager._coordinator._supervisors
+
+
+def test_wait_for_invalidations_rejects_another_managers_boundary(
+    manager: CacheManager[Any], client: MongoClient[dict[str, Any]]
+) -> None:
+    with CacheManager(client) as other_manager:
+        boundary = _boundary_after_operation(other_manager)
+
+    with pytest.raises(BarrierArgumentError, match="this manager"):
+        manager.wait_for_invalidations("example", boundary, timeout=1)
+
+
+def test_wait_for_invalidations_after_close_raises_closed(
+    manager: CacheManager[Any],
+) -> None:
+    boundary = _boundary_after_operation(manager)
+    manager.close()
+
+    with pytest.raises(BarrierClosedError):
+        manager.wait_for_invalidations("example", boundary, timeout=1)
+
+
+def test_wait_for_invalidations_times_out_during_activation(
+    unreachable_manager: CacheManager[Any],
+) -> None:
+    boundary = _boundary_after_operation(unreachable_manager)
+    timeout = 0.3
+    started = time.monotonic()
+
+    with pytest.raises(BarrierTimeoutError):
+        unreachable_manager.wait_for_invalidations("example", boundary, timeout=timeout)
+
+    assert time.monotonic() - started < timeout + 1
+    assert not unreachable_manager._coordinator._supervisors

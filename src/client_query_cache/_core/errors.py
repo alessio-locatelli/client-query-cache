@@ -23,3 +23,27 @@ class StreamStartupError(CacheError):
 
 class StreamLifecycleError(CacheError):
     pass
+
+
+class CausalBarrierError(CacheError):
+    pass
+
+
+class BarrierArgumentError(CausalBarrierError, ValueError):
+    pass
+
+
+class BarrierTimeoutError(CausalBarrierError, TimeoutError):
+    pass
+
+
+class BarrierContinuityError(CausalBarrierError):
+    pass
+
+
+class BarrierUnavailableError(CausalBarrierError):
+    pass
+
+
+class BarrierClosedError(CausalBarrierError, CacheClosedError):
+    pass

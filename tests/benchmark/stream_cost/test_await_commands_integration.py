@@ -49,7 +49,7 @@ def observed_stream(
         yield ObservedStream(listener, cache, cached_database_name)
 
 
-async def test_one_iteration_call_can_issue_multiple_getmore_commands(
+async def test_each_iteration_call_issues_at_most_one_getmore_command(
     observed_stream: ObservedStream,
 ) -> None:
     await _wait_for(
@@ -72,9 +72,6 @@ async def test_one_iteration_call_can_issue_multiple_getmore_commands(
         command.max_time_ms == _INSTRUMENTATION_AWAIT_MS for command in completed
     )
     assert not any(command.failed for command in completed)
-    assert (
-        observed_stream.cache.stream_cost_snapshot(
-            observed_stream.database
-        ).stream_polls
-        == 1
-    )
+    assert observed_stream.cache.stream_cost_snapshot(
+        observed_stream.database
+    ).stream_polls >= len(completed)

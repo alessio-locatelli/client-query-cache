@@ -272,14 +272,14 @@ def test_drop_database_clears_the_cache_and_the_stream_recovers(
     )
 
 
-class _NextFailsOnceStream:
+class _FailingStream:
     __slots__ = ("_error", "_real_stream")
 
     def __init__(self, real_stream: object, error: Exception) -> None:
         self._real_stream = real_stream
         self._error = error
 
-    def next(self) -> dict[str, object]:
+    def try_next(self) -> dict[str, object]:
         raise self._error
 
     def close(self) -> None:
@@ -306,7 +306,7 @@ def test_recovers_from_a_resumable_disconnection(
         call_count += 1
         real_stream = original_watch(*args, **kwargs)
         if call_count == 1:
-            return _NextFailsOnceStream(
+            return _FailingStream(
                 real_stream, ConnectionFailure("simulated transient disconnect")
             )
         return real_stream
@@ -360,7 +360,7 @@ def test_clears_the_cache_when_resume_history_is_lost(
         call_count += 1
         if call_count == 1:
             real_stream = original_watch(*args, **kwargs)
-            return _NextFailsOnceStream(
+            return _FailingStream(
                 real_stream, ConnectionFailure("simulated transient disconnect")
             )
         if call_count == unresumable_watch_call:

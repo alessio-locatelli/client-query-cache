@@ -1,8 +1,15 @@
+from client_query_cache._core.barrier import CausalBoundary
 from client_query_cache._core.entries import AdmissionOutcome, LookupResult
 from client_query_cache._core.errors import (
+    BarrierArgumentError,
+    BarrierClosedError,
+    BarrierContinuityError,
+    BarrierTimeoutError,
+    BarrierUnavailableError,
     CacheClosedError,
     CacheConfigurationError,
     CacheError,
+    CausalBarrierError,
     StreamLifecycleError,
     StreamStartupError,
     UnsupportedCacheRequestError,
@@ -24,6 +31,11 @@ from client_query_cache._core.stream_health import StreamHealth
 
 __all__ = [
     "AdmissionOutcome",
+    "BarrierArgumentError",
+    "BarrierClosedError",
+    "BarrierContinuityError",
+    "BarrierTimeoutError",
+    "BarrierUnavailableError",
     "CacheClosedError",
     "CacheConfigurationError",
     "CacheCore",
@@ -31,6 +43,8 @@ __all__ = [
     "CacheError",
     "CacheLifecycleState",
     "CacheSnapshot",
+    "CausalBarrierError",
+    "CausalBoundary",
     "IdentityCapture",
     "LagCaptureWindowConfig",
     "LookupResult",

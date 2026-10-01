@@ -1,12 +1,20 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Mapping
 from typing import TYPE_CHECKING, Any, Self, overload
 
+from client_query_cache._core.barrier import (
+    CausalBoundary,
+    barrier_deadline,
+    capture_boundary,
+    require_owned_boundary,
+)
 from client_query_cache._core.collection_metadata import (
     CollectionMetadata,
     CollectionMetadataCache,
 )
+from client_query_cache._core.errors import BarrierTimeoutError, CausalBarrierError
 from client_query_cache._core.manager import CacheCore
 from client_query_cache._core.stream_options import (
     DEFAULT_MAX_AWAIT_TIME_MS,
@@ -25,6 +33,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
     from pymongo import AsyncMongoClient
+    from pymongo.asynchronous.client_session import AsyncClientSession
     from pymongo.asynchronous.collection import AsyncCollection
 
     from client_query_cache._core.collection_metadata import CollectionProbeResult
@@ -134,6 +143,29 @@ class CacheManager[DocumentType: Mapping[str, Any]]:
             )
             raise ValueError(message)
         return CachedCollection(CachedDatabase(self, collection.database), collection)
+
+    def causal_boundary(self, session: AsyncClientSession) -> CausalBoundary:
+        return capture_boundary(self, self._client, session)
+
+    async def wait_for_invalidations(
+        self,
+        database: str,
+        boundary: CausalBoundary,
+        *,
+        timeout: float,  # noqa: ASYNC109
+    ) -> None:
+        deadline = barrier_deadline(timeout)
+        require_owned_boundary(self, boundary)
+        try:
+            async with asyncio.timeout(timeout):
+                supervisor = await self._coordinator.activate_database_until(
+                    database, deadline
+                )
+                await supervisor.wait_for_boundary(boundary.operation_time, deadline)
+        except CausalBarrierError:
+            raise
+        except TimeoutError as exc:
+            raise BarrierTimeoutError("the barrier deadline expired") from exc
 
     async def close(self) -> None:
         await self._coordinator.close()

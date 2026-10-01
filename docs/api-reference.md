@@ -22,6 +22,7 @@ cache_manager = CacheManager(client)
 - `cache_manager.client` — the wrapped PyMongo client, unchanged.
 - `cache_manager.cache_core` — the manager's cache storage and bookkeeping object; see [Observability](architecture.md#observability).
 - `cache_manager.cached(collection)` — a cached read view of one of your PyMongo collections; see [Cached collection views](#cached-collection-views).
+- `cache_manager.causal_boundary(session)` and `cache_manager.wait_for_invalidations(database, boundary, *, timeout)` — wait until cached reads reflect a write you made; see [Waiting for your own writes](#waiting-for-your-own-writes).
 - `cache_manager.close()` (`await cache_manager.close()` for asyncio) — stops every change stream the manager opened and releases cached data. Does not close `cache_manager.client`.
 - `CacheManager` is also a context manager (`with` / `async with`), calling `close()` on exit.
 
@@ -102,9 +103,33 @@ Other eligible single-document queries are refreshed after any write to the coll
 that could introduce a match for a cached missing result.
 
 Cache invalidation is eventual. A cached read can return its previous value until the manager processes
-the relevant change-stream event. Use the PyMongo collection or a session-bound read when you need to
-immediately observe a preceding write. Additional keyword options execute directly through PyMongo;
-malformed arguments preserve the driver's errors.
+the relevant change-stream event. To observe a preceding write through the cache, [wait for it](#waiting-for-your-own-writes);
+otherwise use the PyMongo collection or a session-bound read. Additional keyword options execute directly
+through PyMongo; malformed arguments preserve the driver's errors.
+
+## Waiting for your own writes
+
+Run the write in an explicit session, capture its position, and wait until the manager has applied every invalidation up to it:
+
+```python
+with client.start_session() as session:
+    orders.update_one({"_id": order_id}, {"$set": {"status": "paid"}}, session=session)
+    boundary = cache_manager.causal_boundary(session)
+
+cache_manager.wait_for_invalidations("shop", boundary, timeout=30)
+cached_orders.find_one({"_id": order_id})
+```
+
+With asyncio, `await cache_manager.wait_for_invalidations(...)`; `causal_boundary()` is a plain method on both managers.
+
+- `cache_manager.causal_boundary(session)` returns a `CausalBoundary` for the session's last completed operation. Call it right after the write or after the transaction commits. It raises `BarrierArgumentError` if the session belongs to another client, is inside an open transaction, or hasn't run an operation yet. The manager only reads the session's position; it never uses the session itself.
+- `cache_manager.wait_for_invalidations(database, boundary, *, timeout)` returns once every cached document and query result in `database` that the writes up to `boundary` affected has been invalidated in this manager. After it returns, no later cached read in this manager returns a pre-write value, including reads that were already running. `timeout` is required: a finite number of seconds greater than zero, covering the whole call.
+
+Supported boundaries are writes acknowledged with `w: "majority"`, for example through a client created with `MongoClient(uri, w="majority")`: on a replica set, single writes and committed transactions; on a sharded cluster, writes outside transactions. A transaction committed on a sharded cluster is not a supported boundary, because MongoDB can report part of it after the session's position; read those changes through the PyMongo collection. The manager can't verify either condition, so these are yours to uphold. A write made by another library that never exposes its session can't be waited on either.
+
+The wait covers only this manager and only writes up to the boundary. Writes made afterwards, by you or anyone else, keep the eventual behavior described above, and ordinary cached reads never wait.
+
+The wait ends with the first change-stream batch that moves past the write. When the deployment keeps writing, that usually takes up to `max_await_time_ms` (1 second by default), or less when the watched database itself receives writes. On a quiet deployment it happens only at MongoDB's next periodic no-op write, which can take up to about 20 seconds with the server's default `periodicNoopIntervalSecs` of 10. Choose `timeout` with that in mind. Each call briefly opens one extra change-stream cursor, and the first call for a database starts that database's change stream if no read has yet.
 
 ## Bypass conditions
 
@@ -221,12 +246,19 @@ Because `CacheManager` wraps a client you already own rather than replacing it, 
 
 ## Errors
 
-| Exception                      | Raised when                                                                                                                   | What to do                                                         |
-| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| `CacheConfigurationError`      | A `CacheCoreConfig` value is invalid (non-positive, or `max_entry_bytes` exceeds `shared_budget_bytes`).                      | Fix the configuration value.                                       |
-| `CacheClosedError`             | A cached read is attempted after `cache_manager.close()`.                                                                     | Don't use a manager (or a view obtained from it) after closing it. |
-| `UnsupportedCacheRequestError` | `find()` is called with a tailable/exhaust/partial-result option, or `aggregate()` is called with a `$changeStream` pipeline. | Use `.raw` for that call.                                          |
-| `ValueError`                   | `cache_manager.cached(collection)` receives a collection from a different client.                                             | Pass a collection from `cache_manager.client`.                     |
+| Exception                      | Raised when                                                                                                                                                           | What to do                                                         |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `CacheConfigurationError`      | A `CacheCoreConfig` value is invalid (non-positive, or `max_entry_bytes` exceeds `shared_budget_bytes`).                                                              | Fix the configuration value.                                       |
+| `CacheClosedError`             | A cached read is attempted after `cache_manager.close()`.                                                                                                             | Don't use a manager (or a view obtained from it) after closing it. |
+| `UnsupportedCacheRequestError` | `find()` is called with a tailable/exhaust/partial-result option, or `aggregate()` is called with a `$changeStream` pipeline.                                         | Use `.raw` for that call.                                          |
+| `ValueError`                   | `cache_manager.cached(collection)` receives a collection from a different client.                                                                                     | Pass a collection from `cache_manager.client`.                     |
+| `BarrierArgumentError`         | `timeout` is invalid, `causal_boundary()` rejects the session, or the boundary came from another manager.                                                             | Fix the argument.                                                  |
+| `BarrierTimeoutError`          | `wait_for_invalidations()` reached its timeout, including while starting the database's change stream, or a driver timeout fired first.                               | Retry with a longer timeout, or read through PyMongo.              |
+| `BarrierContinuityError`       | The change stream lost the history needed to prove the write was applied, for example after a long outage, or the boundary is older than the server's change history. | Read through PyMongo.                                              |
+| `BarrierUnavailableError`      | The database's change stream can't run (an unsupported MongoDB version or topology) or the server couldn't be reached.                                                | Read through PyMongo.                                              |
+| `BarrierClosedError`           | The manager was closed before or during the wait.                                                                                                                     | Don't wait on a closed manager.                                    |
+
+The barrier errors all derive from `CausalBarrierError` and are importable from `client_query_cache` and `client_query_cache.asynchronous`. `BarrierArgumentError` is also a `ValueError`, `BarrierTimeoutError` a `TimeoutError`, and `BarrierClosedError` a `CacheClosedError`.
 
 Every other unsupported or ambiguous condition — an incompatible read preference or read concern, a session-bound
 read, a nondeterministic filter or pipeline, a view, a time-series collection, an oversized result, a database whose
