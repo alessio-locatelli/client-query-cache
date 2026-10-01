@@ -1,6 +1,6 @@
 # Causal invalidation barrier proof
 
-Status: **proof phase blocked pending a scope decision.** A sound public progress mechanism exists for replica sets and for non-transactional writes on sharded clusters. On sharded clusters, `ClientSession.operation_time` captured after a committed cross-shard transaction is not a sound boundary: change events of that transaction can carry a later `clusterTime`. No runtime API may be built on this report until the decision in [Open decisions](#open-decisions) is recorded in the change design.
+Status: **proof complete with a narrowed scope.** The mechanism below is sound for replica sets, including committed transactions, and for non-transactional writes on sharded clusters. On sharded clusters, `ClientSession.operation_time` captured after a committed cross-shard transaction is not a sound boundary, because change events of that transaction can carry a later `clusterTime`; this boundary is documented as unsupported. See [Decisions](#decisions).
 
 ## Pinned environment
 
@@ -107,19 +107,30 @@ The cancelled asyncio waiter raised `CancelledError` while the remaining waiters
 ### Resource cost
 
 - Supervisor: `try_next()` issues one `getMore` per call, exactly as `next()` does internally, so idle traffic is unchanged: one empty `getMore` per `max_await_time_ms`, observed as 10 empty `getMore` commands per 10-second wait.
-- Barrier: one `aggregate` and one `killCursors` on the temporary stream, using one pooled connection for the duration of those two round trips. On a sharded cluster `mongos` opens and closes a cursor on every shard for that `aggregate`.
+- Barrier: one `aggregate` and one `killCursors` on the temporary stream, observed with a command listener on both topologies, using one pooled connection for the duration of those two round trips. On a sharded cluster `mongos` opens and closes a cursor on every shard for that `aggregate`.
 - Retained state: one frontier string per watched database and one waiter per outstanding call; no per-write history.
 
-## Open decisions
+## Continuity and lifecycle
 
-1. **Cross-shard transactions on sharded clusters.** `operation_time` after a committed cross-shard transaction is unsound (trace above). Choose one before runtime work:
-   - Narrow the guarantee to replica sets plus non-transactional writes on sharded clusters, and document committed transactions on sharded clusters as an unsupported boundary. The library cannot detect from public session state that the last operation was a commit, so this restriction would be documentation-only unless the API captures the boundary itself around the commit.
-   - Accept the session's cluster time after a sharded commit as the boundary. It covered every event in 30 runs but has no documented contract, which the current design rejects.
-   - Stop the change and keep consumer polling.
-2. **Idle completion latency of up to about 20 seconds at server defaults.** Accept it as the documented cost, or authorize `appendOplogNote`, which needs the `appendOplogNote` privilege and writes to the oplog.
-3. **Token ordering contract.** The mechanism relies on the `Mongo.watch()` statement that hex resume tokens can be compared and sorted, read as stream order. The reference does not define the order further. The reviewer must accept this reading or treat it as an unsupported contract.
+Measured with the prototype supervisor, which reopens with `resume_after` on a driver error and with `start_after` after an `invalidate` event, on MongoDB 8.3.11:
 
-Reconnect, history loss, drop/recreate, reads spanning invalidation, activation timeout, shutdown, and normal-hit overhead (task 1.3) are not yet measured because they depend on these decisions.
+| Scenario                                           | Replica set                                                                                                                      | Sharded                                                          |
+| -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| `killAllSessions` while a barrier waits            | supervisor reopened once with `resume_after`; barrier completed in 18.02 s                                                       | reopened once; completed in 14.03 s                              |
+| Restart of the only `mongod` while a barrier waits | PyMongo resumed inside `try_next()`; barrier completed 0.41 s after the restart command returned                                 | not run; restarting the single-container cluster re-initiates it |
+| `dropDatabase`, recreate, write                    | one `invalidate`; the barrier pending from before the drop and a new barrier after the recreate both completed, 20.03 s in total | one `invalidate`; both completed, 19.84 s in total               |
+
+Resume tokens issued before a reconnect or an `invalidate` keep comparing correctly with tokens issued after it, so continuity survives both. Losing resume history cannot be produced cheaply against a real server: the minimum oplog is 990 MB, and a stream started at `Timestamp(1, 1)` was accepted by both topologies rather than failing with `ChangeStreamHistoryLost` (code 286). History loss is therefore exercised by fault injection in the stream tests. When it happens, the supervisor restarts without a resume token; events between the last applied token and the new stream are never applied, so waiters pending at that moment fail, and later barriers whose target precedes the new stream's first token fail too. After the initial activation of a database, no such restriction exists: nothing for that database was ever cached, so no earlier invalidation is relevant.
+
+Activation and acquisition deadline: `server_info()` against an unreachable address under `pymongo.timeout(0.5)` raised `ServerSelectionTimeoutError` after 0.50 s (sync) and 0.51 s (asyncio), although the client's `serverSelectionTimeoutMS` was 30000. A task created inside `pymongo.timeout(1.5)` with `asyncio.create_task()` inherits the deadline and its permanent change stream failed with `NetworkTimeout`; the same task created with a fresh `contextvars.Context()` kept polling. Threads do not inherit context in the standard 3.14.6 build (`sys.flags.thread_inherit_context == 0`). The asyncio supervisor must therefore start its task in a fresh context, or a caller's `pymongo.timeout()` ends the shared stream.
+
+Ordinary cached reads do not touch any of this: the hit path is unchanged, and the only supervisor change is calling `try_next()` instead of `next()`. Normal-hit overhead, allocation, and many-waiter contention are measured against the runtime code in task 4.1.
+
+## Decisions
+
+1. **Cross-shard transactions on sharded clusters are an unsupported boundary.** The guarantee covers replica sets, including committed transactions, and non-transactional writes on sharded clusters. The library cannot tell from public session state that the last operation committed a transaction, so this is a documented precondition. Applications that commit cross-shard transactions keep reading from the database or polling.
+2. **Idle completion latency is accepted and documented.** Barriers only read; on an idle deployment completion waits for the server's periodic no-op write, up to about twice `periodicNoopIntervalSecs` plus `max_await_time_ms`. Any other write in the deployment ends the wait sooner.
+3. **Token ordering.** The `Mongo.watch()` statement that hex resume tokens can be compared and sorted is read as stream order. This is the mechanism's residual dependency on server documentation.
 
 ## Reproduction
 

@@ -45,6 +45,11 @@ A barrier SHALL validate its database/deployment scope and completed-write prove
 - **WHEN** a library completes a raw write but supplies no information establishing a supported causal boundary
 - **THEN** the manager does not claim to recognize that specific write automatically, and public guidance states the unsupported boundary acquisition case
 
+#### Scenario: A sharded cluster commits a cross-shard transaction
+
+- **WHEN** an application captures a boundary after committing a transaction that spans shards of a sharded cluster
+- **THEN** public guidance states that this boundary is unsupported, because change events of that transaction can follow the session's operation time
+
 #### Scenario: A transaction is still open
 
 - **WHEN** an input describes operations in an uncommitted transaction
@@ -68,6 +73,11 @@ Every barrier call SHALL have an explicit finite positive timeout and one monoto
 
 - **WHEN** the stream loses continuity needed to prove a pending boundary
 - **THEN** the pending call fails explicitly rather than treating cache clearing and a new healthy stream as proof that the old boundary was applied
+
+#### Scenario: A boundary precedes recovered continuity
+
+- **WHEN** a barrier starts after a history loss with a boundary that precedes the recovered stream
+- **THEN** the call fails explicitly instead of completing because the recovered stream has passed the boundary
 
 #### Scenario: A waiter is cancelled
 
