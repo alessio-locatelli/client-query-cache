@@ -89,6 +89,18 @@ Pursue Celery, py-abac, and Eve in that order, then investigate Hyperopt. These 
 - **Eve:** The [Mongo data layer](https://github.com/pyeve/eve/blob/master/eve/io/mongo/mongo.py) performs `find`, `count_documents`, and `find_one` reads. Prototype a data-layer subclass and inspect its consumers before choosing overrides: cached `find` returns a list, so native cursor assumptions, pagination, sorting, projection, authorization filters, and response metadata must remain correct. Use an in-process application client for repeated GETs and a mutation, with bounded invalidation observation and cache statistics. Keep writes on the upstream raw path. Record incompatibilities rather than replacing the whole collection with the read-only facade or promising a cursor-compatible adapter.
 - **Hyperopt (investigation only):** The inspected [MongoTrials implementation](https://github.com/hyperopt/hyperopt/blob/master/hyperopt/mongoexp.py) contains legacy calls such as `find_and_modify`, `collection.update`, and cursor `count`. Verify a published version's compatibility and its repeated-read opportunities before proposing implementation. Assess both cursor requirements and invalidation frequency during trial updates. Do not modify upstream or expand this change into an upstream compatibility repair. Record a go/no-go decision with version/source evidence; adding a runnable example requires a subsequent approved revision of this plan.
 
+#### Celery verification
+
+Verified Celery **5.6.2**, release revision [`6a43c846f183ef0cbade24f4b9a8f7a6ea113b44`](https://github.com/celery/celery/tree/6a43c846f183ef0cbade24f4b9a8f7a6ea113b44), on CPython 3.14.6 with PyMongo 4.18.1 and MongoDB 8.0.4. The published `celery/backends/mongodb.py` exposes `_get_connection` as the subclass connection hook; `CachedMongoBackend` returns the manager's caller-owned client from it. The backend's `collection` property still creates its upstream index, and writes, cleanup, and group operations remain raw. Only task metadata reads are cached. `_get_task_meta_for` retains upstream decoding, standard fields, extended fields, and `meta_from_decoded` exception conversion. No collection proxy or upstream patch is used.
+
+`main` calls `backend.get_task_meta(task_id, cache=False)` while the task is `STARTED`, then writes `SUCCESS` through `backend.store_result`. It does not create an `AsyncResult`; `cache=False` skips the backend's successful-result cache for every read, including the bounded completion poll. The script checks at least four cache hits in five unfinished reads, observes the later state through invalidation, and checks the decoded JSON result. The subprocess integration case completed against the disposable replica set without a broker or worker. Celery's app context and the manager/client contexts provide explicit cleanup. Celery ships no typing marker or stubs; narrowly scoped `import-untyped`, subclass, and return casts cover that upstream boundary while mypy checks calls to the typed cache API.
+
+#### py-abac verification
+
+Verified py-abac **0.4.1**, release revision [`2f9420ffbb24b72a75055ce9338d5ef3005867bd`](https://github.com/ketgo/py-abac/tree/2f9420ffbb24b72a75055ce9338d5ef3005867bd), on CPython 3.14.6 with PyMongo 4.18.1 and MongoDB 8.0.4. Its `MongoStorage` constructor accepts the caller's client and does not own its cleanup. `CachedMongoStorage` preserves raw `add`, `update`, and `delete`, upstream `_check_limit_and_offset`, and `PolicyModel` conversion. Scalar `find_one(uid)` is cache eligible as an ID lookup; `find({}, limit=1, skip=0)` is eligible with pagination in its cache key. The released `PolicyModel.get_aggregate_pipeline` produces two deterministic `$match` stages using membership, negation, and element matching; it has no unsafe stage, expression, cross-collection dependency, or system variable. Repeated reads produced cache hits for all three shapes in the subprocess integration case.
+
+`main` constructs policies and requests through upstream validation, verifies each retrieval's policy ID, evaluates the allow policy with `PDP`, writes the deny policy through raw upstream `update`, and bounds the poll until authorization denies the same request. The script checks each read shape's own hit delta rather than inferring all shapes from one total. py-abac also lacks a typing marker; narrow annotations cover its untyped boundary. Its `objectpath` dependency emits `SyntaxWarning` messages for literal identity comparisons when first compiled on Python 3.14; installation, policy validation, storage conversion, and the demonstrated target-based authorization still succeed. This upstream warning is reported, not suppressed or repaired here.
+
 Each delivered example follows D1, D5, and D6: inline dependencies, existing subprocess/type-check verification, public cache statistics, bounded self-checks, and a friction log. Add only delivered examples to `examples/README.md`; do not publish this candidate backlog as runnable usage guidance. No new requirement is needed in the usage-examples delta spec, whose library-independent requirements already cover these targets.
 
 ## Risks / Trade-offs
@@ -127,3 +139,20 @@ Dropped, because the cause is upstream and not in this package:
 
 - requests-cache's `MongoDict.close()` closes the `MongoClient` it was given, even one supplied through `connection=`. A client shared with a `CacheManager` therefore needs `CachedSession(..., autoclose=False)` in `main`.
 - `MongoCache` has no hook for the storage class, so `CachedMongoCache.__init__` calls `BaseCache.__init__` directly and rebuilds both storages.
+
+### Celery and py-abac observations
+
+- **Read/write separation requires copied upstream read conversion** (the existing collection-adapter candidate remains confirmed).
+  - Symptom: `CachedMongoBackend._get_task_meta_for` and `CachedMongoStorage.get`, `get_all`, and `get_for_target` retain the upstream conversion and validation while changing the read receiver. Celery's group reads are deliberately left raw; the selected task metadata reads are sufficient for the example.
+  - Constraint: a follow-up must preserve Celery's metadata/exception decoding, py-abac's policy conversion and pagination checks, raw writes/admin operations, and the deliberate read-only/list-returning cached-view contract. It must not mutate the receiver temporarily during a read, which would make concurrent writes unsafe.
+  - Proposed follow-up: `evaluate-read-through-collection-adapter`.
+- **Invalidation requires application-level polling** (the existing wait-primitive candidate remains confirmed).
+  - Symptom: both examples' `main` functions poll their actual consumer read after the upstream write, bounded to five seconds. Celery polls task metadata with its own cache disabled; py-abac polls `PDP.is_allowed` through the target aggregation.
+  - Constraint: a follow-up must relate the completed raw write to the stream position and support both single-document and query-result invalidation, without relying on a fixed sleep.
+  - Proposed follow-up: `add-invalidation-wait-primitive`.
+- **Statistics remain reachable through `cache_core`** (the existing statistics-accessor candidate remains confirmed).
+  - Symptom: both `main` functions read `manager.cache_core.snapshot()` to check hit deltas and print hits, misses, and bypasses.
+  - Constraint: preserve existing counter semantics and the documented public `cache_core` API.
+  - Proposed follow-up: `add-manager-statistics-accessor`.
+
+Neither new example needed bypass-reason diagnostics: each selected read shape produced its own expected hits. The existing requests-cache observation remains valid. The upstream missing typing markers and objectpath warnings are dependency limitations, not additional cache API follow-ups.

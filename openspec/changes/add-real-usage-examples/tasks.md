@@ -24,15 +24,15 @@
 
 ## 5. Celery example
 
-- [ ] 5.1 Verify a published Celery release's MongoDB backend, Python/PyMongo compatibility, backend extension points, and caller-owned client reuse. Record the tested version and exact source revision in design D8, including how repeated reads avoid Celery's own result caches. Record concrete blockers if adapter feasibility fails; do not silently skip implementation.
-- [ ] 5.2 Add `examples/celery_example.py` per D8 and the existing example requirements. Route selected backend reads through the cached view and retain raw writes/admin operations and upstream result conversion. Demonstrate repeated unfinished-task polling, cache hits, and bounded observation of a later state/result write without an external broker or worker. Use public APIs of `client_query_cache` only, inline dependencies, and explicit client/manager cleanup.
-- [ ] 5.3 Add the delivered Celery example to subprocess verification and `examples/README.md`, verify the documented run command and existing type-check path, and record integration friction per D6.
+- [x] 5.1 Verify a published Celery release's MongoDB backend, Python/PyMongo compatibility, backend extension points, and caller-owned client reuse. Record the tested version and exact source revision in design D8, including how repeated reads avoid Celery's own result caches. Record concrete blockers if adapter feasibility fails; do not silently skip implementation.
+- [x] 5.2 Add `examples/celery_example.py` per D8 and the existing example requirements. Route selected backend reads through the cached view and retain raw writes/admin operations and upstream result conversion. Demonstrate repeated unfinished-task polling, cache hits, and bounded observation of a later state/result write without an external broker or worker. Use public APIs of `client_query_cache` only, inline dependencies, and explicit client/manager cleanup.
+- [x] 5.3 Add the delivered Celery example to subprocess verification and `examples/README.md`, verify the documented run command and existing type-check path, and record integration friction per D6.
 
 ## 6. py-abac example
 
-- [ ] 6.1 Verify a published py-abac release's supported environment, `MongoStorage` extension points, and cache eligibility of scalar `_id` reads, paginated `find`, and the target aggregation pipeline. Record the version, exact source revision, supported read shapes, and any blockers in D8.
-- [ ] 6.2 Add `examples/py_abac_example.py` per D8 and the existing example requirements. Preserve upstream validation and policy conversion, keep policy writes raw, and route supported `get`, `get_all`, and `get_for_target` reads through cached views. Demonstrate policy retrieval and authorization evaluation, cache hits for the supported read shapes exercised, and bounded observation of a policy update that changes the decision. Use inline dependencies and explicit client/manager cleanup.
-- [ ] 6.3 Add the delivered py-abac example to subprocess verification and `examples/README.md`, verify the documented run command and existing type-check path, and record integration friction per D6.
+- [x] 6.1 Verify a published py-abac release's supported environment, `MongoStorage` extension points, and cache eligibility of scalar `_id` reads, paginated `find`, and the target aggregation pipeline. Record the version, exact source revision, supported read shapes, and any blockers in D8.
+- [x] 6.2 Add `examples/py_abac_example.py` per D8 and the existing example requirements. Preserve upstream validation and policy conversion, keep policy writes raw, and route supported `get`, `get_all`, and `get_for_target` reads through cached views. Demonstrate policy retrieval and authorization evaluation, cache hits for the supported read shapes exercised, and bounded observation of a policy update that changes the decision. Use inline dependencies and explicit client/manager cleanup.
+- [x] 6.3 Add the delivered py-abac example to subprocess verification and `examples/README.md`, verify the documented run command and existing type-check path, and record integration friction per D6.
 
 ## 7. Eve example
 
