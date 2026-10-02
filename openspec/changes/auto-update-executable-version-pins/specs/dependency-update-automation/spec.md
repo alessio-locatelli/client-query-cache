@@ -13,7 +13,7 @@ Every external dependency version that selects an executable tool, interpreter, 
 #### Scenario: An updater extracts dependencies
 
 - **WHEN** both configured bots inspect the repository
-- **THEN** every executable pin is assigned to exactly one bot, including Python MongoDB images, CI tool inputs, interpreter selections, development-container packages, and downloaded tools
+- **THEN** every executable pin is assigned to exactly one bot, including Python MongoDB images, CI tool inputs, interpreter selections, pinned development-container tools, and downloaded tools
 
 ### Requirement: Coupled inputs update consistently
 
@@ -31,17 +31,17 @@ An automatic update SHALL update every coupled executable occurrence and derived
 
 ### Requirement: Updates preserve release policies and review
 
-Update proposals SHALL retain exact version and existing digest pins, preserve image variants and configured release tracks, and require maintainer review without automatic merging. The default cadence SHALL be monthly; timestamp-aware sources SHALL wait at least seven days after release. Fedora package selection SHALL remain within the selected Fedora release and use RPM ordering including epochs and release revisions.
+Update proposals SHALL retain exact version and existing digest pins, preserve image variants and configured release tracks, and require maintainer review without automatic merging. The default cadence SHALL be monthly; timestamp-aware sources SHALL wait at least seven days after release. Fedora DNF packages SHALL be an explicit unpinned exception: builds SHALL select packages from Fedora 44 repositories while retaining the Node.js 24 package track. These package names SHALL be excluded from bot version extraction.
 
 #### Scenario: A new MongoDB major version is available
 
 - **WHEN** an image is configured on the MongoDB 8.0 noble track and a newer major is published
 - **THEN** its automatic proposal stays on 8.0 noble, while an intentional track change requires a separate maintainer decision
 
-#### Scenario: An RPM source has no release timestamps
+#### Scenario: Fedora packages are installed during a rebuild
 
-- **WHEN** an RPM update is proposed on the monthly cadence
-- **THEN** the proposal does not claim a seven-day age guarantee and remains subject to build validation and maintainer review
+- **WHEN** the development image is rebuilt
+- **THEN** DNF resolves compatible package versions from Fedora 44 repositories, retaining the Node.js 24 package track without requiring bot updates to RPM pins
 
 ### Requirement: Evidence and compatibility declarations are excluded
 

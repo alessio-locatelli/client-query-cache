@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- The development container installs DNF packages from Fedora 44 repositories while retaining the Node.js 24 track.
+
 - Add local manager snapshots for cache statistics, fixed bypass reasons, stream health, and stream costs; accept managers in the optional OpenTelemetry bridge and export a separate bypass-reason counter.
 
 <!-- Describe final behavior once, one line per change. -->

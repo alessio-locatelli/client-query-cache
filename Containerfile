@@ -1,13 +1,8 @@
 FROM registry.fedoraproject.org/fedora-toolbox:44@sha256:b3a0088e7a72ea2c7cb496c674a3e11201960814d4303e19ab2746afaca5fad5
 
-ARG BASH_PACKAGE_VERSION=5.3.9-3.fc44
-ARG JUST_PACKAGE_VERSION=1.57.0-1.fc44
-ARG NODE_PACKAGE_VERSION=1:24.18.0-1.fc44
-ARG NPM_PACKAGE_VERSION=1:11.16.0-1.24.18.0.1.fc44
 ARG PREK_TOOL_VERSION=0.5.2
 ARG PYTHON_TOOL_VERSION=3.14.6
 ARG TAPLO_TOOL_VERSION=0.10.0
-ARG UV_PACKAGE_VERSION=0.12.3-1.fc44
 ARG ZIZMOR_TOOL_VERSION=1.30.0
 
 ADD --checksum=sha256:8fe196b894ccf9072f98d4e1013a180306e17d244830b03986ee5e8eabeb6156 https://github.com/tamasfe/taplo/releases/download/0.10.0/taplo-linux-x86_64.gz /tmp/taplo.gz
@@ -18,12 +13,13 @@ ENV PATH=/usr/local/bin:${PATH} \
     UV_TOOL_BIN_DIR=/usr/local/bin \
     UV_TOOL_DIR=/opt/uv-tools
 
+# Fedora packages follow the Fedora 44 repositories; see CONTRIBUTING.md for the rationale.
 RUN dnf install --assumeyes \
-        "bash-${BASH_PACKAGE_VERSION}" \
-        "just-${JUST_PACKAGE_VERSION}" \
-        "nodejs24-${NODE_PACKAGE_VERSION}" \
-        "nodejs24-npm-${NPM_PACKAGE_VERSION}" \
-        "uv-${UV_PACKAGE_VERSION}" \
+        bash \
+        just \
+        nodejs24 \
+        nodejs24-npm \
+        uv \
     && dnf clean all \
     && uv python install "${PYTHON_TOOL_VERSION}" \
     && uv tool install --python "${PYTHON_TOOL_VERSION}" "prek==${PREK_TOOL_VERSION}" \
