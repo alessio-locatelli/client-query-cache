@@ -2,79 +2,62 @@
 
 ## Context
 
-See [proposal.md](proposal.md) for motivation. `.github/dependabot.yml` already schedules monthly pip, uv, npm, pre-commit, GitHub Actions, and Docker updates with seven-day cooldowns. GitHub documents supported manifests, but no arbitrary-source custom manager; its Docker parser reads Dockerfile FROM declarations and YAML image fields, not Python literals or tool ARGs. See [supported ecosystems](https://docs.github.com/en/code-security/reference/supply-chain-security/supported-ecosystems-and-repositories) and [Docker parser](https://github.com/dependabot/dependabot-core/blob/main/docker/lib/dependabot/docker/file_parser.rb).
-
-Current unsupported executable occurrences are:
-
-| Input                                       | Location                                                       | Coupling / release policy                                                   |
-| ------------------------------------------- | -------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| MongoDB 8.0.4-noble                         | `tests/conftest.py`, `benchmarks/stream_cost/topology.py`      | Both use 8.0 noble; Compose independently uses 9.0 with a digest            |
-| Renovate proof runner                       | `test.yml` proof runtime image                                 | Official digest-pinned container; scoped extraction checks before consumers |
-| uv 0.12.19                                  | Four `.github/workflows/*.yml` files                           | Shared CI tool; Containerfile uv is a Fedora RPM with a different version   |
-| Prek 0.5.2                                  | `test.yml` install and cache key; Containerfile ARG            | Same PyPI release                                                           |
-| just 1.57.0                                 | setup-toolchain action input                                   | GitHub release; Containerfile just is independently packaged by Fedora      |
-| Python 3.14.6 / CI 3.14                     | `.python-version`, Containerfile ARG, four workflow selections | Preserve 3.14 track and package compatibility floor                         |
-| Node 24                                     | `test.yml` action input                                        | Preserve Node 24 track; Fedora Node/npm have independent package revisions  |
-| bash, just, nodejs24, nodejs24-npm, uv RPMs | Containerfile DNF package names                                | Unpinned Fedora 44 repository packages; retain Node 24 package names        |
-| Zizmor 1.30.0                               | Containerfile ARG                                              | PyPI version                                                                |
-| Taplo 0.10.0                                | Containerfile ARG, ADD URL and SHA256                          | One release artifact and expected version                                   |
-
-`scripts/ci_scope.py` currently misses Containerfile and `.python-version`. The performance guard rejects differing Python versions between revision environments; preserve this invariant. This change amends the development-environment pinning requirements to exempt Fedora DNF packages while retaining the base-image digest and explicit versions for tools installed outside DNF. Historical `reports/stream-cost/` inputs are evidence, not update targets.
+See [proposal.md](proposal.md) for motivation. Dependabot already owns supported manifests, Docker FROM/Compose images, action references, and hook revisions. It does not update Python MongoDB literals or arbitrary tool selections. The performance guard requires matching Python interpreters across compared revisions; historical benchmark reports remain evidence rather than update targets.
 
 ## Goals / Non-Goals
 
-**Goals:** Make unsupported executable selections discoverable and replaceable without another general-purpose bot managing existing manifests. Keep pin changes reviewable, installable, and covered by their actual consumers.
+**Goals:** Use official Renovate integration and built-in managers wherever supported, with explicit ownership, release tracks, and consumer validation.
 
-**Non-Goals:** Unify Fedora RPM versions with upstream tool releases, upgrade MongoDB release lines during onboarding, raise published Python/PyMongo floors, regenerate historical reports, alter cache runtime behavior, or automatically merge updates.
+**Non-Goals:** Replace Dependabot, automate merging, restore Fedora RPM pins, change library behavior or compatibility floors, or rewrite historical reports.
 
 ## Decisions
 
-### 1. Keep ownership disjoint
+### 1. Use the official hosted app
 
-Dependabot retains all existing supported manifests, including Compose images and the Containerfile FROM digest. Renovate uses only `custom.regex` with exact file allowlists and annotated occurrences; disable all built-in manifest managers. Group the two Python MongoDB occurrences, CI uv occurrences, Prek occurrences, and Taplo occurrences by dependency and track. The pre-commit uv hook remains an independent Dependabot-owned hook revision, not part of the CI installer group.
+| Approach                                                                                   | Pros                                                                                 | Cons                                                                        |
+| ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------ | --------------------------------------------------------------------------- |
+| [Official GitHub Action](https://github.com/renovatebot/github-action)                     | Repository-owned workflow; explicit version, schedule, manual runs, and Actions logs | Maintain credentials, workflow, and Renovate upgrades; consumes runner time |
+| [Official hosted app](https://docs.renovatebot.com/getting-started/installing-onboarding/) | Least repository infrastructure; service operates Renovate                           | Administrator app installation; less control over runtime and execution     |
+| Custom validation harness using Renovate internals                                         | Deterministic assertions for exact inventory and replacement fixtures                | Private API coupling and duplicated runner maintenance; rejected            |
 
-The proof runner uses the official Renovate container pinned by version and digest; its workflow env selection is custom-managed because it is not a Docker manifest image field. This avoids an unlocked temporary npm installation and installs no extra packages in ordinary documentation checks.
+Choose the hosted app to minimize maintained infrastructure. The action is sufficient if repository-controlled execution becomes necessary; it uses the same manager configuration. Do not enable both runners. Validate configuration with Renovate's official pre-commit hook in the existing Prek job; Dependabot owns its revision. Use documented CLI dry runs for extraction and lookup instead of private API imports.
 
-Use a small `renovate.json5` and adjacent `# renovate:` annotations with datasource, dependency name, and explicit versioning where needed. Match whole named assignments or action inputs, not arbitrary dotted numbers. Preserve the existing literal values when adding annotations. Alternatives: converting MongoDB to Compose solves that one gap but does not cover CI or other container tool pins; a custom scheduled updater would duplicate release lookup, version ordering, PR lifecycle, and integrity handling. Replacing Dependabot conflicts with the selected preference.
+### 2. Keep update ownership disjoint
 
-### 2. Use upstream-specific sources and track constraints
+Enable `github-actions`, `pyenv`, and `custom.regex`. The [Actions manager](https://docs.renovatebot.com/modules/manager/github-actions/) owns only `uses-with` dependencies: uv and just literals in the composite toolchain action and Node's workflow input. Disable its other dependency types so it cannot compete with Dependabot for action references, workflow references, or images.
 
-Use Docker datasource for Python MongoDB image references, PyPI for uv/Prek/Zizmor, GitHub releases for just, and Python/Node version datasources for interpreter selections. Allow stable updates within MongoDB 8.0 noble, Compose's existing independent track, Python 3.14, Node 24, and Fedora 44. Upstream standalone tools can propose stable releases across version boundaries subject to review. Configure monthly Renovate scheduling and seven-day minimum age where the datasource supplies timestamps. Disable automerge, lockfile maintenance, and unrelated onboarding presets.
+Use the built-in [pyenv manager](https://docs.renovatebot.com/modules/manager/pyenv/) for `.python-version`; its Docker datasource selects Python release tags, constrained to exact 3.14 patches. Extend Renovate’s official `customManagers:dockerfileVersions` and `customManagers:githubActionsVersions` presets for Prek CI/container selections and Zizmor. Repository-defined regex managers handle only unsupported MongoDB Python literals and the coupled Taplo download. Use a distinct `renovate-taplo` marker so the Dockerfile preset cannot independently update Taplo’s version without its URL and digest. Keep explicit file allowlists and groups for MongoDB and Prek. The pre-commit uv hook and Fedora uv package remain independently owned selections.
 
-Python: make `.python-version` the exact executable selection consumed by CI setup and container build. After checkout, the setup-toolchain composite action reads the file in a shell step, passes that output to setup-uv, and exposes the selected version as an action output for cache keys. All four workflows remove their Python input/env duplication and consume that output. The Containerfile copies `.python-version` into the build context and reads it inside the existing installation RUN for Python and Python-tool installation, removing its separate Python ARG. CI therefore changes from latest available 3.14 patch selection to the exact committed patch; subsequent patch updates arrive as reviewed proposals. Do not rewrite `requires-python` or formatter/type-checker targets: they declare compatibility or syntax baselines. For Node, retain the existing major selector and constrain updates to that major; the Fedora Node/npm packages retain the Node 24 track through their package names.
+### 3. Preserve tracks without blocking timestamp-less sources
 
-RPM: install `bash`, `just`, `nodejs24`, `nodejs24-npm`, and `uv` by package name from the Fedora 44 repositories, without explicit package versions or Renovate RPM annotations. The selected bots cannot safely maintain these pins: Renovate’s [stock RPM parser](https://github.com/renovatebot/renovate/blob/main/lib/modules/datasource/rpm/providers/xml.ts) formats only version/release and does not filter architecture, so it cannot preserve the existing Node/npm epochs. DNF selects compatible packages for the build architecture and resolves Node/npm together. Retain the Fedora base digest and the Node 24 package names.
+Schedule monthly proposals with no automerge or lockfile maintenance. Set seven-day `minimumReleaseAge` with `minimumReleaseAgeBehaviour: timestamp-optional`: releases with timestamps must age, while missing timestamps do not block updates indefinitely. Constrain MongoDB to 8.0 noble, Python to exact 3.14 patches, and Node to 24. Existing manifests retain their Dependabot policies.
 
-This accepts variable RPM versions across rebuilds. Fedora updates to these development tools are expected to have a low risk of breaking the environment; they are not published library runtime dependencies. They can still affect installation, validation, and benchmark results, so container build and tool smoke checks remain required. This is an explicit pinning exception, not a claim that tool updates cannot affect development results. No self-hosted bot, normalized feed, or host package installation is needed.
+DNF installs `bash`, `just`, `nodejs24`, `nodejs24-npm`, and `uv` by package name from Fedora 44. This is the requested unpinned exception: the selected bots cannot safely preserve RPM epochs and architecture selection. Fedora repository updates are expected to have low development-tool breakage risk and are not published library runtime dependencies. Rebuilds can vary; the container contract promises the documented toolchain, not identical RPM revisions. Retain the base-image digest, non-DNF pins, and build/tool smoke checks. Versionlock or transaction replay would introduce a different package-selection policy without providing automatic updates.
 
-### 3. Treat derived values as part of the update
+### 4. Let consumers read canonical selections
 
-Prek installation and cache identity must derive from one named version value in the workflow, rather than requiring a separate cache-key regex. CI uv pins may similarly be read from one repository-owned selection or matched as a grouped set; verify the resulting consumers, not merely equal replacement counts.
+Store CI uv once as a literal `setup-uv` input in the composite action. uv reads `.python-version` during `uv sync`; do not supply a redundant Python override. CI cache keys hash `.python-version`, and setup-uv's cache dependency glob includes it. The container copies that file for Python installation rather than maintaining a duplicate ARG. Published compatibility floors remain unchanged.
 
-Taplo uses a multiline custom match with `currentValue` and `currentDigest` plus replacement of the ARG, URL version, and checksum. Renovate's [release-attachment datasource implementation](https://github.com/renovatebot/renovate/blob/main/lib/modules/datasource/github-release-attachments/index.ts) maps a known asset digest to the corresponding new release asset. Use that datasource for `tamasfe/taplo` and preserve the linux-x86_64 compressed artifact. Prove version/digest replacement together; a build must still enforce ADD checksum verification and the tool-version check. A null, unchanged-but-invalid, or unresolved digest is a blocked update, not grounds to remove verification.
+Prek installation and cache identity derive from one named CI selection, grouped with the container's PyPI pin. Taplo's regex match spans the ARG, URL, and SHA256. Its stock release-attachment datasource and replacement template update these fields together. The build checks both artifact integrity and `taplo --version`; unresolved or mismatched digests cannot be accepted.
 
-### 4. Validate changed consumers
+The performance guard installs the proposed revision's interpreter in both base and head environments, records the actual versions, and retains mismatch rejection and visible failure when the base cannot run.
 
-Extend CI scope with separate outputs for development-container inputs and isolated benchmark startup, while routing `.python-version` and shared Python-tool inputs into package and owned-runtime test validation. Keep basic checks first and expensive checks parallel after them. Containerfile changes trigger a container build and pinned-tool smoke verification; both bots' updates use this same path. MongoDB changes trigger integration/e2e tests and a bounded isolated replica-set startup check, without rerunning full benchmark matrices.
+### 5. Validate actual consumer inputs
 
-Use the proposed executable Python for both base and head performance environments when a Python update also changes another guarded input. Record the selected interpreter in guard evidence, keep the mismatch rejection, and fail visibly if the base cannot run on it. The guard must not compare different Python versions or exempt bot PRs. No change to the performance spec is needed: matched runs and reported measurement failure already require this behavior.
+Containerfile, `.python-version`, and the build checker select the container job. MongoDB selections, the isolated topology/startup test, shared toolchain, interpreter, and Python dependency manifests select benchmark startup. Publishing/release workflows, benchmark report code, and unrelated PR workflow edits do not select either new consumer job. Python package and database-backed checks still cover Python source and shared toolchain changes. Keep expensive consumer jobs behind applicable quality checks.
 
-### 5. Make extraction coverage reproducible
-
-Add a compact inventory of expected file/assignment occurrences, owners, and exclusion categories beside focused updater configuration checks. Check actual Renovate extraction and representative replacement output with fixture registry responses, including a missing checksum, coupled Prek values, and unchanged report data. Inventory the DNF package names as an explicit unpinned exception rather than expecting RPM extraction. Do not add tests of internal helpers in `tests/`; exercise configuration and consumer behavior. Store only a concise proof and reproduction commands in contributor documentation; keep raw dry-run logs untracked.
+Maintain the ownership table and stable official CLI commands in contributor documentation. Compare enabled extraction entries with that inventory and review actual update diffs for coupled fields and exclusions. Extraction also lists disabled Actions dependency types; they remain outside Renovate update ownership. Local dry runs are experimental, require configured authentication for GitHub lookups, and perform no branch creation or automatic inventory comparison. Treat skipped dependencies and warnings as incomplete lookup evidence, even when the CLI succeeds. Keep raw output untracked and validation history in commit messages.
 
 ## Risks / Trade-offs
 
-- Two bots require precise ownership → Renovate has an explicit manager and file allowlist; extraction checks reject overlap and uncovered executable pins.
-- Unpinned Fedora packages vary across rebuilds → retain Fedora 44 and Node 24 tracks, accept low expected development-tool breakage risk, and verify container builds and tool availability.
-- Coupled package availability or checksum resolution can block a candidate → retain visible lookup/build failures; do not relax pinning or integrity checks.
-- Docker image changes alter benchmark conditions → record actual versions in new runs and keep historical evidence unchanged.
-- Newly added input files can bypass existing path gates → enumerate consumers and add scope regression cases for each managed input.
-- Shared interpreter selection changes guard preparation → use one interpreter for both revisions and preserve failure reporting when measurement is unavailable.
+- Two updaters can overlap → disable non-`uses-with` Actions dependencies and other manifest managers; review enabled extraction entries against ownership.
+- Fedora packages vary across rebuilds → retain Fedora/Node tracks and verify the resulting container tools.
+- Missing timestamps permit immediate proposals → preserve maintainer review; apply the age delay wherever timestamps exist.
+- Registry or checksum lookup can fail → retain diagnostics and reject unusable proposed downloads through build checks.
+- Newly introduced consumer inputs can bypass path selection → update the scope tests when adding inputs.
 
 ## Migration Plan
 
-1. Remove DNF package version ARGs and install Fedora packages by name. Document the rationale and explicit pinning exception. Add annotations/configuration for the remaining pins and replace derived duplicate values without upgrading their initial release tracks. Implement scope checks and the focused extraction/replacement proofs.
-2. Prove Taplo digest replacement, build the development image including its repository-selected DNF packages, and exercise MongoDB consumers under candidate replacements before claiming complete coverage of the remaining pins.
-3. Document the ownership table and official Renovate installation link in contributor documentation. Repository administrators enable Renovate only after extraction proves the intended scope; no bot installation or repository setting mutation is authorized by this planning request.
-4. Roll back by disabling Renovate for this repository and reverting its config/annotations and consumer wiring. Dependabot retains its existing manifest ownership throughout.
+1. Configure built-in managers and the narrowly scoped regex selections without upgrading initial versions. Centralize uv, remove Python override plumbing, and retain the requested DNF exception.
+2. Validate the official hook, extraction ownership, affected consumer checks, and matched-interpreter guard behavior.
+3. Install the hosted app through repository administration after review. Roll back by disabling it and reverting its configuration; Dependabot retains its ownership.

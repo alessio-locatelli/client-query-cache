@@ -5,7 +5,7 @@ ARG PREK_TOOL_VERSION=0.5.2
 # renovate: datasource=pypi depName=zizmor versioning=pep440
 ARG ZIZMOR_TOOL_VERSION=1.30.0
 
-# renovate: datasource=github-release-attachments depName=tamasfe/taplo
+# renovate-taplo: datasource=github-release-attachments depName=tamasfe/taplo
 ARG TAPLO_TOOL_VERSION=0.10.0
 
 ADD --checksum=sha256:8fe196b894ccf9072f98d4e1013a180306e17d244830b03986ee5e8eabeb6156 https://github.com/tamasfe/taplo/releases/download/0.10.0/taplo-linux-x86_64.gz /tmp/taplo.gz

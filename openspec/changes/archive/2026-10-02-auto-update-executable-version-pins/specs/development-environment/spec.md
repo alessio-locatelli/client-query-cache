@@ -2,7 +2,7 @@
 
 ## MODIFIED Requirements
 
-### Requirement: The development container builds reproducibly
+### Requirement: The development container provides the documented toolchain
 
 Contributors SHALL be able to build a development container with the documented toolchain. Tools installed outside DNF SHALL use explicit versions; Fedora DNF packages SHALL be resolved from the selected Fedora release repositories, retaining the Node.js 24 package track.
 
@@ -19,3 +19,8 @@ The contributor image SHALL pin its base image by exact digest and every in-cont
 
 - **WHEN** the same image definition is rebuilt
 - **THEN** its base image and tools installed outside DNF remain pinned, DNF resolves compatible package versions from Fedora 44 repositories while retaining the Node.js 24 package track, and host bridge commands remain documented host prerequisites
+
+## RENAMED Requirements
+
+- FROM: `### Requirement: The development container builds reproducibly`
+- TO: `### Requirement: The development container provides the documented toolchain`

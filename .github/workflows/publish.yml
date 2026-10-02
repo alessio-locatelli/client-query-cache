@@ -12,10 +12,6 @@ on:
 permissions:
   contents: read
 
-env:
-  # renovate: datasource=pypi depName=uv versioning=pep440
-  UV_VERSION: "0.12.19"
-
 jobs:
   build-and-verify:
     name: Build and verify release artifacts
@@ -36,10 +32,7 @@ jobs:
         env:
           RELEASE_TAG: ${{ github.ref_name }}
 
-      - id: toolchain
-        uses: $/.github/actions/setup-toolchain
-        with:
-          uv-version: ${{ env.UV_VERSION }}
+      - uses: $/.github/actions/setup-toolchain
 
       - run: uv sync --locked --all-groups
 
