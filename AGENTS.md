@@ -40,6 +40,13 @@ See [README.md](README.md).
 - Never write tests merely to achieve 100% coverage by masking code that never runs in a real application. Either delete dead code, or add a `# pragma: lax no cover` for cases that are flaky across runs, or add `# pragma: no cover` with a concise rationale.
 - Do not write tests for helper utilities located inside the `tests/` directory. These internal test utilities do not require their own test coverage. Delete lines that are not exercised by the full test suite. Cases that genuinely depend on CI or other environment properties may use a pragma comment with a clear rationale.
 
+### Infrastructure and CI/CD
+
+- Avoid reinventing existing tooling. Before adding custom infrastructure, CI logic, validators, or automation, check whether the repository's existing tools or a maintained official/established solution already provides the required behavior.
+- Prefer existing project mechanisms and built-in or official integrations, such as GitHub Actions, pre-commit hooks, linters, and framework features, over custom scripts that duplicate them.
+- Add custom tooling only when the existing alternatives cannot satisfy the requirement cleanly. Document the rationale for non-trivial custom tooling in the appropriate durable design or project documentation.
+- Do not add a custom validator or test merely to re-check configuration or behavior already enforced by the underlying tool.
+
 ### Validation, linting, formatting, testing
 
 ```bash
