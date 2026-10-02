@@ -1,6 +1,6 @@
 # Contributing
 
-Develop inside the pinned Toolbx or Distrobox image, or an equivalent environment with the declared
+Develop inside the Toolbx or Distrobox image, or an equivalent environment with the declared
 tools on `PATH`.
 
 ## Prerequisites
@@ -10,6 +10,19 @@ tools on `PATH`.
   portal/session helper, or [Distrobox](https://distrobox.it/#installation)
 
 ## Environment
+
+The image pins its base digest, Python, and tools installed outside DNF. DNF selects
+`bash`, `just`, `nodejs24`, `nodejs24-npm`, and `uv` from the Fedora 44 repositories
+at build time; Node.js stays on the 24 package track. These package versions are
+unpinned because the selected update bots cannot safely update the Fedora RPM pins:
+Renovate’s [RPM parser](https://github.com/renovatebot/renovate/blob/main/lib/modules/datasource/rpm/providers/xml.ts)
+omits epochs and architecture filtering.
+
+We accept the loss of identical RPM versions across rebuilds. Fedora updates to
+these development tools are expected to have a low risk of breaking the environment.
+They are not dependencies of the published library, whose Python dependencies
+remain declared separately. Tool updates can still affect installation, validation,
+or benchmark results, so validate the rebuilt image before using it.
 
 From the host, build the image and create a Toolbx container:
 

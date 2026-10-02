@@ -7,7 +7,8 @@ Executable dependencies outside package manifests remain pinned without automati
 ## What Changes
 
 - Retain Dependabot for supported manifests and introduce narrowly scoped Renovate custom managers for unsupported executable pins, with exclusive ownership for each dependency occurrence.
-- Cover MongoDB Testcontainers images, CI uv/prek/just and interpreter selections, and Containerfile RPM, Python, PyPI tool, and Taplo download pins.
+- Cover MongoDB Testcontainers images, CI uv/prek/just and interpreter selections, and Containerfile Python, PyPI tool, and Taplo download pins.
+- Leave Fedora DNF packages unpinned within Fedora 44, retaining the Node.js 24 package track, because the selected bots cannot safely update their RPM pins; accept low expected development-tool breakage risk and variable package versions across rebuilds.
 - Keep coupled versions, cache keys, download URLs, and checksums consistent within each update pull request while preserving exact pins and existing release tracks.
 - Validate updates according to their affected consumers, including manifest-only MongoDB changes and development-container inputs.
 - Exclude historical reports, test data, schema versions, the project's release version, local image labels, and published compatibility floors from the new automatic updates.
@@ -19,6 +20,8 @@ Executable dependencies outside package manifests remain pinned without automati
 - `dependency-update-automation`: Scheduled, reviewable updates of executable pins with explicit bot ownership, coupled replacements, and bounded update policies.
 
 ### Modified Capabilities
+
+- `development-environment`: Permit Fedora DNF packages to follow repository versions while retaining pins for the base image and tools installed outside DNF.
 
 - `continuous-integration`: Select consumer validation for executable configuration changes as well as source changes.
 
