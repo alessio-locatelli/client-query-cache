@@ -38,11 +38,11 @@ def _wait_for_mongodb_ping(client: MongoClient[dict[str, Any]]) -> None:
     while monotonic() < deadline:
         try:
             client.admin.command("ping")
-        except AutoReconnect:
+        except AutoReconnect:  # pragma: lax no cover (container startup timing varies)
             sleep(_MONGODB_POLL_INTERVAL_SECONDS)
         else:
             return
-    pytest.fail(
+    pytest.fail(  # pragma: no cover (hard timeout; requires an unreachable container)
         f"MongoDB did not become reachable within "
         f"{_MONGODB_STARTUP_TIMEOUT_SECONDS:.0f} seconds after container start."
     )
@@ -107,7 +107,7 @@ def mongodb_uri() -> Iterator[MongoDbUri]:
                     if client.admin.command("hello")["isWritablePrimary"]:
                         yield uri
                         return
-                except AutoReconnect:
+                except AutoReconnect:  # pragma: lax no cover (election timing varies)
                     pass
                 sleep(_MONGODB_POLL_INTERVAL_SECONDS)
             pytest.fail(  # pragma: no cover (hard timeout; requires a stuck container)

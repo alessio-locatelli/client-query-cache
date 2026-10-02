@@ -6,3 +6,5 @@ omit =
     tests/benchmark/real_server/test_cache_benefit.py
 
 [report]
+exclude_also =
+    \# pragma: lax no cover
