@@ -1,6 +1,9 @@
 schema: spec-driven
 
 rules:
+  specs:
+    - >-
+      Keep each requirement's text within 500 characters. Split distinct obligations into focused requirements, preserving their meaning and assigning each scenario to the requirement it verifies.
   tasks:
     - >-
       Assume that tasks will be executed by a coding agent with no access to the current conversation. Write `tasks.md` to be concrete and mechanical. When relevant, include command examples. Avoid vague or abstract prose that may require additional planning or interpretation.
