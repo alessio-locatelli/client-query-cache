@@ -21,7 +21,7 @@ from pymongo.read_concern import ReadConcern
 from pymongo.synchronous.collection import Collection
 from pymongo.synchronous.database import Database
 
-from client_query_cache._core.errors import UnsupportedCacheRequestError
+from client_query_cache import UnsupportedCacheRequestError
 from client_query_cache._core.keys import NamespaceId
 from client_query_cache._core.manager import CacheCore, CacheCoreConfig
 from client_query_cache.synchronous.collection import CachedCollection

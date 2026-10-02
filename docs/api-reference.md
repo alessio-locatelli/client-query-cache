@@ -221,6 +221,20 @@ Because `CacheManager` wraps a client you already own rather than replacing it, 
 
 ## Errors
 
+Import the cache exceptions from `client_query_cache`:
+
+```python
+from client_query_cache import (
+    CacheClosedError,
+    CacheConfigurationError,
+    CacheError,
+    UnsupportedCacheRequestError,
+)
+```
+
+The three cache exceptions below inherit from `CacheError`, which you can catch to handle them together.
+The same exception classes apply to synchronous and asyncio managers.
+
 | Exception                      | Raised when                                                                                                                   | What to do                                                         |
 | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
 | `CacheConfigurationError`      | A `CacheCoreConfig` value is invalid (non-positive, or `max_entry_bytes` exceeds `shared_budget_bytes`).                      | Fix the configuration value.                                       |

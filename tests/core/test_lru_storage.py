@@ -4,8 +4,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from client_query_cache import CacheConfigurationError
 from client_query_cache._core.entries import AdmissionOutcome
-from client_query_cache._core.errors import CacheConfigurationError
 from client_query_cache._core.manager import CacheCore, CacheCoreConfig
 
 if TYPE_CHECKING:
