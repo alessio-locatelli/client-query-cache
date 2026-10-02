@@ -13,7 +13,7 @@ Every external dependency version that selects an executable tool, interpreter, 
 #### Scenario: An updater extracts dependencies
 
 - **WHEN** both configured bots inspect the repository
-- **THEN** every executable pin is assigned to exactly one bot, including Python MongoDB images, CI tool inputs, interpreter selections, pinned development-container tools, and downloaded tools
+- **THEN** every executable pin is assigned to exactly one bot, including Python MongoDB images, native Actions tool inputs, interpreter selections, pinned development-container tools, and downloaded tools
 
 ### Requirement: Coupled inputs update consistently
 
@@ -31,7 +31,7 @@ An automatic update SHALL update every coupled executable occurrence and derived
 
 ### Requirement: Updates preserve release policies and review
 
-Update proposals SHALL retain exact version and existing digest pins, preserve image variants and configured release tracks, and require maintainer review without automatic merging. The default cadence SHALL be monthly; timestamp-aware sources SHALL wait at least seven days after release. Fedora DNF packages SHALL be an explicit unpinned exception: builds SHALL select packages from Fedora 44 repositories while retaining the Node.js 24 package track. These package names SHALL be excluded from bot version extraction.
+Update proposals SHALL retain exact version and existing digest pins, preserve image variants and configured release tracks, and require maintainer review without automatic merging. The default cadence SHALL be monthly. Sources with release timestamps SHALL wait at least seven days after release; missing timestamps SHALL NOT indefinitely block proposals. Fedora DNF packages SHALL be an explicit unpinned exception: builds SHALL select packages from Fedora 44 repositories while retaining the Node.js 24 package track. These package names SHALL be excluded from bot version extraction.
 
 #### Scenario: A new MongoDB major version is available
 
@@ -42,6 +42,11 @@ Update proposals SHALL retain exact version and existing digest pins, preserve i
 
 - **WHEN** the development image is rebuilt
 - **THEN** DNF resolves compatible package versions from Fedora 44 repositories, retaining the Node.js 24 package track without requiring bot updates to RPM pins
+
+#### Scenario: A release has no timestamp
+
+- **WHEN** a datasource returns an otherwise eligible release without a release timestamp
+- **THEN** the absence of a timestamp does not block an update proposal indefinitely
 
 ### Requirement: Evidence and compatibility declarations are excluded
 
@@ -54,9 +59,18 @@ The new pin automation SHALL exclude recorded benchmark inputs/results, illustra
 
 ### Requirement: Update coverage is observable before activation
 
-The repository SHALL provide reproducible extraction and replacement checks covering its executable pin inventory, ownership boundaries, coupled updates, and exclusions. Missing dependencies and registry or checksum lookup failures SHALL be visible rather than treated as successful coverage.
+The repository SHALL validate Renovate configuration through official tooling and document reproducible extraction and lookup dry runs covering its executable pin inventory and ownership boundaries. Maintainers SHALL compare extracted dependencies with the inventory and review proposed diffs for coupled updates and exclusions before acceptance. Missing dependencies and registry or checksum lookup failures SHALL be visible rather than treated as successful coverage.
 
 #### Scenario: A custom manager stops matching a tool pin
 
-- **WHEN** dependency extraction is checked against the executable pin inventory
+- **WHEN** a maintainer compares official extraction dry-run output with the executable pin inventory
 - **THEN** the missing occurrence is reported and activation or acceptance is blocked until coverage is restored
+
+### Requirement: Updates use supported Renovate integration
+
+Executable update automation SHALL run through the official hosted Renovate app. Repository validation SHALL use documented Renovate interfaces without importing private extraction, replacement, or datasource modules. Dependabot SHALL own the official configuration-validation hook revision.
+
+#### Scenario: An administrator enables executable updates
+
+- **WHEN** an administrator installs the hosted app for this repository
+- **THEN** Renovate uses the repository configuration to propose updates without a repository-maintained bot runner or bot credential

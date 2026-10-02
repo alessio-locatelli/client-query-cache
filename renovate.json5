@@ -1,24 +1,18 @@
 {
   $schema: "https://docs.renovatebot.com/renovate-schema.json",
-  enabledManagers: ["custom.regex"],
+  extends: [
+    "customManagers:dockerfileVersions",
+    "customManagers:githubActionsVersions",
+  ],
+  enabledManagers: ["custom.regex", "github-actions", "pyenv"],
   schedule: ["before 4am on the first day of the month"],
   minimumReleaseAge: "7 days",
+  minimumReleaseAgeBehaviour: "timestamp-optional",
   automerge: false,
   lockFileMaintenance: {
     enabled: false,
   },
   customManagers: [
-    {
-      customType: "regex",
-      managerFilePatterns: [
-        "/^\\.github/workflows/(test|publish|release-verification|stream-cost-benchmark)\\.yml$/",
-        "/^\\.github/actions/setup-toolchain/action\\.yml$/",
-        "/^Containerfile$/",
-      ],
-      matchStrings: [
-        '# renovate: datasource=(?<datasource>[a-z-]+) depName=(?<depName>[^\\s]+) versioning=(?<versioning>[a-z0-9-]+)\\n[ \\t]*(?:ARG )?[A-Za-z_][A-Za-z0-9_-]*(?:=|: )"?(?<currentValue>[0-9][^"\\s]*)"?',
-      ],
-    },
     {
       customType: "regex",
       managerFilePatterns: [
@@ -34,53 +28,34 @@
     },
     {
       customType: "regex",
-      managerFilePatterns: ["/^\\.python-version$/"],
-      matchStrings: ["^(?<currentValue>3\\.14\\.\\d+)\\n$"],
-      datasourceTemplate: "python-version",
-      depNameTemplate: "python",
-      versioningTemplate: "pep440",
-    },
-    {
-      customType: "regex",
       managerFilePatterns: ["/^Containerfile$/"],
       matchStrings: [
-        "# renovate: datasource=github-release-attachments depName=tamasfe/taplo\\nARG TAPLO_TOOL_VERSION=(?<currentValue>[^\\s]+)\\n\\nADD --checksum=sha256:(?<currentDigest>[a-f0-9]{64}) https://github.com/tamasfe/taplo/releases/download/[^/]+/taplo-linux-x86_64.gz /tmp/taplo.gz",
+        "# renovate-taplo: datasource=github-release-attachments depName=tamasfe/taplo\\nARG TAPLO_TOOL_VERSION=(?<currentValue>[^\\s]+)\\n\\nADD --checksum=sha256:(?<currentDigest>[a-f0-9]{64}) https://github.com/tamasfe/taplo/releases/download/[^/]+/taplo-linux-x86_64.gz /tmp/taplo.gz",
       ],
       datasourceTemplate: "github-release-attachments",
       depNameTemplate: "tamasfe/taplo",
       versioningTemplate: "semver",
-      autoReplaceStringTemplate: "# renovate: datasource=github-release-attachments depName=tamasfe/taplo\nARG TAPLO_TOOL_VERSION={{{newValue}}}\n\nADD --checksum=sha256:{{{newDigest}}} https://github.com/tamasfe/taplo/releases/download/{{{newValue}}}/taplo-linux-x86_64.gz /tmp/taplo.gz",
-    },
-    {
-      customType: "regex",
-      managerFilePatterns: ["/^\\.github/workflows/test\\.yml$/"],
-      matchStrings: [
-        '# renovate: datasource=docker depName=ghcr.io/renovatebot/renovate versioning=docker\\n[ \\t]*RENOVATE_IMAGE: "ghcr.io/renovatebot/renovate:(?<currentValue>[^@"]+)@(?<currentDigest>sha256:[a-f0-9]{64})"',
-      ],
-      datasourceTemplate: "docker",
-      depNameTemplate: "ghcr.io/renovatebot/renovate",
-      versioningTemplate: "docker",
+      autoReplaceStringTemplate: "# renovate-taplo: datasource=github-release-attachments depName=tamasfe/taplo\nARG TAPLO_TOOL_VERSION={{{newValue}}}\n\nADD --checksum=sha256:{{{newDigest}}} https://github.com/tamasfe/taplo/releases/download/{{{newValue}}}/taplo-linux-x86_64.gz /tmp/taplo.gz",
     },
   ],
   packageRules: [
+    {
+      matchManagers: ["github-actions"],
+      matchDepTypes: ["!uses-with"],
+      enabled: false,
+    },
     {
       matchPackageNames: ["mongo"],
       allowedVersions: "/^8\\.0\\.\\d+-noble$/",
       groupName: "MongoDB test and benchmark image",
     },
     {
-      matchDatasources: ["python-version"],
+      matchManagers: ["pyenv"],
       allowedVersions: "/^3\\.14\\.\\d+$/",
     },
     {
       matchPackageNames: ["node"],
-      matchDatasources: ["node-version"],
       allowedVersions: "/^24(?:\\.|$)/",
-    },
-    {
-      matchPackageNames: ["uv"],
-      matchDatasources: ["pypi"],
-      groupName: "CI uv",
     },
     {
       matchPackageNames: ["prek"],

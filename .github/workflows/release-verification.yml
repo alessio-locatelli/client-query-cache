@@ -15,10 +15,6 @@ on:
 permissions:
   contents: read
 
-env:
-  # renovate: datasource=pypi depName=uv versioning=pep440
-  UV_VERSION: "0.12.19"
-
 jobs:
   release-verification:
     name: Non-publishing release verification
@@ -29,10 +25,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - id: toolchain
-        uses: $/.github/actions/setup-toolchain
-        with:
-          uv-version: ${{ env.UV_VERSION }}
+      - uses: $/.github/actions/setup-toolchain
 
       - run: uv sync --locked --all-groups
 

@@ -6,7 +6,8 @@ Executable dependencies outside package manifests remain pinned without automati
 
 ## What Changes
 
-- Retain Dependabot for supported manifests and introduce narrowly scoped Renovate custom managers for unsupported executable pins, with exclusive ownership for each dependency occurrence.
+- Run Renovate through its official hosted app and validate configuration with its official pre-commit hook; avoid private APIs and custom bot runners.
+- Retain Dependabot for supported manifests and use Renovate built-in managers and narrowly scoped regex managers for unsupported executable pins, with exclusive ownership for each dependency occurrence.
 - Cover MongoDB Testcontainers images, CI uv/prek/just and interpreter selections, and Containerfile Python, PyPI tool, and Taplo download pins.
 - Leave Fedora DNF packages unpinned within Fedora 44, retaining the Node.js 24 package track, because the selected bots cannot safely update their RPM pins; accept low expected development-tool breakage risk and variable package versions across rebuilds.
 - Keep coupled versions, cache keys, download URLs, and checksums consistent within each update pull request while preserving exact pins and existing release tracks.

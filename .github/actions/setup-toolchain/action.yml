@@ -1,31 +1,17 @@
-name: Set up the locked uv, Python, and just toolchain
-description: Installs the pinned uv, Python, and just versions shared by every CI job.
-
-inputs:
-  uv-version:
-    description: uv version to install
-    required: true
-
-outputs:
-  python-version:
-    description: Exact CPython selection read from .python-version
-    value: ${{ steps.python.outputs.version }}
+name: Set up the locked uv and just toolchain
+description: Installs shared uv and just versions; uv uses the project Python selection.
 
 runs:
   using: composite
   steps:
-    - id: python
-      shell: bash
-      run: echo "version=$(cat .python-version)" >> "${GITHUB_OUTPUT}"
-
     - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
       with:
-        version: ${{ inputs.uv-version }}
-        python-version: ${{ steps.python.outputs.version }}
+        version: "0.12.19"
         enable-cache: true
-        cache-dependency-glob: uv.lock
+        cache-dependency-glob: |
+          uv.lock
+          .python-version
 
     - uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4.0.0
       with:
-        # renovate: datasource=github-releases depName=casey/just versioning=semver
         just-version: "1.57.0"

@@ -124,7 +124,7 @@ The repository SHALL provide a `justfile` at the repository root with named reci
 - **WHEN** a contributor runs the documented quality recipe
 - **THEN** it runs every check in the complete local quality workflow and fails if any check fails
 
-### Requirement: The development container builds reproducibly
+### Requirement: The development container provides the documented toolchain
 
 Contributors SHALL be able to build a development container with the documented toolchain. Tools installed outside DNF SHALL use explicit versions; Fedora DNF packages SHALL be resolved from the selected Fedora release repositories, retaining the Node.js 24 package track.
 
