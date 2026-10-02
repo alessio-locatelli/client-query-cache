@@ -118,6 +118,7 @@ def test_ensure_id_present_for_resolution_never_mixes_inclusion_and_exclusion(
 
 
 _UNENCODABLE_VALUE = object()
+_OUT_OF_RANGE_INT = 10**20
 _RAW_BSON_CODEC_OPTIONS = CodecOptions(document_class=RawBSONDocument)
 
 
@@ -158,6 +159,14 @@ _RAW_BSON_CODEC_OPTIONS = CodecOptions(document_class=RawBSONDocument)
             dict,
             False,
             id="falls-back-when-re-encoding-fails",
+        ),
+        pytest.param(
+            MappingProxyType({"_id": "doc-1", "name": _OUT_OF_RANGE_INT}),
+            CodecOptions(),
+            {"name": _OUT_OF_RANGE_INT},
+            dict,
+            False,
+            id="falls-back-when-re-encoding-overflows",
         ),
     ],
 )

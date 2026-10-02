@@ -58,7 +58,9 @@ def find_one_options_cacheable(
         return False
     try:
         validated = Collation(**document).document
-    except TypeError, ValueError:
+    except TypeError:
+        return False
+    except ValueError:
         return False
     if not validated["locale"]:
         return False

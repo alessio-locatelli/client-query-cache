@@ -27,7 +27,11 @@ ignore = [
   "pytest-fixture-autouse",
   "suspicious-subprocess-import",
   "suspicious-non-cryptographic-random-usage",
+  "suppressible-exception",
 ]
+
+[lint.flake8-tidy-imports.banned-api]
+"contextlib.suppress".msg = "Use try/except: coverage cannot show that a suppressed exception is never raised."
 
 [lint.per-file-ignores]
 "tests/*" = [

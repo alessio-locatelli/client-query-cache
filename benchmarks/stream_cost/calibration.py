@@ -354,11 +354,17 @@ class PeriodicCalibrationSampler:
                 return
             try:
                 self.sample_now()
-            except (BenchmarkConfigurationError, PyMongoError) as error:
-                with self._lock:
-                    self._error = error
+            except BenchmarkConfigurationError as error:
+                self._record_error(error)
+                return
+            except PyMongoError as error:
+                self._record_error(error)
                 return
             next_deadline += self._cadence_seconds
+
+    def _record_error(self, error: BenchmarkConfigurationError | PyMongoError) -> None:
+        with self._lock:
+            self._error = error
 
     def stop(self) -> tuple[CalibrationPoint, ...]:
         self._stop_event.set()

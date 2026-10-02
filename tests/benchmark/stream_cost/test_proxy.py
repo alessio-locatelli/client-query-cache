@@ -145,6 +145,15 @@ def test_exit_without_enter_is_a_noop() -> None:
     DirectPathByteProxy(_proxy_config()).__exit__()
 
 
+def test_exit_tolerates_a_tracked_socket_that_is_already_closed() -> None:
+    closed_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    closed_socket.close()
+    proxy = DirectPathByteProxy(_proxy_config())
+    proxy._sockets.append(closed_socket)
+
+    proxy.__exit__()
+
+
 def test_local_port_before_start_raises() -> None:
     proxy = DirectPathByteProxy(_proxy_config())
     with pytest.raises(BenchmarkSetupError, match="has not been started"):

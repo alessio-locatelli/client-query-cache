@@ -664,7 +664,25 @@ def test_periodic_calibration_sampler_samples_repeatedly_at_the_cadence() -> Non
     assert len(sampler.stop()) >= minimum_expected_points
 
 
-def test_periodic_calibration_sampler_propagates_a_background_failure() -> None:
+def _failing_hello() -> dict[str, object]:
+    message = "simulated hello failure"
+    raise ConnectionFailure(message)
+
+
+def _non_primary_hello() -> dict[str, object]:
+    return {**_stub_send_hello(), "isWritablePrimary": False}
+
+
+@pytest.mark.parametrize(
+    "failing_send_hello",
+    [
+        pytest.param(_failing_hello, id="driver-failure"),
+        pytest.param(_non_primary_hello, id="invalid-hello-response"),
+    ],
+)
+def test_periodic_calibration_sampler_propagates_a_background_failure(
+    failing_send_hello: Callable[[], dict[str, object]],
+) -> None:
     call_count = 0
 
     def flaky_send_hello() -> dict[str, object]:
@@ -672,8 +690,7 @@ def test_periodic_calibration_sampler_propagates_a_background_failure() -> None:
         call_count += 1
         if call_count == 1:
             return _stub_send_hello()
-        message = "simulated hello failure"
-        raise ConnectionFailure(message)
+        return failing_send_hello()
 
     sampler = PeriodicCalibrationSampler(
         flaky_send_hello, cadence_seconds=0.02, rounds=1

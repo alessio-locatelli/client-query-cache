@@ -182,6 +182,10 @@ def _fetch_process_and_metrics(
     return host_id, payload
 
 
+def _warn_unavailable(error: Exception) -> None:
+    logger.warning("Atlas bandwidth evidence unavailable: %s", error)
+
+
 def collect_bandwidth_evidence(
     project_id: str, mongodb_uri: str
 ) -> BandwidthEvidence | None:
@@ -199,8 +203,17 @@ def collect_bandwidth_evidence(
     except subprocess.TimeoutExpired:
         logger.warning("Atlas bandwidth evidence unavailable: atlas CLI timed out")
         return None
-    except (OSError, RuntimeError, ValueError, dns.exception.DNSException) as error:
-        logger.warning("Atlas bandwidth evidence unavailable: %s", error)
+    except OSError as error:
+        _warn_unavailable(error)
+        return None
+    except RuntimeError as error:
+        _warn_unavailable(error)
+        return None
+    except ValueError as error:
+        _warn_unavailable(error)
+        return None
+    except dns.exception.DNSException as error:
+        _warn_unavailable(error)
         return None
     if process_and_metrics is None:
         return None

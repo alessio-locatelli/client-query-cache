@@ -6,7 +6,6 @@ from unittest.mock import patch
 import pytest
 from docker.errors import DockerException
 from pymongo.errors import PyMongoError
-from testcontainers.core.exceptions import ContainerStartException
 
 from benchmarks.stream_cost.client import BenchmarkClientTopologyConfig, WireCompressor
 from benchmarks.stream_cost.errors import (
@@ -186,11 +185,16 @@ def test_enter_stops_container_when_post_start_setup_fails(
         _ = replica_set.uri
 
 
-@pytest.mark.parametrize("start_exception", [DockerException, ContainerStartException])
+@pytest.mark.parametrize(
+    "fail_stop",
+    [pytest.param(False, id="stop_succeeds"), pytest.param(True, id="stop_also_fails")],
+)
 def test_enter_stops_partially_created_container_when_start_fails(
-    monkeypatch: pytest.MonkeyPatch, start_exception: type[Exception]
+    monkeypatch: pytest.MonkeyPatch, fail_stop: bool
 ) -> None:
-    fake_container = _FakeDockerContainer(fail_start_exception=start_exception)
+    fake_container = _FakeDockerContainer(
+        fail_start_exception=DockerException, fail_stop=fail_stop
+    )
     monkeypatch.setattr(
         "benchmarks.stream_cost.topology.DockerContainer",
         lambda _image: fake_container,

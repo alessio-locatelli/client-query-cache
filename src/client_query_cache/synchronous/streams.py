@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import contextlib
 import logging
 import threading
 from typing import TYPE_CHECKING, Any
@@ -106,8 +105,10 @@ class DatabaseStreamSupervisor:
         with self._lifecycle_lock:
             if self._stop_event.is_set():
                 assert self._stream is not None
-                with contextlib.suppress(PyMongoError):
+                try:
                     self._stream.close()
+                except PyMongoError:
+                    pass
                 self._set_health(StreamHealth.CLOSED)
                 message = "stop() was called while start() was still connecting"
                 raise StreamLifecycleError(message)
@@ -163,11 +164,15 @@ class DatabaseStreamSupervisor:
         previous_stream = self._stream
         self._stream = self._database.watch(build_change_stream_pipeline(), **kwargs)
         if previous_stream is not None:
-            with contextlib.suppress(PyMongoError):
+            try:
                 previous_stream.close()
+            except PyMongoError:
+                pass
         if self._stop_event.is_set():
-            with contextlib.suppress(PyMongoError):
+            try:
                 self._stream.close()
+            except PyMongoError:
+                pass
 
     def _set_health(self, health: StreamHealth) -> None:
         with self._lifecycle_lock:
@@ -185,7 +190,10 @@ class DatabaseStreamSupervisor:
             self._cache.record_stream_poll(self._database.name)
             try:
                 event = self._stream.next()
-            except StopIteration, PyMongoError:
+            except StopIteration:
+                self._handle_stream_failure()
+                continue
+            except PyMongoError:
                 self._handle_stream_failure()
                 continue
             self._resume_token = self._stream.resume_token
@@ -199,7 +207,9 @@ class DatabaseStreamSupervisor:
             encoded_length = len(
                 bson.encode(dict(event), codec_options=self._database.codec_options)
             )
-        except BSONError, TypeError, ValueError:
+        except BSONError:
+            return
+        except ValueError:
             return
         self._cache.record_logical_event_bytes(self._database.name, encoded_length)
 

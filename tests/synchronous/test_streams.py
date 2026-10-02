@@ -5,7 +5,6 @@ import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import suppress
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, TypedDict, cast
 from unittest.mock import Mock
@@ -61,10 +60,13 @@ def _long_backoff(delay: float = 5.0) -> RetryBackoff:
 
 
 class _ScriptedStream:
-    __slots__ = ("_closed_event", "_events", "closed", "resume_token")
+    __slots__ = ("_close_error", "_closed_event", "_events", "closed", "resume_token")
 
-    def __init__(self, events: list[object]) -> None:
+    def __init__(
+        self, events: list[object], *, close_error: Exception | None = None
+    ) -> None:
         self._events = list(events)
+        self._close_error = close_error
         self.resume_token: dict[str, object] | None = None
         self.closed = False
         self._closed_event = threading.Event()
@@ -87,6 +89,8 @@ class _ScriptedStream:
     def close(self) -> None:
         self.closed = True
         self._closed_event.set()
+        if self._close_error is not None:
+            raise self._close_error
 
 
 class _BlockingCloseStream(_ScriptedStream):
@@ -295,10 +299,18 @@ def test_start_fails_closed_when_server_info_itself_fails(
     assert supervisor.healthy is False
 
 
+@pytest.mark.parametrize(
+    "close_error",
+    [
+        pytest.param(None, id="close-succeeds"),
+        pytest.param(ConnectionFailure("cursor close failed"), id="close-fails"),
+    ],
+)
 def test_start_raises_and_closes_the_stream_when_stop_races_it(
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
+    close_error: Exception | None,
 ) -> None:
-    stream = _ScriptedStream([])
+    stream = _ScriptedStream([], close_error=close_error)
     database = _FakeDatabase("db", [stream])
     supervisor = make_supervisor(_as_database(database), _mock_cache())
 
@@ -317,36 +329,21 @@ def test_start_raises_and_closes_the_stream_when_stop_races_it(
 def test_concurrent_start_and_stop_never_crash_or_leave_healthy(
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
 ) -> None:
-    errors: list[BaseException] = []
     iterations = 50
 
     for _ in range(iterations):
         database = _FakeDatabase("db", [_ScriptedStream([])])
         supervisor = make_supervisor(_as_database(database), _mock_cache())
 
-        def run_start(supervisor: DatabaseStreamSupervisor = supervisor) -> None:
-            try:
-                with suppress(StreamLifecycleError):
-                    supervisor.start()
-            except BaseException as exc:  # noqa: BLE001  # pragma: no cover (worker failure reporting)
-                errors.append(exc)
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            start = executor.submit(supervisor.start)
+            stop = executor.submit(supervisor.stop)
 
-        def run_stop(supervisor: DatabaseStreamSupervisor = supervisor) -> None:
-            try:
-                supervisor.stop()
-            except BaseException as exc:  # noqa: BLE001  # pragma: no cover (worker failure reporting)
-                errors.append(exc)
-
-        start_thread = threading.Thread(target=run_start)
-        stop_thread = threading.Thread(target=run_stop)
-        start_thread.start()
-        stop_thread.start()
-        start_thread.join()
-        stop_thread.join()
-
+        assert stop.exception() is None
+        assert start.exception() is None or isinstance(
+            start.exception(), StreamLifecycleError
+        )
         assert supervisor.healthy is False
-
-    assert errors == []
 
 
 def test_concurrent_starts_let_only_one_caller_publish_a_worker(
@@ -605,10 +602,18 @@ def test_start_raises_when_called_more_than_once(
         supervisor.start()
 
 
+@pytest.mark.parametrize(
+    "close_error",
+    [
+        pytest.param(None, id="close-succeeds"),
+        pytest.param(ConnectionFailure("cursor close failed"), id="close-fails"),
+    ],
+)
 def test_unexpected_stream_closure_triggers_reconnect_instead_of_staying_healthy(
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
+    close_error: Exception | None,
 ) -> None:
-    stream1 = _ScriptedStream([StopIteration()])
+    stream1 = _ScriptedStream([StopIteration()], close_error=close_error)
     database = _FakeDatabase("db", [stream1, _ScriptedStream([])])
     supervisor = make_supervisor(
         _as_database(database), _mock_cache(), backoff=_FAST_BACKOFF
@@ -657,8 +662,16 @@ class _Unencodable:
     __slots__ = ()
 
 
+@pytest.mark.parametrize(
+    "unencodable_value",
+    [
+        pytest.param(_Unencodable(), id="unsupported-type"),
+        pytest.param("\udc80", id="lone-surrogate-from-surrogateescape-decoding"),
+    ],
+)
 def test_invalidation_survives_unencodable_logical_bytes(
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
+    unencodable_value: object,
 ) -> None:
     cache = CacheCore()
     namespace = NamespaceId("db", "coll")
@@ -667,7 +680,7 @@ def test_invalidation_survives_unencodable_logical_bytes(
     event = {
         "operationType": "insert",
         "ns": {"db": "db", "coll": "coll"},
-        "documentKey": {"_id": "doc-1", "unencodable": _Unencodable()},
+        "documentKey": {"_id": "doc-1", "unencodable": unencodable_value},
         "wallTime": _WALL_TIME,
     }
     database = _FakeDatabase("db", [_ScriptedStream([event]), _ScriptedStream([])])

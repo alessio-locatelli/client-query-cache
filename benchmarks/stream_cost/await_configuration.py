@@ -90,7 +90,12 @@ def expand_await_configuration(raw: object) -> AwaitConfiguration:
 
 
 def load_await_configuration(content: bytes) -> AwaitConfiguration:
+    message = "invalid await-time configuration"
     try:
         return expand_await_configuration(json.loads(content))
-    except (KeyError, TypeError, ValueError) as error:
-        raise BenchmarkConfigurationError("invalid await-time configuration") from error
+    except KeyError as error:
+        raise BenchmarkConfigurationError(message) from error
+    except TypeError as error:
+        raise BenchmarkConfigurationError(message) from error
+    except ValueError as error:
+        raise BenchmarkConfigurationError(message) from error

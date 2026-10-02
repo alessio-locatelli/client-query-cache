@@ -70,7 +70,9 @@ def measure_and_evaluate_case(
             block_pairs=block_pairs,
         )
         decision = evaluate_case(measurement.base_seconds, measurement.head_seconds)
-    except (BenchmarkSetupError, ValueError) as error:
+    except BenchmarkSetupError as error:
+        return measurement_error_report(case, profile, str(error))
+    except ValueError as error:
         return measurement_error_report(case, profile, str(error))
     return CaseReport(
         case=case,

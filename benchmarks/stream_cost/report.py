@@ -158,10 +158,15 @@ def build_report(
 
 def validate_report(report: Mapping[str, object]) -> None:
     errors: list[str] = []
+    serialization_error: Exception | None = None
     try:
         json.dumps(report, allow_nan=False)
-    except (TypeError, ValueError) as exc:
-        errors.append(f"report is not JSON-serializable: {exc}")
+    except TypeError as exc:
+        serialization_error = exc
+    except ValueError as exc:
+        serialization_error = exc
+    if serialization_error is not None:
+        errors.append(f"report is not JSON-serializable: {serialization_error}")
     validator = jsonschema.Draft202012Validator(_SCHEMA)
     errors.extend(error.message for error in validator.iter_errors(report))
     if not errors:
