@@ -14,8 +14,4 @@ exclude_path = [
   'site',
   '.cache',
 ]
-# Remove the exact Pages URL exclusion after the first verified deployment.
-exclude = [
-  'https://github.com/alessio-locatelli/client-query-cache',
-  '^https://alessio-locatelli\.github\.io/client-query-cache/$',
-]
+exclude = ['https://github.com/alessio-locatelli/client-query-cache']
