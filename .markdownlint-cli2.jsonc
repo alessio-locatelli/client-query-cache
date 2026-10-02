@@ -7,7 +7,7 @@
     "CHANGELOG.md",
   ],
   "noBanner": true,
-  "ignores": ["specifications/**"],
+  "ignores": ["specifications/**", "site/**", ".cache/**"],
   "config": {
     "line-length": false,
   },

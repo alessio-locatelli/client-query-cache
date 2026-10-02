@@ -9,7 +9,14 @@ pytestmark = pytest.mark.unit
 
 
 @pytest.mark.parametrize(
-    ("changed_paths", "python", "formatting", "container", "benchmark"),
+    (
+        "changed_paths",
+        "python",
+        "formatting",
+        "container",
+        "benchmark",
+        "documentation",
+    ),
     [
         pytest.param(
             ("src/client_query_cache/core.py",),
@@ -17,14 +24,25 @@ pytestmark = pytest.mark.unit
             False,
             False,
             False,
+            False,
             id="python-source",
         ),
-        pytest.param(("README.md",), False, True, False, False, id="documentation"),
-        pytest.param((".prettierrc",), False, True, False, False, id="prettier-config"),
-        pytest.param(("notes.txt",), False, False, False, False, id="unrelated"),
-        pytest.param(("justfile",), True, False, False, False, id="justfile"),
         pytest.param(
-            (".github/workflows/test.yml",), True, True, False, False, id="pr-workflow"
+            ("README.md",), False, True, False, False, True, id="documentation"
+        ),
+        pytest.param(
+            (".prettierrc",), False, True, False, False, False, id="prettier-config"
+        ),
+        pytest.param(("notes.txt",), False, False, False, False, False, id="unrelated"),
+        pytest.param(("justfile",), True, False, False, False, True, id="justfile"),
+        pytest.param(
+            (".github/workflows/test.yml",),
+            True,
+            True,
+            False,
+            False,
+            True,
+            id="pr-workflow",
         ),
         pytest.param(
             ("README.md", "src/client_query_cache/core.py", "Containerfile"),
@@ -32,11 +50,14 @@ pytestmark = pytest.mark.unit
             True,
             True,
             False,
+            True,
             id="mixed",
         ),
-        pytest.param(("Containerfile",), False, False, True, False, id="container"),
         pytest.param(
-            (".python-version",), True, False, True, True, id="python-version"
+            ("Containerfile",), False, False, True, False, False, id="container"
+        ),
+        pytest.param(
+            (".python-version",), True, False, True, True, True, id="python-version"
         ),
         pytest.param(
             ("tests/conftest.py",),
@@ -44,6 +65,7 @@ pytestmark = pytest.mark.unit
             False,
             False,
             True,
+            False,
             id="shared-pytest-fixtures",
         ),
         pytest.param(
@@ -52,6 +74,7 @@ pytestmark = pytest.mark.unit
             False,
             False,
             True,
+            False,
             id="benchmark-mongodb",
         ),
         pytest.param(
@@ -60,12 +83,14 @@ pytestmark = pytest.mark.unit
             True,
             False,
             True,
+            True,
             id="shared-tools",
         ),
         pytest.param(
             (".github/workflows/publish.yml",),
             False,
             True,
+            False,
             False,
             False,
             id="publish-tools",
@@ -76,6 +101,7 @@ pytestmark = pytest.mark.unit
             True,
             False,
             False,
+            False,
             id="release-tools",
         ),
         pytest.param(
@@ -84,11 +110,13 @@ pytestmark = pytest.mark.unit
             True,
             False,
             False,
+            False,
             id="benchmark-tools",
         ),
         pytest.param(
             ("benchmarks/stream_cost/guard_report.py",),
             True,
+            False,
             False,
             False,
             False,
@@ -100,6 +128,7 @@ pytestmark = pytest.mark.unit
             False,
             False,
             True,
+            False,
             id="startup-test",
         ),
         pytest.param(
@@ -108,9 +137,56 @@ pytestmark = pytest.mark.unit
             False,
             True,
             False,
+            False,
             id="container-check",
         ),
-        pytest.param(("renovate.json5",), False, True, False, False, id="renovate"),
+        pytest.param(
+            ("renovate.json5",), False, True, False, False, False, id="renovate"
+        ),
+        pytest.param(
+            ("docs/api-reference.md",), False, True, False, False, True, id="guide"
+        ),
+        pytest.param(
+            ("docs/assets/figure.svg",), False, False, False, False, True, id="asset"
+        ),
+        pytest.param(
+            ("examples/README.md",),
+            False,
+            True,
+            False,
+            False,
+            True,
+            id="examples-readme",
+        ),
+        pytest.param(
+            ("zensical.toml",), False, False, False, False, True, id="site-config"
+        ),
+        pytest.param(
+            ("pyproject.toml",), True, False, False, True, True, id="dependencies"
+        ),
+        pytest.param(("uv.lock",), True, False, False, True, True, id="lockfile"),
+        pytest.param(
+            ("scripts/ci_scope.py",), True, False, False, False, True, id="scope-script"
+        ),
+        pytest.param(
+            ("scripts/check_docs_assets.py",),
+            True,
+            False,
+            False,
+            False,
+            True,
+            id="asset-check",
+        ),
+        pytest.param(
+            (".github/workflows/docs.yml",),
+            False,
+            True,
+            False,
+            False,
+            True,
+            id="docs-workflow",
+        ),
+        pytest.param((), False, False, False, False, False, id="empty"),
     ],
 )
 def test_ci_scope_selects_validation_tiers(
@@ -120,6 +196,7 @@ def test_ci_scope_selects_validation_tiers(
     formatting: bool,
     container: bool,
     benchmark: bool,
+    documentation: bool,
 ) -> None:
     completed = subprocess.run(
         (sys.executable, "-m", "scripts.ci_scope"),
@@ -134,4 +211,5 @@ def test_ci_scope_selects_validation_tiers(
         "format": str(formatting).lower(),
         "container": str(container).lower(),
         "benchmark": str(benchmark).lower(),
+        "documentation": str(documentation).lower(),
     }

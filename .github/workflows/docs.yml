@@ -1,0 +1,66 @@
+name: Publish documentation
+
+concurrency:
+  group: documentation-publication
+  cancel-in-progress: false
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "README.md"
+      - "examples/README.md"
+      - "zensical.toml"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".python-version"
+      - "justfile"
+      - "scripts/ci_scope.py"
+      - "scripts/check_docs_assets.py"
+      - ".github/workflows/test.yml"
+      - ".github/workflows/docs.yml"
+      - ".github/actions/setup-toolchain/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build documentation artifact
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: $/.github/actions/setup-toolchain
+
+      - run: just docs-build
+
+      - uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4.0.0
+        with:
+          path: site/
+          retention-days: 1
+
+  deploy:
+    name: Deploy documentation
+    if: github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      pages: write # Publish the Pages artifact.
+      id-token: write # Authenticate this deployment to Pages with OIDC.
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    concurrency:
+      group: documentation-pages
+      cancel-in-progress: false
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5

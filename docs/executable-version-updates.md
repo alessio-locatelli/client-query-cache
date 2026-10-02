@@ -4,17 +4,17 @@ The official hosted Renovate app proposes monthly updates, with maintainer revie
 and a seven-day delay when release timestamps are available. MongoDB stays on
 8.0 noble, Python on 3.14, and Node.js on 24.
 
-| Selection                                                    | Owner                                      | Location                                                                                        |
-| ------------------------------------------------------------ | ------------------------------------------ | ----------------------------------------------------------------------------------------------- |
-| Manifest dependencies, action references, and hook revisions | Dependabot                                 | Existing supported manifests, `uses:` references, `.pre-commit-config.yaml`                     |
-| CI uv and just                                               | Renovate `github-actions`, `uses-with`     | Literal inputs in `.github/actions/setup-toolchain/action.yml`                                  |
-| CI Node.js                                                   | Renovate `github-actions`, `uses-with`     | `test.yml` `node-version`                                                                       |
-| Python                                                       | Renovate `pyenv`                           | `.python-version`; uv and the container consume it; CI caches hash it                           |
-| MongoDB                                                      | Renovate regex                             | `tests/conftest.py` and `benchmarks/stream_cost/topology.py`; one group                         |
-| Prek                                                         | Renovate Dockerfile/GitHub Actions presets | `test.yml` `PREK_VERSION` and Containerfile ARG; one group; cache derives from the CI selection |
-| Zizmor                                                       | Renovate Dockerfile preset                 | Containerfile ARG                                                                               |
-| Taplo                                                        | Renovate regex                             | Containerfile ARG, download URL, and SHA256                                                     |
-| DNF tools                                                    | Fedora repositories                        | Unpinned Fedora 44 packages, retaining Node.js 24; [rationale](../CONTRIBUTING.md#environment)  |
+| Selection                                                    | Owner                                      | Location                                                                                                                                                      |
+| ------------------------------------------------------------ | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Manifest dependencies, action references, and hook revisions | Dependabot                                 | Existing supported manifests, `uses:` references, `.pre-commit-config.yaml`                                                                                   |
+| CI uv and just                                               | Renovate `github-actions`, `uses-with`     | Literal inputs in `.github/actions/setup-toolchain/action.yml`                                                                                                |
+| CI Node.js                                                   | Renovate `github-actions`, `uses-with`     | `test.yml` `node-version`                                                                                                                                     |
+| Python                                                       | Renovate `pyenv`                           | `.python-version`; uv and the container consume it; CI caches hash it                                                                                         |
+| MongoDB                                                      | Renovate regex                             | `tests/conftest.py` and `benchmarks/stream_cost/topology.py`; one group                                                                                       |
+| Prek                                                         | Renovate Dockerfile/GitHub Actions presets | `test.yml` `PREK_VERSION` and Containerfile ARG; one group; cache derives from the CI selection                                                               |
+| Zizmor                                                       | Renovate Dockerfile preset                 | Containerfile ARG                                                                                                                                             |
+| Taplo                                                        | Renovate regex                             | Containerfile ARG, download URL, and SHA256                                                                                                                   |
+| DNF tools                                                    | Fedora repositories                        | Unpinned Fedora 44 packages, retaining Node.js 24; [rationale](https://github.com/alessio-locatelli/client-query-cache/blob/main/CONTRIBUTING.md#environment) |
 
 In this repository, Renovate's Actions manager updates only `uses-with` inputs.
 Its other dependency types are disabled to preserve Dependabot ownership. Reports,

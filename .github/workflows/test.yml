@@ -24,6 +24,7 @@ jobs:
       benchmark: ${{ steps.paths.outputs.benchmark }}
       python: ${{ steps.paths.outputs.python }}
       format: ${{ steps.paths.outputs.format }}
+      documentation: ${{ steps.paths.outputs.documentation }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -106,6 +107,23 @@ jobs:
 
       - if: needs.scope.outputs.format == 'true'
         run: npm exec -- openspec validate --all --strict
+
+  documentation:
+    name: Documentation build
+    needs: [scope, prek, prettier]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - if: needs.scope.outputs.documentation == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - if: needs.scope.outputs.documentation == 'true'
+        uses: $/.github/actions/setup-toolchain
+
+      - if: needs.scope.outputs.documentation == 'true'
+        run: just docs-build
 
   package:
     name: Static checks, packaging, and isolated install

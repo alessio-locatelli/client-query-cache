@@ -7,5 +7,15 @@ max_cache_age = "14d"
 accept = "200..=204,400,401,403,405,429,500,503,504"
 exclude_all_private = true
 # Renovate download patterns/templates are not fetchable links; its schema is validated separately.
-exclude_path = ['lychee.toml', 'specifications', 'renovate.json5']
-exclude = ['https://github.com/alessio-locatelli/client-query-cache']
+exclude_path = [
+  'lychee.toml',
+  'specifications',
+  'renovate.json5',
+  'site',
+  '.cache',
+]
+# Remove the exact Pages URL exclusion after the first verified deployment.
+exclude = [
+  'https://github.com/alessio-locatelli/client-query-cache',
+  '^https://alessio-locatelli\.github\.io/client-query-cache/$',
+]

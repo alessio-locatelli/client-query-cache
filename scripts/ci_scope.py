@@ -26,6 +26,24 @@ def main() -> None:
         or path.startswith(".github/actions/setup-toolchain/")
         for path in paths
     )
+    documentation = any(
+        path.startswith(("docs/", ".github/actions/setup-toolchain/"))
+        or path
+        in {
+            "README.md",
+            "examples/README.md",
+            "zensical.toml",
+            "pyproject.toml",
+            "uv.lock",
+            ".python-version",
+            "justfile",
+            "scripts/ci_scope.py",
+            "scripts/check_docs_assets.py",
+            ".github/workflows/test.yml",
+            ".github/workflows/docs.yml",
+        }
+        for path in paths
+    )
     formatting = any(
         path.endswith((".json", ".json5", ".jsonc", ".md", ".yaml", ".yml"))
         or path in {".prettierignore", ".prettierrc"}
@@ -53,6 +71,7 @@ def main() -> None:
         or path.startswith(".github/actions/setup-toolchain/")
         for path in paths
     )
+    print(f"documentation={str(documentation).lower()}")
     print(f"container={str(container).lower()}")
     print(f"benchmark={str(benchmark).lower()}")
     print(f"python={str(python).lower()}")

@@ -75,6 +75,50 @@ See the [CI validation cache inventory](docs/ci-validation-caches.md) for the to
 
 Run host Podman commands from the contributor container with `just podman -- <arguments>`.
 
+## Documentation
+
+Edit the canonical Markdown guides and assets in `docs/`. Link rendered guides
+with relative Markdown paths and heading fragments; link repository-only content
+(README, examples, source, and benchmark evidence) with explicit GitHub URLs.
+Keep revision-pinned evidence links pinned.
+
+```console
+just docs-serve
+just docs-build
+```
+
+The preview prints its local URL and reloads when guides change. The build creates
+untracked output in `site/`, fails on missing local pages, headings, or assets, and
+uses the locked `docs` dependency group. These commands need no MongoDB, Docker,
+or hosting credentials. See [Zensical's documentation](https://zensical.org/docs/)
+for authoring and framework configuration.
+
+Pull requests affecting site inputs run **Documentation build** after **Prek** and
+**Prettier, Markdownlint, and OpenSpec**. If configuring required checks, require
+all three independently: GitHub can report a dependent job skipped after a failed
+prerequisite as successful. Guide-only Markdown changes do not select Python or
+database tests.
+
+### Publishing
+
+An administrator must select **GitHub Actions** as the Pages publishing source and
+restrict the `github-pages` environment's deployment branches to `main`. Review
+any environment approval requirements before rollout. See GitHub's
+[Pages workflow setup](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages)
+and [environment protection guidance](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments).
+Public repositories can use the free project URL,
+`https://alessio-locatelli.github.io/client-query-cache/`, without a custom domain.
+
+**Publish documentation** builds relevant `main` revisions and deploys that run's
+artifact. It uses GitHub's token and OIDC; no personal token is needed. Build and
+hosting configuration failures remain visible workflow failures. To redeploy,
+[run the workflow manually](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow)
+with `main` selected; other branches cannot publish.
+
+To roll back, revert the documentation changes on `main` to the desired content
+and redeploy. If no working site exists, an administrator can disable the workflow
+and Pages hosting. Repository Markdown remains available.
+
 ## Changelog
 
 Every user-facing change adds a one-line entry under `CHANGELOG.md`'s "Unreleased" section describing the final behavior, not the review history that led to it.

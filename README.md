@@ -115,6 +115,9 @@ A read bypasses the cache instead of using it whenever caching it safely isn't p
 
 ## Documentation
 
+Browse the [documentation site](https://alessio-locatelli.github.io/client-query-cache/)
+for searchable guides to the current `main` branch.
+
 - [API reference](docs/api-reference.md) — the complete public surface: construction, configuration, limits, ownership, and raw fallback.
 - [Architecture and operations](docs/architecture.md) — system requirements, capacity planning, retry/error handling, observability, security, and recovery behavior.
 - [Examples](examples/README.md) — runnable programs that add the cache to real libraries that store data in MongoDB, such as requests-cache.
