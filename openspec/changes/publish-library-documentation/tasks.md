@@ -24,7 +24,7 @@
 
 - [x] 4.1 Add `.github/workflows/docs.yml` with relevant `main` push paths and manual redeploy, a read-only clean strict build and Pages artifact upload, and a separate `main`-only deployment using that artifact. Reuse setup pins, pin official actions to reviewed full SHAs, set timeouts, scope Pages/OIDC permissions only to deployment, use `github-pages`, and serialize deployments without cancellation; verify non-main manual runs and fork PRs cannot publish.
 - [x] 4.2 Add concise Pages publishing-source, environment-protection, redeploy, and rollback guidance to CONTRIBUTING with official GitHub references; verify local setup instructions need no personal token and configuration failures remain visible workflow failures.
-- [ ] 4.3 Confirm public repository eligibility, Pages Actions source, and `github-pages` branch/environment protections before rollout. Complete required live setup within explicit user authorization; if authorization or administrator access is missing, record the exact blocker and leave this task open. Verify hosting uses the free standard project URL.
+- [x] 4.3 Confirm public repository eligibility, Pages Actions source, and `github-pages` branch/environment protections before rollout. Complete required live setup within explicit user authorization; if authorization or administrator access is missing, record the exact blocker and leave this task open. Verify hosting uses the free standard project URL.
 - [ ] 4.4 Once the reviewed implementation is available on `main` and live publication is authorized, run or observe the deployment and verify the deployed revision, HTTPS URL, search, mobile navigation, code controls, internal anchors, assets, and repository-only links. Remove the temporary exact-URL Pages exclusion from `lychee.toml` and rerun link checking. Record the deployed revision and outcome here; keep the change active if publication fails or cannot be verified.
 
 ## 5. Code Quality
@@ -56,10 +56,16 @@
   untracked. These figures are local build costs, not library runtime benchmarks.
 - On 2026-10-02, GitHub read-only inspection confirmed a public repository and
   `main` as default branch. Its active `main` ruleset requires review and linear
-  history, with no required status-check rule. The Pages and `github-pages`
-  environment endpoints both return 404. Live setup/publication is not authorized;
-  4.3 remains open. The implementation is on a feature branch, so 4.4 also awaits
-  the reviewed implementation on `main` and live publication authorization.
+  history, with no required status-check rule. After explicit maintainer
+  authorization, Pages was enabled with `build_type = workflow`, public hosting,
+  HTTPS enforcement, and the free standard project URL. The newly created
+  `github-pages` environment uses custom branch policies with only a `main`
+  branch rule (no tag rules or additional reviewer/wait requirements). Read-back
+  of the Pages, environment, and branch-policy endpoints confirms this setup;
+  4.3 is complete. The maintainer also authorized publication once the reviewed
+  implementation reaches `main`. Remote `main` is still
+  `e6e4c07348b6c4ccf99f923ba4a3bf3657ffd064`, without the site workflow, so 4.4
+  awaits that prerequisite and deployment verification.
 - The advertised documentation URL returns 404 before first publication. The
   maintainer approved a temporary Lychee exclusion anchored to that exact URL;
   task 4.4 owns its removal after verified publication. Local target validation
