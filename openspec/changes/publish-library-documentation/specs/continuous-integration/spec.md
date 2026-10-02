@@ -4,7 +4,7 @@
 
 ### Requirement: Pull requests validate documentation-site inputs
 
-Pull requests that change documentation sources or assets, site configuration, documentation dependencies, build recipes, validation scope logic, documentation workflows, or shared toolchain setup SHALL run a clean strict documentation build after applicable linting and formatting gates succeed. Other pull requests SHALL retain a stable documentation-check outcome without executing an unnecessary site build. Documentation build failures SHALL prevent successful validation. Documentation-only Markdown changes SHALL not add Python package or database test execution beyond the existing validation scope.
+Pull requests that change rendered documentation sources or assets, site configuration, documentation dependencies, build recipes, the publishing workflow, or shared toolchain setup SHALL run a clean strict documentation build after applicable linting and formatting gates succeed. Other pull requests SHALL retain a stable documentation-check outcome without executing an unnecessary site build. Documentation build failures SHALL prevent successful validation. Documentation-only Markdown changes SHALL not add Python package or database test execution beyond the existing validation scope.
 
 #### Scenario: A guide changes
 

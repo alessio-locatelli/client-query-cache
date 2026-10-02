@@ -27,19 +27,25 @@ def main() -> None:
         for path in paths
     )
     documentation = any(
-        path.startswith(("docs/", ".github/actions/setup-toolchain/"))
+        (
+            path.startswith("docs/")
+            and not path.startswith("docs/decisions/")
+            and path
+            not in {
+                "docs/pypi-publishing-setup.md",
+                "docs/ci-validation-caches.md",
+                "docs/executable-version-updates.md",
+                "docs/causal-invalidation-barrier-research.md",
+            }
+        )
+        or path.startswith(".github/actions/setup-toolchain/")
         or path
         in {
-            "README.md",
-            "examples/README.md",
             "zensical.toml",
             "pyproject.toml",
             "uv.lock",
             ".python-version",
             "justfile",
-            "scripts/ci_scope.py",
-            "scripts/check_docs_assets.py",
-            ".github/workflows/test.yml",
             ".github/workflows/docs.yml",
         }
         for path in paths

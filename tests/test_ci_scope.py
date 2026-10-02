@@ -27,9 +27,7 @@ pytestmark = pytest.mark.unit
             False,
             id="python-source",
         ),
-        pytest.param(
-            ("README.md",), False, True, False, False, True, id="documentation"
-        ),
+        pytest.param(("README.md",), False, True, False, False, False, id="readme"),
         pytest.param(
             (".prettierrc",), False, True, False, False, False, id="prettier-config"
         ),
@@ -41,7 +39,7 @@ pytestmark = pytest.mark.unit
             True,
             False,
             False,
-            True,
+            False,
             id="pr-workflow",
         ),
         pytest.param(
@@ -50,7 +48,7 @@ pytestmark = pytest.mark.unit
             True,
             True,
             False,
-            True,
+            False,
             id="mixed",
         ),
         pytest.param(
@@ -155,7 +153,7 @@ pytestmark = pytest.mark.unit
             True,
             False,
             False,
-            True,
+            False,
             id="examples-readme",
         ),
         pytest.param(
@@ -166,16 +164,13 @@ pytestmark = pytest.mark.unit
         ),
         pytest.param(("uv.lock",), True, False, False, True, True, id="lockfile"),
         pytest.param(
-            ("scripts/ci_scope.py",), True, False, False, False, True, id="scope-script"
-        ),
-        pytest.param(
-            ("scripts/check_docs_assets.py",),
+            ("scripts/ci_scope.py",),
             True,
             False,
             False,
             False,
-            True,
-            id="asset-check",
+            False,
+            id="scope-script",
         ),
         pytest.param(
             (".github/workflows/docs.yml",),
@@ -186,6 +181,16 @@ pytestmark = pytest.mark.unit
             True,
             id="docs-workflow",
         ),
+        *[
+            pytest.param((path,), False, True, False, False, False, id=path)
+            for path in (
+                "docs/pypi-publishing-setup.md",
+                "docs/ci-validation-caches.md",
+                "docs/executable-version-updates.md",
+                "docs/causal-invalidation-barrier-research.md",
+                "docs/decisions/defer-causal-invalidation-barrier.md",
+            )
+        ],
         pytest.param((), False, False, False, False, False, id="empty"),
     ],
 )
