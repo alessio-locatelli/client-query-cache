@@ -61,34 +61,56 @@ The site SHALL provide a landing page and clearly grouped, populated sections fo
 
 ### Requirement: Published guides preserve canonical sources and working links
 
-Public and development documentation SHALL occupy distinct, descriptively named subdirectories of `docs/`. Public API, operations, and performance guides SHALL remain canonical Markdown sources accessible in the repository; the site SHALL render those sources without separately maintained guide copies. Each detailed topic SHALL have one canonical source, with other entry points using links or build-time inclusion. Example instructions and executable code SHALL likewise be reused from canonical repository files. Published page links, heading links, and bundled assets SHALL resolve under the hosting project's URL subpath. Previously published public guide pages and their documented headings SHALL continue to reach relevant hosted guidance after moves or splits. References to contributor instructions, explicit example-source links, and versioned benchmark evidence SHALL resolve to their repository destinations. Maintainer and research documents SHALL remain repository references and SHALL be excluded from hosted content and search. Relevant technical guides MAY link to them contextually on GitHub. OpenSpec planning artifacts and library source trees SHALL not be published as site content.
+Public API, operations, and performance guides SHALL remain canonical Markdown sources readable in the repository; the site SHALL render those sources without separately maintained guide copies. Each detailed topic SHALL have one canonical source, with other entry points using links or build-time inclusion. Example instructions and executable code SHALL likewise be reused from canonical repository files.
 
-#### Scenario: A reader follows related guidance
+#### Scenario: A contributor updates a canonical guide
 
-- **WHEN** a reader follows an API-to-operations heading link on the hosted site
-- **THEN** the destination opens the corresponding rendered guide and heading under the project URL subpath
-
-#### Scenario: A reader follows benchmark evidence
-
-- **WHEN** a reader follows a benchmark evidence or explicitly identified example-source link from the hosted site
-- **THEN** the destination is the intended repository file or directory rather than an absent site page
+- **WHEN** a contributor changes an API, operations, or performance Markdown guide
+- **THEN** the next site build renders that source without requiring an update to a duplicate guide
 
 #### Scenario: A contributor updates canonical content
 
 - **WHEN** a contributor changes canonical example instructions or executable example code used by a page
 - **THEN** the next site build renders that revision without requiring the contributor to edit a duplicate copy
 
+### Requirement: Published documentation links resolve under the project subpath
+
+Published page links, heading links, and bundled assets SHALL resolve under the hosting project's URL subpath. Previously published public guide pages and their documented headings SHALL continue to reach relevant hosted guidance after moves or splits.
+
+#### Scenario: A reader follows related guidance
+
+- **WHEN** a reader follows an API-to-operations heading link on the hosted site
+- **THEN** the destination opens the corresponding rendered guide and heading under the project URL subpath
+
+#### Scenario: A reader opens a bundled asset
+
+- **WHEN** a reader opens a guide containing a bundled asset on the hosted site
+- **THEN** the asset resolves under the hosting project's URL subpath
+
 #### Scenario: A reader follows an existing bookmark
 
 - **WHEN** a reader opens a previously published API, architecture-and-operations, or performance page URL or documented heading URL
 - **THEN** the reader reaches the corresponding public content on the site after the restructure, including a public explanation when a former heading described internal design
 
-#### Scenario: A reader searches for maintainer notes
+### Requirement: Repository references resolve to their source destinations
 
-- **WHEN** a reader searches the hosted site for a development-only research or publishing-setup document
-- **THEN** that document is absent from the search index and published content
+References to contributor instructions, explicit example-source links, and versioned benchmark evidence SHALL resolve to their repository destinations.
+
+#### Scenario: A reader follows benchmark evidence
+
+- **WHEN** a reader follows a benchmark evidence or explicitly identified example-source link from the hosted site
+- **THEN** the destination is the intended repository file or directory rather than an absent site page
 
 ## ADDED Requirements
+
+### Requirement: Documentation separates public and development sources
+
+Public and development documentation SHALL occupy distinct, descriptively named subdirectories of `docs/`.
+
+#### Scenario: A contributor locates documentation sources
+
+- **WHEN** a contributor opens `docs/`
+- **THEN** descriptive subdirectories distinguish published user guidance from repository-only development documentation
 
 ### Requirement: Documentation input selection follows canonical content
 
