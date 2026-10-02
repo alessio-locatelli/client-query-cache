@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Export `CacheConfigurationError`, `CacheClosedError`, `UnsupportedCacheRequestError`, and their `CacheError` base class from `client_query_cache`.
+
 - Provide searchable documentation with mobile navigation, light/dark themes, and local preview/build commands.
 
 - The development container installs DNF packages from Fedora 44 repositories while retaining the Node.js 24 track.

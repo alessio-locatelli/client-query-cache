@@ -1,3 +1,9 @@
+from ._core.errors import (
+    CacheClosedError,
+    CacheConfigurationError,
+    CacheError,
+    UnsupportedCacheRequestError,
+)
 from .synchronous import (
     BypassReason,
     BypassReasonCount,
@@ -15,8 +21,11 @@ from .synchronous import (
 __all__ = [
     "BypassReason",
     "BypassReasonCount",
+    "CacheClosedError",
+    "CacheConfigurationError",
     "CacheCore",
     "CacheCoreConfig",
+    "CacheError",
     "CacheManager",
     "CacheSnapshot",
     "CachedCollection",
@@ -24,4 +33,5 @@ __all__ = [
     "StreamCostSnapshot",
     "StreamHealthSnapshot",
     "StreamHealthStatus",
+    "UnsupportedCacheRequestError",
 ]

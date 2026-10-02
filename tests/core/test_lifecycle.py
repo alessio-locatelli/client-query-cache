@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from client_query_cache._core.errors import CacheClosedError
+from client_query_cache import CacheClosedError
 from client_query_cache._core.keys import NamespaceId
 from client_query_cache._core.lifecycle import CacheLifecycleState
 from client_query_cache._core.manager import CacheCore
