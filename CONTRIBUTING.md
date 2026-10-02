@@ -43,6 +43,11 @@ Inside the container, open the checkout and run:
 just setup
 ```
 
+## Executable updates
+
+See the [executable update inventory and validation commands](docs/executable-version-updates.md).
+CI and the development image use the exact Python patch selected in `.python-version`.
+
 ## Validate changes
 
 Inside Toolbx or Distrobox, enable the host Podman socket before the full test suite:

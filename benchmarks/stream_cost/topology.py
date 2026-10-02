@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
     from types import TracebackType
 
+# renovate: datasource=docker depName=mongo versioning=docker
 MONGODB_IMAGE = "mongo:8.0.4-noble"
 
 _REPLICA_SET_NAME = "rs0"

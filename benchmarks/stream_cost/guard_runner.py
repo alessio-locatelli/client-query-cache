@@ -28,6 +28,18 @@ def _resolve_revision(repo_root: Path, revision: str) -> str:
     return _run(["git", "rev-parse", revision], cwd=repo_root).strip()
 
 
+def revision_python_version(repo_root: Path, revision: str) -> str:
+    try:
+        return _run(
+            ["git", "show", f"{revision}:.python-version"], cwd=repo_root
+        ).strip()
+    except subprocess.CalledProcessError as error:
+        message = (
+            f"could not read Python selection for revision {revision}: {error.stderr}"
+        )
+        raise BenchmarkSetupError(message) from None
+
+
 def _workload_digest(repo_root: Path) -> str:
     digest = hashlib.sha256()
     for name in _WORKLOAD_SOURCE_FILES:
@@ -57,6 +69,7 @@ def prepare_environment(
     *,
     worktree_dir: Path,
     workload_source_root: Path | None = None,
+    python_version: str,
 ) -> RevisionEnvironment:
     resolved = _resolve_revision(repo_root, revision)
     try:
@@ -86,7 +99,15 @@ def prepare_environment(
         message = "uv is required to install a revision's locked dependencies"
         raise BenchmarkSetupError(message)
     try:
-        _run([uv_path, "sync", "--locked", "--all-groups"], cwd=worktree_dir)
+        command = [
+            uv_path,
+            "sync",
+            "--locked",
+            "--all-groups",
+            "--python",
+            python_version,
+        ]
+        _run(command, cwd=worktree_dir)
     except subprocess.CalledProcessError as error:
         message = (
             f"could not sync locked dependencies for revision {resolved}: "

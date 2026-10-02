@@ -6,17 +6,18 @@ See [proposal.md](proposal.md) for motivation. `.github/dependabot.yml` already 
 
 Current unsupported executable occurrences are:
 
-| Input                                       | Location                                                       | Coupling / release policy                                                  |
-| ------------------------------------------- | -------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| MongoDB 8.0.4-noble                         | `tests/conftest.py`, `benchmarks/stream_cost/topology.py`      | Both use 8.0 noble; Compose independently uses 9.0 with a digest           |
-| uv 0.12.19                                  | Four `.github/workflows/*.yml` files                           | Shared CI tool; Containerfile uv is a Fedora RPM with a different version  |
-| Prek 0.5.2                                  | `test.yml` install and cache key; Containerfile ARG            | Same PyPI release                                                          |
-| just 1.57.0                                 | setup-toolchain action input                                   | GitHub release; Containerfile just is independently packaged by Fedora     |
-| Python 3.14.6 / CI 3.14                     | `.python-version`, Containerfile ARG, four workflow selections | Preserve 3.14 track and package compatibility floor                        |
-| Node 24                                     | `test.yml` action input                                        | Preserve Node 24 track; Fedora Node/npm have independent package revisions |
-| bash, just, nodejs24, nodejs24-npm, uv RPMs | Containerfile DNF package names                                | Unpinned Fedora 44 repository packages; retain Node 24 package names       |
-| Zizmor 1.30.0                               | Containerfile ARG                                              | PyPI version                                                               |
-| Taplo 0.10.0                                | Containerfile ARG, ADD URL and SHA256                          | One release artifact and expected version                                  |
+| Input                                       | Location                                                       | Coupling / release policy                                                   |
+| ------------------------------------------- | -------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| MongoDB 8.0.4-noble                         | `tests/conftest.py`, `benchmarks/stream_cost/topology.py`      | Both use 8.0 noble; Compose independently uses 9.0 with a digest            |
+| Renovate proof runner                       | `test.yml` proof runtime image                                 | Official digest-pinned container; scoped extraction checks before consumers |
+| uv 0.12.19                                  | Four `.github/workflows/*.yml` files                           | Shared CI tool; Containerfile uv is a Fedora RPM with a different version   |
+| Prek 0.5.2                                  | `test.yml` install and cache key; Containerfile ARG            | Same PyPI release                                                           |
+| just 1.57.0                                 | setup-toolchain action input                                   | GitHub release; Containerfile just is independently packaged by Fedora      |
+| Python 3.14.6 / CI 3.14                     | `.python-version`, Containerfile ARG, four workflow selections | Preserve 3.14 track and package compatibility floor                         |
+| Node 24                                     | `test.yml` action input                                        | Preserve Node 24 track; Fedora Node/npm have independent package revisions  |
+| bash, just, nodejs24, nodejs24-npm, uv RPMs | Containerfile DNF package names                                | Unpinned Fedora 44 repository packages; retain Node 24 package names        |
+| Zizmor 1.30.0                               | Containerfile ARG                                              | PyPI version                                                                |
+| Taplo 0.10.0                                | Containerfile ARG, ADD URL and SHA256                          | One release artifact and expected version                                   |
 
 `scripts/ci_scope.py` currently misses Containerfile and `.python-version`. The performance guard rejects differing Python versions between revision environments; preserve this invariant. This change amends the development-environment pinning requirements to exempt Fedora DNF packages while retaining the base-image digest and explicit versions for tools installed outside DNF. Historical `reports/stream-cost/` inputs are evidence, not update targets.
 
@@ -31,6 +32,8 @@ Current unsupported executable occurrences are:
 ### 1. Keep ownership disjoint
 
 Dependabot retains all existing supported manifests, including Compose images and the Containerfile FROM digest. Renovate uses only `custom.regex` with exact file allowlists and annotated occurrences; disable all built-in manifest managers. Group the two Python MongoDB occurrences, CI uv occurrences, Prek occurrences, and Taplo occurrences by dependency and track. The pre-commit uv hook remains an independent Dependabot-owned hook revision, not part of the CI installer group.
+
+The proof runner uses the official Renovate container pinned by version and digest; its workflow env selection is custom-managed because it is not a Docker manifest image field. This avoids an unlocked temporary npm installation and installs no extra packages in ordinary documentation checks.
 
 Use a small `renovate.json5` and adjacent `# renovate:` annotations with datasource, dependency name, and explicit versioning where needed. Match whole named assignments or action inputs, not arbitrary dotted numbers. Preserve the existing literal values when adding annotations. Alternatives: converting MongoDB to Compose solves that one gap but does not cover CI or other container tool pins; a custom scheduled updater would duplicate release lookup, version ordering, PR lifecycle, and integrity handling. Replacing Dependabot conflicts with the selected preference.
 

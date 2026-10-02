@@ -11,8 +11,13 @@ permissions:
   contents: read
 
 env:
+  # renovate: datasource=docker depName=ghcr.io/renovatebot/renovate versioning=docker
+  RENOVATE_IMAGE: "ghcr.io/renovatebot/renovate:44.132.2@sha256:0191afbc3937e5316263426fc0ce1450f5c143d42e3f91da8c6f771e317fae51"
+  # renovate: datasource=pypi depName=uv versioning=pep440
   UV_VERSION: "0.12.19"
-  PYTHON_VERSION: "3.14"
+
+  # renovate: datasource=pypi depName=prek versioning=pep440
+  PREK_VERSION: "0.5.2"
 
 jobs:
   scope:
@@ -20,6 +25,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
+      pins: ${{ steps.paths.outputs.pins }}
+      container: ${{ steps.paths.outputs.container }}
+      benchmark: ${{ steps.paths.outputs.benchmark }}
       python: ${{ steps.paths.outputs.python }}
       format: ${{ steps.paths.outputs.format }}
     steps:
@@ -45,15 +53,15 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: $/.github/actions/setup-toolchain
+      - id: toolchain
+        uses: $/.github/actions/setup-toolchain
         with:
           uv-version: ${{ env.UV_VERSION }}
-          python-version: ${{ env.PYTHON_VERSION }}
 
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/prek
-          key: prek-${{ runner.os }}-py${{ env.PYTHON_VERSION }}-v0.5.2-${{ hashFiles('.pre-commit-config.yaml') }}
+          key: prek-${{ runner.os }}-py${{ steps.toolchain.outputs.python-version }}-v${{ env.PREK_VERSION }}-${{ hashFiles('.pre-commit-config.yaml') }}
 
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -67,7 +75,7 @@ jobs:
       - run: uv sync --locked --all-groups
 
       - run: |
-          uv tool install prek==0.5.2
+          uv tool install "prek==${PREK_VERSION}"
           echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
 
       - run: SKIP=slotscheck,prettier prek run --all-files
@@ -80,21 +88,22 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - if: needs.scope.outputs.format == 'true'
+      - if: needs.scope.outputs.format == 'true' || needs.scope.outputs.pins == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - if: needs.scope.outputs.format == 'true'
+      - if: needs.scope.outputs.format == 'true' || needs.scope.outputs.pins == 'true'
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
+          # renovate: datasource=node-version depName=node versioning=node
           node-version: "24"
           cache: npm
 
-      - if: needs.scope.outputs.format == 'true'
+      - if: needs.scope.outputs.format == 'true' || needs.scope.outputs.pins == 'true'
         run: npm ci --silent
 
-      - if: needs.scope.outputs.format == 'true'
+      - if: needs.scope.outputs.format == 'true' || needs.scope.outputs.pins == 'true'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: node_modules/.cache/prettier
@@ -108,6 +117,13 @@ jobs:
       - if: needs.scope.outputs.format == 'true'
         run: npm exec -- openspec validate --all --strict
 
+      - if: needs.scope.outputs.pins == 'true'
+        run: |
+          docker run --rm --volume "${GITHUB_WORKSPACE}:/repo:ro" --workdir /repo --entrypoint node \
+            "${RENOVATE_IMAGE}" /usr/local/renovate/dist/config-validator.js renovate.json5
+          docker run --rm --volume "${GITHUB_WORKSPACE}:/repo:ro" --workdir /repo --entrypoint node \
+            "${RENOVATE_IMAGE}" scripts/check_executable_pins.cjs /usr/local/renovate
+
   package:
     name: Static checks, packaging, and isolated install
     needs: [scope, prek, prettier]
@@ -119,19 +135,19 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: $/.github/actions/setup-toolchain
+      - id: toolchain
+        uses: $/.github/actions/setup-toolchain
         with:
           uv-version: ${{ env.UV_VERSION }}
-          python-version: ${{ env.PYTHON_VERSION }}
 
       - run: uv sync --locked --all-groups
 
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .mypy_cache
-          key: mypy-${{ runner.os }}-py${{ env.PYTHON_VERSION }}-${{ hashFiles('uv.lock', 'pyproject.toml') }}-${{ github.sha }}
+          key: mypy-${{ runner.os }}-py${{ steps.toolchain.outputs.python-version }}-${{ hashFiles('uv.lock', 'pyproject.toml') }}-${{ github.sha }}
           restore-keys: |
-            mypy-${{ runner.os }}-py${{ env.PYTHON_VERSION }}-${{ hashFiles('uv.lock', 'pyproject.toml') }}-
+            mypy-${{ runner.os }}-py${{ steps.toolchain.outputs.python-version }}-${{ hashFiles('uv.lock', 'pyproject.toml') }}-
 
       - run: uv run -- mypy --install-types
 
@@ -152,10 +168,10 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: $/.github/actions/setup-toolchain
+      - id: toolchain
+        uses: $/.github/actions/setup-toolchain
         with:
           uv-version: ${{ env.UV_VERSION }}
-          python-version: ${{ env.PYTHON_VERSION }}
 
       - run: uv sync --locked --all-groups
 
@@ -164,9 +180,9 @@ jobs:
           path: |
             .pytest_cache
             .hypothesis
-          key: pytest-hypothesis-${{ runner.os }}-py${{ env.PYTHON_VERSION }}-${{ hashFiles('uv.lock', 'pyproject.toml', 'pytest.ini') }}-${{ github.sha }}
+          key: pytest-hypothesis-${{ runner.os }}-py${{ steps.toolchain.outputs.python-version }}-${{ hashFiles('uv.lock', 'pyproject.toml', 'pytest.ini') }}-${{ github.sha }}
           restore-keys: |
-            pytest-hypothesis-${{ runner.os }}-py${{ env.PYTHON_VERSION }}-${{ hashFiles('uv.lock', 'pyproject.toml', 'pytest.ini') }}-
+            pytest-hypothesis-${{ runner.os }}-py${{ steps.toolchain.outputs.python-version }}-${{ hashFiles('uv.lock', 'pyproject.toml', 'pytest.ini') }}-
 
       - run: just tests_and_coverage
 
@@ -209,7 +225,6 @@ jobs:
         uses: $/.github/actions/setup-toolchain
         with:
           uv-version: ${{ env.UV_VERSION }}
-          python-version: ${{ env.PYTHON_VERSION }}
 
       - if: steps.scope.outputs.requires_guard == 'true'
         run: uv sync --locked --all-groups
@@ -231,3 +246,35 @@ jobs:
           path: guard-reports/guard.report.json
           if-no-files-found: warn
           retention-days: 30
+
+  container:
+    name: Development container build and tools
+    needs: [scope, prek, prettier]
+    if: needs.scope.outputs.container == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - run: bash scripts/check_dev_container.sh docker
+
+  benchmark-startup:
+    name: Isolated benchmark replica-set startup
+    needs: [scope, prek, prettier]
+    if: needs.scope.outputs.benchmark == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: $/.github/actions/setup-toolchain
+        with:
+          uv-version: ${{ env.UV_VERSION }}
+
+      - run: uv sync --locked --all-groups
+
+      - run: uv run -- pytest -q tests/benchmark/stream_cost/test_topology_integration.py --timeout=120

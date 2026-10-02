@@ -3,6 +3,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 import sys
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -17,7 +18,7 @@ from benchmarks.stream_cost.guard_runner import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
 
 pytestmark = pytest.mark.unit
 
@@ -54,14 +55,77 @@ def _environment(
     )
 
 
+def _revision_command(
+    command: Sequence[str],
+    *,
+    cwd: Path | None = None,
+    worktree_dir: Path,
+    revision: str,
+    fault: str,
+    selected_python: str,
+) -> str:
+    if command[:2] == ["git", "rev-parse"]:
+        if command[-1] == "HEAD":
+            assert cwd == worktree_dir
+            if fault == "checkout_mismatch":
+                return "wrong-revision\n"
+        return revision + "\n"
+    if command[:3] == ["git", "worktree", "add"]:
+        if fault == "worktree_add_failure":
+            raise subprocess.CalledProcessError(1, command, stderr="add failed")
+        return ""
+    if Path(command[0]).name == "uv":
+        if fault == "uv_sync_failure":
+            raise subprocess.CalledProcessError(1, command, stderr="sync failed")
+        expected_command = ["/usr/bin/uv", "sync", "--locked", "--all-groups"]
+        expected_command.extend(("--python", selected_python))
+        assert command == expected_command
+        return ""
+    return "3.14.6\n"
+
+
+@pytest.fixture
+def revision_commands(
+    monkeypatch: pytest.MonkeyPatch,
+) -> Callable[[Path, str, str, str], None]:
+    def install(
+        worktree_dir: Path, revision: str, fault: str, selected_python: str
+    ) -> None:
+        monkeypatch.setattr(
+            guard_runner,
+            "_run",
+            partial(
+                _revision_command,
+                worktree_dir=worktree_dir,
+                revision=revision,
+                fault=fault,
+                selected_python=selected_python,
+            ),
+        )
+        monkeypatch.setattr(
+            shutil,
+            "which",
+            lambda _name: None if fault == "missing_uv" else "/usr/bin/uv",
+        )
+
+    return install
+
+
 def test_run_returns_the_subprocess_stdout() -> None:
     output = guard_runner._run([sys.executable, "-c", "print('hello')"])
 
     assert output == "hello\n"
 
 
+@pytest.mark.parametrize(
+    "selected_python",
+    ["3.14.6", "3.14.7"],
+    ids=["unchanged-interpreter", "proposed-interpreter"],
+)
 def test_prepare_environment_succeeds(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    revision_commands: Callable[[Path, str, str, str], None],
+    selected_python: str,
 ) -> None:
     repo_root = tmp_path / "repo"
     worktree_dir = tmp_path / "worktree"
@@ -69,25 +133,11 @@ def test_prepare_environment_succeeds(
     _write_python_executable(worktree_dir)
     _write_workload_sources(worktree_dir, content="original")
 
-    def fake_run(command: Sequence[str], *, cwd: Path | None = None) -> str:
-        if command[:2] == ["git", "rev-parse"] and command[-1] == "HEAD":
-            assert cwd == worktree_dir
-            return "abc123\n"
-        if command[:2] == ["git", "rev-parse"]:
-            return "abc123\n"
-        if command[:3] == ["git", "worktree", "add"]:
-            return ""
-        if Path(command[0]).name == "uv":
-            return ""
-        if "-c" in command:
-            return "3.14.6\n"
-        message = f"unexpected command {command}"  # pragma: no cover
-        raise AssertionError(message)  # pragma: no cover
+    revision_commands(worktree_dir, "abc123", "", selected_python)
 
-    monkeypatch.setattr(guard_runner, "_run", fake_run)
-    monkeypatch.setattr(shutil, "which", lambda _name: "/usr/bin/uv")
-
-    environment = prepare_environment(repo_root, "main", worktree_dir=worktree_dir)
+    environment = prepare_environment(
+        repo_root, "main", worktree_dir=worktree_dir, python_version=selected_python
+    )
 
     assert environment.revision == "abc123"
     assert environment.python_version == "3.14.6"
@@ -95,7 +145,7 @@ def test_prepare_environment_succeeds(
 
 
 def test_prepare_environment_copies_base_workload_source(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, revision_commands: Callable[[Path, str, str, str], None]
 ) -> None:
     base_root = tmp_path / "base"
     worktree_dir = tmp_path / "worktree"
@@ -103,27 +153,14 @@ def test_prepare_environment_copies_base_workload_source(
     _write_python_executable(worktree_dir)
     _write_workload_sources(worktree_dir, content="head-definition")
 
-    def fake_run(command: Sequence[str], *, cwd: Path | None = None) -> str:
-        del cwd
-        if command[:2] == ["git", "rev-parse"]:
-            return "def456\n"
-        if command[:3] == ["git", "worktree", "add"]:
-            return ""
-        if Path(command[0]).name == "uv":
-            return ""
-        if "-c" in command:
-            return "3.14.6\n"
-        message = f"unexpected command {command}"  # pragma: no cover
-        raise AssertionError(message)  # pragma: no cover
-
-    monkeypatch.setattr(guard_runner, "_run", fake_run)
-    monkeypatch.setattr(shutil, "which", lambda _name: "/usr/bin/uv")
+    revision_commands(worktree_dir, "def456", "", "3.14.6")
 
     environment = prepare_environment(
         base_root,
         "main",
         worktree_dir=worktree_dir,
         workload_source_root=base_root,
+        python_version="3.14.6",
     )
 
     copied = (
@@ -143,9 +180,21 @@ def test_prepare_environment_copies_base_workload_source(
         ("missing_workload_definition", "does not exist on this revision"),
         ("missing_interpreter", "no interpreter was created"),
     ],
+    ids=[
+        "checkout-mismatch",
+        "worktree-failure",
+        "missing-uv",
+        "sync-failure",
+        "missing-workload",
+        "missing-interpreter",
+    ],
 )
 def test_prepare_environment_reports_setup_faults(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, fault: str, match: str
+    tmp_path: Path,
+    revision_commands: Callable[[Path, str, str, str], None],
+    *,
+    fault: str,
+    match: str,
 ) -> None:
     repo_root = tmp_path / "repo"
     worktree_dir = tmp_path / "worktree"
@@ -155,34 +204,12 @@ def test_prepare_environment_reports_setup_faults(
     if fault != "missing_workload_definition":
         _write_workload_sources(worktree_dir, content="original")
 
-    def fake_run(command: Sequence[str], *, cwd: Path | None = None) -> str:
-        del cwd
-        if command[:3] == ["git", "worktree", "add"]:
-            if fault == "worktree_add_failure":
-                raise subprocess.CalledProcessError(1, command, stderr="add failed")
-            return ""
-        if command[:2] == ["git", "rev-parse"] and command[-1] == "HEAD":
-            return "wrong-revision\n" if fault == "checkout_mismatch" else "abc123\n"
-        if command[:2] == ["git", "rev-parse"]:
-            return "abc123\n"
-        if Path(command[0]).name == "uv":
-            if fault == "uv_sync_failure":
-                raise subprocess.CalledProcessError(1, command, stderr="sync failed")
-            return ""
-        if "-c" in command:
-            return "3.14.6\n"
-        message = f"unexpected command {command}"  # pragma: no cover
-        raise AssertionError(message)  # pragma: no cover
-
-    monkeypatch.setattr(guard_runner, "_run", fake_run)
-    monkeypatch.setattr(
-        shutil,
-        "which",
-        lambda _name: None if fault == "missing_uv" else "/usr/bin/uv",
-    )
+    revision_commands(worktree_dir, "abc123", fault, "3.14.7")
 
     with pytest.raises(BenchmarkSetupError, match=match):
-        prepare_environment(repo_root, "main", worktree_dir=worktree_dir)
+        prepare_environment(
+            repo_root, "main", worktree_dir=worktree_dir, python_version="3.14.7"
+        )
 
 
 @pytest.mark.parametrize(
@@ -191,6 +218,7 @@ def test_prepare_environment_reports_setup_faults(
         ("3.13.0", "digest", "different Python versions"),
         ("3.14.6", "head-digest", "same guard workload definition"),
     ],
+    ids=["interpreter-mismatch", "workload-mismatch"],
 )
 def test_measure_paired_case_detects_environment_mismatch(
     tmp_path: Path, head_python_version: str, head_workload_digest: str, match: str
@@ -267,3 +295,27 @@ def test_measure_paired_case_alternates_and_attributes_sides(
         str(head.python_executable),
         str(base.python_executable),
     ]
+
+
+@pytest.mark.parametrize(
+    "available", [True, False], ids=["head-selection", "missing-selection"]
+)
+def test_revision_python_version_reads_requested_head(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, available: bool
+) -> None:
+    def fake_run(command: Sequence[str], *, cwd: Path | None = None) -> str:
+        assert command == ["git", "show", "proposed:.python-version"]
+        assert cwd == tmp_path
+        if not available:
+            raise subprocess.CalledProcessError(1, command, stderr="missing selection")
+        return "3.14.7\n"
+
+    monkeypatch.setattr(guard_runner, "_run", fake_run)
+    if available:
+        assert guard_runner.revision_python_version(tmp_path, "proposed") == "3.14.7"
+    else:
+        with pytest.raises(
+            BenchmarkSetupError,
+            match=r"could not read Python selection.*missing selection",
+        ):
+            guard_runner.revision_python_version(tmp_path, "proposed")

@@ -73,6 +73,7 @@ def nonpersistent_collection_name() -> CollectionName:
 def mongodb_uri() -> Iterator[MongoDbUri]:
     with ExitStack() as resources:
         try:
+            # renovate: datasource=docker depName=mongo versioning=docker
             container = DockerContainer("mongo:8.0.4-noble")
             container.with_command(["--replSet", "rs0", "--bind_ip_all"])
             container.with_exposed_ports(27017)

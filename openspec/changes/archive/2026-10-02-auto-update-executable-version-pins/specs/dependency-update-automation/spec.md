@@ -8,7 +8,7 @@ Keep executable development, test, benchmark, and CI dependencies current throug
 
 ### Requirement: Executable pins have exclusive update ownership
 
-Every external dependency version that selects an executable tool, interpreter, package, or container in repository-owned development, CI, tests, or benchmarks SHALL have an automatic updater. Dependabot SHALL remain responsible for supported manifests; Renovate SHALL handle the unsupported occurrences without competing update proposals for the same occurrence.
+Every external dependency version that selects an executable tool, interpreter, package, or container in repository-owned development, CI, tests, or benchmarks SHALL have an automatic updater, except the explicitly unpinned Fedora DNF packages described below. Dependabot SHALL remain responsible for supported manifests; Renovate SHALL handle the unsupported occurrences without competing update proposals for the same occurrence.
 
 #### Scenario: An updater extracts dependencies
 
