@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from client_query_cache import BypassReason
 from client_query_cache._core.collection_metadata import (
     interpret_list_collections_entry,
 )
@@ -13,6 +14,8 @@ if TYPE_CHECKING:
     from typing import Literal
 
 pytestmark = pytest.mark.unit
+
+_UNRECOGNIZED_COLLECTION_TYPE = "future_collection_type"
 
 
 @pytest.mark.parametrize(
@@ -33,11 +36,22 @@ def test_confirmed_collection_metadata(
     )
     assert metadata is not None
     assert metadata.is_cacheable is cacheable
+    assert (
+        metadata.bypass_reason
+        is {
+            "collection": None,
+            "view": BypassReason.VIEW_COLLECTION,
+            "timeseries": BypassReason.TIME_SERIES_COLLECTION,
+        }[collection_type]
+    )
     assert metadata.default_collation == collation
 
 
 def test_absent_metadata_requires_another_probe() -> None:
-    assert interpret_list_collections_entry(None) is None
+    assert (
+        interpret_list_collections_entry(None).bypass_reason
+        is BypassReason.MISSING_COLLECTION
+    )
 
 
 def test_collection_without_options_has_no_default_collation() -> None:
@@ -46,3 +60,9 @@ def test_collection_without_options_has_no_default_collation() -> None:
     assert metadata is not None
     assert metadata.is_cacheable
     assert metadata.default_collation is None
+
+
+def test_unrecognized_collection_type_remains_ineligible() -> None:
+    metadata = interpret_list_collections_entry({"type": _UNRECOGNIZED_COLLECTION_TYPE})
+    assert not metadata.is_cacheable
+    assert metadata.bypass_reason is BypassReason.METADATA_UNAVAILABLE

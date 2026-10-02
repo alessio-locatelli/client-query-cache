@@ -27,7 +27,6 @@ if TYPE_CHECKING:
 
     from requests_cache.serializers import SerializerType
 
-    from client_query_cache import CacheCore
 
 DEFAULT_MONGODB_URI = "mongodb://localhost:27017/?directConnection=true"
 DATABASE_NAME = "client_query_cache_example_requests_cache"
@@ -141,7 +140,9 @@ class OriginServer(ThreadingHTTPServer):
 
 
 def run_scenario(
-    session: CachedSession, origin: OriginServer, cache_core: CacheCore
+    session: CachedSession,
+    origin: OriginServer,
+    cache_manager: CacheManager[dict[str, Any]],
 ) -> None:
     url = origin.url
 
@@ -150,10 +151,10 @@ def run_scenario(
         message = f"expected 1 origin hit after the first request, got {origin.hits}"
         raise SystemExit(message)
 
-    hits_before = cache_core.snapshot().hits
+    hits_before = cache_manager.snapshot().hits
     for _ in range(REPEATED_REQUESTS):
         session.get(url).raise_for_status()
-    cache_hits = cache_core.snapshot().hits - hits_before
+    cache_hits = cache_manager.snapshot().hits - hits_before
     if origin.hits != 1:
         message = f"repeated requests reached the origin: {origin.hits} origin hits"
         raise SystemExit(message)
@@ -181,7 +182,7 @@ def run_scenario(
         message = f"expected 2 origin hits after invalidation, got {origin.hits}"
         raise SystemExit(message)
 
-    snapshot = cache_core.snapshot()
+    snapshot = cache_manager.snapshot()
     print(f"origin hits: {origin.hits}")
     print(f"invalidation observed after: {invalidation_ms:.0f} ms")
     print(
@@ -202,7 +203,7 @@ def main() -> None:
                 autoclose=False,
             ) as session,
         ):
-            run_scenario(session, origin, cache_manager.cache_core)
+            run_scenario(session, origin, cache_manager)
 
 
 if __name__ == "__main__":

@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from client_query_cache._core.collation import normalize_collation
+from client_query_cache._core.snapshots import BypassReason
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -12,10 +13,17 @@ if TYPE_CHECKING:
     from client_query_cache._core.keys import NamespaceId
 
 
+_COLLECTION_REASONS = {
+    "collection": None,
+    "view": BypassReason.VIEW_COLLECTION,
+    "timeseries": BypassReason.TIME_SERIES_COLLECTION,
+}
+
+
 @dataclass(frozen=True, slots=True)
 class CollectionMetadata:
     checked_epoch: int
-    is_cacheable: bool
+    bypass_reason: BypassReason | None
     default_collation: Mapping[str, Any] | None
 
 
@@ -40,16 +48,24 @@ class CollectionMetadataCache:
 
 @dataclass(frozen=True, slots=True)
 class CollectionProbeResult:
-    is_cacheable: bool
+    bypass_reason: BypassReason | None
     default_collation: Mapping[str, Any] | None
+
+    @property
+    def is_cacheable(self) -> bool:
+        return self.bypass_reason is None
 
 
 def interpret_list_collections_entry(
     entry: Mapping[str, Any] | None,
-) -> CollectionProbeResult | None:
+) -> CollectionProbeResult:
     if entry is None:
-        return None
+        return CollectionProbeResult(BypassReason.MISSING_COLLECTION, None)
     collection_type = entry["type"]
+    try:
+        bypass_reason = _COLLECTION_REASONS[collection_type]
+    except KeyError:
+        bypass_reason = BypassReason.METADATA_UNAVAILABLE
     try:
         options = entry["options"]
     except KeyError:
@@ -60,6 +76,6 @@ def interpret_list_collections_entry(
         collation = None
     default_collation = normalize_collation(collation)
     return CollectionProbeResult(
-        is_cacheable=collection_type == "collection",
+        bypass_reason=bypass_reason,
         default_collation=default_collation,
     )

@@ -51,7 +51,7 @@ with (
 
     # Prints 1. Bridge stats like this into OpenTelemetry:
     # docs/architecture.md#opentelemetry-metrics
-    print(cache_manager.cache_core.snapshot().hits)
+    print(cache_manager.snapshot().hits)
 
     collection.create_index("email", unique=True)
     collection.insert_one({"_id": "user-1", "email": "a@example.com"})

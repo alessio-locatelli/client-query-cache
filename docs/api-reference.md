@@ -233,3 +233,25 @@ read, a nondeterministic filter or pipeline, a view, a time-series collection, a
 change stream isn't healthy or can't be established — bypasses the cache and returns a normal PyMongo result instead
 of raising. See [`docs/architecture.md`](architecture.md#retry-and-error-handling) for stream-level failures, which
 are retried internally rather than surfaced to callers at all.
+
+## Diagnostics
+
+Both manager variants provide synchronous, read-only local inspection, including after close:
+
+```python
+from client_query_cache import CacheSnapshot, StreamCostSnapshot, StreamHealthSnapshot
+
+snapshot: CacheSnapshot = manager.snapshot()
+stream_cost: StreamCostSnapshot = manager.stream_cost_snapshot("shop")
+stream_health: StreamHealthSnapshot = manager.stream_health_snapshot("shop")
+measured_databases = manager.active_stream_cost_databases()
+```
+
+Snapshots contain cumulative cache counters and capacity observations without document contents or queries.
+Inspection does not activate a stream or make a database request. The advanced `manager.cache_core`
+inspection methods remain available.
+
+`CacheSnapshot`, `BypassReason`, `BypassReasonCount`, `StreamCostSnapshot`, `StreamHealthSnapshot`, and
+`StreamHealthStatus` are importable from `client_query_cache`, `client_query_cache.synchronous`, and
+`client_query_cache.asynchronous`. See [bypass reasons and stream health](architecture.md#bypass-reasons-and-stream-health)
+for their meaning and limitations.
