@@ -16,8 +16,8 @@ permissions:
   contents: read
 
 env:
+  # renovate: datasource=pypi depName=uv versioning=pep440
   UV_VERSION: "0.12.19"
-  PYTHON_VERSION: "3.14"
 
 jobs:
   release-verification:
@@ -29,10 +29,10 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: $/.github/actions/setup-toolchain
+      - id: toolchain
+        uses: $/.github/actions/setup-toolchain
         with:
           uv-version: ${{ env.UV_VERSION }}
-          python-version: ${{ env.PYTHON_VERSION }}
 
       - run: uv sync --locked --all-groups
 

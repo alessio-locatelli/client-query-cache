@@ -15,7 +15,10 @@ from benchmarks.stream_cost.guard_report import (
     report_to_json,
     report_to_summary,
 )
-from benchmarks.stream_cost.guard_runner import prepare_environment
+from benchmarks.stream_cost.guard_runner import (
+    prepare_environment,
+    revision_python_version,
+)
 from benchmarks.stream_cost.guard_workload import CASE_NAMES, PROFILES
 from benchmarks.stream_cost.topology import IsolatedReplicaSet, ResourceLimits
 
@@ -34,14 +37,19 @@ def run_guard(
     head_worktree: Path,
 ) -> GuardReport:
     try:
+        selected_python = revision_python_version(repo_root, head_revision)
         base_environment = prepare_environment(
-            repo_root, base_revision, worktree_dir=base_worktree
+            repo_root,
+            base_revision,
+            worktree_dir=base_worktree,
+            python_version=selected_python,
         )
         head_environment = prepare_environment(
             repo_root,
             head_revision,
             worktree_dir=head_worktree,
             workload_source_root=base_environment.repo_root,
+            python_version=selected_python,
         )
     except BenchmarkSetupError as error:
         cases = tuple(
@@ -57,7 +65,11 @@ def run_guard(
             for case, profile in product(CASE_NAMES, PROFILES)
         )
     return build_guard_report(
-        base_environment.revision, head_environment.revision, cases
+        base_environment.revision,
+        head_environment.revision,
+        cases,
+        base_python_version=base_environment.python_version,
+        head_python_version=head_environment.python_version,
     )
 
 

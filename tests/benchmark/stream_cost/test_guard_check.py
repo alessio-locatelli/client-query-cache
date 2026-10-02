@@ -17,7 +17,14 @@ from benchmarks.stream_cost.guard_workload import CASE_NAMES, PROFILES
 if TYPE_CHECKING:
     from pathlib import Path
 
-pytestmark = pytest.mark.unit
+pytestmark = [pytest.mark.unit, pytest.mark.usefixtures("proposed_python")]
+
+
+@pytest.fixture
+def proposed_python(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        guard_check, "revision_python_version", lambda _root, _revision: "3.14.6"
+    )
 
 
 def _environment(tmp_path: Path, revision: str) -> RevisionEnvironment:
@@ -63,8 +70,10 @@ def test_run_guard_measures_every_case_and_profile(
         *,
         worktree_dir: Path,
         workload_source_root: Path | None = None,
+        python_version: str | None = None,
     ) -> RevisionEnvironment:
         del worktree_dir, workload_source_root
+        assert python_version == "3.14.6"
         return prepared["abc123"] if revision == "abc123" else prepared["head"]
 
     def fake_measure_and_evaluate_case(
@@ -93,6 +102,7 @@ def test_run_guard_measures_every_case_and_profile(
 
     assert report.base_revision == "abc123"
     assert report.head_revision == "def456"
+    assert report.base_python_version == report.head_python_version == "3.14.6"
     assert report.passed is True
     assert sorted(observed_cases) == sorted(
         (case, profile.name) for case in CASE_NAMES for profile in PROFILES
@@ -128,7 +138,11 @@ def test_run_guard_reports_a_setup_failure_across_every_case(
     assert all("does not exist on main" in case.reason for case in report.cases)
 
 
-@pytest.mark.parametrize(("passed", "expects_exit"), [(True, False), (False, True)])
+@pytest.mark.parametrize(
+    ("passed", "expects_exit"),
+    [(True, False), (False, True)],
+    ids=["success", "regression"],
+)
 def test_main_writes_report_and_exits_on_failure(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

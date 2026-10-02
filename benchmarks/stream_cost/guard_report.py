@@ -97,6 +97,8 @@ class GuardReport:
     material_slowdown_boundary: float
     block_pairs: int
     cases: tuple[CaseReport, ...]
+    base_python_version: str | None
+    head_python_version: str | None
 
     @property
     def passed(self) -> bool:
@@ -104,7 +106,12 @@ class GuardReport:
 
 
 def build_guard_report(
-    base_revision: str, head_revision: str, cases: tuple[CaseReport, ...]
+    base_revision: str,
+    head_revision: str,
+    cases: tuple[CaseReport, ...],
+    *,
+    base_python_version: str | None = None,
+    head_python_version: str | None = None,
 ) -> GuardReport:
     return GuardReport(
         schema_version=SCHEMA_VERSION,
@@ -113,6 +120,8 @@ def build_guard_report(
         material_slowdown_boundary=MATERIAL_SLOWDOWN,
         block_pairs=BLOCK_PAIRS,
         cases=cases,
+        base_python_version=base_python_version,
+        head_python_version=head_python_version,
     )
 
 
@@ -121,6 +130,8 @@ def report_to_json(report: GuardReport) -> dict[str, object]:
         "schema_version": report.schema_version,
         "base_revision": report.base_revision,
         "head_revision": report.head_revision,
+        "base_python_version": report.base_python_version,
+        "head_python_version": report.head_python_version,
         "material_slowdown_boundary": report.material_slowdown_boundary,
         "block_pairs": report.block_pairs,
         "passed": report.passed,
@@ -173,7 +184,8 @@ def report_to_summary(report: GuardReport) -> str:
             (
                 f"Guard {status}: base {report.base_revision} vs head "
                 f"{report.head_revision}, {report.material_slowdown_boundary:.0%} "
-                f"boundary, {report.block_pairs} paired blocks."
+                f"boundary, {report.block_pairs} paired blocks; Python "
+                f"{report.base_python_version} vs {report.head_python_version}."
             ),
         )
     )
