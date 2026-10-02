@@ -84,7 +84,7 @@ def main() -> None:
             )
             pdp = PDP(storage)
             for shape in ("get", "get_all", "get_for_target"):
-                hits_before = manager.cache_core.snapshot().hits
+                hits_before = manager.snapshot().hits
                 for _ in range(5):
                     if shape == "get":
                         retrieved = storage.get(POLICY_ID)
@@ -98,7 +98,7 @@ def main() -> None:
                     if len(policies) != 1 or policies[0].uid != POLICY_ID:
                         message = f"policy retrieval failed for {shape}"
                         raise SystemExit(message)
-                hits = manager.cache_core.snapshot().hits - hits_before
+                hits = manager.snapshot().hits - hits_before
                 if hits < 4:
                     message = f"no cache hits for {shape}"
                     raise SystemExit(message)
@@ -112,7 +112,7 @@ def main() -> None:
                 if monotonic() - started >= 5:
                     raise SystemExit("invalidation not observed for the deny policy")
                 sleep(0.05)
-            snapshot = manager.cache_core.snapshot()
+            snapshot = manager.snapshot()
             print("authorization changed: allow -> deny")
             invalidation_ms = (monotonic() - started) * 1000
             print(f"invalidation observed after: {invalidation_ms:.0f} ms")

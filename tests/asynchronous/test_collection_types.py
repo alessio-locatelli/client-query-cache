@@ -9,6 +9,7 @@ import pytest
 from pymongo import AsyncMongoClient
 from pymongo.errors import OperationFailure
 
+from client_query_cache import BypassReason
 from client_query_cache._core.keys import NamespaceId
 
 if TYPE_CHECKING:
@@ -134,6 +135,14 @@ async def test_timeseries_reads_bypass_with_healthy_stream(
     assert after.hits == before.hits
     assert after.entry_count == before.entry_count
     assert after.bypasses - before.bypasses == 4
+    assert (
+        next(
+            record.count
+            for record in after.bypass_reasons
+            if record.reason is BypassReason.TIME_SERIES_COLLECTION
+        )
+        == 4
+    )
 
 
 @pytest.mark.parametrize(
@@ -199,6 +208,17 @@ async def test_collection_metadata_probe_counts(
     assert probe.call_count == (3 if kind == "absent" else 1)
     snapshot = collection.database.manager.cache_core.snapshot()
     assert snapshot.hits == (2 if kind == "collection" else 0)
+    expected_reason = {
+        "collection": None,
+        "timeseries": BypassReason.TIME_SERIES_COLLECTION,
+        "absent": BypassReason.MISSING_COLLECTION,
+    }[kind]
+    assert snapshot.bypasses == (0 if kind == "collection" else 3)
+    assert {
+        record.reason: record.count
+        for record in snapshot.bypass_reasons
+        if record.count
+    } == ({} if expected_reason is None else {expected_reason: 3})
 
 
 @pytest.mark.parametrize(
@@ -227,6 +247,14 @@ async def test_collection_type_is_rechecked_after_absence(
     assert await collection.find_one({"_id": measurement["_id"]}) is None
     assert await collection.find_one({"_id": measurement["_id"]}) is None
     assert cache.snapshot().entry_count == 0
+    assert (
+        next(
+            record.count
+            for record in cache.snapshot().bypass_reasons
+            if record.reason is BypassReason.MISSING_COLLECTION
+        )
+        == 2
+    )
     generation_before_create = cache.capture_namespace_generation(namespace).generation
     await create_collection(collection, replacement)
     await collection.raw.insert_one(measurement)

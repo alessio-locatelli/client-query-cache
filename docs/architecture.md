@@ -99,13 +99,15 @@ of the unmerged proposal.
 - **Logging**: every component logs through the standard `logging` module under `client_query_cache.*` logger
   names (for example, `client_query_cache.synchronous.streams` logs stream reconnects and shutdown warnings). Attach
   handlers the same way you would for any other library; no separate configuration mechanism exists.
-- **Runtime cache statistics**: `cache_manager.cache_core.snapshot()` returns an immutable snapshot with the manager's
+- **Runtime cache statistics**: `cache_manager.snapshot()` returns an immutable snapshot with the manager's
   lifecycle state, resident bytes, configured budget and max entry size, entry count, and cumulative hits, misses,
-  evictions, bypasses, and oversized bypasses. None of these fields expose document contents, queries, or
+  evictions, bypasses, and oversized bypasses. `bypass_reasons` contains fixed `BypassReasonCount` records in
+  `BypassReason` order, including zeros. Ordinary reasons sum to `bypasses`; oversized recordings are separate.
+  Counters describe recording events, so a request can produce a miss and more than one bypass. None of these fields expose document contents, queries, or
   credentials, so the snapshot is safe to log or export to a metrics system directly.
-- **Per-database stream telemetry**: `cache_manager.cache_core.stream_cost_snapshot(database_name)` returns manager iteration-call counts,
+- **Per-database stream telemetry**: `cache_manager.stream_cost_snapshot(database_name)` returns manager iteration-call counts,
   logical event bytes, invalidation counts, and invalidation-delivery-lag samples for one database, and
-  `cache_manager.cache_core.active_stream_cost_databases()` lists which databases currently have telemetry. This is the
+  `cache_manager.active_stream_cost_databases()` lists which databases currently have telemetry. This is the
   same telemetry the [stream-cost benchmark suite](stream-cost-benchmarks.md) uses; the lag samples carry an
   explicit clock-skew disclaimer since they compare the MongoDB server's clock to your application host's.
   The `stream_polls` field counts calls to change-stream iteration; one call can issue multiple `getMore` commands.
@@ -123,7 +125,7 @@ from client_query_cache.otel import register_cache_metrics
 # Configure your application's readers/exporters here.
 provider = MeterProvider()
 meter = provider.get_meter("your-application")
-register_cache_metrics(meter, cache_manager.cache_core)
+register_cache_metrics(meter, cache_manager)
 ```
 
 `client_query_cache.otel` is a separate module from the rest of the package: only importing it requires
@@ -205,3 +207,35 @@ This multiplication matters most in two shapes of deployment:
    of databases, apportion `shared_budget_bytes` (see the [API reference](api-reference.md#configuration)) across
    the databases and collections you actually expect concurrent hot data from, rather than leaving the default in
    place for a manager sized for a handful of databases.
+
+### Bypass reasons and stream health
+
+`manager.snapshot().bypass_reasons` explains ordinary bypass events using this fixed vocabulary:
+
+| Reason                                                  | Meaning                                                                                 |
+| ------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `session`                                               | The read uses a session.                                                                |
+| `read_profile`                                          | The collection's read preference or concern is incompatible with caching.               |
+| `unsupported_options`                                   | The read supplies options that cannot be cached.                                        |
+| `unsafe_filter`, `unsafe_projection`, `unsafe_pipeline` | The request contains a construct unsafe to cache.                                       |
+| `uncanonicalizable_key`                                 | The request cannot form a stable cache key.                                             |
+| `missing_collection`                                    | The collection does not exist.                                                          |
+| `view_collection`, `time_series_collection`             | The collection type does not support caching.                                           |
+| `metadata_unavailable`                                  | Collection metadata could not be established.                                           |
+| `stream_unavailable`                                    | The database stream is unavailable.                                                     |
+| `admission_invalidated`                                 | Stream continuity changed during admission, although the stream is currently available. |
+| `unspecified`                                           | An advanced caller recorded a bypass without a reason.                                  |
+
+Request classification checks session, read profile, unsupported options, unsafe filter or pipeline,
+unsafe projection, and cache-key suitability in that order, before collection and stream eligibility.
+A missing collection or unavailable metadata is checked again on a later read.
+
+`manager.stream_health_snapshot(database_name)` reports `not_started`, `connecting`, `healthy`,
+`reconnecting`, `startup_failed`, or `closed`. Inspection is synchronous for both managers and never
+starts a stream. A failed startup remains visible until another attempt or closure. `healthy` reports
+stream operation; it does not guarantee that an independent writer's latest change has been processed.
+
+The separate `client_query_cache.cache.bypasses.by_reason` OpenTelemetry counter uses only
+`cache.bypass.reason`. It reports the same ordinary reason counts without query, collection, database,
+or error attributes. The aggregate and oversized counters remain separate. Advanced registrations
+using `manager.cache_core`, including the `cache_core=` keyword, are supported.

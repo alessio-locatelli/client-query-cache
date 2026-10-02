@@ -20,7 +20,6 @@ from client_query_cache._core.entries import AdmissionOutcome
 from client_query_cache._core.errors import UnsupportedCacheRequestError
 from client_query_cache._core.find_one_reads import (
     effective_find_one_collation,
-    find_one_options_cacheable,
     find_one_read_shape,
     generic_find_one_discriminator,
     normalize_find_one_filter,
@@ -38,12 +37,16 @@ from client_query_cache._core.projection import (
     ensure_id_present_for_resolution,
     without_id,
 )
+from client_query_cache._core.read_classification import (
+    find_one_bypass_reason,
+    pipeline_bypass_reason,
+    query_bypass_reason,
+    request_bypass_reason,
+)
 from client_query_cache._core.read_validation import (
-    is_filter_cacheable,
-    is_pipeline_cacheable,
-    is_projection_cacheable,
     pipeline_blocks_full_materialization,
 )
+from client_query_cache._core.snapshots import BypassReason
 from client_query_cache._core.traversal import (
     declared_attribute_names,
     ensure_subcollection_name,
@@ -60,7 +63,6 @@ if TYPE_CHECKING:
     from client_query_cache.asynchronous.database import CachedDatabase
 
 _FORCED_READ_CONCERN = ReadConcern("majority")
-_ACCEPTABLE_READ_CONCERN_LEVELS = (None, "majority")
 _COLLECTION_ATTRIBUTE_NAMES = declared_attribute_names(AsyncCollection)
 
 logger = logging.getLogger(__name__)
@@ -124,9 +126,13 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
     ) -> None:
         self._database = database
         self._collection = collection
-        self._find_one_default_shape = find_one_read_shape(
+        default_shape = find_one_read_shape(
             None, None, None, codec_fingerprint(collection.codec_options)
         )
+        try:
+            self._find_one_default_shape = canonicalize(default_shape)
+        except UnsupportedCacheRequestError:
+            self._find_one_default_shape = default_shape
         self._forced_collection: AsyncCollection[DocumentType] | None = None
         self._forced_database: AsyncDatabase[DocumentType] | None = None
 
@@ -160,12 +166,41 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
         **kwargs: object,
     ) -> DocumentType | None:
         filter_query = normalize_find_one_filter(filter)
-        if (
-            self._wants_bypass(session=session, kwargs=kwargs)
-            or not find_one_options_cacheable(filter_query, projection, sort, collation)
-            or not await self._is_cache_eligible()
-        ):
-            self._record_bypass()
+        reason = self._request_bypass_reason(
+            session=session, kwargs=kwargs
+        ) or find_one_bypass_reason(filter_query, projection, sort, collation)
+        codec_options = self._collection.codec_options
+        filter_key: object = filter_query
+        if reason is None:
+            identity = extract_id_identity(filter)
+            explicit_collation = effective_find_one_collation(collation, None)
+            try:
+                read_shape = (
+                    canonicalize(self._find_one_default_shape)
+                    if projection is None
+                    and sort is None
+                    and explicit_collation is None
+                    else canonicalize(
+                        find_one_read_shape(
+                            projection,
+                            sort,
+                            explicit_collation,
+                            codec_fingerprint(codec_options),
+                        )
+                    )
+                )
+                if identity is NO_IDENTITY:
+                    filter_key = canonicalize(
+                        order_sensitive_discriminator_key(filter_query)
+                    )
+                elif not is_canonicalizable(identity):
+                    reason = BypassReason.UNCANONICALIZABLE_KEY
+            except UnsupportedCacheRequestError:
+                reason = BypassReason.UNCANONICALIZABLE_KEY
+        if reason is None:
+            reason = await self._cache_ineligibility_reason()
+        if reason is not None:
+            self._record_bypass(reason)
             return await self._collection.find_one(
                 filter,
                 projection,
@@ -175,34 +210,21 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
                 **kwargs,
             )
         effective_collation = effective_find_one_collation(
-            collation, self._database.manager.default_collation_for(self._namespace())
+            collation,
+            self._database.manager.default_collation_for(self._namespace()),
         )
-        codec_options = self._collection.codec_options
-        try:
+        if collation is None and effective_collation is not None:
             read_shape = canonicalize(
-                self._find_one_default_shape
-                if projection is None and sort is None and effective_collation is None
-                else find_one_read_shape(
+                find_one_read_shape(
                     projection,
                     sort,
                     effective_collation,
                     codec_fingerprint(codec_options),
                 )
             )
-        except UnsupportedCacheRequestError:
-            self._record_bypass()
-            return await self._collection.find_one(
-                filter, projection, sort=sort, collation=collation, session=session
-            )
-        identity = extract_id_identity(filter)
         if identity is not NO_IDENTITY and effective_collation is None:
-            if is_canonicalizable(identity):
-                return await self._find_one_by_id(
-                    identity, projection, read_shape, sort=sort, collation=collation
-                )
-            self._record_bypass()
-            return await self._collection.find_one(
-                filter, projection, sort=sort, collation=collation, session=session
+            return await self._find_one_by_id(
+                identity, projection, read_shape, sort=sort, collation=collation
             )
         namespace = self._namespace()
         cache = self._database.manager.cache_core
@@ -213,19 +235,13 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
             else None
         )
         if unique_key_match is None:
-            try:
-                discriminator = canonicalize(
-                    generic_find_one_discriminator(
-                        filter_query,
-                        read_shape,
-                        cache.current_index_generation(namespace),
-                    )
+            discriminator = canonicalize(
+                generic_find_one_discriminator(
+                    filter_key,
+                    read_shape,
+                    cache.current_index_generation(namespace),
                 )
-            except UnsupportedCacheRequestError:
-                self._record_bypass()
-                return await self._collection.find_one(
-                    filter, projection, sort=sort, collation=collation, session=session
-                )
+            )
             lookup_result = cache.lookup_namespace(
                 namespace, discriminator, codec_options=codec_options
             )
@@ -290,14 +306,13 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
                 codec_fingerprint(codec_options),
             )
         )
-        if (
-            self._wants_bypass(session=session, kwargs=kwargs)
-            or not is_filter_cacheable(filter)
-            or not is_projection_cacheable(projection)
-            or not is_canonicalizable(discriminator)
-            or not await self._is_cache_eligible()
-        ):
-            self._record_bypass()
+        reason = (
+            self._request_bypass_reason(session=session, kwargs=kwargs)
+            or query_bypass_reason(filter, projection, discriminator)
+            or await self._cache_ineligibility_reason()
+        )
+        if reason is not None:
+            self._record_bypass(reason)
             cursor = self._collection.find(
                 filter,
                 projection,
@@ -366,13 +381,13 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
                 codec_fingerprint(codec_options),
             )
         )
-        if (
-            self._wants_bypass(session=session, kwargs=kwargs)
-            or not is_pipeline_cacheable(pipeline)
-            or not is_canonicalizable(discriminator)
-            or not await self._is_cache_eligible()
-        ):
-            self._record_bypass()
+        reason = (
+            self._request_bypass_reason(session=session, kwargs=kwargs)
+            or pipeline_bypass_reason(pipeline, discriminator)
+            or await self._cache_ineligibility_reason()
+        )
+        if reason is not None:
+            self._record_bypass(reason)
             cursor = await self._collection.aggregate(
                 pipeline,
                 collation=collation,
@@ -429,13 +444,13 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
                 codec_fingerprint(codec_options),
             )
         )
-        if (
-            self._wants_bypass(session=session, kwargs=kwargs)
-            or not is_filter_cacheable(filter)
-            or not is_canonicalizable(discriminator)
-            or not await self._is_cache_eligible()
-        ):
-            self._record_bypass()
+        reason = (
+            self._request_bypass_reason(session=session, kwargs=kwargs)
+            or query_bypass_reason(filter, None, discriminator)
+            or await self._cache_ineligibility_reason()
+        )
+        if reason is not None:
+            self._record_bypass(reason)
             return await self._collection.count_documents(
                 filter, session=session, **merged_kwargs
             )
@@ -460,12 +475,12 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
         return count
 
     async def estimated_document_count(self, **kwargs: object) -> int:
-        if (
-            kwargs
-            or not self._is_primary_majority()
-            or not await self._is_cache_eligible()
-        ):
-            self._record_bypass()
+        reason = (
+            self._request_bypass_reason(session=None, kwargs=kwargs)
+            or await self._cache_ineligibility_reason()
+        )
+        if reason is not None:
+            self._record_bypass(reason)
             return await self._collection.estimated_document_count(**kwargs)
         namespace = self._namespace()
         discriminator = ("estimated_document_count",)
@@ -504,13 +519,13 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
                 codec_fingerprint(codec_options),
             )
         )
-        if (
-            self._wants_bypass(session=session, kwargs=kwargs)
-            or not is_filter_cacheable(filter)
-            or not is_canonicalizable(discriminator)
-            or not await self._is_cache_eligible()
-        ):
-            self._record_bypass()
+        reason = (
+            self._request_bypass_reason(session=session, kwargs=kwargs)
+            or query_bypass_reason(filter, None, discriminator)
+            or await self._cache_ineligibility_reason()
+        )
+        if reason is not None:
+            self._record_bypass(reason)
             return await self._collection.distinct(
                 key,
                 filter,
@@ -558,7 +573,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
             identity, codec_options, self._database.manager.client.codec_options
         )
         if not is_canonicalizable(cache_identity):
-            self._record_bypass()
+            self._record_bypass(BypassReason.UNCANONICALIZABLE_KEY)
             return await self._collection.find_one(
                 {"_id": identity}, projection, sort=sort, collation=collation
             )
@@ -712,20 +727,18 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
     def _namespace(self) -> NamespaceId:
         return NamespaceId(self._database.name, self.name)
 
-    def _is_primary_majority(self) -> bool:
-        read_concern = self._collection.read_concern
-        return (
-            self._collection.read_preference == ReadPreference.PRIMARY
-            and read_concern.level in _ACCEPTABLE_READ_CONCERN_LEVELS
+    def _request_bypass_reason(
+        self, *, session: AsyncClientSession | None, kwargs: Mapping[str, object]
+    ) -> BypassReason | None:
+        return request_bypass_reason(
+            session,
+            self._collection.read_preference,
+            self._collection.read_concern.level,
+            kwargs,
         )
 
-    def _wants_bypass(
-        self, *, session: AsyncClientSession | None, kwargs: Mapping[str, object]
-    ) -> bool:
-        return session is not None or bool(kwargs) or not self._is_primary_majority()
-
-    def _record_bypass(self) -> None:
-        self._database.manager.cache_core.record_bypass()
+    def _record_bypass(self, reason: BypassReason) -> None:
+        self._database.manager.cache_core.record_bypass(reason)
 
     def _forced_collection_handle(self) -> AsyncCollection[DocumentType]:
         if self._forced_collection is None:
@@ -743,8 +756,8 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
             )
         return self._forced_database
 
-    async def _is_cache_eligible(self) -> bool:
-        return await self._database.manager.ensure_cache_eligible(
+    async def _cache_ineligibility_reason(self) -> BypassReason | None:
+        return await self._database.manager.cache_ineligibility_reason(
             self._namespace(), self._probe_collection
         )
 

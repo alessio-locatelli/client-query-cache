@@ -15,7 +15,14 @@ from client_query_cache._core.stream_events import (
     is_unresumable_change_stream_error,
     route_change_event,
 )
-from client_query_cache._core.stream_health import RetryBackoff, StreamHealth
+from client_query_cache._core.stream_health import (
+    RetryBackoff,
+    StreamHealth,
+    StreamHealthRegistry,
+    StreamHealthSnapshot,
+    StreamHealthStatus,
+    public_stream_health,
+)
 from client_query_cache._core.stream_options import DEFAULT_MAX_AWAIT_TIME_MS
 
 if TYPE_CHECKING:
@@ -72,6 +79,10 @@ class DatabaseStreamSupervisor:
     def healthy(self) -> bool:
         with self._health_lock:
             return self._health is StreamHealth.HEALTHY
+
+    def health_status(self) -> StreamHealthStatus:
+        with self._health_lock:
+            return public_stream_health(self._health)
 
     def start(self) -> None:
         with self._lifecycle_lock:
@@ -244,6 +255,7 @@ class ChangeStreamCoordinator:
         "_cache",
         "_client",
         "_closed",
+        "_health_registry",
         "_lock",
         "_max_await_time_ms",
         "_supervisors",
@@ -261,6 +273,7 @@ class ChangeStreamCoordinator:
         self._cache = cache
         self._supervisors: dict[str, DatabaseStreamSupervisor] = {}
         self._closed = False
+        self._health_registry = StreamHealthRegistry()
         self._lock = threading.Lock()
 
     def activate_database(self, name: str) -> DatabaseStreamSupervisor | None:
@@ -275,9 +288,11 @@ class ChangeStreamCoordinator:
                     self._cache,
                     max_await_time_ms=self._max_await_time_ms,
                 )
+                self._health_registry.record_starting(name, supervisor.health_status)
                 try:
                     supervisor.start()
                 except StreamStartupError:
+                    self._health_registry.record_startup_failure(name)
                     logger.warning(
                         "change stream startup failed for database %r; reads for "
                         "this database will bypass the cache",
@@ -288,9 +303,13 @@ class ChangeStreamCoordinator:
                 self._supervisors[name] = supervisor
             return supervisor
 
+    def stream_health_snapshot(self, database_name: str) -> StreamHealthSnapshot:
+        return self._health_registry.snapshot(database_name)
+
     def close(self) -> None:
         with self._lock:
             self._closed = True
+            self._health_registry.close()
             supervisors = list(self._supervisors.values())
             self._supervisors.clear()
         for supervisor in supervisors:

@@ -8,12 +8,18 @@ from pymongo.synchronous.database import Database
 
 from client_query_cache._core.keys import NamespaceId
 from client_query_cache._core.lifecycle import CacheLifecycleState
+from client_query_cache.synchronous import (
+    CacheManager,
+    CacheSnapshot,
+    StreamCostSnapshot,
+    StreamHealthSnapshot,
+    StreamHealthStatus,
+)
 from client_query_cache.synchronous.collection import CachedCollection
 from client_query_cache.synchronous.database import CachedDatabase
-from client_query_cache.synchronous.manager import CacheManager
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterator
 
     from pymongo.synchronous.collection import Collection
 
@@ -21,8 +27,11 @@ pytestmark = pytest.mark.unit
 
 
 @pytest.fixture
-def client() -> MongoClient[dict[str, Any]]:
-    return MongoClient("mongodb://localhost:27017", connect=False)
+def client() -> Iterator[MongoClient[dict[str, Any]]]:
+    with MongoClient[dict[str, Any]](
+        "mongodb://localhost:27017", connect=False
+    ) as instance:
+        yield instance
 
 
 def test_manager_does_not_subclass_or_replace_the_caller_client(
@@ -132,3 +141,41 @@ def test_repeated_cached_views_share_the_manager_and_raw_collection(
 
     assert first.raw is second.raw is raw_collection
     assert first.database.manager is second.database.manager is manager
+
+
+def test_manager_inspection_delegates_without_activation(
+    client: MongoClient[dict[str, Any]],
+) -> None:
+    manager = CacheManager(client)
+    manager.cache_core.record_bypass()
+    manager.cache_core.record_stream_poll("example")
+    assert isinstance(manager.snapshot(), CacheSnapshot)
+    assert isinstance(manager.stream_cost_snapshot("example"), StreamCostSnapshot)
+    assert isinstance(manager.stream_health_snapshot("example"), StreamHealthSnapshot)
+    assert manager.snapshot() == manager.cache_core.snapshot()
+    assert manager.stream_cost_snapshot(
+        "example"
+    ) == manager.cache_core.stream_cost_snapshot("example")
+    assert manager.active_stream_cost_databases() == ["example"]
+    assert (
+        manager.stream_health_snapshot("example").status
+        is StreamHealthStatus.NOT_STARTED
+    )
+    assert (
+        manager.stream_health_snapshot("untouched").status
+        is StreamHealthStatus.NOT_STARTED
+    )
+    manager.close()
+    assert manager.snapshot() == manager.cache_core.snapshot()
+    assert manager.snapshot().bypasses == 1
+    assert manager.snapshot().lifecycle == "closed"
+    assert (
+        manager.stream_health_snapshot("untouched").status is StreamHealthStatus.CLOSED
+    )
+    assert manager.stream_cost_snapshot(
+        "example"
+    ) == manager.cache_core.stream_cost_snapshot("example")
+    assert (
+        manager.active_stream_cost_databases()
+        == manager.cache_core.active_stream_cost_databases()
+    )

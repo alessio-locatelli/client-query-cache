@@ -7,7 +7,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, TypedDict, cast
 from unittest.mock import Mock
 
 import pytest
@@ -15,6 +15,7 @@ from bson.binary import UuidRepresentation
 from bson.codec_options import CodecOptions
 from pymongo.errors import ConnectionFailure, OperationFailure
 
+from client_query_cache import StreamHealthStatus
 from client_query_cache._core.entries import AdmissionOutcome
 from client_query_cache._core.errors import StreamLifecycleError, StreamStartupError
 from client_query_cache._core.keys import NamespaceId
@@ -27,8 +28,17 @@ from client_query_cache.synchronous.streams import (
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
+    from concurrent.futures import Future
 
     from pymongo.synchronous.database import Database
+
+
+class PausedCoordinator(TypedDict):
+    coordinator: ChangeStreamCoordinator
+    release: threading.Event
+    activation: Future[DatabaseStreamSupervisor | None]
+    phase: int  # Zero means initial startup; one means reconnect.
+
 
 pytestmark = pytest.mark.unit
 
@@ -44,9 +54,6 @@ class _FixedDelayBackoff:
 
     def next_delay(self) -> float:
         return self._delay
-
-    def reset(self) -> None:
-        pass
 
 
 def _long_backoff(delay: float = 5.0) -> RetryBackoff:
@@ -241,15 +248,6 @@ def make_coordinator() -> Iterator[Callable[..., ChangeStreamCoordinator]]:
     yield _make
     for coordinator in coordinators:
         coordinator.close()
-
-
-def test_fixed_delay_backoff_returns_the_configured_delay_and_ignores_reset() -> None:
-    delay = 2.5
-    backoff = _FixedDelayBackoff(delay)
-
-    assert backoff.next_delay() == delay
-    backoff.reset()
-    assert backoff.next_delay() == delay
 
 
 @pytest.mark.parametrize(
@@ -830,11 +828,21 @@ def test_coordinator_starts_one_independent_stream_per_active_database(
     assert second is not None
     assert first is not second
     assert first is same_first
+    assert (
+        coordinator.stream_health_snapshot("first").status is StreamHealthStatus.HEALTHY
+    )
     assert _is_healthy(first) is True
     assert _is_healthy(second) is True
 
     coordinator.close()
 
+    assert (
+        coordinator.stream_health_snapshot("first").status is StreamHealthStatus.CLOSED
+    )
+    assert (
+        coordinator.stream_health_snapshot("untouched").status
+        is StreamHealthStatus.CLOSED
+    )
     assert _is_healthy(first) is False
     assert _is_healthy(second) is False
 
@@ -851,6 +859,11 @@ def test_activate_database_bypasses_when_startup_is_unsupported(
     coordinator.activate_database("db")
 
     assert _attempt_admission(cache, "db") is AdmissionOutcome.DECLINED_UNAVAILABLE
+    assert (
+        coordinator.stream_health_snapshot("db").status
+        is StreamHealthStatus.STARTUP_FAILED
+    )
+    assert coordinator._supervisors == {}
 
 
 def test_cache_use_is_bypassed_until_start_completes(
@@ -989,3 +1002,87 @@ def test_a_fresh_start_clears_cache_state_left_over_from_before_it_existed(
     _wait_until(lambda: supervisor.healthy)
 
     assert cache.lookup_identity(namespace, "doc-1", "full").hit is False
+
+
+def test_coordinator_health_replaces_startup_failure_on_retry(
+    make_coordinator: Callable[..., ChangeStreamCoordinator],
+) -> None:
+    database = _FakeDatabase(
+        "db", [ConnectionFailure("startup unavailable"), _ScriptedStream([])]
+    )
+    client = Mock()
+    client.__getitem__ = Mock(return_value=_as_database(database))
+    coordinator = make_coordinator(client, CacheCore())
+    assert (
+        coordinator.stream_health_snapshot("db").status
+        is StreamHealthStatus.NOT_STARTED
+    )
+    assert database.watch_calls == []
+    assert coordinator.activate_database("db") is None
+    assert (
+        coordinator.stream_health_snapshot("db").status
+        is StreamHealthStatus.STARTUP_FAILED
+    )
+    assert coordinator.activate_database("db") is not None
+    assert coordinator.stream_health_snapshot("db").status is StreamHealthStatus.HEALTHY
+    assert len(database.watch_calls) == 2
+
+
+@pytest.fixture(params=[0, 1], ids=["startup", "reconnect"])
+def paused_coordinator(
+    request: pytest.FixtureRequest,
+    make_coordinator: Callable[..., ChangeStreamCoordinator],
+) -> Iterator[PausedCoordinator]:
+    release = threading.Event()
+    entered = threading.Event()
+
+    def before_watch(index: int) -> None:
+        if index == request.param:
+            entered.set()
+            assert release.wait(5)
+
+    script: list[object] = (
+        [_ScriptedStream([])]
+        if request.param == 0
+        else [_ScriptedStream([ConnectionFailure("reconnect")]), _ScriptedStream([])]
+    )
+    database = _FakeDatabase("db", script, before_watch=before_watch)
+    client = Mock()
+    client.__getitem__ = Mock(return_value=_as_database(database))
+    coordinator = make_coordinator(client, CacheCore())
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        activation = executor.submit(coordinator.activate_database, "db")
+        assert entered.wait(5)
+        yield PausedCoordinator(
+            coordinator=coordinator,
+            release=release,
+            activation=activation,
+            phase=request.param,
+        )
+        release.set()
+        activation.result(timeout=5)
+
+
+def test_coordinator_health_inspection_during_io_does_not_deadlock(
+    paused_coordinator: PausedCoordinator,
+) -> None:
+    coordinator = paused_coordinator["coordinator"]
+    release = paused_coordinator["release"]
+    activation = paused_coordinator["activation"]
+    phase = paused_coordinator["phase"]
+    expected = (
+        StreamHealthStatus.CONNECTING if phase == 0 else StreamHealthStatus.RECONNECTING
+    )
+    assert coordinator.stream_health_snapshot("db").status is expected
+    assert (
+        coordinator.stream_health_snapshot("untouched").status
+        is StreamHealthStatus.NOT_STARTED
+    )
+    release.set()
+    assert activation.result(timeout=5) is not None
+    _wait_until(
+        lambda: (
+            coordinator.stream_health_snapshot("db").status
+            is StreamHealthStatus.HEALTHY
+        )
+    )

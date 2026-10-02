@@ -15,7 +15,14 @@ from client_query_cache._core.stream_events import (
     is_unresumable_change_stream_error,
     route_change_event,
 )
-from client_query_cache._core.stream_health import RetryBackoff, StreamHealth
+from client_query_cache._core.stream_health import (
+    RetryBackoff,
+    StreamHealth,
+    StreamHealthRegistry,
+    StreamHealthSnapshot,
+    StreamHealthStatus,
+    public_stream_health,
+)
 from client_query_cache._core.stream_options import DEFAULT_MAX_AWAIT_TIME_MS
 
 if TYPE_CHECKING:
@@ -67,6 +74,9 @@ class DatabaseStreamSupervisor:
     @property
     def healthy(self) -> bool:
         return self._health is StreamHealth.HEALTHY
+
+    def health_status(self) -> StreamHealthStatus:
+        return public_stream_health(self._health)
 
     async def start(self) -> None:
         if self._health is not StreamHealth.STARTING:
@@ -247,6 +257,7 @@ class ChangeStreamCoordinator:
         "_cache",
         "_client",
         "_closed",
+        "_health_registry",
         "_lock",
         "_max_await_time_ms",
         "_supervisors",
@@ -264,6 +275,7 @@ class ChangeStreamCoordinator:
         self._cache = cache
         self._supervisors: dict[str, DatabaseStreamSupervisor] = {}
         self._closed = False
+        self._health_registry = StreamHealthRegistry()
         self._lock = asyncio.Lock()
 
     async def activate_database(self, name: str) -> DatabaseStreamSupervisor | None:
@@ -278,9 +290,11 @@ class ChangeStreamCoordinator:
                     self._cache,
                     max_await_time_ms=self._max_await_time_ms,
                 )
+                self._health_registry.record_starting(name, supervisor.health_status)
                 try:
                     await supervisor.start()
                 except StreamStartupError:
+                    self._health_registry.record_startup_failure(name)
                     logger.warning(
                         "change stream startup failed for database %r; reads for "
                         "this database will bypass the cache",
@@ -288,12 +302,19 @@ class ChangeStreamCoordinator:
                         exc_info=True,
                     )
                     return None
+                except asyncio.CancelledError:
+                    self._health_registry.record_startup_failure(name)
+                    raise
                 self._supervisors[name] = supervisor
             return supervisor
+
+    def stream_health_snapshot(self, database_name: str) -> StreamHealthSnapshot:
+        return self._health_registry.snapshot(database_name)
 
     async def close(self) -> None:
         async with self._lock:
             self._closed = True
+            self._health_registry.close()
             supervisors = list(self._supervisors.values())
             self._supervisors.clear()
         for supervisor in supervisors:

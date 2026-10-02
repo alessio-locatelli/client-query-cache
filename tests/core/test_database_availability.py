@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from client_query_cache import BypassReason
 from client_query_cache._core.entries import AdmissionOutcome
 from client_query_cache._core.keys import NamespaceId, canonical_alias_key
 
@@ -104,6 +105,14 @@ def test_lookups_are_bypassed_while_the_database_is_unavailable(
 
     assert lookup(core, namespace).hit is False
     assert core.snapshot().bypasses == 1
+    assert (
+        next(
+            record.count
+            for record in core.snapshot().bypass_reasons
+            if record.reason is BypassReason.STREAM_UNAVAILABLE
+        )
+        == 1
+    )
 
 
 @pytest.mark.parametrize("admit", _ADMISSIONS)
@@ -116,34 +125,46 @@ def test_admissions_are_declined_while_the_database_is_unavailable(
 
     assert admit(core, namespace) is AdmissionOutcome.DECLINED_UNAVAILABLE
     assert core.snapshot().bypasses == 1
+    assert (
+        next(
+            record.count
+            for record in core.snapshot().bypass_reasons
+            if record.reason is BypassReason.STREAM_UNAVAILABLE
+        )
+        == 1
+    )
 
 
 @pytest.mark.parametrize("start_admission", _START_ADMISSIONS)
-def test_admissions_started_while_unavailable_are_declined_after_recovery(
+@pytest.mark.parametrize(
+    "initially_unavailable",
+    [False, True],
+    ids=["recovery-during-read", "unavailable-at-start"],
+)
+def test_admissions_spanning_unavailability_are_declined_after_recovery(
     core: CacheCore,
     namespace: NamespaceId,
     start_admission: Callable[[CacheCore, NamespaceId], Callable[[], AdmissionOutcome]],
+    initially_unavailable: bool,
 ) -> None:
-    core.set_database_available(namespace.database, available=False)
+    if initially_unavailable:
+        core.set_database_available(namespace.database, available=False)
     admit = start_admission(core, namespace)
+    if not initially_unavailable:
+        core.set_database_available(namespace.database, available=False)
     core.set_database_available(namespace.database, available=True)
 
     assert admit() is AdmissionOutcome.DECLINED_UNAVAILABLE
-    assert core.snapshot().bypasses == 1
-
-
-@pytest.mark.parametrize("start_admission", _START_ADMISSIONS)
-def test_admissions_spanning_recovery_are_declined(
-    core: CacheCore,
-    namespace: NamespaceId,
-    start_admission: Callable[[CacheCore, NamespaceId], Callable[[], AdmissionOutcome]],
-) -> None:
-    admit = start_admission(core, namespace)
-    core.set_database_available(namespace.database, available=False)
-    core.set_database_available(namespace.database, available=True)
-
-    assert admit() is AdmissionOutcome.DECLINED_UNAVAILABLE
-    assert core.snapshot().bypasses == 1
+    snapshot = core.snapshot()
+    assert snapshot.bypasses == 1
+    assert (
+        next(
+            record.count
+            for record in snapshot.bypass_reasons
+            if record.reason is BypassReason.ADMISSION_INVALIDATED
+        )
+        == 1
+    )
 
 
 def test_availability_can_be_restored(core: CacheCore, namespace: NamespaceId) -> None:
@@ -167,6 +188,14 @@ def test_resolve_alias_is_bypassed_while_the_database_is_unavailable(
 
     assert resolved is None
     assert core.snapshot().bypasses == 1
+    assert (
+        next(
+            record.count
+            for record in core.snapshot().bypass_reasons
+            if record.reason is BypassReason.STREAM_UNAVAILABLE
+        )
+        == 1
+    )
 
 
 def test_marking_one_database_unavailable_does_not_affect_another(
@@ -180,3 +209,26 @@ def test_marking_one_database_unavailable_does_not_affect_another(
 
     assert outcome is AdmissionOutcome.ADMITTED
     assert core.lookup_identity(other_database_namespace, "doc-1", "full").hit
+
+
+def test_lookup_alias_and_raced_admission_keep_recording_event_totals(
+    core: CacheCore, namespace: NamespaceId
+) -> None:
+    core.set_database_available(namespace.database, available=False)
+    capture = core.begin_identity_admission(namespace, "doc-1")
+    core.lookup_identity(namespace, "doc-1", "full")
+    core.lookup_namespace(namespace, ("find", {}))
+    core.resolve_alias(namespace, "email", "a@example.com", None)
+    core.set_database_available(namespace.database, available=True)
+    assert (
+        core.admit_identity(capture, "full", {"v": "current"})
+        is AdmissionOutcome.DECLINED_UNAVAILABLE
+    )
+    snapshot = core.snapshot()
+    assert snapshot.bypasses == 4
+    assert snapshot.hits == snapshot.misses == 0
+    assert {
+        record.reason: record.count
+        for record in snapshot.bypass_reasons
+        if record.count
+    } == {BypassReason.STREAM_UNAVAILABLE: 3, BypassReason.ADMISSION_INVALIDATED: 1}

@@ -9,6 +9,7 @@ import pytest
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import InMemoryMetricReader, NumberDataPoint
 
+from client_query_cache import BypassReason
 from client_query_cache._core.errors import CacheConfigurationError
 from client_query_cache._core.manager import CacheCore
 from client_query_cache._core.snapshots import CacheSnapshot
@@ -155,7 +156,7 @@ def test_manager_wide_instruments_report_current_snapshot_values(
     snapshot = _make_cache_snapshot()
     cache_core = _FakeCacheCore(snapshot, {})
 
-    register_cache_metrics(meter, cache_core)  # type: ignore[arg-type]
+    register_cache_metrics(meter, cache_core)
 
     (point,) = _number_data_points(_collect_metrics(reader)[metric_name])
     assert point.value == getattr(snapshot, field)
@@ -167,7 +168,7 @@ def test_resident_bytes_gauge_reports_the_manager_wide_used_bytes(
 ) -> None:
     cache_core = _FakeCacheCore(_make_cache_snapshot(used_bytes=4_096), {})
 
-    register_cache_metrics(meter, cache_core)  # type: ignore[arg-type]
+    register_cache_metrics(meter, cache_core)
 
     (point,) = _number_data_points(
         _collect_metrics(reader)["client_query_cache.cache.resident_bytes"]
@@ -186,7 +187,7 @@ def test_resident_bytes_gauge_is_not_duplicated_per_database(
         },
     )
 
-    register_cache_metrics(meter, cache_core)  # type: ignore[arg-type]
+    register_cache_metrics(meter, cache_core)
 
     points = _number_data_points(
         _collect_metrics(reader)["client_query_cache.cache.resident_bytes"]
@@ -221,7 +222,7 @@ def test_per_database_stream_counters_carry_the_db_namespace_attribute(
         },
     )
 
-    register_cache_metrics(meter, cache_core)  # type: ignore[arg-type]
+    register_cache_metrics(meter, cache_core)
     metric = _collect_metrics(reader)[metric_name]
 
     assert metric.unit == unit
@@ -240,7 +241,7 @@ def test_per_database_stream_counters_emit_nothing_when_no_database_is_active(
 ) -> None:
     cache_core = _FakeCacheCore(_make_cache_snapshot(), {})
 
-    register_cache_metrics(meter, cache_core)  # type: ignore[arg-type]
+    register_cache_metrics(meter, cache_core)
 
     try:
         metric = _collect_metrics(reader)["client_query_cache.stream.polls"]
@@ -275,7 +276,7 @@ def test_invalidation_lag_gauge_computes_the_nearest_rank_percentile(
 
     register_cache_metrics(
         meter,
-        cache_core,  # type: ignore[arg-type]
+        cache_core,
         lag_percentiles=(percentile,),
     )
 
@@ -305,7 +306,7 @@ def test_register_cache_metrics_rejects_an_invalid_lag_percentile(
     with pytest.raises(CacheConfigurationError):
         register_cache_metrics(
             meter,
-            cache_core,  # type: ignore[arg-type]
+            cache_core,
             lag_percentiles=(invalid_percentile,),
         )
 
@@ -318,7 +319,7 @@ def test_invalidation_lag_gauge_omits_a_database_with_no_retained_samples(
         {"db": _make_stream_snapshot("db", lag_windows=())},
     )
 
-    register_cache_metrics(meter, cache_core)  # type: ignore[arg-type]
+    register_cache_metrics(meter, cache_core)
 
     try:
         metric = _collect_metrics(reader)["client_query_cache.stream.invalidation_lag"]
@@ -335,7 +336,7 @@ def test_invalidation_lag_gauge_description_carries_the_clock_skew_limitation(
         {"db": _make_stream_snapshot("db", lag_windows=((1.0,),))},
     )
 
-    register_cache_metrics(meter, cache_core)  # type: ignore[arg-type]
+    register_cache_metrics(meter, cache_core)
 
     description = _collect_metrics(reader)[
         "client_query_cache.stream.invalidation_lag"
@@ -363,3 +364,28 @@ def test_collecting_metrics_does_not_mutate_manager_state() -> None:
 
     assert core.snapshot() == before_cache
     assert core.stream_cost_snapshot("db") == before_stream
+
+
+@pytest.mark.parametrize("keyword", [False, True], ids=["positional", "keyword"])
+def test_bypass_reason_metric_has_only_the_fixed_reason_dimension(
+    meter: Meter, reader: InMemoryMetricReader, keyword: bool
+) -> None:
+    core = CacheCore()
+    for reason in BypassReason:
+        core.record_bypass(reason)
+    core.record_bypass(BypassReason.MISSING_COLLECTION)
+    before = core.snapshot()
+    if keyword:
+        register_cache_metrics(meter, cache_core=core)
+    else:
+        register_cache_metrics(meter, core)
+    points = _number_data_points(
+        _collect_metrics(reader)["client_query_cache.cache.bypasses.by_reason"]
+    )
+    assert len(points) == len(BypassReason)
+    assert {tuple(_attributes(point)) for point in points} == {("cache.bypass.reason",)}
+    assert {
+        _attributes(point)["cache.bypass.reason"]: point.value for point in points
+    } == {record.reason.value: record.count for record in before.bypass_reasons}
+    assert sum(point.value for point in points) == before.bypasses
+    assert core.snapshot() == before

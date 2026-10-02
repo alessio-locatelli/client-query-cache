@@ -58,13 +58,14 @@ def main() -> None:
         with CacheManager(client) as manager, Celery("cache-example") as app:
             backend = CachedMongoBackend(app, manager)
             backend.store_result(TASK_ID, None, states.STARTED)
-            hits_before = manager.cache_core.snapshot().hits
+            # Sample before the polling workload.
+            hits_before = manager.snapshot().hits
             for _ in range(5):
                 metadata = backend.get_task_meta(TASK_ID, cache=False)
                 if metadata["status"] != states.STARTED:
                     message = "unfinished task polling returned an unexpected state"
                     raise SystemExit(message)
-            if manager.cache_core.snapshot().hits - hits_before < 4:
+            if manager.snapshot().hits - hits_before < 4:
                 raise SystemExit("no cache hits for repeated unfinished-task polling")
             backend.store_result(TASK_ID, {"answer": 42}, states.SUCCESS)
             started = monotonic()
@@ -77,7 +78,7 @@ def main() -> None:
                 sleep(0.05)
             if metadata["result"] != {"answer": 42}:
                 raise SystemExit("completed task result was not decoded correctly")
-            snapshot = manager.cache_core.snapshot()
+            snapshot = manager.snapshot()
             print(
                 f"task state: {metadata['status']}, task result: {metadata['result']}"
             )

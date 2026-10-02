@@ -8,6 +8,7 @@ from client_query_cache._core.collection_metadata import (
     CollectionMetadataCache,
 )
 from client_query_cache._core.manager import CacheCore
+from client_query_cache._core.snapshots import BypassReason
 from client_query_cache._core.stream_options import (
     DEFAULT_MAX_AWAIT_TIME_MS,
     validate_max_await_time_ms,
@@ -30,6 +31,9 @@ if TYPE_CHECKING:
     from client_query_cache._core.collection_metadata import CollectionProbeResult
     from client_query_cache._core.keys import NamespaceId
     from client_query_cache._core.manager import CacheCoreConfig
+    from client_query_cache._core.snapshots import CacheSnapshot
+    from client_query_cache._core.stream_cost import StreamCostSnapshot
+    from client_query_cache._core.stream_health import StreamHealthSnapshot
     from client_query_cache._core.unique_keys import UniqueKeyDefinition
 
 
@@ -60,27 +64,51 @@ class CacheManager[DocumentType: Mapping[str, Any]]:
     def cache_core(self) -> CacheCore:
         return self._cache
 
+    def snapshot(self) -> CacheSnapshot:
+        return self._cache.snapshot()
+
+    def stream_health_snapshot(self, database_name: str) -> StreamHealthSnapshot:
+        return self._coordinator.stream_health_snapshot(database_name)
+
+    def stream_cost_snapshot(self, database_name: str) -> StreamCostSnapshot:
+        return self._cache.stream_cost_snapshot(database_name)
+
+    def active_stream_cost_databases(self) -> list[str]:
+        return self._cache.active_stream_cost_databases()
+
     def ensure_cache_eligible(
         self,
         namespace: NamespaceId,
         collection_probe: Callable[[], CollectionProbeResult | None],
     ) -> bool:
+        return self.cache_ineligibility_reason(namespace, collection_probe) is None
+
+    def cache_ineligibility_reason(
+        self,
+        namespace: NamespaceId,
+        collection_probe: Callable[[], CollectionProbeResult | None],
+    ) -> BypassReason | None:
         self._coordinator.activate_database(namespace.database)
         if not self._cache.is_database_available(namespace.database):
-            return False
+            return BypassReason.STREAM_UNAVAILABLE
         current_epoch = self._cache.current_epoch(namespace)
         cached = self._metadata.get(namespace)
         if cached is None or cached.checked_epoch != current_epoch:
             probe_result = collection_probe()
             if probe_result is None:
-                return False
+                return BypassReason.METADATA_UNAVAILABLE
+            if probe_result.bypass_reason in {
+                BypassReason.MISSING_COLLECTION,
+                BypassReason.METADATA_UNAVAILABLE,
+            }:
+                return probe_result.bypass_reason
             cached = CollectionMetadata(
                 checked_epoch=current_epoch,
-                is_cacheable=probe_result.is_cacheable,
+                bypass_reason=probe_result.bypass_reason,
                 default_collation=probe_result.default_collation,
             )
             self._metadata.put(namespace, cached)
-        return cached.is_cacheable
+        return cached.bypass_reason
 
     def default_collation_for(self, namespace: NamespaceId) -> Mapping[str, Any] | None:
         cached = self._metadata.get(namespace)

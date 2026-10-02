@@ -26,7 +26,11 @@ from client_query_cache._core.locking import LockOrderGuard
 from client_query_cache._core.lru import WeightedLru
 from client_query_cache._core.namespace import IdentityState, NamespaceState
 from client_query_cache._core.order_sensitive_keys import order_sensitive_key
-from client_query_cache._core.snapshots import CacheSnapshot, CacheStatistics
+from client_query_cache._core.snapshots import (
+    BypassReason,
+    CacheSnapshot,
+    CacheStatistics,
+)
 from client_query_cache._core.stream_cost import (
     DEFAULT_LAG_CAPTURE_WINDOW_CONFIG,
     LagCaptureWindowConfig,
@@ -35,7 +39,7 @@ from client_query_cache._core.stream_cost import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
+    from collections.abc import Callable, Generator
     from typing import Any
 
     from bson.codec_options import CodecOptions
@@ -183,7 +187,7 @@ class _CacheCoreBase:
         namespace: NamespaceId,
         availability_generation: int,
         weight: int,
-    ) -> Iterator[AdmissionOutcome | None]:
+    ) -> Generator[AdmissionOutcome | None]:
         with self._availability_lock:
             try:
                 available, current_generation = self._database_availability[
@@ -192,7 +196,11 @@ class _CacheCoreBase:
             except KeyError:
                 available, current_generation = _DEFAULT_DATABASE_AVAILABILITY
             if not available or availability_generation != current_generation:
-                self._statistics.record_bypass()
+                self._statistics.record_bypass(
+                    BypassReason.STREAM_UNAVAILABLE
+                    if not available
+                    else BypassReason.ADMISSION_INVALIDATED
+                )
                 yield AdmissionOutcome.DECLINED_UNAVAILABLE
                 return
             if self._lru.is_oversize(weight):
@@ -220,7 +228,7 @@ class _CacheCoreBase:
             return state
 
     @contextmanager
-    def _namespace_section(self, state: NamespaceState) -> Iterator[None]:
+    def _namespace_section(self, state: NamespaceState) -> Generator[None]:
         with self._guard.namespace_section(), state.lock:
             yield
 
@@ -293,12 +301,12 @@ class _CacheCoreLifecycle(_CacheCoreBase):
             self._database_namespaces.clear()
         logger.info("cache manager closed")
 
-    def record_bypass(self) -> None:
-        self._statistics.record_bypass()
+    def record_bypass(self, reason: BypassReason = BypassReason.UNSPECIFIED) -> None:
+        self._statistics.record_bypass(reason)
 
     def snapshot(self) -> CacheSnapshot:
         used_bytes, entry_count = self._lru.snapshot_usage()
-        hits, misses, evictions, bypasses, oversized_bypasses = (
+        hits, misses, evictions, bypasses, oversized_bypasses, bypass_reasons = (
             self._statistics.snapshot()
         )
         return CacheSnapshot(
@@ -312,6 +320,7 @@ class _CacheCoreLifecycle(_CacheCoreBase):
             evictions=evictions,
             bypasses=bypasses,
             oversized_bypasses=oversized_bypasses,
+            bypass_reasons=bypass_reasons,
         )
 
 
@@ -777,7 +786,7 @@ class _CacheCoreLookup(_CacheCoreBase):
     ) -> LookupResult:
         self._ensure_active()
         if not self._is_database_available(namespace.database):
-            self._statistics.record_bypass()
+            self._statistics.record_bypass(BypassReason.STREAM_UNAVAILABLE)
             return LookupResult(hit=False)
         canonical_identity = canonicalize(order_sensitive_key(identity))
         key = IdentityCacheKey(namespace, canonical_identity, canonicalize(read_shape))
@@ -807,7 +816,7 @@ class _CacheCoreLookup(_CacheCoreBase):
     ) -> LookupResult:
         self._ensure_active()
         if not self._is_database_available(namespace.database):
-            self._statistics.record_bypass()
+            self._statistics.record_bypass(BypassReason.STREAM_UNAVAILABLE)
             return LookupResult(hit=False)
         canonical_discriminator = canonicalize(discriminator)
         key = NamespaceCacheKey(namespace, canonical_discriminator)
@@ -834,7 +843,7 @@ class _CacheCoreLookup(_CacheCoreBase):
     ) -> Canonical | None:
         self._ensure_active()
         if not self._is_database_available(namespace.database):
-            self._statistics.record_bypass()
+            self._statistics.record_bypass(BypassReason.STREAM_UNAVAILABLE)
             return None
         alias_key = canonical_alias_key(definition, value, collation)
         state = self._namespace(namespace)
