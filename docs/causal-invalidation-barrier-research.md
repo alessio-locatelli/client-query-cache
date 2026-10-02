@@ -128,7 +128,7 @@ particular write, not that ordinary client construction necessarily violates it.
 
 The delivered requests-cache, Celery, and py-abac examples poll consumer results after writes. Their integration
 paths do not supply the session boundary needed by this API. Retaining that polling does not demonstrate that
-the proposed barrier solves the examples' application needs. See the [examples](../examples/README.md).
+the proposed barrier solves the examples' application needs. See the [examples](https://github.com/alessio-locatelli/client-query-cache/blob/main/examples/README.md).
 
 ## Independent timeout-context finding
 
@@ -136,7 +136,7 @@ The original report observed an asyncio worker started inside `pymongo.timeout()
 later failing with `NetworkTimeout`. Starting it in a fresh `contextvars.Context()` avoided that outcome.
 [Python documents](https://docs.python.org/3.14/library/asyncio-task.html#asyncio.Task) that tasks copy the current
 context unless another is supplied. The maintained supervisor starts its worker with
-`asyncio.ensure_future(self._run())` in [the caller's context](../src/client_query_cache/asynchronous/streams.py).
+`asyncio.ensure_future(self._run())` in [the caller's context](https://github.com/alessio-locatelli/client-query-cache/blob/main/src/client_query_cache/asynchronous/streams.py).
 This source pattern is still present in the documentation change's `main` baseline, `fcdad08`.
 
 This finding concerns ordinary stream ownership and is independent of the deferred barrier. It remains

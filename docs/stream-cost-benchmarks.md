@@ -27,7 +27,7 @@ use them to decide what to measure on your own deployment before relying on the 
 
 ## Reports
 
-The [initial versioned reports](../reports/stream-cost/v1/) cover idle, read-heavy, balanced, and write-dominant workloads at small, medium, and large document sizes. Each JSON file names its workload and records the revision, versions, resource limits, workload parameters, warmup counters, latency distributions, aggregate elapsed time, process CPU, MongoDB container CPU, and logical cache and stream measurements.
+The [initial versioned reports](https://github.com/alessio-locatelli/client-query-cache/tree/main/reports/stream-cost/v1/) cover idle, read-heavy, balanced, and write-dominant workloads at small, medium, and large document sizes. Each JSON file names its workload and records the revision, versions, resource limits, workload parameters, warmup counters, latency distributions, aggregate elapsed time, process CPU, MongoDB container CPU, and logical cache and stream measurements.
 
 The logical `stream_polls` counter counts manager calls to change-stream iteration. One call can issue multiple MongoDB `getMore` commands before returning an event, so this counter cannot measure wire-command traffic. Actual command counts require command-level observation.
 
@@ -39,21 +39,21 @@ uv run -- python -m benchmarks.stream_cost.run --output-dir benchmark-reports
 
 The optional `--direct-path-proxy` flag also measures bytes on the dedicated client-to-container path. Those bytes represent only that path. Logical event bytes are decoded event sizes; neither value is a general measure of network traffic.
 
-To reproduce the [decision evidence](../reports/stream-cost/v1/decision-evidence.report.v1.json) for the consolidated stream and oversized result on your host, run:
+To reproduce the [decision evidence](https://github.com/alessio-locatelli/client-query-cache/blob/main/reports/stream-cost/v1/decision-evidence.report.v1.json) for the consolidated stream and oversized result on your host, run:
 
 ```sh
 uv run -- python -m benchmarks.stream_cost.decision_evidence --output decision-evidence.report.v2.json
 ```
 
-The runner uses the [recorded workload and decision thresholds](../reports/stream-cost/v1/decision-pre-registration.json). Compare its outcomes only with a comparable host and topology; the retained report supports decisions for its stated workload.
+The runner uses the [recorded workload and decision thresholds](https://github.com/alessio-locatelli/client-query-cache/blob/main/reports/stream-cost/v1/decision-pre-registration.json). Compare its outcomes only with a comparable host and topology; the retained report supports decisions for its stated workload.
 
 Choose a workload by the traffic you expect: `idle` for a connected cache with no sampled operations, `read_heavy` for mostly reads, `balanced` for similar read and write counts, or `write_dominant` for mostly writes. Compare only reports with matching workload parameters and comparable environments. Each sampled document is read through the raw path and the cache path in turn, then the sampled writes run as their own phase afterward; a report does not measure interleaved read and write latency. A shared write sample appears in both variant summaries so each summary accounts for the same executed operations.
 
-For example, the [read-heavy, small-document report](../reports/stream-cost/v1/read_heavy-small.report.v1.json) describes that exact workload and run. Its latency rows separate raw reads from cache hits, misses, and bypasses. The idle reports explicitly record zero sampled operations and no latency samples. These local reports do not establish a performance conclusion for another host, database, or workload.
+For example, the [read-heavy, small-document report](https://github.com/alessio-locatelli/client-query-cache/blob/main/reports/stream-cost/v1/read_heavy-small.report.v1.json) describes that exact workload and run. Its latency rows separate raw reads from cache hits, misses, and bypasses. The idle reports explicitly record zero sampled operations and no latency samples. These local reports do not establish a performance conclusion for another host, database, or workload.
 
 ### Change-stream resource cost
 
-The [`balanced` reports](../reports/stream-cost/v1/) also record a `change_stream_cost_comparison` section: the same workload run once through the raw path (no change stream) and once through the cache path (watching the change stream), each measured on its own disposable collection so the two runs cannot interfere with each other. It presents each path's MongoDB container CPU time side by side, plus a `delta_seconds` field (cache minus raw) and a `delta_percent` field (that delta as a percentage of the raw path's own CPU time, or `null` when the raw path measured zero) — read those fields rather than subtracting or dividing the two numbers yourself. When the report was generated with `--direct-path-proxy`, the section also presents each path's dedicated-connection bytes sent and received side by side, plus a matching `delta` and `delta_percent` (cache minus raw, per direction, and that delta as a percentage of the raw path's own bytes); without that flag, `direct_path_bytes` and its `delta`/`delta_percent` are `null` and `available` is `false`, rather than the section being omitted. The workload's `sample_reads` and `sample_writes` counts (in `workload.parameters`) tell you how many operations that delta covers, so you can also divide it into a per-operation figure yourself.
+The [`balanced` reports](https://github.com/alessio-locatelli/client-query-cache/tree/main/reports/stream-cost/v1/) also record a `change_stream_cost_comparison` section: the same workload run once through the raw path (no change stream) and once through the cache path (watching the change stream), each measured on its own disposable collection so the two runs cannot interfere with each other. It presents each path's MongoDB container CPU time side by side, plus a `delta_seconds` field (cache minus raw) and a `delta_percent` field (that delta as a percentage of the raw path's own CPU time, or `null` when the raw path measured zero) — read those fields rather than subtracting or dividing the two numbers yourself. When the report was generated with `--direct-path-proxy`, the section also presents each path's dedicated-connection bytes sent and received side by side, plus a matching `delta` and `delta_percent` (cache minus raw, per direction, and that delta as a percentage of the raw path's own bytes); without that flag, `direct_path_bytes` and its `delta`/`delta_percent` are `null` and `available` is `false`, rather than the section being omitted. The workload's `sample_reads` and `sample_writes` counts (in `workload.parameters`) tell you how many operations that delta covers, so you can also divide it into a per-operation figure yourself.
 
 A raw byte delta alone is not representative across document sizes, so compare the percentage instead. The retained `balanced` reports at each document size illustrate why: the small-document report measured a CPU `delta_percent` of about +24%, and byte deltas of about +57% received / -11% sent; the medium-document report measured about +26% CPU, but -55% received / -11% sent; the large-document report measured about +5% CPU, but -94% received / -11% sent. The received-bytes sign flips as documents grow because the raw path re-fetches the full document on every read, while the cache path fetches it once and serves the rest from memory — for large documents that avoided re-fetching outweighs the stream's own polling traffic, so the cache path receives far _less_, not more.
 
@@ -70,7 +70,7 @@ Run it after a cache or stream change to capture a repeatable report set for tha
 
 ### Change-stream await time
 
-The default is **1,000 ms**. The [measurement summary](../reports/stream-cost/await-v1/summary.md) is **inconclusive**:
+The default is **1,000 ms**. The [measurement summary](https://github.com/alessio-locatelli/client-query-cache/blob/main/reports/stream-cost/await-v1/summary.md) is **inconclusive**:
 no larger wait qualified under the frozen rule. All four larger candidates passed the idle byte-savings,
 idle process-CPU, and shutdown gates in both execution models, but none passed the async paced-write
 invalidation-lag gate.
@@ -82,11 +82,11 @@ window. These failures leave required paired comparisons unresolved; they do not
 regression or a performance win. The default therefore remains the conservative fallback.
 
 The await-time benchmark compares 1,000, 5,000, 10,000, 30,000, and 60,000 ms with both synchronous and
-asynchronous managers. Its [frozen configuration](../reports/stream-cost/await-v1/config.v1.json) specifies six
+asynchronous managers. Its [frozen configuration](https://github.com/alessio-locatelli/client-query-cache/blob/main/reports/stream-cost/await-v1/config.v1.json) specifies six
 counterbalanced blocks, fresh manager state for each window, at least 120 seconds and two complete `getMore`
 waits per idle window, 200 writes per paced or burst window, and separate in-flight shutdown trials.
 
-Reproduce the matrix from the repository root with the [benchmark prerequisites](../CONTRIBUTING.md):
+Reproduce the matrix from the repository root with the [benchmark prerequisites](https://github.com/alessio-locatelli/client-query-cache/blob/main/CONTRIBUTING.md):
 
 ```console
 uv run -- python -m benchmarks.stream_cost.await_run --output benchmark-reports/await.report.v1.json
@@ -120,7 +120,7 @@ choosing an override.
 
 ### Wire compression
 
-The compression benchmark compares no compression against PyMongo's Snappy, zlib, and Zstandard wire compressors on the same isolated replica set, matching an idle window and balanced/write-dominant workloads at small and large document sizes, each with and without the library's change stream watching the traffic. Every mode ran for 4 repeated, counterbalanced blocks so run-order and host noise are visible in the [retained decision evidence](../reports/stream-cost/compression-v1/wire-compression.report.v1.decision.json), which records every per-block, per-workload threshold check alongside each mode's median added CPU and stream-path bytes.
+The compression benchmark compares no compression against PyMongo's Snappy, zlib, and Zstandard wire compressors on the same isolated replica set, matching an idle window and balanced/write-dominant workloads at small and large document sizes, each with and without the library's change stream watching the traffic. Every mode ran for 4 repeated, counterbalanced blocks so run-order and host noise are visible in the [retained decision evidence](https://github.com/alessio-locatelli/client-query-cache/blob/main/reports/stream-cost/compression-v1/wire-compression.report.v1.decision.json), which records every per-block, per-workload threshold check alongside each mode's median added CPU and stream-path bytes.
 
 None of the three compressors met the pre-registered decision rule on this host: each required, in every one of the 4 blocks and all four active workloads, that the compressor's server CPU and its added CPU over no compression stay within 5% of the uncompressed CPU, its p95 invalidation latency stay within 10%, and its wire bytes fall at least 10%. All three cleared the byte-savings bar comfortably (a median 21%, 33%, and 31% for Snappy, zlib, and Zstandard), but each also broke the CPU and/or p95 invalidation-latency budget in several block/workload combinations, most consistently on the small-document workloads. Snappy's and zlib's idle-window CPU delta against no compression also changed sign from one repeated block to the next — sometimes costing more CPU than no compression, sometimes less; Zstandard's idle delta was consistently positive across all 4 blocks, but it still broke the active-workload CPU or latency budget in every block, so it doesn't qualify either. An idle window still has a small, continuous stream of `getMore` polls from the open change-stream cursor even with no application reads or writes, and compression applies to that polling traffic like any other message; that's what a compressor's idle-window CPU delta is measuring, not some cost from merely having compression configured. The recommendation therefore stays at **no compression**, PyMongo's own default, and is labeled inconclusive rather than a measured win for any mode.
 

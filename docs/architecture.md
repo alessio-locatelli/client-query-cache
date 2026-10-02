@@ -2,7 +2,7 @@
 
 This document covers what an operator needs to run `client-query-cache` in production: system requirements,
 capacity planning, retry and error behavior, observability, security boundaries, connection-pool impact, and
-recovery behavior. See the [README](../README.md) for the conceptual overview and the
+recovery behavior. See the [README](https://github.com/alessio-locatelli/client-query-cache/blob/main/README.md) for the conceptual overview and the
 [API reference](api-reference.md) for the complete public surface.
 
 ## System requirements

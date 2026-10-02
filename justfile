@@ -37,6 +37,13 @@ format:
 build:
     uv build
 
+docs-serve:
+    uv run --locked --only-group docs -- zensical serve
+
+docs-build:
+    uv run --locked --only-group docs -- zensical build --clean --strict
+    uv run --locked --only-group docs -- python -m scripts.check_docs_assets
+
 verify-release tag='': build
     #!/usr/bin/env bash
     set -euo pipefail

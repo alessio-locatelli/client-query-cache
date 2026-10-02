@@ -1,0 +1,55 @@
+[project]
+site_name = "client-query-cache"
+site_description = "Client-side caching for PyMongo with MongoDB change streams."
+site_url = "https://alessio-locatelli.github.io/client-query-cache/"
+repo_url = "https://github.com/alessio-locatelli/client-query-cache"
+docs_dir = "docs"
+site_dir = "site"
+nav = [
+  { "Home" = "index.md" },
+  { "API reference" = "api-reference.md" },
+  { "Architecture and operations" = "architecture.md" },
+  { "Performance" = "stream-cost-benchmarks.md" },
+  { "Examples" = "https://github.com/alessio-locatelli/client-query-cache/blob/main/examples/README.md" },
+  { "Maintainer reference" = [
+    { "PyPI publishing" = "pypi-publishing-setup.md" },
+    { "CI validation caches" = "ci-validation-caches.md" },
+    { "Executable updates" = "executable-version-updates.md" },
+  ] },
+  { "Research and decisions" = [
+    { "Causal invalidation research" = "causal-invalidation-barrier-research.md" },
+    { "Causal invalidation decision" = "decisions/defer-causal-invalidation-barrier.md" },
+  ] },
+]
+
+[project.validation]
+invalid_links = true
+invalid_link_anchors = true
+
+[project.theme]
+font = false
+features = ["navigation.sections", "navigation.top", "content.code.copy"]
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: light)"
+scheme = "default"
+primary = "teal"
+accent = "teal"
+toggle.icon = "lucide/sun"
+toggle.name = "Switch to dark mode"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: dark)"
+scheme = "slate"
+primary = "teal"
+accent = "teal"
+toggle.icon = "lucide/moon"
+toggle.name = "Switch to light mode"
+
+[project.markdown_extensions.toc]
+permalink = true
+
+[project.markdown_extensions.pymdownx.highlight]
+anchor_linenums = true
+
+[project.markdown_extensions.pymdownx.superfences]

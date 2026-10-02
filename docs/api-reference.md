@@ -1,7 +1,7 @@
 # API reference
 
 This reference covers the complete public surface of `client_query_cache`: construction, configuration, the cached
-read methods, ownership rules, and how to fall back to plain PyMongo. See the [README](../README.md) for the
+read methods, ownership rules, and how to fall back to plain PyMongo. See the [README](https://github.com/alessio-locatelli/client-query-cache/blob/main/README.md) for the
 conceptual overview and a quick start.
 
 Synchronous names live at the top level (`client_query_cache`) and wrap `pymongo.MongoClient`. The same names are
