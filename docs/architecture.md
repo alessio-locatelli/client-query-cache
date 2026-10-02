@@ -63,6 +63,18 @@ writes and schema changes occur.
 
 Writes always execute directly against MongoDB through PyMongo's own collection or `.raw`; the cache never intercepts or replays one. Once the manager processes the change-stream event a write produced, it invalidates every cached result the write could have affected, so the next read re-fetches instead of returning stale data — that invalidation step is sufficient on its own to keep the cache correct, without the cache needing to know what a write changed. Populating the cache directly from a write's own response isn't done either: many PyMongo write calls (an update, an upsert) don't return the resulting document at all, so caching "the write result" would still require an extra read to get one. Letting the next real read repopulate the cache after invalidation is simpler and correct in every case, rather than only the cases where a write happens to hand back a usable document.
 
+### Consistency scope
+
+Ordinary cached reads use eventual consistency. Applications should use a direct PyMongo read, with the
+session and read/write concerns appropriate to their consistency requirements, wherever freshness is required.
+Session-bound reads through the cached facade also bypass caching. Such a read does not refresh this manager's
+cache or synchronize other managers. See [Bypass conditions](api-reference.md#bypass-conditions).
+
+Research into freshness requirements in specific third-party integrations is deferred and low priority, with
+explicit reopening criteria in the [consistency decision](decisions/defer-causal-invalidation-barrier.md).
+The [barrier research reference](causal-invalidation-barrier-research.md) preserves the evidence and limitations
+of the unmerged proposal.
+
 ## Retry and error handling
 
 - **Change-stream reconnection**: a dropped stream connection reconnects automatically using capped exponential
