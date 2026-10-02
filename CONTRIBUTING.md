@@ -84,7 +84,7 @@ just docs-serve
 just docs-build
 ```
 
-The preview prints its local URL and reloads when guides change. The build creates untracked output in `site/`, fails on missing local pages, headings, or assets, and uses the locked `docs` dependency group. These commands need no MongoDB, Docker, or hosting credentials. See [Zensical's documentation](https://zensical.org/docs/) for authoring and framework configuration.
+The preview prints its local URL and reloads when guides change. The build creates untracked output in `site/`, fails on missing local pages or headings, and uses the locked `docs` dependency group. These commands need no MongoDB, Docker, or hosting credentials. The existing Lychee Prek hook checks authored links and assets. See [Zensical's documentation](https://zensical.org/docs/) for authoring and framework configuration.
 
 Pull requests affecting site inputs run **Documentation build** after **Prek** and **Prettier, Markdownlint, and OpenSpec**. If configuring required checks, require all three independently: GitHub can report a dependent job skipped after a failed prerequisite as successful. Guide-only Markdown changes do not select Python or database tests.
 

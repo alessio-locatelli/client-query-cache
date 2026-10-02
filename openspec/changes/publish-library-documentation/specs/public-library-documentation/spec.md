@@ -32,7 +32,7 @@ The site SHALL provide a landing page, installation and quick-start access, API 
 
 ### Requirement: Published guides preserve canonical sources and working links
 
-Existing API, operations, and performance Markdown guides SHALL remain canonical and readable in the repository. The site SHALL render those sources without maintaining duplicate guide copies. Published page links, heading links, and bundled assets SHALL resolve under the hosting project's URL subpath. References to repository-only examples, contributor instructions, and versioned benchmark evidence SHALL resolve to their repository destinations. Existing maintainer and research documents within `docs/` SHALL be available as clearly labeled secondary references. OpenSpec planning artifacts and library source trees SHALL not be published as site content.
+Existing API, operations, and performance Markdown guides SHALL remain canonical and readable in the repository. The site SHALL render those sources without maintaining duplicate guide copies. Published page links, heading links, and bundled assets SHALL resolve under the hosting project's URL subpath. References to repository-only examples, contributor instructions, and versioned benchmark evidence SHALL resolve to their repository destinations. Maintainer and research documents SHALL remain repository references and SHALL be excluded from hosted content and search. Relevant technical guides MAY link to them contextually on GitHub. OpenSpec planning artifacts and library source trees SHALL not be published as site content.
 
 #### Scenario: A reader follows related guidance
 
@@ -46,7 +46,7 @@ Existing API, operations, and performance Markdown guides SHALL remain canonical
 
 ### Requirement: Contributors can preview and build documentation reproducibly
 
-Contributors SHALL have one documented command for local live preview and one for a clean strict static build using committed dependency versions. Neither operation SHALL require MongoDB, Docker, hosting credentials, or changes to runtime dependencies. Invalid configuration, missing page or asset targets, and missing heading targets SHALL produce visible failures in the strict build. Generated site output SHALL remain untracked.
+Contributors SHALL have one documented command for local live preview and one for a clean strict static build using committed dependency versions. Neither operation SHALL require MongoDB, Docker, hosting credentials, or changes to runtime dependencies. Invalid configuration, missing page targets, and missing heading targets SHALL produce visible failures in the strict build. The existing Lychee quality gate SHALL reject missing authored asset targets. Generated site output SHALL remain untracked.
 
 #### Scenario: A contributor previews a guide
 
@@ -55,5 +55,10 @@ Contributors SHALL have one documented command for local live preview and one fo
 
 #### Scenario: A documentation link is broken
 
-- **WHEN** a contributor builds documentation containing a missing local page, asset, or heading target
+- **WHEN** a contributor builds documentation containing a missing local page or heading target
 - **THEN** the strict build exits unsuccessfully with a visible diagnostic
+
+#### Scenario: An authored asset is missing
+
+- **WHEN** a contributor runs the existing Lychee quality gate against a guide containing a missing local asset
+- **THEN** the gate exits unsuccessfully with a visible missing-file diagnostic

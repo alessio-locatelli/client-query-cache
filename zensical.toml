@@ -11,15 +11,6 @@ nav = [
   { "Architecture and operations" = "architecture.md" },
   { "Performance" = "stream-cost-benchmarks.md" },
   { "Examples" = "https://github.com/alessio-locatelli/client-query-cache/blob/main/examples/README.md" },
-  { "Maintainer reference" = [
-    { "PyPI publishing" = "pypi-publishing-setup.md" },
-    { "CI validation caches" = "ci-validation-caches.md" },
-    { "Executable updates" = "executable-version-updates.md" },
-  ] },
-  { "Research and decisions" = [
-    { "Causal invalidation research" = "causal-invalidation-barrier-research.md" },
-    { "Causal invalidation decision" = "decisions/defer-causal-invalidation-barrier.md" },
-  ] },
 ]
 
 [project.validation]
@@ -53,3 +44,12 @@ permalink = true
 anchor_linenums = true
 
 [project.markdown_extensions.pymdownx.superfences]
+
+[project.plugins.exclude]
+glob = [
+  "pypi-publishing-setup.md",
+  "ci-validation-caches.md",
+  "executable-version-updates.md",
+  "causal-invalidation-barrier-research.md",
+  "decisions/*",
+]

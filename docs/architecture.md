@@ -71,8 +71,8 @@ Session-bound reads through the cached facade also bypass caching. Such a read d
 cache or synchronize other managers. See [Bypass conditions](api-reference.md#bypass-conditions).
 
 Research into freshness requirements in specific third-party integrations is deferred and low priority, with
-explicit reopening criteria in the [consistency decision](decisions/defer-causal-invalidation-barrier.md).
-The [barrier research reference](causal-invalidation-barrier-research.md) preserves the evidence and limitations
+explicit reopening criteria in the [consistency decision](https://github.com/alessio-locatelli/client-query-cache/blob/main/docs/decisions/defer-causal-invalidation-barrier.md).
+The [barrier research reference](https://github.com/alessio-locatelli/client-query-cache/blob/main/docs/causal-invalidation-barrier-research.md) preserves the evidence and limitations
 of the unmerged proposal.
 
 ## Retry and error handling

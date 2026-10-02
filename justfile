@@ -42,7 +42,6 @@ docs-serve:
 
 docs-build:
     uv run --locked --only-group docs -- zensical build --clean --strict
-    uv run --locked --only-group docs -- python -m scripts.check_docs_assets
 
 verify-release tag='': build
     #!/usr/bin/env bash
