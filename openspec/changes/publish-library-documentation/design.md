@@ -40,11 +40,7 @@ Add a `docs` dependency group containing Zensical and update `uv.lock`. Provide 
 
 Enable the documented [link and heading validation](https://zensical.org/docs/setup/validation/) explicitly. Confirm that strict builds also reject missing local assets; if the selected release does not enforce this, add a focused asset-target check to the same build entry point rather than weakening the requirement. Do not disable validation to accommodate unresolved links.
 
-Until the first deployment, the canonical Pages URL returns 404. With maintainer
-approval, Lychee temporarily excludes only that exact URL so the implementation
-can pass its pre-publication quality gates. Remove the exclusion after successful
-live verification and rerun link checking; local page, heading, and asset validation
-remains enabled throughout rollout.
+Until the first deployment, the canonical Pages URL returns 404. With maintainer approval, Lychee temporarily excludes only that exact URL so the implementation can pass its pre-publication quality gates. Remove the exclusion after successful live verification and rerun link checking; local page, heading, and asset validation remains enabled throughout rollout.
 
 The repository already ignores `site/`; confirm Zensical's cache directory is ignored too. Exclude generated output from Prettier, Markdownlint, and link checking so subsequent validation does not crawl build artifacts. Dependency download caches may be reused through the existing setup action; do not persist Zensical's build cache in CI. Its [build documentation](https://zensical.org/docs/usage/build/) recommends clean builds while caching behavior evolves.
 
