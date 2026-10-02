@@ -34,46 +34,9 @@
 
 ## Implementation verification and rollout blockers
 
-- Local strict builds and the rendered-target check succeed. Disposable valid,
-  missing-page, missing-asset, and missing-heading inputs return 0, 1, 1, and 1
-  respectively. Zensical alone accepts missing image targets, so `docs-build`
-  also runs `scripts/check_docs_assets.py`.
-- The preview starts at the project subpath without hosting credentials or MongoDB.
-  Generated guide heading targets resolve and `search.json` contains
-  `max_await_time_ms`. Manually following the rendered API-to-operations capacity
-  link through HTTP resolves its heading under `/client-query-cache/`; the rendered
-  await-time evidence link opens the intended GitHub report. GitHub's content API
-  also confirms the examples and source-reference targets. One direct GitHub HTTP
-  request returned 503; a subsequent public-page fetch and API lookup succeeded.
-  The browser inventory is empty in this session, so interactive viewport/theme
-  checks in 2.4 remain open.
-- With the locked documentation dependencies installed in a fresh temporary
-  environment, two consecutive `just docs-build` runs took 0.692 s and 0.534 s.
-  Both are clean strict builds; the second benefits from warm OS/dependency caches,
-  not a retained Zensical build cache. Output is 932,550 bytes across 21 files.
-  Reproduce with `uv sync --locked --only-group docs`, then time two consecutive
-  `just docs-build` runs and total the file sizes under `site/`. Raw logs stay
-  untracked. These figures are local build costs, not library runtime benchmarks.
-- On 2026-10-02, GitHub read-only inspection confirmed a public repository and
-  `main` as default branch. Its active `main` ruleset requires review and linear
-  history, with no required status-check rule. After explicit maintainer
-  authorization, Pages was enabled with `build_type = workflow`, public hosting,
-  HTTPS enforcement, and the free standard project URL. The newly created
-  `github-pages` environment uses custom branch policies with only a `main`
-  branch rule (no tag rules or additional reviewer/wait requirements). Read-back
-  of the Pages, environment, and branch-policy endpoints confirms this setup;
-  4.3 is complete. The maintainer also authorized publication once the reviewed
-  implementation reaches `main`. Remote `main` is still
-  `e6e4c07348b6c4ccf99f923ba4a3bf3657ffd064`, without the site workflow, so 4.4
-  awaits that prerequisite and deployment verification.
-- The advertised documentation URL returns 404 before first publication. The
-  maintainer approved a temporary Lychee exclusion anchored to that exact URL;
-  task 4.4 owns its removal after verified publication. Local target validation
-  remains enabled. Lychee also emits pre-existing unsupported-input warnings for
-  some Python and archived OpenSpec files.
-- The generated 404 page contains a skip link to a missing `#__skip` anchor.
-  A minimal stock-theme reproduction confirms it on Zensical 0.0.67. No matching
-  tracking issue was found; the maintainer requested a temporary issue draft and
-  will submit the ticket. Its URL is still needed for a `docs/` defect note as
-  required by AGENTS.md. This defect is outside authored guide links and remains
-  unresolved. No template override or local validation exemption was added.
+- Local strict builds and the rendered-target check succeed. Disposable valid, missing-page, missing-asset, and missing-heading inputs return 0, 1, 1, and 1 respectively. Zensical alone accepts missing image targets, so `docs-build` also runs `scripts/check_docs_assets.py`.
+- The preview starts at the project subpath without hosting credentials or MongoDB. Generated guide heading targets resolve and `search.json` contains `max_await_time_ms`. Manually following the rendered API-to-operations capacity link through HTTP resolves its heading under `/client-query-cache/`; the rendered await-time evidence link opens the intended GitHub report. GitHub's content API also confirms the examples and source-reference targets. One direct GitHub HTTP request returned 503; a subsequent public-page fetch and API lookup succeeded. The browser inventory is empty in this session, so interactive viewport/theme checks in 2.4 remain open.
+- With the locked documentation dependencies installed in a fresh temporary environment, two consecutive `just docs-build` runs took 0.692 s and 0.534 s. Both are clean strict builds; the second benefits from warm OS/dependency caches, not a retained Zensical build cache. Output is 932,550 bytes across 21 files. Reproduce with `uv sync --locked --only-group docs`, then time two consecutive `just docs-build` runs and total the file sizes under `site/`. Raw logs stay untracked. These figures are local build costs, not library runtime benchmarks.
+- On 2026-10-02, GitHub read-only inspection confirmed a public repository and `main` as default branch. Its active `main` ruleset requires review and linear history, with no required status-check rule. After explicit maintainer authorization, Pages was enabled with `build_type = workflow`, public hosting, HTTPS enforcement, and the free standard project URL. The newly created `github-pages` environment uses custom branch policies with only a `main` branch rule (no tag rules or additional reviewer/wait requirements). Read-back of the Pages, environment, and branch-policy endpoints confirms this setup; 4.3 is complete. The maintainer also authorized publication once the reviewed implementation reaches `main`. Remote `main` is still `e6e4c07348b6c4ccf99f923ba4a3bf3657ffd064`, without the site workflow, so 4.4 awaits that prerequisite and deployment verification.
+- The advertised documentation URL returns 404 before first publication. The maintainer approved a temporary Lychee exclusion anchored to that exact URL; task 4.4 owns its removal after verified publication. Local target validation remains enabled. Lychee also emits pre-existing unsupported-input warnings for some Python and archived OpenSpec files.
+- The generated 404 page contains a skip link to a missing `#__skip` anchor. A minimal stock-theme reproduction confirms it on Zensical 0.0.67. No matching tracking issue was found; the maintainer requested a temporary issue draft and will submit the ticket. Its URL is still needed for a `docs/` defect note as required by AGENTS.md. This defect is outside authored guide links and remains unresolved. No template override or local validation exemption was added.
