@@ -230,7 +230,7 @@ Reads SHALL bypass caching when the database change stream cannot be established
 
 ### Requirement: Unique-key eligibility follows index metadata
 
-The facades SHALL use only unconditional unique indexes with locally confirmed matching effective collation for unique-key aliases. A single-document read's effective collation SHALL include a supported explicit override or the collection's default when no override is supplied. An explicit collation whose omitted locale-specific defaults prevent locally confirming equivalence SHALL use generic namespace caching. A deterministic mapping predicate, including a regex-ID query, that does not qualify for a unique-key alias SHALL use the generic namespace-guarded path when its remaining eligibility conditions are satisfied.
+The facades SHALL use only unconditional unique indexes with locally confirmed matching effective collation for unique-key aliases. A single-document read's effective collation SHALL include a supported explicit override or the collection's default when no override is supplied.
 
 #### Scenario: A unique index is discovered and used
 
@@ -256,6 +256,10 @@ The facades SHALL use only unconditional unique indexes with locally confirmed m
 
 - **WHEN** a fully specified supported explicit read collation matches a qualifying unique index and the equality predicate matches its complete key definition
 - **THEN** the facade can use the unique-key path under that effective collation without reusing an alias from different collation semantics
+
+### Requirement: Unconfirmed explicit collation uses namespace caching
+
+An explicit collation whose omitted locale-specific defaults prevent locally confirming equivalence with a unique index SHALL use generic namespace caching.
 
 #### Scenario: Explicit collation equivalence cannot be confirmed locally
 
@@ -324,12 +328,17 @@ A resolved unique-key read SHALL verify its original predicate against MongoDB o
 
 ### Requirement: Generic single-document reads use namespace caching
 
-Synchronous and asyncio cached single-document reads SHALL cache deterministic mapping filters that do not qualify for an exact identity or unique-key optimization, including compound predicates and match-all reads. Their entries SHALL be guarded against writes anywhere in the queried collection and against namespace or stream-continuity changes. Negative results SHALL be cacheable under the same guard. Unsafe filters or projections, session-bound reads, unsupported options, uncanonicalizable inputs, incompatible read profiles, and ineligible collections or streams SHALL retain direct execution with the original arguments and errors.
+Synchronous and asyncio cached single-document reads SHALL cache deterministic mapping filters that do not qualify for an exact identity or unique-key optimization, including compound predicates, regex-ID queries, and match-all reads. Their entries SHALL be guarded against writes anywhere in the queried collection and against namespace or stream-continuity changes. Negative results SHALL be cacheable under the same guard.
 
 #### Scenario: A caller repeats a compound predicate
 
 - **WHEN** a caller repeats an eligible single-document query with an `_id` equality and an additional predicate
 - **THEN** the repeated query can hit a namespace-guarded entry without ignoring the additional predicate
+
+#### Scenario: A caller repeats a regex-ID query
+
+- **WHEN** a caller repeats an eligible single-document query whose `_id` predicate is a regular expression
+- **THEN** the repeated query can hit a namespace-guarded entry rather than being treated as an exact-identity or unique-key read
 
 #### Scenario: A matching document changes
 
@@ -351,6 +360,10 @@ Synchronous and asyncio cached single-document reads SHALL cache deterministic m
 - **WHEN** collection type and stream continuity are confirmed but unique-index discovery is inconclusive
 - **THEN** an otherwise eligible deterministic mapping query can use the generic namespace path without assuming uniqueness
 
+### Requirement: Ineligible single-document reads execute directly
+
+Unsafe filters or projections, session-bound reads, unsupported options, uncanonicalizable inputs, incompatible read profiles, and ineligible collections or streams SHALL retain direct execution of single-document reads with the original arguments and errors.
+
 #### Scenario: Unsafe query input follows a cached safe query
 
 - **WHEN** a caller supplies a nondeterministic or otherwise unsafe filter or projection
@@ -358,7 +371,7 @@ Synchronous and asyncio cached single-document reads SHALL cache deterministic m
 
 ### Requirement: Single-document sort and collation are explicit
 
-Both execution models SHALL expose explicit keyword-only sorting and collation options on cached single-document reads. Generic cache keys SHALL distinguish every output-affecting predicate, projection, ordered sort specification, effective collation, and decoding profile. Valid equivalent default forms SHALL have consistent matching semantics. Cached results SHALL preserve the database's single-document return shape and SHALL NOT promise ordering beyond that of the corresponding database operation. A malformed or unsupported option SHALL NOT hit a previously valid entry or mask the database driver's error.
+Both execution models SHALL expose explicit keyword-only sorting and collation options on cached single-document reads. Generic cache keys SHALL distinguish every output-affecting predicate, projection, ordered sort specification, effective collation, and decoding profile. Valid equivalent default forms SHALL have consistent matching semantics.
 
 #### Scenario: Sorting selects a different document
 
@@ -389,6 +402,19 @@ Both execution models SHALL expose explicit keyword-only sorting and collation o
 
 - **WHEN** two single-document reads select the same identity but different valid sorts affect their projected metadata
 - **THEN** cache hits preserve each read's corresponding projected output rather than sharing a result solely because the selected document is unique
+
+### Requirement: Cached single-document results match the database operation
+
+Cached single-document results SHALL preserve the database's single-document return shape and SHALL NOT promise ordering beyond that of the corresponding database operation.
+
+#### Scenario: An unsorted query matches several documents
+
+- **WHEN** a cached single-document read without a sort matches several documents
+- **THEN** the result is a single document, as the database operation returns, and the cache guarantees no more about which matching document is selected than the database does
+
+### Requirement: Invalid single-document options do not hit cached entries
+
+A malformed or unsupported single-document read option SHALL NOT hit a previously valid entry or mask the database driver's error.
 
 #### Scenario: A malformed option follows a warm entry
 
