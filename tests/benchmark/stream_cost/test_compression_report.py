@@ -307,14 +307,23 @@ def test_report_rejects_a_missing_stream_minus_control_entry() -> None:
         validate_compression_report(report)
 
 
-def test_report_rejects_a_report_containing_a_non_finite_number() -> None:
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param(float("nan"), id="non_finite_number"),
+        pytest.param({1}, id="non_serializable_type"),
+    ],
+)
+def test_report_rejects_a_report_containing_a_non_json_serializable_value(
+    value: object,
+) -> None:
     report = copy.deepcopy(_full_report())
     samples = report["samples"]
     assert isinstance(samples, list)
     assert samples
     first_sample = samples[0]
     assert isinstance(first_sample, dict)
-    first_sample["wall_seconds"] = float("nan")
+    first_sample["wall_seconds"] = value
     with pytest.raises(ReportValidationError, match="not JSON-serializable"):
         validate_compression_report(report)
 

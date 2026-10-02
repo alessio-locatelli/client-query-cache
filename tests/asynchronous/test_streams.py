@@ -4,7 +4,6 @@ import asyncio
 import datetime
 import threading
 import uuid
-from contextlib import suppress
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, TypedDict, cast
 from unittest.mock import Mock
@@ -59,10 +58,13 @@ def _long_backoff(delay: float = 5.0) -> RetryBackoff:
 
 
 class _ScriptedStream:
-    __slots__ = ("_closed_event", "_events", "closed", "resume_token")
+    __slots__ = ("_close_error", "_closed_event", "_events", "closed", "resume_token")
 
-    def __init__(self, events: list[object]) -> None:
+    def __init__(
+        self, events: list[object], *, close_error: Exception | None = None
+    ) -> None:
         self._events = list(events)
+        self._close_error = close_error
         self.resume_token: dict[str, object] | None = None
         self.closed = False
         self._closed_event = asyncio.Event()
@@ -84,6 +86,8 @@ class _ScriptedStream:
     async def close(self) -> None:
         self.closed = True
         self._closed_event.set()
+        if self._close_error is not None:
+            raise self._close_error
 
 
 class _BlockingCloseStream(_ScriptedStream):
@@ -299,10 +303,18 @@ async def test_start_fails_closed_when_server_info_itself_fails(
     assert supervisor.healthy is False
 
 
+@pytest.mark.parametrize(
+    "close_error",
+    [
+        pytest.param(None, id="close-succeeds"),
+        pytest.param(ConnectionFailure("cursor close failed"), id="close-fails"),
+    ],
+)
 async def test_start_raises_and_closes_the_stream_when_stop_races_it(
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
+    close_error: Exception | None,
 ) -> None:
-    stream = _ScriptedStream([])
+    stream = _ScriptedStream([], close_error=close_error)
     database = _FakeDatabase("db", [stream])
     supervisor = make_supervisor(_as_database(database), _mock_cache())
 
@@ -565,10 +577,18 @@ async def test_start_raises_when_called_more_than_once(
         await supervisor.start()
 
 
+@pytest.mark.parametrize(
+    "close_error",
+    [
+        pytest.param(None, id="close-succeeds"),
+        pytest.param(ConnectionFailure("cursor close failed"), id="close-fails"),
+    ],
+)
 async def test_unexpected_stream_closure_triggers_reconnect(
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
+    close_error: Exception | None,
 ) -> None:
-    stream1 = _ScriptedStream([StopAsyncIteration()])
+    stream1 = _ScriptedStream([StopAsyncIteration()], close_error=close_error)
     database = _FakeDatabase("db", [stream1, _ScriptedStream([])])
     supervisor = make_supervisor(
         _as_database(database), _mock_cache(), backoff=_FAST_BACKOFF
@@ -617,8 +637,16 @@ class _Unencodable:
     __slots__ = ()
 
 
+@pytest.mark.parametrize(
+    "unencodable_value",
+    [
+        pytest.param(_Unencodable(), id="unsupported-type"),
+        pytest.param("\udc80", id="lone-surrogate-from-surrogateescape-decoding"),
+    ],
+)
 async def test_invalidation_survives_unencodable_logical_bytes(
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
+    unencodable_value: object,
 ) -> None:
     cache = CacheCore()
     namespace = NamespaceId("db", "coll")
@@ -627,7 +655,7 @@ async def test_invalidation_survives_unencodable_logical_bytes(
     event = {
         "operationType": "insert",
         "ns": {"db": "db", "coll": "coll"},
-        "documentKey": {"_id": "doc-1", "unencodable": _Unencodable()},
+        "documentKey": {"_id": "doc-1", "unencodable": unencodable_value},
         "wallTime": _WALL_TIME,
     }
     database = _FakeDatabase("db", [_ScriptedStream([event]), _ScriptedStream([])])
@@ -989,8 +1017,16 @@ async def test_start_closes_and_fails_when_cancelled_while_connecting(
     assert len(database.watch_calls) == 0
 
 
+@pytest.mark.parametrize(
+    "close_error",
+    [
+        pytest.param(None, id="close-succeeds"),
+        pytest.param(ConnectionFailure("cursor close failed"), id="close-fails"),
+    ],
+)
 async def test_start_closes_the_stream_when_cancelled_racing_a_concurrent_stop(
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
+    close_error: Exception | None,
 ) -> None:
     entered_first_close = asyncio.Event()
 
@@ -1011,6 +1047,8 @@ async def test_start_closes_the_stream_when_cancelled_racing_a_concurrent_stop(
             if self.close_calls == 1:
                 entered_first_close.set()
                 await asyncio.Event().wait()
+            if close_error is not None:
+                raise close_error
 
     stream = _StreamThatHangsOnFirstClose()
     database = _FakeDatabase("db", [stream])
@@ -1102,8 +1140,10 @@ async def paused_coordinator(
         phase=request.param,
     )
     release.set()
-    with suppress(asyncio.CancelledError):
+    try:
         await activation
+    except asyncio.CancelledError:
+        pass
 
 
 async def test_coordinator_health_inspection_during_io_does_not_deadlock(

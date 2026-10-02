@@ -29,7 +29,9 @@ def without_id(
             bson.encode(stripped, codec_options=codec_options),
             codec_options=codec_options,
         )
-    except BSONError, OverflowError:
+    except BSONError:
+        return stripped
+    except OverflowError:
         return stripped
 
 

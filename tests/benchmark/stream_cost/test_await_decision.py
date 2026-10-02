@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
+from pymongo.errors import ConnectionFailure
 
 from benchmarks.stream_cost import await_report, await_run
 from benchmarks.stream_cost.await_configuration import (
@@ -151,9 +152,17 @@ def test_compact_configuration_expands_to_the_frozen_original_semantics(
     assert expand_await_configuration(configuration) == configuration
 
 
-def test_configuration_loader_rejects_an_incomplete_compact_definition() -> None:
+@pytest.mark.parametrize(
+    "content",
+    [
+        pytest.param(b'{"comparison_plan": {}}', id="incomplete-compact-definition"),
+        pytest.param(b"1", id="non-object-definition"),
+        pytest.param(b"not json", id="malformed-json"),
+    ],
+)
+def test_configuration_loader_rejects_an_invalid_definition(content: bytes) -> None:
     with pytest.raises(BenchmarkConfigurationError, match="invalid await-time"):
-        load_await_configuration(b'{"comparison_plan": {}}')
+        load_await_configuration(content)
 
 
 def test_report_retains_matched_complete_measurements(
@@ -441,14 +450,31 @@ def test_validation_cli_reproduces_decision_from_retained_report(
     assert decision["configuration_sha256"] == report["configuration_sha256"]
 
 
-@pytest.mark.parametrize("failed", [False, True], ids=["complete", "failed-window"])
+@pytest.mark.parametrize(
+    ("failure", "expected_reason"),
+    [
+        pytest.param(None, None, id="complete"),
+        pytest.param(
+            BenchmarkSetupError("resource counter unavailable"),
+            "resource counter unavailable",
+            id="setup-failure",
+        ),
+        pytest.param(
+            ConnectionFailure("private command"),
+            "ConnectionFailure",
+            id="driver-failure",
+        ),
+        pytest.param(TimeoutError(), "TimeoutError", id="timeout"),
+    ],
+)
 def test_matrix_retains_complete_report_and_failure_evidence(
     report: dict[str, object],
     windows: tuple[AwaitWindow, ...],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     *,
-    failed: bool,
+    failure: Exception | None,
+    expected_reason: str | None,
 ) -> None:
     replica = MagicMock()
     replica.uri = "mongodb://localhost:27017"
@@ -462,11 +488,11 @@ def test_matrix_retains_complete_report_and_failure_evidence(
     client_class = MagicMock()
     client_class.__getitem__.return_value.return_value = client
     monkeypatch.setattr(await_run, "MongoClient", client_class)
-    regular: list[AwaitWindow | BenchmarkSetupError] = [
+    regular: list[AwaitWindow | Exception] = [
         window for window in windows if window.workload != "shutdown"
     ]
-    if failed:
-        regular[0] = BenchmarkSetupError("resource counter unavailable")
+    if failure is not None:
+        regular[0] = failure
     monkeypatch.setattr(await_run, "run_window", AsyncMock(side_effect=regular))
     monkeypatch.setattr(
         await_run,
@@ -480,8 +506,10 @@ def test_matrix_retains_complete_report_and_failure_evidence(
     await_run.main()
     retained = json.loads(output.read_bytes())
     assert retained["configuration_sha256"] == report["configuration_sha256"]
-    assert len(retained["samples"]) == len(windows) - failed
-    assert len(retained["failures"]) == failed
+    assert len(retained["samples"]) == len(windows) - (failure is not None)
+    assert [item["reason"] for item in retained["failures"]] == (
+        [] if expected_reason is None else [expected_reason]
+    )
     assert output.with_suffix(".decision.json").exists()
     with pytest.raises(BenchmarkSetupError, match="new output path"):
         await_run.run_matrix(output)

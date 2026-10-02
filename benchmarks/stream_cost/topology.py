@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import contextlib
 import math
 import re
 from dataclasses import dataclass
@@ -11,7 +10,6 @@ from docker.errors import DockerException
 from pymongo import MongoClient
 from pymongo.errors import PyMongoError
 from testcontainers.core.container import DockerContainer
-from testcontainers.core.exceptions import ContainerStartException
 
 from benchmarks.stream_cost.client import (
     BenchmarkClientTopologyConfig,
@@ -94,6 +92,14 @@ class ResourceLimits:
             raise BenchmarkConfigurationError(message)
 
 
+def _cpu_usage_unreadable(error: Exception) -> BenchmarkSetupError:
+    message = (
+        "Could not read MongoDB container CPU usage from the container "
+        f"runtime's cgroup/stats evidence: {error}"
+    )
+    return BenchmarkSetupError(message)
+
+
 class IsolatedReplicaSet:
     __slots__ = ("_container", "_limits", "_uri")
 
@@ -113,10 +119,12 @@ class IsolatedReplicaSet:
                 mem_limit=self._limits.memory,
             )
             container.start()
-        except (DockerException, ContainerStartException) as error:
+        except DockerException as error:
             if container is not None:
-                with contextlib.suppress(DockerException, ContainerStartException):
+                try:
                     container.stop()
+                except DockerException:
+                    pass
             message = (
                 "A Docker-compatible container runtime is required for the "
                 "stream-cost benchmark's isolated replica set. Start Docker or a "
@@ -131,8 +139,10 @@ class IsolatedReplicaSet:
             self._uri = f"mongodb://{host}:{port}/?directConnection=true"
             self._await_writable_primary()
         except Exception:
-            with contextlib.suppress(DockerException, ContainerStartException):
+            try:
                 container.stop()
+            except DockerException:
+                pass
             self._container = None
             self._uri = None
             raise
@@ -150,7 +160,7 @@ class IsolatedReplicaSet:
             if exc_type is not None:
                 try:
                     self._container.stop()
-                except (DockerException, ContainerStartException) as cleanup_error:
+                except DockerException as cleanup_error:
                     if exc is not None:
                         exc.add_note(
                             f"additionally, container cleanup failed: {cleanup_error}"
@@ -232,19 +242,16 @@ class IsolatedReplicaSet:
             wrapped = self._container.get_wrapped_container()
             stats = wrapped.stats(stream=False)
             usage_nanoseconds = self._parse_cpu_usage_nanoseconds(stats)
-        except (
-            DockerException,
-            ContainerStartException,
-            KeyError,
-            TypeError,
-            ValueError,
-            OverflowError,
-        ) as error:
-            message = (
-                "Could not read MongoDB container CPU usage from the container "
-                f"runtime's cgroup/stats evidence: {error}"
-            )
-            raise BenchmarkSetupError(message) from None
+        except DockerException as error:
+            raise _cpu_usage_unreadable(error) from None
+        except KeyError as error:
+            raise _cpu_usage_unreadable(error) from None
+        except TypeError as error:
+            raise _cpu_usage_unreadable(error) from None
+        except ValueError as error:
+            raise _cpu_usage_unreadable(error) from None
+        except OverflowError as error:
+            raise _cpu_usage_unreadable(error) from None
         return usage_nanoseconds / _NANOSECONDS_PER_SECOND
 
     @staticmethod

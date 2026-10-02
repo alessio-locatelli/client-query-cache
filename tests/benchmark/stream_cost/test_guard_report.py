@@ -71,11 +71,16 @@ def test_measure_and_evaluate_case_reports_decision(
     assert report.reason
 
 
+@pytest.mark.parametrize(
+    "error_type",
+    [BenchmarkSetupError, ValueError],
+    ids=["setup-failure", "invalid-data"],
+)
 def test_measure_and_evaluate_case_reports_measurement_error(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, error_type: type[Exception]
 ) -> None:
     def fail(*_args: object, **_kwargs: object) -> PairedCaseMeasurement:
-        raise BenchmarkSetupError("base and head environments do not match")
+        raise error_type("base and head environments do not match")
 
     monkeypatch.setattr(guard_report, "measure_paired_case", fail)
 

@@ -236,6 +236,7 @@ def test_collect_bandwidth_evidence_returns_none_when_srv_resolution_fails(
     "dispatch",
     [
         pytest.param({}, id="atlas_cli_fails"),
+        pytest.param({"processes": "not json"}, id="atlas_cli_prints_malformed_json"),
         pytest.param(
             {"processes": _PROCESSES_LIST_RESPONSE_NO_PRIMARY},
             id="no_primary_process_is_found",
@@ -258,6 +259,18 @@ def test_collect_bandwidth_evidence_returns_none(
 ) -> None:
     _mock_srv_resolution(monkeypatch)
     _write_fake_atlas(tmp_path, dispatch=dispatch)
+    monkeypatch.setenv("PATH", str(tmp_path))
+
+    assert collect_bandwidth_evidence(_PROJECT_ID, _MONGODB_URI) is None
+
+
+def test_collect_bandwidth_evidence_returns_none_when_atlas_cli_cannot_be_executed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _mock_srv_resolution(monkeypatch)
+    fake_atlas = tmp_path / "atlas"
+    fake_atlas.write_text("#!/nonexistent/interpreter\n")
+    fake_atlas.chmod(fake_atlas.stat().st_mode | stat.S_IEXEC)
     monkeypatch.setenv("PATH", str(tmp_path))
 
     assert collect_bandwidth_evidence(_PROJECT_ID, _MONGODB_URI) is None

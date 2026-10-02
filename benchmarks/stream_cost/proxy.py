@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import contextlib
 import socket
 import threading
 from dataclasses import dataclass
@@ -90,10 +89,11 @@ class DirectPathByteProxy:
             sockets = list(self._sockets)
             connection_threads = list(self._connection_threads)
         for sock in sockets:
-            with contextlib.suppress(OSError):
+            try:
                 sock.shutdown(socket.SHUT_RDWR)
-            with contextlib.suppress(OSError):
-                sock.close()
+            except OSError:
+                pass
+            sock.close()
         for thread in connection_threads:
             thread.join(timeout=_JOIN_TIMEOUT_SECONDS)
 
@@ -182,8 +182,10 @@ class DirectPathByteProxy:
         except OSError:
             return
         finally:
-            with contextlib.suppress(OSError):
+            try:
                 destination.shutdown(socket.SHUT_WR)
+            except OSError:
+                pass
 
     def _relay(
         self, source: socket.socket, destination: socket.socket, *, is_sent: bool
