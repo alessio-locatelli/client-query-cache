@@ -95,3 +95,12 @@ Ordinary local and publication documentation builds SHALL regenerate agent-facin
 
 - **WHEN** the existing documentation publication build succeeds
 - **THEN** its complete artifact includes the native exports alongside HTML without requiring tracked generated files in the source checkout
+
+### Requirement: Edition export policies follow source snapshots
+
+Each documentation edition SHALL preserve its source snapshot’s export policy when present, including page selection, section names and order, description, and combined-output setting. Stable sources without an export policy SHALL inherit development’s policy. Root discovery and combined exports SHALL follow the effective stable policy.
+
+#### Scenario: Development changes a released export policy
+
+- **WHEN** stable sources define an export policy and development changes section paths, description, order, or combined output
+- **THEN** stable and root exports preserve the stable policy while development exports follow development’s policy
