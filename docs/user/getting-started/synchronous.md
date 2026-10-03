@@ -1,6 +1,6 @@
 # Synchronous quick start
 
-First [install the library](installation.md) and connect to MongoDB 8.0 or newer on a replica set or sharded cluster. The program below uses your local deployment and a dedicated tutorial collection. It writes one document and reads it through a cached view.
+This program writes a document to your local MongoDB replica set and reads it through a cached view. It uses a dedicated tutorial collection.
 
 ```python
 from pymongo import MongoClient
@@ -34,5 +34,3 @@ Keep the PyMongo `collection` for writes and administration. The cached view exp
 The context managers close the cache manager before the client. A manager never closes your client, and closing only the client leaves the manager's background task running. Reuse a long-lived manager across application requests; see [deployment](../operations/deployment.md#capacity-estimation).
 
 A cached read after a write can still see an earlier value until invalidation arrives. Use a direct PyMongo read where freshness is required, with the appropriate session and concerns; see [consistency](../usage/consistency.md).
-
-Continue with [cached reads](../usage/cached-reads.md), [workload evaluation](../benchmarks/index.md), or the [API reference](../reference/api.md).

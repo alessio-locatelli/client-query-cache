@@ -1,6 +1,6 @@
 # Asyncio quick start
 
-First [install the library](installation.md) and connect to MongoDB 8.0 or newer on a replica set or sharded cluster. Import the asyncio manager from `client_query_cache.asynchronous` and await its reads.
+This program uses the asyncio manager from `client_query_cache.asynchronous` to write and read a document on your local MongoDB replica set. Await the client’s writes and the cached view’s reads.
 
 ```python
 import asyncio
@@ -41,5 +41,3 @@ Use the PyMongo collection for writes. Awaiting `find` or `aggregate` on the cac
 The `async with` block closes the manager before the client. Outside a context manager, call `await cache_manager.close()` before `await client.close()`. The manager owns its background streams and cached data, and you own the client. Keep both alive across application requests; see [deployment](../operations/deployment.md).
 
 Awaiting a cached read does not wait for a preceding write's invalidation. Use a direct PyMongo read with suitable session and concerns for freshness requirements; see [consistency](../usage/consistency.md).
-
-Continue with [workload evaluation](../benchmarks/index.md), [integration examples](../examples/index.md), or the [API reference](../reference/api.md).
