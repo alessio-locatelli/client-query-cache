@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import errno
-import os
 import subprocess
 import tempfile
 from pathlib import Path
@@ -269,17 +268,22 @@ def restricted_checkout(
     previous_artifact: Path,
     tmp_path_factory: pytest.TempPathFactory,
     monkeypatch: pytest.MonkeyPatch,
-) -> Iterator[Path]:
+) -> Iterator[tuple[Path, Path, list[Path]]]:
     temporary_storage = tmp_path_factory.mktemp("system-temp")
     monkeypatch.setenv("TMPDIR", str(temporary_storage))
     monkeypatch.setattr(tempfile, "tempdir", None)
+    commands: list[Path] = []  # No commands run before assembly starts.
+
+    def record_workspace(cwd: Path, *arguments: Text) -> None:
+        commands.append(cwd)
+        run(cwd, *arguments)
+
+    monkeypatch.setattr("scripts.build_versioned_docs.run", record_workspace)
     parent = release_repo.parent
     original_mode = parent.stat().st_mode & 0o7777
     parent.chmod(original_mode & ~0o222)
     try:
-        if os.access(parent, os.W_OK):
-            pytest.skip("This environment bypasses directory write permissions")
-        yield previous_artifact
+        yield previous_artifact, temporary_storage, commands
     finally:
         parent.chmod(original_mode)
 
@@ -289,16 +293,18 @@ def restricted_checkout(
 )
 @pytest.mark.usefixtures("artifact_exists")
 def test_assembles_without_write_access_to_checkout_parent(
-    release_repo: Path, restricted_checkout: Path
+    release_repo: Path, restricted_checkout: tuple[Path, Path, list[Path]]
 ) -> None:
+    output, temporary_storage, commands = restricted_checkout
     assemble(
         release_repo,
         select_sources(release_repo, "v0.2.0", "HEAD"),
-        restricted_checkout,
+        output,
     )
-    assert "Corrected guide" in (restricted_checkout / "stable/index.html").read_text()
-    assert "Corrected guide" in (restricted_checkout / "dev/index.html").read_text()
-    assert not (restricted_checkout / "previous.txt").exists()
+    assert commands[0].parent == temporary_storage
+    assert "Corrected guide" in (output / "stable/index.html").read_text()
+    assert "Corrected guide" in (output / "dev/index.html").read_text()
+    assert not (output / "previous.txt").exists()
 
 
 @pytest.fixture
