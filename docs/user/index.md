@@ -2,13 +2,11 @@
 
 Add an in-process read cache to an application using PyMongo directly. The library supports synchronous and asyncio clients and uses MongoDB change streams to invalidate cached results, without a separate cache server.
 
-These guides describe the current `main` branch. Options may differ from your installed release.
-
 ## Install and start
 
 Start with [installation](getting-started/installation.md), then follow the complete [synchronous](getting-started/synchronous.md) or [asyncio](getting-started/asyncio.md) tutorial.
 
-Effective caching requires MongoDB 8.0 or newer on a replica set or sharded cluster. Writes go through PyMongo. Invalidation is asynchronous, so use direct reads wherever freshness is required; see [consistency](usage/consistency.md).
+Caching requires MongoDB 8.0+ on a replica set or sharded cluster. Writes go through PyMongo. Invalidation is asynchronous, so use direct reads wherever freshness is required; see [consistency](usage/consistency.md).
 
 ## Find guidance
 

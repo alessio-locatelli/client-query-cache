@@ -1,8 +1,10 @@
 # client-query-cache
 
+[![Python 3.14.6+](https://img.shields.io/badge/python-3.14.6%2B-blue.svg)](https://www.python.org/downloads/)
+
 Client-side caching for PyMongo applications, kept coherent using MongoDB change streams. It supports synchronous and asyncio clients, caches six read methods, and keeps writes on your PyMongo collection. No separate cache server is required.
 
-Python 3.14.6 or newer is required. Effective caching needs MongoDB 8.0 or newer on a replica set or sharded cluster. On unsupported deployments, reads bypass the cache and execute through PyMongo.
+Caching requires [MongoDB 8.0+ on a replica set or sharded cluster](https://alessio-locatelli.github.io/client-query-cache/getting-started/installation/#requirements). Reads on standalone servers and older MongoDB versions run through PyMongo without caching.
 
 Invalidation is asynchronous: a cached read can return a preceding value until the write's change-stream event is processed. Use PyMongo directly when a read must immediately observe a preceding write.
 
@@ -16,7 +18,7 @@ Or use `pip install client-query-cache`.
 
 ## Documentation
 
-The [documentation site](https://alessio-locatelli.github.io/client-query-cache/) describes the current `main` branch.
+The [documentation site](https://alessio-locatelli.github.io/client-query-cache/) opens the latest release guides. Select **Development (main)** for unreleased changes.
 
 - [Getting started](https://alessio-locatelli.github.io/client-query-cache/getting-started/installation/): installation and complete synchronous and asyncio tutorials.
 - [Usage](https://alessio-locatelli.github.io/client-query-cache/usage/cached-reads/): cached reads and consistency.

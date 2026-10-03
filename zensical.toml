@@ -42,7 +42,12 @@ invalid_link_anchors = true
 
 [project.theme]
 font = false
-features = ["navigation.sections", "navigation.top", "content.code.copy"]
+features = [
+  "navigation.sections",
+  "navigation.top",
+  "navigation.footer",
+  "content.code.copy",
+]
 
 [[project.theme.palette]]
 media = "(prefers-color-scheme: light)"

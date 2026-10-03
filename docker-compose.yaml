@@ -15,7 +15,20 @@ services:
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
-        mongosh --host mongo --eval 'rs.initiate({_id:"rs0", members: [{_id:0,host:"localhost:27017"}]})'
+        mongosh --quiet --host mongo --eval '
+          const notYetInitialized = 94;
+          try {
+            rs.status();
+          } catch (error) {
+            if (error.code !== notYetInitialized) throw error;
+            rs.initiate({_id:"rs0", members:[{_id:0, host:"localhost:27017"}]});
+          }
+          for (let attempt = 0; attempt < 60; attempt++) {
+            if (db.hello().isWritablePrimary) quit(0);
+            sleep(500);
+          }
+          throw new Error("Replica set did not become writable within 30 seconds");
+        '
     depends_on:
       mongo:
         condition: service_healthy

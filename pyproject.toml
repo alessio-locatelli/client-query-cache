@@ -45,7 +45,7 @@ dev = [
   "dnspython>=2.8.0",
   "python-snappy>=0.7.3",
 ]
-docs = ["zensical>=0.0.67"]
+docs = ["mike", "tomli-w>=1.2.0", "zensical>=0.0.67"]
 
 [build-system]
 requires = ["uv_build>=0.12.18,<0.13.0"]
@@ -53,6 +53,9 @@ build-backend = "uv_build"
 
 [tool.uv.build-backend]
 module-root = "src"
+
+[tool.uv.sources]
+mike = { git = "https://github.com/squidfunk/mike.git", rev = "2d4ad799442f4592db8ad53b179bfb33db8c69ac" } # pragma: allowlist secret
 
 [tool.slotscheck]
 strict-imports = true
