@@ -142,10 +142,16 @@ pytestmark = pytest.mark.unit
             ("renovate.json5",), False, True, False, False, False, id="renovate"
         ),
         pytest.param(
-            ("docs/api-reference.md",), False, True, False, False, True, id="guide"
+            ("docs/user/reference/api.md",), False, True, False, False, True, id="guide"
         ),
         pytest.param(
-            ("docs/assets/figure.svg",), False, False, False, False, True, id="asset"
+            ("docs/user/assets/figure.svg",),
+            False,
+            False,
+            False,
+            False,
+            True,
+            id="asset",
         ),
         pytest.param(
             ("examples/README.md",),
@@ -153,7 +159,7 @@ pytestmark = pytest.mark.unit
             True,
             False,
             False,
-            False,
+            True,
             id="examples-readme",
         ),
         pytest.param(
@@ -184,18 +190,57 @@ pytestmark = pytest.mark.unit
         *[
             pytest.param((path,), False, True, False, False, False, id=path)
             for path in (
-                "docs/pypi-publishing-setup.md",
-                "docs/ci-validation-caches.md",
-                "docs/executable-version-updates.md",
-                "docs/causal-invalidation-barrier-research.md",
-                "docs/decisions/defer-causal-invalidation-barrier.md",
+                "docs/development/index.md",
+                "docs/development/architecture.md",
+                "docs/development/performance-regression-guard.md",
+                "docs/development/pypi-publishing-setup.md",
+                "docs/development/ci-validation-caches.md",
+                "docs/development/executable-version-updates.md",
+                "docs/development/research/causal-invalidation-barrier.md",
+                "docs/development/decisions/defer-causal-invalidation-barrier.md",
             )
         ],
+        *[
+            pytest.param((path,), False, True, False, False, True, id=path)
+            for path in (
+                "docs/user/getting-started/asyncio.md",
+                "docs/user/usage/consistency.md",
+                "docs/user/benchmarks/stream-cost.md",
+                "docs/user/examples/index.md",
+                "docs/user/operations/monitoring.md",
+            )
+        ],
+        *[
+            pytest.param((path,), True, False, False, False, True, id=path)
+            for path in (
+                "examples/requests_cache_example.py",
+                "examples/celery_example.py",
+                "examples/py_abac_example.py",
+            )
+        ],
+        pytest.param(
+            ("docs/development/architecture.md", "docs/user/reference/api.md"),
+            False,
+            True,
+            False,
+            False,
+            True,
+            id="mixed-documentation",
+        ),
+        pytest.param(
+            ("docs/development/index.md", "examples/celery_example.py"),
+            True,
+            True,
+            False,
+            False,
+            True,
+            id="development-and-example",
+        ),
         pytest.param((), False, False, False, False, False, id="empty"),
     ],
 )
 def test_ci_scope_selects_validation_tiers(
-    changed_paths: tuple[str, ...],
+    changed_paths: tuple[str, ...],  # Can be empty when no paths changed.
     *,
     python: bool,
     formatting: bool,

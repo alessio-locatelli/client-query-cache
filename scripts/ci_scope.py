@@ -27,18 +27,9 @@ def main() -> None:
         for path in paths
     )
     documentation = any(
-        (
-            path.startswith("docs/")
-            and not path.startswith("docs/decisions/")
-            and path
-            not in {
-                "docs/pypi-publishing-setup.md",
-                "docs/ci-validation-caches.md",
-                "docs/executable-version-updates.md",
-                "docs/causal-invalidation-barrier-research.md",
-            }
-        )
-        or path.startswith(".github/actions/setup-toolchain/")
+        path.startswith(("docs/user/", ".github/actions/setup-toolchain/"))
+        or path == "examples/README.md"
+        or (path.startswith("examples/") and path.endswith(".py"))
         or path
         in {
             "zensical.toml",

@@ -13,14 +13,14 @@ for operations requiring freshness. A session-bound read through the cached faca
 These reads do not refresh the in-memory cache or synchronize other processes.
 
 An explicit barrier could let an application wait for one manager's invalidations before continuing cached
-reads. The [investigation](../causal-invalidation-barrier-research.md) found significant latency, resource costs,
+reads. The [investigation](../research/causal-invalidation-barrier.md) found significant latency, resource costs,
 and restrictions, without demonstrating that this capability serves the motivating third-party integrations.
 
 ## Decision
 
 Keep eventual consistency as the standard cached-read contract. Use database reads wherever freshness is
 required. Preserve the existing decision that writes do not populate the cache; see
-[Why only reads are cached](../architecture.md#why-only-reads-are-cached).
+[Why only reads are cached](../../user/usage/cached-reads.md#why-only-reads-are-cached).
 
 Defer a public causal invalidation barrier. Reject inclusion of the implementation in
 [PR #124](https://github.com/alessio-locatelli/client-query-cache/pull/124), branch
@@ -60,4 +60,4 @@ no manager synchronizes another manager's memory cache.
 The investigation remains available if an application justifies reopening the feature. Its observations require
 validation against the future target environment, and its assumptions must be resolved before a new guarantee
 is exposed. Independent correctness findings from the investigation are separate from this low-priority
-feature deferral; see the report's [timeout-context finding](../causal-invalidation-barrier-research.md#independent-timeout-context-finding).
+feature deferral; see the report's [timeout-context finding](../research/causal-invalidation-barrier.md#independent-timeout-context-finding).

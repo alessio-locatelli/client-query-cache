@@ -4,6 +4,8 @@
 
 <!-- Describe final behavior once, one line per change. -->
 
+- Publish complete tutorials and integration examples in a grouped documentation site, with separate development guides and preserved guide bookmarks.
+
 ## [0.2.0] - 2026-10-02
 
 - Export `CacheConfigurationError`, `CacheClosedError`, `UnsupportedCacheRequestError`, and their `CacheError` base class from `client_query_cache`.

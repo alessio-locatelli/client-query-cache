@@ -45,7 +45,7 @@ just setup
 
 ## Executable updates
 
-See the [executable update inventory and validation commands](docs/executable-version-updates.md).
+See the [executable update inventory and validation commands](docs/development/executable-version-updates.md).
 CI and the development image use the exact Python patch selected in `.python-version`.
 
 ## Validate changes
@@ -71,20 +71,26 @@ include the leading `--`, mirroring `just podman -- <arguments>` below, since so
 
 Run `just examples` to run every program in [`examples/`](examples/README.md) against a disposable replica set. The first run downloads each example's libraries.
 
-See the [CI validation cache inventory](docs/ci-validation-caches.md) for the tools run on GitHub Actions and their cache paths.
+See the [CI validation cache inventory](docs/development/ci-validation-caches.md) for the tools run on GitHub Actions and their cache paths.
 
 Run host Podman commands from the contributor container with `just podman -- <arguments>`.
 
 ## Documentation
 
-Edit the canonical Markdown guides and assets in `docs/`. Link rendered guides with relative Markdown paths and heading fragments; link repository-only content (README, examples, source, and benchmark evidence) with explicit GitHub URLs. Keep revision-pinned evidence links pinned.
+Edit published guides and assets in `docs/user/`. Repository-only architecture, maintainer notes, decisions, and research live in `docs/development/`; use its [development index](docs/development/index.md) to find them. Only `docs/user/` is published.
+
+Keep one canonical source for each detailed topic. The example command/prerequisite catalogue stays in `examples/README.md`, and runnable programs stay in `examples/*.py`. Hosted example pages include these files with `pymdownx.snippets`, using repository-relative paths and `check_paths = true`. Include program text in Python code blocks; surround snippet-only fences with `<!-- fmt:off -->` and `<!-- fmt:on -->` so [Ruff Markdown formatting](https://docs.astral.sh/ruff/formatter/#markdown-code-formatting) preserves the inclusion directive. Never import or execute examples during a site build. Link the canonical file from each wrapper for repository readers.
+
+Link hosted guidance with relative Markdown paths and heading fragments. Use clearly labelled, explicit GitHub links for source files, checkout instructions, development documentation, and benchmark evidence. Keep revision-pinned evidence links pinned. Do not use GitHub READMEs as substitutes for hosted tutorials or examples. After moving a public page or heading, update local links and Zensical's page/anchor redirect mappings so existing bookmarks still reach hosted guidance.
 
 ```console
 just docs-serve
 just docs-build
 ```
 
-The preview prints its local URL and reloads when guides change. The build creates untracked output in `site/`, fails on missing local pages or headings, and uses the locked `docs` dependency group. These commands need no MongoDB, Docker, or hosting credentials. The existing Lychee Prek hook checks authored links and assets. See [Zensical's documentation](https://zensical.org/docs/) for authoring and framework configuration.
+The preview prints its local URL and reloads when guides change. The build creates untracked output in `site/`, fails on missing local pages, headings, or snippets, and uses the locked `docs` dependency group. These commands need no MongoDB, Docker, or hosting credentials. The existing Lychee Prek hook checks authored links and assets. See [Zensical's documentation](https://zensical.org/docs/) for authoring and framework configuration.
+
+Lychee cannot confirm new hosted routes before publication. Its accepted limitation excludes remote checks for the six public section prefixes; local links still undergo link checking and strict site validation. Inspect README's direct hosted links and the example catalogue's hosted links in the local preview, then inspect the deployed revision after publication. See the [documentation validation limitations](docs/development/ci-validation-caches.md#documentation-validation-limitations).
 
 Pull requests affecting site inputs run **Documentation build** after **Prek** and **Prettier, Markdownlint, and OpenSpec**. If configuring required checks, require all three independently: GitHub can report a dependent job skipped after a failed prerequisite as successful. Guide-only Markdown changes do not select Python or database tests.
 
@@ -150,7 +156,7 @@ The same check is also available as the manual "Release verification" GitHub Act
 
 ## Releasing
 
-Before the first release, complete the [one-time PyPI publishing setup](docs/pypi-publishing-setup.md).
+Before the first release, complete the [one-time PyPI publishing setup](docs/development/pypi-publishing-setup.md).
 
 ### Per-release steps
 

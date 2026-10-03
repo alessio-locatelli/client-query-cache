@@ -1,29 +1,6 @@
 # Stream cost benchmark reports
 
-## Is caching a good fit for your workload?
-
-Before enabling the cache for a workload, weigh these factors — each is covered by the retained reports below or by
-[the architecture doc](architecture.md):
-
-- **Read/write ratio.** Caching benefits read-heavy and balanced workloads the most; a write-dominant workload pays
-  the cost of processing a change-stream event and invalidating cache entries on every write, while a shrinking
-  share of reads ever reach a warm entry before it's invalidated again. Compare the `read_heavy`, `balanced`, and
-  `write_dominant` reports below for a sense of the difference.
-- **Topology and process model.** Caching a database costs one change-stream cursor per active database per
-  `CacheManager` instance (see [capacity estimation](architecture.md#capacity-estimation)); a high-fan-out or
-  short-lived-process deployment, or a manager watching many databases, pays that fixed cost more often or more
-  times over, which can outweigh the benefit for that deployment shape even when the read/write ratio looks
-  favorable.
-- **Document size.** Larger documents cost more to admit and encode into the cache and are more likely to exceed
-  `max_entry_bytes` and bypass entirely. Compare the small/medium/large report variants for a workload with a
-  document size similar to yours.
-- **Stream health.** Caching only helps while a database's change stream is healthy; a database with frequent
-  network interruptions, or a MongoDB server or topology that can't provide change streams at all (see
-  [system requirements](architecture.md#system-requirements)), bypasses the cache for that traffic instead of
-  raising an error.
-
-None of the reports below establishes a performance guarantee for your own workload, host, or MongoDB topology —
-use them to decide what to measure on your own deployment before relying on the cache in production.
+Start with the [workload evaluation guide](index.md) to choose which comparisons matter for your application.
 
 ## Reports
 
@@ -59,7 +36,7 @@ A raw byte delta alone is not representative across document sizes, so compare t
 
 This grounds two general questions worth asking before trusting the cache with a given workload:
 
-- **Is the library efficient enough to justify the stream's cost?** For a `balanced` (50/50 read/write) shape, yes in these reports: the added CPU cost is real (5-26% of the raw path's own CPU, depending on document size) but it is a fixed cost per database per `CacheManager` (see [capacity estimation](architecture.md#capacity-estimation)), and larger documents recoup it through avoided re-fetches. Whether it is justified for your workload depends on how many reads that fixed cost gets amortized across — compare the `read_heavy`, `balanced`, and `write_dominant` reports for your document size to see the shape of that trade-off.
+- **Is the library efficient enough to justify the stream's cost?** For a `balanced` (50/50 read/write) shape, yes in these reports: the added CPU cost is real (5-26% of the raw path's own CPU, depending on document size) and each manager pays for a stream per active database (see [capacity estimation](../operations/deployment.md#capacity-estimation)), and larger documents recoup it through avoided re-fetches. Whether it is justified for your workload depends on how many reads that fixed cost gets amortized across — compare the `read_heavy`, `balanced`, and `write_dominant` reports for your document size to see the shape of that trade-off.
 - **Can the stream's cost exceed the caching benefit?** Yes, most plausibly for a write-dominant, read-sparse workload: every write still costs an invalidation and a stream event to process, but few reads ever land on a warm entry to recoup that cost. This comparison only measures the `balanced` shape directly; a report does not exist for the `write_dominant` shape's stream-cost delta specifically, so do not assume the same percentages hold — measure your own read/write ratio if it looks closer to write-dominant than balanced.
 
 Like the rest of this capability's measurements, this comparison is evidence to inform investigation, not a pass/fail gate — a `balanced` report captures the cost for its own workload shape and document size, not a universal figure, and a small delta can still flip sign between runs on a noisy host.
@@ -79,7 +56,7 @@ The run retained 236 measured windows and four explicit failures across 240 plan
 exceeded its registered schedule tolerance in the baseline's block 4 synchronous paced and burst windows,
 the baseline's block 6 asynchronous burst window, and the 5,000 ms candidate's block 6 synchronous paced
 window. These failures leave required paired comparisons unresolved; they do not establish a latency
-regression or a performance win. The default therefore remains the conservative fallback.
+regression or a performance win. The configured default is the conservative fallback.
 
 The await-time benchmark compares 1,000, 5,000, 10,000, 30,000, and 60,000 ms with both synchronous and
 asynchronous managers. Its [frozen configuration](https://github.com/alessio-locatelli/client-query-cache/blob/main/reports/stream-cost/await-v1/config.v1.json) specifies six
@@ -115,7 +92,7 @@ The isolated single-member replica set uses MongoDB 8.0.4, one CPU, and 512 MiB 
 compression. Direct-path bytes cover the measured manager's client connections; process CPU includes the
 writer, proxy, and observation overhead. Container CPU covers the MongoDB process and its background work.
 These measurements do not establish results for sharded clusters, other hosts, or network-failure detection.
-See [the manager's await-time option and timeout interaction](api-reference.md#change-stream-await-time) before
+See [the manager's await-time option and timeout interaction](../reference/api.md#change-stream-await-time) before
 choosing an override.
 
 ### Wire compression
@@ -133,15 +110,3 @@ uv run -- python -m benchmarks.stream_cost.compression_run --output benchmark-re
 ```
 
 The isolated container was limited to 1 CPU and 1 GiB of memory; a busier or larger host may see different — and more or less noisy — results. The reported CPU and byte figures cover only the dedicated benchmark connection the runner measures, and the report's stream-minus-control figures approximate the change stream's own added cost rather than attributing it exactly. As with the rest of this page, treat these numbers as evidence for your own investigation, not a performance guarantee — measure your own workload, document sizes, and host before choosing a non-default compressor.
-
-## Pull-request performance guard
-
-Every pull request runs a required **Cache hot-path performance guard** check. It compares the base and proposed revisions on the same runner for a small set of representative operations: cached `find_one` hits (synchronous and asynchronous), bounded `find` admission, and change-event invalidation, each at two document sizes. The check skips its timed comparison, and passes immediately, when a pull request changes no Python code, dependency lockfile, or guard input.
-
-The guard measures repeated, alternating blocks of both revisions and only fails a case when the proposed revision is stably 30% or more slower than the base revision. Ordinary run-to-run noise is reported as an inconclusive warning instead of a failure, so occasional runner variance does not block unrelated work. A missing baseline, an incompatible workload, or another setup problem is reported as a distinct measurement failure rather than a silent pass.
-
-The check's job summary lists, per case, the base and head timings, the relative change, the decision, and both compared revisions. The full result, containing no application documents or credentials, is attached as a downloadable artifact.
-
-This guard covers four representative hot paths on one runner; it does not replace the stream-cost benchmark's controlled matrix or decision evidence described above. Use the manual workflow to investigate a broader cost question or a specific workload.
-
-When a pull request intentionally trades performance for another benefit, the guard still reports the measured slowdown. A maintainer records the accepted cost and its justification during review, then applies the repository's maintainer-only merge exception for that pull request; pull-request authors cannot suppress or bypass the check themselves.

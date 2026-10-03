@@ -1,8 +1,7 @@
 # API reference
 
 This reference covers the complete public surface of `client_query_cache`: construction, configuration, the cached
-read methods, ownership rules, and how to fall back to plain PyMongo. See the [README](https://github.com/alessio-locatelli/client-query-cache/blob/main/README.md) for the
-conceptual overview and a quick start.
+read methods, ownership rules, and how to fall back to plain PyMongo. Start with the [synchronous](../getting-started/synchronous.md) or [asyncio](../getting-started/asyncio.md) tutorial for a complete program.
 
 Synchronous names live at the top level (`client_query_cache`) and wrap `pymongo.MongoClient`. The same names are
 available under `client_query_cache.asynchronous` and wrap `pymongo.AsyncMongoClient`, with every read method
@@ -20,7 +19,7 @@ cache_manager = CacheManager(client)
 `AsyncMongoClient`). It never closes that client and never mutates it.
 
 - `cache_manager.client` — the wrapped PyMongo client, unchanged.
-- `cache_manager.cache_core` — the manager's cache storage and bookkeeping object; see [Observability](architecture.md#observability).
+- `cache_manager.cache_core` — the manager's cache storage and bookkeeping object; see [Observability](../operations/monitoring.md#observability).
 - `cache_manager.cached(collection)` — a cached read view of one of your PyMongo collections; see [Cached collection views](#cached-collection-views).
 - `cache_manager.close()` (`await cache_manager.close()` for asyncio) — stops every change stream the manager opened and releases cached data. Does not close `cache_manager.client`.
 - `CacheManager` is also a context manager (`with` / `async with`), calling `close()` on exit.
@@ -127,8 +126,8 @@ it safely isn't possible:
   ordinary collection can still be cached, and a namespace later created as an ordinary collection can be cached
   normally from then on.
 - The manager's change stream for that database can't be established at all (an unsupported MongoDB version or
-  topology; see [system requirements](architecture.md#system-requirements)) or is temporarily unhealthy (see
-  [recovery behavior](architecture.md#recovery-behavior)).
+  topology; see [system requirements](../getting-started/installation.md#requirements)) or is temporarily unhealthy (see
+  [recovery behavior](../operations/deployment.md#recovery-behavior)).
 
 ## Configuration
 
@@ -142,11 +141,11 @@ cache_manager = CacheManager(
 )
 ```
 
-| Field                       | Default                  | Meaning                                                                                                                                                                                                                                                                                         |
-| --------------------------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `shared_budget_bytes`       | 64 MiB                   | Total BSON-encoded size the manager's cache may hold at once, shared across every database and collection that manager caches.                                                                                                                                                                  |
-| `max_entry_bytes`           | 1 MiB                    | The largest single cached value (one document, or one `find`/`aggregate`/`distinct` result) the cache accepts.                                                                                                                                                                                  |
-| `lag_capture_window_config` | 10 windows of 100 events | Sizes the invalidation-lag sample windows used by the stream-cost telemetry described in [Observability](architecture.md#observability). Most applications never need to change this; it exists for the benchmark suite documented in [`stream-cost-benchmarks.md`](stream-cost-benchmarks.md). |
+| Field                       | Default                  | Meaning                                                                                                                                                                                                                                                                                                   |
+| --------------------------- | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `shared_budget_bytes`       | 64 MiB                   | Total BSON-encoded size the manager's cache may hold at once, shared across every database and collection that manager caches.                                                                                                                                                                            |
+| `max_entry_bytes`           | 1 MiB                    | The largest single cached value (one document, or one `find`/`aggregate`/`distinct` result) the cache accepts.                                                                                                                                                                                            |
+| `lag_capture_window_config` | 10 windows of 100 events | Sizes the invalidation-lag sample windows used by the stream-cost telemetry described in [Observability](../operations/monitoring.md#observability). Most applications never need to change this; it exists for the benchmark suite documented in [stream cost benchmarks](../benchmarks/stream-cost.md). |
 
 `CacheCoreConfig` raises `CacheConfigurationError` if `shared_budget_bytes` or `max_entry_bytes` is not positive, or
 if `max_entry_bytes` exceeds `shared_budget_bytes`.
@@ -163,7 +162,7 @@ The default is 1,000 ms. Each manager keeps its own setting across its databases
 integers from 1 through 2,147,483,647; booleans and other invalid values raise `CacheConfigurationError` at
 construction.
 
-See the [await-time measurements](stream-cost-benchmarks.md#change-stream-await-time) for the default's
+See the [await-time measurements](../benchmarks/stream-cost.md#change-stream-await-time) for the default's
 selection rule, retained evidence, and limitations.
 
 This bounds an idle `getMore` wait. Event delivery and failure detection also depend on the server, network, and
@@ -182,7 +181,7 @@ your client's timeout settings unchanged.
   value, or a `NaN`, which is never equal to itself — is executed and returned normally without being cached.
 
 None of these limits raise an exception to the caller: exceeding one always falls back to an uncached, correct
-result. See [`docs/architecture.md`](architecture.md#capacity-estimation) for how to size these limits against your
+result. See [deployment guidance](../operations/deployment.md#capacity-estimation) for how to size these limits against your
 deployment.
 
 ## Ownership
@@ -203,7 +202,7 @@ database would then bypass with no error or warning pointing at the actual cause
 Construct one `CacheManager` per `MongoClient` (or `AsyncMongoClient`) you want cached. Two managers wrapping the
 same underlying deployment — a synchronous and an asyncio manager in the same process, or one manager per process —
 each keep an independent budget and independent change-stream cursors; see
-[`docs/architecture.md`](architecture.md#capacity-estimation) for the capacity consequence of that duplication.
+[deployment guidance](../operations/deployment.md#capacity-estimation) for the capacity consequence of that duplication.
 
 ## Raw fallback
 
@@ -237,7 +236,7 @@ The same exception classes apply to synchronous and asyncio managers.
 
 | Exception                      | Raised when                                                                                                                   | What to do                                                         |
 | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| `CacheConfigurationError`      | A `CacheCoreConfig` value is invalid (non-positive, or `max_entry_bytes` exceeds `shared_budget_bytes`).                      | Fix the configuration value.                                       |
+| `CacheConfigurationError`      | A `CacheCoreConfig` value or the manager's `max_await_time_ms` is invalid.                                                    | Fix the configuration value.                                       |
 | `CacheClosedError`             | A cached read is attempted after `cache_manager.close()`.                                                                     | Don't use a manager (or a view obtained from it) after closing it. |
 | `UnsupportedCacheRequestError` | `find()` is called with a tailable/exhaust/partial-result option, or `aggregate()` is called with a `$changeStream` pipeline. | Use `.raw` for that call.                                          |
 | `ValueError`                   | `cache_manager.cached(collection)` receives a collection from a different client.                                             | Pass a collection from `cache_manager.client`.                     |
@@ -245,7 +244,7 @@ The same exception classes apply to synchronous and asyncio managers.
 Every other unsupported or ambiguous condition — an incompatible read preference or read concern, a session-bound
 read, a nondeterministic filter or pipeline, a view, a time-series collection, an oversized result, a database whose
 change stream isn't healthy or can't be established — bypasses the cache and returns a normal PyMongo result instead
-of raising. See [`docs/architecture.md`](architecture.md#retry-and-error-handling) for stream-level failures, which
+of raising. See [deployment guidance](../operations/deployment.md#retry-and-error-handling) for stream-level failures, which
 are retried internally rather than surfaced to callers at all.
 
 ## Diagnostics
@@ -267,5 +266,5 @@ inspection methods remain available.
 
 `CacheSnapshot`, `BypassReason`, `BypassReasonCount`, `StreamCostSnapshot`, `StreamHealthSnapshot`, and
 `StreamHealthStatus` are importable from `client_query_cache`, `client_query_cache.synchronous`, and
-`client_query_cache.asynchronous`. See [bypass reasons and stream health](architecture.md#bypass-reasons-and-stream-health)
+`client_query_cache.asynchronous`. See [bypass reasons and stream health](../operations/monitoring.md#bypass-reasons-and-stream-health)
 for their meaning and limitations.
