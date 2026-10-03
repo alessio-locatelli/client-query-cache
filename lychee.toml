@@ -18,5 +18,5 @@ exclude_path = [
 # local site build and preview inspection validate them before publication.
 exclude = [
   'https://github.com/alessio-locatelli/client-query-cache',
-  '^https://alessio-locatelli\.github\.io/client-query-cache/(getting-started|usage|benchmarks|examples|reference|operations)(/|$)',
+  '^https://alessio-locatelli\.github\.io/client-query-cache/(stable|dev|getting-started|usage|benchmarks|examples|reference|operations)(/|$)',
 ]

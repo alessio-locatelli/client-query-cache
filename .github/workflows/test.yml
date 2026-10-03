@@ -118,12 +118,20 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
 
       - if: needs.scope.outputs.documentation == 'true'
         uses: $/.github/actions/setup-toolchain
 
       - if: needs.scope.outputs.documentation == 'true'
-        run: just docs-build
+        run: |
+          stable_tag="$(python3 -c 'import tomllib; print(tomllib.load(open("stable-docs.toml", "rb"))["validation_tag"])')"
+          git fetch --no-tags origin "refs/tags/${stable_tag}:refs/tags/${stable_tag}"
+          backport="$(STABLE_TAG="${stable_tag}" python3 -c 'import os, tomllib; records = tomllib.load(open("stable-docs.toml", "rb"))["backports"]; tag = os.environ["STABLE_TAG"]; print(records[tag]["source"] if tag in records else "")')"
+          if [[ -n "${backport}" ]]; then
+            git fetch --no-tags origin "${backport}"
+          fi
+          just docs-build-editions "${stable_tag}"
 
   package:
     name: Static checks, packaging, and isolated install

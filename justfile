@@ -43,6 +43,9 @@ docs-serve:
 docs-build:
     uv run --locked --only-group docs -- zensical build --clean --strict
 
+docs-build-editions stable_tag:
+    uv run --locked --only-group docs -- python -m scripts.build_versioned_docs {{ quote(stable_tag) }}
+
 verify-release tag='': build
     #!/usr/bin/env bash
     set -euo pipefail
