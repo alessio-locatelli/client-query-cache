@@ -250,9 +250,7 @@ def replace_artifact(artifact: Path, output: Path) -> None:
 def assemble(repo: Path, sources: Sources, output: Path) -> None:
     if output.is_symlink():
         raise ValueError("Artifact output must not be a symbolic link")
-    with TemporaryDirectory(
-        prefix="docs-editions-", dir=output.parent.parent
-    ) as temporary:
+    with TemporaryDirectory(prefix="docs-editions-") as temporary:
         workspace = Path(temporary)
         run(workspace, "git", "init", "-q")
         for key, value in (

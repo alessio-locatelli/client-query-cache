@@ -35,3 +35,8 @@
 - [x] 7.1 Stage complete output on the destination filesystem and restore the previous artifact when installation fails. Keep the previous artifact recoverable outside automatic cleanup when restoration itself fails. Add parametrized regressions for backup, installation and restoration failures, including simulated cross-filesystem errors.
 - [x] 7.2 Record a supported retained source ref alongside the immutable correction SHA, fetch that ref in both workflows, and verify it still reaches the recorded commit. Prove a fresh checkout can recover the correction after main history is rewritten and the original branch is deleted. Update contributor instructions and the existing contract with retrieval and failure guarantees.
 - [x] 7.3 Inspect edited test files, run targeted regression/build validation, measure the staging cost, review the whole branch, sync and rearchive this change, and create a standalone corrective commit.
+
+## 8. Support restricted checkout parents
+
+- [x] 8.1 Use standard configured temporary storage for rendering, with no write requirement on the checkout parent. Cover fresh and replacement builds beneath a read-only parent and document the storage boundary.
+- [x] 8.2 Remove the PR-validation workflow from publication path triggers, retain CI documentation selection, run scoped validation and a combined build, review the branch, sync specifications, rearchive and commit.
