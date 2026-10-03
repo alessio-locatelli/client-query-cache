@@ -136,3 +136,6 @@ node_modules/
 /benchmark-reports/
 /reports/**/*.report*.json
 /reports/stream-cost/await-v1/config.expanded.v1.json
+
+/.docs-artifact-*/
+/.docs-previous-*/

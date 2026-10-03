@@ -11,11 +11,12 @@ import tarfile
 import tomllib
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Annotated, TypedDict, cast
+from typing import TypedDict, cast
+from uuid import uuid4
 
 import tomli_w
 
-Text = Annotated[str, "nonempty"]
+type Text = str  # Git arguments and TOML strings can be empty.
 type Table = dict[Text, object]  # A TOML table can be empty.
 
 
@@ -69,12 +70,34 @@ def select_sources(repo: Path, tag: Text, development: Text) -> Sources:
     configuration = tomllib.loads((repo / "stable-docs.toml").read_text())
     stable = release
     if tag in configuration["backports"]:
-        recorded = configuration["backports"][tag]["source"]
+        correction = configuration["backports"][tag]
+        recorded = correction["source"]
         if not re.fullmatch(r"[0-9a-f]{40}", recorded):
             raise ValueError(
                 "Documentation backport source must be an immutable commit SHA"
             )
         stable = resolve(repo, recorded)
+        fetch_ref = correction["fetch_ref"]
+        if not re.fullmatch(r"refs/(?:tags/[^\s:]+|pull/[1-9]\d*/head)", fetch_ref):
+            raise ValueError(
+                "Documentation backport fetch ref must be a tag or retained PR ref"
+            )
+        reachable = subprocess.run(  # noqa: S603 - Fixed Git command, no shell.
+            (  # noqa: S607 - Git is supplied by the toolchain.
+                "git",
+                "-C",
+                str(repo),
+                "merge-base",
+                "--is-ancestor",
+                stable,
+                resolve(repo, fetch_ref),
+            ),
+            check=False,
+        )
+        if reachable.returncode != 0:
+            raise ValueError(
+                "Documentation backport source is not reachable from its fetch ref"
+            )
         if (
             git(repo, "rev-parse", f"{release}:src/client_query_cache")
             != git(repo, "rev-parse", f"{stable}:src/client_query_cache")
@@ -206,6 +229,24 @@ def root_redirects(development: Path, destination: Path) -> None:
     run(redirect_corpus, "zensical", "build", "--clean", "--strict")
 
 
+def replace_artifact(artifact: Path, output: Path) -> None:
+    with TemporaryDirectory(prefix=".docs-artifact-", dir=output.parent) as temporary:
+        staging = Path(temporary)
+        replacement = staging / "new"
+        shutil.copytree(artifact, replacement)
+        backup = output.with_name(f".docs-previous-{uuid4().hex}")
+        if output.exists():
+            output.rename(backup)
+        try:
+            replacement.rename(output)
+        except OSError:
+            if backup.exists():
+                backup.rename(output)
+            raise
+        if backup.exists():
+            backup.rename(staging / "previous")
+
+
 def assemble(repo: Path, sources: Sources, output: Path) -> None:
     if output.is_symlink():
         raise ValueError("Artifact output must not be a symbolic link")
@@ -274,9 +315,7 @@ def assemble(repo: Path, sources: Sources, output: Path) -> None:
                 shutil.copytree(entry, artifact / entry.name, dirs_exist_ok=True)
             else:
                 shutil.copy2(entry, artifact / entry.name)
-        if output.exists():
-            output.rename(workspace / "previous-artifact")
-        artifact.rename(output)
+        replace_artifact(artifact, output)
 
 
 def main() -> None:

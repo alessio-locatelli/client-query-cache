@@ -1,3 +1,6 @@
 specifications/
 site/
 .cache/
+
+/.docs-artifact-*/
+/.docs-previous-*/

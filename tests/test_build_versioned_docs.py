@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import errno
 import subprocess
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 import pytest
 
@@ -15,9 +16,6 @@ from scripts.build_versioned_docs import (
     select_sources,
 )
 
-if TYPE_CHECKING:
-    from pathlib import Path
-
 pytestmark = pytest.mark.unit
 
 
@@ -27,9 +25,15 @@ def commit(repo: Path) -> Text:
     return resolve(repo, "HEAD")
 
 
-def record_backport(repo: Path, source: Text, tag: Text = "v0.2.0") -> None:
+def record_backport(
+    repo: Path,
+    source: Text,
+    tag: Text = "v0.2.0",
+    fetch_ref: Text = "refs/pull/143/head",
+) -> None:
+    git(repo, "update-ref", "refs/pull/143/head", "HEAD")
     (repo / "stable-docs.toml").write_text(
-        f'[backports."{tag}"]\nsource = "{source}"\n'
+        f'[backports."{tag}"]\nsource = "{source}"\nfetch_ref = "{fetch_ref}"\n'
     )
 
 
@@ -151,6 +155,77 @@ def test_rejects_mutable_backport_provenance(release_repo: Path) -> None:
         select_sources(release_repo, "v0.2.0", "HEAD")
 
 
+@pytest.fixture
+def correction_ref(release_repo: Path, request: pytest.FixtureRequest) -> Text:
+    correction = resolve(release_repo, "HEAD")
+    if request.param == "tag":
+        git(release_repo, "tag", "--no-sign", "docs-v0.2.0")
+        record_backport(release_repo, correction, fetch_ref="refs/tags/docs-v0.2.0")
+    elif request.param == "unreachable":
+        git(release_repo, "update-ref", "refs/pull/143/head", "refs/tags/v0.2.0")
+    else:
+        record_backport(release_repo, correction, fetch_ref="refs/heads/main")
+    return correction
+
+
+@pytest.mark.parametrize("correction_ref", ["tag"], indirect=True)
+def test_accepts_tag_transport(release_repo: Path, correction_ref: Text) -> None:
+    assert select_sources(release_repo, "v0.2.0", "HEAD")["stable"] == correction_ref
+
+
+@pytest.mark.parametrize("correction_ref", ["unreachable", "branch"], indirect=True)
+@pytest.mark.usefixtures("correction_ref")
+def test_rejects_unretained_correction(release_repo: Path) -> None:
+    with pytest.raises(ValueError, match="fetch ref"):
+        select_sources(release_repo, "v0.2.0", "HEAD")
+
+
+@pytest.fixture
+def merged_checkout(release_repo: Path, tmp_path: Path) -> Path:
+    correction = resolve(release_repo, "HEAD")
+    git(release_repo, "branch", "-m", "correction")
+    git(release_repo, "checkout", "-q", "-b", "main", "v0.2.0")
+    (release_repo / "docs/user/index.md").write_text("# Corrected guide\n")
+    record_backport(release_repo, correction)
+    commit(release_repo)
+    git(release_repo, "update-ref", "refs/pull/143/head", correction)
+    git(release_repo, "branch", "-D", "correction")
+    remote = tmp_path / "remote.git"
+    run(tmp_path, "git", "clone", "-q", "--bare", str(release_repo), str(remote))
+    git(
+        remote,
+        "fetch",
+        "-q",
+        str(release_repo),
+        "refs/pull/143/head:refs/pull/143/head",
+    )
+    checkout = tmp_path / "fresh-checkout"
+    run(tmp_path, "git", "clone", "-q", f"file://{remote}", str(checkout))
+    return checkout
+
+
+def test_retained_pr_ref_recovers_correction_after_rebase_merge(
+    merged_checkout: Path,
+) -> None:
+    with pytest.raises(subprocess.CalledProcessError):
+        resolve(merged_checkout, "refs/pull/143/head")
+    git(
+        merged_checkout,
+        "fetch",
+        "-q",
+        "--no-tags",
+        "origin",
+        "refs/pull/143/head:refs/pull/143/head",
+    )
+    sources = select_sources(merged_checkout, "v0.2.0", "HEAD")
+    assert sources["stable"] != sources["development"]
+    assert resolve(merged_checkout, "refs/pull/143/head") == sources["stable"]
+    assert (
+        git(merged_checkout, "show", f"{sources['stable']}:docs/user/index.md")
+        == b"# Corrected guide\n"
+    )
+
+
 @pytest.mark.parametrize("tag", ["HEAD", "main", "v0.2.0rc1"])
 def test_requires_exact_stable_release_tag(release_repo: Path, tag: Text) -> None:
     with pytest.raises(ValueError, match=r"exact vX\.Y\.Z"):
@@ -169,10 +244,16 @@ def test_rejects_release_version_mismatch(release_repo: Path) -> None:
 
 
 @pytest.fixture
-def previous_artifact(release_repo: Path) -> Path:
+def artifact_exists() -> bool:
+    return True
+
+
+@pytest.fixture
+def previous_artifact(release_repo: Path, artifact_exists: bool) -> Path:
     output = release_repo / "site"
-    output.mkdir()
-    (output / "previous.txt").write_text("Previous complete artifact\n")
+    if artifact_exists:
+        output.mkdir()
+        (output / "previous.txt").write_text("Previous complete artifact\n")
     return output
 
 
@@ -201,6 +282,94 @@ def test_failed_edition_preserves_previous_artifact(
     assert (
         previous_artifact / "previous.txt"
     ).read_text() == "Previous complete artifact\n"
+
+
+@pytest.fixture
+def failed_swap(
+    previous_artifact: Path,
+    request: pytest.FixtureRequest,
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[Text, int]:  # An OS error code is positive.
+    phase, error = request.param
+    rename = Path.rename
+
+    def fail_rename(source: Path, destination: Path) -> Path:
+        installing = destination == previous_artifact and not source.name.startswith(
+            ".docs-previous-"
+        )
+        restoring = destination == previous_artifact and source.name.startswith(
+            ".docs-previous-"
+        )
+        backing_up = source == previous_artifact
+        if installing:
+            assert source.parent.parent == previous_artifact.parent
+        if backing_up:
+            assert destination.parent == previous_artifact.parent
+        should_fail = {
+            "backup": backing_up,
+            "install": installing,
+            "restore": installing or restoring,
+        }[phase]
+        if should_fail:
+            raise OSError(
+                error,
+                "Forced artifact replacement failure",
+                str(source),
+                None,
+                str(destination),
+            )
+        return rename(source, destination)
+
+    monkeypatch.setattr(Path, "rename", fail_rename)
+    return phase, error
+
+
+@pytest.mark.parametrize(
+    "failed_swap",
+    [
+        (phase, error)
+        for phase in ("backup", "install", "restore")
+        for error in (errno.EXDEV, errno.EACCES)
+    ],
+    indirect=True,
+)
+def test_swap_failure_preserves_previous_artifact(
+    release_repo: Path, previous_artifact: Path, failed_swap: tuple[Text, int]
+) -> None:
+    phase, error = failed_swap
+    with pytest.raises(OSError, match="Forced artifact replacement failure") as failure:
+        assemble(
+            release_repo,
+            select_sources(release_repo, "v0.2.0", "HEAD"),
+            previous_artifact,
+        )
+    assert failure.value.errno == error
+    backups = tuple(release_repo.glob(".docs-previous-*"))
+    preserved = backups[0] if phase == "restore" else previous_artifact
+    assert (preserved / "previous.txt").read_text() == "Previous complete artifact\n"
+    assert tuple(preserved.iterdir()) == (preserved / "previous.txt",)
+    assert len(backups) == (1 if phase == "restore" else 0)
+    assert not tuple(release_repo.glob(".docs-artifact-*"))
+
+
+@pytest.mark.parametrize("artifact_exists", [False])
+@pytest.mark.parametrize(
+    "failed_swap", [("install", errno.EXDEV), ("install", errno.EACCES)], indirect=True
+)
+@pytest.mark.usefixtures("artifact_exists")
+def test_failed_first_install_leaves_no_partial_artifact(
+    release_repo: Path, previous_artifact: Path, failed_swap: tuple[Text, int]
+) -> None:
+    with pytest.raises(OSError, match="Forced artifact replacement failure"):
+        assemble(
+            release_repo,
+            select_sources(release_repo, "v0.2.0", "HEAD"),
+            previous_artifact,
+        )
+    assert failed_swap[0] == "install"
+    assert not previous_artifact.exists()
+    assert not tuple(release_repo.glob(".docs-previous-*"))
+    assert not tuple(release_repo.glob(".docs-artifact-*"))
 
 
 @pytest.fixture

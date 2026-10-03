@@ -52,9 +52,9 @@ jobs:
           stable_tag="$(gh api "repos/${REPOSITORY}/releases/latest" --jq \
             'if .draft or .prerelease then error("Expected a published stable release") else .tag_name end')"
           git fetch --no-tags origin "refs/tags/${stable_tag}:refs/tags/${stable_tag}"
-          backport="$(STABLE_TAG="${stable_tag}" python3 -c 'import os, tomllib; records = tomllib.load(open("stable-docs.toml", "rb"))["backports"]; tag = os.environ["STABLE_TAG"]; print(records[tag]["source"] if tag in records else "")')"
+          backport="$(STABLE_TAG="${stable_tag}" python3 -c 'import os, tomllib; records = tomllib.load(open("stable-docs.toml", "rb"))["backports"]; tag = os.environ["STABLE_TAG"]; print(records[tag]["fetch_ref"] if tag in records else "")')"
           if [[ -n "${backport}" ]]; then
-            git fetch --no-tags origin "${backport}"
+            git fetch --no-tags origin "${backport}:${backport}"
           fi
           just docs-build-editions "${stable_tag}"
 
