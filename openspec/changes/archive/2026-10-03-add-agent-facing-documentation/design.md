@@ -46,11 +46,11 @@ These paths are relative to `docs_dir`, not the repository root. Zensical's `fnm
 
 Leave `base_url`, `autoclean`, and preprocessing unset. The description adds usage boundaries beyond `site_description` without replacing canonical guidance. Append `content.action.copy` to the existing feature list. Default directory URLs mean a page such as `reference/api.md` exports at `reference/api/index.md`; inspect emitted links rather than assuming source paths equal output paths.
 
-### 2. Treat native export settings as shared rendering policy
+### 2. Preserve each edition’s export policy with a bootstrap fallback
 
-Use the selected development snapshot's `project.plugins.llmstxt` settings for both edition builds. During the existing configuration preparation, apply only that plugin table and append `content.action.copy` while preserving each snapshot's other theme features, navigation, Markdown extensions, metadata, guides, and snippets. This makes older accepted stable corpora exportable without copying development documentation into stable or replacing the immutable backport record.
+Use each snapshot's own `project.plugins.llmstxt` table when present. Only a stable snapshot that lacks the table inherits the selected development policy, allowing the bootstrap stable correction to export its own corpus. Append `content.action.copy` while preserving each snapshot's other theme features, navigation, Markdown extensions, metadata, guides, and snippets. Root discovery files and the combined-output filename follow the effective stable policy.
 
-The current plugin table has only a universally applicable description, globs, and `index.md`; it does not identify unreleased APIs or require new development-only pages. Future export-policy changes must remain compatible with stable corpora. Source selection and its runtime/example/metadata comparisons remain intact.
+The current plugin table has only a universally applicable description, globs, and `index.md`; it does not identify unreleased APIs or require new development-only pages. Development policy changes must remain compatible with stable corpora that still need the bootstrap fallback. Once a release carries its own table, later development changes to section paths, ordering, descriptions, or combined output cannot alter that release’s export policy. Source selection and its runtime/example/metadata comparisons remain intact.
 
 Allow mike and Zensical to compute edition-aware `site_url`; do not add `base_url` or manually append edition prefixes. Verify final `/stable/` and `/dev/` URLs in the assembled indexes. An alternative of changing only the current snapshot would leave the existing stable configuration without exports. Updating the immutable stable correction for every rendering feature would couple publication policy to content provenance unnecessarily.
 
@@ -78,7 +78,7 @@ Extend existing real-build tests in `tests/test_build_versioned_docs.py` only fo
 
 ## Risks / Trade-offs
 
-- [Older stable configuration lacks export settings] → Share only native export policy and the copy feature; preserve the exact stable corpus and provenance.
+- [Older stable configuration lacks export settings] → Inherit development’s export policy only when stable lacks a table; preserve any present stable policy, the exact stable corpus, and provenance. Append the copy feature independently.
 - [A standalone build passes while root files or edition links are wrong] → Inspect the versioned artifact and cover assembly behavior with existing real-build tests.
 - [Default conversion obscures meaningful code or tables] → Inspect API, operations, benchmarks, catalogue, and complete programs. Retain default cleanup unless a concrete generated-content problem warrants revisiting its native setting.
 - [Combined output grows] → Record measured size and assess usability before omitting it; avoid a speculative hard limit.

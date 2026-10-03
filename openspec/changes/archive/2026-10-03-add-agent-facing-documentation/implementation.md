@@ -33,13 +33,31 @@ builds can succeed: absolute paths and traversal components are rejected by its
 native configuration normalization. Root staging runs only after those builds;
 there is no second path validator in the assembler.
 
-## Outstanding acceptance
+## Release export policy independence
+
+`just pytest tests/test_build_versioned_docs.py -q` covers a released tag with its
+own export policy and a development snapshot that renames `usage/` to `learning/`.
+The four combinations of enabled/disabled stable and development combined output
+failed before the correction: stable adopted the development description and lost
+its Usage page. After the correction, the real assembled artifacts preserve each
+edition’s description, section names/order, selected Markdown, and combined-output
+setting. Root text equals stable output, including a nested stable combined path;
+development-only combined output is absent at the root. The full test/coverage run
+reports 100% with the configured strict-no-cover checks, and the documented
+`just docs-build-editions v0.2.0` build succeeds. Existing real-build cases
+continue to cover stable sources without a table and missing-export recovery.
+
+## Acceptance
 
 The browser connector had no available browsers. The user authorized headless
 Playwright through host Podman from Toolbx. In the `just docs-serve` preview,
 Celery's Copy as Markdown copies exactly its emitted Markdown (4,885 UTF-8 bytes).
-Search, appearance controls, and edition selection acceptance are still pending. The documented stock
-[404 limitation](../../../docs/development/ci-validation-caches.md#documentation-validation-limitations)
+Search finds Celery guidance, dark/light appearance toggles work, and sidebar
+navigation opens API guidance. In the versioned artifact, root HTML opens stable guidance; the selector switches
+Celery to development and back while retaining its page path. Both editions'
+clipboard contents equal their emitted Markdown. No browser JavaScript errors
+occurred. The documented stock
+[404 limitation](https://github.com/alessio-locatelli/client-query-cache/blob/main/docs/development/ci-validation-caches.md#documentation-validation-limitations)
 is unchanged.
 
 A disposable corpus used the same seven section mappings and normal clean strict
@@ -48,5 +66,16 @@ nested Usage page was added, renamed, then removed. The index, per-page Markdown
 combined output, and HTML followed each revision; renamed and removed output paths
 disappeared. No generated export was edited.
 
-The full versioned corpus and final documentation CI acceptance are still pending. The change remains active until all
-required acceptance tasks are complete.
+`just docs-build-editions v0.2.0` builds the recorded stable correction and the
+committed development snapshot. Each edition indexes 16 generated Markdown pages;
+all 32 destinations resolve locally. The combined stable corpus is 90,481 bytes and
+9,949 words; development is 89,351 bytes and 9,949 words. All 82 canonical internal
+links in each combined corpus resolve locally within their own edition. Root
+`llms.txt` and `llms-full.txt` equal stable outputs byte-for-byte. The recorded
+source identities, stable pinned GitHub source links, and independent development
+links are preserved.
+
+The user accepted local execution of the existing **Documentation build** command
+in place of a hosted CI run. `just docs-build-editions v0.2.0` succeeded with the
+explicit recorded validation tag and retained correction ref. No hosted CI run is
+claimed.

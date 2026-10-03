@@ -5,20 +5,24 @@ import re
 import shutil
 import subprocess
 import tempfile
+import tomllib
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 from urllib.parse import urlsplit
 
 import pytest
+import tomli_w
 
 from scripts.build_versioned_docs import (
     Sources,
+    Table,
     Text,
     assemble,
     git,
     resolve,
     run,
     select_sources,
+    table,
 )
 
 if TYPE_CHECKING:
@@ -505,6 +509,91 @@ def test_assembles_independent_snapshots_with_development_only_page(
         assert "UnreleasedPageToken" not in stable_combined.read_text()
         assert "DevelopmentOnlyToken" in (output / "dev" / combined_output).read_text()
         assert "UnreleasedPageToken" in (output / "dev" / combined_output).read_text()
+
+
+@pytest.fixture
+def released_export_policy(
+    release_repo: Path, stable_combined: Text | None, development_combined: Text | None
+) -> Path:
+    configuration_path = release_repo / "zensical.toml"
+    configuration = tomllib.loads(configuration_path.read_text())
+    project = table(configuration["project"])
+    stable_policy: Table = {
+        "markdown_description": "ReleasedExportPolicyToken",
+        "sections": {"Overview": ["index.md"], "Usage": ["usage/*.md"]},
+    }
+    if stable_combined is not None:
+        stable_policy["full_output"] = stable_combined
+    table(project["plugins"])["llmstxt"] = stable_policy
+    configuration_path.write_text(tomli_w.dumps(configuration))
+    (release_repo / "docs/user/usage").mkdir()
+    stable_page = release_repo / "docs/user/usage/guide.md"
+    stable_page.write_text("# ReleasedUsageToken\n")
+    (release_repo / "pyproject.toml").write_text(
+        '[project]\nname = "fixture"\nversion = "0.2.1"\n'
+    )
+    commit(release_repo)
+    git(release_repo, "tag", "--no-sign", "v0.2.1")
+    (release_repo / "docs/user/usage").rename(release_repo / "docs/user/learning")
+    (release_repo / "docs/user/learning/guide.md").write_text("# CurrentUsageToken\n")
+    development_policy: Table = {
+        "markdown_description": "CurrentExportPolicyToken",
+        "sections": {"Learning": ["learning/*.md"], "Home": ["index.md"]},
+    }
+    if development_combined is not None:
+        development_policy["full_output"] = development_combined
+    table(project["plugins"])["llmstxt"] = development_policy
+    configuration_path.write_text(tomli_w.dumps(configuration))
+    commit(release_repo)
+    return release_repo
+
+
+@pytest.mark.parametrize(
+    ("stable_combined", "development_combined"),
+    [
+        (stable, development)
+        for stable in ("released/combined.txt", None)
+        for development in ("llms-full.txt", None)
+    ],
+    ids=["both-combined", "stable-combined", "development-combined", "no-combined"],
+)
+def test_preserves_released_export_policy(
+    released_export_policy: Path,
+    stable_combined: Text | None,
+    development_combined: Text | None,
+) -> None:
+    output = released_export_policy / "site"
+    sources = select_sources(released_export_policy, "v0.2.1", "HEAD")
+    assemble(released_export_policy, sources, output)
+    stable_index = (output / "stable/llms.txt").read_text()
+    development_index = (output / "dev/llms.txt").read_text()
+    assert "ReleasedExportPolicyToken" in stable_index
+    assert "CurrentExportPolicyToken" not in stable_index
+    assert stable_index.index("## Overview") < stable_index.index("## Usage")
+    assert "/stable/usage/guide/index.md" in stable_index
+    assert "CurrentExportPolicyToken" in development_index
+    assert "ReleasedExportPolicyToken" not in development_index
+    assert development_index.index("## Learning") < development_index.index("## Home")
+    assert "/dev/learning/guide/index.md" in development_index
+    assert "ReleasedUsageToken" in (output / "stable/usage/guide/index.md").read_text()
+    assert "CurrentUsageToken" in (output / "dev/learning/guide/index.md").read_text()
+    assert (output / "llms.txt").read_bytes() == (
+        output / "stable/llms.txt"
+    ).read_bytes()
+    if stable_combined is not None:
+        stable_export = output / "stable" / stable_combined
+        assert "ReleasedUsageToken" in stable_export.read_text()
+        assert (output / stable_combined).read_bytes() == stable_export.read_bytes()
+    else:
+        assert not (output / "stable/released/combined.txt").exists()
+        assert not (output / "released/combined.txt").exists()
+    if development_combined is not None:
+        assert (
+            "CurrentUsageToken" in (output / "dev" / development_combined).read_text()
+        )
+    else:
+        assert not (output / "dev/llms-full.txt").exists()
+    assert not (output / "llms-full.txt").exists()
 
 
 @pytest.fixture

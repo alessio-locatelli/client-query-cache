@@ -9,7 +9,7 @@ Coding agents need a structured documentation index and rendered Markdown that i
 - Configure native `llmstxt` in `zensical.toml` with public sections for Home / overview, Getting started, Usage, Examples, API reference, Operations, and Benchmarks. Use paths relative to `docs/user` and section globs that include future pages.
 - Generate `llms.txt`, Markdown equivalents of selected pages, and `llms-full.txt` through Zensical. Retain default HTML cleanup and the canonical `site_url`; add a concise description explaining the synchronous/asyncio scope and asynchronous invalidation.
 - Add `content.action.copy` to the existing theme features so selected HTML pages expose Copy as Markdown.
-- Integrate native exports with the existing stable/development assembly: each edition exports its own corpus, while documentation-root `llms.txt` and `llms-full.txt` expose stable guidance with links to stable Markdown pages.
+- Integrate native exports with the existing stable/development assembly: each edition preserves its own export policy when present, stable sources without one inherit development settings, and documentation-root `llms.txt` and `llms-full.txt` expose stable guidance with links to stable Markdown pages.
 - Keep generated files automatic and untracked in the source checkout. Inspect build outputs, snippet expansion, canonical links, combined-document size, and HTML behavior using the normal documentation tooling.
 
 ## Capabilities

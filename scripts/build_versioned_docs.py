@@ -290,13 +290,26 @@ def assemble(repo: Path, sources: Sources, output: Path) -> None:
         export_policy = table(
             table(table(development_configuration["project"])["plugins"])["llmstxt"]
         )
-        for edition, revision, title in (
-            ("stable", sources["stable"], f"Latest release ({sources['version']})"),
-            ("dev", sources["development"], "Development (main)"),
+        stable_configuration = tomllib.loads(
+            (workspace / "stable/zensical.toml").read_text()
+        )
+        stable_plugins = table(table(stable_configuration["project"])["plugins"])
+        try:
+            stable_export_policy = table(stable_plugins["llmstxt"])
+        except KeyError:
+            stable_export_policy = export_policy
+        for edition, revision, title, edition_export_policy in (
+            (
+                "stable",
+                sources["stable"],
+                f"Latest release ({sources['version']})",
+                stable_export_policy,
+            ),
+            ("dev", sources["development"], "Development (main)", export_policy),
         ):
             corpus = workspace / edition
             configuration = edition_config(
-                corpus, revision, export_policy, stable=edition == "stable"
+                corpus, revision, edition_export_policy, stable=edition == "stable"
             )
             run(
                 corpus,
@@ -338,7 +351,7 @@ def assemble(repo: Path, sources: Sources, output: Path) -> None:
                 shutil.copy2(entry, artifact / entry.name)
         shutil.copy2(artifact / "stable/llms.txt", artifact / "llms.txt")
         try:
-            full_output = export_policy["full_output"]
+            full_output = stable_export_policy["full_output"]
         except KeyError:
             full_output = None
         if full_output is not None:
