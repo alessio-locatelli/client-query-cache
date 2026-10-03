@@ -40,3 +40,5 @@
 
 - [x] 8.1 Use standard configured temporary storage for rendering, with no write requirement on the checkout parent. Cover fresh and replacement builds beneath a read-only parent and document the storage boundary.
 - [x] 8.2 Remove the PR-validation workflow from publication path triggers, retain CI documentation selection, run scoped validation and a combined build, review the branch, sync specifications, rearchive and commit.
+
+- [x] 8.3 Remove the unexercised permission-bypass skip from the regression fixture, verify complete edited-test-file coverage as well as builder coverage, review the correction, sync and rearchive this change, and commit.
