@@ -2,13 +2,7 @@
 
 ## Unreleased
 
-- Preserve previous documentation output when replacement fails and retrieve stable corrections through retained source refs.
-
-<!-- Describe final behavior once, one line per change. -->
-
-- Default documentation to the latest release with a development edition selector, footer navigation, exact caching prerequisites and a local replica-set example.
-
-- Publish complete tutorials and integration examples in a grouped documentation site, with separate development guides and preserved guide bookmarks.
+- Provide documentation for the latest release and development branch, including tutorials, integration examples, and local replica-set setup.
 
 ## [0.2.0] - 2026-10-02
 
