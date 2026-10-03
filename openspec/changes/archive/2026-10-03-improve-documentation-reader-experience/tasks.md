@@ -29,3 +29,9 @@
 
 - [x] 6.1 Scan every edited or added test file in full, including pre-existing tests, for AGENTS.md Writing Tests guidelines and parametrization. Verify orchestration tests share public-behavior setup and do not duplicate framework configuration validators.
 - [x] 6.2 If authored by Claude Code, confirm no new prose was added to code and rationale remains in specs/commit bodies. Inapplicable to this Codex-authored change; Codex is exempt.
+
+## 7. Preserve artifacts and correction provenance
+
+- [x] 7.1 Stage complete output on the destination filesystem and restore the previous artifact when installation fails. Keep the previous artifact recoverable outside automatic cleanup when restoration itself fails. Add parametrized regressions for backup, installation and restoration failures, including simulated cross-filesystem errors.
+- [x] 7.2 Record a supported retained source ref alongside the immutable correction SHA, fetch that ref in both workflows, and verify it still reaches the recorded commit. Prove a fresh checkout can recover the correction after main history is rewritten and the original branch is deleted. Update contributor instructions and the existing contract with retrieval and failure guarantees.
+- [x] 7.3 Inspect edited test files, run targeted regression/build validation, measure the staging cost, review the whole branch, sync and rearchive this change, and create a standalone corrective commit.

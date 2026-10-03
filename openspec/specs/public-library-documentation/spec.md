@@ -261,3 +261,31 @@ The hosted installation guide SHALL identify the repository’s Compose file as 
 
 - **WHEN** a reader follows the project’s local setup from a checkout
 - **THEN** they can start the configured replica set, establish that initialization succeeded, run a tutorial against it, and stop the services
+
+### Requirement: Documentation replacement preserves previous output
+
+Documentation assembly SHALL stage replacement output on the destination filesystem. If installation fails, it SHALL restore the previous complete artifact. If restoration also fails, the previous artifact SHALL remain recoverable outside automatic cleanup and the failure SHALL identify its location. A failed build SHALL NOT silently discard previous output.
+
+#### Scenario: Installation fails after previous output is moved
+
+- **WHEN** replacement installation fails after the previous artifact is backed up
+- **THEN** the previous complete artifact is restored and the build reports failure
+
+#### Scenario: Restoration also fails
+
+- **WHEN** the previous artifact cannot be restored after installation fails
+- **THEN** it remains available in a recovery location identified by the error
+
+### Requirement: Stable correction provenance survives merge changes
+
+A documentation correction SHALL record an immutable source SHA and a supported retained retrieval ref. Validation and publication SHALL fetch the named ref and verify it reaches that SHA. Rebase merge and source-branch deletion SHALL NOT prevent retrieval. Missing or unreachable provenance SHALL fail visibly without substituting the ref tip or development content.
+
+#### Scenario: A correction is merged with rewritten commit identities
+
+- **WHEN** a fresh checkout builds stable guidance after rebase merge and deletion of the original branch
+- **THEN** fetching the recorded retained ref recovers the exact correction SHA
+
+#### Scenario: The ref no longer retains the source
+
+- **WHEN** the recorded ref is missing or does not reach the correction SHA
+- **THEN** the build fails rather than changing the stable source
