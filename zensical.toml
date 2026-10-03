@@ -47,6 +47,7 @@ features = [
   "navigation.top",
   "navigation.footer",
   "content.code.copy",
+  "content.action.copy",
 ]
 
 [[project.theme.palette]]
@@ -77,6 +78,19 @@ anchor_linenums = true
 base_path = ["."]
 check_paths = true
 restrict_base_path = true
+
+[project.plugins.llmstxt]
+markdown_description = "Public guidance for synchronous and asyncio PyMongo applications. Writes use PyMongo directly; change-stream invalidation is asynchronous."
+full_output = "llms-full.txt"
+
+[project.plugins.llmstxt.sections]
+"Home / overview" = ["index.md"]
+"Getting started" = ["getting-started/*.md"]
+"Usage" = ["usage/*.md"]
+"Examples" = ["examples/*.md"]
+"API reference" = ["reference/*.md"]
+"Operations" = ["operations/*.md"]
+"Benchmarks" = ["benchmarks/*.md"]
 
 [project.plugins.redirects.redirect_maps]
 "api-reference.md" = "reference/api.md"

@@ -147,11 +147,22 @@ def extract_corpus(repo: Path, revision: Text, destination: Path) -> None:
         archive.extractall(destination, filter="data")
 
 
-def edition_config(corpus: Path, revision: Text, *, stable: bool) -> Path:
+def edition_config(
+    corpus: Path, revision: Text, export_policy: Table, *, stable: bool
+) -> Path:
     configuration = tomllib.loads((corpus / "zensical.toml").read_text())
     project = table(configuration["project"])
     project["strict"] = True
     project["site_dir"] = str(corpus / "output")
+    table(project["plugins"])["llmstxt"] = export_policy
+    theme = table(project["theme"])
+    try:
+        features = cast("list[Text]", theme["features"])
+    except KeyError:
+        features = []
+        theme["features"] = features
+    if "content.action.copy" not in features:
+        features.append("content.action.copy")
     if "extra" not in project:
         project["extra"] = {}
     table(project["extra"])["version"] = {"provider": "mike"}
@@ -268,13 +279,25 @@ def assemble(repo: Path, sources: Sources, output: Path) -> None:
             "-m",
             "Initialize disposable documentation artifact",
         )
+        for edition, revision in (
+            ("stable", sources["stable"]),
+            ("dev", sources["development"]),
+        ):
+            extract_corpus(repo, revision, workspace / edition)
+        development_configuration = tomllib.loads(
+            (workspace / "dev/zensical.toml").read_text()
+        )
+        export_policy = table(
+            table(table(development_configuration["project"])["plugins"])["llmstxt"]
+        )
         for edition, revision, title in (
             ("stable", sources["stable"], f"Latest release ({sources['version']})"),
             ("dev", sources["development"], "Development (main)"),
         ):
             corpus = workspace / edition
-            extract_corpus(repo, revision, corpus)
-            configuration = edition_config(corpus, revision, stable=edition == "stable")
+            configuration = edition_config(
+                corpus, revision, export_policy, stable=edition == "stable"
+            )
             run(
                 corpus,
                 "mike",
@@ -313,6 +336,15 @@ def assemble(repo: Path, sources: Sources, output: Path) -> None:
                 shutil.copytree(entry, artifact / entry.name, dirs_exist_ok=True)
             else:
                 shutil.copy2(entry, artifact / entry.name)
+        shutil.copy2(artifact / "stable/llms.txt", artifact / "llms.txt")
+        try:
+            full_output = export_policy["full_output"]
+        except KeyError:
+            full_output = None
+        if full_output is not None:
+            full_path = Path(cast("Text", full_output))
+            (artifact / full_path).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(artifact / "stable" / full_path, artifact / full_path)
         replace_artifact(artifact, output)
 
 

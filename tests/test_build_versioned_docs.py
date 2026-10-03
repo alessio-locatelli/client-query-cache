@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import errno
+import re
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
+from urllib.parse import urlsplit
 
 import pytest
 
@@ -249,13 +252,29 @@ def test_rejects_release_version_mismatch(release_repo: Path) -> None:
 
 
 @pytest.fixture
+def combined_output() -> Text | None:
+    return "llms-full.txt"
+
+
+@pytest.fixture
+def exported_repo(release_repo: Path, combined_output: Text | None) -> Path:
+    with (release_repo / "zensical.toml").open("a") as configuration:
+        configuration.write("[project.plugins.llmstxt]\n")
+        if combined_output is not None:
+            configuration.write(f'full_output = "{combined_output}"\n')
+        configuration.write('[project.plugins.llmstxt.sections]\nGuides = ["*.md"]\n')
+    commit(release_repo)
+    return release_repo
+
+
+@pytest.fixture
 def artifact_exists() -> bool:
     return True
 
 
 @pytest.fixture
-def previous_artifact(release_repo: Path, artifact_exists: bool) -> Path:
-    output = release_repo / "site"
+def previous_artifact(exported_repo: Path, artifact_exists: bool) -> Path:
+    output = exported_repo / "site"
     if artifact_exists:
         output.mkdir()
         (output / "previous.txt").write_text("Previous complete artifact\n")
@@ -264,7 +283,7 @@ def previous_artifact(release_repo: Path, artifact_exists: bool) -> Path:
 
 @pytest.fixture
 def restricted_checkout(
-    release_repo: Path,
+    exported_repo: Path,
     previous_artifact: Path,
     tmp_path_factory: pytest.TempPathFactory,
     monkeypatch: pytest.MonkeyPatch,
@@ -279,7 +298,7 @@ def restricted_checkout(
         run(cwd, *arguments)
 
     monkeypatch.setattr("scripts.build_versioned_docs.run", record_workspace)
-    parent = release_repo.parent
+    parent = exported_repo.parent
     original_mode = parent.stat().st_mode & 0o7777
     parent.chmod(original_mode & ~0o222)
     try:
@@ -293,12 +312,12 @@ def restricted_checkout(
 )
 @pytest.mark.usefixtures("artifact_exists")
 def test_assembles_without_write_access_to_checkout_parent(
-    release_repo: Path, restricted_checkout: tuple[Path, Path, list[Path]]
+    exported_repo: Path, restricted_checkout: tuple[Path, Path, list[Path]]
 ) -> None:
     output, temporary_storage, commands = restricted_checkout
     assemble(
-        release_repo,
-        select_sources(release_repo, "v0.2.0", "HEAD"),
+        exported_repo,
+        select_sources(exported_repo, "v0.2.0", "HEAD"),
         output,
     )
     assert commands[0].parent == temporary_storage
@@ -309,25 +328,25 @@ def test_assembles_without_write_access_to_checkout_parent(
 
 @pytest.fixture
 def failed_edition(
-    release_repo: Path, request: pytest.FixtureRequest
+    exported_repo: Path, request: pytest.FixtureRequest
 ) -> type[Exception]:
     if request.param == "heading":
-        (release_repo / "docs/user/index.md").write_text(
+        (exported_repo / "docs/user/index.md").write_text(
             "# Invalid guide\n\n[Missing heading](#absent)\n"
         )
     else:
-        git(release_repo, "rm", "-q", "docs/user/index.md")
-    commit(release_repo)
+        git(exported_repo, "rm", "-q", "docs/user/index.md")
+    commit(exported_repo)
     return subprocess.CalledProcessError if request.param == "heading" else ValueError
 
 
 @pytest.mark.parametrize("failed_edition", ["heading", "layout"], indirect=True)
 def test_failed_edition_preserves_previous_artifact(
-    release_repo: Path, previous_artifact: Path, failed_edition: type[Exception]
+    exported_repo: Path, previous_artifact: Path, failed_edition: type[Exception]
 ) -> None:
-    sources = select_sources(release_repo, "v0.2.0", "HEAD")
+    sources = select_sources(exported_repo, "v0.2.0", "HEAD")
     with pytest.raises(failed_edition):
-        assemble(release_repo, sources, previous_artifact)
+        assemble(exported_repo, sources, previous_artifact)
     assert tuple(previous_artifact.iterdir()) == (previous_artifact / "previous.txt",)
     assert (
         previous_artifact / "previous.txt"
@@ -384,22 +403,22 @@ def failed_swap(
     indirect=True,
 )
 def test_swap_failure_preserves_previous_artifact(
-    release_repo: Path, previous_artifact: Path, failed_swap: tuple[Text, int]
+    exported_repo: Path, previous_artifact: Path, failed_swap: tuple[Text, int]
 ) -> None:
     phase, error = failed_swap
     with pytest.raises(OSError, match="Forced artifact replacement failure") as failure:
         assemble(
-            release_repo,
-            select_sources(release_repo, "v0.2.0", "HEAD"),
+            exported_repo,
+            select_sources(exported_repo, "v0.2.0", "HEAD"),
             previous_artifact,
         )
     assert failure.value.errno == error
-    backups = tuple(release_repo.glob(".docs-previous-*"))
+    backups = tuple(exported_repo.glob(".docs-previous-*"))
     preserved = backups[0] if phase == "restore" else previous_artifact
     assert (preserved / "previous.txt").read_text() == "Previous complete artifact\n"
     assert tuple(preserved.iterdir()) == (preserved / "previous.txt",)
     assert len(backups) == (1 if phase == "restore" else 0)
-    assert not tuple(release_repo.glob(".docs-artifact-*"))
+    assert not tuple(exported_repo.glob(".docs-artifact-*"))
 
 
 @pytest.mark.parametrize("artifact_exists", [False])
@@ -408,41 +427,49 @@ def test_swap_failure_preserves_previous_artifact(
 )
 @pytest.mark.usefixtures("artifact_exists")
 def test_failed_first_install_leaves_no_partial_artifact(
-    release_repo: Path, previous_artifact: Path, failed_swap: tuple[Text, int]
+    exported_repo: Path, previous_artifact: Path, failed_swap: tuple[Text, int]
 ) -> None:
     with pytest.raises(OSError, match="Forced artifact replacement failure"):
         assemble(
-            release_repo,
-            select_sources(release_repo, "v0.2.0", "HEAD"),
+            exported_repo,
+            select_sources(exported_repo, "v0.2.0", "HEAD"),
             previous_artifact,
         )
     assert failed_swap[0] == "install"
     assert not previous_artifact.exists()
-    assert not tuple(release_repo.glob(".docs-previous-*"))
-    assert not tuple(release_repo.glob(".docs-artifact-*"))
+    assert not tuple(exported_repo.glob(".docs-previous-*"))
+    assert not tuple(exported_repo.glob(".docs-artifact-*"))
 
 
 @pytest.fixture
-def development_only_edition(release_repo: Path) -> None:
-    (release_repo / "docs/user/index.md").write_text("# DevelopmentOnlyToken\n")
-    (release_repo / "docs/user/preview.md").write_text("# UnreleasedPageToken\n")
-    with (release_repo / "zensical.toml").open("a") as configuration:
+def development_only_edition(exported_repo: Path) -> None:
+    (exported_repo / "docs/user/index.md").write_text("# DevelopmentOnlyToken\n")
+    (exported_repo / "docs/user/preview.md").write_text("# UnreleasedPageToken\n")
+    with (exported_repo / "zensical.toml").open("a") as configuration:
         configuration.write('[project.extra.version]\nprovider = "mike"\n')
-    commit(release_repo)
+    commit(exported_repo)
 
 
 @pytest.mark.usefixtures("development_only_edition")
 @pytest.mark.parametrize(
     "artifact_name", ["site", "fresh-site"], ids=["replace-artifact", "first-build"]
 )
+@pytest.mark.parametrize(
+    "combined_output",
+    ["llms-full.txt", "exports/combined.txt", None],
+    ids=["combined", "nested-combined", "no-combined"],
+)
 def test_assembles_independent_snapshots_with_development_only_page(
-    release_repo: Path, previous_artifact: Path, artifact_name: Text
+    exported_repo: Path,
+    previous_artifact: Path,
+    artifact_name: Text,
+    combined_output: Text | None,
 ) -> None:
     output = (
-        previous_artifact if artifact_name == "site" else release_repo / artifact_name
+        previous_artifact if artifact_name == "site" else exported_repo / artifact_name
     )
-    sources = select_sources(release_repo, "v0.2.0", "HEAD")
-    assemble(release_repo, sources, output)
+    sources = select_sources(exported_repo, "v0.2.0", "HEAD")
+    assemble(exported_repo, sources, output)
     assert "Corrected guide" in (output / "stable/index.html").read_text()
     assert "DevelopmentOnlyToken" not in (output / "stable/index.html").read_text()
     assert "DevelopmentOnlyToken" in (output / "dev/index.html").read_text()
@@ -451,24 +478,86 @@ def test_assembles_independent_snapshots_with_development_only_page(
     assert "stable" in (output / "preview/index.html").read_text()
     assert "stable/guide" in (output / "guide/index.html").read_text()
     assert not (output / "previous.txt").exists()
+    assert (output / "llms.txt").read_bytes() == (
+        output / "stable/llms.txt"
+    ).read_bytes()
+    for edition in ("stable", "dev"):
+        index = (output / edition / "llms.txt").read_text()
+        links = re.findall(r"\]\(<(https://[^>]+)>\)", index)
+        assert len(links) == (2 if edition == "stable" else 3)
+        for url in links:
+            assert url.startswith(f"https://example.invalid/library/{edition}/")
+            destination = output / urlsplit(url).path.removeprefix("/library/")
+            assert destination.is_file()
+            markdown = destination.read_text()
+            if edition == "stable":
+                assert "DevelopmentOnlyToken" not in markdown
+                assert "UnreleasedPageToken" not in markdown
+        assert ("UnreleasedPageToken" in index) == (edition == "dev")
+        assert "data-md-copy" in (output / edition / "index.html").read_text()
+    if combined_output is None:
+        for prefix in ("", "stable", "dev"):
+            assert not (output / prefix / "llms-full.txt").exists()
+    else:
+        stable_combined = output / "stable" / combined_output
+        assert (output / combined_output).read_bytes() == stable_combined.read_bytes()
+        assert "DevelopmentOnlyToken" not in stable_combined.read_text()
+        assert "UnreleasedPageToken" not in stable_combined.read_text()
+        assert "DevelopmentOnlyToken" in (output / "dev" / combined_output).read_text()
+        assert "UnreleasedPageToken" in (output / "dev" / combined_output).read_text()
 
 
 @pytest.fixture
-def linked_artifact(release_repo: Path) -> Path:
-    target = release_repo / "existing-artifact"
+def missing_export(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> Text:
+    copy = shutil.copy2
+    filename = cast("Text", request.param)
+
+    def fail_export_copy(
+        source: Path | Text, destination: Path | Text, *, follow_symlinks: bool = True
+    ) -> Text:
+        source_path = Path(source)
+        if source_path.parts[-2:] == ("stable", filename):
+            source_path.rename(source_path.with_suffix(".missing"))
+        return copy(source, str(destination), follow_symlinks=follow_symlinks)
+
+    monkeypatch.setattr("scripts.build_versioned_docs.shutil.copy2", fail_export_copy)
+    return filename
+
+
+@pytest.mark.parametrize("missing_export", ["llms.txt", "llms-full.txt"], indirect=True)
+def test_missing_export_preserves_previous_artifact(
+    exported_repo: Path, previous_artifact: Path, missing_export: Text
+) -> None:
+    with pytest.raises(FileNotFoundError, match=missing_export):
+        assemble(
+            exported_repo,
+            select_sources(exported_repo, "v0.2.0", "HEAD"),
+            previous_artifact,
+        )
+    assert tuple(previous_artifact.iterdir()) == (previous_artifact / "previous.txt",)
+    assert (
+        previous_artifact / "previous.txt"
+    ).read_text() == "Previous complete artifact\n"
+
+
+@pytest.fixture
+def linked_artifact(exported_repo: Path) -> Path:
+    target = exported_repo / "existing-artifact"
     target.mkdir()
-    output = release_repo / "site"
+    output = exported_repo / "site"
     output.symlink_to(target, target_is_directory=True)
     return output
 
 
 def test_rejects_linked_artifact_without_changing_it(
-    release_repo: Path, linked_artifact: Path
+    exported_repo: Path, linked_artifact: Path
 ) -> None:
     with pytest.raises(ValueError, match="symbolic link"):
         assemble(
-            release_repo,
-            select_sources(release_repo, "v0.2.0", "HEAD"),
+            exported_repo,
+            select_sources(exported_repo, "v0.2.0", "HEAD"),
             linked_artifact,
         )
     assert linked_artifact.is_symlink()
