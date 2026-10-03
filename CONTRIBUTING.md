@@ -88,9 +88,24 @@ just docs-serve
 just docs-build
 ```
 
+These commands preview the working tree. The hosted site instead defaults to the latest published release, with a `Development (main)` selector.
+
 The preview prints its local URL and reloads when guides change. The build creates untracked output in `site/`, fails on missing local pages, headings, or snippets, and uses the locked `docs` dependency group. These commands need no MongoDB, Docker, or hosting credentials. The existing Lychee Prek hook checks authored links and assets. See [Zensical's documentation](https://zensical.org/docs/) for authoring and framework configuration.
 
-Lychee cannot confirm new hosted routes before publication. Its accepted limitation excludes remote checks for the six public section prefixes; local links still undergo link checking and strict site validation. Inspect README's direct hosted links and the example catalogue's hosted links in the local preview, then inspect the deployed revision after publication. See the [documentation validation limitations](docs/development/ci-validation-caches.md#documentation-validation-limitations).
+Lychee cannot confirm new hosted routes before publication. Its accepted limitation excludes remote checks for the public section prefixes and the two unpublished edition prefixes; local links still undergo link checking and strict site validation. Inspect README's direct hosted links and the example catalogue's hosted links in the local preview, then inspect the deployed revision after publication. See the [documentation validation limitations](docs/development/ci-validation-caches.md#documentation-validation-limitations).
+
+### Inspect both editions
+
+```console
+just docs-build-editions v0.2.0
+python -m http.server --directory site
+```
+
+The combined build uses exact local Git refs and writes one untracked artifact to `site/`. Open `/` to follow the stable default; the selector offers exactly `Latest release (X.Y.Z)` and `Development (main)`. Local serving uses the site root, so existing direct page links and edition switching also work. No hosting credentials, MongoDB or example execution are required. Ordinary preview commands remain useful for uncommitted prose; combined builds use committed snapshots.
+
+`stable-docs.toml` records the explicit PR validation tag and a bounded documentation correction source for `v0.2.0`, whose released guides predate this layout. The source is a reviewed immutable commit, not a moving branch. Keep that correction commit fetchable from the repository; both CI workflows fetch its exact SHA explicitly, including when it is outside the controller’s main history. Before accepting it, the builder compares the release's package source tree, executable example files and runtime `[project]` metadata. Any mismatch fails visibly. It records release, stable docs and development commits in build output and rewrites stable checkout/source links to that docs commit, leaving pinned benchmark evidence intact.
+
+A future release containing the guide layout builds directly from its tag without an override. To correct released prose, review and commit a documentation-only snapshot with matching runtime inputs, then replace the exact tag's immutable record. Keep a single bootstrap record rather than duplicating a guide tree. Update `validation_tag` when moving the PR validation baseline to a newer release. Fetch that tag locally before building; PR CI fetches it explicitly without discovering mutable release identity. The maintained [mike integration](https://zensical.org/docs/compatibility/mkdocs/mike/) owns version metadata and selection; Zensical renders both editions and root redirects.
 
 Pull requests affecting site inputs run **Documentation build** after **Prek** and **Prettier, Markdownlint, and OpenSpec**. If configuring required checks, require all three independently: GitHub can report a dependent job skipped after a failed prerequisite as successful. Guide-only Markdown changes do not select Python or database tests.
 
@@ -98,9 +113,9 @@ Pull requests affecting site inputs run **Documentation build** after **Prek** a
 
 An administrator must select **GitHub Actions** as the Pages publishing source and restrict the `github-pages` environment's deployment branches to `main`. Review any environment approval requirements before rollout. See GitHub's [Pages workflow setup](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages) and [environment protection guidance](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments). Public repositories can use the free project URL, `https://alessio-locatelli.github.io/client-query-cache/`, without a custom domain.
 
-**Publish documentation** builds relevant `main` revisions and deploys that run's artifact. It uses GitHub's token and OIDC; no personal token is needed. Build and hosting configuration failures remain visible workflow failures. To redeploy, [run the workflow manually](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow) with `main` selected; other branches cannot publish.
+**Publish documentation** runs after relevant `main` changes, main-only manual dispatch, or successful completion of **Publish to PyPI**. Failed/cancelled publication runs cannot deploy. It always checks out trusted `main` controller code and resolves GitHub’s current latest published non-draft, non-prerelease release. A delayed older release completion therefore builds the current stable edition. It never consumes code or artifacts from the triggering run. Both committed source snapshots and root redirects must build before one complete artifact is uploaded; publication uses a shared queue without cancelling running deployments. It uses GitHub's token and OIDC; no personal token is needed. Build and hosting configuration failures remain visible workflow failures. To redeploy, [run the workflow manually](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow) with `main` selected; other branches cannot publish.
 
-To roll back, revert the documentation changes on `main` to the desired content and redeploy. If no working site exists, an administrator can disable the workflow and Pages hosting. Repository Markdown remains available.
+To roll back, revert the faulty controller/configuration or documentation correction record on `main` and redeploy a complete working artifact. Preserve published package tags and stable-source provenance; do not substitute development guides for released behavior. If no working site exists, an administrator can disable the workflow and Pages hosting. Repository Markdown remains available.
 
 ## Changelog
 

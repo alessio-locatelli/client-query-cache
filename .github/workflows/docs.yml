@@ -4,7 +4,7 @@ concurrency:
   group: documentation-publication
   cancel-in-progress: false
 
-on:
+on: # zizmor: ignore[dangerous-triggers] Trusted main only; no triggering-run code or artifacts.
   push:
     branches: [main]
     paths:
@@ -12,12 +12,18 @@ on:
       - "examples/README.md"
       - "examples/*.py"
       - "zensical.toml"
+      - "stable-docs.toml"
+      - "scripts/build_versioned_docs.py"
+      - ".github/workflows/test.yml"
       - "pyproject.toml"
       - "uv.lock"
       - ".python-version"
       - "justfile"
       - ".github/workflows/docs.yml"
       - ".github/actions/setup-toolchain/**"
+  workflow_run:
+    workflows: ["Publish to PyPI"]
+    types: [completed]
   workflow_dispatch:
 
 permissions:
@@ -26,17 +32,31 @@ permissions:
 jobs:
   build:
     name: Build documentation artifact
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          ref: main
+          fetch-depth: 0
 
       - uses: $/.github/actions/setup-toolchain
 
-      - run: just docs-build
+      - name: Assemble current published release and development
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          stable_tag="$(gh api "repos/${REPOSITORY}/releases/latest" --jq \
+            'if .draft or .prerelease then error("Expected a published stable release") else .tag_name end')"
+          git fetch --no-tags origin "refs/tags/${stable_tag}:refs/tags/${stable_tag}"
+          backport="$(STABLE_TAG="${stable_tag}" python3 -c 'import os, tomllib; records = tomllib.load(open("stable-docs.toml", "rb"))["backports"]; tag = os.environ["STABLE_TAG"]; print(records[tag]["source"] if tag in records else "")')"
+          if [[ -n "${backport}" ]]; then
+            git fetch --no-tags origin "${backport}"
+          fi
+          just docs-build-editions "${stable_tag}"
 
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
@@ -45,7 +65,7 @@ jobs:
 
   deploy:
     name: Deploy documentation
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success')
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 10

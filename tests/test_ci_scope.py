@@ -39,7 +39,7 @@ pytestmark = pytest.mark.unit
             True,
             False,
             False,
-            False,
+            True,
             id="pr-workflow",
         ),
         pytest.param(
@@ -169,6 +169,24 @@ pytestmark = pytest.mark.unit
             ("pyproject.toml",), True, False, False, True, True, id="dependencies"
         ),
         pytest.param(("uv.lock",), True, False, False, True, True, id="lockfile"),
+        pytest.param(
+            ("stable-docs.toml",),
+            False,
+            False,
+            False,
+            False,
+            True,
+            id="edition-provenance",
+        ),
+        pytest.param(
+            ("scripts/build_versioned_docs.py",),
+            True,
+            False,
+            False,
+            False,
+            True,
+            id="edition-builder",
+        ),
         pytest.param(
             ("scripts/ci_scope.py",),
             True,
