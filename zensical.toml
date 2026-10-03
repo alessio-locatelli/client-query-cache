@@ -3,14 +3,37 @@ site_name = "client-query-cache"
 site_description = "Client-side caching for PyMongo with MongoDB change streams."
 site_url = "https://alessio-locatelli.github.io/client-query-cache/"
 repo_url = "https://github.com/alessio-locatelli/client-query-cache"
-docs_dir = "docs"
+docs_dir = "docs/user"
 site_dir = "site"
 nav = [
   { "Home" = "index.md" },
-  { "API reference" = "api-reference.md" },
-  { "Architecture and operations" = "architecture.md" },
-  { "Performance" = "stream-cost-benchmarks.md" },
-  { "Examples" = "https://github.com/alessio-locatelli/client-query-cache/blob/main/examples/README.md" },
+  { "Getting started" = [
+    { "Installation" = "getting-started/installation.md" },
+    { "Synchronous" = "getting-started/synchronous.md" },
+    { "Asyncio" = "getting-started/asyncio.md" },
+  ] },
+  { "Usage" = [
+    { "Cached reads" = "usage/cached-reads.md" },
+    { "Consistency" = "usage/consistency.md" },
+  ] },
+  { "Benchmarks" = [
+    { "Workload evaluation" = "benchmarks/index.md" },
+    { "Stream cost" = "benchmarks/stream-cost.md" },
+  ] },
+  { "Examples" = [
+    { "Run the examples" = "examples/index.md" },
+    { "requests-cache" = "examples/requests-cache.md" },
+    { "Celery" = "examples/celery.md" },
+    { "py-abac" = "examples/py-abac.md" },
+  ] },
+  { "Reference" = [
+    { "API" = "reference/api.md" },
+  ] },
+  { "Operations" = [
+    { "Overview" = "operations/index.md" },
+    { "Deployment" = "operations/deployment.md" },
+    { "Monitoring" = "operations/monitoring.md" },
+  ] },
 ]
 
 [project.validation]
@@ -45,11 +68,23 @@ anchor_linenums = true
 
 [project.markdown_extensions.pymdownx.superfences]
 
-[project.plugins.exclude]
-glob = [
-  "pypi-publishing-setup.md",
-  "ci-validation-caches.md",
-  "executable-version-updates.md",
-  "causal-invalidation-barrier-research.md",
-  "decisions/*",
-]
+[project.markdown_extensions.pymdownx.snippets]
+base_path = ["."]
+check_paths = true
+restrict_base_path = true
+
+[project.plugins.redirects.redirect_maps]
+"api-reference.md" = "reference/api.md"
+"architecture.md" = "operations/deployment.md"
+"architecture.md#architecture-and-operations" = "operations/deployment.md#deployment"
+"architecture.md#system-requirements" = "getting-started/installation.md#requirements"
+"architecture.md#high-level-design" = "usage/cached-reads.md#read-methods"
+"architecture.md#low-level-design" = "usage/cached-reads.md#filters-sorting-and-collation"
+"architecture.md#why-only-reads-are-cached" = "usage/cached-reads.md#why-only-reads-are-cached"
+"architecture.md#consistency-scope" = "usage/consistency.md#consistency"
+"architecture.md#observability" = "operations/monitoring.md#observability"
+"architecture.md#opentelemetry-metrics" = "operations/monitoring.md#opentelemetry-metrics"
+"architecture.md#bypass-reasons-and-stream-health" = "operations/monitoring.md#bypass-reasons-and-stream-health"
+"stream-cost-benchmarks.md" = "benchmarks/stream-cost.md"
+"stream-cost-benchmarks.md#is-caching-a-good-fit-for-your-workload" = "benchmarks/index.md#is-caching-a-good-fit-for-your-workload"
+"stream-cost-benchmarks.md#pull-request-performance-guard" = "benchmarks/index.md#performance-regression-guard"

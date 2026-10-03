@@ -134,6 +134,8 @@ Preserve stable documentation-check names, lint/format prerequisites, main-only 
 
 Static compilation scales with authored content and included text; there are no additional library hot-path allocations or calls. No runtime performance benchmark is needed for a documentation layout change. Retain current benchmark provenance and raw-report handling rather than regenerating results for editorial work.
 
+Hosted guide routes in README and the example catalogue can return 404 until the revision is published. The maintainer accepts this pre-publication Lychee limitation: its configuration excludes remote checks for the six public section prefixes. The strict site build checks local pages, anchors, snippets, and assets, and preview inspection covers direct entry links. Other external URLs, the homepage, and legacy hosted guide URLs retain their existing network checks. This does not verify the deployed revision; inspect it after ordinary publication. No custom validator or hook wrapper is added.
+
 ## Risks / Trade-offs
 
 - [Moving a mixed guide loses an operating caveat] → Use the content map and compare source/destination sections before removing the original; retain security and freshness limits prominently.

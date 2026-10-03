@@ -1,7 +1,7 @@
 # Deferred causal invalidation barrier: research reference
 
 Status: **research retained; public feature deferred.** See the
-[decision](decisions/defer-causal-invalidation-barrier.md) for rationale and reconsideration criteria.
+[decision](../decisions/defer-causal-invalidation-barrier.md) for rationale and reconsideration criteria.
 The mechanism and API described here belong to an unmerged implementation, not the supported public interface.
 
 ## Provenance and evidence limits

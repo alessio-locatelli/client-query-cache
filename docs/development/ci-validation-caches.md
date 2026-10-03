@@ -49,3 +49,7 @@ The source of truth for enabled Prek hooks is `.pre-commit-config.yaml`; the wor
 ## Documentation tooling issue
 
 Zensical 0.0.67 generates a 404 page whose “Skip to content” link has no matching target. This defect is tracked in [Zensical issue #997](https://github.com/zensical/zensical/issues/997). Recheck the generated 404 page when upgrading Zensical; the site uses the stock theme without a workaround for this defect.
+
+## Documentation validation limitations
+
+Lychee checks the currently deployed website, which can lack routes introduced by an unpublished revision. Its configuration excludes remote checks for this site's getting-started, usage, benchmarks, examples, reference, and operations section prefixes. This is an accepted pre-publication limitation; the strict local site build checks local pages, anchors, snippets, and assets, and preview inspection checks direct hosted entry links against the built revision. A successful local build does not verify the deployed website. Inspect the hosted result after ordinary publication. Other external URLs, the homepage, and legacy hosted guide URLs retain their configured network checks.

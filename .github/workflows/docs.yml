@@ -8,12 +8,9 @@ on:
   push:
     branches: [main]
     paths:
-      - "docs/**"
-      - "!docs/pypi-publishing-setup.md"
-      - "!docs/ci-validation-caches.md"
-      - "!docs/executable-version-updates.md"
-      - "!docs/causal-invalidation-barrier-research.md"
-      - "!docs/decisions/**"
+      - "docs/user/**"
+      - "examples/README.md"
+      - "examples/*.py"
       - "zensical.toml"
       - "pyproject.toml"
       - "uv.lock"
