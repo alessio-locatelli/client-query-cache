@@ -42,7 +42,7 @@ The orchestrator owns source selection, normalized edition-specific configuratio
 
 Render stable source/checkout links against the recorded stable source revision instead of `main`; preserve explicitly pinned benchmark evidence. Shared publishing settings may adapt release configuration without replacing release prose/code with development content. Root redirect output uses the existing Zensical redirect configuration and is included in the same artifact.
 
-Render in a disposable workspace outside the checkout, then copy the complete artifact into temporary staging beside the output. All replacement renames therefore stay on the destination filesystem even when the checkout is a bind mount. Move existing output to a unique sibling backup before installation, restore it on installation failure, and retain it outside automatic cleanup if restoration fails. Only move the backup into temporary cleanup after a successful installation. Ignore staging and recovery siblings in repository formatting and Git selection.
+Render in standard temporary storage, honoring its configured location without requiring write access to the checkout parent, then copy the complete artifact into temporary staging beside the output. All replacement renames therefore stay on the destination filesystem even when the checkout is a bind mount. Move existing output to a unique sibling backup before installation, restore it on installation failure, and retain it outside automatic cleanup if restoration fails. Only move the backup into temporary cleanup after a successful installation. Ignore staging and recovery siblings in repository formatting and Git selection.
 
 Keep `just docs-serve` and `just docs-build` as the fast working-tree authoring commands. The combined command takes an explicit locally available stable tag; it does not require hosting credentials or MongoDB. Document how to serve its output for version-selector inspection.
 
@@ -52,7 +52,7 @@ Extend the existing docs workflow with successful completion of `Publish to PyPI
 
 Use the same `documentation-publication` concurrency group, without cancelling state changes. Keep read-only contents permissions for source/build jobs and Pages/OIDC elevation only in deployment. Upload one complete Pages artifact only after both edition builds and root redirects succeed. Do not publish a partial edition or advance stable on draft/tag creation. Existing package publishing and approval semantics stay intact.
 
-Select the orchestration script, edition configuration, versioning dependency files, canonical docs/examples, and existing shared inputs consistently in PR validation and publication. Development-only Markdown stays outside site inputs. PRs verify artifact assembly against local release snapshots without making deployments or querying mutable release identity.
+Select the orchestration script, edition configuration, versioning dependency files, canonical docs/examples, and existing shared inputs consistently in PR validation and publication. PR-validation workflow changes select documentation CI but do not trigger publication, since they do not change the generated site. Development-only Markdown stays outside site inputs. PRs verify artifact assembly against local release snapshots without making deployments or querying mutable release identity.
 
 ### 5. Prose and local setup changes
 

@@ -289,3 +289,12 @@ A documentation correction SHALL record an immutable source SHA and a supported 
 
 - **WHEN** the recorded ref is missing or does not reach the correction SHA
 - **THEN** the build fails rather than changing the stable source
+
+### Requirement: Documentation builds respect checkout permissions
+
+Documentation builds SHALL use configured temporary storage and the writable output destination without requiring write access to the checkout parent. Both first-time builds and replacement builds SHALL support a writable checkout beneath a read-only parent.
+
+#### Scenario: The checkout parent is read-only
+
+- **WHEN** the checkout and configured temporary storage are writable but the checkout parent is not
+- **THEN** both editions build and complete output is installed without attempting to create a workspace in the checkout parent
