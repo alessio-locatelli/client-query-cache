@@ -13,9 +13,11 @@ from pymongo.read_concern import ReadConcern
 
 from client_query_cache._core.canonical import canonicalize, is_canonicalizable
 from client_query_cache._core.codec import codec_fingerprint
+from client_query_cache._core.collation import collation_document
 from client_query_cache._core.collection_metadata import (
     interpret_list_collections_entry,
 )
+from client_query_cache._core.count_reads import count_read_options
 from client_query_cache._core.entries import AdmissionOutcome
 from client_query_cache._core.errors import UnsupportedCacheRequestError
 from client_query_cache._core.find_one_reads import (
@@ -70,14 +72,6 @@ logger = logging.getLogger(__name__)
 type _CollationIn = Collation | Mapping[str, Any]
 
 
-def _collation_document(collation: _CollationIn | None) -> Mapping[str, Any] | None:
-    if collation is None:
-        return None
-    if isinstance(collation, Collation):
-        return collation.document
-    return dict(collation)
-
-
 def _blocks_full_materialization(kwargs: Mapping[str, object]) -> bool:
     try:
         cursor_type = kwargs["cursor_type"]
@@ -90,24 +84,6 @@ def _blocks_full_materialization(kwargs: Mapping[str, object]) -> bool:
     except KeyError:
         allow_partial_results = False
     return bool(allow_partial_results)
-
-
-def _count_documents_kwargs(
-    skip: int,
-    limit: int,
-    collation: _CollationIn | None,
-    hint: str | Sequence[tuple[str, int]] | None,
-) -> dict[str, Any]:
-    kwargs: dict[str, Any] = {}
-    if skip:
-        kwargs["skip"] = skip
-    if limit:
-        kwargs["limit"] = limit
-    if collation is not None:
-        kwargs["collation"] = collation
-    if hint is not None:
-        kwargs["hint"] = hint
-    return kwargs
 
 
 class CachedCollection[DocumentType: Mapping[str, Any]]:
@@ -302,7 +278,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
                 sort,
                 skip,
                 limit,
-                _collation_document(collation),
+                collation_document(collation),
                 codec_fingerprint(codec_options),
             )
         )
@@ -377,7 +353,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
             (
                 "aggregate",
                 pipeline,
-                _collation_document(collation),
+                collation_document(collation),
                 codec_fingerprint(codec_options),
             )
         )
@@ -424,35 +400,30 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
         self,
         filter: Mapping[str, Any],  # noqa: A002
         *,
-        skip: int = 0,
-        limit: int = 0,
-        collation: _CollationIn | None = None,
-        hint: str | Sequence[tuple[str, int]] | None = None,
         session: AsyncClientSession | None = None,
         **kwargs: object,
     ) -> int:
-        merged_kwargs = _count_documents_kwargs(skip, limit, collation, hint) | kwargs
+        options = count_read_options(kwargs)
         codec_options = self._collection.codec_options
         discriminator = order_sensitive_discriminator_key(
             (
                 "count_documents",
                 filter,
-                skip,
-                limit,
-                _collation_document(collation),
-                hint,
+                *options["cache_options"],
                 codec_fingerprint(codec_options),
             )
         )
         reason = (
-            self._request_bypass_reason(session=session, kwargs=kwargs)
+            self._request_bypass_reason(
+                session=session, kwargs=options["extra_options"]
+            )
             or query_bypass_reason(filter, None, discriminator)
             or await self._cache_ineligibility_reason()
         )
         if reason is not None:
             self._record_bypass(reason)
             return await self._collection.count_documents(
-                filter, session=session, **merged_kwargs
+                filter, session=session, **kwargs
             )
         namespace = self._namespace()
         cache = self._database.manager.cache_core
@@ -463,11 +434,11 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
             return cast("int", lookup_result.value)
         if not cache.is_database_available(namespace.database):
             return await self._collection.count_documents(
-                filter, session=session, **merged_kwargs
+                filter, session=session, **kwargs
             )
         capture = cache.capture_namespace_generation(namespace)
         count = await self._forced_collection_handle().count_documents(
-            filter, **merged_kwargs
+            filter, session=session, **kwargs
         )
         cache.admit_namespace(
             capture, discriminator, count, codec_options=codec_options
@@ -515,7 +486,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
                 "distinct",
                 key,
                 filter,
-                _collation_document(collation),
+                collation_document(collation),
                 codec_fingerprint(codec_options),
             )
         )

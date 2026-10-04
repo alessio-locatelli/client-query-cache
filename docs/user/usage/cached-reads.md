@@ -18,6 +18,8 @@ The cached view provides `find_one`, `find`, `aggregate`, `count_documents`, `es
 
 `find` and `aggregate` return fully materialized lists, including with asyncio. Use `cached_products.raw.find(...)` for a cursor. Writes and every other PyMongo operation belong on the original collection or `.raw`; the cached view does not expose them. See [method contracts](../reference/api.md#cached-read-methods).
 
+For `count_documents`, omit `skip` and `limit` to count all matching documents. Explicit options are preserved, and native PyMongo/MongoDB errors propagate: `skip=0` is valid, while `limit=0`, `limit=None`, `skip=None`, and `hint=None` raise native errors, including after an unbounded count has been cached.
+
 ## Filters, sorting, and collation
 
 Deterministic single-document queries, including compound filters, match-all queries and missing results, can be cached. For example, select the latest active product with explicit string matching:

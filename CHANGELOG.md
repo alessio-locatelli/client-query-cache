@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Cached `count_documents` preserves explicitly supplied options and native PyMongo/MongoDB errors in synchronous and asyncio views; omitted skip and `skip=0` share cached counts.
 - Reads inside PyMongo `session.bind()` contexts bypass caching in synchronous and asyncio views, preserving transaction visibility and native session validation. Reads also bypass caching when their effective session cannot be determined.
 - Provide documentation for the latest release and development branch, including tutorials, integration examples, and local replica-set setup.
 
