@@ -32,11 +32,14 @@ def evaluate_case(base: tuple[float, ...], head: tuple[float, ...]) -> CaseDecis
     if len(base) != BLOCK_PAIRS or len(head) != BLOCK_PAIRS:
         message = f"expected {BLOCK_PAIRS} paired blocks"
         raise ValueError(message)
-    if any(
-        not math.isfinite(value) or value < MINIMUM_BLOCK_SECONDS
-        for value in (*base, *head)
-    ):
-        raise ValueError("missing, invalid, or too-short paired block")
+    for side, blocks in (("base", base), ("head", head)):
+        for index, value in enumerate(blocks, start=1):
+            if not math.isfinite(value) or value < MINIMUM_BLOCK_SECONDS:
+                message = (
+                    f"invalid or too-short {side} block {index}: {value!r} seconds; "
+                    f"minimum {MINIMUM_BLOCK_SECONDS} seconds"
+                )
+                raise ValueError(message)
     ratios = tuple(
         proposed / baseline for baseline, proposed in zip(base, head, strict=True)
     )
