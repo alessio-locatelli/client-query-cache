@@ -1,10 +1,13 @@
 import decimal
 import logging
+import os
 import uuid
+from collections.abc import Generator  # noqa: TC003 (pluggy evaluates hook annotations)
 from contextlib import ExitStack
 from copy import copy
 from datetime import datetime
 from decimal import Decimal
+from pathlib import Path
 from time import monotonic, sleep
 from typing import TYPE_CHECKING, Any, NewType
 
@@ -31,6 +34,27 @@ _MONGODB_POLL_INTERVAL_SECONDS = 0.1
 
 logging.getLogger("faker.factory").setLevel("INFO")
 logging.getLogger("pymongo").setLevel("INFO")
+
+
+@pytest.hookimpl(wrapper=True)  # pragma: lax no cover (startup; CLI verified)
+def pytest_xdist_auto_num_workers() -> Generator[None, int, int]:
+    # Xdist's configured count can be zero to disable distribution.
+    detected_workers = yield
+    return min(detected_workers, 4)
+
+
+@pytest.hookimpl(tryfirst=True)  # pragma: lax no cover (startup; CLI verified)
+def pytest_configure(config: pytest.Config) -> None:
+    if not hasattr(config, "workerinput"):
+        return
+    log_destination = config.getoption("log_file") or config.getini("log_file")
+    if log_destination == os.devnull:
+        return
+    log_path = Path(log_destination)
+    worker_id = config.workerinput["workerid"]
+    config.option.log_file = str(
+        log_path.with_name(f"{log_path.stem}-{worker_id}{log_path.suffix}")
+    )
 
 
 def _wait_for_mongodb_ping(client: MongoClient[dict[str, Any]]) -> None:

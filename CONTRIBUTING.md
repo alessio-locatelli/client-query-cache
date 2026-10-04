@@ -57,7 +57,7 @@ just enable-podman-socket
 just tests_and_coverage
 ```
 
-`just tests_and_coverage` runs the current test suite and reports coverage. Run `uv run -- pytest -m unit` for
+`just tests_and_coverage` runs the current test suite and reports coverage. Run `just pytest -- -m unit` for
 the container-free unit-test tier. To discover focused recipes, run:
 
 ```console
@@ -72,6 +72,9 @@ include the leading `--`, mirroring `just podman -- <arguments>` below, since so
 Run `just examples` to run every program in [`examples/`](examples/README.md) against a disposable replica set. The first run downloads each example's libraries.
 
 See the [CI validation cache inventory](docs/development/ci-validation-caches.md) for the tools run on GitHub Actions and their cache paths.
+
+See [parallel test execution](docs/development/parallel-test-execution.md) for worker defaults,
+explicit worker counts, serial troubleshooting, coverage, and log locations.
 
 Run host Podman commands from the contributor container with `just podman -- <arguments>`.
 
@@ -143,12 +146,15 @@ skips with an explicit reason and every other test still runs.
 Run just this benchmark with:
 
 ```console
-just pytest tests/benchmark/real_server/test_cache_benefit.py
+just pytest -- -n 0 tests/benchmark/real_server/test_cache_benefit.py
 ```
 
 Its logged evidence, including any Atlas bandwidth evidence described below, lands in `pytest.log`
 at the repository root; search that file for the test's name instead of scrolling the full suite's
 output.
+
+Run it serially for isolated measurements. In an ordinary parallel full-suite run it competes
+with other test workers, and its evidence lands in that worker's `pytest-gw*.log` file.
 
 If `.env` also sets `REAL_MONGODB_ATLAS_PROJECT_ID` to your MongoDB Atlas project's ID, and the
 [Atlas CLI](https://www.mongodb.com/docs/atlas/cli/current/) is installed and authenticated, the
