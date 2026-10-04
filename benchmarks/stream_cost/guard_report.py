@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+import math
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
 from benchmarks.stream_cost.errors import BenchmarkSetupError
@@ -15,7 +16,7 @@ from benchmarks.stream_cost.guard_runner import measure_paired_case
 if TYPE_CHECKING:
     from benchmarks.stream_cost.guard_runner import RevisionEnvironment
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 _MAX_REASON_LENGTH = 2000
 _FAILING_DECISIONS = (Decision.REGRESSION, Decision.MEASUREMENT_ERROR)
 
@@ -69,11 +70,18 @@ def measure_and_evaluate_case(
             profile,
             block_pairs=block_pairs,
         )
-        decision = evaluate_case(measurement.base_seconds, measurement.head_seconds)
     except BenchmarkSetupError as error:
         return measurement_error_report(case, profile, str(error))
     except ValueError as error:
         return measurement_error_report(case, profile, str(error))
+    try:
+        decision = evaluate_case(measurement.base_seconds, measurement.head_seconds)
+    except ValueError as error:
+        return replace(
+            measurement_error_report(case, profile, str(error)),
+            base_seconds=measurement.base_seconds,
+            head_seconds=measurement.head_seconds,
+        )
     return CaseReport(
         case=case,
         profile=profile,
@@ -125,6 +133,14 @@ def build_guard_report(
     )
 
 
+def _json_seconds(
+    seconds: tuple[float, ...] | None,
+) -> tuple[float | None, ...] | None:
+    if seconds is None:
+        return None
+    return tuple(value if math.isfinite(value) else None for value in seconds)
+
+
 def report_to_json(report: GuardReport) -> dict[str, object]:
     return {
         "schema_version": report.schema_version,
@@ -141,8 +157,8 @@ def report_to_json(report: GuardReport) -> dict[str, object]:
                 "profile": case.profile,
                 "decision": case.decision,
                 "reason": case.reason,
-                "base_seconds": case.base_seconds,
-                "head_seconds": case.head_seconds,
+                "base_seconds": _json_seconds(case.base_seconds),
+                "head_seconds": _json_seconds(case.head_seconds),
                 "base_median_seconds": case.base_median_seconds,
                 "head_median_seconds": case.head_median_seconds,
                 "median_ratio": case.median_ratio,

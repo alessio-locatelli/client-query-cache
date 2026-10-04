@@ -4,7 +4,7 @@ Every pull request runs a required **Cache hot-path performance guard** check. I
 
 The guard measures repeated, alternating blocks of both revisions and only fails a case when the proposed revision is stably 30% or more slower than the base revision. Ordinary run-to-run noise is reported as an inconclusive warning instead of a failure, so occasional runner variance does not block unrelated work. A missing baseline, an incompatible workload, or another setup problem is reported as a distinct measurement failure rather than a silent pass.
 
-The check's job summary lists, per case, the base and head timings, the relative change, the decision, and both compared revisions. The full result, containing no application documents or credentials, is attached as a downloadable artifact.
+The check's step log and job summary list, per case, the base and head timings, the relative change, the decision, and both compared revisions. The full result, containing no application documents or credentials, is attached as a downloadable artifact. Rejected completed measurements remain in the artifact, and the failure reason identifies the offending block.
 
 This guard covers four representative hot paths on one runner; it does not replace the stream-cost benchmark's controlled matrix or decision evidence in the [public measurement guide](../user/benchmarks/stream-cost.md). Use the manual workflow to investigate a broader cost question or a specific workload.
 

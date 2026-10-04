@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING, cast
 
 import pytest
@@ -40,6 +41,7 @@ def _environment(tmp_path: Path, revision: str) -> RevisionEnvironment:
         ((0.04,) * BLOCK_PAIRS, Decision.REGRESSION),
         ((0.021,) * BLOCK_PAIRS, Decision.WITHIN_BOUNDARY),
     ],
+    ids=["regression", "within-boundary"],
 )
 def test_measure_and_evaluate_case_reports_decision(
     tmp_path: Path,
@@ -96,6 +98,10 @@ def test_measure_and_evaluate_case_reports_measurement_error(
     assert report.base_seconds is None
     assert report.head_seconds is None
     assert "do not match" in report.reason
+    payload = report_to_json(build_guard_report("base-sha", "head-sha", (report,)))
+    cases = cast("list[dict[str, object]]", payload["cases"])
+    assert cases[0]["base_seconds"] is None
+    assert cases[0]["head_seconds"] is None
 
 
 def test_measurement_error_reason_is_bounded(
@@ -161,3 +167,69 @@ def test_report_to_json_and_summary_omit_documents_and_credentials(
         "lower_ratio",
         "upper_ratio",
     }
+
+
+@pytest.mark.parametrize(
+    ("base_seconds", "head_seconds", "expected_reason", "serialized_base_seconds"),
+    [
+        (
+            (0.004,) * BLOCK_PAIRS,
+            (0.02,) * BLOCK_PAIRS,
+            "base block 1: 0.004",
+            (0.004,) * BLOCK_PAIRS,
+        ),
+        (
+            (0.02,) * BLOCK_PAIRS,
+            (0.02,) * (BLOCK_PAIRS - 1) + (0.004,),
+            "head block 15: 0.004",
+            (0.02,) * BLOCK_PAIRS,
+        ),
+        (
+            (float("nan"),) * BLOCK_PAIRS,
+            (0.02,) * BLOCK_PAIRS,
+            "base block 1: nan",
+            (None,) * BLOCK_PAIRS,
+        ),
+    ],
+    ids=["short-base", "short-head", "nonfinite"],
+)
+def test_rejected_completed_measurements_retain_evidence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    base_seconds: tuple[float, ...],
+    head_seconds: tuple[float, ...],
+    expected_reason: str,
+    serialized_base_seconds: tuple[float | None, ...],
+) -> None:
+    measurement = PairedCaseMeasurement(
+        case="sync_hit",
+        profile="small",
+        base_seconds=base_seconds,
+        head_seconds=head_seconds,
+    )
+    monkeypatch.setattr(
+        guard_report, "measure_paired_case", lambda *_args, **_kwargs: measurement
+    )
+    case_report = measure_and_evaluate_case(
+        _environment(tmp_path, "base"),
+        _environment(tmp_path, "head"),
+        "mongodb://unused",
+        "sync_hit",
+        "small",
+    )
+    report = build_guard_report("base-sha", "head-sha", (case_report,))
+
+    assert report.passed is False
+    assert case_report.decision is Decision.MEASUREMENT_ERROR
+    assert expected_reason in case_report.reason
+    assert case_report.base_seconds == base_seconds
+    assert case_report.head_seconds == head_seconds
+    serialized = json.dumps(report_to_json(report), allow_nan=False)
+    decoded = json.loads(serialized)
+    assert decoded["schema_version"] == 2
+    assert decoded["cases"][0]["base_seconds"] == list(serialized_base_seconds)
+    assert decoded["cases"][0]["head_seconds"] == list(head_seconds)
+    assert case_report.median_ratio is None
+    assert expected_reason in report_to_summary(report)
+    assert "minimum 0.005 seconds" in case_report.reason

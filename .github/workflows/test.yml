@@ -257,13 +257,14 @@ jobs:
 
       - if: steps.scope.outputs.requires_guard == 'true'
         run: |
+          set -o pipefail
           uv run -- python -m benchmarks.stream_cost.guard_check \
             --repo-root "${GITHUB_WORKSPACE}" \
             --base-revision "${BASE_REVISION}" \
             --head-revision "${HEAD_REVISION}" \
             --work-dir "${RUNNER_TEMP}/pr-performance-guard" \
             --output guard-reports/guard.report.json \
-            >> "${GITHUB_STEP_SUMMARY}"
+            | tee -a "${GITHUB_STEP_SUMMARY}"
 
       - if: always() && steps.scope.outputs.requires_guard == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
