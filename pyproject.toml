@@ -46,7 +46,7 @@ dev = [
   "python-snappy>=0.7.3",
 ]
 docs = ["mike", "tomli-w>=1.2.0", "zensical>=0.0.67"]
-memory = ["pytest-memray>=1.11.0 ; sys_platform == 'linux'"]
+memory = ["pytest-memray>=1.11.0"]
 
 [build-system]
 requires = ["uv_build>=0.12.18,<0.13.0"]
