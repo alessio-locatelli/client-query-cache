@@ -91,7 +91,7 @@ pytest *args:
     if [[ -f "{{ justfile_directory() }}/.env" ]]; then
         env_file_args=(--env-file "{{ justfile_directory() }}/.env")
     fi
-    exec uv run "${env_file_args[@]}" -- pytest "$@"
+    exec uv run "${env_file_args[@]}" --group docs -- pytest "$@"
 
 build-dev-image:
     podman build --tag {{ dev_image }} --file Containerfile .
@@ -165,29 +165,27 @@ test-memory:
         Linux) ;;
         *) printf '%s\n' 'Memory tests require the locked Linux environment: https://bloomberg.github.io/memray/' >&2; exit 1 ;;
     esac
-    exec uv run --locked --group memory -- pytest tests/memory -m memory --memray --trace-python-allocators --memray-bin-path=memory-reports --capture=no --log-level=CRITICAL --log-file=/dev/null --log-file-level=CRITICAL --timeout=120
+    exec uv run --locked --group memory -- pytest tests/memory -m memory -n 0 --memray --trace-python-allocators --memray-bin-path=memory-reports --capture=no --log-level=CRITICAL --log-file=/dev/null --log-file-level=CRITICAL --timeout=120
 
 test-integration:
     #!/usr/bin/env bash
     set -euo pipefail
 
-    source "{{ justfile_directory() }}/scripts/testcontainers-bridge.sh"
     pytest_log_args=()
     if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
         pytest_log_args=(--log-file-level=WARNING)
     fi
-    uv run -- pytest -m 'integration and not memory' "${pytest_log_args[@]}"
+    exec just pytest -- -m 'integration and not memory' "${pytest_log_args[@]}"
 
 test-e2e:
     #!/usr/bin/env bash
     set -euo pipefail
 
-    source "{{ justfile_directory() }}/scripts/testcontainers-bridge.sh"
     pytest_log_args=()
     if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
         pytest_log_args=(--log-file-level=WARNING)
     fi
-    uv run -- pytest -m 'e2e and not memory' "${pytest_log_args[@]}"
+    exec just pytest -- -m 'e2e and not memory' "${pytest_log_args[@]}"
 
 examples:
     just pytest -- tests/examples
@@ -198,16 +196,11 @@ tests_and_coverage:
 
     coverage_workspace="$(mktemp -d /tmp/client-query-cache-coverage.XXXXXX)"
     export COVERAGE_FILE="${coverage_workspace}/.coverage"
-    source "{{ justfile_directory() }}/scripts/testcontainers-bridge.sh"
     pytest_log_args=()
     if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
         pytest_log_args=(--log-file-level=WARNING)
     fi
-    env_file_args=()
-    if [[ -f "{{ justfile_directory() }}/.env" ]]; then
-        env_file_args=(--env-file "{{ justfile_directory() }}/.env")
-    fi
-    uv run "${env_file_args[@]}" -- coverage run -m pytest -qq "${pytest_log_args[@]}"
+    just pytest -- --cov --cov-config=.coveragerc --cov-report= -qq "${pytest_log_args[@]}"
     uv run -- coverage report
     uv run -- python -c 'from pathlib import Path; import sys; coverage_exclusions = [(path, line_number) for path in Path("src/client_query_cache").rglob("*.py") for line_number, line in enumerate(path.read_text().splitlines(), start=1) if "pragma: no cover" in line]; sys.stderr.write("".join(f"{path}:{line_number}: prohibited pragma: no cover\n" for path, line_number in coverage_exclusions)); sys.exit(bool(coverage_exclusions))'
     uv run -- strict-no-cover

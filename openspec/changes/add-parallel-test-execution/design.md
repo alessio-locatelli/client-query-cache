@@ -93,3 +93,12 @@ Record the initial trial and final comparison with reproduction commands in `doc
 ## Migration Plan
 
 Trial xdist from the CLI first. If measurements support adoption, update dependencies, defaults, hooks, coverage, serial tiers, and diagnostics together, with contributor guidance. `-n 0` is the immediate operational escape hatch; rollback restores serial configuration and the coverage invocation.
+
+## Observed execution blocker
+
+The first final four-worker coverage run exposed a pre-existing wall-clock dependency in
+`generate_seeded_documents`: Faker's default date-time upper bound moves between generations,
+so identical seeds can produce different timestamps. Use a fixed UTC date boundary for this
+benchmark input while retaining naive, millisecond-precision BSON timestamps. This corrects the
+observed deterministic-input defect without weakening assertions or changing test selection.
+Repeat the final comparisons after the correction; the failed attempt is not accepted evidence.
