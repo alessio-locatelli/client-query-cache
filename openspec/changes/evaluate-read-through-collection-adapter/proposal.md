@@ -2,15 +2,17 @@
 
 ## Why
 
-The delivered integrations copy upstream decoding and validation just to change the receiver of a read. Forwarding writes from the existing cached view would not solve native cursor behavior and would revisit the deliberately removed untyped forwarding, so a separate adapter needs evidence before becoming a public API.
+The list-returning cached views require application changes when switching to native PyMongo, and the delivered integrations copy upstream decoding and validation to adapt reads. A collection adapter needs practical evidence that each public method and its accepted argument combinations preserve PyMongo behavior, or a reproducible explanation of why compatibility is infeasible.
 
 ## What Changes
 
-- Produce a versioned compatibility matrix and a reproducible feasibility report for requests-cache, Celery, py-abac, and Eve, using the current explicit read views as the baseline.
-- Evaluate an opt-in collection adapter without changing the existing cached-view contract, temporarily replacing shared receivers during operations, or misrepresenting types.
-- Prototype the smallest consumer-required cursor/collection contract in isolated, untracked experiments; assess writes/admin calls, options, ownership, cursor chaining and partial consumption, sync/async behavior, and native tooling.
-- Measure bounded additional cache buffering and compare it with the current eager materialization behavior. Preserve complete results when caching is declined; never admit incomplete results.
-- Record a decisive go/no-go outcome and the precise supported contract. A go decision is input to a separately authorized production proposal, not authorization to ship an adapter in this change.
+- Produce a versioned inventory of public synchronous and asynchronous PyMongo collection methods, their arguments, and interacting argument combinations. Use released driver contracts to justify complete behavioral partitions rather than claiming that a finite sample exhausts arbitrary input values.
+- Assign every case one evidenced outcome: compatible cached execution, compatible uncached forwarding, or a documented rejection with a runnable prototype or minimal reproducible example establishing the specific incompatibility and why forwarding cannot preserve the contract.
+- Evaluate an opt-in adapter with the same application calls against raw PyMongo and cache-disabled, miss, hit, bypass, and invalidated states. Disabling caching must not require changing method calls, cursor consumption, or awaiting conventions.
+- Build real cursor-returning `find` experiments and investigate the other cache-aware reads, writes, administration, collection traversal, options, ownership, errors, and typing. Preserve native operation behavior when caching is unsafe; inability to cache is not grounds for rejecting a valid PyMongo operation.
+- Measure bounded additional cache buffering, first-document latency, full-result cost, and concurrent-cursor memory against raw PyMongo and eager materialization. Admit only complete results whose invalidation guards remain valid.
+- Retain requests-cache, Celery, py-abac, and Eve as integration checks against the driver-wide inventory. Consumer usage does not define or reduce the compatibility contract.
+- Record a reproducible feasibility report and one adoption recommendation. Distinguish demonstrated incompatibility, prototype defects, unverified cases, and performance or maintenance trade-offs. A production implementation requires a subsequent proposal based on the evidence.
 
 ## Capabilities
 
@@ -24,4 +26,4 @@ None. The current `cached-read-api` contract remains authoritative.
 
 ## Impact
 
-Committed output is a report under `docs/` with source revisions, commands, concise measurements, limitations, and the decision. Experiments and raw measurements stay untracked. No production package, public example, dependency manifest, workflow, submodule, or upstream project is modified. The active examples change retains ownership of its Eve example; this study assesses compatibility without duplicating that implementation obligation. Other proposed changes are optional experimental comparisons, not prerequisites for finishing the study.
+Committed output is `docs/development/research/read-through-collection-adapter-evaluation.md`, containing the inventory, compatibility evidence, reproducible experiment sources and commands, concise measurements, rejection demonstrations, and the recommendation. Experiment files and raw measurements stay untracked under `/tmp`. No production package, public example, dependency manifest, workflow, submodule, or upstream project is modified. The active examples change retains ownership of its Eve example. This change remains an investigation; it does not publish a compatible adapter or alter the existing read-view specification.
