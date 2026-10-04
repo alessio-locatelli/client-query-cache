@@ -110,7 +110,7 @@ malformed arguments preserve the driver's errors.
 A read bypasses the cache — executing as a normal PyMongo call instead of a lookup or admission — whenever caching
 it safely isn't possible:
 
-- The caller supplies a session, a read preference other than primary, or a read concern other than majority.
+- The caller supplies a session or uses `session.bind()`, a read preference other than primary, or a read concern other than majority.
   Leaving read concern unspecified (the common case) is treated as compatible with caching, not as a bypass
   condition: a cache miss reads at majority concern, which is stronger, and can be slower or less available during a
   network partition, than the server's own default read concern an uncached call would otherwise use.

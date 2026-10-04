@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Reads inside PyMongo `session.bind()` contexts bypass caching in synchronous and asyncio views, preserving transaction visibility and native session validation. Reads also bypass caching when their effective session cannot be determined.
 - Provide documentation for the latest release and development branch, including tutorials, integration examples, and local replica-set setup.
 
 ## [0.2.0] - 2026-10-02

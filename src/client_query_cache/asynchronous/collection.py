@@ -735,6 +735,9 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
             self._collection.read_preference,
             self._collection.read_concern.level,
             kwargs,
+            bound_session=getattr(
+                self._collection.database.client, "_get_bound_session", None
+            ),
         )
 
     def _record_bypass(self, reason: BypassReason) -> None:

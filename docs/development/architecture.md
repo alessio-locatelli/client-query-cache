@@ -29,6 +29,14 @@ writes and schema changes occur.
 
 ## Low-level design
 
+- **Session context**: before cache lookup or admission, both cached collections ask the shared request classifier
+  to bypass explicit sessions and sessions bound by `ClientSession.bind()` or `AsyncClientSession.bind()`.
+  PyMongo exposes no public accessor for the effective session, so the guard feature-detects
+  the private `_get_bound_session` callback. An unavailable or non-callable callback
+  conservatively bypasses all cached reads. Its behavior is checked against PyMongo 4.18.1 and 4.18.2. An explicit
+  non-`None` session takes precedence. If private inspection raises an ordinary exception, the classifier bypasses and
+  lets the original native operation validate its arguments and session; this preserves native error ordering. Cancellation and process-control exceptions propagate.
+  The resolver reads local context only and issues no database commands.
 - **Cache granularity**: entries are scoped to a MongoDB namespace (`database.collection`), then further scoped
   within it. A read resolved to one document — by `_id`, or by a value in a field a unique index enforces — is
   cached and invalidated per document, so a write to one document never invalidates another document's cached
