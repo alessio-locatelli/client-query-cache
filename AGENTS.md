@@ -16,6 +16,7 @@ See [README.md](README.md).
 - An `except` clause names one exception type. List several types in one clause only when the guarded code demonstrably raises each of them and a test covers each; otherwise delete the type that is never raised. Coverage marks a multi-type clause as covered as soon as one type fires, so it cannot show that the others are dead.
 - Never use `contextlib.suppress`: coverage cannot show that its exception is never raised. Use `try`/`except <Type>: pass` instead, so that an unreachable handler shows up as a missed line.
 - Any upstream defect (in the MongoDB server, its documentation, specification, or the official Python library) must be documented in the `docs/` with a corresponding URL pointing to a tracking ticket (if none exists on the public issue tracker, ask the user to create one).
+- Immediately add a ticket URL (create one if it doesn't exist) to the repository docs for any known production discrepancy, follow-up work, or "revisit this later" notes. Never leave this information silently buried in the documentation without an owner.
 
 ### Generated artifacts
 
