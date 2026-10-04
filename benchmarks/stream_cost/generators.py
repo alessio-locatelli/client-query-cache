@@ -1,17 +1,14 @@
 from __future__ import annotations
 
+import datetime
 import hashlib
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
 
 import bson
 from bson import ObjectId
 from faker import Faker
 
 from benchmarks.stream_cost.errors import BenchmarkConfigurationError
-
-if TYPE_CHECKING:
-    import datetime
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,6 +28,9 @@ class DocumentSizeProfile:
 SMALL_DOCUMENT_PROFILE = DocumentSizeProfile("small", 200)
 MEDIUM_DOCUMENT_PROFILE = DocumentSizeProfile("medium", 2_000)
 LARGE_DOCUMENT_PROFILE = DocumentSizeProfile("large", 20_000)
+
+# A fixed UTC boundary keeps seeded timestamps independent of generation time.
+_DOCUMENT_DATE_LIMIT = datetime.datetime(2020, 1, 1, tzinfo=datetime.UTC)
 
 
 def _deterministic_object_id(seed: int, index: int) -> ObjectId:
@@ -57,7 +57,9 @@ def generate_seeded_documents(
             "index": index,
             "name": faker.name(),
             "email": faker.email(),
-            "created_at": _millisecond_precision(faker.date_time()),
+            "created_at": _millisecond_precision(
+                faker.date_time(end_datetime=_DOCUMENT_DATE_LIMIT)
+            ),
             "padding": "",
         }
         minimum_size = len(bson.encode(document))

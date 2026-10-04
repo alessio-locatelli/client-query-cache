@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import datetime
+from unittest.mock import MagicMock
+
 import bson
 import pytest
 from bson import ObjectId
@@ -45,9 +48,19 @@ def test_generate_seeded_documents_matches_the_target_size(
         assert len(bson.encode(document)) == profile.target_bytes
 
 
-def test_generate_seeded_documents_is_deterministic_for_the_same_seed() -> None:
-    first = generate_seeded_documents(MEDIUM_DOCUMENT_PROFILE, count=10, seed=7)
-    second = generate_seeded_documents(MEDIUM_DOCUMENT_PROFILE, count=10, seed=7)
+@given(seed=st.integers(min_value=0, max_value=2**32 - 1))
+def test_generate_seeded_documents_is_deterministic_for_the_same_seed(
+    seed: int,
+) -> None:
+    class ReferenceDateTime(datetime.datetime):
+        __slots__ = ()
+        now = MagicMock(return_value=datetime.datetime(2024, 1, 1, tzinfo=datetime.UTC))
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr("faker.providers.date_time.datetime", ReferenceDateTime)
+        first = generate_seeded_documents(MEDIUM_DOCUMENT_PROFILE, count=10, seed=seed)
+        ReferenceDateTime.now.return_value += datetime.timedelta(days=1)
+        second = generate_seeded_documents(MEDIUM_DOCUMENT_PROFILE, count=10, seed=seed)
 
     assert first == second
 
