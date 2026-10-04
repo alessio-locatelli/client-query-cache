@@ -78,6 +78,9 @@ Run host Podman commands from the contributor container with `just podman -- <ar
 Run `just test-memory` for the opt-in memory regression tier on Linux; it requires no MongoDB.
 See the [workload, allocation limits, and calibration guide](docs/development/memory-regression-tests.md).
 
+The integration suite includes [mixed concurrency stress tests](docs/development/concurrency-stress-tests.md).
+That guide documents cycle counts and longer local runs.
+
 ## Documentation
 
 Edit published guides and assets in `docs/user/`. Repository-only architecture, maintainer notes, decisions, and research live in `docs/development/`; use its [development index](docs/development/index.md) to find them. Only `docs/user/` is published.
