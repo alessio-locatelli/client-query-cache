@@ -66,6 +66,13 @@ Verify routing by running existing tests with two workers and inspecting the pro
 
 Replace the recipe's `coverage run -m pytest` with `pytest --cov --cov-config=.coveragerc --cov-report=` in the same isolated `COVERAGE_FILE` workspace. Bare `--cov` preserves the configuration's source selection instead of imposing an unrelated CLI source filter. Disable pytest-cov's terminal report because the existing `coverage report` remains the single report and threshold gate. Retain `.coveragerc`, covdefaults, the prohibited-exclusion check, and `strict-no-cover` without weakening them.
 
+The generic pytest recipe requests the `docs` dependency group because collection imports
+documentation tooling before marker deselection. Integration, end-to-end, and coverage recipes
+delegate pytest execution to it, sharing dependency selection, optional environment-file loading,
+and the container-runtime bridge. They retain their marker or coverage options and CI log levels.
+Contributors need no additional synchronization command after setup. The memory group remains
+exclusive to its dedicated profiling recipe.
+
 [Pytest-cov supports combined coverage from distributed workers](https://pytest-cov.readthedocs.io/en/latest/xdist.html). Use that integration rather than manual worker coverage startup or combination scripts. Do not enable generic subprocess coverage as part of this change: this migration concerns pytest workers, not instrumenting independent example environments or installed wheels. Verify both serial and parallel runs measure the same production modules and branches and leave exclusion enforcement active.
 
 ### 6. Keep measurement and interactive paths serial
@@ -80,7 +87,7 @@ After the successful trial and supporting changes, compare the final full-suite 
 
 Collection work and Python interpreter memory scale with worker count. The shared fixture creates at most one replica set per database-using worker, but independently owned topology fixtures can raise the concurrent container total above that count. File scheduling reduces repeated module setup but creates a longest-file lower bound on elapsed time. Repeated collection, imports, container startup, property-based tests, and the longest integration files are suspected bottlenecks until measured.
 
-Record the initial trial and final comparison with reproduction commands in `docs/development/parallel-test-execution.md`, including tool versions and host resources. Keep raw output untracked. Record timings, slow-test profiling, and resource observations in the implementation commit body. Accept a parallel default only when the final command improves median full-suite elapsed time without conflicts, missing coverage, or resource exhaustion.
+Record the initial trial and final comparison in the implementation commit body, including reproduction commands, tool versions, host resources, timings, slow-test profiling, and resource observations. Keep raw output untracked. Keep `docs/development/parallel-test-execution.md` focused on current commands and behavior; the experiment belongs in change and commit history. Accept a parallel default only when the final command improves median full-suite elapsed time without conflicts, missing coverage, or resource exhaustion.
 
 ## Risks / Trade-offs
 
@@ -102,3 +109,5 @@ so identical seeds can produce different timestamps. Use a fixed UTC date bounda
 benchmark input while retaining naive, millisecond-precision BSON timestamps. This corrects the
 observed deterministic-input defect without weakening assertions or changing test selection.
 Repeat the final comparisons after the correction; the failed attempt is not accepted evidence.
+The determinism regression scopes its replacement clock to each Hypothesis example so Faker's
+original datetime class is restored before another example or test runs.
