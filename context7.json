@@ -1,0 +1,29 @@
+{
+  "$schema": "https://context7.com/schema/context7.json",
+  "folders": ["docs/user"],
+  "excludeFolders": ["docs/user/examples"],
+  "excludeFiles": [
+    "AGENTS.md",
+    "CLAUDE.md",
+    "CONTRIBUTING.md",
+    "CHANGELOG.md",
+    "changelog.md",
+    "CHANGELOG.mdx",
+    "changelog.mdx",
+    "LICENSE.md",
+    "license.md",
+    "CODE_OF_CONDUCT.md",
+    "code_of_conduct.md"
+  ],
+  "rules": [
+    "For synchronous code, use pymongo.MongoClient with client_query_cache.CacheManager. For asyncio, use pymongo.AsyncMongoClient with client_query_cache.asynchronous.CacheManager and await cached reads.",
+    "Cached views provide find_one, find, aggregate, count_documents, estimated_document_count, and distinct. Perform writes, administration, and other PyMongo operations on the original collection or .raw.",
+    "find() and aggregate() on cached views return fully materialized lists, including with asyncio. Use .raw for PyMongo cursor semantics or a $changeStream pipeline.",
+    "Invalidation is asynchronous. For read-after-write, authorization, or other freshness-critical reads, use direct PyMongo reads with appropriate sessions and read/write concerns.",
+    "Let cache-ineligible reads bypass to PyMongo. Unsupported cursor-only requests raise UnsupportedCacheRequestError; use .raw for those requests.",
+    "Reuse one long-lived CacheManager per MongoClient or AsyncMongoClient per process. Each manager has independent cached data, a memory budget, and change-stream progress.",
+    "Close the manager before closing its caller-owned client, or use with / async with. Await close() for asyncio. The manager does not close the client.",
+    "Cache coherence uses MongoDB change streams, not TTL. LRU eviction enforces the in-process memory budget; it is not a freshness mechanism.",
+    "Caching requires MongoDB 8.0+ on a replica set or sharded cluster, database change-stream access, and a healthy stream. Reads bypass caching while the stream is unavailable or unhealthy."
+  ]
+}
