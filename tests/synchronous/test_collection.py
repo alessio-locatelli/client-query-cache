@@ -1355,6 +1355,68 @@ def test_find_with_a_plain_dict_collation_is_cached(
     assert spy.call_count == 1
 
 
+@pytest.mark.parametrize("read_state", ["cold", "warm", "bypass"])
+@pytest.mark.parametrize(
+    ("options", "error_type"),
+    [
+        ({"limit": 0}, OperationFailure),
+        ({"limit": None}, OperationFailure),
+        ({"skip": None}, OperationFailure),
+        ({"hint": None}, TypeError),
+    ],
+    ids=("zero-limit", "null-limit", "null-skip", "null-hint"),
+)
+def test_count_documents_preserves_explicit_invalid_options(
+    cache_manager: CacheManager[dict[str, Any]],
+    cached_database_name: DatabaseName,
+    nonpersistent_collection_name: CollectionName,
+    *,
+    read_state: str,
+    options: dict[str, Any],
+    error_type: type[Exception],
+) -> None:
+    collection = cache_manager[cached_database_name][nonpersistent_collection_name]
+    collection.raw.insert_one({"_id": "counted"})
+    if read_state == "warm":
+        assert collection.count_documents({}) == 1
+        assert collection.count_documents({}) == 1
+    elif read_state == "bypass":
+        options = {**options, "comment": "count-option-bypass"}
+
+    with pytest.raises(error_type) as native_error:
+        collection.raw.count_documents({}, **options)
+    with pytest.raises(error_type) as cached_error:
+        collection.count_documents({}, **options)
+    if isinstance(native_error.value, OperationFailure):
+        assert isinstance(cached_error.value, OperationFailure)
+        assert cached_error.value.code == native_error.value.code
+    else:
+        assert str(cached_error.value) == str(native_error.value)
+
+
+@pytest.mark.parametrize("options", [{}, {"skip": 0}], ids=("omitted", "zero-skip"))
+def test_count_documents_reuses_equivalent_skip_entries(
+    cache_manager: CacheManager[dict[str, Any]],
+    cached_database_name: DatabaseName,
+    nonpersistent_collection_name: CollectionName,
+    options: dict[str, Any],
+) -> None:
+    collection = cache_manager[cached_database_name][nonpersistent_collection_name]
+    collection.raw.insert_one({"_id": "counted"})
+    other_options: dict[str, Any] = {} if options else {"skip": 0}
+    with patch.object(
+        Collection,
+        "count_documents",
+        autospec=True,
+        side_effect=Collection.count_documents,
+    ) as spy:
+        assert collection.count_documents({}, **other_options) == 1
+        assert collection.count_documents({}, **options) == 1
+        assert collection.count_documents({}, **options) == 1
+    assert spy.call_count == 1
+    assert spy.call_args.kwargs == {"session": None, **other_options}
+
+
 def test_count_documents_with_skip_limit_hint_and_collation_object_is_cached(
     cache_manager: CacheManager[dict[str, Any]],
     cached_database_name: DatabaseName,
