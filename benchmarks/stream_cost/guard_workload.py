@@ -32,7 +32,7 @@ PROFILES: tuple[DocumentSizeProfile, ...] = (
 )
 CASE_NAMES = ("sync_hit", "async_hit", "find_admission", "invalidation")
 DOCUMENT_COUNT = 64
-_HIT_OPERATIONS = 256
+_HIT_OPERATIONS = 2048
 _ADMISSION_OPERATIONS = 48
 _INVALIDATION_ENTRIES = 24
 _INVALIDATION_REPEATS = 64
