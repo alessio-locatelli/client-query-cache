@@ -16,6 +16,7 @@ def main() -> None:
         or path
         in {
             "pytest.ini",
+            ".coveragerc",
             "pyproject.toml",
             "uv.lock",
             ".python-version",

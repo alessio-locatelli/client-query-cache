@@ -25,4 +25,4 @@ None.
 
 ## Impact
 
-Implementation will affect development dependencies and `uv.lock`, `pytest.ini`, `tests/memory/`, test commands in `justfile` and `tox.ini`, `.github/workflows/test.yml`, `CONTRIBUTING.md`, and a new `docs/development/memory-regression-tests.md`. No public API or cache-budget semantics change is proposed. The shared core serves synchronous and asynchronous managers, but this gate does not establish cursor, thread, or asyncio-task cleanup. Telemetry retention and long-running process RSS are outside this change.
+Implementation will affect the tracked-file size limit (350 KiB), development dependencies and `uv.lock`, `pytest.ini`, `.coveragerc`, `scripts/ci_scope.py`, `tests/memory/`, test commands in `justfile` and `tox.ini`, `.github/workflows/test.yml`, `CONTRIBUTING.md`, and a new `docs/development/memory-regression-tests.md`. No public API or cache-budget semantics change is proposed. The shared core serves synchronous and asynchronous managers, but this gate does not establish cursor, thread, or asyncio-task cleanup. Telemetry retention and long-running process RSS are outside this change.
