@@ -306,7 +306,7 @@ docs = [
     { name = "tomli-w", specifier = ">=1.2.0" },
     { name = "zensical", specifier = ">=0.0.67" },
 ]
-memory = [{ name = "pytest-memray", marker = "sys_platform == 'linux'", specifier = ">=1.11.0" }]
+memory = [{ name = "pytest-memray", specifier = ">=1.11.0" }]
 
 [[package]]
 name = "colorama"
