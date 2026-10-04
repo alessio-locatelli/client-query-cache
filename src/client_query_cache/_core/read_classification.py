@@ -25,8 +25,16 @@ def request_bypass_reason(
     read_preference: object,
     read_concern_level: str | None,
     kwargs: Mapping[str, object],
+    *,
+    bound_session: object,
 ) -> BypassReason | None:
-    if session is not None:
+    if session is not None or not callable(bound_session):
+        return BypassReason.SESSION
+    try:
+        effective_session = bound_session()
+    except Exception:  # noqa: BLE001 - Failed private inspection must defer to native reads.
+        return BypassReason.SESSION
+    if effective_session is not None:
         return BypassReason.SESSION
     if read_preference != ReadPreference.PRIMARY or read_concern_level not in {
         None,

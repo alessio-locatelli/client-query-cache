@@ -11,7 +11,7 @@ collection.update_one({"_id": "book"}, {"$set": {"price": 12}})
 current_product = collection.find_one({"_id": "book"})
 ```
 
-A session-bound read through the cached view also bypasses caching. Direct and session-bound reads do not refresh the cache or synchronize other managers. See [bypass conditions](../reference/api.md#bypass-conditions) and [PyMongo's documentation](https://pymongo.readthedocs.io/) for driver consistency controls.
+A read through the cached view bypasses caching when you pass a session or call it inside `session.bind()`, including inside a transaction. Passing `session=None` inside a bound context still uses that context's session. Direct and session-bound reads do not refresh the cache or synchronize other managers. See [bypass conditions](../reference/api.md#bypass-conditions) and [PyMongo's session documentation](https://pymongo.readthedocs.io/en/stable/api/pymongo/client_session.html#pymongo.client_session.ClientSession.bind) for driver consistency controls.
 
 ## Manager isolation
 
@@ -26,3 +26,6 @@ Choose raw reads for authorization decisions that require current policy on ever
 The [py-abac example](../examples/py-abac.md) demonstrates eventual policy invalidation, with a polling loop that waits to observe a change. Applications requiring stronger guarantees must use appropriate direct reads.
 
 For maintainers, the [development decision source](https://github.com/alessio-locatelli/client-query-cache/blob/main/docs/development/decisions/defer-causal-invalidation-barrier.md) records why a public invalidation barrier is deferred. Its [research source](https://github.com/alessio-locatelli/client-query-cache/blob/main/docs/development/research/causal-invalidation-barrier.md) preserves the investigated mechanism and limitations.
+
+If the installed driver cannot determine the effective session needed
+by the cache, reads execute through native PyMongo without caching.
