@@ -34,6 +34,9 @@ pytestmark = pytest.mark.unit
         pytest.param(("notes.txt",), False, False, False, False, False, id="unrelated"),
         pytest.param(("justfile",), True, False, False, False, True, id="justfile"),
         pytest.param(
+            (".coveragerc",), True, False, False, False, False, id="coverage-config"
+        ),
+        pytest.param(
             (".github/workflows/test.yml",),
             True,
             True,

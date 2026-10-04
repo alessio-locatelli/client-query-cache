@@ -157,6 +157,16 @@ podman *args:
         exit 1
     fi
 
+# Profile synthetic cache churn without MongoDB.
+test-memory:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "$(uname -s)" in
+        Linux) ;;
+        *) printf '%s\n' 'Memory tests require the locked Linux environment: https://bloomberg.github.io/memray/' >&2; exit 1 ;;
+    esac
+    exec uv run --locked --group memory -- pytest tests/memory -m memory --memray --trace-python-allocators --memray-bin-path=memory-reports --capture=no --log-level=CRITICAL --log-file=/dev/null --log-file-level=CRITICAL --timeout=120
+
 test-integration:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -166,7 +176,7 @@ test-integration:
     if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
         pytest_log_args=(--log-file-level=WARNING)
     fi
-    uv run -- pytest -m integration "${pytest_log_args[@]}"
+    uv run -- pytest -m 'integration and not memory' "${pytest_log_args[@]}"
 
 test-e2e:
     #!/usr/bin/env bash
@@ -177,7 +187,7 @@ test-e2e:
     if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
         pytest_log_args=(--log-file-level=WARNING)
     fi
-    uv run -- pytest -m e2e "${pytest_log_args[@]}"
+    uv run -- pytest -m 'e2e and not memory' "${pytest_log_args[@]}"
 
 examples:
     just pytest -- tests/examples

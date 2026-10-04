@@ -8,7 +8,7 @@ Pull requests selected by the existing Python-validation path scope SHALL run th
 
 #### Scenario: Python validation is selected
 
-- **WHEN** Python source, pytest configuration, dependency metadata, lockfile, interpreter, test recipe, validation workflow, or shared toolchain setup changes and quality checks pass
+- **WHEN** Python source, pytest or coverage configuration, dependency metadata, lockfile, interpreter, test recipe, validation workflow, or shared toolchain setup changes and quality checks pass
 - **THEN** a separate memory job runs the dedicated command on the selected revision
 
 #### Scenario: Quality checks fail

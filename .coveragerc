@@ -2,6 +2,7 @@
 plugins = covdefaults
 omit =
     tests/e2e/*
+    tests/memory/*
     scripts/*
     tests/benchmark/real_server/test_cache_benefit.py
 
