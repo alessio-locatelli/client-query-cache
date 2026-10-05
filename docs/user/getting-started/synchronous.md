@@ -23,13 +23,13 @@ with (
     print(first, repeated)
     print("Cache hits:", cache_manager.snapshot().hits)
 
-    items = cached_collection.find({"value": 42})
+    items = list(cached_collection.find({"value": 42}))
     print(items)
 ```
 
 Save the program as `quick_start.py` and run `python quick_start.py` in the environment where you installed the library. On an eligible deployment with a healthy stream, repeated reads can hit the cache. If caching is unavailable, both reads execute through PyMongo; [monitoring](../operations/monitoring.md) explains how to inspect bypasses. Startup and concurrent changes can affect the observed hit count.
 
-Keep the PyMongo `collection` for writes and administration. The cached view exposes [six read methods](../usage/cached-reads.md); `find` and `aggregate` return lists. Use `cached_collection.raw` for PyMongo cursor behavior.
+Keep the PyMongo `collection` for writes and administration. The cached view exposes [six read methods](../usage/cached-reads.md); `find` and `aggregate` return cursors. Iterate them or use `list(cursor)` / `cursor.to_list()` to materialize their documents. Use `.raw` when a read must execute against MongoDB.
 
 The context managers close the cache manager before the client. A manager never closes your client, and closing only the client leaves the manager's background task running. Reuse a long-lived manager across application requests; see [deployment](../operations/deployment.md#capacity-estimation).
 

@@ -19,6 +19,10 @@ class Decimal128ToDecimalDecoder(TypeDecoder):
         return value.to_decimal()
 
 
+def fail_decimal_encoding(_value: Decimal) -> Decimal128:
+    raise ValueError("custom encoding failed")
+
+
 def decode_only_decimal_options() -> CodecOptions[RawBSONDocument]:
     return CodecOptions(
         document_class=RawBSONDocument,

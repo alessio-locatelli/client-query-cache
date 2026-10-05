@@ -15,19 +15,20 @@ from bson.int64 import Int64
 from bson.raw_bson import RawBSONDocument
 from pymongo import AsyncMongoClient, ReadPreference
 from pymongo.asynchronous.collection import AsyncCollection
+from pymongo.asynchronous.cursor import AsyncCursor
 from pymongo.asynchronous.database import AsyncDatabase
 from pymongo.collation import Collation
 from pymongo.cursor import CursorType
 from pymongo.errors import ConnectionFailure, OperationFailure
 from pymongo.read_concern import ReadConcern
 
-from client_query_cache import UnsupportedCacheRequestError
 from client_query_cache._core.keys import NamespaceId
 from client_query_cache._core.manager import CacheCore, CacheCoreConfig
 from client_query_cache.asynchronous.collection import CachedCollection
 from client_query_cache.asynchronous.manager import CacheManager
 from client_query_cache.asynchronous.streams import DatabaseStreamSupervisor
 from tests.codec_helpers import DecodedPriceCase, decode_only_decimal_options
+from tests.cursor_helpers import materialize
 from tests.polling import wait_until_async as _wait_until
 from tests.polling import wait_until_value_async
 
@@ -52,7 +53,7 @@ async def independent_writer(
 async def _find_first(
     collection: CachedCollection[dict[str, Any]],
 ) -> dict[str, Any] | None:
-    return (await collection.find({}))[0]
+    return (await materialize(collection.find({})))[0]
 
 
 async def _sorted_distinct(collection: CachedCollection[dict[str, Any]]) -> list[Any]:
@@ -221,7 +222,7 @@ async def test_created_raw_collection_is_readable_through_the_cached_view(
     collection = cache_manager.cached(raw_collection)
 
     assert collection.raw is raw_collection
-    assert await collection.find({}) == []
+    assert await materialize(collection.find({})) == []
 
 
 async def test_repeated_cached_views_share_entries_and_one_database_stream(
@@ -442,8 +443,16 @@ async def test_reads_with_different_uuid_codecs_do_not_share_a_cache_entry(
     identifier = uuid.uuid4()
     await standard_collection.raw.insert_one({"_id": "doc-1", "u": identifier})
 
-    first = await getattr(standard_collection, method)({"u": identifier})
-    second = await getattr(legacy_collection, method)({"u": identifier})
+    first = (
+        await standard_collection.find({"u": identifier}).to_list()
+        if method == "find"
+        else await standard_collection.find_one({"u": identifier})
+    )
+    second = (
+        await legacy_collection.find({"u": identifier}).to_list()
+        if method == "find"
+        else await legacy_collection.find_one({"u": identifier})
+    )
 
     assert first == (
         [{"_id": "doc-1", "u": identifier}]
@@ -548,7 +557,7 @@ async def test_generic_find_one_caches_and_isolates_documents(
     "invoke",
     [
         pytest.param(
-            lambda collection: collection.find({"$where": "true"}),
+            lambda collection: materialize(collection.find({"$where": "true"})),
             id="find-unsafe-filter",
         ),
         pytest.param(
@@ -931,13 +940,15 @@ async def test_find_one_bypasses_forced_options_while_the_stream_is_unavailable(
         ),
         pytest.param(
             "find",
-            lambda collection: collection.find({"v": 1}),
+            lambda collection: materialize(collection.find({"v": 1})),
             [{"_id": "a", "v": 1, "email": "a@example.com"}],
             id="find",
         ),
         pytest.param(
             "aggregate",
-            lambda collection: collection.aggregate([{"$match": {"v": 1}}]),
+            lambda collection: materialize(
+                collection.aggregate([{"$match": {"v": 1}}])
+            ),
             [{"_id": "a", "v": 1, "email": "a@example.com"}],
             id="aggregate",
         ),
@@ -977,16 +988,28 @@ async def test_reads_recheck_availability_before_forcing_read_options(
     with (
         patch.object(CacheCore, "is_database_available", side_effect=[True, False]),
         patch.object(
-            AsyncCollection,
-            patch_target,
+            AsyncCursor if patch_target == "find" else AsyncCollection,
+            "_send_message"
+            if patch_target == "find"
+            else "_aggregate"
+            if patch_target == "aggregate"
+            else patch_target,
             autospec=True,
-            side_effect=getattr(AsyncCollection, patch_target),
+            side_effect=AsyncCursor._send_message
+            if patch_target == "find"
+            else AsyncCollection._aggregate
+            if patch_target == "aggregate"
+            else getattr(AsyncCollection, patch_target),
         ) as spy,
     ):
         returned = await invoke(collection)
 
     assert returned == expected
-    assert spy.call_args.args[0] is collection.raw
+    assert (
+        spy.call_args.args[0].collection
+        if patch_target == "find"
+        else spy.call_args.args[0]
+    ) is collection.raw
 
 
 async def test_find_one_by_id_discards_admission_when_the_query_fails(
@@ -1021,13 +1044,15 @@ async def test_find_one_by_id_discards_admission_when_the_query_fails(
         ),
         pytest.param(
             "find",
-            lambda collection: collection.find({}, sort=[("_id", 1)]),
+            lambda collection: materialize(collection.find({}, sort=[("_id", 1)])),
             [{"_id": "a", "v": 1}, {"_id": "b", "v": 2}],
             id="find",
         ),
         pytest.param(
             "aggregate",
-            lambda collection: collection.aggregate([{"$sort": {"_id": 1}}]),
+            lambda collection: materialize(
+                collection.aggregate([{"$sort": {"_id": 1}}])
+            ),
             [{"_id": "a", "v": 1}, {"_id": "b", "v": 2}],
             id="aggregate",
         ),
@@ -1064,10 +1089,18 @@ async def test_repeated_reads_are_served_from_cache(
     await collection.raw.insert_many([{"_id": "a", "v": 1}, {"_id": "b", "v": 2}])
 
     with patch.object(
-        AsyncCollection,
-        patch_target,
+        AsyncCursor if patch_target == "find" else AsyncCollection,
+        "_send_message"
+        if patch_target == "find"
+        else "_aggregate"
+        if patch_target == "aggregate"
+        else patch_target,
         autospec=True,
-        side_effect=getattr(AsyncCollection, patch_target),
+        side_effect=AsyncCursor._send_message
+        if patch_target == "find"
+        else AsyncCollection._aggregate
+        if patch_target == "aggregate"
+        else getattr(AsyncCollection, patch_target),
     ) as spy:
         first = await invoke(collection)
         second = await invoke(collection)
@@ -1081,12 +1114,12 @@ async def test_repeated_reads_are_served_from_cache(
     ("invoke", "settled"),
     [
         pytest.param(
-            lambda collection: collection.find({}),
+            lambda collection: materialize(collection.find({})),
             lambda value: len(value) == 2,
             id="find",
         ),
         pytest.param(
-            lambda collection: collection.aggregate([{"$match": {}}]),
+            lambda collection: materialize(collection.aggregate([{"$match": {}}])),
             lambda value: len(value) == 2,
             id="aggregate",
         ),
@@ -1138,14 +1171,17 @@ async def test_find_shapes_do_not_collide(
     )
 
     with patch.object(
-        AsyncCollection, "find", autospec=True, side_effect=AsyncCollection.find
+        AsyncCursor,
+        "_send_message",
+        autospec=True,
+        side_effect=AsyncCursor._send_message,
     ) as spy:
-        full = await collection.find({})
-        projected = await collection.find({}, {"v": 1})
-        limited = await collection.find({}, limit=1)
-        await collection.find({})
-        await collection.find({}, {"v": 1})
-        await collection.find({}, limit=1)
+        full = await materialize(collection.find({}))
+        projected = await materialize(collection.find({}, {"v": 1}))
+        limited = await materialize(collection.find({}, limit=1))
+        await materialize(collection.find({}))
+        await materialize(collection.find({}, {"v": 1}))
+        await materialize(collection.find({}, limit=1))
 
     assert full != projected
     assert len(limited) == 1
@@ -1171,8 +1207,8 @@ async def test_find_filters_on_distinct_equivalent_looking_values_do_not_collide
         [{"_id": "doc1", "x": first_value}, {"_id": "doc2", "x": second_value}]
     )
 
-    first = await collection.find({"x": first_value})
-    second = await collection.find({"x": second_value})
+    first = await materialize(collection.find({"x": first_value}))
+    second = await materialize(collection.find({"x": second_value}))
 
     assert first == [{"_id": "doc1", "x": first_value}]
     assert second == [{"_id": "doc2", "x": second_value}]
@@ -1249,8 +1285,8 @@ async def test_aggregate_with_a_multi_field_sort_is_order_sensitive(
         ]
     )
 
-    by_x_then_y = await collection.aggregate([{"$sort": {"x": 1, "y": 1}}])
-    by_y_then_x = await collection.aggregate([{"$sort": {"y": 1, "x": 1}}])
+    by_x_then_y = await materialize(collection.aggregate([{"$sort": {"x": 1, "y": 1}}]))
+    by_y_then_x = await materialize(collection.aggregate([{"$sort": {"y": 1, "x": 1}}]))
 
     assert [doc["_id"] for doc in by_x_then_y] == ["b", "a", "c"]
     assert [doc["_id"] for doc in by_y_then_x] == ["b", "c", "a"]
@@ -1273,11 +1309,13 @@ async def test_aggregate_with_equal_int_and_other_numeric_literals_do_not_collid
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
     await collection.raw.insert_one({"_id": "a"})
 
-    int_result = await collection.aggregate(
-        [{"$project": {"t": {"$type": {"$literal": 1}}}}]
+    int_result = await materialize(
+        collection.aggregate([{"$project": {"t": {"$type": {"$literal": 1}}}}])
     )
-    other_result = await collection.aggregate(
-        [{"$project": {"t": {"$type": {"$literal": other_literal}}}}]
+    other_result = await materialize(
+        collection.aggregate(
+            [{"$project": {"t": {"$type": {"$literal": other_literal}}}}]
+        )
     )
 
     assert int_result == [{"_id": "a", "t": "int"}]
@@ -1313,7 +1351,7 @@ async def test_find_one_by_a_numeric_id_invalidates_regardless_of_int_or_float_s
         pytest.param({"allow_partial_results": True}, id="allow-partial-results"),
     ],
 )
-async def test_find_rejects_cursor_shapes_it_cannot_fully_materialize(
+async def test_find_preserves_native_cursor_shapes(
     cache_manager: CacheManager[dict[str, Any]],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
@@ -1321,19 +1359,23 @@ async def test_find_rejects_cursor_shapes_it_cannot_fully_materialize(
 ) -> None:
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
 
-    with pytest.raises(UnsupportedCacheRequestError):
-        await collection.find({}, **kwargs)
+    cursor = collection.find({}, **kwargs)
+    assert isinstance(cursor, AsyncCursor)
+    await cursor.close()
+    assert cache_manager.snapshot().hits == 0
 
 
-async def test_aggregate_rejects_a_change_stream_pipeline(
+async def test_aggregate_preserves_native_change_stream_cursor(
     cache_manager: CacheManager[dict[str, Any]],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
 ) -> None:
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
 
-    with pytest.raises(UnsupportedCacheRequestError):
-        await collection.aggregate([{"$changeStream": {}}])
+    cursor = await collection.aggregate([{"$changeStream": {}}])
+    await cursor.close()
+    assert cache_manager.snapshot().hits == 0
+    assert cache_manager.snapshot().entry_count == 0
 
 
 async def test_aggregate_with_a_now_variable_executes_without_raising_but_is_not_cached(
@@ -1347,12 +1389,12 @@ async def test_aggregate_with_a_now_variable_executes_without_raising_but_is_not
 
     with patch.object(
         AsyncCollection,
-        "aggregate",
+        "_aggregate",
         autospec=True,
-        side_effect=AsyncCollection.aggregate,
+        side_effect=AsyncCollection._aggregate,
     ) as spy:
-        await collection.aggregate(pipeline)
-        await collection.aggregate(pipeline)
+        await materialize(collection.aggregate(pipeline))
+        await materialize(collection.aggregate(pipeline))
 
     assert spy.call_count == 2
 
@@ -1370,10 +1412,13 @@ async def test_find_with_an_oversize_result_is_returned_but_never_cached(
     )
 
     with patch.object(
-        AsyncCollection, "find", autospec=True, side_effect=AsyncCollection.find
+        AsyncCursor,
+        "_send_message",
+        autospec=True,
+        side_effect=AsyncCursor._send_message,
     ) as spy:
-        first = await collection.find({})
-        second = await collection.find({})
+        first = await materialize(collection.find({}))
+        second = await materialize(collection.find({}))
 
     assert first == second
     assert len(first) == 5
@@ -1389,10 +1434,13 @@ async def test_find_with_a_plain_dict_collation_is_cached(
     await collection.raw.insert_one({"_id": "a", "v": 1})
 
     with patch.object(
-        AsyncCollection, "find", autospec=True, side_effect=AsyncCollection.find
+        AsyncCursor,
+        "_send_message",
+        autospec=True,
+        side_effect=AsyncCursor._send_message,
     ) as spy:
-        first = await collection.find({}, collation={"locale": "en"})
-        second = await collection.find({}, collation={"locale": "en"})
+        first = await materialize(collection.find({}, collation={"locale": "en"}))
+        second = await materialize(collection.find({}, collation={"locale": "en"}))
 
     assert first == second == [{"_id": "a", "v": 1}]
     assert spy.call_count == 1
@@ -1512,26 +1560,28 @@ async def test_estimated_document_count_bypasses_cache_for_extra_pymongo_options
     [
         pytest.param(
             "find",
-            lambda collection: collection.find({"$where": "this.v > 0"}),
+            lambda collection: materialize(collection.find({"$where": "this.v > 0"})),
             id="find-where",
         ),
         pytest.param(
             "find",
-            lambda collection: collection.find({"$expr": {"$rand": {}}}),
+            lambda collection: materialize(collection.find({"$expr": {"$rand": {}}})),
             id="find-expr-rand",
         ),
         pytest.param(
             "find",
-            lambda collection: collection.find(
-                {
-                    "$expr": {
-                        "$function": {
-                            "body": "function() { return true; }",
-                            "args": [],
-                            "lang": "js",
+            lambda collection: materialize(
+                collection.find(
+                    {
+                        "$expr": {
+                            "$function": {
+                                "body": "function() { return true; }",
+                                "args": [],
+                                "lang": "js",
+                            }
                         }
                     }
-                }
+                )
             ),
             id="find-expr-function",
         ),
@@ -1558,10 +1608,18 @@ async def test_unsafe_filters_are_never_cached(
     await collection.raw.insert_one({"_id": "a", "v": 1})
 
     with patch.object(
-        AsyncCollection,
-        patch_target,
+        AsyncCursor if patch_target == "find" else AsyncCollection,
+        "_send_message"
+        if patch_target == "find"
+        else "_aggregate"
+        if patch_target == "aggregate"
+        else patch_target,
         autospec=True,
-        side_effect=getattr(AsyncCollection, patch_target),
+        side_effect=AsyncCursor._send_message
+        if patch_target == "find"
+        else AsyncCollection._aggregate
+        if patch_target == "aggregate"
+        else getattr(AsyncCollection, patch_target),
     ) as spy:
         await invoke(collection)
         await invoke(collection)
@@ -1579,13 +1637,20 @@ async def test_find_with_a_meta_projection_is_never_cached(
     await collection.raw.insert_one({"_id": "a", "text": "hello world"})
 
     with patch.object(
-        AsyncCollection, "find", autospec=True, side_effect=AsyncCollection.find
+        AsyncCursor,
+        "_send_message",
+        autospec=True,
+        side_effect=AsyncCursor._send_message,
     ) as spy:
-        await collection.find(
-            {"$text": {"$search": "hello"}}, {"score": {"$meta": "textScore"}}
+        await materialize(
+            collection.find(
+                {"$text": {"$search": "hello"}}, {"score": {"$meta": "textScore"}}
+            )
         )
-        await collection.find(
-            {"$text": {"$search": "hello"}}, {"score": {"$meta": "textScore"}}
+        await materialize(
+            collection.find(
+                {"$text": {"$search": "hello"}}, {"score": {"$meta": "textScore"}}
+            )
         )
 
     assert spy.call_count == 2
@@ -1601,7 +1666,9 @@ async def test_find_with_a_meta_projection_is_never_cached(
         ),
         pytest.param(
             "find",
-            lambda collection: collection.find({"$text": {"$search": "hello"}}),
+            lambda collection: materialize(
+                collection.find({"$text": {"$search": "hello"}})
+            ),
             id="find-text-search",
         ),
         pytest.param(
@@ -1632,10 +1699,18 @@ async def test_text_search_filters_are_never_cached(
     await collection.raw.insert_one({"_id": "a", "text": "hello world"})
 
     with patch.object(
-        AsyncCollection,
-        patch_target,
+        AsyncCursor if patch_target == "find" else AsyncCollection,
+        "_send_message"
+        if patch_target == "find"
+        else "_aggregate"
+        if patch_target == "aggregate"
+        else patch_target,
         autospec=True,
-        side_effect=getattr(AsyncCollection, patch_target),
+        side_effect=AsyncCursor._send_message
+        if patch_target == "find"
+        else AsyncCollection._aggregate
+        if patch_target == "aggregate"
+        else getattr(AsyncCollection, patch_target),
     ) as spy:
         await invoke(collection)
         await invoke(collection)
@@ -1649,8 +1724,8 @@ async def test_text_search_filters_are_never_cached(
         pytest.param(
             "find",
             {"_id": "a", "script": Code("function() { return true; }")},
-            lambda collection: collection.find(
-                {"script": Code("function() { return true; }")}
+            lambda collection: materialize(
+                collection.find({"script": Code("function() { return true; }")})
             ),
             [{"_id": "a", "script": Code("function() { return true; }")}],
             id="find-unhashable-filter-value",
@@ -1700,10 +1775,18 @@ async def test_reads_with_an_unhashable_value_bypass_instead_of_raising(
     await collection.raw.insert_one(insert_doc)
 
     with patch.object(
-        AsyncCollection,
-        patch_target,
+        AsyncCursor if patch_target == "find" else AsyncCollection,
+        "_send_message"
+        if patch_target == "find"
+        else "_aggregate"
+        if patch_target == "aggregate"
+        else patch_target,
         autospec=True,
-        side_effect=getattr(AsyncCollection, patch_target),
+        side_effect=AsyncCursor._send_message
+        if patch_target == "find"
+        else AsyncCollection._aggregate
+        if patch_target == "aggregate"
+        else getattr(AsyncCollection, patch_target),
     ) as spy:
         first = await invoke(collection)
         second = await invoke(collection)
@@ -1762,12 +1845,12 @@ async def test_aggregate_with_an_unsafe_pipeline_is_never_cached(
 
     with patch.object(
         AsyncCollection,
-        "aggregate",
+        "_aggregate",
         autospec=True,
-        side_effect=AsyncCollection.aggregate,
+        side_effect=AsyncCollection._aggregate,
     ) as spy:
-        await collection.aggregate(pipeline)
-        await collection.aggregate(pipeline)
+        await materialize(collection.aggregate(pipeline))
+        await materialize(collection.aggregate(pipeline))
 
     assert spy.call_count == 2
 
@@ -1784,12 +1867,12 @@ async def test_aggregate_with_an_out_stage_still_executes_its_write_but_is_not_c
 
     with patch.object(
         AsyncCollection,
-        "aggregate",
+        "_aggregate",
         autospec=True,
-        side_effect=AsyncCollection.aggregate,
+        side_effect=AsyncCollection._aggregate,
     ) as spy:
-        await collection.aggregate(pipeline)
-        await collection.aggregate(pipeline)
+        await materialize(collection.aggregate(pipeline))
+        await materialize(collection.aggregate(pipeline))
 
     assert spy.call_count == 2
     target = cache_manager[cached_database_name][persistent_collection_name]

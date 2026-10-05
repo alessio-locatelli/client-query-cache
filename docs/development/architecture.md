@@ -67,3 +67,39 @@ writes and schema changes occur.
   that write's event; once processed, every later read is guaranteed to see the invalidation. This is not a
   per-write barrier — it does not wait for "catch-up" on every read, only guarantees that a processed write is never
   silently missed.
+
+## Cursor driver integration
+
+The synchronous and asynchronous `cursors.py` modules confine protected PyMongo
+access to the native execution and aggregation factory boundaries. Find subclasses
+preserve `Collection.find()`'s variadic argument shape, with native constructor
+validation and precise cursor/document return annotations. They
+use `_refresh()` for final-query preparation, `_send_message()` to distinguish
+internal server-resource cleanup from caller close, `_next_batch()` for `to_list()`,
+and `_clone_base()` for independent captures. Final keys read the native `_spec`,
+`_projection`, `_ordering`, `_skip`, `_limit`, `_collation`, and codec fields;
+unsupported flags and query options retain native execution. Local find hits set
+the native `_data`, `_retrieved`, `_id`, and `_killed` buffer state. Eligible misses
+set the primary/majority read profile without replacing the wrapped collection.
+
+Aggregation preparation uses `_CollectionAggregationCommand` for local argument
+validation before lookup. Misses use `Collection._aggregate()` with a scoped
+`partial()` factory for the module-level cursor class inside the native client
+`_tmp_session()` envelope, preserving
+retry, session, first-batch, and connection ownership. No live cursor is copied.
+The returned cursor does not retain the factory; releasing its capture field
+also releases the collector object, without waiting for cursor collection.
+Command subclasses capture `_try_next()` and `_next_batch()` consumption; empty
+results also finalize through `next()` and `to_list()`. Native command batching is
+inherited unchanged, including on local hits. Internal final-batch `close()`
+releases server resources while retaining unread documents and capture state;
+caller close releases both. Errors discard capture, and async cancellation awaits
+native cleanup before propagating.
+
+Native iteration/context protocols, supported chaining, indexing validation,
+explain/distinct, and command batching remain inherited except for these localized
+hooks. Copy/clone and rewind start independent executions. Hits have no server
+cursor, address, or session; find `retrieved` counts the complete loaded snapshot.
+Both execution models are checked with the same disposable replica-set cursor and
+bound-session cases on PyMongo 4.18.1 and the locked 4.18.2 driver. Future driver
+releases require the same differential checks because these hooks are protected.
