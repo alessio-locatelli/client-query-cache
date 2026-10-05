@@ -192,6 +192,15 @@ The README opening SHALL identify the audience and concrete benefits before setu
 - **WHEN** a reader scans the README opening
 - **THEN** they can see why the library is useful and what evidence supports its quality claims without reading internal implementation details
 
+### Requirement: README presents illustrative latency evidence
+
+The README SHALL reuse the public benchmark guide's illustrative read-latency chart after the value proposition and before the quick start. Its title and accessible description SHALL identify the comparison as illustrative. A short caption SHALL name the measured deployments, state that results vary, and link to the benchmark guide for methodology and limitations.
+
+#### Scenario: A reader evaluates cached-read latency
+
+- **WHEN** a reader scans the README's performance illustration
+- **THEN** they see the local MongoDB and Atlas M0 measurements as illustrative results and can reach their methodology without a full benchmark explanation in the README
+
 ### Requirement: README shows one minimal usage example
 
 The README SHALL show one short, copyable example using public APIs to construct a client and cache manager and repeat a cached read. It SHALL demonstrate correct cleanup and keep advanced options, full tutorials, and alternate execution models in the public guides. Comments SHALL NOT promise a cache hit regardless of stream health or concurrent writes.
