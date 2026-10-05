@@ -141,7 +141,6 @@ def _measurements_by_type(payload: Mapping[str, Any]) -> dict[str, tuple[float, 
 def _fetch_process_and_metrics(
     project_id: str, mongodb_uri: str, deadline: float
 ) -> tuple[str, Mapping[str, Any]] | None:
-    members = _resolve_srv_members(mongodb_uri)
     remaining = deadline - time.monotonic()
     if remaining <= 0:
         logger.warning(
@@ -149,6 +148,7 @@ def _fetch_process_and_metrics(
             "exhausted before listing processes"
         )
         return None
+    members = _resolve_srv_members(mongodb_uri)
     host_id = _primary_process_host_id(
         project_id, members, timeout=min(_ATLAS_TIMEOUT_SECONDS, remaining)
     )

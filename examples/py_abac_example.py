@@ -53,6 +53,23 @@ class CachedMongoStorage(MongoStorage):  # type: ignore[misc]
             yield PolicyModel.from_doc(document).to_policy()
 
 
+def read_policies(storage: CachedMongoStorage, shape: str) -> tuple[Policy, ...]:
+    if shape == "get":
+        retrieved = storage.get(POLICY_ID)
+        return () if retrieved is None else (retrieved,)
+    if shape == "get_all":
+        return tuple(storage.get_all(limit=1, offset=0))
+    return tuple(storage.get_for_target("alice", "document", "read"))
+
+
+def check_policy_reads(storage: CachedMongoStorage, shape: str) -> None:
+    for _ in range(5):
+        policies = read_policies(storage, shape)
+        if len(policies) != 1 or policies[0].uid != POLICY_ID:
+            message = f"policy retrieval failed for {shape}"
+            raise SystemExit(message)
+
+
 def main() -> None:
     mongodb_uri = os.getenv("MONGODB_URI", DEFAULT_MONGODB_URI)
     with MongoClient[dict[str, Any]](mongodb_uri) as client:
@@ -74,6 +91,14 @@ def main() -> None:
                 }
             )
             storage.add(policy)
+            for shape in ("get", "get_all", "get_for_target"):
+                hits_before = manager.snapshot().hits
+                check_policy_reads(storage, shape)
+                hits = manager.snapshot().hits - hits_before
+                if hits < 4:
+                    message = f"no cache hits for {shape}"
+                    raise SystemExit(message)
+                print(f"{shape} cache hits: {hits}")
             request = AccessRequest.from_json(
                 {
                     "subject": {"id": "alice", "attributes": {}},
@@ -83,26 +108,6 @@ def main() -> None:
                 }
             )
             pdp = PDP(storage)
-            for shape in ("get", "get_all", "get_for_target"):
-                hits_before = manager.snapshot().hits
-                for _ in range(5):
-                    if shape == "get":
-                        retrieved = storage.get(POLICY_ID)
-                        policies = () if retrieved is None else (retrieved,)
-                    elif shape == "get_all":
-                        policies = tuple(storage.get_all(limit=1, offset=0))
-                    else:
-                        policies = tuple(
-                            storage.get_for_target("alice", "document", "read")
-                        )
-                    if len(policies) != 1 or policies[0].uid != POLICY_ID:
-                        message = f"policy retrieval failed for {shape}"
-                        raise SystemExit(message)
-                hits = manager.snapshot().hits - hits_before
-                if hits < 4:
-                    message = f"no cache hits for {shape}"
-                    raise SystemExit(message)
-                print(f"{shape} cache hits: {hits}")
             if not pdp.is_allowed(request):
                 raise SystemExit("allow policy did not authorize the request")
             policy.effect = "deny"

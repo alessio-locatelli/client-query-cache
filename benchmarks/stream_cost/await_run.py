@@ -68,11 +68,10 @@ async def _wait_for(
     predicate: Callable[[], bool], seconds: float, listener: AwaitCommandListener
 ) -> None:
     async with asyncio.timeout(seconds):
-        while True:
-            version = listener.version
-            if predicate():
-                return
+        version = listener.version
+        while not predicate():
             await asyncio.to_thread(listener.wait_for_change, version, seconds)
+            version = listener.version
 
 
 async def _wait_for_command_count(
@@ -128,6 +127,30 @@ def _capture_start(
     sent, received = proxy.bytes_sent, proxy.bytes_received
     process = time.process_time()
     return WindowStart(time.monotonic(), process, server, sent, received, offset)
+
+
+@dataclass(frozen=True, slots=True)
+class WindowDeltas:
+    elapsed: float
+    cpu: float
+    server: float
+    sent: int
+    received: int
+
+
+def _capture_deltas(
+    replica: IsolatedReplicaSet,
+    proxy: DirectPathByteProxy,
+    boundary: WindowStart,
+    start: float,
+    end: float,
+) -> WindowDeltas:
+    elapsed = end - start
+    cpu = time.process_time() - boundary.process_cpu_seconds
+    sent = proxy.bytes_sent - boundary.bytes_sent
+    received = proxy.bytes_received - boundary.bytes_received
+    server = replica.container_cpu_usage_seconds() - boundary.server_cpu_seconds
+    return WindowDeltas(elapsed, cpu, server, sent, received)
 
 
 async def _idle_start(
@@ -262,13 +285,7 @@ async def run_window(
                     )
                 )
             end = time.monotonic()
-            elapsed = end - start
-            cpu = time.process_time() - boundary.process_cpu_seconds
-            sent, received = (
-                proxy.bytes_sent - boundary.bytes_sent,
-                proxy.bytes_received - boundary.bytes_received,
-            )
-            server = replica.container_cpu_usage_seconds() - boundary.server_cpu_seconds
+            deltas = _capture_deltas(replica, proxy, boundary, start, end)
             after = manager.cache_core.stream_cost_snapshot(database_name)
             commands = tuple(
                 command
@@ -279,6 +296,11 @@ async def run_window(
                     or command.completed_seconds >= start
                 )
             )
+            healthy = manager.cache_core.is_database_available(database_name)
+            if not healthy or any(command.failed for command in commands):
+                raise BenchmarkSetupError(
+                    "stream health or command failure during measured window"
+                )
             lag = tuple(
                 reading.monotonic_seconds - start - issued
                 for reading, issued in zip(
@@ -289,21 +311,16 @@ async def run_window(
                     strict=True,
                 )
             )
-            healthy = manager.cache_core.is_database_available(database_name)
-            if not healthy or any(command.failed for command in commands):
-                raise BenchmarkSetupError(
-                    "stream health or command failure during measured window"
-                )
             return AwaitWindow(
                 block,
                 candidate,
                 model,
                 workload,
-                elapsed,
-                server,
-                cpu,
-                sent,
-                received,
+                deltas.elapsed,
+                deltas.server,
+                deltas.cpu,
+                deltas.sent,
+                deltas.received,
                 sum(command.started_seconds >= start for command in commands),
                 sum(
                     command.completed_seconds is not None
@@ -499,15 +516,15 @@ def run_matrix(output: Path) -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
     if output.exists() or output.with_suffix(".decision.json").exists():
         raise BenchmarkSetupError("use a new output path to preserve retained evidence")
-    configuration_bytes = _CONFIG_PATH.read_bytes()
-    configuration = load_await_configuration(configuration_bytes)
-    digest = configuration_hash(configuration_bytes)
     git_path = shutil.which("git")
     if git_path is None:
         raise BenchmarkSetupError("git is required to record the benchmark revision")
     revision = subprocess.check_output(  # noqa: S603 - fixed git arguments
         [git_path, "rev-parse", "HEAD"], text=True, shell=False
     ).strip()
+    configuration_bytes = _CONFIG_PATH.read_bytes()
+    digest = configuration_hash(configuration_bytes)
+    configuration = load_await_configuration(configuration_bytes)
     environment = {
         "python": platform.python_version(),
         "pymongo": pymongo.version,

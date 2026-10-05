@@ -51,6 +51,14 @@ class CachedMongoBackend(MongoBackend):  # type: ignore[misc]
         return cast("dict[str, Any]", self.meta_from_decoded(metadata))
 
 
+def poll_unfinished_task(backend: CachedMongoBackend) -> None:
+    for _ in range(5):
+        metadata = backend.get_task_meta(TASK_ID, cache=False)
+        if metadata["status"] != states.STARTED:
+            message = "unfinished task polling returned an unexpected state"
+            raise SystemExit(message)
+
+
 def main() -> None:
     mongodb_uri = os.getenv("MONGODB_URI", DEFAULT_MONGODB_URI)
     with MongoClient[dict[str, Any]](mongodb_uri) as client:
@@ -60,11 +68,7 @@ def main() -> None:
             backend.store_result(TASK_ID, None, states.STARTED)
             # Sample before the polling workload.
             hits_before = manager.snapshot().hits
-            for _ in range(5):
-                metadata = backend.get_task_meta(TASK_ID, cache=False)
-                if metadata["status"] != states.STARTED:
-                    message = "unfinished task polling returned an unexpected state"
-                    raise SystemExit(message)
+            poll_unfinished_task(backend)
             if manager.snapshot().hits - hits_before < 4:
                 raise SystemExit("no cache hits for repeated unfinished-task polling")
             backend.store_result(TASK_ID, {"answer": 42}, states.SUCCESS)

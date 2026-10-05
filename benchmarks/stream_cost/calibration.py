@@ -75,6 +75,21 @@ class CalibrationPoint:
             raise BenchmarkConfigurationError(message)
 
 
+def _validated_hello(response: Mapping[str, object]) -> tuple[object, datetime]:
+    if response.get("isWritablePrimary") is not True:
+        message = "hello response is not from a writable primary"
+        raise BenchmarkConfigurationError(message)
+    election_id = response.get("electionId")
+    if election_id is None:
+        message = "hello response is missing electionId"
+        raise BenchmarkConfigurationError(message)
+    local_time = response.get("localTime")
+    if not isinstance(local_time, datetime):
+        message = "hello response is missing or has a malformed localTime"
+        raise BenchmarkConfigurationError(message)
+    return election_id, local_time
+
+
 def sample_clock_offset(
     send_hello: Callable[[], Mapping[str, object]], *, rounds: int
 ) -> CalibrationPoint:
@@ -89,17 +104,7 @@ def sample_clock_offset(
         response = send_hello()
         wall_t1 = time.time()
         monotonic_t1 = time.monotonic()
-        if response.get("isWritablePrimary") is not True:
-            message = "hello response is not from a writable primary"
-            raise BenchmarkConfigurationError(message)
-        election_id = response.get("electionId")
-        if election_id is None:
-            message = "hello response is missing electionId"
-            raise BenchmarkConfigurationError(message)
-        local_time = response.get("localTime")
-        if not isinstance(local_time, datetime):
-            message = "hello response is missing or has a malformed localTime"
-            raise BenchmarkConfigurationError(message)
+        election_id, local_time = _validated_hello(response)
         sample = ClockSample(
             wall_t0=wall_t0,
             wall_t1=wall_t1,

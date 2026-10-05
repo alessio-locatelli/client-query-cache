@@ -336,6 +336,10 @@ class StressRun:
         else:
             self.patches.setattr(AsyncCollection, "find_one", observed_async)
 
+    def raise_if_disconnected(self) -> None:
+        if self.disconnect.is_set():
+            raise ConnectionFailure("injected stream disconnection")
+
     def prepare_recovery(self) -> None:
         loop = asyncio.get_running_loop()
         watch_calls = 0
@@ -368,8 +372,7 @@ class StressRun:
 
                 def interrupted_next() -> Document:
                     event = original_next()  # pytriage: TR5
-                    if self.disconnect.is_set():
-                        raise ConnectionFailure("injected stream disconnection")
+                    self.raise_if_disconnected()
                     return event
 
                 self.patches.setattr(stream, "next", interrupted_next)
@@ -395,8 +398,7 @@ class StressRun:
 
                 async def interrupted_next() -> Document:
                     event = await original_next()
-                    if self.disconnect.is_set():
-                        raise ConnectionFailure("injected stream disconnection")
+                    self.raise_if_disconnected()
                     return event
 
                 self.patches.setattr(stream, "next", interrupted_next)

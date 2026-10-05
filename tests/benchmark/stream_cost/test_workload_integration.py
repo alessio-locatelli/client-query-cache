@@ -127,10 +127,10 @@ def test_run_workload_variant_composes_the_configured_read_write_mix(
     assert len(outcome.reads.raw_results) == variant.sampling.reads
     assert outcome.reads.raw_results == outcome.reads.cache_results
     assert outcome.writes_issued == variant.sampling.writes
-    touched_count = collection.raw.count_documents({"touched": {"$gte": 1}})
-    assert touched_count > 0
     assert after.entry_count > before.entry_count
     assert after.hits > before.hits
+    touched_count = collection.raw.count_documents({"touched": {"$gte": 1}})
+    assert touched_count > 0
 
 
 def test_run_workload_variant_still_primes_the_idle_variant(

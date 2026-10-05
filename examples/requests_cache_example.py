@@ -139,6 +139,35 @@ class OriginServer(ThreadingHTTPServer):
         self.server_close()
 
 
+def request_repeatedly(session: CachedSession, origin: OriginServer) -> None:
+    for _ in range(REPEATED_REQUESTS):
+        session.get(origin.url).raise_for_status()
+    if origin.hits != 1:
+        message = f"repeated requests reached the origin: {origin.hits} origin hits"
+        raise SystemExit(message)
+
+
+def invalidate_and_wait(session: CachedSession, url: str) -> float:
+    started = monotonic()
+    session.cache.delete(urls=[url])
+    while session.cache.contains(url=url):
+        if monotonic() - started >= INVALIDATION_TIMEOUT_SECONDS:
+            message = (
+                f"invalidation not observed: the deleted response was still cached "
+                f"after {INVALIDATION_TIMEOUT_SECONDS:.0f} s"
+            )
+            raise SystemExit(message)
+        sleep(INVALIDATION_POLL_INTERVAL_SECONDS)
+    return (monotonic() - started) * 1000
+
+
+def refetch_after_invalidation(session: CachedSession, origin: OriginServer) -> None:
+    session.get(origin.url).raise_for_status()
+    if origin.hits != 2:
+        message = f"expected 2 origin hits after invalidation, got {origin.hits}"
+        raise SystemExit(message)
+
+
 def run_scenario(
     session: CachedSession,
     origin: OriginServer,
@@ -152,12 +181,8 @@ def run_scenario(
         raise SystemExit(message)
 
     hits_before = cache_manager.snapshot().hits
-    for _ in range(REPEATED_REQUESTS):
-        session.get(url).raise_for_status()
+    request_repeatedly(session, origin)
     cache_hits = cache_manager.snapshot().hits - hits_before
-    if origin.hits != 1:
-        message = f"repeated requests reached the origin: {origin.hits} origin hits"
-        raise SystemExit(message)
     if cache_hits < REPEATED_REQUESTS - 1:
         message = (
             f"no cache hits for repeated storage reads: expected at least "
@@ -165,22 +190,8 @@ def run_scenario(
         )
         raise SystemExit(message)
 
-    started = monotonic()
-    session.cache.delete(urls=[url])
-    while session.cache.contains(url=url):
-        if monotonic() - started >= INVALIDATION_TIMEOUT_SECONDS:
-            message = (
-                f"invalidation not observed: the deleted response was still cached "
-                f"after {INVALIDATION_TIMEOUT_SECONDS:.0f} s"
-            )
-            raise SystemExit(message)
-        sleep(INVALIDATION_POLL_INTERVAL_SECONDS)
-    invalidation_ms = (monotonic() - started) * 1000
-
-    session.get(url).raise_for_status()
-    if origin.hits != 2:
-        message = f"expected 2 origin hits after invalidation, got {origin.hits}"
-        raise SystemExit(message)
+    invalidation_ms = invalidate_and_wait(session, url)
+    refetch_after_invalidation(session, origin)
 
     snapshot = cache_manager.snapshot()
     print(f"origin hits: {origin.hits}")

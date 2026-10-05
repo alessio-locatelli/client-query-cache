@@ -475,13 +475,13 @@ class _CacheCoreIdentityAdmission(_CacheCoreBase):
     ) -> AdmissionOutcome:
         self._ensure_active()
         try:
-            canonical_shape = canonicalize(read_shape)
             try:
                 encoded = encode_value(value, codec_options)
             except BSONError:
                 return AdmissionOutcome.DECLINED_UNENCODABLE
             except OverflowError:
                 return AdmissionOutcome.DECLINED_UNENCODABLE
+            canonical_shape = canonicalize(read_shape)
             weight = len(encoded)
             with self._admission_section(
                 capture.namespace, capture.availability_generation, weight
@@ -600,13 +600,13 @@ class _CacheCoreNamespaceAdmission(_CacheCoreBase):
         codec_options: CodecOptions[Any] | None = None,
     ) -> AdmissionOutcome:
         self._ensure_active()
-        canonical_discriminator = canonicalize(discriminator)
         try:
             encoded = encode_value(value, codec_options)
         except BSONError:
             return AdmissionOutcome.DECLINED_UNENCODABLE
         except OverflowError:
             return AdmissionOutcome.DECLINED_UNENCODABLE
+        canonical_discriminator = canonicalize(discriminator)
         weight = len(encoded)
         with self._admission_section(
             capture.namespace, capture.availability_generation, weight
@@ -674,19 +674,19 @@ class _CacheCoreUniqueKeyAdmission(_CacheCoreBase):
         codec_options: CodecOptions[Any] | None = None,
     ) -> AdmissionOutcome:
         self._ensure_active()
-        namespace = namespace_capture.namespace
-        canonical_discriminator = canonicalize(discriminator)
         canonical_identity = canonicalize(order_sensitive_key(identity))
         if canonical_identity is None:
             message = "identity must not be None"
             raise UnsupportedCacheRequestError(message)
-        canonical_shape = canonicalize(read_shape)
         try:
             encoded = encode_value(value, codec_options)
         except BSONError:
             return AdmissionOutcome.DECLINED_UNENCODABLE
         except OverflowError:
             return AdmissionOutcome.DECLINED_UNENCODABLE
+        namespace = namespace_capture.namespace
+        canonical_discriminator = canonicalize(discriminator)
+        canonical_shape = canonicalize(read_shape)
         weight = len(encoded)
         with self._admission_section(
             namespace, namespace_capture.availability_generation, weight

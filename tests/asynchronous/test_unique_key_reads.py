@@ -623,7 +623,6 @@ async def test_a_revalidated_positive_match_overwrites_a_stale_namespace_entry(
     assert await collection.find_one({"email": email}) == original
 
     namespace = NamespaceId(cached_database_name, nonpersistent_collection_name)
-    alias = canonical_alias_key(("email",), (email,), None)
     read_shape = order_sensitive_discriminator_key(
         ("find_one", None, None, None, codec_fingerprint(collection.raw.codec_options))
     )
@@ -640,6 +639,7 @@ async def test_a_revalidated_positive_match_overwrites_a_stale_namespace_entry(
         refreshed = await collection.find_one({"email": email})
 
     assert refreshed == updated
+    alias = canonical_alias_key(("email",), (email,), None)
     namespace_lookup = cache.lookup_namespace(namespace, (alias, read_shape))
     assert namespace_lookup.hit
     assert namespace_lookup.value == updated
@@ -660,7 +660,6 @@ async def test_an_uncanonicalizable_revalidated_identity_discards_the_stale_alia
     assert await collection.find_one({"email": email}) == original
 
     namespace = NamespaceId(cached_database_name, nonpersistent_collection_name)
-    alias = canonical_alias_key(("email",), (email,), None)
     read_shape = order_sensitive_discriminator_key(
         ("find_one", None, None, None, codec_fingerprint(collection.raw.codec_options))
     )
@@ -684,6 +683,7 @@ async def test_an_uncanonicalizable_revalidated_identity_discards_the_stale_alia
 
     assert revalidated == replaced
     assert cache.resolve_alias(namespace, ("email",), (email,), None) is None
+    alias = canonical_alias_key(("email",), (email,), None)
     assert cache.lookup_namespace(namespace, (alias, read_shape)).hit is False
 
 
