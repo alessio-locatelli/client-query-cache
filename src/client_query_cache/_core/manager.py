@@ -4,7 +4,7 @@ import logging
 import threading
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from bson.errors import BSONError
 
@@ -16,6 +16,7 @@ from client_query_cache._core.errors import (
     CacheConfigurationError,
     UnsupportedCacheRequestError,
 )
+from client_query_cache._core.find_reads import find_discriminator
 from client_query_cache._core.keys import (
     IdentityCacheKey,
     NamespaceCacheKey,
@@ -45,6 +46,7 @@ if TYPE_CHECKING:
     from bson.codec_options import CodecOptions
 
     from client_query_cache._core.canonical import Canonical
+    from client_query_cache._core.find_reads import FindReadShape, FindSource
     from client_query_cache._core.keys import AliasKey, CacheKey, NamespaceId
 
 DEFAULT_SHARED_BUDGET_BYTES = 64 * 1024 * 1024
@@ -107,6 +109,16 @@ def _maybe_prune_identity_locked(
 
 def _discard_entry_locked(state: NamespaceState, entry: CacheEntry) -> None:
     was_indexed = state.entry_index.pop(entry, _NOT_INDEXED) is not _NOT_INDEXED
+    if entry.find_source is not None:
+        family = entry.find_source.family
+        try:
+            bucket = state.find_families[family]
+        except KeyError:
+            pass  # Invalidation can already have cleared the family.
+        else:
+            bucket.pop(entry, None)
+            if not bucket:
+                del state.find_families[family]
     if was_indexed and entry.identity is not None:
         identity_state = state.identities[entry.identity]
         identity_state.cached_ref_count -= 1
@@ -364,6 +376,7 @@ class _CacheCoreNamespaceLifecycle(_CacheCoreBase):
         state = self._namespace(namespace)
         with self._namespace_section(state):
             state.generation += 1
+            state.find_families.clear()
             if not is_canonicalizable(identity):
                 return
             try:
@@ -392,6 +405,7 @@ class _CacheCoreNamespaceLifecycle(_CacheCoreBase):
             state.aliases = {}
             reclaimed = list(state.entry_index.items())
             state.entry_index.clear()
+            state.find_families.clear()
             for entry, _key in reclaimed:
                 if entry.identity is not None:
                     state.identities[entry.identity].cached_ref_count -= 1
@@ -598,6 +612,7 @@ class _CacheCoreNamespaceAdmission(_CacheCoreBase):
         value: object,
         *,
         codec_options: CodecOptions[Any] | None = None,
+        find_source: FindSource | None = None,
     ) -> AdmissionOutcome:
         self._ensure_active()
         try:
@@ -624,9 +639,15 @@ class _CacheCoreNamespaceAdmission(_CacheCoreBase):
                 value=encoded,
                 namespace=capture.namespace,
                 identity=None,
+                find_source=find_source,
             )
             admitted, displaced, evicted = self._lru.conditional_put(key, entry)
         self._process_evicted(evicted)
+
+        def publish_source() -> None:
+            if find_source is not None:
+                state.find_families.setdefault(find_source.family, {})[entry] = key
+
         return self._finalize_put(
             state,
             key,
@@ -634,7 +655,7 @@ class _CacheCoreNamespaceAdmission(_CacheCoreBase):
             admitted=admitted,
             displaced=displaced,
             is_still_valid=lambda: state.generation == capture.generation,
-            on_admit=lambda: None,
+            on_admit=publish_source,
         )
 
 
@@ -782,8 +803,73 @@ class _CacheCoreUniqueKeyAdmission(_CacheCoreBase):
         return namespace_outcome
 
 
+def _find_candidate_order(
+    candidate: tuple[CacheEntry, NamespaceCacheKey],
+) -> tuple[bool, int]:
+    descriptor = candidate[0].find_source
+    assert descriptor is not None
+    # Zero denotes unlimited and sorts after every covering positive limit.
+    return descriptor.limit == 0, descriptor.limit
+
+
 class _CacheCoreLookup(_CacheCoreBase):
     __slots__ = ()
+
+    def _probe_namespace_entry(
+        self,
+        state: NamespaceState,
+        key: NamespaceCacheKey,
+        expected: CacheEntry | None = None,
+    ) -> CacheEntry | None:
+        entry = self._lru.peek(key)
+        if entry is None or (expected is not None and entry is not expected):
+            return None
+        with self._namespace_section(state):
+            valid = (state.generation,) == entry.generation_key
+        return entry if valid else None
+
+    def lookup_find(
+        self,
+        namespace: NamespaceId,
+        shape: FindReadShape,
+        *,
+        codec_options: CodecOptions[Any] | None = None,
+    ) -> LookupResult:
+        self._ensure_active()
+        if not self._is_database_available(namespace.database):
+            self._statistics.record_bypass(BypassReason.STREAM_UNAVAILABLE)
+            return LookupResult(hit=False)
+        state = self._namespace(namespace)
+        family = canonicalize(shape.family)
+        key = NamespaceCacheKey(namespace, find_discriminator(family, shape.limit))
+        entry = self._probe_namespace_entry(state, key)
+        if entry is None and not isinstance(shape.limit, bool) and shape.limit > 0:
+            with self._namespace_section(state):
+                try:
+                    candidates = tuple(state.find_families[hash(family)].items())
+                except KeyError:
+                    candidates = ()
+            for token, source_key in sorted(candidates, key=_find_candidate_order):
+                descriptor = token.find_source
+                assert descriptor is not None
+                limit = descriptor.limit
+                if limit != 0 and limit < shape.limit:
+                    continue
+                if source_key.discriminator != find_discriminator(family, limit):
+                    continue
+                candidate = self._probe_namespace_entry(state, source_key, token)
+                if candidate is not None:
+                    key, entry = source_key, candidate
+                    break
+        if entry is None:
+            self._statistics.record_miss()
+            return LookupResult(hit=False)
+        self._lru.touch(key)
+        self._statistics.record_hit()
+        documents = cast("list[object]", decode_value(entry.value, codec_options))
+        if not isinstance(shape.limit, bool) and shape.limit > 0:
+            documents = documents[: shape.limit]
+        return LookupResult(hit=True, value=documents)
 
     def lookup_identity(
         self,

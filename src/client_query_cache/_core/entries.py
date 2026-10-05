@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from client_query_cache._core.canonical import Canonical
+    from client_query_cache._core.find_reads import FindSource
     from client_query_cache._core.keys import NamespaceId
 
 
@@ -24,6 +25,7 @@ class CacheEntry:
     value: bytes
     namespace: NamespaceId
     identity: Canonical | None
+    find_source: FindSource | None = None
 
 
 @dataclass(frozen=True, slots=True)

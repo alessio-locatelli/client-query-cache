@@ -101,6 +101,8 @@ pytestmark  # unused variable (tests/benchmark/stream_cost/test_topology_integra
 pytestmark  # unused variable (tests/benchmark/stream_cost/test_workload.py:46)
 pytestmark  # unused variable (tests/benchmark/stream_cost/test_workload_integration.py:27)
 pytestmark  # unused variable (tests/benchmark/test_cached_read_cursors.py:39)
+retained_heap_bytes  # TypedDict key read by subscription and JSON serialization.
+after_clear_heap_bytes  # TypedDict key emitted through JSON serialization.
 bson_type  # unused variable (tests/codec_helpers.py:15)
 _.transform_bson  # unused method (tests/codec_helpers.py:17)
 pytest_xdist_auto_num_workers  # unused function (tests/conftest.py:39)

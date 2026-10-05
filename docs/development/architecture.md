@@ -70,6 +70,47 @@ writes and schema changes occur.
 
 ## Cursor driver integration
 
+Both find cursor paths build exact and limit-independent identities through
+`_core.find_reads.find_read_shape()` from the same final native fields, preserving
+the executed filter representation. Only non-boolean integer limits at least zero
+produce `FindSource` admission metadata; zero denotes an unlimited source.
+Each namespace's `find_families` maps compact family hashes to actual resident
+entry tokens and their physical keys. Source descriptors retain only the hash
+and limit; the complete canonical query belongs to the exact physical key.
+Lookup compares that key against the requested family and candidate limit before
+probing, so hash collisions cannot reuse a different query. Shape construction
+shares one query tree between the raw family and exact discriminator. Payload
+bytes belong solely to the LRU entries; the BSON budget excludes query keys and
+Python index overhead.
+Admission publishes tokens alongside `entry_index` through `_finalize_put()`;
+displacement, eviction, and post-publication reclamation remove the exact token
+without removing a newer replacement. Writes clear family buckets as they advance
+the generation; clear/create reclaim them with the namespace, and close releases
+the namespace registry.
+
+`lookup_find()` checks availability, probes the exact key, then snapshots only
+the requested hash bucket for a positive non-boolean limit. Outside both locks,
+it orders candidates by increasing positive limit, with unlimited last, then
+checks full query identity, resident token identity, and the actual entry
+generation before choosing the smallest covering positive limit, with unlimited
+as fallback. It stops at the first valid match;
+failed candidates do not hide valid sources. Namespace and LRU sections remain
+separate: snapshot/validity decisions
+hold the namespace lock, while entry probes and source promotion hold the LRU lock.
+One lookup records one hit or miss, or the existing availability bypass. Discovery
+orders k resident sources in O(k log k) time using only scalar limits; unrelated
+hashes do not expand candidate inspection. A valid smallest source requires one
+full key comparison and one source probe, regardless of admission order. Failed
+candidates or hash collisions can require more comparisons, each depending on
+query size. Publication and removal have expected O(1) token cost. Core ownership/race tests
+and generated operation schedules live in `tests/core/test_find_limit_subsumption.py`.
+
+Hits decode the full BSON list through the requesting codec, then install only
+the requested prefix. Decoding costs O(source bytes) CPU and transient memory;
+the private cursor buffer holds at most the requested document count. Hits create
+no admission capture or additional resident payload. The validity decision is the
+existing snapshot boundary: later invalidation cannot retract a started cursor.
+
 The synchronous and asynchronous `cursors.py` modules confine protected PyMongo
 access to the native execution and aggregation factory boundaries. Find subclasses
 preserve `Collection.find()`'s variadic argument shape, with native constructor
@@ -99,7 +140,7 @@ native cleanup before propagating.
 Native iteration/context protocols, supported chaining, indexing validation,
 explain/distinct, and command batching remain inherited except for these localized
 hooks. Copy/clone and rewind start independent executions. Hits have no server
-cursor, address, or session; find `retrieved` counts the complete loaded snapshot.
+cursor, address, or session; find `retrieved` counts the loaded snapshot or prefix.
 Both execution models are checked with the same disposable replica-set cursor and
 bound-session cases on PyMongo 4.18.1 and the locked 4.18.2 driver. Future driver
 releases require the same differential checks because these hooks are protected.

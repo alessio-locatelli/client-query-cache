@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import gc
 from collections.abc import Awaitable, Mapping
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pymongo.asynchronous.command_cursor import AsyncCommandCursor
 from pymongo.asynchronous.cursor import AsyncCursor
@@ -10,6 +10,11 @@ from pymongo.synchronous.command_cursor import CommandCursor
 from pymongo.synchronous.cursor import Cursor
 
 from client_query_cache._core.cursor_capture import CursorCapture
+from client_query_cache.asynchronous import CachedCollection as AsyncCachedCollection
+from client_query_cache.synchronous import CachedCollection
+
+if TYPE_CHECKING:
+    from bson.codec_options import CodecOptions
 
 
 def live_capture_ids() -> set[int]:
@@ -55,3 +60,16 @@ async def close_cursor[DocumentType: Mapping[str, Any]](
     cleanup = cursor.close()
     if isinstance(cleanup, Awaitable):
         await cleanup
+
+
+def with_codec_options[DocumentType: Mapping[str, Any]](
+    view: CachedCollection[DocumentType] | AsyncCachedCollection[DocumentType],
+    options: CodecOptions[DocumentType],
+) -> CachedCollection[DocumentType] | AsyncCachedCollection[DocumentType]:
+    if isinstance(view, CachedCollection):
+        return CachedCollection(
+            view.database, view.raw.with_options(codec_options=options)
+        )
+    return AsyncCachedCollection(
+        view.database, view.raw.with_options(codec_options=options)
+    )

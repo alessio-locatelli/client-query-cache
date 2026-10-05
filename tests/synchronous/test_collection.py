@@ -1139,7 +1139,8 @@ def test_find_shapes_do_not_collide(
 
     assert full != projected
     assert len(limited) == 1
-    assert spy.call_count == 3
+    assert limited == full[:1]
+    assert spy.call_count == 2
 
 
 @pytest.mark.parametrize(

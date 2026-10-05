@@ -7,7 +7,12 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from client_query_cache._core.canonical import Canonical
     from client_query_cache._core.entries import CacheEntry
-    from client_query_cache._core.keys import AliasKey, CacheKey, NamespaceId
+    from client_query_cache._core.keys import (
+        AliasKey,
+        CacheKey,
+        NamespaceCacheKey,
+        NamespaceId,
+    )
 
 
 @dataclass(slots=True)
@@ -32,4 +37,7 @@ class NamespaceState:
     identities: dict[Canonical, IdentityState] = field(default_factory=dict)
     aliases: dict[AliasKey, Canonical] = field(default_factory=dict)
     entry_index: dict[CacheEntry, CacheKey] = field(default_factory=dict)
+    find_families: dict[int, dict[CacheEntry, NamespaceCacheKey]] = field(
+        default_factory=dict  # Empty without compatible resident sources.
+    )
     identity_generation_watermark: int = 0
