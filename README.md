@@ -10,7 +10,7 @@ Caching requires [MongoDB 8.0+ on a replica set or sharded cluster](https://ales
 
 Invalidation is asynchronous: a cached read can return a preceding value until the write's change-stream event is processed. Use PyMongo directly when a read must immediately observe a preceding write.
 
-## Install
+## Quick start
 
 ```bash
 uv add client-query-cache
@@ -18,18 +18,23 @@ uv add client-query-cache
 
 Or use `pip install client-query-cache`.
 
-## Documentation
+```python
+from pymongo import MongoClient
 
-The [documentation site](https://alessio-locatelli.github.io/client-query-cache/) opens the latest release guides. Select **Development (main)** for unreleased changes.
+from client_query_cache import CacheManager
 
-- [Getting started](https://alessio-locatelli.github.io/client-query-cache/getting-started/installation/): installation and complete synchronous and asyncio tutorials.
-- [Usage](https://alessio-locatelli.github.io/client-query-cache/usage/cached-reads/): cached reads and consistency.
-- [Benchmarks](https://alessio-locatelli.github.io/client-query-cache/benchmarks/): workload evaluation and retained measurements.
-- [Examples](https://alessio-locatelli.github.io/client-query-cache/examples/): runnable requests-cache, Celery, and py-abac integrations.
-- [API reference](https://alessio-locatelli.github.io/client-query-cache/reference/api/): configuration, limits, errors, and raw fallback.
-- [Operations](https://alessio-locatelli.github.io/client-query-cache/operations/): deployment, capacity, security, recovery, and monitoring.
+with (
+    MongoClient("mongodb://localhost:27017") as client,
+    CacheManager(client) as cache,
+):
+    users = cache.cached(client["my_database"]["users"])
+    users.find_one({"_id": "alice"})  # Reads from MongoDB.
+    users.find_one({"_id": "alice"})  # Repeated reads can use the cache.
+```
 
-The repository's [example sources and command catalogue](examples/README.md) and [contributor instructions](CONTRIBUTING.md) are available for checkout-based work.
+## References
+
+[Getting started](https://alessio-locatelli.github.io/client-query-cache/getting-started/synchronous/) · [Benchmarks](https://alessio-locatelli.github.io/client-query-cache/benchmarks/) · [Examples](https://alessio-locatelli.github.io/client-query-cache/examples/)
 
 ---
 
