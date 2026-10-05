@@ -22,7 +22,7 @@ from client_query_cache.asynchronous.manager import CacheManager as AsyncCacheMa
 from client_query_cache.synchronous.manager import CacheManager
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Generator
 
     from client_query_cache._core.snapshots import CacheSnapshot
 
@@ -50,7 +50,7 @@ def _delta(before: CacheSnapshot, after: CacheSnapshot, field: str) -> int:
 @contextmanager
 def _seeded_collection(
     uri: str, profile: DocumentSizeProfile
-) -> Iterator[tuple[MongoClient[dict[str, Any]], list[dict[str, object]]]]:
+) -> Generator[tuple[MongoClient[dict[str, Any]], list[dict[str, object]]]]:
     documents = generate_seeded_documents(profile, count=DOCUMENT_COUNT, seed=90210)
     with MongoClient[dict[str, Any]](uri) as client:
         client["guard"]["documents"].drop()
