@@ -200,6 +200,6 @@ tests_and_coverage:
     if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
         pytest_log_args=(--log-file-level=WARNING)
     fi
-    just pytest -- --cov --cov-config=.coveragerc --cov-report=term-missing -qq "${pytest_log_args[@]}"
+    just pytest -- --cov -qq "${pytest_log_args[@]}"
     uv run -- python -c 'from pathlib import Path; import sys; coverage_exclusions = [(path, line_number) for path in Path("src/client_query_cache").rglob("*.py") for line_number, line in enumerate(path.read_text().splitlines(), start=1) if "pragma: no cover" in line]; sys.stderr.write("".join(f"{path}:{line_number}: prohibited pragma: no cover\n" for path, line_number in coverage_exclusions)); sys.exit(bool(coverage_exclusions))'
     uv run -- strict-no-cover
