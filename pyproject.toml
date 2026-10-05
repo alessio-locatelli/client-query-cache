@@ -26,7 +26,6 @@ dev = [
   "types-pygments>=2.21.0.20260819",
   "types-pysocks>=1.7.1.20260518",
   "types-simplejson>=4.1.0.20260724",
-  "coverage>=7.16.1",
   "faker>=40.38.0",
   "hypothesis>=6.168.0",
   "pytest>=9.1.1",
