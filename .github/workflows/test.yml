@@ -70,7 +70,11 @@ jobs:
           uv tool install "prek==${PREK_VERSION}"
           echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
 
-      - run: SKIP=slotscheck,prettier prek run --all-files
+      - run: SKIP=slotscheck,prettier,lychee prek run --all-files
+
+      - run: prek run lychee --all-files
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - run: just --fmt --check
 

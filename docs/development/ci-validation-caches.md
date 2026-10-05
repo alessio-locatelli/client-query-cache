@@ -44,7 +44,9 @@ The table names every validation command and Prek hook run by the workflows. “
 | Performance guard scope and comparison                                    | PR performance guard                                                            | No validation-result cache; uv uses `~/.cache/uv`                         | `setup-uv`                                             |
 | Stream cost benchmark                                                     | Manual benchmark workflow                                                       | No validation-result cache; uv uses `~/.cache/uv`                         | `setup-uv`                                             |
 
-The source of truth for enabled Prek hooks is `.pre-commit-config.yaml`; the workflow skips its `slotscheck` and `prettier` hooks because other jobs run those checks. Benchmark reports and failure logs are uploaded as artifacts for inspection, not restored as validation caches.
+The source of truth for enabled Prek hooks is `.pre-commit-config.yaml`; the workflow skips its `slotscheck` and `prettier` hooks because other jobs run those checks. Lychee runs in a separate step within the Prek job. That step supplies the automatic read-only job token through `GH_TOKEN` for [cargo-binstall's GitHub release authentication](https://github.com/cargo-bins/cargo-binstall/blob/main/HELP.md). This works for fork pull requests without a custom secret; other hook invocations do not receive this token through their environment.
+
+Lychee's installed binary is stored in the Prek environment cache; `.lycheecache` stores link results. On a binary-cache miss, the hook installs the pinned release with authenticated API access and then checks links. Installation and link-check failures fail the Prek job. Benchmark reports and failure logs are uploaded as artifacts for inspection, not restored as validation caches.
 
 ## Documentation tooling issue
 
