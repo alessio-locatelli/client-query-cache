@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from collections.abc import Generator
 
     from client_query_cache._core.snapshots import CacheSnapshot
+    from client_query_cache.synchronous.collection import CachedCollection
 
 PROFILES: tuple[DocumentSizeProfile, ...] = (
     SMALL_DOCUMENT_PROFILE,
@@ -124,6 +125,31 @@ async def _async_hit(uri: str, documents: list[dict[str, object]]) -> float:
         return elapsed
 
 
+def _verify_find_admission(
+    before: CacheSnapshot,
+    after: CacheSnapshot,
+    read_results: list[list[dict[str, Any]]],
+    documents: list[dict[str, object]],
+) -> None:
+    for index, result in enumerate(read_results):
+        _checked(
+            condition=result == documents[index : index + 4],
+            reason="find admission returned wrong data",
+        )
+    _checked(
+        condition=_delta(before, after, "misses") == _ADMISSION_OPERATIONS,
+        reason="find admission was missing",
+    )
+    _checked(
+        condition=_delta(before, after, "bypasses") == 0,
+        reason="find admission was bypassed",
+    )
+    _checked(
+        condition=after.entry_count >= _ADMISSION_OPERATIONS,
+        reason="find result was not retained",
+    )
+
+
 def _find_admission(
     client: MongoClient[dict[str, Any]], documents: list[dict[str, object]]
 ) -> float:
@@ -136,25 +162,36 @@ def _find_admission(
             for index in range(_ADMISSION_OPERATIONS)
         ]
         elapsed = time.perf_counter() - started
-        after = manager.cache_core.snapshot()
-        for index, result in enumerate(read_results):
-            _checked(
-                condition=result == documents[index : index + 4],
-                reason="find admission returned wrong data",
-            )
-        _checked(
-            condition=_delta(before, after, "misses") == _ADMISSION_OPERATIONS,
-            reason="find admission was missing",
-        )
-        _checked(
-            condition=_delta(before, after, "bypasses") == 0,
-            reason="find admission was bypassed",
-        )
-        _checked(
-            condition=after.entry_count >= _ADMISSION_OPERATIONS,
-            reason="find result was not retained",
+        _verify_find_admission(
+            before, manager.cache_core.snapshot(), read_results, documents
         )
         return elapsed
+
+
+def _verify_refresh_after_invalidation(
+    manager: CacheManager[dict[str, Any]],
+    cached: CachedCollection[dict[str, Any]],
+    documents: list[dict[str, object]],
+    ids: list[object],
+) -> None:
+    before_refresh = manager.cache_core.snapshot()
+    for document, document_id in zip(
+        documents[:_INVALIDATION_ENTRIES], ids, strict=True
+    ):
+        _checked(
+            condition=cached.find_one({"_id": document_id}) == document,
+            reason="post-invalidation read returned wrong data",
+        )
+    after_refresh = manager.cache_core.snapshot()
+    _checked(
+        condition=_delta(before_refresh, after_refresh, "misses")
+        == _INVALIDATION_ENTRIES,
+        reason="some targeted entries survived invalidation",
+    )
+    _checked(
+        condition=_delta(before_refresh, after_refresh, "hits") == 0,
+        reason="some targeted entries survived invalidation",
+    )
 
 
 def _invalidation(
@@ -196,24 +233,7 @@ def _invalidation(
             == len(events),
             reason="change events did not invalidate",
         )
-        before_refresh = manager.cache_core.snapshot()
-        for document, document_id in zip(
-            documents[:_INVALIDATION_ENTRIES], ids, strict=True
-        ):
-            _checked(
-                condition=cached.find_one({"_id": document_id}) == document,
-                reason="post-invalidation read returned wrong data",
-            )
-        after_refresh = manager.cache_core.snapshot()
-        _checked(
-            condition=_delta(before_refresh, after_refresh, "misses")
-            == _INVALIDATION_ENTRIES,
-            reason="some targeted entries survived invalidation",
-        )
-        _checked(
-            condition=_delta(before_refresh, after_refresh, "hits") == 0,
-            reason="some targeted entries survived invalidation",
-        )
+        _verify_refresh_after_invalidation(manager, cached, documents, ids)
         return elapsed
 
 

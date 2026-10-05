@@ -270,8 +270,6 @@ def _index_specs(draw: st.DrawFn) -> dict[str, Any]:
 def test_discover_unique_keys_includes_an_index_iff_eligible(
     index_spec: dict[str, Any],
 ) -> None:
-    discovered = discover_unique_keys([index_spec])
-
     is_hashed = any(value == "hashed" for value in index_spec["key"].values())
     try:
         is_unique = index_spec["unique"] is True
@@ -287,6 +285,8 @@ def test_discover_unique_keys_includes_an_index_iff_eligible(
         and "partialFilterExpression" not in index_spec
         and not is_hashed
     )
+
+    discovered = discover_unique_keys([index_spec])
 
     assert bool(discovered) is expected_included
     if expected_included:

@@ -252,7 +252,6 @@ async def test_drop_database_clears_the_cache_and_the_stream_recovers(
     document_id = faker.uuid4()
     other_document_id = faker.uuid4()
     before_value = faker.random_int()
-    after_value = before_value + 1
     namespace = NamespaceId(cached_database_name, "items")
     await independent_writer[cached_database_name]["items"].insert_one(
         {"_id": document_id, "v": before_value}
@@ -283,6 +282,7 @@ async def test_drop_database_clears_the_cache_and_the_stream_recovers(
 
     await _wait_until(_admit_and_check_doc2)
 
+    after_value = before_value + 1
     await independent_writer[cached_database_name]["items"].update_one(
         {"_id": other_document_id}, {"$set": {"v": after_value}}
     )
@@ -315,7 +315,6 @@ async def test_recovers_from_a_resumable_disconnection(
 ) -> None:
     other_document_id = faker.uuid4()
     before_value = faker.random_int()
-    after_value = before_value + 1
     namespace = NamespaceId(cached_database_name, "items")
     database = raw_mongo_client[cached_database_name]
     original_watch: Any = database.watch
@@ -349,6 +348,7 @@ async def test_recovers_from_a_resumable_disconnection(
     cache.admit_identity(capture, "full", {"v": before_value})
     assert cache.lookup_identity(namespace, other_document_id, "full").hit is True
 
+    after_value = before_value + 1
     await independent_writer[cached_database_name]["items"].update_one(
         {"_id": other_document_id}, {"$set": {"v": after_value}}
     )
@@ -367,7 +367,6 @@ async def test_clears_the_cache_when_resume_history_is_lost(
 ) -> None:
     other_document_id = faker.uuid4()
     before_value = faker.random_int()
-    after_value = before_value + 1
     namespace = NamespaceId(cached_database_name, "items")
     database = raw_mongo_client[cached_database_name]
     original_watch: Any = database.watch
@@ -405,6 +404,7 @@ async def test_clears_the_cache_when_resume_history_is_lost(
     cache.admit_identity(capture, "full", {"v": before_value})
     assert cache.lookup_identity(namespace, other_document_id, "full").hit is True
 
+    after_value = before_value + 1
     await independent_writer[cached_database_name]["items"].update_one(
         {"_id": other_document_id}, {"$set": {"v": after_value}}
     )
@@ -450,7 +450,6 @@ async def test_a_cache_hit_concurrent_with_event_delivery_may_be_stale_but_not_a
 ) -> None:
     document_id = faker.uuid4()
     before_value = faker.random_int()
-    after_value = before_value + 1
     namespace = NamespaceId(cached_database_name, "items")
     await independent_writer[cached_database_name]["items"].insert_one(
         {"_id": document_id, "v": before_value}
@@ -475,6 +474,7 @@ async def test_a_cache_hit_concurrent_with_event_delivery_may_be_stale_but_not_a
     cache.admit_identity(capture, "full", {"v": before_value})
     assert cache.lookup_identity(namespace, document_id, "full").hit is True
 
+    after_value = before_value + 1
     await independent_writer[cached_database_name]["items"].update_one(
         {"_id": document_id}, {"$set": {"v": after_value}}
     )

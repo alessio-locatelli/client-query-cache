@@ -89,3 +89,5 @@ level = "aggressive"
 level = "aggressive"
 [tool.ruff-extra-rules.redundant-dict-get]
 level = "aggressive"
+[tool.ruff-extra-rules.defined-far-from-use]
+level = "aggressive"

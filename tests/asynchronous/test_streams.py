@@ -515,7 +515,6 @@ async def test_stop_interrupts_an_in_progress_backoff_wait(
     supervisor = make_supervisor(
         _as_database(database), _mock_cache(), backoff=_long_backoff()
     )
-    watch_calls_before_stop = 2
 
     await supervisor.start()
     await _wait_until(entered_backoff.is_set)
@@ -524,6 +523,7 @@ async def test_stop_interrupts_an_in_progress_backoff_wait(
     await _wait_until(lambda: supervisor._task is not None and supervisor._task.done())
     assert supervisor._task is not None
     assert not supervisor._task.cancelled()
+    watch_calls_before_stop = 2
     assert len(database.watch_calls) == watch_calls_before_stop
 
 

@@ -41,6 +41,22 @@ def _percentile(sorted_values: Sequence[float], fraction: float) -> float:
     return sorted_values[math.ceil(fraction * len(sorted_values)) - 1]
 
 
+def _timed[T](operation: Callable[[], T]) -> tuple[T, float, float]:
+    process_cpu_before = time.process_time()
+    wall_before = time.monotonic()
+    value = operation()  # pytriage: TR5 (keep the operation inside the timed interval)
+    wall_seconds = time.monotonic() - wall_before
+    process_cpu_seconds = time.process_time() - process_cpu_before
+    return value, wall_seconds, process_cpu_seconds
+
+
+def _require_valid_deltas(*deltas: float) -> None:
+    if not all(math.isfinite(number) and number >= 0 for number in deltas):
+        raise BenchmarkSetupError(
+            "controlled run produced an invalid timing or CPU delta"
+        )
+
+
 def measure_controlled[T](
     operation: Callable[[], T],
     *,
@@ -50,21 +66,11 @@ def measure_controlled[T](
     container_cpu_before = replica_set.container_cpu_usage_seconds()
     proxy_sent_before = proxy.bytes_sent if proxy is not None else None
     proxy_received_before = proxy.bytes_received if proxy is not None else None
-    process_cpu_before = time.process_time()
-    wall_before = time.monotonic()
-    value = operation()  # pytriage: TR5 (keep the operation inside the timed interval)
-    wall_seconds = time.monotonic() - wall_before
-    process_cpu_seconds = time.process_time() - process_cpu_before
+    value, wall_seconds, process_cpu_seconds = _timed(operation)
     container_cpu_seconds = (
         replica_set.container_cpu_usage_seconds() - container_cpu_before
     )
-    if not all(
-        math.isfinite(number) and number >= 0
-        for number in (wall_seconds, process_cpu_seconds, container_cpu_seconds)
-    ):
-        raise BenchmarkSetupError(
-            "controlled run produced an invalid timing or CPU delta"
-        )
+    _require_valid_deltas(wall_seconds, process_cpu_seconds, container_cpu_seconds)
     return value, ControlledMeasurement(
         wall_seconds=wall_seconds,
         process_cpu_seconds=process_cpu_seconds,

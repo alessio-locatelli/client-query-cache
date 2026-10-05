@@ -37,6 +37,7 @@ if TYPE_CHECKING:
     from benchmarks.stream_cost.compressor_preflight import CompressorPreflightResult
     from benchmarks.stream_cost.proxy import DirectPathByteProxy
     from benchmarks.stream_cost.topology import IsolatedReplicaSet
+    from client_query_cache._core.snapshots import CacheSnapshot
     from client_query_cache._core.stream_cost import InvalidationApplyReading
     from client_query_cache.synchronous.collection import CachedCollection
 
@@ -90,6 +91,17 @@ def _issue_reads(
         latencies.append(OperationLatency("read", outcome, time.monotonic() - started))
 
 
+def _require_cache_hit(
+    document_id: object, before: CacheSnapshot, after: CacheSnapshot
+) -> None:
+    if after.hits <= before.hits:
+        message = (
+            f"cache read for {document_id!r} was not a hit despite priming; "
+            "the shared cache budget may be too small for this window's dataset"
+        )
+        raise BenchmarkSetupError(message)
+
+
 def _issue_cache_reads(
     cache_collection: CachedCollection[dict[str, Any]],
     manager: CacheManager[dict[str, Any]],
@@ -103,12 +115,7 @@ def _issue_cache_reads(
         cache_collection.find_one({"_id": document_id})
         seconds = time.monotonic() - started
         after = manager.cache_core.snapshot()
-        if after.hits <= before.hits:
-            message = (
-                f"cache read for {document_id!r} was not a hit despite priming; "
-                "the shared cache budget may be too small for this window's dataset"
-            )
-            raise BenchmarkSetupError(message)
+        _require_cache_hit(document_id, before, after)
         latencies.append(OperationLatency("read", "hit", seconds))
 
 
