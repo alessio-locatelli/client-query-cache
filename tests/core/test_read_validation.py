@@ -8,7 +8,6 @@ from client_query_cache._core.read_validation import (
     is_filter_cacheable,
     is_pipeline_cacheable,
     is_projection_cacheable,
-    pipeline_blocks_full_materialization,
 )
 
 pytestmark = pytest.mark.unit
@@ -20,6 +19,10 @@ pytestmark = pytest.mark.unit
         pytest.param([{"$match": {"a": 1}}], id="plain-match"),
         pytest.param([{"$project": {"a": 1}}, {"$limit": 5}], id="project-and-limit"),
         pytest.param([], id="empty-pipeline"),
+        pytest.param(
+            [{"$project": {"value": {"$literal": {"$changeStream": 1}}}}],
+            id="change-stream-literal",
+        ),
     ],
 )
 def test_safe_pipelines_are_cacheable(pipeline: list[dict[str, Any]]) -> None:
@@ -30,6 +33,7 @@ def test_safe_pipelines_are_cacheable(pipeline: list[dict[str, Any]]) -> None:
     "pipeline",
     [
         pytest.param([{"$lookup": {"from": "other"}}], id="lookup"),
+        pytest.param([{"$changeStream": {}}], id="change-stream"),
         pytest.param([{"$unionWith": {"coll": "other"}}], id="union-with"),
         pytest.param([{"$graphLookup": {"from": "other"}}], id="graph-lookup"),
         pytest.param([{"$out": "other"}], id="out"),
@@ -69,27 +73,6 @@ def test_safe_pipelines_are_cacheable(pipeline: list[dict[str, Any]]) -> None:
 )
 def test_unsafe_pipelines_are_not_cacheable(pipeline: list[dict[str, Any]]) -> None:
     assert is_pipeline_cacheable(pipeline) is False
-
-
-@pytest.mark.parametrize(
-    "pipeline",
-    [
-        pytest.param([{"$match": {"a": 1}}], id="plain-match"),
-        pytest.param([{"$lookup": {"from": "other"}}], id="lookup"),
-        pytest.param(
-            [{"$project": {"value": {"$literal": {"$changeStream": 1}}}}],
-            id="change-stream-key-as-literal-data",
-        ),
-    ],
-)
-def test_pipelines_without_a_change_stream_do_not_block_materialization(
-    pipeline: list[dict[str, Any]],
-) -> None:
-    assert pipeline_blocks_full_materialization(pipeline) is False
-
-
-def test_a_change_stream_pipeline_blocks_materialization() -> None:
-    assert pipeline_blocks_full_materialization([{"$changeStream": {}}]) is True
 
 
 @pytest.mark.parametrize(

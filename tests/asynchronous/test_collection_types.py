@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 import pytest
 from pymongo import AsyncMongoClient
+from pymongo.asynchronous.cursor import AsyncCursor
 from pymongo.errors import OperationFailure
 
 from client_query_cache import BypassReason
@@ -102,9 +103,9 @@ async def read(
         case "find_one":
             return await collection.find_one({"_id": identity})
         case "find":
-            return await collection.find({})
+            return await collection.find({}).to_list()
         case "aggregate":
-            return await collection.aggregate([{"$match": {}}])
+            return await (await collection.aggregate([{"$match": {}}])).to_list()
         case "count_documents":
             return await collection.count_documents({})
         case "estimated_document_count":
@@ -167,14 +168,25 @@ async def test_timeseries_delegation_preserves_options_and_errors(
     expected_error = OperationFailure(faker.sentence())
     with (
         patch.object(
-            type(collection.raw), method, autospec=True, side_effect=expected_error
+            AsyncCursor if method == "find" else type(collection.raw),
+            "_send_message" if method == "find" else method,
+            autospec=True,
+            side_effect=expected_error,
         ) as operation,
         pytest.raises(OperationFailure) as raised,
     ):
-        await getattr(collection, method)(*arguments, **options)
+        await (
+            getattr(collection, method)(*arguments, **options).to_list()
+            if method == "find"
+            else getattr(collection, method)(*arguments, **options)
+        )
     assert raised.value is expected_error
     try:
-        actual_comment = operation.call_args.kwargs["comment"]
+        actual_comment = (
+            operation.call_args.args[0]._comment
+            if method == "find"
+            else operation.call_args.kwargs["comment"]
+        )
     except KeyError:
         actual_comment = None
     try:

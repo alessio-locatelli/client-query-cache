@@ -65,12 +65,27 @@ Cached views expose nothing else. PyMongo methods such as `insert_one`, `create_
 
 ## Cached read methods
 
-`CachedCollection` exposes six read methods named after their PyMongo equivalents and accepting their arguments: `find_one`, `find`, `aggregate`, `count_documents`, `estimated_document_count`, and `distinct`. Each either returns a cached result, admits a fresh result to the cache, or transparently bypasses to a direct PyMongo call — see [Bypass conditions](#bypass-conditions) below for what decides which of the three happens. Two methods return something different from their PyMongo counterparts:
+`CachedCollection` provides `find_one`, `find`, `aggregate`, `count_documents`, `estimated_document_count`, and `distinct`. Eligible reads can reuse cached results; ineligible reads execute through PyMongo. Cached views remain read-only: writes and other methods belong on the PyMongo collection or `.raw`.
 
-- `find()` always returns a fully materialized `list`, not a cursor, and raises `UnsupportedCacheRequestError` if called with an option that only makes sense for a cursor (`cursor_type` other than `NON_TAILABLE`, or `allow_partial_results=True`). In asyncio, you `await` `find()` for that list. Use `cached_collection.raw.find(...)` for a cursor.
-- `aggregate()` also always fully materializes its result into a `list` and raises `UnsupportedCacheRequestError` if the pipeline contains a `$changeStream` stage, since that cursor has no natural end to materialize toward. Use `cached_collection.raw.aggregate(...)` for a change-stream pipeline.
+`find()` returns a native `Cursor` subclass synchronously or an `AsyncCursor` subclass immediately with asyncio. Construction validates arguments locally and performs no database read or cache lookup. Consume the cursor to begin execution. `aggregate()` returns a `CommandCursor`; with asyncio, await it to receive an `AsyncCommandCursor`. A miss or bypass executes the initial aggregation command before returning.
 
-Every other method — all writes, and every other read (`find_one_and_update`, `find_raw_batches`, index management, and so on) — belongs on the PyMongo object.
+```python
+with cached_collection.find({"status": "active"}).sort("name").limit(10) as cursor:
+    for product in cursor:
+        print(product)
+items = cached_collection.find({"status": "active"}).to_list()
+summary = cached_collection.aggregate([{"$match": {"status": "active"}}]).to_list()
+```
+
+With asyncio, use `async for product in cached_collection.find(...)`, or `await cached_collection.find(...).to_list()` for a list. For aggregation, first use `cursor = await cached_collection.aggregate(...)`, then `await cursor.to_list()`. Async cursor contexts use `async with`.
+
+Misses stream through native batching. The cache admits only successfully consumed complete results: partial `to_list(length=...)`, early close, errors, cancellation, or invalidation during consumption prevent incomplete or stale admission. Continue consuming a partial cursor to finish its result. Close cursors you abandon; closing a cursor never closes the client.
+
+Find sorting, skipping, limits, and collation determine the final query and its cache identity. Clone, copy, rewind, and supported synchronous indexing use native query semantics and check current cache eligibility for their new execution. Async indexing raises the native error. Unsupported options and operations execute natively, including hints, comments, timeouts, arbitrary flags, `explain()`, and cursor `distinct()`.
+
+Explicit find batching before execution and aggregate `batchSize` at invocation bypass caching. Later command-cursor `batch_size()` calls retain native validation and return the same cursor: they change future native getMore batching on a miss or bypass, while a local hit remains local and issues no command.
+
+A started hit consumes one isolated snapshot, even if a write, stream interruption, eviction, or manager closure follows. Hit metadata reports `cursor_id == 0`, `address is None`, and `session is None`; `alive` reflects unread documents. A find hit's `collection` is the wrapped PyMongo collection, and `retrieved` counts documents loaded into its buffer. Hits skip server query execution, so they cannot reproduce fresh server/network errors or server-side query effects. Use `.raw` whenever execution itself is required.
 
 ## Single-document reads
 
@@ -114,6 +129,7 @@ it safely isn't possible:
   Leaving read concern unspecified (the common case) is treated as compatible with caching, not as a bypass
   condition: a cache miss reads at majority concern, which is stronger, and can be slower or less available during a
   network partition, than the server's own default read concern an uncached call would otherwise use.
+- Find cursor-only requests (tailable, exhaust, partial results), explicit find batching, unsupported find options, and aggregation batching supplied at invocation execute natively. `$changeStream` pipelines also execute natively without caching.
 - The collection is a MongoDB view.
 - An aggregation pipeline joins another collection, writes, reports live statistics, or is otherwise
   nondeterministic (for example a `$sample` stage or a `$rand` expression).
@@ -175,6 +191,7 @@ your client's timeout settings unchanged.
 
 - A read whose result would exceed `max_entry_bytes` once BSON-encoded is not cached; it still returns the correct
   result, counted as an oversized bypass rather than a hit.
+- Cursor candidates also cap their retained encoded payload at `max_entry_bytes`; exceeding it discards the candidate while native delivery continues. Native batches, decoded hit snapshots, wrappers, and temporary encoding allocations consume additional memory. This is not a process-memory limit.
 - Once the cache's total resident size would exceed `shared_budget_bytes`, admitting a new entry evicts the
   least-recently-used entries to make room.
 - A read whose `_id` or result depends on a value that cannot be used as a cache key — for example a `bson.Code`
@@ -212,7 +229,7 @@ Every wrapped object exposes the PyMongo object underneath:
 - `database.raw` — the wrapped `pymongo.Database`.
 - `cache_manager.client` — the wrapped `pymongo.MongoClient` (or `AsyncMongoClient`).
 
-`.raw` is typed as PyMongo's own class, so your editor and type checker see PyMongo's real signatures for every call made through it. Use it for writes and administration when you only hold a view, and for PyMongo's own semantics of the six cached method names — `find()` with a cursor, or `aggregate()` with a `$changeStream` pipeline. Calls through `.raw` never use the cache.
+`.raw` is typed as PyMongo's own class, so your editor and type checker see PyMongo's real signatures for every call made through it. Use it for writes and administration when you only hold a view, and for PyMongo's own semantics of the six cached method names — reads that must execute against MongoDB even when a cached result exists. Calls through `.raw` never use the cache.
 
 ## Rollback to plain PyMongo
 
@@ -234,12 +251,12 @@ from client_query_cache import (
 The three cache exceptions below inherit from `CacheError`, which you can catch to handle them together.
 The same exception classes apply to synchronous and asyncio managers.
 
-| Exception                      | Raised when                                                                                                                   | What to do                                                         |
-| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| `CacheConfigurationError`      | A `CacheCoreConfig` value or the manager's `max_await_time_ms` is invalid.                                                    | Fix the configuration value.                                       |
-| `CacheClosedError`             | A cached read is attempted after `cache_manager.close()`.                                                                     | Don't use a manager (or a view obtained from it) after closing it. |
-| `UnsupportedCacheRequestError` | `find()` is called with a tailable/exhaust/partial-result option, or `aggregate()` is called with a `$changeStream` pipeline. | Use `.raw` for that call.                                          |
-| `ValueError`                   | `cache_manager.cached(collection)` receives a collection from a different client.                                             | Pass a collection from `cache_manager.client`.                     |
+| Exception                      | Raised when                                                                       | What to do                                                         |
+| ------------------------------ | --------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `CacheConfigurationError`      | A `CacheCoreConfig` value or the manager's `max_await_time_ms` is invalid.        | Fix the configuration value.                                       |
+| `CacheClosedError`             | A cached read is attempted after `cache_manager.close()`.                         | Don't use a manager (or a view obtained from it) after closing it. |
+| `UnsupportedCacheRequestError` | An explicit low-level cache operation receives an unsupported key value.          | Use a supported key or the native collection.                      |
+| `ValueError`                   | `cache_manager.cached(collection)` receives a collection from a different client. | Pass a collection from `cache_manager.client`.                     |
 
 Every other unsupported or ambiguous condition — an incompatible read preference or read concern, a session-bound
 read, a nondeterministic filter or pipeline, a view, a time-series collection, an oversized result, a database whose

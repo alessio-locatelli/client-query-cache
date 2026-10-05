@@ -17,7 +17,11 @@ from client_query_cache._core.codec import decode_value, encode_value
 from client_query_cache._core.cursor_capture import CursorCapture
 from client_query_cache._core.entries import AdmissionOutcome
 from client_query_cache._core.manager import CacheCore, CacheCoreConfig
-from tests.codec_helpers import Decimal128ToDecimalDecoder, decode_only_decimal_options
+from tests.codec_helpers import (
+    Decimal128ToDecimalDecoder,
+    decode_only_decimal_options,
+    fail_decimal_encoding,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Mapping
@@ -124,6 +128,28 @@ def test_encoding_rejection_discards_previous_snapshots(
 ) -> None:
     capture = capture_for(core, namespace)
     capture.append({"valid": True})
+    capture.append(document)
+    capture.append({"also_valid": True})
+    assert capture.retained_bytes == 0
+    assert capture.finish() is None
+    assert not core.lookup_namespace(namespace, QUERY).hit
+
+
+def test_custom_encoder_failure_discards_native_decoded_candidate(
+    core: CacheCore, namespace: NamespaceId
+) -> None:
+    options: CodecOptions[Mapping[str, Any]] = CodecOptions(
+        type_registry=TypeRegistry(
+            [Decimal128ToDecimalDecoder()], fallback_encoder=fail_decimal_encoding
+        )
+    )
+    document = bson.decode(
+        bson.encode({"price": Decimal128("1.25")}), codec_options=options
+    )
+    capture = capture_for(core, namespace, options)
+    capture.append({"valid": True})
+    with pytest.raises(ValueError, match="custom encoding failed"):
+        encode_value(document, options)
     capture.append(document)
     capture.append({"also_valid": True})
     assert capture.retained_bytes == 0

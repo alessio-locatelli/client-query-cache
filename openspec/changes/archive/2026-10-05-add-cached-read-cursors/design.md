@@ -22,6 +22,8 @@ The [adapter evaluation](../../../docs/development/research/read-through-collect
 
 Synchronous find/aggregate return their respective cursor types. Async find becomes a regular method returning `AsyncCursor`; async aggregate remains awaited and returns `AsyncCommandCursor`. Keep the current document-only generics and give these methods precise native cursor return annotations. No manager configuration or mode-dependent coroutine union is required.
 
+The find facade mirrors native `Collection.find()`'s variadic argument shape rather than copying the driver cursor constructor's option signature. Native construction binds and validates all installed-driver positional and keyword options; static annotations preserve the cursor and document types. Copying the constructor signature would introduce a second version-sensitive option inventory and impose stricter static argument checks than the native collection method.
+
 Eager consumers materialize the cursor explicitly with `list(cursor)` or synchronous `cursor.to_list()`, or `await cursor.to_list()` asynchronously. This completes the same consumption and admission path as iteration. For async aggregate, first await the method, then materialize its returned cursor.
 
 **Alternative:** Preserving an eager list mode would retain two API contracts and require mode-aware generics, async dispatch, and duplicated consumer documentation. No independent durable compatibility requirement justifies that cost. Explicit materialization gives eager callers the required result without a permanent compatibility branch.
@@ -31,6 +33,8 @@ Eager consumers materialize the cursor explicitly with `list(cursor)` or synchro
 Add synchronous and asynchronous cursor modules. Find adapters subclass `Cursor`/`AsyncCursor`, initialize through native argument validation, and keep native query state, chaining, and batching. An execution hook performs eligibility and lookup just before the first query would execute, using the final validated shape. Eligible misses use the existing primary/majority profile; bypasses keep the caller's options. Public find `collection` identifies the wrapped native collection.
 
 Command adapters subclass `CommandCursor`/`AsyncCommandCursor`. For eligible misses, a localized helper uses the driver's aggregation cursor factory and native temporary-session/retry envelope so the adapter owns its actual first batch, address, session, and cursor identifier. PyMongo's `_aggregate(..., cursor_class, ...)` supplies this seam in the inspected driver. Bind admission context per call, without mutable class-level or global context. Do not copy a live cursor's private state.
+
+Bind the collector with a scoped `partial()` factory for the module-level command cursor class. The driver only invokes the factory despite annotating it as a class; confine the corresponding type cast to the integration helper. The returned cursor must not retain the factory or a dynamically created class that closes over the collector. Closing or exhausting it must release the collector object even while the cursor itself remains reachable; verify object lifetime rather than only a cleared field.
 
 Aggregation hits create an isolated local command cursor with identifier zero and no address/session. Native local argument constraints must be validated through command preparation before selecting a hit, including pipeline shape, positional binding, unsupported explain, and malformed options. Bypasses use public native `aggregate()` unchanged. No initial command is deferred until a later cursor method.
 

@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, Any, cast
 from pymongo import ReadPreference
 from pymongo.asynchronous.collection import AsyncCollection
 from pymongo.collation import Collation
-from pymongo.cursor import CursorType
 from pymongo.errors import PyMongoError
 from pymongo.read_concern import ReadConcern
 
@@ -18,6 +17,7 @@ from client_query_cache._core.collection_metadata import (
     interpret_list_collections_entry,
 )
 from client_query_cache._core.count_reads import count_read_options
+from client_query_cache._core.cursor_capture import CursorCapture
 from client_query_cache._core.entries import AdmissionOutcome
 from client_query_cache._core.errors import UnsupportedCacheRequestError
 from client_query_cache._core.find_one_reads import (
@@ -45,18 +45,23 @@ from client_query_cache._core.read_classification import (
     query_bypass_reason,
     request_bypass_reason,
 )
-from client_query_cache._core.read_validation import (
-    pipeline_blocks_full_materialization,
-)
 from client_query_cache._core.snapshots import BypassReason
 from client_query_cache._core.traversal import (
     declared_attribute_names,
     ensure_subcollection_name,
 )
 from client_query_cache._core.unique_keys import match_unique_key
+from client_query_cache.asynchronous.cursors import (
+    CachedCommandCursor,
+    CachedCursor,
+    aggregate_miss,
+    prepare_aggregate,
+)
 
 if TYPE_CHECKING:
     from pymongo.asynchronous.client_session import AsyncClientSession
+    from pymongo.asynchronous.command_cursor import AsyncCommandCursor
+    from pymongo.asynchronous.cursor import AsyncCursor
     from pymongo.asynchronous.database import AsyncDatabase
 
     from client_query_cache._core.collection_metadata import CollectionProbeResult
@@ -70,20 +75,6 @@ _COLLECTION_ATTRIBUTE_NAMES = declared_attribute_names(AsyncCollection)
 logger = logging.getLogger(__name__)
 
 type _CollationIn = Collation | Mapping[str, Any]
-
-
-def _blocks_full_materialization(kwargs: Mapping[str, object]) -> bool:
-    try:
-        cursor_type = kwargs["cursor_type"]
-    except KeyError:
-        cursor_type = CursorType.NON_TAILABLE
-    if cursor_type != CursorType.NON_TAILABLE:
-        return True
-    try:
-        allow_partial_results = kwargs["allow_partial_results"]
-    except KeyError:
-        allow_partial_results = False
-    return bool(allow_partial_results)
 
 
 class CachedCollection[DocumentType: Mapping[str, Any]]:
@@ -251,150 +242,83 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
         )
         return document
 
-    async def find(
-        self,
-        filter: Mapping[str, Any] | None = None,  # noqa: A002
-        projection: Mapping[str, Any] | Sequence[str] | None = None,
-        *,
-        sort: Sequence[tuple[str, int]] | None = None,
-        skip: int = 0,
-        limit: int = 0,
-        collation: _CollationIn | None = None,
-        session: AsyncClientSession | None = None,
-        **kwargs: object,
-    ) -> list[DocumentType]:
-        if kwargs and _blocks_full_materialization(kwargs):
-            message = (
-                "find() always fully materializes its result and cannot support a "
-                "tailable, exhaust, or partial-result cursor; use .raw.find() instead"
-            )
-            raise UnsupportedCacheRequestError(message)
-        codec_options = self._collection.codec_options
-        discriminator = order_sensitive_discriminator_key(
-            (
-                "find",
-                filter,
-                projection,
-                sort,
-                skip,
-                limit,
-                collation_document(collation),
-                codec_fingerprint(codec_options),
-            )
-        )
-        reason = (
-            self._request_bypass_reason(session=session, kwargs=kwargs)
-            or query_bypass_reason(filter, projection, discriminator)
-            or await self._cache_ineligibility_reason()
-        )
-        if reason is not None:
-            self._record_bypass(reason)
-            cursor = self._collection.find(
-                filter,
-                projection,
-                skip=skip,
-                limit=limit,
-                sort=sort,
-                collation=collation,
-                session=session,
-                **kwargs,
-            )
-            return await cursor.to_list()
-        namespace = self._namespace()
-        cache = self._database.manager.cache_core
-        lookup_result = cache.lookup_namespace(
-            namespace, discriminator, codec_options=codec_options
-        )
-        if lookup_result.hit:
-            return cast("list[DocumentType]", lookup_result.value)
-        if not cache.is_database_available(namespace.database):
-            cursor = self._collection.find(
-                filter,
-                projection,
-                skip=skip,
-                limit=limit,
-                sort=sort,
-                collation=collation,
-                session=session,
-                **kwargs,
-            )
-            return await cursor.to_list()
-        capture = cache.capture_namespace_generation(namespace)
-        cursor = self._forced_collection_handle().find(
-            filter,
-            projection,
-            skip=skip,
-            limit=limit,
-            sort=sort,
-            collation=collation,
-        )
-        documents = await cursor.to_list()
-        cache.admit_namespace(
-            capture, discriminator, documents, codec_options=codec_options
-        )
-        return documents
+    def find(self, *args: object, **kwargs: object) -> AsyncCursor[DocumentType]:
+        return CachedCursor(self, *args, **kwargs)
 
     async def aggregate(
         self,
         pipeline: Sequence[Mapping[str, Any]],
-        *,
-        collation: _CollationIn | None = None,
         session: AsyncClientSession | None = None,
+        let: Mapping[str, Any] | None = None,
+        comment: object = None,
         **kwargs: object,
-    ) -> list[DocumentType]:
-        if pipeline_blocks_full_materialization(pipeline):
-            message = (
-                "aggregate() always fully materializes its result and cannot "
-                "support a $changeStream pipeline; use .raw.aggregate() instead"
+    ) -> AsyncCommandCursor[DocumentType]:
+        unsupported = dict(kwargs)
+        unsupported.pop("collation", None)
+        if let is not None:
+            unsupported["let"] = let
+        if comment is not None:
+            unsupported["comment"] = comment
+        reason = self._request_bypass_reason(session=session, kwargs=unsupported)
+        if reason is not None:
+            self._record_bypass(reason)
+            return await self.raw.aggregate(
+                pipeline,
+                session=session,
+                let=let,
+                comment=comment,
+                **cast("dict[str, Any]", kwargs),
             )
-            raise UnsupportedCacheRequestError(message)
-        codec_options = self._collection.codec_options
+        # Use native local preparation before lookup, including on a warm entry.
+        collation = prepare_aggregate(self, pipeline, kwargs)
+        codec_options = self.raw.codec_options
         discriminator = order_sensitive_discriminator_key(
             (
                 "aggregate",
                 pipeline,
-                collation_document(collation),
+                collation,
                 codec_fingerprint(codec_options),
             )
         )
         reason = (
-            self._request_bypass_reason(session=session, kwargs=kwargs)
-            or pipeline_bypass_reason(pipeline, discriminator)
+            pipeline_bypass_reason(pipeline, discriminator)
             or await self._cache_ineligibility_reason()
         )
         if reason is not None:
             self._record_bypass(reason)
-            cursor = await self._collection.aggregate(
+            return await self.raw.aggregate(
                 pipeline,
-                collation=collation,
                 session=session,
+                let=let,
+                comment=comment,
                 **cast("dict[str, Any]", kwargs),
             )
-            return await cursor.to_list()
         namespace = self._namespace()
-        cache = self._database.manager.cache_core
-        lookup_result = cache.lookup_namespace(
+        cache = self.database.manager.cache_core
+        lookup = cache.lookup_namespace(
             namespace, discriminator, codec_options=codec_options
         )
-        if lookup_result.hit:
-            return cast("list[DocumentType]", lookup_result.value)
+        if lookup.hit:
+            return CachedCommandCursor(
+                self.raw,
+                {"id": 0, "firstBatch": lookup.value, "ns": self.raw.full_name},
+                None,
+            )
         if not cache.is_database_available(namespace.database):
-            cursor = await self._collection.aggregate(
+            return await self.raw.aggregate(
                 pipeline,
-                collation=collation,
                 session=session,
+                let=let,
+                comment=comment,
                 **cast("dict[str, Any]", kwargs),
             )
-            return await cursor.to_list()
-        capture = cache.capture_namespace_generation(namespace)
-        cursor = await self._forced_collection_handle().aggregate(
-            pipeline, collation=collation
+        capture = CursorCapture(
+            cache,
+            cache.capture_namespace_generation(namespace),
+            discriminator,
+            codec_options,
         )
-        documents = await cursor.to_list()
-        cache.admit_namespace(
-            capture, discriminator, documents, codec_options=codec_options
-        )
-        return documents
+        return await aggregate_miss(self, pipeline, capture, kwargs)
 
     async def count_documents(
         self,

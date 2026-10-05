@@ -7,6 +7,7 @@ from unittest.mock import patch
 import pytest
 from pymongo import MongoClient
 from pymongo.errors import OperationFailure
+from pymongo.synchronous.cursor import Cursor
 
 from client_query_cache import BypassReason
 from client_query_cache._core.keys import NamespaceId
@@ -101,9 +102,9 @@ def read(
         case "find_one":
             return collection.find_one({"_id": identity})
         case "find":
-            return collection.find({})
+            return list(collection.find({}))
         case "aggregate":
-            return collection.aggregate([{"$match": {}}])
+            return collection.aggregate([{"$match": {}}]).to_list()
         case "count_documents":
             return collection.count_documents({})
         case "estimated_document_count":
@@ -166,14 +167,25 @@ def test_timeseries_delegation_preserves_options_and_errors(
     expected_error = OperationFailure(faker.sentence())
     with (
         patch.object(
-            type(collection.raw), method, autospec=True, side_effect=expected_error
+            Cursor if method == "find" else type(collection.raw),
+            "_send_message" if method == "find" else method,
+            autospec=True,
+            side_effect=expected_error,
         ) as operation,
         pytest.raises(OperationFailure) as raised,
     ):
-        getattr(collection, method)(*arguments, **options)
+        (
+            getattr(collection, method)(*arguments, **options).to_list()
+            if method == "find"
+            else getattr(collection, method)(*arguments, **options)
+        )
     assert raised.value is expected_error
     try:
-        actual_comment = operation.call_args.kwargs["comment"]
+        actual_comment = (
+            operation.call_args.args[0]._comment
+            if method == "find"
+            else operation.call_args.kwargs["comment"]
+        )
     except KeyError:
         actual_comment = None
     try:

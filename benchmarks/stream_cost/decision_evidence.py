@@ -232,7 +232,7 @@ def _oversized_evidence(
         collection = manager[config["database"]][config["collection"]]
         before = manager.cache_core.snapshot()
         measurement = measure_oversized_result_workload(
-            lambda: collection.find({}),
+            lambda: list(collection.find({})),
             max_entry_bytes=config["max_entry_bytes"],
             codec_options=collection.raw.codec_options,
             repetitions=config["encoder_repetitions"],

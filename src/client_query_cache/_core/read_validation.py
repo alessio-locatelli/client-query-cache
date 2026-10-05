@@ -23,8 +23,6 @@ PIPELINE_UNSAFE_KEYS = frozenset(
     }
 )
 
-PIPELINE_BLOCKING_KEYS = frozenset({"$changeStream"})
-
 FILTER_UNSAFE_KEYS = frozenset(
     {"$where", "$rand", "$sampleRate", "$function", "$accumulator", "$text"}
 )
@@ -64,13 +62,11 @@ def _contains_unsafe_construct(
 
 
 def is_pipeline_cacheable(pipeline: Sequence[Mapping[str, Any]]) -> bool:
-    return not _contains_unsafe_construct(
+    return not any(
+        "$changeStream" in stage for stage in pipeline
+    ) and not _contains_unsafe_construct(
         pipeline, PIPELINE_UNSAFE_KEYS, NONDETERMINISTIC_SYSTEM_VARIABLES
     )
-
-
-def pipeline_blocks_full_materialization(pipeline: Sequence[Mapping[str, Any]]) -> bool:
-    return any(not PIPELINE_BLOCKING_KEYS.isdisjoint(stage) for stage in pipeline)
 
 
 def is_filter_cacheable(filter_query: Mapping[str, Any] | None) -> bool:

@@ -1,6 +1,8 @@
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, assert_type
 
 import pytest
+from pymongo.asynchronous.command_cursor import AsyncCommandCursor
+from pymongo.asynchronous.cursor import AsyncCursor
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -26,6 +28,12 @@ async def test_consumer_keeps_pymongo_typing_beside_its_cached_view(
     await collection.insert_one(document)
 
     assert await cached_collection.find_one({"_id": document["_id"]}) == document
+    cursor = assert_type(cached_collection.find({}), AsyncCursor[dict[str, Any]])
+    assert assert_type(await cursor.to_list(), list[dict[str, Any]]) == [document]
+    aggregation = assert_type(
+        await cached_collection.aggregate([]), AsyncCommandCursor[dict[str, Any]]
+    )
+    assert [row async for row in aggregation] == [document]
     assert await cached_collection.raw.find({"_id": document["_id"]}).to_list() == [
         document
     ]

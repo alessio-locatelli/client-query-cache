@@ -91,7 +91,7 @@ def _activate_consolidated_stream(
         {"_id": _RELEVANT_WRITE_DOCUMENT_ID, "touched": 0}
     )
     for name in relevant_collection_names:
-        manager[database][name].find({})
+        list(manager[database][name].find({}))
     _await_condition(
         lambda: manager.cache_core.active_stream_cost_databases() == [database],
         timeout_seconds=_STREAM_REGISTRATION_TIMEOUT_SECONDS,

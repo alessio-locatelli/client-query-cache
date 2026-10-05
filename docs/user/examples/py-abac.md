@@ -1,6 +1,6 @@
 # py-abac integration
 
-The adapter routes py-abac's policy lookups through cached `find_one`, `find`, and `aggregate`, while policy creation and updates remain on the raw MongoDB storage. It converts materialized query results into policy iterators expected by py-abac.
+The adapter routes py-abac's policy lookups through cached `find_one`, `find`, and `aggregate`, while policy creation and updates remain on the raw MongoDB storage. It consumes query cursors through the policy iterators expected by py-abac.
 
 The program checks hits for all three retrieval shapes, authorizes a request, updates the policy from allow to deny, and polls until invalidation changes the authorization result. This demonstrates eventual invalidation. Applications that must re-authorize against current policy on every request should use direct reads; see [consistency](../usage/consistency.md#freshness-and-authorization) and [security](../operations/deployment.md#security).
 

@@ -59,7 +59,7 @@ def test_the_oversized_result_workload_measures_both_costs_from_one_run(
 
     before = small_max_entry_cache_manager.cache_core.snapshot()
     measurement = measure_oversized_result_workload(
-        lambda: collection.find({}),
+        lambda: list(collection.find({})),
         max_entry_bytes=_MAX_ENTRY_BYTES,
         codec_options=collection.raw.codec_options,
         repetitions=MINIMUM_ENCODER_REPETITIONS,

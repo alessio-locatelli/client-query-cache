@@ -12,7 +12,9 @@ from bson.codec_options import CodecOptions
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import InMemoryMetricReader
 from pymongo import AsyncMongoClient, MongoClient, ReadPreference
+from pymongo.asynchronous.cursor import AsyncCursor
 from pymongo.errors import ConnectionFailure
+from pymongo.synchronous.cursor import Cursor
 
 from client_query_cache import BypassReason, CacheManager
 from client_query_cache._core.collection_metadata import (
@@ -21,6 +23,7 @@ from client_query_cache._core.collection_metadata import (
 from client_query_cache._core.keys import NamespaceId
 from client_query_cache.asynchronous import CacheManager as AsyncCacheManager
 from client_query_cache.otel import register_cache_metrics
+from tests.cursor_helpers import materialize
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -297,18 +300,20 @@ def raw_method(
     method = request.node.callspec.params["method"]
     is_async = isinstance(cached_collection.database.manager, AsyncCacheManager)
     if method == "find":
+        monkeypatch.setattr(
+            AsyncCursor if is_async else Cursor,
+            "_refresh",
+            (AsyncMock if is_async else Mock)(return_value=0),
+        )
+        return
+    returned: object = (
+        0 if method in {"count_documents", "estimated_document_count"} else []
+    )
+    if method == "aggregate" and is_async:
         cursor = Mock()
         cursor.to_list = AsyncMock(return_value=[])
-        operation = Mock(return_value=cursor if is_async else [])
-    else:
-        returned: object = (
-            0 if method in {"count_documents", "estimated_document_count"} else []
-        )
-        if method == "aggregate" and is_async:
-            cursor = Mock()
-            cursor.to_list = AsyncMock(return_value=[])
-            returned = cursor
-        operation = (AsyncMock if is_async else Mock)(return_value=returned)
+        returned = cursor
+    operation = (AsyncMock if is_async else Mock)(return_value=returned)
     monkeypatch.setattr(type(cached_collection.raw), method, operation)
 
 
@@ -364,7 +369,9 @@ async def test_public_materialized_reads_classify_unsafe_shapes(
     reason: BypassReason,
 ) -> None:
     returned = getattr(cached_collection, method)(*arguments)
-    if inspect.isawaitable(returned):
+    if method == "find":
+        await materialize(returned)
+    elif inspect.isawaitable(returned):
         await returned
     snapshot = cached_collection.database.manager.snapshot()
     assert snapshot.bypasses == 1

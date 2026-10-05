@@ -17,6 +17,7 @@ from pymongo.synchronous.client_session import ClientSession
 from client_query_cache.asynchronous import CachedCollection as AsyncCachedCollection
 from client_query_cache.asynchronous import CacheManager as AsyncCacheManager
 from client_query_cache.synchronous import CachedCollection, CacheManager
+from tests.cursor_helpers import advance, close_cursor, materialize
 from tests.polling import wait_until_async
 
 if TYPE_CHECKING:
@@ -283,6 +284,95 @@ async def test_bind_exit_restores_hits(warm_binding: Binding) -> None:
         )
     assert view.database.manager.snapshot().hits == before
     assert await cache_hit(view)
+
+
+async def test_find_resolves_bound_context_at_consumption(
+    warm_binding: Binding,
+) -> None:
+    view = warm_binding["view"]
+    expected = [{"_id": DOCUMENT_ID, "v": COMMITTED_VALUE}]
+    assert await materialize(view.find({})) == expected
+    cursor = view.find({})
+    native = view.raw.find({})
+    before = view.database.manager.snapshot().hits
+    async with AsyncExitStack() as stack:
+        session = await session_context(stack, warm_binding["client"])
+        await enter(stack, session.bind(end_session=False))
+        assert await materialize(cursor) == await materialize(native)
+    assert view.database.manager.snapshot().hits == before
+    assert await materialize(view.find({})) == expected
+    assert view.database.manager.snapshot().hits > before
+
+
+async def test_cursor_reads_bypass_bound_transaction(transaction: Binding) -> None:
+    view = transaction["view"]
+    before = view.database.manager.snapshot()
+    query = {"_id": DOCUMENT_ID}
+    assert await materialize(view.find(query)) == await materialize(
+        view.raw.find(query)
+    )
+    pipeline = [{"$match": query}]
+    assert await materialize(view.aggregate(pipeline)) == await materialize(
+        view.raw.aggregate(pipeline)
+    )
+    after = view.database.manager.snapshot()
+    assert after.hits == before.hits
+    assert after.entry_count == before.entry_count
+
+
+async def test_find_preserves_foreign_bound_context_errors(
+    foreign_context: Binding,
+) -> None:
+    view = foreign_context["view"]
+    native = view.raw.find({})
+    cached = view.find({})
+    with pytest.raises(InvalidOperation) as native_error:
+        await advance(native)
+    with pytest.raises(InvalidOperation, match=re.escape(str(native_error.value))):
+        await advance(cached)
+    await close_cursor(native)
+    await close_cursor(cached)
+
+
+@pytest.mark.parametrize("method", ["find", "aggregate"], ids=["find", "aggregate"])
+@pytest.mark.parametrize(
+    "state", ["active", "ended", "foreign"], ids=["active", "ended", "foreign"]
+)
+async def test_explicit_cursor_sessions_preserve_native_behavior(
+    warm_binding: Binding, mongodb_uri: MongoDbUri, method: str, state: str
+) -> None:
+    view = warm_binding["view"]
+    argument: Document | list[Document] = {} if method == "find" else []
+    expected = [{"_id": DOCUMENT_ID, "v": COMMITTED_VALUE}]
+    assert await materialize(getattr(view, method)(argument)) == expected
+    before = view.database.manager.snapshot()
+    async with AsyncExitStack() as stack:
+        client = warm_binding["client"]
+        if state == "foreign":
+            client = await enter(
+                stack,
+                MongoClient[Document](mongodb_uri)
+                if isinstance(client, MongoClient)
+                else AsyncMongoClient[Document](mongodb_uri),
+            )
+        session = await session_context(stack, client)
+        if state == "ended":
+            await execute(session.end_session())
+        options: dict[str, Any] = {"session": session}
+        if state == "active":
+            assert await materialize(
+                getattr(view, method)(argument, **options)
+            ) == await materialize(getattr(view.raw, method)(argument, **options))
+        else:
+            with pytest.raises(InvalidOperation) as native_error:
+                await materialize(getattr(view.raw, method)(argument, **options))
+            with pytest.raises(
+                InvalidOperation, match=re.escape(str(native_error.value))
+            ):
+                await materialize(getattr(view, method)(argument, **options))
+    after = view.database.manager.snapshot()
+    assert after.hits == before.hits
+    assert after.entry_count == before.entry_count
 
 
 class PendingRead(TypedDict):

@@ -160,3 +160,6 @@ def make_fake_document(faker: Faker) -> Callable[..., dict[str, Any]]:
         return mongo_compatible_document
 
     return _make_fake_document
+
+
+pytest_plugins = ("tests.cursor_fixtures",)

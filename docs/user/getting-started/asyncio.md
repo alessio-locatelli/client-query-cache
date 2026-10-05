@@ -1,6 +1,6 @@
 # Asyncio quick start
 
-This program uses the asyncio manager from `client_query_cache.asynchronous` to write and read a document on your local MongoDB replica set. Await the client’s writes and the cached view’s reads.
+This program uses the asyncio manager from `client_query_cache.asynchronous` to write and read a document on your local MongoDB replica set. Await writes and single-result reads. Consume multi-document cursors with async iteration or `to_list()`.
 
 ```python
 import asyncio
@@ -27,7 +27,7 @@ async def main() -> None:
         print(first, repeated)
         print("Cache hits:", cache_manager.snapshot().hits)
 
-        items = await cached_collection.find({"value": 42})
+        items = await cached_collection.find({"value": 42}).to_list()
         print(items)
 
 
@@ -36,7 +36,7 @@ asyncio.run(main())
 
 Save the program as `quick_start_async.py` and run `python quick_start_async.py` in the environment where you installed the library. On an eligible deployment with a healthy stream, repeated reads can hit the cache. If caching is unavailable, reads bypass to PyMongo. Startup and concurrent changes can affect the observed hit count; inspect [bypass reasons and stream health](../operations/monitoring.md#bypass-reasons-and-stream-health) for diagnostics.
 
-Use the PyMongo collection for writes. Awaiting `find` or `aggregate` on the cached view returns a list; use `.raw` when you need the driver's cursor semantics. See [cached reads](../usage/cached-reads.md).
+Use the PyMongo collection for writes. `find()` returns an async cursor immediately: use `async for document in cached_collection.find(...)` to iterate it. Await `aggregate()` to receive its async command cursor, then iterate it or await `cursor.to_list()`. Use `.raw` when a read must execute against MongoDB. See [cached reads](../usage/cached-reads.md).
 
 The `async with` block closes the manager before the client. Outside a context manager, call `await cache_manager.close()` before `await client.close()`. The manager owns its background streams and cached data, and you own the client. Keep both alive across application requests; see [deployment](../operations/deployment.md).
 

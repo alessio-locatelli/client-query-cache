@@ -15,13 +15,12 @@ from bson.int64 import Int64
 from bson.raw_bson import RawBSONDocument
 from pymongo import MongoClient, ReadPreference
 from pymongo.collation import Collation
-from pymongo.cursor import CursorType
+from pymongo.cursor import Cursor, CursorType
 from pymongo.errors import ConnectionFailure, OperationFailure
 from pymongo.read_concern import ReadConcern
 from pymongo.synchronous.collection import Collection
 from pymongo.synchronous.database import Database
 
-from client_query_cache import UnsupportedCacheRequestError
 from client_query_cache._core.keys import NamespaceId
 from client_query_cache._core.manager import CacheCore, CacheCoreConfig
 from client_query_cache.synchronous.collection import CachedCollection
@@ -210,7 +209,7 @@ def test_created_raw_collection_is_readable_through_the_cached_view(
     collection = cache_manager.cached(raw_collection)
 
     assert collection.raw is raw_collection
-    assert collection.find({}) == []
+    assert list(collection.find({})) == []
 
 
 def test_repeated_cached_views_share_entries_and_one_database_stream(
@@ -424,8 +423,16 @@ def test_reads_with_different_uuid_codecs_do_not_share_a_cache_entry(
     identifier = uuid.uuid4()
     standard_collection.raw.insert_one({"_id": "doc-1", "u": identifier})
 
-    first = getattr(standard_collection, method)({"u": identifier})
-    second = getattr(legacy_collection, method)({"u": identifier})
+    first = (
+        list(standard_collection.find({"u": identifier}))
+        if method == "find"
+        else standard_collection.find_one({"u": identifier})
+    )
+    second = (
+        list(legacy_collection.find({"u": identifier}))
+        if method == "find"
+        else legacy_collection.find_one({"u": identifier})
+    )
 
     assert first == (
         [{"_id": "doc-1", "u": identifier}]
@@ -532,7 +539,7 @@ def test_generic_find_one_caches_and_isolates_documents(
     "invoke",
     [
         pytest.param(
-            lambda collection: collection.find({"$where": "true"}),
+            lambda collection: list(collection.find({"$where": "true"})),
             id="find-unsafe-filter",
         ),
         pytest.param(
@@ -642,7 +649,7 @@ def test_unique_key_projection_with_decode_only_codec_strips_id(
         pytest.param(
             lambda collection: collection.find_one({"_id": "doc-1"}), id="find_one"
         ),
-        pytest.param(lambda collection: collection.find({})[0], id="find"),
+        pytest.param(lambda collection: next(iter(collection.find({}))), id="find"),
     ],
 )
 def test_cache_hit_is_isolated_from_caller_mutation(
@@ -894,13 +901,13 @@ def test_find_one_bypasses_forced_options_while_the_stream_is_unavailable(
         ),
         pytest.param(
             "find",
-            lambda collection: collection.find({"v": 1}),
+            lambda collection: list(collection.find({"v": 1})),
             [{"_id": "a", "v": 1, "email": "a@example.com"}],
             id="find",
         ),
         pytest.param(
             "aggregate",
-            lambda collection: collection.aggregate([{"$match": {"v": 1}}]),
+            lambda collection: list(collection.aggregate([{"$match": {"v": 1}}])),
             [{"_id": "a", "v": 1, "email": "a@example.com"}],
             id="aggregate",
         ),
@@ -940,16 +947,28 @@ def test_reads_recheck_availability_before_forcing_read_options(
     with (
         patch.object(CacheCore, "is_database_available", side_effect=[True, False]),
         patch.object(
-            Collection,
-            patch_target,
+            Cursor if patch_target == "find" else Collection,
+            "_send_message"
+            if patch_target == "find"
+            else "_aggregate"
+            if patch_target == "aggregate"
+            else patch_target,
             autospec=True,
-            side_effect=getattr(Collection, patch_target),
+            side_effect=Cursor._send_message
+            if patch_target == "find"
+            else Collection._aggregate
+            if patch_target == "aggregate"
+            else getattr(Collection, patch_target),
         ) as spy,
     ):
         returned = invoke(collection)
 
     assert returned == expected
-    assert spy.call_args.args[0] is collection.raw
+    assert (
+        spy.call_args.args[0].collection
+        if patch_target == "find"
+        else spy.call_args.args[0]
+    ) is collection.raw
 
 
 def test_find_one_by_id_discards_admission_when_the_query_fails(
@@ -984,13 +1003,13 @@ def test_find_one_by_id_discards_admission_when_the_query_fails(
         ),
         pytest.param(
             "find",
-            lambda collection: collection.find({}, sort=[("_id", 1)]),
+            lambda collection: list(collection.find({}, sort=[("_id", 1)])),
             [{"_id": "a", "v": 1}, {"_id": "b", "v": 2}],
             id="find",
         ),
         pytest.param(
             "aggregate",
-            lambda collection: collection.aggregate([{"$sort": {"_id": 1}}]),
+            lambda collection: list(collection.aggregate([{"$sort": {"_id": 1}}])),
             [{"_id": "a", "v": 1}, {"_id": "b", "v": 2}],
             id="aggregate",
         ),
@@ -1027,10 +1046,18 @@ def test_repeated_reads_are_served_from_cache(
     collection.raw.insert_many([{"_id": "a", "v": 1}, {"_id": "b", "v": 2}])
 
     with patch.object(
-        Collection,
-        patch_target,
+        Cursor if patch_target == "find" else Collection,
+        "_send_message"
+        if patch_target == "find"
+        else "_aggregate"
+        if patch_target == "aggregate"
+        else patch_target,
         autospec=True,
-        side_effect=getattr(Collection, patch_target),
+        side_effect=Cursor._send_message
+        if patch_target == "find"
+        else Collection._aggregate
+        if patch_target == "aggregate"
+        else getattr(Collection, patch_target),
     ) as spy:
         first = invoke(collection)
         second = invoke(collection)
@@ -1044,12 +1071,12 @@ def test_repeated_reads_are_served_from_cache(
     ("invoke", "settled"),
     [
         pytest.param(
-            lambda collection: collection.find({}),
+            lambda collection: list(collection.find({})),
             lambda value: len(value) == 2,
             id="find",
         ),
         pytest.param(
-            lambda collection: collection.aggregate([{"$match": {}}]),
+            lambda collection: list(collection.aggregate([{"$match": {}}])),
             lambda value: len(value) == 2,
             id="aggregate",
         ),
@@ -1101,14 +1128,14 @@ def test_find_shapes_do_not_collide(
     )
 
     with patch.object(
-        Collection, "find", autospec=True, side_effect=Collection.find
+        Cursor, "_send_message", autospec=True, side_effect=Cursor._send_message
     ) as spy:
-        full = collection.find({})
-        projected = collection.find({}, {"v": 1})
-        limited = collection.find({}, limit=1)
-        collection.find({})
-        collection.find({}, {"v": 1})
-        collection.find({}, limit=1)
+        full = list(collection.find({}))
+        projected = list(collection.find({}, {"v": 1}))
+        limited = list(collection.find({}, limit=1))
+        list(collection.find({}))
+        list(collection.find({}, {"v": 1}))
+        list(collection.find({}, limit=1))
 
     assert full != projected
     assert len(limited) == 1
@@ -1134,8 +1161,8 @@ def test_find_filters_on_distinct_equivalent_looking_values_do_not_collide(
         [{"_id": "doc1", "x": first_value}, {"_id": "doc2", "x": second_value}]
     )
 
-    first = collection.find({"x": first_value})
-    second = collection.find({"x": second_value})
+    first = list(collection.find({"x": first_value}))
+    second = list(collection.find({"x": second_value}))
 
     assert first == [{"_id": "doc1", "x": first_value}]
     assert second == [{"_id": "doc2", "x": second_value}]
@@ -1209,8 +1236,8 @@ def test_aggregate_with_a_multi_field_sort_is_order_sensitive(
         ]
     )
 
-    by_x_then_y = collection.aggregate([{"$sort": {"x": 1, "y": 1}}])
-    by_y_then_x = collection.aggregate([{"$sort": {"y": 1, "x": 1}}])
+    by_x_then_y = list(collection.aggregate([{"$sort": {"x": 1, "y": 1}}]))
+    by_y_then_x = list(collection.aggregate([{"$sort": {"y": 1, "x": 1}}]))
 
     assert [doc["_id"] for doc in by_x_then_y] == ["b", "a", "c"]
     assert [doc["_id"] for doc in by_y_then_x] == ["b", "c", "a"]
@@ -1233,9 +1260,13 @@ def test_aggregate_with_equal_int_and_other_numeric_literals_do_not_collide(
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
     collection.raw.insert_one({"_id": "a"})
 
-    int_result = collection.aggregate([{"$project": {"t": {"$type": {"$literal": 1}}}}])
-    other_result = collection.aggregate(
-        [{"$project": {"t": {"$type": {"$literal": other_literal}}}}]
+    int_result = list(
+        collection.aggregate([{"$project": {"t": {"$type": {"$literal": 1}}}}])
+    )
+    other_result = list(
+        collection.aggregate(
+            [{"$project": {"t": {"$type": {"$literal": other_literal}}}}]
+        )
     )
 
     assert int_result == [{"_id": "a", "t": "int"}]
@@ -1273,7 +1304,7 @@ def test_find_one_by_a_numeric_id_invalidates_regardless_of_int_or_float_spellin
         pytest.param({"allow_partial_results": True}, id="allow-partial-results"),
     ],
 )
-def test_find_rejects_cursor_shapes_it_cannot_fully_materialize(
+def test_find_preserves_native_cursor_shapes(
     cache_manager: CacheManager[dict[str, Any]],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
@@ -1281,19 +1312,23 @@ def test_find_rejects_cursor_shapes_it_cannot_fully_materialize(
 ) -> None:
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
 
-    with pytest.raises(UnsupportedCacheRequestError):
-        collection.find({}, **kwargs)
+    cursor = collection.find({}, **kwargs)
+    assert isinstance(cursor, Cursor)
+    cursor.close()
+    assert cache_manager.snapshot().hits == 0
 
 
-def test_aggregate_rejects_a_change_stream_pipeline(
+def test_aggregate_preserves_native_change_stream_cursor(
     cache_manager: CacheManager[dict[str, Any]],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
 ) -> None:
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
 
-    with pytest.raises(UnsupportedCacheRequestError):
-        collection.aggregate([{"$changeStream": {}}])
+    cursor = collection.aggregate([{"$changeStream": {}}])
+    cursor.close()
+    assert cache_manager.snapshot().hits == 0
+    assert cache_manager.snapshot().entry_count == 0
 
 
 def test_aggregate_with_a_now_variable_executes_without_raising_but_is_not_cached(
@@ -1306,10 +1341,10 @@ def test_aggregate_with_a_now_variable_executes_without_raising_but_is_not_cache
     pipeline: list[dict[str, Any]] = [{"$project": {"now": "$$NOW"}}]
 
     with patch.object(
-        Collection, "aggregate", autospec=True, side_effect=Collection.aggregate
+        Collection, "_aggregate", autospec=True, side_effect=Collection._aggregate
     ) as spy:
-        collection.aggregate(pipeline)
-        collection.aggregate(pipeline)
+        list(collection.aggregate(pipeline))
+        list(collection.aggregate(pipeline))
 
     assert spy.call_count == 2
 
@@ -1327,10 +1362,10 @@ def test_find_with_an_oversize_result_is_returned_but_never_cached(
     )
 
     with patch.object(
-        Collection, "find", autospec=True, side_effect=Collection.find
+        Cursor, "_send_message", autospec=True, side_effect=Cursor._send_message
     ) as spy:
-        first = collection.find({})
-        second = collection.find({})
+        first = list(collection.find({}))
+        second = list(collection.find({}))
 
     assert first == second
     assert len(first) == 5
@@ -1346,10 +1381,10 @@ def test_find_with_a_plain_dict_collation_is_cached(
     collection.raw.insert_one({"_id": "a", "v": 1})
 
     with patch.object(
-        Collection, "find", autospec=True, side_effect=Collection.find
+        Cursor, "_send_message", autospec=True, side_effect=Cursor._send_message
     ) as spy:
-        first = collection.find({}, collation={"locale": "en"})
-        second = collection.find({}, collation={"locale": "en"})
+        first = list(collection.find({}, collation={"locale": "en"}))
+        second = list(collection.find({}, collation={"locale": "en"}))
 
     assert first == second == [{"_id": "a", "v": 1}]
     assert spy.call_count == 1
@@ -1469,26 +1504,28 @@ def test_estimated_document_count_bypasses_cache_for_extra_pymongo_options(
     [
         pytest.param(
             "find",
-            lambda collection: collection.find({"$where": "this.v > 0"}),
+            lambda collection: list(collection.find({"$where": "this.v > 0"})),
             id="find-where",
         ),
         pytest.param(
             "find",
-            lambda collection: collection.find({"$expr": {"$rand": {}}}),
+            lambda collection: list(collection.find({"$expr": {"$rand": {}}})),
             id="find-expr-rand",
         ),
         pytest.param(
             "find",
-            lambda collection: collection.find(
-                {
-                    "$expr": {
-                        "$function": {
-                            "body": "function() { return true; }",
-                            "args": [],
-                            "lang": "js",
+            lambda collection: list(
+                collection.find(
+                    {
+                        "$expr": {
+                            "$function": {
+                                "body": "function() { return true; }",
+                                "args": [],
+                                "lang": "js",
+                            }
                         }
                     }
-                }
+                )
             ),
             id="find-expr-function",
         ),
@@ -1515,10 +1552,18 @@ def test_unsafe_filters_are_never_cached(
     collection.raw.insert_one({"_id": "a", "v": 1})
 
     with patch.object(
-        Collection,
-        patch_target,
+        Cursor if patch_target == "find" else Collection,
+        "_send_message"
+        if patch_target == "find"
+        else "_aggregate"
+        if patch_target == "aggregate"
+        else patch_target,
         autospec=True,
-        side_effect=getattr(Collection, patch_target),
+        side_effect=Cursor._send_message
+        if patch_target == "find"
+        else Collection._aggregate
+        if patch_target == "aggregate"
+        else getattr(Collection, patch_target),
     ) as spy:
         invoke(collection)
         invoke(collection)
@@ -1536,13 +1581,17 @@ def test_find_with_a_meta_projection_is_never_cached(
     collection.raw.insert_one({"_id": "a", "text": "hello world"})
 
     with patch.object(
-        Collection, "find", autospec=True, side_effect=Collection.find
+        Cursor, "_send_message", autospec=True, side_effect=Cursor._send_message
     ) as spy:
-        collection.find(
-            {"$text": {"$search": "hello"}}, {"score": {"$meta": "textScore"}}
+        list(
+            collection.find(
+                {"$text": {"$search": "hello"}}, {"score": {"$meta": "textScore"}}
+            )
         )
-        collection.find(
-            {"$text": {"$search": "hello"}}, {"score": {"$meta": "textScore"}}
+        list(
+            collection.find(
+                {"$text": {"$search": "hello"}}, {"score": {"$meta": "textScore"}}
+            )
         )
 
     assert spy.call_count == 2
@@ -1558,7 +1607,7 @@ def test_find_with_a_meta_projection_is_never_cached(
         ),
         pytest.param(
             "find",
-            lambda collection: collection.find({"$text": {"$search": "hello"}}),
+            lambda collection: list(collection.find({"$text": {"$search": "hello"}})),
             id="find-text-search",
         ),
         pytest.param(
@@ -1589,10 +1638,18 @@ def test_text_search_filters_are_never_cached(
     collection.raw.insert_one({"_id": "a", "text": "hello world"})
 
     with patch.object(
-        Collection,
-        patch_target,
+        Cursor if patch_target == "find" else Collection,
+        "_send_message"
+        if patch_target == "find"
+        else "_aggregate"
+        if patch_target == "aggregate"
+        else patch_target,
         autospec=True,
-        side_effect=getattr(Collection, patch_target),
+        side_effect=Cursor._send_message
+        if patch_target == "find"
+        else Collection._aggregate
+        if patch_target == "aggregate"
+        else getattr(Collection, patch_target),
     ) as spy:
         invoke(collection)
         invoke(collection)
@@ -1606,8 +1663,8 @@ def test_text_search_filters_are_never_cached(
         pytest.param(
             "find",
             {"_id": "a", "script": Code("function() { return true; }")},
-            lambda collection: collection.find(
-                {"script": Code("function() { return true; }")}
+            lambda collection: list(
+                collection.find({"script": Code("function() { return true; }")})
             ),
             [{"_id": "a", "script": Code("function() { return true; }")}],
             id="find-unhashable-filter-value",
@@ -1657,10 +1714,18 @@ def test_reads_with_an_unhashable_value_bypass_instead_of_raising(
     collection.raw.insert_one(insert_doc)
 
     with patch.object(
-        Collection,
-        patch_target,
+        Cursor if patch_target == "find" else Collection,
+        "_send_message"
+        if patch_target == "find"
+        else "_aggregate"
+        if patch_target == "aggregate"
+        else patch_target,
         autospec=True,
-        side_effect=getattr(Collection, patch_target),
+        side_effect=Cursor._send_message
+        if patch_target == "find"
+        else Collection._aggregate
+        if patch_target == "aggregate"
+        else getattr(Collection, patch_target),
     ) as spy:
         first = invoke(collection)
         second = invoke(collection)
@@ -1718,10 +1783,10 @@ def test_aggregate_with_an_unsafe_pipeline_is_never_cached(
     collection.raw.insert_one({"_id": "a", "v": 1})
 
     with patch.object(
-        Collection, "aggregate", autospec=True, side_effect=Collection.aggregate
+        Collection, "_aggregate", autospec=True, side_effect=Collection._aggregate
     ) as spy:
-        collection.aggregate(pipeline)
-        collection.aggregate(pipeline)
+        list(collection.aggregate(pipeline))
+        list(collection.aggregate(pipeline))
 
     assert spy.call_count == 2
 
@@ -1737,10 +1802,10 @@ def test_aggregate_with_an_out_stage_still_executes_its_write_but_is_not_cached(
     pipeline: list[dict[str, Any]] = [{"$out": persistent_collection_name}]
 
     with patch.object(
-        Collection, "aggregate", autospec=True, side_effect=Collection.aggregate
+        Collection, "_aggregate", autospec=True, side_effect=Collection._aggregate
     ) as spy:
-        collection.aggregate(pipeline)
-        collection.aggregate(pipeline)
+        list(collection.aggregate(pipeline))
+        list(collection.aggregate(pipeline))
 
     assert spy.call_count == 2
     target = cache_manager[cached_database_name][persistent_collection_name]

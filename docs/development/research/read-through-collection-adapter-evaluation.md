@@ -67,19 +67,13 @@ setting or production service is accessed. Keep diagnostic output untracked.
 
 ## Cursor return types are a separate question
 
-Native `.raw.find()` returns Cursor/AsyncCursor; native `.raw.aggregate()` returns
-CommandCursor/AsyncCommandCursor. The cached views currently materialize both
-methods into lists. The asynchronous cached `find` must also be awaited, whereas
-native async `find` constructs its cursor synchronously.
-
-Returning a cursor is technically possible: native forwarding already supplies
-one. Earlier exploratory streaming prototypes delivered native results while
-retaining bounded encoded candidates and admitted selected fully consumed
-queries. They did not establish a complete cached cursor contract: hit metadata,
-chaining/cloning and mid-hit disabling remained incomplete. That exploration is
-not needed to prove the live-error boundary above, and no production cursor API
-is proposed here. Changing the explicit views to return cursors would be a
-separate public API decision with its own contract and tests.
+The explicit cached views return native cursor subclasses from `find()` and
+`aggregate()`, including immediate asynchronous find construction. Their
+[public cursor contract](../../user/reference/api.md#cached-read-methods) covers
+streaming misses, complete-consumption admission, local hit snapshots, chaining,
+lifecycle, and batching. This does not establish whole-collection
+interchangeability: the views remain read-only, and cached hits still skip server
+execution. The live-error boundary investigated above therefore remains relevant.
 
 ## Scope and limitations
 

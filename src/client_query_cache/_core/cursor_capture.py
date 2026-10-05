@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from bson.errors import BSONError
 from bson.raw_bson import DEFAULT_RAW_BSON_OPTIONS, RawBSONDocument
 
 from client_query_cache._core.codec import encode_value
@@ -52,10 +51,7 @@ class CursorCapture:
             return
         try:
             encoded = encode_value(document, self._codec_options)
-        except BSONError:
-            self.abandon()
-            return
-        except OverflowError:
+        except Exception:  # noqa: BLE001 - Application BSON encoders can raise arbitrary errors.
             self.abandon()
             return
         if self.retained_bytes + len(encoded) > self._max_entry_bytes:
