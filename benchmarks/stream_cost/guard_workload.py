@@ -132,7 +132,7 @@ def _find_admission(
         before = manager.cache_core.snapshot()
         started = time.perf_counter()
         read_results = [
-            cached.find({"index": {"$gte": index}}, sort=[("index", 1)], limit=4)
+            list(cached.find({"index": {"$gte": index}}, sort=[("index", 1)], limit=4))
             for index in range(_ADMISSION_OPERATIONS)
         ]
         elapsed = time.perf_counter() - started
