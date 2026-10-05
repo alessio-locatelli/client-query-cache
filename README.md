@@ -4,6 +4,8 @@
 
 Client-side caching for PyMongo applications, kept coherent using MongoDB change streams. It supports synchronous and asyncio clients, caches six read methods, and keeps writes on your PyMongo collection. No separate cache server is required.
 
+**Built for production:** Designed for high-traffic, read-heavy applications, with cache hits served from memory to reduce latency and database load. Quality is backed by a 100% test-coverage requirement, real MongoDB integration and concurrency stress tests, and automated performance and memory regression checks.
+
 Caching requires [MongoDB 8.0+ on a replica set or sharded cluster](https://alessio-locatelli.github.io/client-query-cache/getting-started/installation/#requirements). Reads on standalone servers and older MongoDB versions run through PyMongo without caching.
 
 Invalidation is asynchronous: a cached read can return a preceding value until the write's change-stream event is processed. Use PyMongo directly when a read must immediately observe a preceding write.
