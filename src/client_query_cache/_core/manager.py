@@ -304,6 +304,9 @@ class _CacheCoreLifecycle(_CacheCoreBase):
     def record_bypass(self, reason: BypassReason = BypassReason.UNSPECIFIED) -> None:
         self._statistics.record_bypass(reason)
 
+    def record_oversized_bypass(self) -> None:
+        self._statistics.record_oversized_bypass()
+
     def snapshot(self) -> CacheSnapshot:
         used_bytes, entry_count = self._lru.snapshot_usage()
         hits, misses, evictions, bypasses, oversized_bypasses, bypass_reasons = (

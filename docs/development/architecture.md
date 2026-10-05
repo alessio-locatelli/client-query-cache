@@ -29,6 +29,22 @@ writes and schema changes occur.
 
 ## Low-level design
 
+- **Cursor snapshot ownership**: `CursorCapture` encodes each consumed document once through
+  `encode_value()` before the caller can mutate it. It accesses the nested snapshot with
+  `RawBSONDocument` using a codec context without application transformations. Finalization
+  passes these private raw documents to `CacheCore.admit_namespace()`, which retains its
+  normal BSON list envelope, exact entry weighting, eviction, and generation guards.
+  Abandonment and finalization release the retained snapshots.
+- **Cursor allocation budgets**: the collector bounds the sum of encoded document envelopes
+  by `max_entry_bytes` per collecting cursor. Counting the envelope overhead is conservative
+  relative to the retained nested document bytes. The final stored list has its own envelope
+  and array keys and must pass the ordinary exact entry-size check. Stored cache bytes,
+  retained candidate payload, native decoded batches, raw-document wrappers, temporary
+  document encoding, and final BSON encoding/copying are separate allocations. Concurrent
+  collectors can retain payload proportional to cursor count times `max_entry_bytes` outside
+  the cache's shared stored-byte budget. Actual heap peaks require allocation measurements;
+  the encoded-payload bound alone does not bound process memory.
+
 - **Session context**: before cache lookup or admission, both cached collections ask the shared request classifier
   to bypass explicit sessions and sessions bound by `ClientSession.bind()` or `AsyncClientSession.bind()`.
   PyMongo exposes no public accessor for the effective session, so the guard feature-detects
