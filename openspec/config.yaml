@@ -18,3 +18,17 @@ rules:
       - If you are Claude Code, confirm that you added no new prose to the code (all "why" explanations must go in the specs and commit bodies). OpenAI Codex is exempt from this rule because it understands the difference between garbage and valuable code comments.
 
       Inapplicable tasks are marked as completed with a short reason (e.g., "touches no code" or "specs applied by GPT").
+  design:
+    - >-
+      Ensure a future reader will be able to judge only from the OpenSpec files why a certain decision was made.
+
+      Each meaningful alternative (for example, wrapping `pymongo.collection.Collection` versus creating a dedicated `CacheManager` class, using Zensical versus Sphinx, or setting up infrastructure) for architecture, layout, dependencies, API, and other decisions must be documented with:
+
+      1. Pros and cons
+      2. Unknowns (what cannot be established during the planning stage without creating an MRE or a throwaway prototype)
+      3. One of the following:
+
+        - If additional research or follow-up work is required, a reference to an open task in `tasks.md` or a ticket URL, or
+        - An explicitly written conclusion stating that none of these are necessary.
+
+      If alternatives are absent or they are extremely disproportionate compared to the chosen one, write this honesty as a short summary.
