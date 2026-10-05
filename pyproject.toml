@@ -46,7 +46,7 @@ dev = [
   "pytest-xdist[psutil]>=3.8.0",
   "pytest-cov>=7.1.0",
 ]
-docs = ["mike", "tomli-w>=1.2.0", "zensical>=0.0.67"]
+docs = ["mike", "tomli-w>=1.2.0", "zensical>=0.0.68"]
 memory = ["pytest-memray>=1.11.0"]
 
 [build-system]
