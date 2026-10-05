@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 280" width="700" height="280" role="img" aria-label="Cached reads are up to about 1200 times faster than a direct read, and roughly the same speed whether the server is local or a real remote deployment. Direct local server read 120 microseconds, direct real deployment (Atlas M0 free tier) read 79.4 milliseconds, cached read about 61 microseconds either way. Bars use a logarithmic scale.">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 280" width="700" height="280" role="img" aria-label="Illustrative read latency on a logarithmic scale: direct local MongoDB read, 120 microseconds; direct Atlas M0 read, 79.4 milliseconds; cached read in either deployment, about 61 microseconds.">
   <rect x="0" y="0" width="700" height="280" fill="#fcfcfb" rx="8"/>
-  <text x="16" y="32" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="20" font-weight="600" fill="#0b0b0b">Cached reads: up to ~1,200&#215; faster (log scale)</text>
+  <text x="16" y="32" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="20" font-weight="600" fill="#0b0b0b">Illustrative read latency</text>
   <line x1="245" y1="55" x2="245" y2="220" stroke="#d8d7d2" stroke-width="1"/>
   <text x="16" y="89" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="15" fill="#0b0b0b">Direct read &#8212; local server</text>
   <path d="M245,70 L337.1,70 Q342.1,70 342.1,75 L342.1,93 Q342.1,98 337.1,98 L245,98 Z" fill="#2a78d6"/>
