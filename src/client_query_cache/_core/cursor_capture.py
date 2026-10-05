@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from bson.codec_options import CodecOptions
 
     from client_query_cache._core.entries import AdmissionOutcome
+    from client_query_cache._core.find_reads import FindSource
     from client_query_cache._core.manager import CacheCore, NamespaceCapture
 
 
@@ -26,6 +27,7 @@ class CursorCapture:
         "_core",
         "_discriminator",
         "_documents",
+        "_find_source",
         "_max_entry_bytes",
         "retained_bytes",
     )
@@ -36,11 +38,14 @@ class CursorCapture:
         capture: NamespaceCapture,
         discriminator: object,
         codec_options: CodecOptions[Mapping[str, Any]],
+        *,
+        find_source: FindSource | None = None,
     ) -> None:
         self._core = core
         self._capture = capture
         self._discriminator = discriminator
         self._codec_options = codec_options
+        self._find_source = find_source
         self._max_entry_bytes = core.snapshot().max_entry_bytes
         self._documents: list[RawBSONDocument] = []  # An empty result is cacheable.
         self.retained_bytes = 0  # Empty and abandoned captures retain no payload.
@@ -78,6 +83,7 @@ class CursorCapture:
                 self._discriminator,
                 self._documents,
                 codec_options=self._codec_options,
+                find_source=self._find_source,
             )
         except CacheClosedError:
             # The cursor owns its native resources independently of the manager.

@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import asyncio
 import re
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import AsyncExitStack
 from copy import copy, deepcopy
 from typing import TYPE_CHECKING
 
 import pytest
 from bson.codec_options import CodecOptions, TypeRegistry
 from bson.decimal128 import Decimal128
+from pymongo import AsyncMongoClient
 from pymongo.asynchronous.command_cursor import AsyncCommandCursor
 from pymongo.asynchronous.cursor import AsyncCursor
 from pymongo.errors import ConnectionFailure, InvalidOperation
@@ -19,7 +21,6 @@ from client_query_cache.asynchronous.cursors import (
     CachedCommandCursor as AsyncCachedCommandCursor,
 )
 from client_query_cache.asynchronous.cursors import CachedCursor as AsyncCachedCursor
-from client_query_cache.synchronous import CachedCollection
 from client_query_cache.synchronous.cursors import CachedCommandCursor, CachedCursor
 from tests.cursor_helpers import (
     advance,
@@ -27,10 +28,13 @@ from tests.cursor_helpers import (
     live_capture_ids,
     materialize,
     resolve_cursor,
+    with_codec_options,
 )
 
 if TYPE_CHECKING:
+    from pymongo.asynchronous.client_session import AsyncClientSession
     from pymongo.message import _GetMore, _Query
+    from pymongo.synchronous.client_session import ClientSession
 
     from tests.cursor_fixtures import Binding, CursorFactory, Document, View
 
@@ -38,6 +42,279 @@ from tests.codec_helpers import Decimal128ToDecimalDecoder, fail_decimal_encodin
 from tests.cursor_fixtures import DOCUMENT_COUNT
 
 pytestmark = pytest.mark.integration
+
+
+@pytest.mark.parametrize(
+    "source_limit", [0, 10, 100], ids=["unlimited", "equal", "larger"]
+)
+@pytest.mark.parametrize("matching", [0, 3, 240], ids=["empty", "short", "full"])
+async def test_covering_find_returns_an_isolated_prefix(
+    cursors: Binding, source_limit: int, matching: int
+) -> None:
+    view = cursors["view"]
+    query = {"_id": {"$lt": matching}}
+    complete = cursors["documents"][:matching]
+    expected = complete[:10]
+    assert await materialize(view.find(query).sort("_id").limit(source_limit)) == (
+        complete[:source_limit] if source_limit else complete
+    )
+    core = view.database.manager.cache_core
+    before = core.snapshot()
+    cursors["commands"].commands.clear()
+    cursor = view.find(query).sort("_id").limit(10)
+    prefix = await materialize(cursor)
+    assert prefix == expected
+    assert cursor.retrieved == len(expected)
+    assert cursor.cursor_id == 0
+    assert cursor.address is None
+    assert cursor.session is None
+    assert isinstance(cursor, CachedCursor | AsyncCachedCursor)
+    assert cursor._capture is None
+    if prefix:
+        prefix[0]["nested"]["original"] = False
+    assert await materialize(view.find(query).sort("_id").limit(10)) == expected
+    assert await materialize(view.find(query).sort("_id").limit(source_limit)) == (
+        complete[:source_limit] if source_limit else complete
+    )
+    after = core.snapshot()
+    assert after.hits == before.hits + 3
+    assert after.misses == before.misses
+    assert (after.entry_count, after.used_bytes) == (
+        before.entry_count,
+        before.used_bytes,
+    )
+    assert cursors["commands"].commands == []
+
+
+@pytest.mark.parametrize(
+    ("source_limit", "request_limit"),
+    [
+        (10, 100),
+        (100, 0),
+        (-100, 10),
+        (100, -10),
+        (True, 10),
+        (False, 10),
+        (100, True),
+        (100, False),
+    ],
+    ids=[
+        "smaller",
+        "unlimited-request",
+        "negative-source",
+        "negative-request",
+        "true-source",
+        "false-source",
+        "true-request",
+        "false-request",
+    ],
+)
+async def test_incompatible_find_limits_execute_natively(
+    cursors: Binding, source_limit: int, request_limit: int
+) -> None:
+    view = cursors["view"]
+    expected = await materialize(view.raw.find({}).sort("_id").limit(request_limit))
+    await materialize(view.find({}).sort("_id").limit(source_limit))
+    before = view.database.manager.snapshot()
+    cursors["commands"].commands.clear()
+    assert await materialize(view.find({}).sort("_id").limit(request_limit)) == expected
+    assert any("find" in command for command in cursors["commands"].commands)
+    assert view.database.manager.snapshot().hits == before.hits
+
+
+@pytest.mark.parametrize(
+    "changed",
+    [
+        "filter",
+        "projection",
+        "sort",
+        "skip",
+        "collation",
+        "codec",
+        "namespace",
+        "database",
+        "batch",
+        "hint",
+        "comment",
+    ],
+    ids=[
+        "filter",
+        "projection",
+        "sort",
+        "skip",
+        "collation",
+        "codec",
+        "collection",
+        "database",
+        "batch",
+        "hint",
+        "comment",
+    ],
+)
+async def test_covering_find_preserves_query_boundaries(
+    cursors: Binding, changed: str
+) -> None:
+    view = cursors["view"]
+    await materialize(view.find({}).sort("_id").limit(100))
+    core = view.database.manager.cache_core
+    selected = view
+    if changed == "codec":
+        selected = with_codec_options(view, CodecOptions(tz_aware=True))
+    elif changed == "namespace":
+        selected = view.database["other"]
+    elif changed == "database":
+        selected = view.database.manager["admin"][view.raw.name]
+    cursor = (
+        selected.find(
+            {"_id": {"$gt": 1}} if changed == "filter" else {},
+            {"value": 1} if changed == "projection" else None,
+        )
+        .sort("_id", -1 if changed == "sort" else 1)
+        .limit(10)
+    )
+    if changed == "skip":
+        cursor.skip(1)
+    elif changed == "collation":
+        cursor.collation({"locale": "en"})
+    elif changed == "batch":
+        cursor.batch_size(0)
+    elif changed == "hint":
+        cursor.hint("_id_")
+    elif changed == "comment":
+        cursor.comment("covering-test")
+    before = core.snapshot()
+    cursors["commands"].commands.clear()
+    await materialize(cursor)
+    assert core.snapshot().hits == before.hits
+    if changed != "namespace":
+        assert any("find" in command for command in cursors["commands"].commands)
+
+
+@pytest.fixture(params=("active", "ended"))
+async def cursor_session(
+    cursors: Binding, request: pytest.FixtureRequest
+) -> AsyncIterator[ClientSession | AsyncClientSession]:
+    client = cursors["view"].raw.database.client
+    async with AsyncExitStack() as stack:
+        session: ClientSession | AsyncClientSession
+        if isinstance(client, AsyncMongoClient):
+            session = await stack.enter_async_context(client.start_session())
+        else:
+            session = stack.enter_context(client.start_session())
+        if request.param == "ended":
+            ended = session.end_session()
+            if isinstance(ended, Awaitable):
+                await ended
+        yield session
+
+
+async def test_session_find_cannot_reuse_a_covering_source(
+    cursors: Binding, cursor_session: ClientSession | AsyncClientSession
+) -> None:
+    view = cursors["view"]
+    await materialize(view.find({}).sort("_id").limit(100))
+    core = view.database.manager.cache_core
+    before = core.snapshot()
+    cursors["commands"].commands.clear()
+    if cursor_session.has_ended:
+        with pytest.raises(InvalidOperation) as native_error:
+            await materialize(
+                view.raw.find({}, sort=[("_id", 1)], limit=10, session=cursor_session)
+            )
+        with pytest.raises(InvalidOperation, match=re.escape(str(native_error.value))):
+            await materialize(
+                view.find({}, sort=[("_id", 1)], limit=10, session=cursor_session)
+            )
+    else:
+        assert (
+            await materialize(
+                view.find({}, sort=[("_id", 1)], limit=10, session=cursor_session)
+            )
+            == cursors["documents"][:10]
+        )
+        assert any("find" in command for command in cursors["commands"].commands)
+    after = core.snapshot()
+    assert (after.hits, after.entry_count, after.used_bytes) == (
+        before.hits,
+        before.entry_count,
+        before.used_bytes,
+    )
+
+
+@pytest.mark.parametrize(
+    "transition",
+    ["write", "clear", "create", "unavailable", "recover"],
+    ids=["write", "clear", "create", "unavailable", "recover"],
+)
+async def test_started_prefix_finishes_but_new_execution_rechecks(
+    cursors: Binding, transition: str
+) -> None:
+    view = cursors["view"]
+    core = view.database.manager.cache_core
+    namespace = view._namespace()
+    await materialize(view.find({}).sort("_id").limit(100))
+    hit = view.find({}).sort("_id").limit(10)
+    assert await advance(hit) == cursors["documents"][0]
+    if transition == "write":
+        core.record_write(namespace, 0)
+    elif transition == "clear":
+        core.clear_namespace(namespace)
+    elif transition == "create":
+        core.create_namespace(namespace)
+    else:
+        core.set_database_available(namespace.database, available=False)
+        if transition == "recover":
+            core.clear_namespace(namespace)
+            core.set_database_available(namespace.database, available=True)
+    cursors["commands"].commands.clear()
+    assert await materialize(hit) == cursors["documents"][1:10]
+    assert cursors["commands"].commands == []
+    assert (
+        await materialize(view.find({}).sort("_id").limit(10))
+        == cursors["documents"][:10]
+    )
+    assert any("find" in command for command in cursors["commands"].commands)
+
+
+async def test_prefix_clone_rewind_and_indexing_use_final_shape(
+    cursors: Binding,
+) -> None:
+    view = cursors["view"]
+    await materialize(view.find({}).sort("_id").skip(2).limit(100))
+    cursor = view.find({}).limit(1).skip(2).sort("_id").limit(10)
+    cursors["commands"].commands.clear()
+    assert await materialize(cursor) == cursors["documents"][2:12]
+    assert await materialize(cursor.clone()) == cursors["documents"][2:12]
+    rewound = cursor.rewind()
+    if isinstance(rewound, Awaitable):
+        await rewound
+    assert await materialize(cursor) == cursors["documents"][2:12]
+    assert cursors["commands"].commands == []
+    if isinstance(cursor, Cursor):
+        assert (
+            await materialize(view.find({}).sort("_id")[2:12])
+            == cursors["documents"][2:12]
+        )
+        assert cursors["commands"].commands == []
+        assert view.find({}).sort("_id").limit(1)[2] == cursors["documents"][2]
+
+
+@pytest.mark.parametrize("source_limit", [0, 100], ids=["unlimited", "larger"])
+async def test_partial_source_publishes_no_compatible_prefix(
+    cursors: Binding, source_limit: int
+) -> None:
+    view = cursors["view"]
+    source = view.find({}).sort("_id").limit(source_limit)
+    assert await materialize(source, 10) == cursors["documents"][:10]
+    await close_cursor(source)
+    core = view.database.manager.cache_core
+    assert not core._namespace(view._namespace()).find_families
+    cursors["commands"].commands.clear()
+    assert (
+        await materialize(view.find({}).sort("_id").limit(5))
+        == cursors["documents"][:5]
+    )
+    assert any("find" in command for command in cursors["commands"].commands)
 
 
 @pytest.mark.parametrize(
@@ -293,6 +570,11 @@ async def test_later_batch_failure_discards_candidate(
         await materialize(cursor)
     assert not bool(cursor.alive)
     assert cursors["view"].database.manager.snapshot().entry_count == 0
+    assert (
+        not cursors["view"]
+        .database.manager.cache_core._namespace(cursors["view"]._namespace())
+        .find_families
+    )
     assert await materialize(cursor) == []
     assert isinstance(
         cursor,
@@ -502,11 +784,7 @@ async def failing_encoder_view(cursors: Binding) -> View:
             [Decimal128ToDecimalDecoder()], fallback_encoder=fail_decimal_encoding
         )
     )
-    if isinstance(view, CachedCollection):
-        return view.database.manager.cached(
-            view.raw.with_options(codec_options=options)
-        )
-    return view.database.manager.cached(view.raw.with_options(codec_options=options))
+    return with_codec_options(view, options)
 
 
 @pytest.mark.parametrize("method", ["find", "aggregate"], ids=["find", "aggregate"])
@@ -562,6 +840,11 @@ async def test_cancelled_batch_await_discards_and_closes(
     assert not bool(cursor.alive)
     assert await cursor.to_list() == []
     assert cursors["view"].database.manager.snapshot().entry_count == 0
+    assert (
+        not cursors["view"]
+        .database.manager.cache_core._namespace(cursors["view"]._namespace())
+        .find_families
+    )
     assert any("killCursors" in command for command in cursors["commands"].commands)
     assert isinstance(cursor, AsyncCachedCursor | AsyncCachedCommandCursor)
     assert cursor._capture is None

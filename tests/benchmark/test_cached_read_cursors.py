@@ -15,6 +15,7 @@ from pymongo import AsyncMongoClient
 
 from client_query_cache._core.codec import encode_value
 from client_query_cache._core.cursor_capture import CursorCapture
+from client_query_cache._core.keys import NamespaceId
 from client_query_cache.asynchronous.cursors import (
     CachedCommandCursor as AsyncCachedCommandCursor,
 )
@@ -32,8 +33,12 @@ from tests.cursor_helpers import (
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Mapping
 
+    from bson.codec_options import CodecOptions
     from pymongo.asynchronous.command_cursor import AsyncCommandCursor
 
+    from client_query_cache._core.entries import LookupResult
+    from client_query_cache._core.find_reads import FindReadShape
+    from client_query_cache._core.manager import CacheCore
     from tests.cursor_fixtures import Binding, Document, ReadCommands
 
 pytestmark = [pytest.mark.benchmark, pytest.mark.timeout(180)]
@@ -258,4 +263,212 @@ async def test_cursor_measurements(
                 "payload": len(documents[0]["payload"]),
             }
         )
+    )
+
+
+def exact_find_lookup(
+    core: CacheCore,
+    namespace: NamespaceId,
+    shape: FindReadShape,
+    *,
+    codec_options: CodecOptions[Any] | None = None,
+) -> LookupResult:
+    return core.lookup_namespace(
+        namespace, shape.discriminator, codec_options=codec_options
+    )
+
+
+type FindLimitPhase = Literal["cold", "exact", "compatible", "incompatible", "bypass"]
+
+FIND_LIMIT_CURSORS = pytest.mark.parametrize(
+    "cursors",
+    tuple(
+        (api, 240, payload, 1024 * 1024)
+        for api in ("sync", "async")
+        for payload in (64, 4096)
+    ),
+    indirect=True,
+    ids=["sync-small", "sync-near-cap", "async-small", "async-near-cap"],
+)
+
+
+async def measure_find_limit_phase(
+    cursors: Binding,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    phase: FindLimitPhase,
+    family_size: Literal[0, 1, 16],
+    unrelated: Literal[0, 128],
+    exact_only: bool = False,
+    descending: bool = False,
+) -> None:
+    view = cursors["view"]
+    core = view.database.manager.cache_core
+    namespace = view._namespace()
+    source_limits = tuple(range(240 - family_size + 1, 241)) if family_size else (0,)
+    if descending:
+        source_limits = tuple(reversed(source_limits))
+    if exact_only:
+        monkeypatch.setattr(type(core), "lookup_find", exact_find_lookup)
+    requested = {
+        "cold": 10,
+        "exact": max(source_limits),
+        "compatible": 10,
+        "incompatible": -241,
+        "bypass": 10,
+    }[phase]
+    expected = await materialize(view.raw.find({}, sort=[("_id", 1)], limit=requested))
+    timings: list[float] = []  # Repetitions populate the measurements.
+    command_counts: list[dict[str, int]] = []  # One count per execution.
+    peaks: list[int] = []  # Zero allocations are possible.
+    resident = core.snapshot()
+    for repetition in range(REPETITIONS):
+        core.clear_namespace(namespace)
+        with monkeypatch.context() as warmup:
+            warmup.setattr(type(core), "lookup_find", exact_find_lookup)
+            for source_limit in source_limits:
+                if phase != "cold":
+                    await materialize(
+                        view.find({}, sort=[("_id", 1)], limit=source_limit)
+                    )
+        assert sum(
+            len(bucket) for bucket in core._namespace(namespace).find_families.values()
+        ) == (0 if phase == "cold" else len(source_limits))
+        for index in range(unrelated):
+            unrelated_namespace = (
+                namespace
+                if index % 2
+                else NamespaceId(namespace.database, f"unrelated-{index}")
+            )
+            core.admit_namespace(
+                core.capture_namespace_generation(unrelated_namespace),
+                ("unrelated", index),
+                [],
+            )
+        resident = core.snapshot()
+        cursors["commands"].commands.clear()
+        options = {"batch_size": 7} if phase == "bypass" else {}
+        if repetition == 0:
+            tracemalloc.start()
+        started = perf_counter()
+        assert (
+            await materialize(
+                view.find({}, sort=[("_id", 1)], limit=requested, **options)
+            )
+            == expected
+        )
+        timings.append(perf_counter() - started)
+        command_counts.append(counts(cursors["commands"]))
+        if repetition == 0:
+            _, peak = tracemalloc.get_traced_memory()
+            peaks.append(peak)
+            tracemalloc.stop()
+        if phase == "exact" or (phase == "compatible" and not exact_only):
+            assert not any(command_counts[-1].values())
+            assert core.snapshot().used_bytes == resident.used_bytes
+            assert core.snapshot().entry_count == resident.entry_count
+        elif phase == "compatible":
+            assert command_counts[-1]["find"] == 1
+    print(
+        json.dumps(
+            {
+                "limit_workload": True,
+                "api": "async"
+                if isinstance(view.raw.database.client, AsyncMongoClient)
+                else "sync",
+                "payload": len(cursors["documents"][0]["payload"]),
+                "phase": phase,
+                "source_limit": min(source_limits),
+                "admission_order": "descending" if descending else "ascending",
+                "lookup_mode": "exact-only" if exact_only else "compatible",
+                "request_limit": requested,
+                "family_size": family_size,
+                "unrelated": unrelated,
+                "total_us": round(statistics.median(timings[1:]) * 1e6, 1),
+                "heap_peak": peaks[0],
+                "resident_before": resident.used_bytes,
+                "resident_after": core.snapshot().used_bytes,
+                "source_tokens": sum(
+                    len(bucket)
+                    for state in core._namespaces.values()
+                    for bucket in state.find_families.values()
+                ),
+                "origin_per_read": command_counts[-1],
+            }
+        )
+    )
+    if phase == "compatible" and family_size == 1 and unrelated == 0 and not exact_only:
+        profiler = cProfile.Profile()
+        profiler.enable()
+        for _ in range(REPETITIONS):
+            await materialize(view.find({}).sort("_id").limit(requested))
+        profiler.disable()
+        profile = io.StringIO()
+        pstats.Stats(profiler, stream=profile).sort_stats("tottime").print_stats(8)
+        print(profile.getvalue())
+
+
+@FIND_LIMIT_CURSORS
+@pytest.mark.parametrize(
+    "family_size", [0, 1, 16], ids=["unlimited", "one-limit", "many-limits"]
+)
+@pytest.mark.parametrize("unrelated", [0, 128], ids=["isolated", "unrelated"])
+async def test_find_limit_measurements(
+    cursors: Binding,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    family_size: Literal[0, 1, 16],
+    unrelated: Literal[0, 128],
+) -> None:
+    for phase in ("cold", "exact", "incompatible", "bypass"):
+        await measure_find_limit_phase(
+            cursors,
+            monkeypatch,
+            phase=phase,
+            family_size=family_size,
+            unrelated=unrelated,
+        )
+
+
+@FIND_LIMIT_CURSORS
+@pytest.mark.parametrize(
+    ("family_size", "unrelated", "exact_only", "descending"),
+    [
+        (1, 0, True, False),
+        (0, 0, False, False),
+        (1, 0, False, False),
+        (16, 0, False, False),
+        (16, 0, False, True),
+        (1, 128, False, False),
+        (16, 128, False, False),
+        (16, 128, False, True),
+    ],
+    ids=[
+        "exact-only-control",
+        "unlimited",
+        "one-limit",
+        "many-ascending",
+        "many-descending",
+        "one-limit-unrelated",
+        "many-ascending-unrelated",
+        "many-descending-unrelated",
+    ],
+)
+async def test_find_limit_prefix_measurements(
+    cursors: Binding,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    family_size: Literal[0, 1, 16],
+    unrelated: Literal[0, 128],
+    exact_only: bool,
+    descending: bool,
+) -> None:
+    await measure_find_limit_phase(
+        cursors,
+        monkeypatch,
+        phase="compatible",
+        family_size=family_size,
+        unrelated=unrelated,
+        exact_only=exact_only,
+        descending=descending,
     )

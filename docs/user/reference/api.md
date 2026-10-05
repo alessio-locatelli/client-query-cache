@@ -83,6 +83,8 @@ Misses stream through native batching. The cache admits only successfully consum
 
 Find sorting, skipping, limits, and collation determine the final query and its cache identity. Clone, copy, rewind, and supported synchronous indexing use native query semantics and check current cache eligibility for their new execution. Async indexing raises the native error. Unsupported options and operations execute natively, including hints, comments, timeouts, arbitrary flags, `explain()`, and cursor `distinct()`.
 
+A positive integer find limit can reuse an isolated prefix of a complete, valid cached query with an equal or larger positive limit, or an unlimited integer-zero/omitted limit. Every other final query input must match, including filter representation, projection, ordered sort, skip, collation, namespace, and codec options. Smaller sources cannot cover larger requests. Unlimited, negative, and boolean requests use exact lookup only; negative and boolean sources cannot cover other limits. A local find hit's `retrieved` counts the loaded prefix, and the cursor has no server cursor, address, or session. See the [complete-consumption example](../usage/cached-reads.md#read-methods) and [consistency limits](../usage/consistency.md).
+
 Explicit find batching before execution and aggregate `batchSize` at invocation bypass caching. Later command-cursor `batch_size()` calls retain native validation and return the same cursor: they change future native getMore batching on a miss or bypass, while a local hit remains local and issues no command.
 
 A started hit consumes one isolated snapshot, even if a write, stream interruption, eviction, or manager closure follows. Hit metadata reports `cursor_id == 0`, `address is None`, and `session is None`; `alive` reflects unread documents. A find hit's `collection` is the wrapped PyMongo collection, and `retrieved` counts documents loaded into its buffer. Hits skip server query execution, so they cannot reproduce fresh server/network errors or server-side query effects. Use `.raw` whenever execution itself is required.
@@ -192,8 +194,9 @@ your client's timeout settings unchanged.
 - A read whose result would exceed `max_entry_bytes` once BSON-encoded is not cached; it still returns the correct
   result, counted as an oversized bypass rather than a hit.
 - Cursor candidates also cap their retained encoded payload at `max_entry_bytes`; exceeding it discards the candidate while native delivery continues. Native batches, decoded hit snapshots, wrappers, and temporary encoding allocations consume additional memory. This is not a process-memory limit.
-- Once the cache's total resident size would exceed `shared_budget_bytes`, admitting a new entry evicts the
-  least-recently-used entries to make room.
+- Once the cache's total stored BSON size would exceed `shared_budget_bytes`, admitting a new entry evicts the
+  least-recently-used entries to make room. Query keys and Python metadata consume additional memory outside
+  this budget, especially for large predicates with small results.
 - A read whose `_id` or result depends on a value that cannot be used as a cache key — for example a `bson.Code`
   value, or a `NaN`, which is never equal to itself — is executed and returned normally without being cached.
 

@@ -15,9 +15,7 @@ from pymongo.asynchronous.cursor import AsyncCursor
 
 from client_query_cache._core.codec import codec_fingerprint
 from client_query_cache._core.cursor_capture import CursorCapture
-from client_query_cache._core.order_sensitive_keys import (
-    order_sensitive_discriminator_key,
-)
+from client_query_cache._core.find_reads import find_read_shape
 from client_query_cache._core.read_classification import query_bypass_reason
 
 if TYPE_CHECKING:
@@ -73,18 +71,16 @@ class CachedCursor[DocumentType: Mapping[str, Any]](AsyncCursor[DocumentType]):
                 )
             )
         )
-        discriminator = order_sensitive_discriminator_key(
-            (
-                "find",
-                self._spec,
-                self._projection,
-                self._ordering,
-                self._skip,
-                self._limit,
-                self._collation,
-                codec_fingerprint(self._codec_options),
-            )
+        shape = find_read_shape(
+            self._spec,
+            self._projection,
+            self._ordering,
+            self._skip,
+            self._limit,
+            collation=self._collation,
+            codec=codec_fingerprint(self._codec_options),
         )
+        discriminator = shape.discriminator
         reason = (
             self._view._request_bypass_reason(
                 session=self._session,
@@ -98,9 +94,7 @@ class CachedCursor[DocumentType: Mapping[str, Any]](AsyncCursor[DocumentType]):
             return
         cache = self._view.database.manager.cache_core
         namespace = self._view._namespace()
-        lookup = cache.lookup_namespace(
-            namespace, discriminator, codec_options=self._codec_options
-        )
+        lookup = cache.lookup_find(namespace, shape, codec_options=self._codec_options)
         if lookup.hit:
             documents = cast("list[DocumentType]", lookup.value)
             self._data = deque(documents)
@@ -115,6 +109,7 @@ class CachedCursor[DocumentType: Mapping[str, Any]](AsyncCursor[DocumentType]):
             cache.capture_namespace_generation(namespace),
             discriminator,
             self._codec_options,
+            find_source=shape.source,
         )
         forced = self._view._forced_collection_handle()
         self._read_concern = forced.read_concern

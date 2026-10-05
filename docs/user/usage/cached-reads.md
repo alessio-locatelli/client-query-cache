@@ -39,6 +39,17 @@ remaining = await cursor.to_list()
 
 Only complete successful consumption can populate the cache. Close partially consumed cursors you no longer need. A hit that has started keeps its snapshot during later invalidation; use a new execution for a fresh lookup. Explicit find batching and aggregate `batchSize` at invocation bypass caching. A later aggregation cursor `batch_size()` call validates normally and affects future native batches; on a local hit it has no remote effect. Writes and every other PyMongo operation belong on the original collection or `.raw`; the cached view does not expose them. See [method contracts](../reference/api.md#cached-read-methods).
 
+A positive `find()` limit can reuse the prefix of a complete cached result with a larger limit:
+
+```python
+products = cached_products.find({"status": "active"}).sort("_id").limit(100).to_list()
+first_page = cached_products.find({"status": "active"}).sort("_id").limit(10).to_list()
+```
+
+The second read can return the first ten products without a MongoDB read while the source remains valid and cached. With asyncio, await both `to_list()` calls. A fully consumed unlimited query (omitted limit or integer `limit=0`) can also supply a positive-limit prefix. A smaller source cannot serve a larger request, even if it returned fewer documents than its limit. Unlimited, negative, and boolean requests require an exact cached query; negative and boolean sources cannot supply other limits.
+
+All other final query options must match, including filter representation, projection, sort order, skip, collation, collection, and decoding options. Chained options are checked when execution starts. Use a sort with a unique tie-breaker such as `_id` when prefix order matters. Each hit returns an isolated snapshot; changing a returned document does not change later hits. The same [eventual consistency limits](consistency.md) apply to prefixes.
+
 For `count_documents`, omit `skip` and `limit` to count all matching documents. Explicit options are preserved, and native PyMongo/MongoDB errors propagate: `skip=0` is valid, while `limit=0`, `limit=None`, `skip=None`, and `hint=None` raise native errors, including after an unbounded count has been cached.
 
 ## Filters, sorting, and collation
