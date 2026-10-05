@@ -1,8 +1,8 @@
-# client-query-cache
+# Coherent client-side caching for PyMongo
 
 [![Python 3.14.6+](https://img.shields.io/badge/python-3.14.6%2B-blue.svg)](https://www.python.org/downloads/)
 
-Client-side caching for PyMongo applications, kept coherent using MongoDB change streams. It supports synchronous and asyncio clients, caches six read methods, and keeps writes on your PyMongo collection. No separate cache server is required.
+`client-query-cache` uses MongoDB change streams to keep cached reads coherent. It supports synchronous and asyncio applications without requiring a separate cache server.
 
 **Built for production:** Designed for high-traffic, read-heavy applications, with cache hits served from memory to reduce latency and database load. Quality is backed by a 100% test-coverage requirement, real MongoDB integration and concurrency stress tests, and automated performance and memory regression checks.
 
