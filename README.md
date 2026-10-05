@@ -8,7 +8,7 @@
 
 ![Illustrative read latency on a logarithmic scale: direct local MongoDB read, 120 microseconds; direct Atlas M0 read, 79.4 milliseconds; cached read in either deployment, about 61 microseconds.](docs/user/assets/benchmark-latency-light.svg)
 
-Illustrative read latency for local MongoDB and Atlas M0. Results vary by workload and deployment. [Measurements and methodology](https://alessio-locatelli.github.io/client-query-cache/benchmarks/).
+Results vary by workload and deployment. [Measurements and methodology](https://alessio-locatelli.github.io/client-query-cache/benchmarks/).
 
 Caching requires [MongoDB 8.0+ on a replica set or sharded cluster](https://alessio-locatelli.github.io/client-query-cache/getting-started/installation/#requirements). Reads on standalone servers and older MongoDB versions run through PyMongo without caching.
 

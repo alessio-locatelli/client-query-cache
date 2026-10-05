@@ -194,7 +194,7 @@ The README opening SHALL identify the audience and concrete benefits before setu
 
 ### Requirement: README presents illustrative latency evidence
 
-The README SHALL reuse the public benchmark guide's illustrative read-latency chart after the value proposition and before the quick start. Its title and accessible description SHALL identify the comparison as illustrative. A short caption SHALL name the measured deployments, state that results vary, and link to the benchmark guide for methodology and limitations.
+The README SHALL reuse the public benchmark guide's illustrative read-latency chart after the value proposition and before the quick start. Its title and accessible description SHALL identify the comparison as illustrative, and the chart SHALL identify the measured deployments. A short caption SHALL state that results vary and link to the benchmark guide for methodology and limitations without repeating information visible in the chart.
 
 #### Scenario: A reader evaluates cached-read latency
 
