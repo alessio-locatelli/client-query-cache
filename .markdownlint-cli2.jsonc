@@ -13,6 +13,13 @@
   },
   "overrides": [
     {
+      "filter": ["CHANGELOG.md"],
+      "config": {
+        "no-duplicate-heading": { "siblings_only": true },
+      },
+      "combine": "merge",
+    },
+    {
       "filter": ["CLAUDE.md", "AGENTS.md"],
       "config": {
         "first-line-heading": false,
