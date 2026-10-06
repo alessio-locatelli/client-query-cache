@@ -21,19 +21,28 @@ Repository-owned tool configuration and automation SHALL omit optional settings 
 - **WHEN** a command flag duplicates behavior supplied by its wrapper in every supported invocation
 - **THEN** the redundant flag is omitted without changing standalone invocations that lack that wrapper
 
-### Requirement: Every tool override has a specific rationale
+### Requirement: Behavioral overrides are distinguished from project inputs
 
-Each retained non-default option or flag SHALL have a concise inline comment, documentation entry, or OpenSpec specification containing `The default is <default_value>. We override it because <concise_rationale>.` The explanation SHALL identify the option and concrete project need. The default description SHALL follow the omitted-behavior requirement below.
+A behavioral override changes meaningful policy supplied on omission, such as validation, failure handling, isolation, dependency policy, or resource limits. Ordinary declarative inputs, including navigation, paths, themes, enabled functionality/plugins, and content selection, SHALL require a rationale only when they counter inherited configuration or tool policy. Differing from an unset or fallback project input alone SHALL NOT make a setting a behavioral override.
+
+#### Scenario: Ordinary project inputs are retained
+
+- **WHEN** configuration supplies documentation directories, navigation, theme choices, plugin enablement, export sections, or tool input paths without countering inherited configuration or tool policy
+- **THEN** those project inputs require no formal default-and-rationale explanation
+
+#### Scenario: A declarative setting counters inherited policy
+
+- **WHEN** a plugin setting re-enables validation disabled by an inherited preset
+- **THEN** the setting is a behavioral override requiring a rationale for countering that inherited behavior
+
+### Requirement: Every behavioral override has a specific rationale
+
+Each retained behavioral override SHALL have a concise inline comment, documentation entry, or OpenSpec specification containing `The default is <default_value>. We override it because <concise_rationale>.` The explanation SHALL identify the option and concrete project need. The default description SHALL follow the omitted-behavior requirement below.
 
 #### Scenario: A command enables stricter validation
 
 - **WHEN** an automation command retains a non-default strict-validation flag
 - **THEN** an allowed location identifies the flag and explains its default and the required failure behavior using the specified sentence format
-
-#### Scenario: An optional setting has no configured default
-
-- **WHEN** a retained optional setting supplies a project-specific value where the tool supplies none
-- **THEN** its explanation states that the default is unset or none and explains why the value is supplied
 
 ### Requirement: Default descriptions express omitted behavior
 
