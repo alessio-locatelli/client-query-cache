@@ -108,7 +108,7 @@ jobs:
     concurrency:
       group: dependency-automerge-${{ needs.select.outputs.pr_number }}
       # https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#concurrency
-      # The default is false. We override it because acceptance must finish its verified approval/auto-merge transition; interruption can leave a live PR approved without completing acceptance. Disposable jobs without the live App installation/PR cannot cover that privileged transition, so this safety pin stays explicit.
+      # The default is false. We keep it explicit because acceptance must finish its verified approval/auto-merge transition; interruption can leave a live PR approved without completing acceptance. Disposable jobs without the live App installation/PR cannot cover that privileged transition, so this safety pin stays explicit.
       cancel-in-progress: false
     env:
       PR_NUMBER: ${{ needs.select.outputs.pr_number }}
@@ -125,10 +125,11 @@ jobs:
             echo "::notice::PR metadata changed; no acceptance requested."
           fi
 
+      # if for configuration, app-token and the approval/merge step: The default is
+      # implicit success() without eligibility checks. We override it because each
+      # stage must pass the preceding metadata/configuration check before credentials
+      # are issued or acceptance is requested.
       - id: configuration
-        # The default is implicit success() without this restriction. We override it
-        # because credential issuance and acceptance must follow verified live metadata
-        # and App configuration.
         if: steps.metadata.outputs.eligible == 'true'
         env:
           CONFIGURED: ${{ vars.DEPENDENCY_AUTOMERGE_APP_ID != '' && secrets.DEPENDENCY_AUTOMERGE_APP_PRIVATE_KEY != '' }} # zizmor: ignore[secrets-outside-env] -- Repository App configuration; only test presence after metadata verification.
@@ -141,16 +142,13 @@ jobs:
 
       - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         id: app-token
-        # The default is implicit success() without this restriction. We override it
-        # because credential issuance and acceptance must follow verified live metadata
-        # and App configuration.
         if: steps.configuration.outputs.configured == 'true'
         with:
           app-id: ${{ vars.DEPENDENCY_AUTOMERGE_APP_ID }}
           private-key: ${{ secrets.DEPENDENCY_AUTOMERGE_APP_PRIVATE_KEY }} # zizmor: ignore[secrets-outside-env] -- Repository App credential goes only to this pinned action after metadata verification.
           # https://github.com/actions/create-github-app-token/blob/bcd2ba49218906704ab6c1aa796996da409d3eb1/lib/main.js
           # Pinned v3.2.0: owner omission with repositories supplied uses GITHUB_REPOSITORY_OWNER.
-          # The default is the current repository owner. We override it because privileged token creation must remain visibly bound to that owner; a changed resolution could issue credentials for an unintended installation, which safe tests without the live App cannot cover.
+          # The default is the current repository owner. We keep it explicit because privileged token creation must remain visibly bound to that owner; a changed resolution could issue credentials for an unintended installation, which safe tests without the live App cannot cover.
           owner: ${{ github.repository_owner }}
           # The default is all repositories owned by the supplied owner. We override it because acceptance credentials must be limited to this repository.
           repositories: ${{ github.event.repository.name }}
@@ -159,9 +157,6 @@ jobs:
           permission-contents: write
           permission-pull-requests: write
 
-      # The default is implicit success() without this restriction. We override it
-      # because credential issuance and acceptance must follow verified live metadata
-      # and App configuration.
       - if: steps.configuration.outputs.configured == 'true'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}

@@ -47,7 +47,7 @@ Comparing only built-in default tables is faster but fails the Renovate and Git 
 
 ### 3. Give each explanation one maintained home
 
-Keep each rationale beside its setting or command. Shared comments may cover enumerated occurrences within the same owning file; command examples use adjacent explanations in their own guide. Strict JSON uses existing contributor documentation, with the npm options in `CONTRIBUTING.md`. Do not maintain a separate cross-file inventory. Retain authoritative version/context evidence and the delta's rationale sentence format, distinguishing behavioral policy from ordinary project inputs.
+Keep each rationale beside its setting or command. Shared comments may cover enumerated occurrences within the same owning file; command examples use adjacent explanations in their own guide. Strict JSON uses existing contributor documentation, with the npm options in `CONTRIBUTING.md`. Do not maintain a separate cross-file inventory. Retain authoritative version/context evidence and the delta's rationale sentence formats for overrides and pins, distinguishing behavioral policy from ordinary project inputs.
 
 Critical privileged CI pins continue to use only the locations allowed by their exception; the implemented pins remain inline. Keep the contributor and agent pointers to the canonical development-environment requirements current. Purely contributor-facing comparisons for published command examples may use adjacent Markdown comments so public guides retain their high-level presentation.
 

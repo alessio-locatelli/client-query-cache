@@ -252,12 +252,17 @@ A behavioral override changes meaningful policy supplied on omission, such as va
 
 ### Requirement: Every behavioral override has a specific rationale
 
-Each retained behavioral override or critical privileged CI pin SHALL have a concise inline comment, documentation entry, or OpenSpec specification containing `The default is <default_value>. We override it because <concise_rationale>.` The explanation SHALL identify the option and concrete project need. The default description SHALL follow the omitted-behavior requirement below. Exception pins SHALL use the locations required by their exception.
+Each retained behavioral override or critical privileged CI pin SHALL have a concise inline comment, documentation entry, or OpenSpec rationale identifying the option and concrete project need: `The default is <default_value>. We override it because <concise_rationale>.` Pins matching the default SHALL use `We keep it explicit` instead of `We override it`. Defaults SHALL follow the omitted-behavior requirement below; pins SHALL use their exception's locations.
 
 #### Scenario: A command enables stricter validation
 
 - **WHEN** an automation command retains a non-default strict-validation flag
 - **THEN** an allowed location identifies the flag and explains its default and the required failure behavior using the specified sentence format
+
+#### Scenario: A privileged CI setting pins the current default
+
+- **WHEN** a retained setting matches the omitted value and qualifies for the critical privileged CI pin exception
+- **THEN** its rationale uses `We keep it explicit because` to explain the pin without claiming to override that value
 
 ### Requirement: Default descriptions express omitted behavior
 
@@ -322,7 +327,7 @@ When default cleanup relies on unstable upstream behavior for a required reposit
 
 ### Requirement: Critical privileged CI pins have a narrow exception
 
-An explicit default MAY remain only to protect a critical security or production-safety contract in privileged CI when safe real-behavior integration tests cannot adequately cover it. An inline comment or OpenSpec specification SHALL give the normal rationale, naming the protected contract, concrete harm, and why safe testing is insufficient. The pin SHALL have authoritative default evidence. Convenience, ordinary CI settings, or hypothetical drift alone SHALL NOT qualify.
+An explicit default MAY remain only to protect a critical security or production-safety contract in privileged CI when safe real-behavior integration tests cannot adequately cover it. An inline comment or OpenSpec specification SHALL give the pin rationale, naming the protected contract, concrete harm, and why safe testing is insufficient. The pin SHALL have authoritative default evidence. Convenience, ordinary CI settings, or hypothetical drift alone SHALL NOT qualify.
 
 #### Scenario: A privileged action cannot be safely exercised
 

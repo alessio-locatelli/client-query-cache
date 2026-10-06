@@ -73,16 +73,12 @@ jobs:
           stable_tag="$(gh api "repos/${REPOSITORY}/releases/latest" --jq \
             'if .draft or .prerelease then error("Expected a published stable release") else .tag_name end')"
           # Git 2.55.0: https://git-scm.com/docs/git-fetch
-          # --no-tags: The default is inherited remote.origin.tagOpt, otherwise
-          # auto-following reachable tags. We override it because assembly needs only
-          # selected release/correction references.
+          # --no-tags for both stable-tag and backport fetches: The default is inherited
+          # remote.origin.tagOpt, otherwise auto-following reachable tags. We override
+          # it because assembly needs only the selected release/correction references.
           git fetch --no-tags origin "refs/tags/${stable_tag}:refs/tags/${stable_tag}"
           backport="$(STABLE_TAG="${stable_tag}" python3 -c 'import os, tomllib; records = tomllib.load(open("stable-docs.toml", "rb"))["backports"]; tag = os.environ["STABLE_TAG"]; print(records[tag]["fetch_ref"] if tag in records else "")')"
           if [[ -n "${backport}" ]]; then
-            # Git 2.55.0: https://git-scm.com/docs/git-fetch
-            # --no-tags: The default is inherited remote.origin.tagOpt, otherwise
-            # auto-following reachable tags. We override it because assembly needs only
-            # selected release/correction references.
             git fetch --no-tags origin "${backport}:${backport}"
           fi
           just docs-build-editions "${stable_tag}"
