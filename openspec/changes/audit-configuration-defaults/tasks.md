@@ -1,0 +1,26 @@
+# Tasks
+
+## 1. Documentation and Update Tooling
+
+- [ ] 1.1 Classify every optional setting in design inventory group A using Decisions 2–3; remove confirmed redundancies, land each retained override's explanation in its chosen home, and verify the working ledger has evidence and a disposition for every occurrence in this group. Include the confirmed Zensical candidates from Context.
+- [ ] 1.2 Compare resolved Renovate extraction and policy before/after with the official dry-run commands in `docs/development/executable-version-updates.md`; confirm the MongoDB override, executable inventory, bot ownership, and schedule behavior remain consistent with `openspec/specs/dependency-update-automation/spec.md`, recording version/context evidence alongside the retained explanations.
+
+## 2. Quality and Test Configuration
+
+- [ ] 2.1 Apply Decisions 2–3 to design inventory group B, including mypy strict-mode expansion, Prek/hook inherited arguments, pytest/plugin defaults, and tool configuration embedded in `pyproject.toml`; verify every optional setting has an evidenced removal or a delivered rationale, with existing validator and quality coverage preserved.
+
+## 3. Commands and Bootstrap Configuration
+
+- [ ] 3.1 Apply Decisions 2–3 to the justfile, shell/Python scripts, container definitions, and disposable-runtime builders in inventory group C; update affected command documentation in the same edits. Verify each supported wrapper and standalone invocation retains its effective settings; add focused behavioral regressions only for command construction or precedence that cannot be established from authoritative resolution alone.
+- [ ] 3.2 Apply Decisions 2–3 to the GitHub workflows and composite action in group C; check defaults at their pinned action revisions and the platform's documented shell/input behavior. Verify explanations cover retained permissions, credentials, timeouts, and action/command options, and inspect the resolved execution paths for unchanged failure propagation and trust boundaries without running privileged workflows.
+
+## 4. Policy Discoverability and Audit Closure
+
+- [ ] 4.1 Complete the tracked-file scan for inventory group D using `git ls-files` and option/flag searches, honoring Decision 1 exclusions; apply the same removal/explanation disposition to every additional owned occurrence and verify no unclassified candidate remains in the working ledger.
+- [ ] 4.2 Add the `CONTRIBUTING.md` and `AGENTS.md` references specified in Decision 3; verify relative links resolve to the delivered maintainer reference and the canonical development-environment requirement after spec synchronization.
+- [ ] 4.3 Reconcile the working ledger with the final diff and explanation destinations: verify every retained override has one traceable explanation, grouped entries enumerate their occurrences, deleted overrides leave no stale rationale, and every comparison has authoritative version/context evidence. Keep the ledger untracked.
+
+## 5. Code Quality
+
+- [ ] 5.1 Scan the entire file for each edited or added test, including pre-existing tests within that file, and apply the `AGENTS.md` Writing Tests guidelines, including parametrization; verify the review covers all such files, or mark inapplicable with a reason if no tests changed.
+- [x] 5.2 If you are Claude Code, confirm that you added no new prose to code; all why explanations must go in specs and commit bodies. OpenAI Codex is exempt; this proposal targets Codex's permitted inline comments.
