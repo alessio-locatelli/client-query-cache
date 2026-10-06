@@ -21,4 +21,4 @@ None.
 
 ## Impact
 
-The audit surfaces and documentation placement are defined in [design.md](design.md). Existing tool behavior, dependency-update policy, validation coverage, and public library contracts remain the acceptance baseline. No new dependency, custom validator, live-service change, or library API change is proposed.
+The audit surfaces and documentation placement are defined in [design.md](design.md). Existing tool behavior, dependency-update policy, validation coverage, and public library contracts remain the acceptance baseline. No custom validator, live-service change, or library API change is proposed. The user-authorized Context7 validation extension is tracked in [tasks.md](tasks.md).

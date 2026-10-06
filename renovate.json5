@@ -1,23 +1,37 @@
 {
   $schema: "https://docs.renovatebot.com/renovate-schema.json",
+  // :semanticCommits, Renovate 44.133.0: https://docs.renovatebot.com/presets-default/#semanticcommits
+  // The default is auto-detection. We override it because every dependency commit must use semantic prefixes.
   extends: [
     "config:best-practices",
     ":semanticCommits",
     "customManagers:dockerfileVersions",
     "customManagers:githubActionsVersions",
   ],
+  // Renovate 44.133.0 preset evidence: https://docs.renovatebot.com/presets-config/#configbest-practices
+  // The default is the best-practices preset's weekly lock maintenance, config migration, and test-directory exclusions. We override it because Dependabot owns lockfiles, updater policy must avoid experimental automatic rewrites, and both MongoDB pins must be discovered.
   ignorePresets: [
     ":maintainLockFilesWeekly",
     ":configMigration",
     ":ignoreModulesAndTests",
   ],
+  // Option defaults: https://github.com/renovatebot/renovate/blob/44.133.0/lib/config/options/index.ts
+  // The default is all supported managers. We override it because Dependabot owns manifests and action references.
   enabledManagers: ["custom.regex", "github-actions", "nodenv", "pyenv"],
+  // The default is at any time. We override it because ordinary proposals are limited to the first week of each month.
   schedule: ["* * 1-7 * *"],
+  // Schedule context: https://github.com/renovatebot/renovate/blob/44.133.0/lib/workers/repository/update/branch/schedule.ts
+  // The default is inherited from the runtime timezone when unset. We override it because hosted and local schedule evaluation must use UTC.
   timezone: "Etc/UTC",
+  // The default is 10. We override it because two concurrent PRs bound review and CI load.
   prConcurrentLimit: 2,
+  // The default is 2. We override it because the monthly window permits three new PRs per hour.
   prHourlyLimit: 3,
+  // The default is 0 (unlimited). We override it because automatic rebases and branch creation must also have a CI budget.
   commitHourlyLimit: 4,
+  // The default is unset for the enabled executable managers. We override it because timestamped releases need seven days of aging across that inventory.
   minimumReleaseAge: "7 days",
+  // The default is timestamp-required. We override it because missing timestamps must not indefinitely block eligible updates.
   minimumReleaseAgeBehaviour: "timestamp-optional",
   customManagers: [
     {
@@ -49,12 +63,14 @@
     {
       matchManagers: ["github-actions"],
       matchDepTypes: ["!uses-with"],
+      // The default is true. We override it because Dependabot owns action references; Renovate owns only executable inputs.
       enabled: false,
     },
     {
       matchPackageNames: ["mongo"],
       matchManagers: ["custom.regex"],
       matchDatasources: ["docker"],
+      // The default is true from best-practices' docker:pinDigests. We override it because this MongoDB regex replacement supports tags only (https://github.com/renovatebot/renovate/issues/24942).
       pinDigests: false,
       groupName: "MongoDB test and benchmark image",
     },

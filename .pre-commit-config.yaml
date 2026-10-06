@@ -29,6 +29,14 @@ repos:
       - id: renovate-config-validator
         args: [--strict, --no-global]
 
+  - repo: https://github.com/python-jsonschema/check-jsonschema
+    rev: "0.38.2"
+    hooks:
+      - id: check-jsonschema
+        name: Validate Context7 configuration
+        files: ^context7\.json$
+        args: ["--schemafile", "https://context7.com/schema/context7.json"]
+
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.16.10
     hooks:

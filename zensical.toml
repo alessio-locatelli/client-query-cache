@@ -4,7 +4,6 @@ site_description = "Client-side caching for PyMongo with MongoDB change streams.
 site_url = "https://alessio-locatelli.github.io/client-query-cache/"
 repo_url = "https://github.com/alessio-locatelli/client-query-cache"
 docs_dir = "docs/user"
-site_dir = "site"
 nav = [
   { "Home" = "index.md" },
   { "Getting started" = [
@@ -35,10 +34,6 @@ nav = [
     { "Monitoring" = "operations/monitoring.md" },
   ] },
 ]
-
-[project.validation]
-invalid_links = true
-invalid_link_anchors = true
 
 [project.theme]
 font = false
@@ -75,9 +70,9 @@ anchor_linenums = true
 [project.markdown_extensions.pymdownx.superfences]
 
 [project.markdown_extensions.pymdownx.snippets]
-base_path = ["."]
+# PyMdown Extensions 12.1: https://facelessuser.github.io/pymdown-extensions/extensions/snippets/#options
+# The default is false. We override it because missing source snippets must fail documentation builds.
 check_paths = true
-restrict_base_path = true
 
 [project.plugins.llmstxt]
 markdown_description = "Public guidance for synchronous and asyncio PyMongo applications. Writes use PyMongo directly; change-stream invalidation is asynchronous."
