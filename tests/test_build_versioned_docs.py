@@ -70,23 +70,18 @@ def release_repo(tmp_path: Path) -> Path:
     )
     (repo / "docs/user").mkdir(parents=True)
     (repo / "docs/user/index.md").write_text("# Released guide\n")
-    (repo / "docs/user/guide.md").write_text("# Guide\n")
+    (repo / "docs/user/guide.md").write_text(
+        '# Guide\n\n```python\n--8<-- "examples/example.py"\n```\n'
+    )
     (repo / "zensical.toml").write_text("""[project]
 site_name = "Fixture"
 site_url = "https://example.invalid/library/"
 repo_url = "https://github.com/alessio-locatelli/client-query-cache"
 docs_dir = "docs/user"
-site_dir = "site"
-strict = true
 [project.theme]
 font = false
-[project.validation]
-invalid_links = true
-invalid_link_anchors = true
 [project.markdown_extensions.pymdownx.snippets]
-base_path = ["."]
 check_paths = true
-restrict_base_path = true
 [project.plugins.redirects.redirect_maps]
 """)
     commit(repo)
@@ -333,24 +328,55 @@ def test_assembles_without_write_access_to_checkout_parent(
 @pytest.fixture
 def failed_edition(
     exported_repo: Path, request: pytest.FixtureRequest
-) -> type[Exception]:
+) -> tuple[type[Exception], Text]:
+    failure: tuple[type[Exception], Text]
     if request.param == "heading":
         (exported_repo / "docs/user/index.md").write_text(
             "# Invalid guide\n\n[Missing heading](#absent)\n"
         )
+        failure = subprocess.CalledProcessError, "anchor does not exist"
+    elif request.param == "page":
+        (exported_repo / "docs/user/index.md").write_text(
+            "# Invalid guide\n\n[Missing page](absent.md)\n"
+        )
+        failure = subprocess.CalledProcessError, "page does not exist"
+    elif request.param == "snippet":
+        (exported_repo / "docs/user/index.md").write_text(
+            '# Invalid guide\n\n--8<-- "examples/absent.py"\n'
+        )
+        failure = subprocess.CalledProcessError, "Snippet at path"
+    elif request.param == "outside-snippet":
+        (exported_repo / "docs/user/index.md").write_text(
+            '# Invalid guide\n\n--8<-- "../stable/examples/example.py"\n'
+        )
+        failure = subprocess.CalledProcessError, "Snippet at path"
     else:
         git(exported_repo, "rm", "-q", "docs/user/index.md")
+        failure = ValueError, "public guide layout"
     commit(exported_repo)
-    return subprocess.CalledProcessError if request.param == "heading" else ValueError
+    return failure
 
 
-@pytest.mark.parametrize("failed_edition", ["heading", "layout"], indirect=True)
+@pytest.mark.parametrize(
+    "failed_edition",
+    ["heading", "page", "snippet", "outside-snippet", "layout"],
+    indirect=True,
+)
 def test_failed_edition_preserves_previous_artifact(
-    exported_repo: Path, previous_artifact: Path, failed_edition: type[Exception]
+    exported_repo: Path,
+    previous_artifact: Path,
+    failed_edition: tuple[type[Exception], Text],
+    capfd: pytest.CaptureFixture[Text],
 ) -> None:
     sources = select_sources(exported_repo, "v0.2.0", "HEAD")
-    with pytest.raises(failed_edition):
+    exception, diagnostic = failed_edition
+    with pytest.raises(exception) as failure:
         assemble(exported_repo, sources, previous_artifact)
+    if exception is subprocess.CalledProcessError:
+        captured = capfd.readouterr()
+        assert diagnostic in captured.out + captured.err
+    else:
+        assert diagnostic in str(failure.value)
     assert tuple(previous_artifact.iterdir()) == (previous_artifact / "previous.txt",)
     assert (
         previous_artifact / "previous.txt"
@@ -477,6 +503,8 @@ def test_assembles_independent_snapshots_with_development_only_page(
     assert "Corrected guide" in (output / "stable/index.html").read_text()
     assert "DevelopmentOnlyToken" not in (output / "stable/index.html").read_text()
     assert "DevelopmentOnlyToken" in (output / "dev/index.html").read_text()
+    for edition in ("stable", "dev"):
+        assert 'print("released")' in (output / edition / "guide/index.md").read_text()
     assert not (output / "stable/preview/index.html").exists()
     assert "UnreleasedPageToken" in (output / "dev/preview/index.html").read_text()
     assert "stable" in (output / "preview/index.html").read_text()

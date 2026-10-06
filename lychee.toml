@@ -1,10 +1,20 @@
+# Lychee 0.24.2: https://github.com/lycheeverse/lychee/blob/lychee-v0.24.2/lychee-bin/src/config/mod.rs
+# Verbosity: https://github.com/lycheeverse/lychee/blob/lychee-v0.24.2/lychee-bin/src/verbosity.rs
+# The default is warn. We override it because link checks need per-link diagnostics in CI logs.
 verbose = "info"
+# The default is color. We override it because hook output must remain readable in plain logs.
 mode = "plain"
+# The default is 10. We override it because multiple redirects can conceal stale authored URLs.
 max_redirects = 1
+# The default is get. We override it because link existence checks should avoid downloading response bodies.
 method = "head"
+# The default is false. We override it because repeated hook runs should reuse completed network checks.
 cache = true
+# The default is 1d. We override it because contributor runs reuse link checks for two weeks.
 max_cache_age = "14d"
+# The default is 100..=103,200..=299. We override it because access controls, rate limits, and transient server failures do not prove a link is missing.
 accept = "200..=204,400,401,403,405,429,500,503,504"
+# The default is false. We override it because authored links must not probe private or loopback services.
 exclude_all_private = true
 # Renovate download patterns/templates are not fetchable links; its schema is validated separately.
 exclude_path = [
