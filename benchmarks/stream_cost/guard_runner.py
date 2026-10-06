@@ -18,6 +18,9 @@ _WORKLOAD_SOURCE_FILES = ("errors.py", "generators.py", "guard_workload.py")
 
 
 def _run(command: Sequence[str], *, cwd: Path | None = None) -> str:
+    # Python 3.14: https://docs.python.org/3.14/library/subprocess.html
+    # check=True: The default is false. We override it because failed commands must
+    # abort assembly or benchmark preparation.
     completed_process = subprocess.run(  # noqa: S603 - fixed argument lists built from trusted values
         list(command), cwd=cwd, check=True, capture_output=True, text=True
     )
@@ -74,6 +77,10 @@ def prepare_environment(
     resolved = _resolve_revision(repo_root, revision)
     try:
         _run(
+            # Git 2.55.0: https://git-scm.com/docs/git-worktree
+            # --detach: The default is attaching to a matching branch if one resolves,
+            # otherwise detaching. We override it because benchmark worktrees must
+            # remain detached even if a branch name matches this object ID.
             ["git", "worktree", "add", "--detach", str(worktree_dir), resolved],
             cwd=repo_root,
         )
@@ -102,6 +109,12 @@ def prepare_environment(
         command = [
             uv_path,
             "sync",
+            # uv 0.12.9 locally / 0.12.19 in CI: https://docs.astral.sh/uv/reference/cli/
+            # --locked: The default is inherited UV_LOCKED, otherwise unlocked
+            # resolution. We override it because this standalone command must validate
+            # the committed lockfile.
+            # --all-groups: The default is project default groups (dev). We override it
+            # because revision validation needs documentation tools too.
             "--locked",
             "--all-groups",
             "--python",

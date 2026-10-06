@@ -100,6 +100,9 @@ def mongodb_uri() -> Iterator[MongoDbUri]:
         try:
             # renovate: datasource=docker depName=mongo versioning=docker
             container = DockerContainer("mongo:8.0.4-noble")
+            # MongoDB 8.0: https://www.mongodb.com/docs/v8.0/reference/program/mongod/
+            # --replSet: The default is no replica set. We override it because the
+            # disposable runtime must support change streams.
             container.with_command(["--replSet", "rs0"])
             container.with_exposed_ports(27017)
             resources.enter_context(container)
@@ -113,8 +116,14 @@ def mongodb_uri() -> Iterator[MongoDbUri]:
 
         host = container.get_container_host_ip()
         port = container.get_exposed_port(27017)
+        # PyMongo 4.18:
+        # https://pymongo.readthedocs.io/en/4.18.1/api/pymongo/mongo_client.html
+        # directConnection: The default is false. We override it because discovery would
+        # follow the internally advertised localhost address instead of the mapped port.
         uri = MongoDbUri(f"mongodb://{host}:{port}/?directConnection=true")
 
+        # serverSelectionTimeoutMS: The default is 30000 ms. We override it because
+        # bounded startup polling needs short connection attempts.
         with MongoClient[dict[str, Any]](uri, serverSelectionTimeoutMS=1_000) as client:
             _wait_for_mongodb_ping(client)
 

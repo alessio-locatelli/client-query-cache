@@ -16,6 +16,11 @@ The controlled race cases pause identity and namespace reads after a real databa
 
 For a longer local run, increase the cycle count and timeout together:
 
+For `-q`: The default is verbosity zero. We override it because output should emphasize failures.
+For `--timeout=300`: The default is configured 30s. We override it because this expanded workload
+needs a longer budget ([pytest 9.1.1](https://docs.pytest.org/en/stable/reference/reference.html) and
+[pytest-timeout 2.4.0](https://pypi.org/project/pytest-timeout/2.4.0/)).
+
 ```console
 just pytest -- -q tests/stress --stress-cycles=20 --timeout=300
 ```

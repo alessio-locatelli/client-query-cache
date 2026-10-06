@@ -32,6 +32,9 @@ class Sources(TypedDict):
 
 
 def git(repo: Path, *arguments: Text) -> bytes:
+    # Python 3.14: https://docs.python.org/3.14/library/subprocess.html
+    # check=True: The default is false. We override it because failed commands must
+    # abort assembly or benchmark preparation.
     return subprocess.run(  # noqa: S603 - Argument vectors never use a shell.
         ("git", "-C", str(repo), *arguments),  # noqa: S607 - Git is supplied by the toolchain.
         check=True,
@@ -153,6 +156,10 @@ def edition_config(
 ) -> None:
     configuration = tomllib.loads((corpus / "zensical.toml").read_text())
     project = table(configuration["project"])
+    # Zensical 0.0.68:
+    # https://github.com/zensical/zensical/blob/v0.0.68/python/zensical/config.py
+    # strict: The default is inherited from the extracted config. We override it because
+    # publication must fail on warnings, including broken links.
     project["strict"] = True
     project["site_dir"] = str(corpus / "output")
     table(project["plugins"])["llmstxt"] = export_policy
@@ -190,6 +197,8 @@ def edition_config(
 
 
 def run(cwd: Path, *arguments: Text) -> None:
+    # check=True: The default is false. We override it because failed commands must
+    # abort assembly or benchmark preparation.
     subprocess.run(arguments, cwd=cwd, check=True)  # noqa: S603 - Fixed CLI names, no shell.
 
 
@@ -223,6 +232,8 @@ def root_redirects(development: Path, destination: Path) -> None:
             "site_url": project["site_url"],
             "docs_dir": "docs",
             "site_dir": str(redirect_corpus / "output"),
+            # strict: The default is false. We override it because root redirects must
+            # also fail on warnings.
             "strict": True,
             "theme": {"font": False},
             "plugins": {"redirects": {"redirect_maps": mappings}},
@@ -236,6 +247,10 @@ def root_redirects(development: Path, destination: Path) -> None:
     (redirect_corpus / "zensical.toml").write_text(
         tomli_w.dumps(redirect_configuration)
     )
+    # Zensical 0.0.68:
+    # https://github.com/zensical/zensical/blob/v0.0.68/python/zensical/main.py
+    # --clean: The default is false. We override it because publication checks must
+    # rebuild without reusing the prior cache.
     run(redirect_corpus, "zensical", "build", "--clean")
 
 
@@ -262,6 +277,15 @@ def assemble(repo: Path, sources: Sources, output: Path) -> None:
         raise ValueError("Artifact output must not be a symbolic link")
     with TemporaryDirectory(prefix="docs-editions-") as temporary:
         workspace = Path(temporary)
+        # Git 2.55.0: https://git-scm.com/docs/git-config
+        # For --local below: The default is GIT_CONFIG when set, otherwise
+        # repository-local writes. We override it because external-file redirection must
+        # be rejected before configuring this disposable repository.
+        # For commit.gpgsign=false: The default is inherited Git configuration,
+        # including user/system scopes. We override it because assembly must not request
+        # a developer's signing key.
+        # init -q and commit -q below: The default is normal progress output. We
+        # override it because contributor builds should emphasize diagnostics.
         run(workspace, "git", "init", "-q")
         for key, value in (
             ("commit.gpgsign", "false"),
@@ -317,6 +341,13 @@ def assemble(repo: Path, sources: Sources, output: Path) -> None:
                 edition,
                 "--title",
                 title,
+                # Mike 2d4ad799:
+                # https://github.com/squidfunk/mike/blob/2d4ad799442f4592db8ad53b179bfb33db8c69ac/mike/driver.py
+                # --branch: The default is inherited remote_branch, otherwise gh-pages.
+                # We override it because assembly commits only to a disposable artifact
+                # branch.
+                # --ignore-remote-status: The default is checking the remote branch. We
+                # override it because this assembly repository has no remote.
                 "--branch",
                 "docs-artifact",
                 "--ignore-remote-status",
@@ -326,6 +357,11 @@ def assemble(repo: Path, sources: Sources, output: Path) -> None:
             "mike",
             "set-default",
             "stable",
+            # --branch: The default is inherited remote_branch, otherwise gh-pages. We
+            # override it because the default edition must use the disposable artifact
+            # branch.
+            # --ignore-remote-status: The default is checking the remote branch. We
+            # override it because this assembly repository has no remote.
             "--branch",
             "docs-artifact",
             "--ignore-remote-status",

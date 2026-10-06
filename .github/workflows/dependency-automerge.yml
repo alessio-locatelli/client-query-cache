@@ -11,6 +11,11 @@ on:
         required: true
         type: string
 
+# GitHub workflow syntax (2026-10-06):
+# https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax
+# The default is inherited repository/organization token policy. We override it because
+# workflow tokens need only read access until a job explicitly elevates its grants;
+# unspecified grants are none.
 permissions:
   contents: read
   pull-requests: read # Verify live PR metadata before issuing an App token.
@@ -33,6 +38,9 @@ env:
 jobs:
   select:
     name: Verify dependency update
+    # The default is implicit success() without these eligibility restrictions. We
+    # override it because selection must use trusted main and verified bot validation
+    # before privileged acceptance.
     if: >-
       github.ref == 'refs/heads/main' &&
       (github.event_name == 'workflow_dispatch' ||
@@ -42,9 +50,14 @@ jobs:
         github.event.workflow_run.path == '.github/workflows/test.yml' &&
         github.event.workflow_run.head_repository.full_name == github.repository))
     runs-on: ubuntu-24.04
+    # timeout-minutes for select (5m), accept (5m): The default is 360. We override it
+    # because stalled jobs must stop within their assigned validation/publication
+    # budgets.
     timeout-minutes: 5
     concurrency:
       group: dependency-selection-${{ github.event.workflow_run.head_sha || inputs.pr_number }}
+      # cancel-in-progress: The default is false. We override it because newer
+      # validation or selection supersedes an unfinished older run.
       cancel-in-progress: true
     outputs:
       eligible: ${{ steps.metadata.outputs.eligible }}
@@ -58,6 +71,11 @@ jobs:
           RUN_HEAD: ${{ github.event.workflow_run.head_sha }}
           PR_NUMBER: ${{ inputs.pr_number }}
         run: |
+          # jq -e/-er here, in accept metadata and verify_pr:
+          # https://jqlang.org/manual/#invoking-jq
+          # The default is zero after successful evaluation, including false/null. We
+          # override it because rejected metadata or empty selections must reject before
+          # credential issuance/acceptance.
           if [[ "$EVENT_NAME" == "workflow_run" ]]; then
             if ! jq -e '.workflow_run.actor | .type == "Bot" and (.login == "dependabot[bot]" or .login == "renovate[bot]")' "$GITHUB_EVENT_PATH" > /dev/null; then
               echo "::notice::Validation was not initiated by a dependency bot; no acceptance requested."
@@ -82,6 +100,8 @@ jobs:
   accept:
     name: Approve and enable native auto-merge
     needs: select
+    # The default is implicit success() without this restriction. We override it because
+    # acceptance must use the verified selection.
     if: needs.select.outputs.eligible == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -106,6 +126,9 @@ jobs:
           fi
 
       - id: configuration
+        # The default is implicit success() without this restriction. We override it
+        # because credential issuance and acceptance must follow verified live metadata
+        # and App configuration.
         if: steps.metadata.outputs.eligible == 'true'
         env:
           CONFIGURED: ${{ vars.DEPENDENCY_AUTOMERGE_APP_ID != '' && secrets.DEPENDENCY_AUTOMERGE_APP_PRIVATE_KEY != '' }} # zizmor: ignore[secrets-outside-env] -- Repository App configuration; only test presence after metadata verification.
@@ -118,6 +141,9 @@ jobs:
 
       - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         id: app-token
+        # The default is implicit success() without this restriction. We override it
+        # because credential issuance and acceptance must follow verified live metadata
+        # and App configuration.
         if: steps.configuration.outputs.configured == 'true'
         with:
           app-id: ${{ vars.DEPENDENCY_AUTOMERGE_APP_ID }}
@@ -133,6 +159,9 @@ jobs:
           permission-contents: write
           permission-pull-requests: write
 
+      # The default is implicit success() without this restriction. We override it
+      # because credential issuance and acceptance must follow verified live metadata
+      # and App configuration.
       - if: steps.configuration.outputs.configured == 'true'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -142,7 +171,18 @@ jobs:
               | jq -e --arg repo "$GH_REPO" --arg head "$HEAD_SHA" "$PR_POLICY" > /dev/null
           }
           verify_pr
+          # gh 2.97.0: https://cli.github.com/manual/gh_api
+          # --silent: The default is printing the response. We override it because
+          # successful approval metadata should not obscure diagnostics.
           gh api "repos/$GH_REPO/pulls/$PR_NUMBER/reviews" \
             -f event=APPROVE -f commit_id="$HEAD_SHA" --silent
           verify_pr
+          # gh 2.97.0: https://cli.github.com/manual/gh_pr_merge
+          # --auto: The default is requesting immediate merging. We override it because
+          # native auto-merge must wait for required checks and repository rules.
+          # --rebase: The default is unset, resolved through repository capabilities and
+          # CLI selection. We override it because accepted dependencies use the
+          # repository rebase policy.
+          # --match-head-commit: The default is no head constraint. We override it
+          # because acceptance must not merge a newer unvalidated head.
           gh pr merge "$PR_NUMBER" --auto --rebase --match-head-commit "$HEAD_SHA"

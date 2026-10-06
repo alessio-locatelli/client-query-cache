@@ -1,8 +1,21 @@
+# Just 1.57.0: https://just.systems/man/en/settings.html
+# The default is false. We override it because pytest and podman forward original arguments through $@.
 set positional-arguments
+# The default is running the first recipe. We override it because plain just must list commands without running setup.
 set default-list
 
+# Bash 5.3 help set; set -euo pipefail in typecheck-examples, verify-release, pytest,
+# enable-podman-socket, podman, test-memory, test-integration, test-e2e and
+# tests_and_coverage:
+# The default is inherited Bash options, normally all three off. We override it because
+# failed commands, unset variables and failed pipeline stages must stop the recipe.
+# npm 11 loglevel: https://docs.npmjs.com/cli/v11/using-npm/config#loglevel
+# --silent in setup/format: The default is normal progress output. We override it
+# because these commands should emphasize diagnostics.
 dev_image := "localhost/client-query-cache-dev:0.1.0"
 dev_container := "client-query-cache-dev"
+# uv 0.12.9 locally / 0.12.19 in CI: https://docs.astral.sh/uv/reference/environment/#uv_locked
+# The default is inherited from the caller, otherwise unset. We override it because project recipes must reject a stale lockfile.
 export UV_LOCKED := "1"
 
 setup:
@@ -13,21 +26,42 @@ setup:
 
 lint:
     uv run -- prek run --all-files
+    # mypy 2.3.1: https://mypy.readthedocs.io/en/stable/command_line.html
+    # --install-types: The default is false. We override it because quality checks also
+    # install available missing stubs.
     uv run -- mypy --install-types
     just typecheck-examples
     just --fmt --check
+    # OpenSpec 1.14.0 validate --help: The default is strict=false. We override it
+    # because specification warnings must fail lint.
     npm exec -- openspec validate --all --strict
 
 typecheck-examples:
     #!/usr/bin/env bash
     set -euo pipefail
 
+    # uv 0.12.9 locally / 0.12.19 in CI: https://docs.astral.sh/uv/reference/cli/
+    # env -u UV_LOCKED: The default is the exported value 1. We override it because PEP
+    # 723 environments resolve dependencies without the project lockfile.
+    # uv --quiet: The default is normal progress output. We override it because this
+    # loop should emphasize diagnostics.
     for example in examples/*.py; do
         script_python="$(env -u UV_LOCKED uv sync --quiet --script "${example}" --output-format json | uv run -- python -c 'import json, sys; print(json.load(sys.stdin)["sync"]["environment"]["python"]["path"])')"
+        # mypy 2.3.1 --python-executable: The default is mypy's interpreter. We override
+        # it because each example has its own installed dependencies.
         uv run -- mypy --python-executable "${script_python}" "${example}"
     done
 
 ci-lint:
+    # zizmor 1.30.0: https://docs.zizmor.sh/usage/
+    # ZIZMOR_OFFLINE: The default is false. We override it because local inspection must
+    # not query GitHub APIs.
+    # --fix: The default is no fixes. We override it because this recipe applies
+    # available workflow corrections.
+    # --persona: The default is regular. We override it because review includes pedantic
+    # and lower-confidence findings.
+    # -q: The default is normal logging. We override it because diagnostics should
+    # remain visible without progress chatter.
     ZIZMOR_OFFLINE=true zizmor --fix=all -q --persona=auditor .github
 
 format:
@@ -38,9 +72,18 @@ build:
     uv build
 
 docs-serve:
+    # uv 0.12.9 locally / 0.12.19 in CI --only-group docs in docs-serve/docs-build/docs-build-editions:
+    # The default is the project and default groups (dev). We override it because these
+    # commands need only documentation tools.
     uv run --only-group docs -- zensical serve
 
 docs-build:
+    # Zensical 0.0.68:
+    # https://github.com/zensical/zensical/blob/v0.0.68/python/zensical/main.py
+    # --clean: The default is false. We override it because publication checks must
+    # rebuild without the prior cache.
+    # --strict: The default is false. We override it because publication must fail on
+    # warnings, including broken links.
     uv run --only-group docs -- zensical build --clean --strict
 
 docs-build-editions stable_tag:
@@ -75,6 +118,14 @@ verify-release tag='': build
     fi
 
     for artifact in "${sdist}" "${wheels[@]}"; do
+        # uv --isolated --no-project: The default is the discovered project environment.
+        # We override it because verification must import the installed artifact in a
+        # fresh environment.
+        # Python 3.14 -I: https://docs.python.org/3.14/using/cmdline.html#cmdoption-I
+        # The default is normal user-site/environment/script-path loading. We override
+        # it because local packages must not satisfy artifact imports.
+        # The default is the exported UV_LOCKED=1. We override it because --no-project
+        # ignores it and emits a warning.
         unset UV_LOCKED && uv run --isolated --no-project --python "${UV_PYTHON:-$(cat .python-version)}" --with "${artifact}" -- \
             python -I "{{ justfile_directory() }}/scripts/verify_release_artifacts.py"
     done
@@ -116,6 +167,11 @@ enable-podman-socket:
             printf 'Toolbx requires flatpak-spawn to reach the host user service.\n' >&2
             exit 1
         fi
+        # flatpak-spawn:
+        # https://docs.flatpak.org/en/latest/flatpak-command-reference.html#flatpak-spawn
+        # --host here and in podman: The default is spawning through the sandbox portal.
+        # We override it because Toolbx must reach the host user service and container
+        # engine.
         host_bridge=(flatpak-spawn --host)
         socket_path="/run/user/${uid}/podman/podman.sock"
         container_name="Toolbx"
@@ -124,10 +180,17 @@ enable-podman-socket:
         exit 1
     fi
 
+    # systemctl: https://www.freedesktop.org/software/systemd/man/latest/systemctl.html
+    # --user in enable/is-active: The default is the system manager. We override it
+    # because this socket belongs to the host user's rootless service.
+    # --now: The default is enabling without starting. We override it because readiness
+    # checks need a live socket.
     if ! "${host_bridge[@]}" systemctl --user enable --now podman.socket; then
         printf 'Failed to enable the host podman.socket through %s. Check the host user systemd session.\n' "${container_name}" >&2
         exit 1
     fi
+    # --quiet: The default is printing unit state. We override it because the exit
+    # status controls the failure message.
     if ! "${host_bridge[@]}" systemctl --user is-active --quiet podman.socket; then
         printf 'The host podman.socket is not active after enablement through %s.\n' "${container_name}" >&2
         exit 1
@@ -165,16 +228,39 @@ test-memory:
         Linux) ;;
         *) printf '%s\n' 'Memory tests require the locked Linux environment: https://bloomberg.github.io/memray/' >&2; exit 1 ;;
     esac
+    # pytest 9.1.1 / xdist 3.8.0:
+    # For -m memory: The default is not memory. We override it because this lane runs
+    # allocation tests.
+    # For -n 0: The default is auto. We override it because allocation measurements must
+    # run without competing worker processes.
+    # https://pytest-xdist.readthedocs.io/en/stable/distribution.html
+    # pytest-memray 1.11.0: https://pytest-memray.readthedocs.io/en/latest/usage.html
+    # --trace-python-allocators: The default is false. We override it because allocation
+    # ceilings must include Python allocator activity.
+    # --capture=no: The default is fd capture. We override it because retained captured
+    # output would distort measurements.
+    # --log-level/--log-file-level=CRITICAL: The default is pytest.ini DEBUG. We
+    # override it because retained debug records would distort measurements.
+    # --log-file=/dev/null: The default is pytest.ini pytest.log. We override it because
+    # measurement runs must not create persistent diagnostic logs.
+    # --timeout=120: The default is pytest.ini 30s. We override it because profiled
+    # allocation workloads need a longer bounded runtime.
     exec uv run --group memory -- pytest tests/memory -m memory -n 0 --memray --trace-python-allocators --memray-bin-path=memory-reports --capture=no --log-level=CRITICAL --log-file=/dev/null --log-file-level=CRITICAL --timeout=120
 
 test-integration:
     #!/usr/bin/env bash
     set -euo pipefail
 
+    # pytest 9.1.1: https://docs.pytest.org/en/stable/reference/reference.html
+    # --log-file-level=WARNING in test-integration/test-e2e/tests_and_coverage:
+    # The default is pytest.ini DEBUG. We override it because uploaded CI logs need
+    # warnings/failures without verbose successful-operation traces.
     pytest_log_args=()
     if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
         pytest_log_args=(--log-file-level=WARNING)
     fi
+    # -m: The default is pytest.ini not memory. We override it because this lane runs
+    # integration tests.
     exec just pytest -- -m 'integration and not memory' "${pytest_log_args[@]}"
 
 test-e2e:
@@ -185,6 +271,8 @@ test-e2e:
     if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
         pytest_log_args=(--log-file-level=WARNING)
     fi
+    # -m: The default is pytest.ini not memory. We override it because this lane runs
+    # end-to-end tests.
     exec just pytest -- -m 'e2e and not memory' "${pytest_log_args[@]}"
 
 examples:
@@ -200,6 +288,11 @@ tests_and_coverage:
     if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
         pytest_log_args=(--log-file-level=WARNING)
     fi
+    # pytest-cov 7.1.0: https://pytest-cov.readthedocs.io/en/latest/config.html
+    # --cov: The default is no coverage measurement. We override it because this gate
+    # enforces the 100% threshold.
+    # pytest 9.1.1 -qq: The default is verbosity zero. We override it because
+    # contributor output should emphasize failures.
     just pytest -- --cov -qq "${pytest_log_args[@]}"
     uv run -- python -c 'from pathlib import Path; import sys; coverage_exclusions = [(path, line_number) for path in Path("src/client_query_cache").rglob("*.py") for line_number, line in enumerate(path.read_text().splitlines(), start=1) if "pragma: no cover" in line]; sys.stderr.write("".join(f"{path}:{line_number}: prohibited pragma: no cover\n" for path, line_number in coverage_exclusions)); sys.exit(bool(coverage_exclusions))'
     uv run -- strict-no-cover

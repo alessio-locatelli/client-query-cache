@@ -113,8 +113,15 @@ class IsolatedReplicaSet:
         container: DockerContainer | None = None
         try:
             container = DockerContainer(MONGODB_IMAGE)
+            # MongoDB 8.0: https://www.mongodb.com/docs/v8.0/reference/program/mongod/
+            # --replSet: The default is no replica set. We override it because the
+            # disposable runtime must support change streams.
             container.with_command(["--replSet", _REPLICA_SET_NAME])
             container.with_exposed_ports(_MONGODB_PORT)
+            # https://docs.docker.com/engine/containers/resource_constraints/
+            # nano_cpus/mem_limit: The default is no explicit per-container limit. We
+            # override it because each benchmark must run under its declared CPU/memory
+            # budget.
             container.with_kwargs(
                 nano_cpus=int(self._limits.cpus * _NANOCPUS_PER_CPU),
                 mem_limit=self._limits.memory,
@@ -137,6 +144,11 @@ class IsolatedReplicaSet:
         try:
             host = container.get_container_host_ip()
             port = container.get_exposed_port(_MONGODB_PORT)
+            # PyMongo 4.18:
+            # https://pymongo.readthedocs.io/en/4.18.1/api/pymongo/mongo_client.html
+            # directConnection: The default is false. We override it because discovery
+            # would follow the internally advertised localhost address instead of the
+            # mapped port.
             self._uri = f"mongodb://{host}:{port}/?directConnection=true"
             self._await_writable_primary()
         except Exception:
@@ -198,7 +210,10 @@ class IsolatedReplicaSet:
 
     def _await_writable_primary(self) -> None:
         with MongoClient[dict[str, object]](
-            self.uri, serverSelectionTimeoutMS=1_000
+            # serverSelectionTimeoutMS: The default is 30000 ms. We override it because
+            # bounded startup polling needs short connection attempts.
+            self.uri,
+            serverSelectionTimeoutMS=1_000,
         ) as client:
             deadline = monotonic() + _ELECTION_TIMEOUT_SECONDS
             while monotonic() < deadline:
