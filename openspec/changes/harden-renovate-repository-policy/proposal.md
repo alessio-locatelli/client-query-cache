@@ -2,15 +2,17 @@
 
 ## Why
 
-The reported Mend runs produce no update PRs, but a recognized `renovate.json5` already exists both in this checkout and on GitHub's default branch. Improve that configuration with official presets and bounded update volume, and distinguish hosted configuration discovery from scheduling or lookup failures instead of disabling the required-file guard.
+Dependency updates must progress from automatically created PRs to automatic merging after CI succeeds, without routine maintainer intervention. A recognized `renovate.json5` already exists on the default branch; improve its preset-based policy and configure GitHub acceptance for both Renovate and Dependabot while keeping Mend's required-file guard enabled.
 
 ## What Changes
 
-- Extend the existing configuration with official best-practice and semantic-commit presets while retaining exclusive Dependabot/Renovate ownership and coupled tool updates.
-- Limit ordinary Renovate updates to two concurrent PRs and one new PR per hour; bound automatic branch commits separately to reduce CI churn.
-- Keep monthly proposals and seven-day release ageing, with a monthly window wide enough to process the small executable inventory under those limits.
-- Retain maintainer review and disabled lockfile maintenance. Document why the example's digest-pinning, major/minor separation, branch-name, and automerge options do not all need explicit configuration.
-- Keep Mend's required-file guard enabled and document how to verify the selected repository, revision, discovered configuration, and reason for a run creating no PRs.
+- Reuse official Renovate best-practice and semantic-commit presets without repeating defaults. Exclude inherited weekly lockfile maintenance so Dependabot retains lockfile ownership.
+- Enable automatic acceptance for every update type allowed by the existing ownership and release-track policies, including major updates where those policies permit them.
+- Use GitHub native automerge after required CI checks pass against the current base, with automatic bot approval to satisfy the existing one-approval rule.
+- Add metadata-only bot PR management using a repository-scoped GitHub App token where needed to preserve post-merge workflows.
+- Bound ordinary Renovate proposals and automatic branch commits; set Dependabot's version-update limit to two PRs per configured ecosystem.
+- Retain monthly updates, seven-day release ageing, coupled executable updates, and the Renovate first-seven-days monthly window.
+- Document one-time GitHub setup and read-only diagnosis of hosted configuration discovery and no-PR runs.
 
 ## Capabilities
 
@@ -20,8 +22,8 @@ None.
 
 ### Modified Capabilities
 
-- `dependency-update-automation`: Require preset reuse, bounded update volume, a usable monthly window, and observable discovery of the repository configuration.
+- `dependency-update-automation`: Replace mandatory manual acceptance with automatic PR creation and CI-gated merging; require preset reuse, bounded update volume, safe bot PR management, and observable repository configuration discovery.
 
 ## Impact
 
-Implementation will update `renovate.json5` and `docs/development/executable-version-updates.md`, using the existing official validation hook. It will preserve `.github/dependabot.yml`, executable extraction rules, release tracks, and public library behavior. Hosted-run inspection is read-only; changes to Mend settings, GitHub merge rules, and repository automerge are outside this proposal.
+Implementation will update `renovate.json5`, `.github/dependabot.yml`, and `docs/development/executable-version-updates.md`, and add `.github/workflows/dependency-automerge.yml`. GitHub setup includes enabling automerge, requiring existing CI checks in the main ruleset, and installing a repository-scoped merge-management App. Existing bot ownership, runtime APIs, CI validation jobs, and Mend's required-file setting remain unchanged. This request revises planning only; live settings and credentials are not modified during planning.
