@@ -79,17 +79,31 @@ Default-removal decisions and override explanations SHALL be supported by offici
 
 ### Requirement: Override explanations remain traceable and current
 
-An explanation SHALL map unambiguously to every option or flag it covers. Shared explanations SHALL enumerate covered occurrences and apply only when default, context, and rationale agree. Relevant tool upgrades and configuration edits SHALL recheck affected defaults and remove explanations for deleted overrides.
+An explanation SHALL map unambiguously to every option or flag it covers. Shared explanations SHALL enumerate covered occurrences and apply only when default, context, and rationale agree. Edits to an override SHALL recheck its default and remove explanations for deleted overrides. Dependency-update automation SHALL NOT be presumed to perform semantic audits of upstream defaults.
 
 #### Scenario: Several commands share a justified flag
 
 - **WHEN** one documentation entry explains the same override across multiple commands
 - **THEN** it identifies those commands and covers each occurrence without duplicating the rationale
 
-#### Scenario: An upgrade makes an override redundant
+#### Scenario: Maintenance identifies a redundant override
 
-- **WHEN** an applicable tool upgrade makes a retained override equal to the effective default
+- **WHEN** maintenance establishes that a retained override equals the installed tool's effective default
 - **THEN** the redundant setting and its obsolete explanation are removed
+
+### Requirement: Integration tests guard required upstream behavior
+
+When default cleanup relies on unstable upstream behavior for a required repository contract, integration tests SHALL exercise that contract through the real tool with the redundant settings omitted. Tests SHALL verify observable success and failure behavior rather than default values or configuration text. Applicable dependency updates SHALL run these tests before automatic acceptance. Anticipated default drift alone SHALL NOT justify restating a default.
+
+#### Scenario: An upstream upgrade disables link validation by default
+
+- **WHEN** an updated documentation tool accepts a missing local page or heading target with redundant validation settings omitted
+- **THEN** integration tests expecting strict-build failure fail and prevent successful dependency-update validation
+
+#### Scenario: Valid documentation still builds
+
+- **WHEN** valid documentation is built through the same configuration and invocation path
+- **THEN** integration tests require the build to succeed, so an unrelated persistent build failure cannot satisfy the invalid-input cases
 
 ### Requirement: Default cleanup preserves repository contracts
 
