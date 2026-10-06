@@ -1,5 +1,8 @@
 schema: spec-driven
 
+context: |
+  Never duplicate information across design, proposal, and tasks. Not verbatim, not in a reworded form, and not in a shorter form. A subsequent coding agent will read all files in full, so any kind of repetition contributes only to context bloat. If you need some information in more than one file, designate a single source of truth for it and reference it from other files.
+
 rules:
   specs:
     - >-
