@@ -2,21 +2,23 @@
 
 ## Context
 
-See `proposal.md` for motivation. Renovate's existing config owns `custom.regex`, Actions `uses-with`, and `pyenv` updates; Dependabot owns supported manifests and action references. MongoDB and Prek have coupled groups, and Taplo replacements couple version, URL, and checksum. Existing release tracks and seven-day ageing remain applicable.
+See `proposal.md` for motivation. Renovate's existing config owns `custom.regex`, Actions `uses-with`, and `pyenv` updates; Dependabot owns supported manifests and action references. MongoDB and Prek have coupled groups, and Taplo replacements couple version, URL, and checksum. The current config restricts MongoDB to 8.0, Python to 3.14, and Node to 24; remove those caps while retaining seven-day ageing.
 
 Read-only GitHub checks on 2026-10-06 confirmed [renovate.json5 on main](https://github.com/alessio-locatelli/client-query-cache/blob/main/renovate.json5). Repository automerge is disabled. Active main ruleset 1991678 requires one approval, dismisses stale approvals, permits rebase merges, and has no required-status-check rule. Actions defaults to read-only permissions and cannot approve PRs with its built-in token. There is no existing App-token workflow in this checkout. Mend's [settings](https://developer.mend.io/github/alessio-locatelli/client-query-cache/-/settings) and [run history](https://developer.mend.io/github/alessio-locatelli/client-query-cache) were inaccessible during planning; the reported no-PR cause remains unverified.
 
 ## Goals / Non-Goals
 
-**Goals:** Automatically create and accept allowed updates from both bots, using native GitHub merge enforcement and official presets with minimal local configuration.
+**Goals:** Automatically create and accept updates from both bots, including newer major versions under the same CI gates, using native GitHub merge enforcement and official presets with minimal local configuration.
 
-**Non-Goals:** Broaden executable extraction, change runtime behavior, replace Dependabot, add a self-hosted updater, weaken the required-file guard, or execute deployment during planning. Automatic acceptance includes permitted major updates; it does not authorize changes to constrained MongoDB, Python, or Node release tracks.
+**Non-Goals:** Broaden executable extraction, change runtime behavior, replace Dependabot, add a self-hosted updater, weaken the required-file guard, or execute deployment during planning.
 
 ## Decisions
 
 ### 1. Reuse presets without restating defaults
 
-Extend `config:best-practices`, `:semanticCommits`, and [:automergeAll](https://docs.renovatebot.com/presets-default/#automergeall), followed by the two existing custom-manager presets. Remove `automerge: false`; do not repeat the preset's `automerge: true`. Keep extraction allowlists, ownership exclusions, groups, release tracks, and age settings.
+Extend `config:best-practices`, `:semanticCommits`, and [:automergeAll](https://docs.renovatebot.com/presets-default/#automergeall), followed by the two existing custom-manager presets. Remove `automerge: false`; do not repeat the preset's `automerge: true`. Keep extraction allowlists, ownership exclusions, groups, and age settings.
+
+Remove MongoDB's `allowedVersions` field and the Python/Node rules whose only purpose is restricting `allowedVersions`. Major releases use the same automatic proposal, approval, and merge path as other releases. Retaining caps would require routine maintainer intervention despite passing CI. Inherit [Docker versioning](https://docs.renovatebot.com/modules/versioning/docker/) for MongoDB's existing image suffix and tag precision; do not replace the cap with a custom noble filter or a major-enable rule that restates enabled behavior. Unpinned DNF package installs remain outside version extraction and resolve from the selected Fedora base; no repository RPM updater is added. Task 1.3 checks major candidate eligibility in the effective policy.
 
 The base [lockFileMaintenance default](https://docs.renovatebot.com/configuration-options/#lockfilemaintenance) is disabled, but [best practices](https://docs.renovatebot.com/presets-config/#configbest-practices) includes `:maintainLockFilesWeekly`, which enables it. Set `ignorePresets: [":maintainLockFilesWeekly"]` using the official [nested preset exclusion](https://docs.renovatebot.com/configuration-options/#ignorepresets), and delete the local `lockFileMaintenance` object. This retains Dependabot ownership by excluding the unwanted policy, without repeating the base default. Simply deleting the object while leaving that subpreset active would enable maintenance. Copying the remaining subpresets would duplicate maintained preset composition; using only recommended policy would lose the broader best-practice baseline. Task 1.1 validates resolution; no further preset research is needed.
 
@@ -37,7 +39,7 @@ The omitted options need no additional research within this scope.
 
 ### 2. Bound work without depending on manual merges
 
-Set Renovate `prConcurrentLimit: 2`, `prHourlyLimit: 1`, and `commitHourlyLimit: 2`; inherit the branch concurrency budget. The separate [commit budget](https://docs.renovatebot.com/configuration-options/#commithourlylimit) covers ordinary automatic creation and rebasing, which a PR budget does not. Use `schedule: ["* * 1-7 * *"]` and `timezone: "UTC"` for the monthly proposal window. The standard monthly preset's four-hour window is too narrow for a deliberately throttled queue. A full first week leaves time for hosted runs, checks, and rebases; unrestricted creation would abandon the established monthly cadence.
+Set Renovate `prConcurrentLimit: 2`, `prHourlyLimit: 3`, and `commitHourlyLimit: 4`; inherit the branch concurrency budget. Three proposals per hour avoids the unnecessary delay of a one-PR hourly limit while retaining a small concurrent queue. The separate [commit budget](https://docs.renovatebot.com/configuration-options/#commithourlylimit) covers ordinary automatic creation and rebasing, which a PR budget does not; four leaves room for three new branches plus a rebase, subject to available concurrent capacity. Use `schedule: ["* * 1-7 * *"]` and `timezone: "UTC"` for the monthly proposal window. The standard monthly preset's four-hour window is too narrow for a deliberately throttled queue. A full first week leaves time for hosted runs, checks, and rebases; unrestricted creation would abandon the established monthly cadence.
 
 Add `open-pull-requests-limit: 2` to each existing Dependabot ecosystem entry, retaining schedules and cooldowns. This differs from its default of five. Six entries permit up to twelve ordinary version-update PRs, not a global limit of two. Grouping unrelated dependencies merely to simulate a global cap would reduce independent failure diagnosis; adding a custom global scheduler would duplicate bot infrastructure. No further limit research is needed.
 
@@ -80,7 +82,7 @@ Retain the single recognized root `renovate.json5` and hosted required-file guar
 
 ## Risks / Trade-offs
 
-- Allowed major updates can break behavior that CI does not cover → retain existing compatibility tracks and all required validation; do not silently impose a non-major filter contrary to the requested policy.
+- Major updates can break behavior that CI does not cover → require all applicable validation against the current base; do not impose version caps or extra manual acceptance solely because an update is major.
 - App setup adds one-time administration → reuse official token tooling and document exact permissions and credential names; missing setup blocks activation visibly.
 - Presets and hosted versions evolve → strict validation and effective-policy inspection verify ownership, digest exceptions, lockfile exclusion, and automerge.
 - Base advances trigger additional CI → strict current-base enforcement protects combined updates; throttling limits ordinary Renovate automatic commits.
