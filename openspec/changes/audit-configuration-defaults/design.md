@@ -53,13 +53,23 @@ Link the explanation locations from `CONTRIBUTING.md`, including the maintainer 
 
 Documenting everything inline has excellent locality but cannot serve strict JSON and becomes repetitive for shared flags. Documenting everything in specifications is allowed but scatters operational explanations across behavioral contracts. Neither has unresolved technical unknowns, and neither needs further research. The mixed placement provides one explanation per override while preserving discoverability. Keeping removal evidence only in the temporary ledger would prevent later review; commit bodies preserve historical evidence without adding it to current configuration guidance. No further research is needed for this placement.
 
+### 4. Detect upstream contract changes through real integrations
+
+The delta's “Integration tests guard required upstream behavior” requirement defines upgrade protection.
+
+`openspec/specs/public-library-documentation/spec.md` already requires strict-build failures for missing pages and headings. `tests/test_build_versioned_docs.py` exercises real builds through `assemble`, but `release_repo` explicitly enables both validation settings. Its `failed_edition` fixture covers a missing heading and a missing source-layout file; the latter is not a missing-link-target test. The targeted changes are defined in task 1.3; historical release snapshots remain outside this disposable fixture.
+
+`scripts/ci_scope.py` selects Python tests and documentation builds for `pyproject.toml` or `uv.lock` changes; `.github/workflows/test.yml` synchronizes all groups and runs `just tests_and_coverage`. The existing path therefore exercises these real-tool tests for documentation dependency updates without an additional job or workflow edit. They remain in the existing non-MongoDB test lane despite testing an external tool integration.
+
+Explicitly repeating important defaults can preserve those settings across an upstream change, but adds configuration noise and cannot cover other upstream behavior changes. Integration tests cost build time and cover only exercised contracts, but verify the outcome the repository actually needs. No prototype or further design research is needed; the concrete coverage gap is assigned to task 1.3.
+
 ## Risks / Trade-offs
 
-- Defaults can drift after upgrades → Recheck affected entries under the delta's maintenance requirement; use traceable evidence rather than immutable claims about floating hosted tools.
+- Defaults can drift after upgrades → Run affected contract tests on dependency updates and review failures. Untested behavior changes remain an accepted risk. Use traceable evidence rather than immutable claims about floating hosted tools.
 - Omission can preserve a value while changing shell failure handling or action behavior → Compare the complete invocation and retain settings needed by existing contracts. For example, explicit GitHub `shell: bash` and an unspecified shell [use different failure flags](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idstepsshell).
 - Runtime evidence could require host or live-service mutation → Use existing disposable test environments and local resolution/dry runs. Do not execute bootstrap, deployments, bot approval, or publication against live resources.
 - Explanation material can grow beyond its purpose → Apply the delta's behavioral-override boundary, reuse existing locations, and create the separate reference only when needed. Do not keep a second ledger of deleted defaults.
 
 ## Migration Plan
 
-Deliver ordinary repository edits through the existing review workflow. Changes to command builders need focused behavioral checks only when static/default resolution cannot establish equivalence; no tests solely asserting that text was deleted. Rollback restores the removed settings and associated documentation through Git. No persistent data migration or production rollout is required.
+Deliver ordinary repository edits through the existing review workflow. Land affected contract tests with their default cleanup. Other changes to command builders need focused behavioral checks only when static/default resolution cannot establish equivalence; no tests solely asserting that text was deleted. Rollback restores the removed settings and associated documentation through Git. No persistent data migration or production rollout is required.
