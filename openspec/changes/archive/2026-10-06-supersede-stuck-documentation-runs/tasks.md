@@ -2,19 +2,9 @@
 
 ## 1. Documentation publication concurrency
 
-- [x] 1.1 In `.github/workflows/docs.yml`, replace the workflow-level `concurrency` block with:
-
-  ```yaml
-  concurrency:
-    group: ${{ github.ref == 'refs/heads/main' && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success') && 'documentation-publication' || format('documentation-skipped-{0}', github.run_id) }}
-    cancel-in-progress: true
-  ```
-
-  Keep the eligibility condition character-for-character identical to the `build` job's `if`. Verify with `prek run actionlint --files .github/workflows/docs.yml` and `just ci-lint`; the latter runs zizmor with `--fix=all`, so inspect `git diff .github` afterwards and keep only fixes that belong to this change.
-
-- [x] 1.2 Delete the `if:` line from the `deploy` job in `.github/workflows/docs.yml`. Leave `needs: build` in place. Verify that `rg -c "workflow_run.conclusion == 'success'" .github/workflows/docs.yml` prints `2` (the concurrency group and the `build` job).
-
-- [x] 1.3 In `CONTRIBUTING.md`, in the **Publish documentation** paragraph, replace "publication uses a shared queue without cancelling running deployments" with current-behavior prose: a newer eligible run cancels the queued or running publication run, and the site keeps its previous content until the newer deployment succeeds; ineligible runs do not affect eligible ones. After the redeploy sentence, add a short recovery hint: if a run stays queued and does not cancel, an administrator can run `gh api --method POST repos/alessio-locatelli/client-query-cache/actions/runs/<run-id>/force-cancel`, linking GitHub's [force-cancel documentation](https://docs.github.com/en/rest/actions/workflow-runs#force-cancel-a-workflow-run). Keep the paragraph on one line. Verify with `just lint` and `npm run format:check`.
+- [x] 1.1 In `.github/workflows/docs.yml`, make the workflow-level concurrency group resolve to `documentation-publication` only when the build job's eligibility condition holds and to a group containing `github.run_id` otherwise, and set `cancel-in-progress: true`. Verify with `prek run actionlint --files .github/workflows/docs.yml` and `just ci-lint`.
+- [x] 1.2 Remove the `deploy` job's `if:` condition, keeping `needs: build`. Verify the eligibility condition remains only in the concurrency group and the `build` job.
+- [x] 1.3 In the **Publish documentation** paragraph of `CONTRIBUTING.md`, describe that a newer eligible run cancels the queued or running one while the site keeps its previous content, that ineligible runs do not affect eligible ones, and how an administrator force-cancels a run that does not cancel. Verify with `just lint` and `npm run format:check`.
 
 ## 2. Code Quality
 
