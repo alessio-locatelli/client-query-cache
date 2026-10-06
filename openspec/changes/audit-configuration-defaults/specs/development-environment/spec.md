@@ -4,7 +4,7 @@
 
 ### Requirement: Tool configuration omits redundant defaults
 
-Repository-owned tool configuration and automation SHALL omit optional settings and command flags whose removal preserves effective behavior in every supported invocation context. Comparisons SHALL account for presets, wrappers, environment variables, and tool versions. Required fields, positional operands, and syntax delimiters are not optional overrides.
+Except for critical privileged CI pins meeting the exception below, repository-owned tool configuration and automation SHALL omit optional settings and command flags whose removal preserves effective behavior in every supported invocation context. Comparisons SHALL account for presets, wrappers, environment variables, and tool versions. Required fields, positional operands, and syntax delimiters are not optional overrides.
 
 #### Scenario: A validation setting repeats a tool default
 
@@ -37,7 +37,7 @@ A behavioral override changes meaningful policy supplied on omission, such as va
 
 ### Requirement: Every behavioral override has a specific rationale
 
-Each retained behavioral override SHALL have a concise inline comment, documentation entry, or OpenSpec specification containing `The default is <default_value>. We override it because <concise_rationale>.` The explanation SHALL identify the option and concrete project need. The default description SHALL follow the omitted-behavior requirement below.
+Each retained behavioral override or critical privileged CI pin SHALL have a concise inline comment, documentation entry, or OpenSpec specification containing `The default is <default_value>. We override it because <concise_rationale>.` The explanation SHALL identify the option and concrete project need. The default description SHALL follow the omitted-behavior requirement below. Exception pins SHALL use the locations required by their exception.
 
 #### Scenario: A command enables stricter validation
 
@@ -89,7 +89,7 @@ An explanation SHALL map unambiguously to every option or flag it covers. Shared
 #### Scenario: Maintenance identifies a redundant override
 
 - **WHEN** maintenance establishes that a retained override equals the installed tool's effective default
-- **THEN** the redundant setting and its obsolete explanation are removed
+- **THEN** the redundant setting and its obsolete explanation are removed unless the setting meets the critical privileged CI pin exception
 
 ### Requirement: Integration tests guard required upstream behavior
 
@@ -104,6 +104,25 @@ When default cleanup relies on unstable upstream behavior for a required reposit
 
 - **WHEN** valid documentation is built through the same configuration and invocation path
 - **THEN** integration tests require the build to succeed, so an unrelated persistent build failure cannot satisfy the invalid-input cases
+
+### Requirement: Critical privileged CI pins have a narrow exception
+
+An explicit default MAY remain only to protect a critical security or production-safety contract in privileged CI when safe real-behavior integration tests cannot adequately cover it. An inline comment or OpenSpec specification SHALL give the normal rationale, naming the protected contract, concrete harm, and why safe testing is insufficient. The pin SHALL have authoritative default evidence. Convenience, ordinary CI settings, or hypothetical drift alone SHALL NOT qualify.
+
+#### Scenario: A privileged action cannot be safely exercised
+
+- **WHEN** a setting matching the current default protects a critical credential or publication boundary and safe integration testing cannot adequately cover that behavior
+- **THEN** the setting remains explicit with an inline or OpenSpec rationale satisfying every exception condition
+
+#### Scenario: A critical behavior has safe test coverage
+
+- **WHEN** a safe real-behavior integration test adequately covers the critical contract with the redundant setting omitted
+- **THEN** the normal omission rule applies and the dependency update runs that test
+
+#### Scenario: Neither coverage nor an exception is justified
+
+- **WHEN** a contract-relevant removal lacks required safe integration coverage and the setting does not qualify for the exception
+- **THEN** that removal remains blocked rather than weakening the contract or silently claiming a permanent pin exception
 
 ### Requirement: Default cleanup preserves repository contracts
 
