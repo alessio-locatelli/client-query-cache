@@ -1,7 +1,7 @@
 FROM registry.fedoraproject.org/fedora-toolbox:44@sha256:b3a0088e7a72ea2c7cb496c674a3e11201960814d4303e19ab2746afaca5fad5
 
 # renovate: datasource=pypi depName=prek versioning=pep440
-ARG PREK_TOOL_VERSION=0.5.2
+ARG PREK_TOOL_VERSION=0.5.4
 # renovate: datasource=pypi depName=zizmor versioning=pep440
 ARG ZIZMOR_TOOL_VERSION=1.30.0
 
