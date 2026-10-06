@@ -29,7 +29,7 @@ Dependabot and Renovate SHALL create eligible update PRs without a manual dashbo
 
 #### Scenario: An eligible bot update passes CI
 
-- **WHEN** a same-repository Dependabot or Renovate update targeting main passes all required checks against the current base and receives automated approval
+- **WHEN** a same-repository Dependabot or Renovate update targeting main passes all applicable required checks for its latest revision and receives automated approval
 - **THEN** GitHub merges it automatically using the permitted merge method without manual creation, approval, or merge
 
 #### Scenario: A major update passes CI
@@ -39,7 +39,7 @@ Dependabot and Renovate SHALL create eligible update PRs without a manual dashbo
 
 ### Requirement: Required validation gates automatic merging
 
-Automatic merging SHALL wait for all required validation checks for the latest revision tested against the current base. Required checks SHALL include quality prerequisites and scope selection so dependency-skipped jobs cannot mask failed prerequisites. Failed, cancelled, or pending required validation SHALL block merging; intentionally inapplicable path-selected jobs SHALL retain their existing skip behavior.
+Automatic merging SHALL wait for all applicable required checks for the latest PR revision, without requiring the branch to be current with main. Required checks SHALL include quality prerequisites and scope selection so dependency-skipped jobs cannot mask failed prerequisites. Failed, cancelled, or pending required validation SHALL block merging; intentionally inapplicable path-selected jobs SHALL retain their existing skip behavior.
 
 #### Scenario: Lint fails and downstream validation is skipped
 
@@ -48,8 +48,8 @@ Automatic merging SHALL wait for all required validation checks for the latest r
 
 #### Scenario: The base advances before acceptance
 
-- **WHEN** main advances after a bot PR passes CI
-- **THEN** the PR is updated and required validation succeeds against the current base before merging
+- **WHEN** main advances without conflicting with an approved bot PR whose latest revision passed required CI
+- **THEN** being behind main alone does not block native automerge or require a maintainer to update the branch
 
 ### Requirement: Privileged bot PR management uses trusted metadata
 
@@ -92,10 +92,10 @@ Renovate policy SHALL reuse official presets for best practices and semantic com
 - **WHEN** Renovate resolves the repository policy
 - **THEN** dependency commits use semantic prefixes and enabled updates remain confined to the existing executable inventory, excluding Dependabot-owned manifests and action references
 
-#### Scenario: Best practices include weekly lockfile maintenance
+#### Scenario: Best practices include unwanted subpresets
 
 - **WHEN** the best-practices preset is resolved
-- **THEN** the weekly lockfile-maintenance subpreset is excluded and Renovate retains the disabled default without a repeated lockFileMaintenance setting
+- **THEN** weekly lockfile maintenance and experimental configuration migration are excluded without restating their disabled defaults
 
 ### Requirement: Ordinary update proposals have bounded volume
 
@@ -133,3 +133,22 @@ Renovate SHALL allow ordinary update branch creation throughout the first seven 
 
 - **WHEN** the app runs on the eighth day of a month
 - **THEN** the schedule prevents ordinary new update branches without treating the recognized configuration as missing
+
+### Requirement: Repository delivery is separate from live activation
+
+The code PR SHALL prepare configs, trusted workflows, and a post-merge operator checklist without changing live settings, provisioning Apps, or writing credentials. Automated acceptance SHALL remain inactive until operator setup establishes required checks and App access. Delivery SHALL distinguish repository validation from verified activation and document rollback for both code and live state.
+
+#### Scenario: The repository PR is reviewed before activation
+
+- **WHEN** the coding agent completes the repository changes
+- **THEN** the PR contains the activation checklist and live settings and credentials have not been changed by that work
+
+#### Scenario: App configuration is absent
+
+- **WHEN** bot PR management runs without its App configuration
+- **THEN** it visibly reports inactive acceptance and submits neither approval nor an automerge request
+
+#### Scenario: A bot PR predates activation
+
+- **WHEN** an authorized operator dispatches management on main for an existing bot PR after setup
+- **THEN** the workflow verifies the live bot author, repository, base, and head before approving and enabling native automerge without needing a new bot event

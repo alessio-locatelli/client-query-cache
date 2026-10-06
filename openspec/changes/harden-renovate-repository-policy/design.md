@@ -1,95 +1,40 @@
 # Design
 
-## Context
+## Context and scope
 
-See `proposal.md` for motivation. Renovate's existing config owns `custom.regex`, Actions `uses-with`, and `pyenv` updates; Dependabot owns supported manifests and action references. MongoDB and Prek have coupled groups, and Taplo replacements couple version, URL, and checksum. The current config restricts MongoDB to 8.0, Python to 3.14, and Node to 24; remove those caps while retaining seven-day ageing.
-
-Read-only GitHub checks on 2026-10-06 confirmed [renovate.json5 on main](https://github.com/alessio-locatelli/client-query-cache/blob/main/renovate.json5). Repository automerge is disabled. Active main ruleset 1991678 requires one approval, dismisses stale approvals, permits rebase merges, and has no required-status-check rule. Actions defaults to read-only permissions and cannot approve PRs with its built-in token. There is no existing App-token workflow in this checkout. Mend's [settings](https://developer.mend.io/github/alessio-locatelli/client-query-cache/-/settings) and [run history](https://developer.mend.io/github/alessio-locatelli/client-query-cache) were inaccessible during planning; the reported no-PR cause remains unverified.
-
-## Goals / Non-Goals
-
-**Goals:** Automatically create and accept updates from both bots, including newer major versions under the same CI gates, using native GitHub merge enforcement and official presets with minimal local configuration.
-
-**Non-Goals:** Broaden executable extraction, change runtime behavior, replace Dependabot, add a self-hosted updater, weaken the required-file guard, or execute deployment during planning.
+Renovate owns unsupported executable pins through custom regex, Actions tool inputs, and pyenv; Dependabot owns supported manifests and action references. Keep that split and the existing coupled MongoDB, Prek, and Taplo replacements. [The delta spec](specs/dependency-update-automation/spec.md) is the source for numeric budgets, cadence, release ageing, and acceptance obligations.
 
 ## Decisions
 
-### 1. Reuse presets without restating defaults
+### Preset composition
 
-Extend `config:best-practices`, `:semanticCommits`, and [:automergeAll](https://docs.renovatebot.com/presets-default/#automergeall), followed by the two existing custom-manager presets. Remove `automerge: false`; do not repeat the preset's `automerge: true`. Keep extraction allowlists, ownership exclusions, groups, and age settings.
+Extend `config:best-practices` and `:semanticCommits` before the existing custom-manager presets. The [best-practices baseline](https://docs.renovatebot.com/presets-config/#configbest-practices) supplies maintained grouping, integrity, pinning, abandonment reporting, and security-age policies within existing ownership. This avoids maintaining a copied list of its constituent policies.
 
-Remove MongoDB's `allowedVersions` field and the Python/Node rules whose only purpose is restricting `allowedVersions`. Major releases use the same automatic proposal, approval, and merge path as other releases. Retaining caps would require routine maintainer intervention despite passing CI. Inherit [Docker versioning](https://docs.renovatebot.com/modules/versioning/docker/) for MongoDB's existing image suffix and tag precision; do not replace the cap with a custom noble filter or a major-enable rule that restates enabled behavior. Unpinned DNF package installs remain outside version extraction and resolve from the selected Fedora base; no repository RPM updater is added. Task 1.3 checks major candidate eligibility in the effective policy.
+Exclude `:maintainLockFilesWeekly` and `:configMigration` through `ignorePresets`. Lockfiles belong to Dependabot; [configuration migration](https://docs.renovatebot.com/configuration-options/#configmigration) is experimental and creates configuration PRs outside dependency-update scope. Remove local `lockFileMaintenance` and `automerge: false` settings. Renovate's disabled automerge default is intentional: the shared App workflow owns acceptance for both bots, with no `:automergeAll` preset or duplicate merge request.
 
-The base [lockFileMaintenance default](https://docs.renovatebot.com/configuration-options/#lockfilemaintenance) is disabled, but [best practices](https://docs.renovatebot.com/presets-config/#configbest-practices) includes `:maintainLockFilesWeekly`, which enables it. Set `ignorePresets: [":maintainLockFilesWeekly"]` using the official [nested preset exclusion](https://docs.renovatebot.com/configuration-options/#ignorepresets), and delete the local `lockFileMaintenance` object. This retains Dependabot ownership by excluding the unwanted policy, without repeating the base default. Simply deleting the object while leaving that subpreset active would enable maintenance. Copying the remaining subpresets would duplicate maintained preset composition; using only recommended policy would lose the broader best-practice baseline. Task 1.1 validates resolution; no further preset research is needed.
+Remove MongoDB's `allowedVersions` field and the Python/Node rules used solely for version caps. Inherit [Docker versioning](https://docs.renovatebot.com/modules/versioning/docker/) for suffix and precision handling. Add only the necessary MongoDB `pinDigests: false` override, scoped to `custom.regex` and Docker: its replacement is tag-only ([upstream limitation](https://github.com/renovatebot/renovate/issues/24942)). Keep Taplo checksum replacement and the preset's pyenv exemption. Implement the spec's budgets using `prConcurrentLimit`, `prHourlyLimit`, and `commitHourlyLimit`; inherit branch concurrency. Express its monthly window with cron and an explicit UTC timezone.
 
-The inherited [Docker digest preset](https://docs.renovatebot.com/presets-docker/#dockerpindigests) matches Docker datasources across managers. Add `pinDigests: false` to the existing MongoDB rule, scoped to `custom.regex` and datasource `docker`. This is a necessary inherited-policy override: MongoDB's tag-only replacement cannot capture or replace a digest, as illustrated by [Renovate issue 24942](https://github.com/renovatebot/renovate/issues/24942). The official preset already exempts `pyenv`; do not duplicate that exception. Retain Taplo checksum updates. Expanding MongoDB replacement and consumers for digest references is outside this change; task 1.3 verifies resolved behavior and no migration research is required.
+### Required CI without current-base enforcement
 
-| Option                           | Decision                                                                                                                                  |
-| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `platformAutomerge: true`        | Inherit the supported default; native GitHub automerge is used.                                                                           |
-| `automergeType: pr`              | Inherit the default; keep visible PRs and branch-rule enforcement.                                                                        |
-| `automergeStrategy: auto`        | Inherit the default; GitHub permits only rebase merging here. Verify that the native request uses that method.                            |
-| `separateMajorMinor: true`       | Inherit the default; do not repeat it.                                                                                                    |
-| `pinDigests: true`               | Omit globally; use the preset and the necessary MongoDB exception.                                                                        |
-| `group:allDigest`                | Omit; existing coupled groups and the Taplo download offer little useful additional digest grouping.                                      |
-| `branchNameStrict: true`         | Omit; no observed GitHub naming failure justifies changing bot branch identity.                                                           |
-| `rebaseWhen: behind-base-branch` | Set explicitly. Native automerge with `auto` does not guarantee rebasing; strict current-base checks require updates after main advances. |
+Use GitHub [loose required checks](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/available-rules-for-rulesets#require-status-checks-to-pass-before-merging): require existing checks, but leave “Require branches to be up to date before merging” unchecked. Require every job in `.github/workflows/test.yml`, including scope selection and quality prerequisites; resolve displayed check names and the GitHub Actions source from successful runs during operator activation. Keep path-selected skips, contributor approval, stale-review dismissal, linear history, and the permitted rebase merge method; grant no bypass.
 
-The omitted options need no additional research within this scope.
+Strict checks would offer stronger integration assurance, but [Dependabot rebasing](https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference#rebase-strategy) is conflict- or schedule-driven and cannot guarantee prompt updates after a non-conflicting base push. A branch-update controller adds privileged automation; a merge queue adds validation triggers and platform prerequisites. Loose checks satisfy unattended acceptance with fewer builds, accepting that later base changes may interact with a previously green PR. Omit `rebaseWhen` and inherit Renovate's behavior. No additional controller or queue research is required for this choice.
 
-### 2. Bound work without depending on manual merges
+### Shared App acceptance
 
-Set Renovate `prConcurrentLimit: 2`, `prHourlyLimit: 3`, and `commitHourlyLimit: 4`; inherit the branch concurrency budget. Three proposals per hour avoids the unnecessary delay of a one-PR hourly limit while retaining a small concurrent queue. The separate [commit budget](https://docs.renovatebot.com/configuration-options/#commithourlylimit) covers ordinary automatic creation and rebasing, which a PR budget does not; four leaves room for three new branches plus a rebase, subject to available concurrent capacity. Use `schedule: ["* * 1-7 * *"]` and `timezone: "UTC"` for the monthly proposal window. The standard monthly preset's four-hour window is too narrow for a deliberately throttled queue. A full first week leaves time for hosted runs, checks, and rebases; unrestricted creation would abandon the established monthly cadence.
+Add `dependency-automerge.yml` on trusted `pull_request_target` events: opened, synchronize, reopened, and ready_for_review. Also support `workflow_dispatch` with a PR-number input for one-time activation of existing PRs: require ref main and rely on [GitHub's write-access requirement for dispatch](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow) to authorize the operator. Use live metadata only; never check out PR code, install from it, consume its artifacts, or write caches. Before requesting credentials, verify the live author is a Dependabot/Renovate bot, head repository matches this repository, base is main, and the PR is open and non-draft. For PR events, also require a bot sender and reject stale event heads; dispatch uses the captured live head. Serialize both paths by PR and submit approval for the verified commit. Recheck the live head before requesting native rebase automerge with `gh pr merge --auto --rebase --match-head-commit "$HEAD_SHA"` for either bot. Approval and merge operations follow [GitHub's documented automation](https://docs.github.com/en/code-security/tutorials/secure-your-dependencies/automate-dependabot-with-actions).
 
-Add `open-pull-requests-limit: 2` to each existing Dependabot ecosystem entry, retaining schedules and cooldowns. This differs from its default of five. Six entries permit up to twelve ordinary version-update PRs, not a global limit of two. Grouping unrelated dependencies merely to simulate a global cap would reduce independent failure diagnosis; adding a custom global scheduler would duplicate bot infrastructure. No further limit research is needed.
+Use SHA-pinned `actions/create-github-app-token` with repository variable `DEPENDENCY_AUTOMERGE_APP_ID` and secret `DEPENDENCY_AUTOMERGE_APP_PRIVATE_KEY`. Scope installation tokens to this repository with Contents/Pull requests write and no bypass. Keep built-in workflow permissions read-only. Without App configuration, report inactive acceptance visibly and perform no approval or merge request.
 
-Schedules and budgets do not control Mend polling. Renovate manual rebases and vulnerability alerts have documented budget exceptions; Dependabot security updates have separate limits. Existing Renovate branches can still update outside the creation window. CI and registry work remain the main resource costs; no runtime profiling is applicable. These are configured controls, not measured hosted-run reductions.
+An App adds one-time setup but preserves post-merge workflows: [GITHUB_TOKEN event suppression](https://docs.github.com/en/actions/concepts/security/github_token) can prevent documentation publication after a bot merge. A PAT adds a personal credential; removing contributor approval weakens the existing review policy. One App path also avoids Renovate's [fallback to direct automerge](https://docs.renovatebot.com/configuration-options/#platformautomerge) before platform activation. Token, review, merge-method, and trigger behavior require operator verification after deployment; task 2.1 prepares those checks.
 
-### 3. Use GitHub native enforcement for green CI
+## Deployment boundary
 
-Enable repository `allow_auto_merge`. Add required status checks to the existing main ruleset, sourced from the GitHub Actions App, with strict current-base validation. Retain one approval, stale-review dismissal, linear history, and the existing permitted merge method; give neither updater nor merge-management App a ruleset bypass.
+The coding agent prepares and validates repository files only. Task 2.1 writes a post-merge operator checklist in the contributor guide with this order:
 
-Require the existing stable checks from `.github/workflows/test.yml`:
+1. Discover and snapshot current effective main rules and repository settings; configure loose required checks without altering unrelated rules or granting bypass.
+2. Provision/reuse the scoped App, confirm its installation and permissions, then supply its ID and private-key secret without exposing the key.
+3. Enable repository auto-merge and verify both bots' approvals, native rebase merging, failing-check enforcement, behind-base acceptance, and applicable post-merge publication. Dispatch trusted management on main for pre-existing bot PRs as a one-time activation step, using `gh workflow run dependency-automerge.yml --ref main -f pr_number=<number>`.
+4. Inspect hosted discovery read-only. File presence and local dry runs establish neither hosted success nor a no-PR cause. Record inaccessible evidence as unverified; persistent discrepancies need a tracking-ticket URL.
 
-- Select validation tiers
-- Prek
-- Prettier, Markdownlint, and OpenSpec
-- Documentation build
-- Static checks, packaging, and isolated install
-- Docker-backed integration, end-to-end, and coverage
-- Cache memory regression guard
-- Cache hot-path performance guard
-- Development container build and tools
-- Isolated benchmark replica-set startup
-
-Requiring scope selection and quality prerequisites prevents skipped dependent jobs from hiding failed prerequisites. Existing intentionally inapplicable jobs may skip; applicable checks must finish successfully for the latest tested revision. Preserve the existing path-aware validation and cheap-before-expensive execution. An aggregate custom gate is unnecessary because existing job identities and required-check enforcement provide this behavior.
-
-GitHub [native automerge](https://docs.renovatebot.com/configuration-options/#platformautomerge) waits for required checks and approvals. A workflow that manually polls CI and invokes unconditional merge would duplicate enforcement and introduce race handling. A merge queue could test combined changes but requires different workflow triggers and is disproportionate to these limits; strict current-base validation provides the selected contract. Task 2.2 verifies rules and task 3.2 covers platform behavior; no additional gate architecture research is needed.
-
-### 4. Automate approval without executing bot PR code
-
-Add `.github/workflows/dependency-automerge.yml` with `pull_request_target` for `opened`, `synchronize`, `reopened`, and `ready_for_review`. The workflow uses trusted default-branch code and live PR metadata only, with no checkout, installs from the PR, cache writes, or PR artifacts. Check both event sender and live PR author against `dependabot[bot]` and `renovate[bot]`, require bot account types, same-repository head, open non-draft PR, and base `main`. Branch names and titles never authorize access. Confirm the live head matches the event head immediately before submitting approval; approval targets that commit. Serialize management by PR so old events cannot race new heads.
-
-Use a separate GitHub App installed only on this repository, with Contents and Pull requests write permissions and no ruleset bypass. Store its ID as `DEPENDENCY_AUTOMERGE_APP_ID` and private key as `DEPENDENCY_AUTOMERGE_APP_PRIVATE_KEY`; never read or print the key. Issue short-lived repository-scoped tokens through the official [actions/create-github-app-token](https://github.com/actions/create-github-app-token), pinned according to repository conventions. Retain read-only built-in workflow defaults and the disabled built-in Actions-approval setting: App review permissions satisfy the one-approval rule instead. Reapprove bot revisions after their automatic rebases because stale reviews are dismissed.
-
-The App approves both bots' eligible PRs. For Dependabot, it also runs `gh pr merge --auto --rebase --match-head-commit "$HEAD_SHA"` for the verified PR. Renovate requests native automerge using its own hosted App through `:automergeAll`; do not duplicate that request in the workflow. No update-type filter is added. The merge-management App performs acceptance only and never runs dependency extraction or writes update branches.
-
-GitHub's [documented CLI automation](https://docs.github.com/en/code-security/tutorials/secure-your-dependencies/automate-dependabot-with-actions) supplies the approval/merge operations. The built-in `GITHUB_TOKEN` would avoid an App installation but its [event suppression](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow) can prevent the existing documentation workflow from running after a Dependabot merge changes `uv.lock` or another watched input. A scoped App token preserves those events without adding publication triggers. A PAT introduces a user credential; removing required approval would weaken all contributor PRs. The scoped App is the selected tradeoff. Provisioning and permissions remain an implementation prerequisite in task 2.3; task 3.2 verifies token behavior and missing credentials remain a visible deployment blocker, not successful activation.
-
-### 5. Keep discovery diagnosis separate from activation evidence
-
-Retain the single recognized root `renovate.json5` and hosted required-file guard. Use existing official validation and extraction/lookup dry runs, inspecting resolved inherited behavior as well as extraction. Add concise contributor guidance for repository/revision selection, configuration discovery, onboarding, schedule, release ageing, lookup errors, and budgets. Task 3.3 attempts read-only Mend inspection; inaccessible logs do not establish a cause or hosted success. Any observed persistent discrepancy needs a tracking-ticket URL in docs. A second config or disabling the guard is unnecessary; no new diagnostic runner is needed.
-
-## Risks / Trade-offs
-
-- Major updates can break behavior that CI does not cover → require all applicable validation against the current base; do not impose version caps or extra manual acceptance solely because an update is major.
-- App setup adds one-time administration → reuse official token tooling and document exact permissions and credential names; missing setup blocks activation visibly.
-- Presets and hosted versions evolve → strict validation and effective-policy inspection verify ownership, digest exceptions, lockfile exclusion, and automerge.
-- Base advances trigger additional CI → strict current-base enforcement protects combined updates; throttling limits ordinary Renovate automatic commits.
-- Hosted runs remain unobservable without Mend access → report that evidence boundary; do not weaken the guard or claim the no-PR symptom is fixed.
-
-## Migration Plan
-
-Prepare repository changes and concise setup docs first. Configure required checks and the scoped App before enabling automerge behavior, so no bot PR can merge without CI enforcement. Apply the repository configuration and trusted workflow through normal review, then enable repository automerge and verify the activation cases. Preserve a metadata-only workflow on the default branch; do not enable execution of bot PR code in privileged jobs.
-
-Rollback by disabling repository automerge and removing bot management, reverting update-policy changes while retaining required validation and ordinary contributor approval. If App provisioning, administrative access, or GitHub feature support is missing, report the concrete blocker and leave automatic acceptance inactive. A local validator passing does not complete deployment verification.
+Record live operations and their rollback separately from the code PR. Disabling repository auto-merge alone is insufficient for already-enabled PRs: cancel their pending automerge requests, withdraw App credentials/access, and restore operator-owned settings from the snapshot as appropriate. Code rollback is a normal revert. Missing administrative access or credentials blocks activation, not completion of the reviewed repository PR.
