@@ -23,7 +23,7 @@ Repository-owned tool configuration and automation SHALL omit optional settings 
 
 ### Requirement: Every tool override has a specific rationale
 
-Each retained non-default option or flag SHALL have a concise inline comment, documentation entry, or OpenSpec specification containing `The default is <default_value>. We override it because <concise_rationale>.` The explanation SHALL identify the option, applicable default, and concrete project need. Optional settings without a configured value SHALL use `unset` or `none`, with its meaning explained.
+Each retained non-default option or flag SHALL have a concise inline comment, documentation entry, or OpenSpec specification containing `The default is <default_value>. We override it because <concise_rationale>.` The explanation SHALL identify the option and concrete project need. The default description SHALL follow the omitted-behavior requirement below.
 
 #### Scenario: A command enables stricter validation
 
@@ -35,19 +35,38 @@ Each retained non-default option or flag SHALL have a concise inline comment, do
 - **WHEN** a retained optional setting supplies a project-specific value where the tool supplies none
 - **THEN** its explanation states that the default is unset or none and explains why the value is supplied
 
+### Requirement: Default descriptions express omitted behavior
+
+The default description SHALL state the behavior when the option is omitted in the applicable context. It SHALL use a concrete value when fixed, `unset` or `none` when no value is supplied, or a description of inheritance when context-dependent. Inheritance descriptions SHALL identify the configuration source and relevant context; they SHALL NOT imply a fixed value across environments.
+
+#### Scenario: Git inherits user configuration
+
+- **WHEN** an explicit signing setting protects a disposable repository from inherited Git configuration
+- **THEN** its rationale describes the default as inherited from Git configuration, identifies the applicable configuration scope, and explains why signing is disabled
+
+#### Scenario: Permissions depend on platform settings
+
+- **WHEN** an explicit workflow permission setting constrains permissions inherited from repository or organization settings
+- **THEN** its rationale describes that inheritance and the workflow context rather than claiming a universal omitted permission value
+
 ### Requirement: Default comparisons have authoritative evidence
 
-Default-removal decisions and override explanations SHALL be supported by official documentation, schemas, source, or help for the applicable tool version and execution context. Evidence SHALL be traceable from the explanation or audit record. A guessed default SHALL NOT justify removal or a factual rationale.
+Default-removal decisions and override explanations SHALL be supported by official documentation, schemas, source, or help for the applicable tool version and execution context. Evidence SHALL remain traceable after delivery from the retained explanation or, for removals, the implementation commit body. A guessed omitted behavior SHALL NOT justify removal or a factual rationale.
 
 #### Scenario: Documentation describes another release
 
 - **WHEN** current upstream documentation disagrees with the repository's selected tool version
 - **THEN** the audit uses evidence for the selected version and records the discrepancy before changing the setting
 
-#### Scenario: A default cannot be established
+#### Scenario: Omitted behavior cannot be established
 
-- **WHEN** authoritative evidence does not establish the applicable default
-- **THEN** the audit reports a completion blocker instead of inventing a default or silently excluding the option
+- **WHEN** authoritative evidence establishes neither a fixed omitted value nor the applicable inheritance behavior
+- **THEN** the audit reports a completion blocker instead of inventing omitted behavior or silently excluding the option
+
+#### Scenario: Removal evidence survives ledger disposal
+
+- **WHEN** implementation removes a redundant setting or flag and its temporary audit ledger is no longer available
+- **THEN** the implementation commit body identifies the affected occurrence, supplied value, omitted behavior, authoritative source, tool version, and execution context, grouping occurrences only when their evidence and context agree
 
 ### Requirement: Override explanations remain traceable and current
 
