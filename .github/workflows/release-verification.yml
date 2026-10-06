@@ -2,6 +2,8 @@ name: Release verification
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
+  # cancel-in-progress: The default is false. We override it because newer validation or
+  # selection supersedes an unfinished older run.
   cancel-in-progress: true
 
 on:
@@ -11,6 +13,11 @@ on:
         description: Candidate release tag (e.g. v1.2.3) to check against the declared package version. Leave empty to verify build and import only.
         type: string
 
+# GitHub workflow syntax (2026-10-06):
+# https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax
+# The default is inherited repository/organization token policy. We override it because
+# workflow tokens need only read access until a job explicitly elevates its grants;
+# unspecified grants are none.
 permissions:
   contents: read
 
@@ -18,14 +25,27 @@ jobs:
   release-verification:
     name: Non-publishing release verification
     runs-on: ubuntu-24.04
+    # timeout-minutes for release-verification (15m): The default is 360. We override it
+    # because stalled jobs must stop within their assigned validation/publication
+    # budgets.
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # checkout v7.0.1:
+          # https://github.com/actions/checkout/blob/3d3c42e5aac5ba805825da76410c181273ba90b1/action.yml
+          # persist-credentials: The default is true. We override it because later
+          # repository commands must not inherit checkout credentials.
           persist-credentials: false
 
       - uses: $/.github/actions/setup-toolchain
 
+      # uv 0.12.19: https://docs.astral.sh/uv/reference/cli/
+      # --locked: The default is inherited UV_LOCKED, otherwise unlocked resolution. We
+      # override it because this standalone CI command must validate the committed
+      # lockfile.
+      # --all-groups: The default is project default groups (dev). We override it
+      # because these validation environments need documentation tools too.
       - run: uv sync --locked --all-groups
 
       - run: just verify-release "${INPUTS_TAG}"

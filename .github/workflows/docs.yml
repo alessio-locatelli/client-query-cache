@@ -2,6 +2,9 @@ name: Publish documentation
 
 concurrency:
   group: ${{ github.ref == 'refs/heads/main' && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success') && 'documentation-publication' || format('documentation-skipped-{0}', github.run_id) }}
+  # cancel-in-progress: The default is false. We override it because the latest eligible
+  # controller must replace stale publication work; this concurrency group excludes
+  # ineligible runs.
   cancel-in-progress: true
 
 on: # zizmor: ignore[dangerous-triggers] Trusted main only; no triggering-run code or artifacts.
@@ -25,20 +28,39 @@ on: # zizmor: ignore[dangerous-triggers] Trusted main only; no triggering-run co
     types: [completed]
   workflow_dispatch:
 
+# GitHub workflow syntax (2026-10-06):
+# https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax
+# The default is inherited repository/organization token policy. We override it because
+# workflow tokens need only read access until a job explicitly elevates its grants;
+# unspecified grants are none.
 permissions:
   contents: read
 
 jobs:
   build:
     name: Build documentation artifact
+    # The default is implicit success() without these eligibility restrictions. We
+    # override it because publication must use trusted main and successful release
+    # events.
     if: github.ref == 'refs/heads/main' && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-24.04
+    # timeout-minutes for build (10m), deploy (10m): The default is 360. We override it
+    # because stalled jobs must stop within their assigned validation/publication
+    # budgets.
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # checkout v7.0.1:
+          # https://github.com/actions/checkout/blob/3d3c42e5aac5ba805825da76410c181273ba90b1/action.yml
+          # persist-credentials: The default is true. We override it because later
+          # repository commands must not inherit checkout credentials.
           persist-credentials: false
+          # ref: The default is the event reference/SHA. We override it because
+          # publication must use current trusted main rather than an earlier snapshot.
           ref: main
+          # fetch-depth: The default is 1. We override it because source selection and
+          # revision comparisons require earlier history.
           fetch-depth: 0
 
       - uses: $/.github/actions/setup-toolchain
@@ -50,9 +72,17 @@ jobs:
         run: |
           stable_tag="$(gh api "repos/${REPOSITORY}/releases/latest" --jq \
             'if .draft or .prerelease then error("Expected a published stable release") else .tag_name end')"
+          # Git 2.55.0: https://git-scm.com/docs/git-fetch
+          # --no-tags: The default is inherited remote.origin.tagOpt, otherwise
+          # auto-following reachable tags. We override it because assembly needs only
+          # selected release/correction references.
           git fetch --no-tags origin "refs/tags/${stable_tag}:refs/tags/${stable_tag}"
           backport="$(STABLE_TAG="${stable_tag}" python3 -c 'import os, tomllib; records = tomllib.load(open("stable-docs.toml", "rb"))["backports"]; tag = os.environ["STABLE_TAG"]; print(records[tag]["fetch_ref"] if tag in records else "")')"
           if [[ -n "${backport}" ]]; then
+            # Git 2.55.0: https://git-scm.com/docs/git-fetch
+            # --no-tags: The default is inherited remote.origin.tagOpt, otherwise
+            # auto-following reachable tags. We override it because assembly needs only
+            # selected release/correction references.
             git fetch --no-tags origin "${backport}:${backport}"
           fi
           just docs-build-editions "${stable_tag}"
@@ -67,7 +97,11 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
+      # pages: The default is none under workflow permissions. We override it because
+      # Pages deployment requires publication access.
       pages: write # Publish the Pages artifact.
+      # id-token: The default is none under workflow permissions. We override it because
+      # Pages deployment requires OIDC authentication.
       id-token: write # Authenticate this deployment to Pages with OIDC.
     environment:
       name: github-pages

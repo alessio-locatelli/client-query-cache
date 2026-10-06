@@ -16,7 +16,7 @@ Other observed candidates require context-specific classification rather than im
 
 ## Goals / Non-Goals
 
-**Goals:** Use the inventory below as the audit boundary and keep explanations maintainable beside their owning configuration or in a single maintainer reference.
+**Goals:** Use the inventory below as the audit boundary and keep explanations maintainable beside their owning configuration or command examples.
 
 **Non-Goals:** Change public Python defaults, redesign pipelines, alter live settings, upgrade dependencies to make cleanup possible, or introduce a generic default-detection checker.
 
@@ -47,13 +47,11 @@ Comparing only built-in default tables is faster but fails the Renovate and Git 
 
 ### 3. Give each explanation one maintained home
 
-Use concise inline comments when the format supports them and the behavioral override is local. Use an existing relevant OpenSpec requirement only if it contains the required explanation and identifies the actual option. Create `docs/development/configuration-overrides.md` only if in-scope explanations need a home beyond existing comments, documentation, or specifications, such as strict JSON or shared command flags. Entries contain tool/key or command identifiers, omitted behavior/context, source links and versions, and the required rationale sentence. Apply the delta's omitted-behavior rule to its default description. Group occurrences only under the delta's shared-explanation rule. Do not duplicate explanations or include ordinary project inputs.
+Keep each rationale beside its setting or command. Shared comments may cover enumerated occurrences within the same owning file; command examples use adjacent explanations in their own guide. Strict JSON uses existing contributor documentation, with the npm options in `CONTRIBUTING.md`. Do not maintain a separate cross-file inventory. Retain authoritative version/context evidence and the delta's rationale sentence format, distinguishing behavioral policy from ordinary project inputs.
 
-For critical privileged CI pins, use only the explanation locations allowed by the delta's exception; do not move those explanations into the optional reference document.
+Critical privileged CI pins continue to use only the locations allowed by their exception; the implemented pins remain inline. Keep the contributor and agent pointers to the canonical development-environment requirements current. Purely contributor-facing comparisons for published command examples may use adjacent Markdown comments so public guides retain their high-level presentation.
 
-Link the explanation locations from `CONTRIBUTING.md`, including the maintainer reference only if created. Add a short `AGENTS.md` pointer to the canonical development-environment requirement so future edits discover the rule without duplicating it. Public usage guides require edits only where an executable example itself contains a redundant flag; keep override mechanics in maintainer material.
-
-Documenting everything inline has excellent locality but cannot serve strict JSON and becomes repetitive for shared flags. Documenting everything in specifications is allowed but scatters operational explanations across behavioral contracts. Neither has unresolved technical unknowns, and neither needs further research. The mixed placement provides one explanation per override while preserving discoverability. Keeping removal evidence only in the temporary ledger would prevent later review; commit bodies preserve historical evidence without adding it to current configuration guidance. No further research is needed for this placement.
+Locality lets a future editor see the reason while changing the option. Concise repetition across independently edited files is preferable to a remote explanation that enumerates their implementation details. Within one file, share a comment only when default, context and rationale agree. Commit bodies remain the evidence home for removed defaults.
 
 ### 4. Detect upstream contract changes through real integrations
 
@@ -74,7 +72,7 @@ Where such a path cannot adequately exercise a critical contract, use the delta'
 - Defaults can drift after upgrades → Run affected contract tests on dependency updates and review failures. Untested behavior changes remain an accepted risk. Use traceable evidence rather than immutable claims about floating hosted tools.
 - Omission can preserve a value while changing shell failure handling or action behavior → Compare the complete invocation and retain settings needed by existing contracts. For example, explicit GitHub `shell: bash` and an unspecified shell [use different failure flags](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idstepsshell).
 - Runtime evidence could require host or live-service mutation → Use existing disposable test environments and local resolution/dry runs. Do not execute bootstrap, deployments, bot approval, or publication against live resources.
-- Explanation material can grow beyond its purpose → Apply the delta's behavioral-override boundary, reuse existing locations, and create the separate reference only when needed. Do not keep a second ledger of deleted defaults.
+- Explanation material can grow beyond its purpose → Apply the delta's behavioral-override boundary and locality rule, reusing existing locations. Do not keep a second ledger of deleted defaults.
 
 ## Migration Plan
 

@@ -11,6 +11,11 @@ on:
     tags:
       - "v*.*.*"
 
+# GitHub workflow syntax (2026-10-06):
+# https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax
+# The default is inherited repository/organization token policy. We override it because
+# workflow tokens need only read access until a job explicitly elevates its grants;
+# unspecified grants are none.
 permissions:
   contents: read
 
@@ -18,12 +23,21 @@ jobs:
   build-and-verify:
     name: Build and verify release artifacts
     runs-on: ubuntu-24.04
+    # timeout-minutes for build-and-verify (15m), publish (10m), publish-github-release
+    # (10m): The default is 360. We override it because stalled jobs must stop within
+    # their assigned validation/publication budgets.
     timeout-minutes: 15
     permissions:
+      # contents: The default is workflow read access. We override it because these
+      # release jobs create a draft and publish the verified GitHub release.
       contents: write # Required by `gh release create` to draft the GitHub Release.
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # checkout v7.0.1:
+          # https://github.com/actions/checkout/blob/3d3c42e5aac5ba805825da76410c181273ba90b1/action.yml
+          # persist-credentials: The default is true. We override it because later
+          # repository commands must not inherit checkout credentials.
           persist-credentials: false
 
       - run: |
@@ -36,6 +50,12 @@ jobs:
 
       - uses: $/.github/actions/setup-toolchain
 
+      # uv 0.12.19: https://docs.astral.sh/uv/reference/cli/
+      # --locked: The default is inherited UV_LOCKED, otherwise unlocked resolution. We
+      # override it because this standalone CI command must validate the committed
+      # lockfile.
+      # --all-groups: The default is project default groups (dev). We override it
+      # because these validation environments need documentation tools too.
       - run: uv sync --locked --all-groups
 
       - run: just verify-release "${RELEASE_TAG}"
@@ -46,12 +66,20 @@ jobs:
         with:
           name: dist
           path: dist/
+          # upload-artifact v7.0.1:
+          # https://github.com/actions/upload-artifact/blob/043fb46d1a93c77aae656e7c1c64a875d1fc6a0a/action.yml
+          # retention-days: The default is inherited repository/organization retention.
+          # We override it because intermediate release artifacts and diagnostics need
+          # bounded storage lifetimes.
           retention-days: 7
 
       - run: python3 scripts/extract_changelog_section.py "${RELEASE_TAG#v}" > release-notes.md
         env:
           RELEASE_TAG: ${{ github.ref_name }}
 
+      # gh 2.97.0: https://cli.github.com/manual/gh_release_create
+      # --draft: The default is publishing immediately. We override it because the
+      # GitHub release must stay staged until PyPI succeeds.
       - run: gh release create "${RELEASE_TAG}" --draft --title "${RELEASE_TAG}" --notes-file release-notes.md
         env:
           GH_TOKEN: ${{ github.token }}
@@ -64,6 +92,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
+      # id-token: The default is none under workflow permissions. We override it because
+      # PyPI Trusted Publishing requires OIDC.
       id-token: write # Required for PyPI Trusted Publishing (OIDC); no stored API token is used.
     steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -79,8 +109,13 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
+      # contents: The default is workflow read access. We override it because these
+      # release jobs create a draft and publish the verified GitHub release.
       contents: write # Required by `gh release edit` to undraft the GitHub Release.
     steps:
+      # gh 2.97.0: https://cli.github.com/manual/gh_release_edit
+      # --draft=false: The default is preserving existing draft state. We override it
+      # because successful PyPI publication must expose the staged release.
       - run: gh release edit "${RELEASE_TAG}" --draft=false --repo "${GITHUB_REPOSITORY}"
         env:
           GH_TOKEN: ${{ github.token }}

@@ -29,3 +29,5 @@
 
 - [x] 5.1 Scan the entire file for each edited or added test, including pre-existing tests within that file, and apply the `AGENTS.md` Writing Tests guidelines, including parametrization; verify the review covers all such files, or mark inapplicable with a reason if no tests changed.
 - [x] 5.2 If you are Claude Code, confirm that you added no new prose to code; all why explanations must go in specs and commit bodies. OpenAI Codex is exempt; this proposal targets Codex's permitted inline comments.
+
+- [x] 5.3 Apply revised Decision 3 to every entry of the current reference page, deleting the page and its links after relocation. Verify that executable configuration and commands are unchanged, and carry the locality delta into main specs during completion.

@@ -60,7 +60,12 @@ def _revision() -> str:
     if git_path is None:  # pragma: no cover - git always installed in CI
         raise RuntimeError("git is required to identify the benchmark revision")
     return subprocess.check_output(  # noqa: S603 - fixed git arguments
-        [git_path, "rev-parse", "--short=7", "HEAD"], text=True
+        # Git 2.55.0: https://git-scm.com/docs/git-rev-parse
+        # --short=7: The default is effective core.abbrev, otherwise automatic length.
+        # We override it because reports need a consistent minimum seven-character
+        # identifier.
+        [git_path, "rev-parse", "--short=7", "HEAD"],
+        text=True,
     ).strip()
 
 

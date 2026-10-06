@@ -89,6 +89,25 @@ See the [workload, allocation limits, and calibration guide](docs/development/me
 The integration suite includes [mixed concurrency stress tests](docs/development/concurrency-stress-tests.md).
 That guide documents cycle counts and longer local runs.
 
+## npm quality options
+
+`package.json` selects Prettier 3.9.9 and markdownlint-cli2 0.23.3.
+Sources: [Prettier CLI options](https://prettier.io/docs/cli) and
+[markdownlint-cli2 options](https://github.com/DavidAnson/markdownlint-cli2/tree/v0.23.3#command-line).
+
+- `private: true`: The default is false. We override it because this npm project
+  supplies development tools and must not be published as a package.
+- `scripts.format`'s `prettier --write`: The default is writing formatted content
+  to standard output. We override it because this command repairs tracked files.
+- `scripts.format:check`'s `prettier --check`: The default is formatting content
+  to standard output. We override it because validation must fail on unformatted files.
+- Both scripts' `prettier --cache`: The default is false. We override it because
+  unchanged files should reuse formatting results during repeated quality runs.
+- `scripts.format`'s `prettier --log-level warn`: The default is log. We override
+  it because successful per-file formatting messages obscure actionable diagnostics.
+- `scripts.format`'s `markdownlint-cli2 --fix`: The default is false. We override
+  it because the formatting command should apply supported Markdown repairs.
+
 ## Documentation
 
 Edit published guides and assets in `docs/user/`. Repository-only architecture, maintainer notes, decisions, and research live in `docs/development/`; use its [development index](docs/development/index.md) to find them. Only `docs/user/` is published.
@@ -98,9 +117,9 @@ Edit published guides and assets in `docs/user/`. Repository-only architecture, 
 The `check-jsonschema` Prek hook validates `context7.json` against its [official schema](https://context7.com/schema/context7.json), including the 255-character limit for each rule. It runs in the existing CI quality job. Run it directly with `prek run check-jsonschema --files context7.json`.
 
 Configuration changes follow the [development-environment specification](openspec/specs/development-environment/spec.md).
-Local overrides are explained beside their configuration; shared command and strict-JSON overrides
-are in [configuration overrides](docs/development/configuration-overrides.md), with memory command
-options in [memory regression tests](docs/development/memory-regression-tests.md#command-options).
+Keep override rationales beside their settings or commands, using shared comments within the owning
+file when appropriate. Formats without comments use existing contributor documentation; npm options
+are explained [above](#npm-quality-options).
 Recheck effective defaults against the selected tool version, presets, wrappers and environment
 before adding or removing an option.
 
@@ -134,7 +153,7 @@ After `just docs-build-editions`, root `site/llms.txt` is a byte-for-byte copy o
 
 `stable-docs.toml` records the explicit PR validation tag and a bounded documentation correction source for `v0.2.0`, whose released guides predate this layout. The source is a reviewed immutable commit, not a moving branch. The `fetch_ref` field gives both workflows a supported retrieval ref: a dedicated documentation tag or GitHub’s retained `refs/pull/ID/head`. They fetch that named ref into the local repository; the builder verifies it reaches the pinned source SHA and never substitutes its current tip. GitHub preserves this [PR ref after closure](https://docs.github.com/en/pull-requests/how-tos/review-pull-requests/checking-out-pull-requests-locally?platform=mac), including after rebase merge and source-branch deletion. A force-rebase before merge can remove the pinned commit from that ref; update and review the record in that case, or use an already published dedicated tag. Missing or unreachable sources fail visibly. Before accepting it, the builder compares the release's package source tree, executable example files and runtime `[project]` metadata. Any mismatch fails visibly. It records release, stable docs and development commits in build output and rewrites stable checkout/source links to that docs commit, leaving pinned benchmark evidence intact.
 
-A future release containing the guide layout builds directly from its tag without an override. To correct released prose, review and commit a documentation-only snapshot with matching runtime inputs, then replace the exact tag's immutable record. Keep a single bootstrap record rather than duplicating a guide tree. Update `validation_tag` when moving the PR validation baseline to a newer release. Fetch the release tag and recorded correction ref locally before building, for example `git fetch --no-tags origin refs/pull/143/head:refs/pull/143/head`; PR CI fetches it explicitly without discovering mutable release identity. The maintained [mike integration](https://zensical.org/docs/compatibility/mkdocs/mike/) owns version metadata and selection; Zensical renders both editions and root redirects.
+A future release containing the guide layout builds directly from its tag without an override. To correct released prose, review and commit a documentation-only snapshot with matching runtime inputs, then replace the exact tag's immutable record. Keep a single bootstrap record rather than duplicating a guide tree. Update `validation_tag` when moving the PR validation baseline to a newer release. Fetch the release tag and recorded correction ref locally before building, for example `git fetch --no-tags origin refs/pull/143/head:refs/pull/143/head`; PR CI fetches it explicitly without discovering mutable release identity. For `--no-tags`: The default is inherited `remote.origin.tagOpt`, otherwise automatically following reachable tags. We override it because assembly needs only its selected correction reference ([Git 2.55.0 fetch](https://git-scm.com/docs/git-fetch)). The maintained [mike integration](https://zensical.org/docs/compatibility/mkdocs/mike/) owns version metadata and selection; Zensical renders both editions and root redirects.
 
 Pull requests affecting site inputs run **Documentation build** after **Prek** and **Prettier, Markdownlint, and OpenSpec**. If configuring required checks, require all three independently: GitHub can report a dependent job skipped after a failed prerequisite as successful. Guide-only Markdown changes do not select Python or database tests.
 
@@ -142,7 +161,7 @@ Pull requests affecting site inputs run **Documentation build** after **Prek** a
 
 An administrator must select **GitHub Actions** as the Pages publishing source and restrict the `github-pages` environment's deployment branches to `main`. Review any environment approval requirements before rollout. See GitHub's [Pages workflow setup](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages) and [environment protection guidance](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments). Public repositories can use the free project URL, `https://alessio-locatelli.github.io/client-query-cache/`, without a custom domain.
 
-**Publish documentation** runs after relevant `main` changes, main-only manual dispatch, or successful completion of **Publish to PyPI**. Failed/cancelled publication runs cannot deploy. It always checks out trusted `main` controller code and resolves GitHub’s current latest published non-draft, non-prerelease release. A delayed older release completion therefore builds the current stable edition. It never consumes code or artifacts from the triggering run. Both committed source snapshots and root redirects must build before one complete artifact is uploaded; a newer eligible run requests cancellation of the queued or running one instead of waiting behind it, and the site keeps its previous content until the newer deployment succeeds. Runs that are ineligible to publish never cancel or replace an eligible run. It uses GitHub's token and OIDC; no personal token is needed. Build and hosting configuration failures remain visible workflow failures. To redeploy, [run the workflow manually](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow) with `main` selected; other branches cannot publish. GitHub decides when a cancelled run is released; if a run stays queued after cancellation, an administrator can [force-cancel it](https://docs.github.com/en/rest/actions/workflow-runs#force-cancel-a-workflow-run) with `gh api --method POST repos/alessio-locatelli/client-query-cache/actions/runs/<run-id>/force-cancel`.
+**Publish documentation** runs after relevant `main` changes, main-only manual dispatch, or successful completion of **Publish to PyPI**. Failed/cancelled publication runs cannot deploy. It always checks out trusted `main` controller code and resolves GitHub’s current latest published non-draft, non-prerelease release. A delayed older release completion therefore builds the current stable edition. It never consumes code or artifacts from the triggering run. Both committed source snapshots and root redirects must build before one complete artifact is uploaded; a newer eligible run requests cancellation of the queued or running one instead of waiting behind it, and the site keeps its previous content until the newer deployment succeeds. Runs that are ineligible to publish never cancel or replace an eligible run. It uses GitHub's token and OIDC; no personal token is needed. Build and hosting configuration failures remain visible workflow failures. To redeploy, [run the workflow manually](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow) with `main` selected; other branches cannot publish. GitHub decides when a cancelled run is released; if a run stays queued after cancellation, an administrator can [force-cancel it](https://docs.github.com/en/rest/actions/workflow-runs#force-cancel-a-workflow-run) with `gh api --method POST repos/alessio-locatelli/client-query-cache/actions/runs/<run-id>/force-cancel`. For `--method POST`: The default is GET without request fields. We override it because force-cancellation requires POST ([gh 2.97.0 API](https://cli.github.com/manual/gh_api)).
 
 To roll back, revert the faulty controller/configuration or documentation correction record on `main` and redeploy a complete working artifact. Preserve published package tags and stable-source provenance; do not substitute development guides for released behavior. If no working site exists, an administrator can disable the workflow and Pages hosting. Repository Markdown remains available.
 
@@ -164,6 +183,9 @@ Run just this benchmark with:
 ```console
 just pytest -- -n 0 tests/benchmark/real_server/test_cache_benefit.py
 ```
+
+For `-n 0`: The default is the configured automatic worker count. We override it because latency
+measurements must run without competing workers ([xdist 3.8.0](https://pytest-xdist.readthedocs.io/en/stable/distribution.html)).
 
 Its logged evidence, including any Atlas bandwidth evidence described below, lands in `pytest.log`
 at the repository root; search that file for the test's name instead of scrolling the full suite's

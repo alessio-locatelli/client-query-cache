@@ -74,6 +74,12 @@ prek run renovate-config-validator --files renovate.json5
 For inventory inspection, use the [official Renovate CLI](https://docs.renovatebot.com/getting-started/running/)
 and its [local dry-run interface](https://docs.renovatebot.com/modules/platform/local/):
 
+For `--platform=local` in both commands: The default is GitHub. We override it because inspection
+must read the checkout without updating hosted PRs. For `--dry-run=extract` and `--dry-run=lookup`:
+The default is no dry run. We override it because inspection must stop before updates.
+For `LOG_LEVEL=debug`: The default is info. We override it because inspection needs resolved
+extraction/lookup details ([Renovate 44.133.0 options](https://docs.renovatebot.com/self-hosted-configuration/)).
+
 ```console
 LOG_LEVEL=debug renovate --platform=local --dry-run=extract
 LOG_LEVEL=debug renovate --platform=local --dry-run=lookup
@@ -165,6 +171,10 @@ access or credentials blocks activation, not repository delivery.
 
    For existing bot PRs, a write-authorized operator can dispatch on main:
 
+   For `--ref main`: The default is the repository's default branch. We override it because
+   acceptance must use trusted main independently of that setting
+   ([gh 2.97.0 workflow dispatch](https://cli.github.com/manual/gh_workflow_run)).
+
    ```console
    gh workflow run dependency-automerge.yml --ref main -f pr_number=<number>
    ```
@@ -199,7 +209,9 @@ ticket in this guide for any confirmed persistent discrepancy.
 
 Stop acceptance by disabling its workflow, canceling pending auto-merge requests
 with `gh pr merge <number> --repo alessio-locatelli/client-query-cache --disable-auto`,
-and withdrawing the acceptance App credentials/access. Disabling repository
-auto-merge alone does not cancel requests already enabled on PRs. Restore
+and withdrawing the acceptance App credentials/access. For `--disable-auto`: The default is
+requesting a merge. We override it because rollback must cancel an existing native auto-merge
+request ([gh 2.97.0](https://cli.github.com/manual/gh_pr_merge)). Disabling repository auto-merge
+alone does not cancel requests already enabled on PRs. Restore
 operator-owned settings from the snapshot as appropriate, retaining unrelated
 rules. Revert the repository change through a normal reviewed PR for code rollback.

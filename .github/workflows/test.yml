@@ -2,11 +2,18 @@ name: Pull request validation
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  # cancel-in-progress: The default is false. We override it because newer validation or
+  # selection supersedes an unfinished older run.
   cancel-in-progress: true
 
 on:
   pull_request:
 
+# GitHub workflow syntax (2026-10-06):
+# https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax
+# The default is inherited repository/organization token policy. We override it because
+# workflow tokens need only read access until a job explicitly elevates its grants;
+# unspecified grants are none.
 permissions:
   contents: read
 
@@ -18,6 +25,11 @@ jobs:
   scope:
     name: Select validation tiers
     runs-on: ubuntu-24.04
+    # timeout-minutes for scope (5m), prek (15m), prettier (10m), documentation (10m),
+    # package (15m), integration-e2e (20m), python-compatibility (5m), memory (10m),
+    # guard (20m), container (20m), benchmark-startup (10m): The default is 360. We
+    # override it because stalled jobs must stop within their assigned
+    # validation/publication budgets.
     timeout-minutes: 5
     outputs:
       container: ${{ steps.paths.outputs.container }}
@@ -29,7 +41,13 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # checkout v7.0.1:
+          # https://github.com/actions/checkout/blob/3d3c42e5aac5ba805825da76410c181273ba90b1/action.yml
+          # persist-credentials: The default is true. We override it because later
+          # repository commands must not inherit checkout credentials.
           persist-credentials: false
+          # fetch-depth: The default is 1. We override it because source selection and
+          # revision comparisons require earlier history.
           fetch-depth: 0
 
       - id: paths
@@ -50,6 +68,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # persist-credentials: The default is true. We override it because later
+          # repository commands must not inherit checkout credentials.
           persist-credentials: false
 
       - uses: $/.github/actions/setup-toolchain
@@ -65,15 +85,30 @@ jobs:
             .lycheecache
             .ruff_cache
           key: prek-results-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml', 'lychee.toml', 'pyproject.toml') }}-${{ github.sha }}
+          # cache v6.1.0:
+          # https://github.com/actions/cache/blob/55cc8345863c7cc4c66a329aec7e433d2d1c52a9/action.yml
+          # restore-keys: The default is no prefix fallback. We override it because
+          # compatible environment/dependency keys should allow reuse across commits.
           restore-keys: |
             prek-results-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml', 'lychee.toml', 'pyproject.toml') }}-
 
+      # uv 0.12.19: https://docs.astral.sh/uv/reference/cli/
+      # --locked: The default is inherited UV_LOCKED, otherwise unlocked resolution. We
+      # override it because this standalone CI command must validate the committed
+      # lockfile.
+      # --all-groups: The default is project default groups (dev). We override it
+      # because these validation environments need documentation tools too.
       - run: uv sync --locked --all-groups
 
       - run: |
           uv tool install "prek==${PREK_VERSION}"
           echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
 
+      # Prek hook skipping:
+      # https://prek.j178.dev/quickstart/#temporarily-disabling-hooks
+      # SKIP: The default is no skipped hooks. We override it because slotscheck and
+      # formatting have dedicated lanes, while Lychee runs separately with its
+      # step-scoped GitHub token.
       - run: SKIP=slotscheck,prettier,lychee prek run --all-files
 
       - run: prek run lychee --all-files
@@ -91,15 +126,25 @@ jobs:
       - if: needs.scope.outputs.format == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # persist-credentials: The default is true. We override it because later
+          # repository commands must not inherit checkout credentials.
           persist-credentials: false
 
       - if: needs.scope.outputs.format == 'true'
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .node-version
+          # setup-node v7.0.0:
+          # https://github.com/actions/setup-node/blob/820762786026740c76f36085b0efc47a31fe5020/action.yml
+          # The default is automatic npm caching only when supported package-manager
+          # metadata selects npm; package.json has none. We override it because CI
+          # should reuse locked npm downloads.
           cache: npm
 
       - if: needs.scope.outputs.format == 'true'
+        # npm 11: https://docs.npmjs.com/cli/v11/using-npm/config#loglevel
+        # --silent: The default is normal progress output. We override it because CI
+        # should emphasize diagnostics.
         run: npm ci --silent
 
       - if: needs.scope.outputs.format == 'true'
@@ -107,6 +152,8 @@ jobs:
         with:
           path: node_modules/.cache/prettier
           key: prettier-${{ runner.os }}-${{ hashFiles('.node-version', 'package-lock.json', '.prettierrc*', '.prettierignore') }}-${{ github.sha }}
+          # restore-keys: The default is no prefix fallback. We override it because
+          # compatible environment/dependency keys should allow reuse across commits.
           restore-keys: |
             prettier-${{ runner.os }}-${{ hashFiles('.node-version', 'package-lock.json', '.prettierrc*', '.prettierignore') }}-
 
@@ -114,6 +161,8 @@ jobs:
         run: npm run format:check
 
       - if: needs.scope.outputs.format == 'true'
+        # OpenSpec 1.14.0 validate --help: The default is strict=false. We override it
+        # because specification warnings must fail the quality gate.
         run: npm exec -- openspec validate --all --strict
 
   documentation:
@@ -125,7 +174,11 @@ jobs:
       - if: needs.scope.outputs.documentation == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # persist-credentials: The default is true. We override it because later
+          # repository commands must not inherit checkout credentials.
           persist-credentials: false
+          # fetch-depth: The default is 1. We override it because source selection and
+          # revision comparisons require earlier history.
           fetch-depth: 0
 
       - if: needs.scope.outputs.documentation == 'true'
@@ -134,9 +187,17 @@ jobs:
       - if: needs.scope.outputs.documentation == 'true'
         run: |
           stable_tag="$(python3 -c 'import tomllib; print(tomllib.load(open("stable-docs.toml", "rb"))["validation_tag"])')"
+          # Git 2.55.0: https://git-scm.com/docs/git-fetch
+          # --no-tags: The default is inherited remote.origin.tagOpt, otherwise
+          # auto-following reachable tags. We override it because assembly needs only
+          # selected release/correction references.
           git fetch --no-tags origin "refs/tags/${stable_tag}:refs/tags/${stable_tag}"
           backport="$(STABLE_TAG="${stable_tag}" python3 -c 'import os, tomllib; records = tomllib.load(open("stable-docs.toml", "rb"))["backports"]; tag = os.environ["STABLE_TAG"]; print(records[tag]["fetch_ref"] if tag in records else "")')"
           if [[ -n "${backport}" ]]; then
+            # Git 2.55.0: https://git-scm.com/docs/git-fetch
+            # --no-tags: The default is inherited remote.origin.tagOpt, otherwise
+            # auto-following reachable tags. We override it because assembly needs only
+            # selected release/correction references.
             git fetch --no-tags origin "${backport}:${backport}"
           fi
           just docs-build-editions "${stable_tag}"
@@ -148,27 +209,42 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     strategy:
+      # fail-fast: The default is true. We override it because every supported Python
+      # lane must report even when another lane fails.
       fail-fast: false
       matrix:
         python: ${{ fromJSON(needs.scope.outputs.python-versions) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # persist-credentials: The default is true. We override it because later
+          # repository commands must not inherit checkout credentials.
           persist-credentials: false
 
       - uses: $/.github/actions/setup-toolchain
         with:
           python-version: ${{ matrix.python }}
 
+      # uv 0.12.19: https://docs.astral.sh/uv/reference/cli/
+      # --locked: The default is inherited UV_LOCKED, otherwise unlocked resolution. We
+      # override it because this standalone CI command must validate the committed
+      # lockfile.
+      # --all-groups: The default is project default groups (dev). We override it
+      # because these validation environments need documentation tools too.
       - run: uv sync --locked --all-groups
 
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .mypy_cache
           key: mypy-${{ runner.os }}-py${{ matrix.python }}-${{ hashFiles('uv.lock', 'pyproject.toml') }}-${{ github.sha }}
+          # restore-keys: The default is no prefix fallback. We override it because
+          # compatible environment/dependency keys should allow reuse across commits.
           restore-keys: |
             mypy-${{ runner.os }}-py${{ matrix.python }}-${{ hashFiles('uv.lock', 'pyproject.toml') }}-
 
+      # mypy 2.3.1: https://mypy.readthedocs.io/en/stable/command_line.html
+      # --install-types: The default is false. We override it because validation also
+      # installs available missing stubs.
       - run: uv run -- mypy --install-types
 
       - run: just typecheck-examples
@@ -184,18 +260,28 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     strategy:
+      # fail-fast: The default is true. We override it because every supported Python
+      # lane must report even when another lane fails.
       fail-fast: false
       matrix:
         python: ${{ fromJSON(needs.scope.outputs.python-versions) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # persist-credentials: The default is true. We override it because later
+          # repository commands must not inherit checkout credentials.
           persist-credentials: false
 
       - uses: $/.github/actions/setup-toolchain
         with:
           python-version: ${{ matrix.python }}
 
+      # uv 0.12.19: https://docs.astral.sh/uv/reference/cli/
+      # --locked: The default is inherited UV_LOCKED, otherwise unlocked resolution. We
+      # override it because this standalone CI command must validate the committed
+      # lockfile.
+      # --all-groups: The default is project default groups (dev). We override it
+      # because these validation environments need documentation tools too.
       - run: uv sync --locked --all-groups
 
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -204,11 +290,15 @@ jobs:
             .pytest_cache
             .hypothesis
           key: pytest-hypothesis-${{ runner.os }}-py${{ matrix.python }}-${{ hashFiles('uv.lock', 'pyproject.toml', 'pytest.ini') }}-${{ github.sha }}
+          # restore-keys: The default is no prefix fallback. We override it because
+          # compatible environment/dependency keys should allow reuse across commits.
           restore-keys: |
             pytest-hypothesis-${{ runner.os }}-py${{ matrix.python }}-${{ hashFiles('uv.lock', 'pyproject.toml', 'pytest.ini') }}-
 
       - run: just tests_and_coverage
 
+      # The default is implicit success(). We override it because these diagnostics are
+      # needed on failed runs.
       - if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -216,12 +306,21 @@ jobs:
           path: |
             pytest.log
             pytest-gw*.log
+          # if-no-files-found: The default is warn. We override it because failures
+          # before test execution can legitimately produce no diagnostics.
           if-no-files-found: ignore
+          # upload-artifact v7.0.1:
+          # https://github.com/actions/upload-artifact/blob/043fb46d1a93c77aae656e7c1c64a875d1fc6a0a/action.yml
+          # retention-days: The default is inherited repository/organization retention.
+          # We override it because intermediate release artifacts and diagnostics need
+          # bounded storage lifetimes.
           retention-days: 7
 
   python-compatibility:
     name: Python compatibility
     needs: [scope, package, integration-e2e]
+    # The default is implicit success(). We override it because failed matrix
+    # prerequisites must fail the aggregate gate visibly instead of skipping it.
     if: always() && needs.scope.outputs.python == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -242,20 +341,33 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # persist-credentials: The default is true. We override it because later
+          # repository commands must not inherit checkout credentials.
           persist-credentials: false
 
       - uses: $/.github/actions/setup-toolchain
 
+      # uv 0.12.19: https://docs.astral.sh/uv/reference/cli/
+      # --locked: The default is inherited UV_LOCKED, otherwise unlocked resolution. We
+      # override it because this standalone CI command must validate the committed
+      # lockfile.
       - run: uv sync --locked --group memory
 
       - run: just test-memory
 
+      # The default is implicit success(). We override it because these diagnostics are
+      # needed on failed runs.
       - if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: memory-reports
           path: memory-reports/
+          # if-no-files-found: The default is warn. We override it because failures
+          # before test execution can legitimately produce no diagnostics.
           if-no-files-found: ignore
+          # retention-days: The default is inherited repository/organization retention.
+          # We override it because intermediate release artifacts and diagnostics need
+          # bounded storage lifetimes.
           retention-days: 7
 
   guard:
@@ -269,7 +381,11 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # persist-credentials: The default is true. We override it because later
+          # repository commands must not inherit checkout credentials.
           persist-credentials: false
+          # fetch-depth: The default is 1. We override it because source selection and
+          # revision comparisons require earlier history.
           fetch-depth: 0
 
       - id: scope
@@ -289,10 +405,19 @@ jobs:
         uses: $/.github/actions/setup-toolchain
 
       - if: steps.scope.outputs.requires_guard == 'true'
+        # uv 0.12.19: https://docs.astral.sh/uv/reference/cli/
+        # --locked: The default is inherited UV_LOCKED, otherwise unlocked resolution.
+        # We override it because this standalone CI command must validate the committed
+        # lockfile.
+        # --all-groups: The default is project default groups (dev). We override it
+        # because these validation environments need documentation tools too.
         run: uv sync --locked --all-groups
 
       - if: steps.scope.outputs.requires_guard == 'true'
         run: |
+          # The default is off in the unspecified Linux shell (bash -e). We override it
+          # because benchmark failure must fail the step even when tee writes
+          # successfully.
           set -o pipefail
           uv run -- python -m benchmarks.stream_cost.guard_check \
             --repo-root "${GITHUB_WORKSPACE}" \
@@ -302,11 +427,16 @@ jobs:
             --output guard-reports/guard.report.json \
             | tee -a "${GITHUB_STEP_SUMMARY}"
 
+      # The default is implicit success(). We override it because partial reports must
+      # remain available after failed measurements.
       - if: always() && steps.scope.outputs.requires_guard == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: pr-performance-guard-report
           path: guard-reports/guard.report.json
+          # retention-days: The default is inherited repository/organization retention.
+          # We override it because intermediate release artifacts and diagnostics need
+          # bounded storage lifetimes.
           retention-days: 30
 
   container:
@@ -318,6 +448,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # persist-credentials: The default is true. We override it because later
+          # repository commands must not inherit checkout credentials.
           persist-credentials: false
 
       - run: bash scripts/check_dev_container.sh docker
@@ -331,10 +463,24 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # persist-credentials: The default is true. We override it because later
+          # repository commands must not inherit checkout credentials.
           persist-credentials: false
 
       - uses: $/.github/actions/setup-toolchain
 
+      # uv 0.12.19: https://docs.astral.sh/uv/reference/cli/
+      # --locked: The default is inherited UV_LOCKED, otherwise unlocked resolution. We
+      # override it because this standalone CI command must validate the committed
+      # lockfile.
+      # --all-groups: The default is project default groups (dev). We override it
+      # because these validation environments need documentation tools too.
       - run: uv sync --locked --all-groups
 
+      # pytest 9.1.1 / pytest-timeout 2.4.0:
+      # https://docs.pytest.org/en/stable/reference/reference.html
+      # -q: The default is verbosity zero. We override it because CI output should
+      # emphasize failures.
+      # --timeout: The default is pytest.ini 30s. We override it because disposable
+      # image startup can exceed the normal budget.
       - run: uv run -- pytest -q tests/benchmark/stream_cost/test_topology_integration.py --timeout=120

@@ -31,6 +31,9 @@ docker compose up -d mongo
 docker compose run --rm mongo_helper
 ```
 
+<!-- For --rm: The default is retaining the stopped container. We override it because initialization
+should leave no stopped helper ([Compose run](https://docs.docker.com/reference/cli/docker/compose/run/)). -->
+
 The helper initializes the replica set if needed and waits until it is writable. When it exits successfully, the tutorials can connect to `mongodb://localhost:27017`. They write to the `client_query_cache_tutorial` database. This setup is for local evaluation; see [deployment guidance](../operations/deployment.md) for application deployments.
 
 Stop the local services with:

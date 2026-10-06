@@ -45,8 +45,8 @@ the ceiling. Structural checks complement the allocation limit.
 
 ## Command options
 
-The `justfile` memory recipe and the calibration command below share these
-options. Defaults include the inherited `pytest.ini` values.
+The calibration command below uses these options. Defaults include the inherited
+`pytest.ini` values; the recipe explains its own options beside the command.
 
 - `--trace-python-allocators`: The default is false. We override it because the
   allocation ceiling must include Python allocator activity, not only native allocations.
@@ -63,8 +63,6 @@ options. Defaults include the inherited `pytest.ini` values.
 Sources: [pytest-memray 1.11.0 options](https://pytest-memray.readthedocs.io/en/latest/usage.html),
 [pytest logging/capture](https://docs.pytest.org/en/stable/reference/reference.html),
 and [pytest-timeout 2.4.0](https://pypi.org/project/pytest-timeout/2.4.0/).
-Marker and worker selections are explained in
-[configuration overrides](configuration-overrides.md#pytest-command-overrides).
 
 ## Calibration
 
@@ -75,6 +73,13 @@ ceiling while measuring, then commit each case's literal
 whole-MiB ceiling as `ceil(1.5 * H / 1048576)`, where H is its largest measured peak in bytes. Stop and
 investigate if the calculated ceiling exceeds 32 MiB. Remeasure after interpreter, dependency, or
 workload changes and record the reason for changing a ceiling.
+
+The calibration command below uses `uv --locked`: The default is inherited `UV_LOCKED`, otherwise
+unlocked resolution. We override it because this standalone command must validate the lockfile
+([uv 0.12.x](https://docs.astral.sh/uv/reference/environment/#uv_locked)). For `-m memory`: The
+default is configured `not memory`. We override it because calibration measures the memory tier.
+For `-n 0`: The default is configured `auto`. We override it because allocation measurements must
+run without competing worker processes ([xdist 3.8.0](https://pytest-xdist.readthedocs.io/en/stable/distribution.html)).
 
 ```bash
 for case in identity-with-alias namespace; do

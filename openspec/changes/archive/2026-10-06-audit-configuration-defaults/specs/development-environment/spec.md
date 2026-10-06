@@ -133,6 +133,20 @@ Default cleanup SHALL preserve existing validation coverage, failure propagation
 - **WHEN** removing a shell selection, action input, or inherited override changes error handling, trust boundaries, or supported environment behavior
 - **THEN** the necessary setting remains and receives its override rationale
 
+### Requirement: Override rationales stay with their configuration
+
+Rationales for commentable options and commands SHALL live beside them or in a shared comment block within their owning file. Command examples SHALL keep their explanations beside the example in the same guide. Formats without comments SHALL use existing contributor documentation. A separate cross-file inventory SHALL NOT be used for rationale placement.
+
+#### Scenario: A single command clears inherited configuration
+
+- **WHEN** an automation command clears an inherited environment variable
+- **THEN** its rationale appears beside that command rather than in a separate option inventory
+
+#### Scenario: Strict JSON needs an explanation
+
+- **WHEN** a strict-JSON configuration retains a behavioral override
+- **THEN** existing contributor documentation identifies that override and its rationale without adding comment fields to the JSON
+
 ## MODIFIED Requirements
 
 ### Requirement: The source layout builds distributions
