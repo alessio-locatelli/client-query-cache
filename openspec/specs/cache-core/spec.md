@@ -338,3 +338,17 @@ Compatible lookup SHALL validate the actual resident source with the same namesp
 
 - **WHEN** the namespace generation changes after a covering token is selected but before its validity decision
 - **THEN** the candidate is rejected under the same lookup boundary as an exact entry
+
+### Requirement: Proven find filter permutations share one namespace key
+
+Find filters in the explicitly supported equivalence set SHALL share their filter representation. All other output-affecting inputs SHALL remain in the namespace-prefixed physical key, and unsupported filter forms SHALL retain their existing distinctions.
+
+#### Scenario: Proven predicate permutations share one source key
+
+- **WHEN** two find filters differ only in supported top-level scalar predicate ordering and all other key inputs match
+- **THEN** they use one namespace-prefixed physical key rather than storing duplicate payloads
+
+#### Scenario: Literal order is not an equivalence
+
+- **WHEN** two find filters change field order inside a literal embedded document
+- **THEN** the order-sensitive literal representations keep their physical keys distinct

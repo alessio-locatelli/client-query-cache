@@ -7,14 +7,16 @@ import json
 import pstats
 import statistics
 import tracemalloc
-from time import perf_counter
+from time import perf_counter, process_time
 from typing import TYPE_CHECKING, Any, Literal
 
 import pytest
 from pymongo import AsyncMongoClient
 
+from client_query_cache._core.canonical import canonicalize
 from client_query_cache._core.codec import encode_value
 from client_query_cache._core.cursor_capture import CursorCapture
+from client_query_cache._core.find_reads import find_read_shape
 from client_query_cache._core.keys import NamespaceId
 from client_query_cache.asynchronous.cursors import (
     CachedCommandCursor as AsyncCachedCommandCursor,
@@ -31,7 +33,7 @@ from tests.cursor_helpers import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Mapping
+    from collections.abc import Awaitable, Generator, Mapping
 
     from bson.codec_options import CodecOptions
     from pymongo.asynchronous.command_cursor import AsyncCommandCursor
@@ -57,6 +59,12 @@ CONFIGURATIONS = (
         135,
     ),  # One document fits its snapshot but not the stored list.
 )
+
+
+@pytest.fixture(autouse=True)
+def release_measurement_tracing() -> Generator[None]:
+    yield
+    tracemalloc.stop()
 
 
 def counts(commands: ReadCommands) -> dict[str, int]:
@@ -201,10 +209,8 @@ async def test_cursor_measurements(
         )
 
     core.clear_namespace(view._namespace())
-    profiler = cProfile.Profile()
-    profiler.enable()
-    assert await materialize(construct("cold")) == documents
-    profiler.disable()
+    with cProfile.Profile() as profiler:
+        assert await materialize(construct("cold")) == documents
     profile = io.StringIO()
     pstats.Stats(profiler, stream=profile).sort_stats("tottime").print_stats(8)
     print(profile.getvalue())
@@ -398,11 +404,9 @@ async def measure_find_limit_phase(
         )
     )
     if phase == "compatible" and family_size == 1 and unrelated == 0 and not exact_only:
-        profiler = cProfile.Profile()
-        profiler.enable()
-        for _ in range(REPETITIONS):
-            await materialize(view.find({}).sort("_id").limit(requested))
-        profiler.disable()
+        with cProfile.Profile() as profiler:
+            for _ in range(REPETITIONS):
+                await materialize(view.find({}).sort("_id").limit(requested))
         profile = io.StringIO()
         pstats.Stats(profiler, stream=profile).sort_stats("tottime").print_stats(8)
         print(profile.getvalue())
@@ -472,3 +476,31 @@ async def test_find_limit_prefix_measurements(
         exact_only=exact_only,
         descending=descending,
     )
+
+
+@pytest.mark.parametrize("predicates", [2, 32], ids=["small", "large"])
+def test_scalar_filter_key_cost(predicates: Literal[2, 32]) -> None:
+    filter_document = {f"field-{index}": None for index in range(predicates)}
+    for order, selected in (
+        ("exact", filter_document),
+        ("permuted", dict(reversed(tuple(filter_document.items())))),
+    ):
+        timings: list[float] = []  # Filled by independent CPU batches.
+        for _ in range(REPETITIONS):
+            started = process_time()
+            for _ in range(100):
+                canonicalize(
+                    find_read_shape(
+                        selected, None, {"_id": 1}, 0, 0, collation=None, codec=None
+                    ).discriminator
+                )
+            timings.append((process_time() - started) / 100)
+        print(
+            json.dumps(
+                {
+                    "filter_key_order": order,
+                    "predicates": predicates,
+                    "cpu_us": round(statistics.median(timings) * 1e6, 1),
+                }
+            )
+        )

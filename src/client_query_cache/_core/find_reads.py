@@ -7,6 +7,7 @@ from client_query_cache._core.canonical import canonicalize
 from client_query_cache._core.order_sensitive_keys import (
     order_sensitive_discriminator_key,
 )
+from client_query_cache._core.query_filters import find_filter_key
 
 if TYPE_CHECKING:
     from client_query_cache._core.canonical import Canonical
@@ -54,7 +55,15 @@ def find_read_shape(
 ) -> FindReadShape:
     return FindReadShape(
         family=order_sensitive_discriminator_key(
-            ("find", filter_document, projection, ordering, skip, collation, codec)
+            (
+                "find",
+                find_filter_key(filter_document),
+                projection,
+                ordering,
+                skip,
+                collation,
+                codec,
+            )
         ),
         limit=limit,
     )

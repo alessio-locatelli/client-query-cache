@@ -83,6 +83,15 @@ Misses stream through native batching. The cache admits only successfully consum
 
 Find sorting, skipping, limits, and collation determine the final query and its cache identity. Clone, copy, rewind, and supported synchronous indexing use native query semantics and check current cache eligibility for their new execution. Async indexing raises the native error. Unsupported options and operations execute natively, including hints, comments, timeouts, arbitrary flags, `explain()`, and cursor `distinct()`.
 
+In both APIs, `find()` shares cached results across top-level permutations of
+ordinary scalar equality predicates in plain dictionaries. Values must be
+`None` or exact built-in bool, int, float, or str instances, with exact built-in string field
+names not starting with `$`. Other options and value types remain distinct.
+Document/array values, operators, regexes, BSON-specific scalars, and custom
+forms retain ordered matching and their existing eligibility. Native execution
+receives the original filter. Other read methods do not gain this rule. See the
+[scalar equality example](../usage/cached-reads.md#filters-sorting-and-collation).
+
 A positive integer find limit can reuse an isolated prefix of a complete, valid cached query with an equal or larger positive limit, or an unlimited integer-zero/omitted limit. Every other final query input must match, including filter representation, projection, ordered sort, skip, collation, namespace, and codec options. Smaller sources cannot cover larger requests. Unlimited, negative, and boolean requests use exact lookup only; negative and boolean sources cannot cover other limits. A local find hit's `retrieved` counts the loaded prefix, and the cursor has no server cursor, address, or session. See the [complete-consumption example](../usage/cached-reads.md#read-methods) and [consistency limits](../usage/consistency.md).
 
 Explicit find batching before execution and aggregate `batchSize` at invocation bypass caching. Later command-cursor `batch_size()` calls retain native validation and return the same cursor: they change future native getMore batching on a miss or bypass, while a local hit remains local and issues no command.

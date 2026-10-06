@@ -54,6 +54,26 @@ For `count_documents`, omit `skip` and `limit` to count all matching documents. 
 
 ## Filters, sorting, and collation
 
+`find()` can reuse a cached result when ordinary scalar equality predicates
+appear in a different top-level order:
+
+```python
+products = (
+    cached_products.find({"status": "active", "region": "eu"}).sort("_id").to_list()
+)
+same_products = (
+    cached_products.find({"region": "eu", "status": "active"}).sort("_id").to_list()
+)
+```
+
+This applies to plain dictionaries with exact built-in string field names not starting with `$` and values
+of `None` or built-in bool, int, float, or str types. All other query options
+must match; with asyncio, await each `to_list()` call. Document and array values,
+operators, regexes, BSON-specific values, and custom forms retain their existing
+order-sensitive cache matching. They can still be cached when otherwise
+eligible. Document fields and array elements are never reordered. This reuse
+rule applies only to `find()`, and MongoDB receives the original filter on a miss.
+
 Deterministic single-document queries, including compound filters, match-all queries and missing results, can be cached. For example, select the latest active product with explicit string matching:
 
 ```python
