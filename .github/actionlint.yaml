@@ -1,8 +1,7 @@
-config-variables: null
-
 paths:
   .github/workflows/**/*.yml:
     ignore:
-      # https://github.com/rhysd/actionlint/issues/711
+      # actionlint v1.7.12: https://github.com/rhysd/actionlint/blob/v1.7.12/config.go
+      # The default is no ignored diagnostics. We override it because GitHub's same-commit local action syntax is not recognized by this actionlint version (https://github.com/rhysd/actionlint/issues/711).
       - reusable workflow call "\$/.+" at "uses" is not following the format
       - specifying action "\$/.+" in invalid format because ref is missing

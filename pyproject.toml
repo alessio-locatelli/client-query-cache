@@ -53,18 +53,17 @@ memory = ["pytest-memray>=1.11.0"]
 requires = ["uv_build>=0.12.18,<0.13.0"]
 build-backend = "uv_build"
 
-[tool.uv.build-backend]
-module-root = "src"
-
 [tool.uv]
+# uv 0.12.9 / lock context: https://docs.astral.sh/uv/reference/settings/#environments
+# The default is all environments. We override it because development dependencies and their lock resolution target Linux.
 environments = ["sys_platform == 'linux'"]
 
 [tool.uv.sources]
 mike = { git = "https://github.com/squidfunk/mike.git", rev = "2d4ad799442f4592db8ad53b179bfb33db8c69ac" } # pragma: allowlist secret
 
 [tool.slotscheck]
-strict-imports = true
-require-superclass = true
+# slotscheck 0.21.0: https://github.com/ariebovenberg/slotscheck/blob/v0.21.0/src/slotscheck/config.py
+# require-subclass: The default is false. We override it because subclasses must preserve their slotted parent's memory contract.
 require-subclass = true
 exclude-modules = '''
 (
@@ -77,10 +76,15 @@ exclude-modules = '''
 paths = ["src", "tests", "benchmarks", ".vulture_whitelist"]
 
 [tool.ruff-extra-rules]
+# ruff-extra-rules v0.5.0: https://github.com/alessio-locatelli/ruff-extra-rules/blob/v0.5.0/README.md
+# The default is false. We override it because hook runs should apply available repairs.
 fix = true
 exclude = ["specifications"]
 extend-select = ["unused-pytriage"]
 [tool.ruff-extra-rules.meaningless-vars]
+# ruff-extra-rules v0.5.0: https://github.com/alessio-locatelli/ruff-extra-rules/tree/v0.5.0/src/pre_commit_hooks/ast_checks
+# For meaningless-vars, redundant-assignment, redundant-type-conversion, redundant-dict-get, and defined-far-from-use level:
+# The default is conservative. We override it because repository quality checks must include the broader supported simplifications and naming diagnostics.
 level = "aggressive"
 [tool.ruff-extra-rules.redundant-assignment]
 level = "aggressive"

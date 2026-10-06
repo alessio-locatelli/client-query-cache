@@ -12,7 +12,7 @@
 
 ## 2. Quality and Test Configuration
 
-- [ ] 2.1 Apply Decisions 1–4 to design inventory group B, including mypy strict-mode expansion, Prek/hook inherited arguments, pytest/plugin defaults, and tool configuration embedded in `pyproject.toml`; verify every optional setting is classified as an evidenced removal, an explained behavioral override, or an ordinary retained project input, with existing validator and quality coverage preserved. Where a removal relies on unstable upstream behavior for a required contract, reuse or add its real-tool behavioral coverage in the same edits.
+- [x] 2.1 Apply Decisions 1–4 to design inventory group B, including mypy strict-mode expansion, Prek/hook inherited arguments, pytest/plugin defaults, and tool configuration embedded in `pyproject.toml`; verify every optional setting is classified as an evidenced removal, an explained behavioral override, or an ordinary retained project input, with existing validator and quality coverage preserved. Where a removal relies on unstable upstream behavior for a required contract, reuse or add its real-tool behavioral coverage in the same edits.
 
 ## 3. Commands and Bootstrap Configuration
 

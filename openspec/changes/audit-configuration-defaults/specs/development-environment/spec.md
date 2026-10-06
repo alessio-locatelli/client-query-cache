@@ -132,3 +132,15 @@ Default cleanup SHALL preserve existing validation coverage, failure propagation
 
 - **WHEN** removing a shell selection, action input, or inherited override changes error handling, trust boundaries, or supported environment behavior
 - **THEN** the necessary setting remains and receives its override rationale
+
+## MODIFIED Requirements
+
+### Requirement: The source layout builds distributions
+
+The project SHALL build installable distributions from `src/client_query_cache/` using `uv_build`'s default `src` module root.
+
+#### Scenario: Source-layout distributions are built
+
+- **WHEN** a contributor builds the project distribution
+- **THEN** each resulting source and wheel distribution contains `client_query_cache` and imports
+  successfully in a clean environment
