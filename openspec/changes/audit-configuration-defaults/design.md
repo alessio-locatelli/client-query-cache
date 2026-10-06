@@ -49,19 +49,25 @@ Comparing only built-in default tables is faster but fails the Renovate and Git 
 
 Use concise inline comments when the format supports them and the behavioral override is local. Use an existing relevant OpenSpec requirement only if it contains the required explanation and identifies the actual option. Create `docs/development/configuration-overrides.md` only if in-scope explanations need a home beyond existing comments, documentation, or specifications, such as strict JSON or shared command flags. Entries contain tool/key or command identifiers, omitted behavior/context, source links and versions, and the required rationale sentence. Apply the delta's omitted-behavior rule to its default description. Group occurrences only under the delta's shared-explanation rule. Do not duplicate explanations or include ordinary project inputs.
 
+For critical privileged CI pins, use only the explanation locations allowed by the delta's exception; do not move those explanations into the optional reference document.
+
 Link the explanation locations from `CONTRIBUTING.md`, including the maintainer reference only if created. Add a short `AGENTS.md` pointer to the canonical development-environment requirement so future edits discover the rule without duplicating it. Public usage guides require edits only where an executable example itself contains a redundant flag; keep override mechanics in maintainer material.
 
 Documenting everything inline has excellent locality but cannot serve strict JSON and becomes repetitive for shared flags. Documenting everything in specifications is allowed but scatters operational explanations across behavioral contracts. Neither has unresolved technical unknowns, and neither needs further research. The mixed placement provides one explanation per override while preserving discoverability. Keeping removal evidence only in the temporary ledger would prevent later review; commit bodies preserve historical evidence without adding it to current configuration guidance. No further research is needed for this placement.
 
 ### 4. Detect upstream contract changes through real integrations
 
-The delta's “Integration tests guard required upstream behavior” requirement defines upgrade protection.
+The delta's integration-test requirement and critical privileged CI pin exception define upgrade protection.
 
 `openspec/specs/public-library-documentation/spec.md` already requires strict-build failures for missing pages and headings. `tests/test_build_versioned_docs.py` exercises real builds through `assemble`, but `release_repo` explicitly enables both validation settings. Its `failed_edition` fixture covers a missing heading and a missing source-layout file; the latter is not a missing-link-target test. The targeted changes are defined in task 1.3; historical release snapshots remain outside this disposable fixture.
 
 `scripts/ci_scope.py` selects Python tests and documentation builds for `pyproject.toml` or `uv.lock` changes; `.github/workflows/test.yml` synchronizes all groups and runs `just tests_and_coverage`. The existing path therefore exercises these real-tool tests for documentation dependency updates without an additional job or workflow edit. They remain in the existing non-MongoDB test lane despite testing an external tool integration.
 
 Explicitly repeating important defaults can preserve those settings across an upstream change, but adds configuration noise and cannot cover other upstream behavior changes. Integration tests cost build time and cover only exercised contracts, but verify the outcome the repository actually needs. No prototype or further design research is needed; the concrete coverage gap is assigned to task 1.3.
+
+The same review applies to workflows and actions through task 3.2. `publish.yml` publishes to PyPI and changes GitHub releases; `docs.yml` deploys to Pages; `dependency-automerge.yml` approves and requests merging of eligible PRs. These effects explain why running the complete production workflow cannot be used as an audit experiment. Prefer an existing disposable execution path that exercises the relevant action or platform behavior without live publication, production credentials, or trust-boundary changes. Static inspection and mocked commands are useful analysis, but cannot establish real platform behavior.
+
+Where such a path cannot adequately exercise a critical contract, use the delta's pin exception and record its assessment in the ledger. Blanket exemptions for workflow files would leave ordinary settings unaudited; forcing a production run would create unnecessary risk. The per-setting assessment costs review effort while allowing safe coverage or narrowly justified retention. No generic CI harness is proposed; any specific unresolved testability assessment belongs to task 3.2, and an unjustified removal blocks completion.
 
 ## Risks / Trade-offs
 
