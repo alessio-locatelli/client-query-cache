@@ -150,7 +150,7 @@ Relevant changes on `main` SHALL build and publish the documentation automatical
 - **WHEN** a documentation build fails or the hosting service rejects deployment
 - **THEN** the workflow reports failure and a failed build is not promoted to the public site
 
-### Requirement: Newer documentation publication runs supersede older ones
+### Requirement: Newer documentation publication runs request cancellation of older ones
 
 Eligible documentation publication runs SHALL share one cancellable concurrency group for the site. A newer eligible run SHALL request cancellation of the run holding the site, whether that run is queued, building, or deploying, instead of waiting for it to finish. A run that is ineligible to publish SHALL neither cancel nor replace an eligible run.
 
@@ -162,7 +162,7 @@ Eligible documentation publication runs SHALL share one cancellable concurrency 
 #### Scenario: Changes reach `main` during a deployment
 
 - **WHEN** an eligible run starts while an earlier eligible run is building or deploying
-- **THEN** the earlier run is cancelled, the site keeps its previously published content until the newer run deploys, and the newer run publishes current `main`
+- **THEN** the newer run requests cancellation of the earlier run instead of queueing behind it, the site keeps its previously published content until the newer run deploys, and the newer run publishes current `main`
 
 #### Scenario: Package publication fails during a deployment
 
