@@ -1,8 +1,8 @@
-fail_fast: False
 exclude: ^specifications/
 
 default_language_version:
-  # Hook compatibility stays on the supported package baseline; development Python can advance.
+  # Prek 0.5.5: https://prek.j178.dev/configuration/#default_language_version
+  # The default is each hook language's default interpreter resolved by Prek. We override it because Python hooks must stay on the supported 3.14 baseline when development Python advances.
   python: python3.14
 
 repos:
@@ -11,6 +11,9 @@ repos:
     hooks:
       - id: check-yaml
       - id: check-added-large-files
+        # pre-commit-hooks v6.0.0: https://github.com/pre-commit/pre-commit-hooks/blob/v6.0.0/pre_commit_hooks/check_added_large_files.py
+        # --maxkb: The default is 500. We override it because tracked files must stay below 300 KiB.
+        # --enforce-all: The default is added files only. We override it because enlarging an existing file must also fail the limit.
         args: ["--maxkb=300", "--enforce-all"]
       - id: check-json
       - id: check-symlinks
@@ -18,6 +21,8 @@ repos:
       - id: destroyed-symlinks
       - id: end-of-file-fixer
       - id: mixed-line-ending
+        # v6.0.0: https://github.com/pre-commit/pre-commit-hooks/blob/v6.0.0/pre_commit_hooks/mixed_line_ending.py
+        # The default is auto. We override it because every contributor platform must produce LF line endings.
         args: ["--fix=lf"]
       - id: check-case-conflict
       - id: check-merge-conflict
@@ -27,6 +32,9 @@ repos:
     rev: "44.133.0"
     hooks:
       - id: renovate-config-validator
+        # Hook 44.133.0: https://github.com/renovatebot/pre-commit-hooks/blob/44.133.0/.pre-commit-hooks.yaml
+        # --strict: The default is false. We override it because validation warnings must fail the quality gate.
+        # --no-global: The default is global validation allowed. We override it because this file may contain only repository options.
         args: [--strict, --no-global]
 
   - repo: https://github.com/python-jsonschema/check-jsonschema
@@ -41,6 +49,9 @@ repos:
     rev: v0.16.10
     hooks:
       - id: ruff-check
+        # Ruff v0.16.10: https://docs.astral.sh/ruff/configuration/
+        # --fix: The default is false. We override it because hook runs should repair supported violations.
+        # --exit-non-zero-on-fix: The default is false. We override it because an edit must stop the commit until its repaired files are reviewed and staged.
         args: ["--fix", "--exit-non-zero-on-fix"]
       - id: ruff-format
 
@@ -58,12 +69,16 @@ repos:
     rev: "0.12.23"
     hooks:
       - id: uv-lock
+        # uv 0.12.23: https://docs.astral.sh/uv/reference/cli/#uv-lock--check
+        # The default is updating the lockfile. We override it because validation must reject stale resolution without changing it.
         args: ["--check"]
 
   - repo: https://github.com/ariebovenberg/slotscheck
     rev: v0.21.0
     hooks:
       - id: slotscheck
+        # Prek 0.5.5 hook precedence: https://prek.j178.dev/configuration/#hooks
+        # The default is the hook's Python environment. We override it because slotscheck must import the synchronized project and its installed dependencies.
         language: system
 
   - repo: https://github.com/crate-ci/typos
@@ -76,6 +91,8 @@ repos:
     hooks:
       - id: taplo-format
       - id: taplo-lint
+        # Hook v0.9.3: https://github.com/ComPWA/taplo-pre-commit/blob/v0.9.3/.pre-commit-hooks.yaml
+        # The default is inherited --default-schema-catalogs arguments. We override it because Taplo cannot decode the remote catalog; syntax linting remains usable (https://github.com/tamasfe/taplo/issues/463).
         args: []
 
   - repo: local
@@ -84,6 +101,8 @@ repos:
         name: Prettier
         entry: npm run format:check --
         language: system
+        # Prek 0.5.5: https://prek.j178.dev/configuration/#pass_filenames
+        # The default is true. We override it because the npm script selects the complete formatting scope itself.
         pass_filenames: false
         types_or: [markdown, yaml, json]
 

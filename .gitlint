@@ -1,14 +1,17 @@
 [general]
 contrib=contrib-title-conventional-commits,CT1
-regex-style-search=true
 
 [title-must-not-contain-word]
-# AI writes meaningless "apply reviewer feedback" (a.k.a. "I did something")
-# messages instead of writing what was changed and why.
+# gitlint 0.19.1: https://github.com/jorisroovers/gitlint/blob/v0.19.1/gitlint-core/gitlint/rules.py
+# The default is WIP. We override it because commit titles must describe their change rather than the review process.
 words=resolve thread,resolve threads,resolve remark,resolve remarks,wip,implement review comments,reviewer changes,reviewer feedback,address code review feedback,address reviewer,apply reviewer,address review feedback,address feedback,review findings,flagged in review,review pass
 
 [body-max-line-length]
+# https://jorisroovers.com/gitlint/latest/rules/builtin_rules/#b1-body-max-line-length
+# The default is 80. We override it because source and evidence URLs need the project's 100-character commit-body allowance.
 line-length=100
 
 [body-min-length]
+# https://jorisroovers.com/gitlint/latest/rules/builtin_rules/#b5-body-min-length
+# The default is 20. We override it because small mechanical changes can have concise bodies.
 min-length=3
