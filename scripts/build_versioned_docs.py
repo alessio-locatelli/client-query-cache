@@ -92,6 +92,7 @@ def select_sources(repo: Path, tag: Text, development: Text) -> Sources:
                 stable,
                 resolve(repo, fetch_ref),
             ),
+            # Ruff requires explicit check; ancestry failure is handled below.
             check=False,
         )
         if reachable.returncode != 0:
@@ -149,7 +150,7 @@ def extract_corpus(repo: Path, revision: Text, destination: Path) -> None:
 
 def edition_config(
     corpus: Path, revision: Text, export_policy: Table, *, stable: bool
-) -> Path:
+) -> None:
     configuration = tomllib.loads((corpus / "zensical.toml").read_text())
     project = table(configuration["project"])
     project["strict"] = True
@@ -185,9 +186,7 @@ def edition_config(
                 )
             text = text.replace(f"]({repository})", f"]({repository}/tree/{revision})")
         page.write_text(text)
-    path = corpus / "zensical.toml"
-    path.write_text(tomli_w.dumps(configuration))
-    return path
+    (corpus / "zensical.toml").write_text(tomli_w.dumps(configuration))
 
 
 def run(cwd: Path, *arguments: Text) -> None:
@@ -237,7 +236,7 @@ def root_redirects(development: Path, destination: Path) -> None:
     (redirect_corpus / "zensical.toml").write_text(
         tomli_w.dumps(redirect_configuration)
     )
-    run(redirect_corpus, "zensical", "build", "--clean", "--strict")
+    run(redirect_corpus, "zensical", "build", "--clean")
 
 
 def replace_artifact(artifact: Path, output: Path) -> None:
@@ -308,7 +307,7 @@ def assemble(repo: Path, sources: Sources, output: Path) -> None:
             ("dev", sources["development"], "Development (main)", export_policy),
         ):
             corpus = workspace / edition
-            configuration = edition_config(
+            edition_config(
                 corpus, revision, edition_export_policy, stable=edition == "stable"
             )
             run(
@@ -318,8 +317,6 @@ def assemble(repo: Path, sources: Sources, output: Path) -> None:
                 edition,
                 "--title",
                 title,
-                "--config-file",
-                str(configuration),
                 "--branch",
                 "docs-artifact",
                 "--ignore-remote-status",
@@ -329,8 +326,6 @@ def assemble(repo: Path, sources: Sources, output: Path) -> None:
             "mike",
             "set-default",
             "stable",
-            "--config-file",
-            str(workspace / "dev/zensical.toml"),
             "--branch",
             "docs-artifact",
             "--ignore-remote-status",

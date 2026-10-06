@@ -307,7 +307,6 @@ jobs:
         with:
           name: pr-performance-guard-report
           path: guard-reports/guard.report.json
-          if-no-files-found: warn
           retention-days: 30
 
   container:

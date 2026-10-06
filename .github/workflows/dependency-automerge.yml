@@ -17,6 +17,8 @@ permissions:
 
 defaults:
   run:
+    # https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idstepsshell
+    # The default is bash -e on these Linux runners. We override it because API/JSON pipelines must also fail when an earlier command fails (bash adds -o pipefail).
     shell: bash
 
 env:
@@ -85,6 +87,8 @@ jobs:
     timeout-minutes: 5
     concurrency:
       group: dependency-automerge-${{ needs.select.outputs.pr_number }}
+      # https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#concurrency
+      # The default is false. We override it because acceptance must finish its verified approval/auto-merge transition; interruption can leave a live PR approved without completing acceptance. Disposable jobs without the live App installation/PR cannot cover that privileged transition, so this safety pin stays explicit.
       cancel-in-progress: false
     env:
       PR_NUMBER: ${{ needs.select.outputs.pr_number }}
@@ -118,8 +122,14 @@ jobs:
         with:
           app-id: ${{ vars.DEPENDENCY_AUTOMERGE_APP_ID }}
           private-key: ${{ secrets.DEPENDENCY_AUTOMERGE_APP_PRIVATE_KEY }} # zizmor: ignore[secrets-outside-env] -- Repository App credential goes only to this pinned action after metadata verification.
+          # https://github.com/actions/create-github-app-token/blob/bcd2ba49218906704ab6c1aa796996da409d3eb1/lib/main.js
+          # Pinned v3.2.0: owner omission with repositories supplied uses GITHUB_REPOSITORY_OWNER.
+          # The default is the current repository owner. We override it because privileged token creation must remain visibly bound to that owner; a changed resolution could issue credentials for an unintended installation, which safe tests without the live App cannot cover.
           owner: ${{ github.repository_owner }}
+          # The default is all repositories owned by the supplied owner. We override it because acceptance credentials must be limited to this repository.
           repositories: ${{ github.event.repository.name }}
+          # Pinned v3.2.0 lib/main.js/get-permissions-from-inputs.js: omitted permissions inherit installation grants.
+          # For permission-contents and permission-pull-requests: The default is the installation's grants when no permission inputs are supplied, or no requested grant for a permission omitted from an explicit list. We override it because approval/rebase auto-merge needs exactly these write grants, without expanding to the App's other installation permissions.
           permission-contents: write
           permission-pull-requests: write
 
@@ -132,7 +142,7 @@ jobs:
               | jq -e --arg repo "$GH_REPO" --arg head "$HEAD_SHA" "$PR_POLICY" > /dev/null
           }
           verify_pr
-          gh api --method POST "repos/$GH_REPO/pulls/$PR_NUMBER/reviews" \
+          gh api "repos/$GH_REPO/pulls/$PR_NUMBER/reviews" \
             -f event=APPROVE -f commit_id="$HEAD_SHA" --silent
           verify_pr
           gh pr merge "$PR_NUMBER" --auto --rebase --match-head-commit "$HEAD_SHA"

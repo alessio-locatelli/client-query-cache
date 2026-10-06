@@ -176,6 +176,9 @@ pytestmark = pytest.mark.unit
         ),
         pytest.param(("uv.lock",), True, False, False, True, True, id="lockfile"),
         pytest.param(
+            ("docker-compose.yaml",), True, True, False, True, False, id="compose-image"
+        ),
+        pytest.param(
             ("stable-docs.toml",),
             False,
             False,

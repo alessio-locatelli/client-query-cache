@@ -1,20 +1,31 @@
 services:
   mongo:
     image: mongo:9.0.2@sha256:c73153413b453d7d31199be36e101ab51195a4e6cff7bee8a2aa52a9769e4e11
-    command: ["--replSet", "rs0", "--bind_ip_all", "--quiet"]
+    # MongoDB 9.0 / official image entrypoint: https://www.mongodb.com/docs/manual/reference/program/mongod/
+    # --replSet: The default is no replica set. We override it because change-stream tests and examples require replication.
+    # --quiet: The default is normal logging. We override it because this contributor service should suppress routine server chatter.
+    command: ["--replSet", "rs0", "--quiet"]
     ports:
       - 27017:27017
     healthcheck:
       test: mongosh --eval 'db.runCommand("ping")'
+      # Docker healthcheck defaults: https://docs.docker.com/reference/dockerfile/#healthcheck
+      # interval: The default is 30s. We override it because the initialization helper should promptly notice a ready server.
       interval: 1s
+      # timeout: The default is 30s. We override it because an unresponsive ping should fail within five seconds.
       timeout: 5s
+      # retries: The default is 3. We override it because startup gets five failed readiness checks before becoming unhealthy.
       retries: 5
 
   mongo_helper:
     image: mongo:9.0.2@sha256:c73153413b453d7d31199be36e101ab51195a4e6cff7bee8a2aa52a9769e4e11
+    # https://docs.docker.com/reference/compose-file/services/#entrypoint
+    # The default is the image's docker-entrypoint.sh. We override it because this helper runs bounded replica-set initialization rather than starting another mongod.
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
+        # https://www.mongodb.com/docs/mongodb-shell/reference/options/
+        # mongosh --quiet: The default is startup messages enabled. We override it because helper output should contain initialization failures rather than shell banners.
         mongosh --quiet --host mongo --eval '
           const notYetInitialized = 94;
           try {
@@ -31,4 +42,6 @@ services:
         '
     depends_on:
       mongo:
+        # https://docs.docker.com/compose/how-tos/startup-order/
+        # The default is service_started. We override it because initialization must wait for a successful MongoDB ping.
         condition: service_healthy

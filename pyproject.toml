@@ -45,6 +45,8 @@ dev = [
   "python-snappy>=0.7.3",
   "pytest-xdist[psutil]>=3.8.0",
   "pytest-cov>=7.1.0",
+  "pyyaml>=6.0.3",
+  "types-pyyaml>=6.0.12.20260906",
 ]
 docs = ["mike", "tomli-w>=1.2.0", "zensical>=0.0.68"]
 memory = ["pytest-memray>=1.11.0"]

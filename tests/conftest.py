@@ -80,6 +80,7 @@ def log_when_test_starts(request: pytest.FixtureRequest) -> None:
 
 @pytest.fixture
 def cached_database_name() -> DatabaseName:
+    # Session databases outlive tests; Faker reseeds per test and can repeat names.
     return DatabaseName(f"test_{uuid.uuid4().hex}")
 
 
@@ -99,7 +100,7 @@ def mongodb_uri() -> Iterator[MongoDbUri]:
         try:
             # renovate: datasource=docker depName=mongo versioning=docker
             container = DockerContainer("mongo:8.0.4-noble")
-            container.with_command(["--replSet", "rs0", "--bind_ip_all"])
+            container.with_command(["--replSet", "rs0"])
             container.with_exposed_ports(27017)
             resources.enter_context(container)
         except DockerException as error:  # pragma: no cover (requires a broken runtime)
@@ -143,6 +144,7 @@ def mongodb_uri() -> Iterator[MongoDbUri]:
 def make_fake_document(faker: Faker) -> Callable[..., dict[str, Any]]:
     def _make_fake_document() -> dict[str, Any]:
         document = faker.pydict()
+        # Benchmark collections outlive tests, so IDs must survive Faker reseeding.
         document["_id"] = str(uuid.uuid4())
 
         mongo_compatible_document: dict[str, Any] = {}

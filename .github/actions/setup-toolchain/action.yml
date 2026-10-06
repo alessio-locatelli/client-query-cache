@@ -4,8 +4,6 @@ description: Installs shared uv and just versions; uv uses the project Python se
 inputs:
   python-version:
     description: Optional compatibility lane; otherwise use .python-version.
-    required: false
-    default: ""
 
 runs:
   using: composite
@@ -14,7 +12,10 @@ runs:
       with:
         version: "0.12.20"
         python-version: ${{ inputs.python-version }}
+        # https://github.com/astral-sh/setup-uv/blob/20cfd1bf945f4377ade1205e4dbc17946fc9a30d/action.yml
+        # The default is auto (disabled for tag pushes and workflow_run/release events). We override it because locked download caches should also be reused by release/documentation jobs.
         enable-cache: true
+        # The default is the action's recursive requirements/constraints/pyproject/lock globs. We override it because this shared project environment uses root uv.lock and Python selection, independently of example script environments.
         cache-dependency-glob: |
           uv.lock
           .python-version

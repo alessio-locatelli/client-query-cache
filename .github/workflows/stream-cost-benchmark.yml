@@ -5,7 +5,6 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -31,5 +30,4 @@ jobs:
         with:
           name: stream-cost-reports
           path: benchmark-reports/*.report.v1.json
-          if-no-files-found: warn
           retention-days: 30

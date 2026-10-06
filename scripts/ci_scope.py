@@ -16,6 +16,7 @@ def main() -> None:
         or path
         in {
             "pytest.ini",
+            "docker-compose.yaml",
             ".coveragerc",
             "pyproject.toml",
             "uv.lock",
@@ -64,6 +65,7 @@ def main() -> None:
         path
         in {
             "tests/conftest.py",
+            "docker-compose.yaml",
             ".python-version",
             "pyproject.toml",
             "uv.lock",

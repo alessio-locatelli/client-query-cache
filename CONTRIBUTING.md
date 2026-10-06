@@ -29,7 +29,7 @@ or benchmark results, so validate the rebuilt image before using it.
 From the host, build the image and create a Toolbx container:
 
 ```console
-podman build --tag localhost/client-query-cache-dev:0.1.0 --file Containerfile .
+podman build --tag localhost/client-query-cache-dev:0.1.0 .
 podman container exists client-query-cache-dev || toolbox create --image localhost/client-query-cache-dev:0.1.0 client-query-cache-dev
 ```
 
@@ -96,6 +96,13 @@ Edit published guides and assets in `docs/user/`. Repository-only architecture, 
 [`context7.json`](context7.json) selects public guides and summarizes usage rules for Context7. It excludes `docs/user/examples/`, whose snippet wrappers require the site build to expand canonical programs and catalogue content. Complete integration examples remain available on the hosted documentation site. Keep its rules aligned with the implementation and canonical guides in `docs/user/`. Update affected rules and guides in the same change as code, including return contracts, eligibility, consistency, lifecycle, and deployment requirements. Review each rule's meaning against the code and guides; JSON validity alone does not establish alignment. See [Context7's library-owner documentation](https://context7.com/docs/library-owners) for configuration fields.
 
 The `check-jsonschema` Prek hook validates `context7.json` against its [official schema](https://context7.com/schema/context7.json), including the 255-character limit for each rule. It runs in the existing CI quality job. Run it directly with `prek run check-jsonschema --files context7.json`.
+
+Configuration changes follow the [development-environment specification](openspec/specs/development-environment/spec.md).
+Local overrides are explained beside their configuration; shared command and strict-JSON overrides
+are in [configuration overrides](docs/development/configuration-overrides.md), with memory command
+options in [memory regression tests](docs/development/memory-regression-tests.md#command-options).
+Recheck effective defaults against the selected tool version, presets, wrappers and environment
+before adding or removing an option.
 
 Keep one canonical source for each detailed topic. The example command/prerequisite catalogue stays in `examples/README.md`, and runnable programs stay in `examples/*.py`. Hosted example pages include these files with `pymdownx.snippets`, using repository-relative paths and `check_paths = true`. Include program text in Python code blocks; surround snippet-only fences with `<!-- fmt:off -->` and `<!-- fmt:on -->` so [Ruff Markdown formatting](https://docs.astral.sh/ruff/formatter/#markdown-code-formatting) preserves the inclusion directive. Never import or execute examples during a site build. Link the canonical file from each wrapper for repository readers.
 

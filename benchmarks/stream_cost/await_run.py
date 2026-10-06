@@ -520,7 +520,7 @@ def run_matrix(output: Path) -> None:
     if git_path is None:
         raise BenchmarkSetupError("git is required to record the benchmark revision")
     revision = subprocess.check_output(  # noqa: S603 - fixed git arguments
-        [git_path, "rev-parse", "HEAD"], text=True, shell=False
+        [git_path, "rev-parse", "HEAD"], text=True
     ).strip()
     configuration_bytes = _CONFIG_PATH.read_bytes()
     digest = configuration_hash(configuration_bytes)
