@@ -18,7 +18,7 @@
 
 - [ ] 4.1 Complete the tracked-file scan for inventory group D using `git ls-files` and option/flag searches, honoring Decision 1 exclusions; apply the same removal/explanation disposition to every additional owned occurrence and verify no unclassified candidate remains in the working ledger.
 - [ ] 4.2 Add the `CONTRIBUTING.md` and `AGENTS.md` references specified in Decision 3; verify relative links resolve to the delivered maintainer reference and the canonical development-environment requirement after spec synchronization.
-- [ ] 4.3 Reconcile the working ledger with the final diff and explanation destinations: verify every retained override has one traceable explanation, grouped entries enumerate their occurrences, deleted overrides leave no stale rationale, and every comparison has authoritative version/context evidence. Keep the ledger untracked.
+- [ ] 4.3 Reconcile the working ledger with the final diff and explanation destinations: verify every retained override has one traceable explanation using the delta's omitted-behavior rule, grouped entries enumerate their occurrences, deleted overrides leave no stale rationale, and every comparison has authoritative version/context evidence. Verify removal evidence is preserved in each implementation commit body as required by the delta before delivery; keep the working ledger untracked.
 
 ## 5. Code Quality
 
