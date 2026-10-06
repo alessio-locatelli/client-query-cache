@@ -17,13 +17,16 @@ ENV PATH=/usr/local/bin:${PATH} \
     UV_TOOL_DIR=/opt/uv-tools
 
 COPY .python-version /tmp/python-version
+COPY .node-version /tmp/node-version
 
 # Fedora packages follow the Fedora 44 repositories; see CONTRIBUTING.md for the rationale.
-RUN dnf install --assumeyes \
+RUN NODE_TOOL_VERSION="$(cat /tmp/node-version)" \
+    && NODE_MAJOR="${NODE_TOOL_VERSION%%.*}" \
+    && dnf install --assumeyes \
         bash \
         just \
-        nodejs24 \
-        nodejs24-npm \
+        "nodejs${NODE_MAJOR}" \
+        "nodejs${NODE_MAJOR}-npm" \
         uv \
     && dnf clean all \
     && PYTHON_TOOL_VERSION="$(cat /tmp/python-version)" \

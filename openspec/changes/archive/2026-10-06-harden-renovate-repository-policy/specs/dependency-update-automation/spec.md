@@ -4,7 +4,7 @@
 
 ### Requirement: Updates preserve release policies and review
 
-Update proposals SHALL retain exact version selection, digest pinning, and image variants, use monthly cadence, and merge automatically after required CI passes. Major updates SHALL have the same automatic creation and acceptance policy as other updates, without repository version caps. Timestamped releases SHALL age at least seven days; missing timestamps SHALL NOT block indefinitely. Fedora DNF tools SHALL remain unpinned and excluded from bot extraction.
+Update proposals SHALL retain exact version selection, digest pinning, and image variants, use monthly cadence, and merge automatically after required CI passes. Major updates SHALL have the same automatic creation and acceptance policy as other updates. Timestamped releases SHALL age at least seven days; missing timestamps SHALL NOT block indefinitely. Fedora DNF tools SHALL remain unpinned and excluded from bot extraction.
 
 #### Scenario: A new MongoDB major version is available
 
@@ -23,6 +23,20 @@ Update proposals SHALL retain exact version selection, digest pinning, and image
 
 ## ADDED Requirements
 
+### Requirement: CI and development Node.js tracks stay aligned
+
+Node.js CI and container major selection SHALL share a Renovate-maintained `.node-version` without a repository major cap. The container SHALL derive its Fedora Node.js/npm package track from that file. A Node.js update SHALL run CI tooling and container build/tool checks, and a failed container build SHALL block automatic merging.
+
+#### Scenario: Renovate advances the Node.js track
+
+- **WHEN** Renovate proposes a newer Node.js version in `.node-version`
+- **THEN** CI and the development container select that version's major track, and required tooling and container checks run before merging
+
+#### Scenario: Fedora cannot provide a proposed track
+
+- **WHEN** the selected Fedora repositories do not contain the proposed Node.js/npm packages
+- **THEN** the container build fails and required validation blocks automatic acceptance
+
 ### Requirement: Bots create and accept eligible updates automatically
 
 Dependabot and Renovate SHALL create eligible update PRs without manual dashboard action. Eligible PRs SHALL have GitHub native automerge requested automatically and merge after required CI and automated approval without maintainer action. Major, minor, patch, and digest updates SHALL share the same acceptance policy within existing bot ownership. Missing setup or permissions SHALL produce a visible blocker.
@@ -37,9 +51,14 @@ Dependabot and Renovate SHALL create eligible update PRs without manual dashboar
 - **WHEN** a bot proposes a major dependency update and it passes required CI
 - **THEN** automated approval and native automerge accept it under the same policy as other updates
 
+#### Scenario: Dependabot validation completes without secret access
+
+- **WHEN** an eligible Dependabot PR passes required validation that cannot access the acceptance credential
+- **THEN** automatic acceptance obtains the credential through trusted management without a manual dispatch
+
 ### Requirement: Required validation gates automatic merging
 
-Automatic merging SHALL wait for all applicable required checks for the latest PR revision, without requiring the branch to be current with main. Required checks SHALL include quality prerequisites and scope selection so dependency-skipped jobs cannot mask failed prerequisites. Failed, cancelled, or pending required validation SHALL block merging; intentionally inapplicable path-selected jobs SHALL retain their existing skip behavior.
+Automatic merging SHALL require all applicable checks on the latest PR revision without requiring the branch to be current with main. Required checks SHALL include quality prerequisites, scope selection, and a stable Python compatibility check aggregating every packaging/test matrix lane. Failed, cancelled, or pending required checks SHALL block merging; intentionally inapplicable path-selected jobs SHALL retain their existing skip behavior.
 
 #### Scenario: Lint fails and downstream validation is skipped
 
@@ -50,6 +69,11 @@ Automatic merging SHALL wait for all applicable required checks for the latest P
 
 - **WHEN** main advances without conflicting with an approved bot PR whose latest revision passed required CI
 - **THEN** being behind main alone does not block native automerge or require a maintainer to update the branch
+
+#### Scenario: One supported Python lane fails
+
+- **WHEN** packaging or tests fail, are cancelled, or are skipped unexpectedly on any applicable Python lane
+- **THEN** the stable Python compatibility check fails and blocks automatic merging, including when the development interpreter's lane succeeds
 
 ### Requirement: Privileged bot PR management uses trusted metadata
 
@@ -64,6 +88,16 @@ Privileged approval and merge management SHALL act only on verified same-reposit
 
 - **WHEN** an automatically accepted update changes a path matched by documentation publication
 - **THEN** its merge remains eligible to trigger the existing post-merge documentation workflow
+
+#### Scenario: An older validation run finishes
+
+- **WHEN** a bot PR advances to a new revision before an older validation run completes
+- **THEN** management for the older revision submits neither approval nor an automerge request for the new head
+
+#### Scenario: A contributor pushes to a bot PR
+
+- **WHEN** a contributor pushes a new revision to a bot-authored PR and its validation succeeds
+- **THEN** unattended bot management submits neither approval nor an automerge request for that revision
 
 ### Requirement: Dependabot version proposals have bounded volume
 
@@ -85,7 +119,7 @@ The repository SHALL retain one recognized root Renovate configuration with the 
 
 ### Requirement: Dependency update policy reuses official presets
 
-Renovate policy SHALL reuse official presets for best practices and semantic commits. Repository configuration SHALL specify only necessary overrides and ownership-specific rules, without restating inherited defaults. Preset adoption SHALL preserve exclusive bot ownership, coupled updates, automated acceptance, and exclusive lockfile ownership without restricting major updates.
+Renovate policy SHALL reuse official presets for best practices and semantic commits. Repository configuration SHALL specify only necessary overrides and ownership-specific rules, without restating inherited defaults. Preset adoption SHALL preserve exclusive bot ownership, coupled updates, automated acceptance, and exclusive lockfile ownership with major updates eligible.
 
 #### Scenario: Best-practice presets are enabled
 

@@ -2,6 +2,7 @@ fail_fast: False
 exclude: ^specifications/
 
 default_language_version:
+  # Hook compatibility stays on the supported package baseline; development Python can advance.
   python: python3.14
 
 repos:

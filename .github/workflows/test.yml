@@ -25,6 +25,7 @@ jobs:
       python: ${{ steps.paths.outputs.python }}
       format: ${{ steps.paths.outputs.format }}
       documentation: ${{ steps.paths.outputs.documentation }}
+      python-versions: ${{ steps.python.outputs.versions }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -38,6 +39,9 @@ jobs:
         run: |
           git diff --name-only -z "${BASE_REVISION}" "${HEAD_REVISION}" \
             | python3 -m scripts.ci_scope >> "${GITHUB_OUTPUT}"
+
+      - id: python
+        run: python3 -m scripts.ci_python_matrix >> "${GITHUB_OUTPUT}"
 
   prek:
     name: Prek
@@ -92,7 +96,7 @@ jobs:
       - if: needs.scope.outputs.format == 'true'
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: "24"
+          node-version-file: .node-version
           cache: npm
 
       - if: needs.scope.outputs.format == 'true'
@@ -102,9 +106,9 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: node_modules/.cache/prettier
-          key: prettier-${{ runner.os }}-node24-${{ hashFiles('package-lock.json', '.prettierrc*', '.prettierignore') }}-${{ github.sha }}
+          key: prettier-${{ runner.os }}-${{ hashFiles('.node-version', 'package-lock.json', '.prettierrc*', '.prettierignore') }}-${{ github.sha }}
           restore-keys: |
-            prettier-${{ runner.os }}-node24-${{ hashFiles('package-lock.json', '.prettierrc*', '.prettierignore') }}-
+            prettier-${{ runner.os }}-${{ hashFiles('.node-version', 'package-lock.json', '.prettierrc*', '.prettierignore') }}-
 
       - if: needs.scope.outputs.format == 'true'
         run: npm run format:check
@@ -138,26 +142,32 @@ jobs:
           just docs-build-editions "${stable_tag}"
 
   package:
-    name: Static checks, packaging, and isolated install
+    name: Static checks, packaging, and isolated install (${{ matrix.python }})
     needs: [scope, prek, prettier]
     if: needs.scope.outputs.python == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ${{ fromJSON(needs.scope.outputs.python-versions) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - uses: $/.github/actions/setup-toolchain
+        with:
+          python-version: ${{ matrix.python }}
 
       - run: uv sync --locked --all-groups
 
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .mypy_cache
-          key: mypy-${{ runner.os }}-py${{ hashFiles('.python-version') }}-${{ hashFiles('uv.lock', 'pyproject.toml') }}-${{ github.sha }}
+          key: mypy-${{ runner.os }}-py${{ matrix.python }}-${{ hashFiles('uv.lock', 'pyproject.toml') }}-${{ github.sha }}
           restore-keys: |
-            mypy-${{ runner.os }}-py${{ hashFiles('.python-version') }}-${{ hashFiles('uv.lock', 'pyproject.toml') }}-
+            mypy-${{ runner.os }}-py${{ matrix.python }}-${{ hashFiles('uv.lock', 'pyproject.toml') }}-
 
       - run: uv run -- mypy --install-types
 
@@ -168,17 +178,23 @@ jobs:
       - run: just verify-release
 
   integration-e2e:
-    name: Docker-backed integration, end-to-end, and coverage
+    name: Docker-backed integration, end-to-end, and coverage (${{ matrix.python }})
     needs: [scope, prek, prettier]
     if: needs.scope.outputs.python == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ${{ fromJSON(needs.scope.outputs.python-versions) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - uses: $/.github/actions/setup-toolchain
+        with:
+          python-version: ${{ matrix.python }}
 
       - run: uv sync --locked --all-groups
 
@@ -187,21 +203,35 @@ jobs:
           path: |
             .pytest_cache
             .hypothesis
-          key: pytest-hypothesis-${{ runner.os }}-py${{ hashFiles('.python-version') }}-${{ hashFiles('uv.lock', 'pyproject.toml', 'pytest.ini') }}-${{ github.sha }}
+          key: pytest-hypothesis-${{ runner.os }}-py${{ matrix.python }}-${{ hashFiles('uv.lock', 'pyproject.toml', 'pytest.ini') }}-${{ github.sha }}
           restore-keys: |
-            pytest-hypothesis-${{ runner.os }}-py${{ hashFiles('.python-version') }}-${{ hashFiles('uv.lock', 'pyproject.toml', 'pytest.ini') }}-
+            pytest-hypothesis-${{ runner.os }}-py${{ matrix.python }}-${{ hashFiles('uv.lock', 'pyproject.toml', 'pytest.ini') }}-
 
       - run: just tests_and_coverage
 
       - if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: pytest-log
+          name: pytest-log-${{ matrix.python }}
           path: |
             pytest.log
             pytest-gw*.log
           if-no-files-found: ignore
           retention-days: 7
+
+  python-compatibility:
+    name: Python compatibility
+    needs: [scope, package, integration-e2e]
+    if: always() && needs.scope.outputs.python == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - env:
+          PACKAGE_RESULT: ${{ needs.package.result }}
+          TEST_RESULT: ${{ needs.integration-e2e.result }}
+        run: |
+          test "${PACKAGE_RESULT}" = success
+          test "${TEST_RESULT}" = success
 
   memory:
     name: Cache memory regression guard
