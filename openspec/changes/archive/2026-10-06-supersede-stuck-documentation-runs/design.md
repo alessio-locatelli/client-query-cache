@@ -2,14 +2,14 @@
 
 ## Context
 
-See proposal.md - Why. GitHub's [Actions limits](https://docs.github.com/en/actions/reference/limits) bound only execution time per job; the 24-hour queue limit applies to self-hosted runners, so no workflow setting bounds how long a GitHub-hosted job can stay queued. Every documentation run checks out `main` and resolves the latest stable release when it runs, so its output depends on repository state rather than on its trigger.
+GitHub's [Actions limits](https://docs.github.com/en/actions/reference/limits) bound only execution time per job; the 24-hour queue limit applies to self-hosted runners, so no workflow setting bounds how long a GitHub-hosted job can stay queued. Every documentation run checks out `main` and resolves the latest stable release when it runs, so its output depends on repository state rather than on its trigger.
 
 ## Goals / Non-Goals
 
 **Goals:**
 
-- A stuck documentation run does not hold later publication behind it.
-- Runs that cannot publish never cancel or replace a run that can.
+- A newer eligible run requests cancellation of a stuck documentation run instead of queueing behind it; GitHub controls when the stuck run is released.
+- Runs that are ineligible to publish never cancel or replace an eligible run.
 
 **Non-Goals:**
 
@@ -18,11 +18,11 @@ See proposal.md - Why. GitHub's [Actions limits](https://docs.github.com/en/acti
 
 ## Decisions
 
-### Newer eligible runs cancel the run holding the site
+### Newer eligible runs request cancellation of the run holding the site
 
 Use `cancel-in-progress: true` on the documentation group.
 
-- Pros: The next push to `main`, successful release, or manual redeploy supersedes a stuck run. Only the newest run matters because each run rebuilds current state, and GitHub already drops intermediate pending runs. `actions/deploy-pages` cancels its Pages deployment on cancellation, and Pages keeps serving the last successful deployment.
+- Pros: The next push to `main`, successful release, or manual redeploy requests cancellation of a stuck run instead of queueing behind it. Only the newest run matters because each run rebuilds current state, and GitHub already drops intermediate pending runs. `actions/deploy-pages` cancels its Pages deployment on cancellation, and Pages keeps serving the last successful deployment.
 - Cons: Continuous pushes to `main` delay publication until they stop.
 - Unknowns: GitHub may fail to cancel a run whose job state is broken; reproducing that requires a platform failure. The repository can only request cancellation, so `CONTRIBUTING.md` documents the [force-cancel API](https://docs.github.com/en/rest/actions/workflow-runs#force-cancel-a-workflow-run) as recovery. Nothing else is needed.
 
@@ -49,4 +49,4 @@ Alternative: **job-level concurrency**, which skipped jobs do not acquire. It re
 ## Risks / Trade-offs
 
 - [GitHub cannot cancel a broken run] → `CONTRIBUTING.md` documents force-cancel recovery.
-- [A stuck run with no newer run] → A manual run from `main` supersedes it.
+- [A stuck run with no newer run] → A manual run from `main` requests its cancellation.

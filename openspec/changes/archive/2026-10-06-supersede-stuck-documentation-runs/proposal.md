@@ -2,7 +2,7 @@
 
 ## Why
 
-Documentation publication keeps one run per site and never cancels it. When GitHub never assigns a runner to a job, that job stays queued indefinitely: `timeout-minutes` does not count queue time, and GitHub-hosted runs are cancelled only by the 35-day run limit. One such job therefore blocked every later documentation run.
+Documentation publication keeps one run per site and never cancels it. When GitHub never assigns a runner to a job, `timeout-minutes` does not apply because it excludes queue time, and the job can remain queued until its run reaches the 35-day limit unless it is cancelled earlier. One such job therefore blocked every later documentation run.
 
 ## What Changes
 
@@ -18,7 +18,7 @@ None.
 
 ### Modified Capabilities
 
-- `continuous-integration`: documentation publication runs supersede one another instead of serializing; ineligible runs stay outside the site's concurrency group.
+- `continuous-integration`: newer documentation publication runs request cancellation of older ones instead of serializing; ineligible runs stay outside the site's concurrency group.
 
 ## Impact
 
