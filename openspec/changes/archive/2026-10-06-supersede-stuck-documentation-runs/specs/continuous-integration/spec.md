@@ -30,12 +30,12 @@ Relevant changes on `main` SHALL build and publish the documentation automatical
 
 ### Requirement: Newer documentation publication runs supersede older ones
 
-At most one documentation publication run SHALL hold the site at a time. A newer eligible run SHALL cancel the run holding the site, whether that run is queued, building, or deploying, so a run that never starts or never finishes cannot block later publication. A run that is ineligible to publish SHALL neither cancel nor replace an eligible run.
+Eligible documentation publication runs SHALL share one cancellable concurrency group for the site. A newer eligible run SHALL request cancellation of the run holding the site, whether that run is queued, building, or deploying, instead of waiting for it to finish. A run that is ineligible to publish SHALL neither cancel nor replace an eligible run.
 
 #### Scenario: A deploy job is never assigned a runner
 
 - **WHEN** an eligible run's deploy job stays queued and a later eligible run starts
-- **THEN** the later run cancels the stuck run and publishes the site
+- **THEN** the later run requests cancellation of the stuck run instead of queueing behind it, and publishes the site once GitHub releases the stuck run
 
 #### Scenario: Changes reach `main` during a deployment
 
