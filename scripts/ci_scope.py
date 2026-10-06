@@ -47,13 +47,14 @@ def main() -> None:
     )
     formatting = any(
         path.endswith((".json", ".json5", ".jsonc", ".md", ".yaml", ".yml"))
-        or path in {".prettierignore", ".prettierrc"}
+        or path in {".node-version", ".prettierignore", ".prettierrc"}
         for path in paths
     )
     container = any(
         path
         in {
             "Containerfile",
+            ".node-version",
             ".python-version",
             "scripts/check_dev_container.sh",
         }

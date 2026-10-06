@@ -1,17 +1,24 @@
 {
   $schema: "https://docs.renovatebot.com/renovate-schema.json",
   extends: [
+    "config:best-practices",
+    ":semanticCommits",
     "customManagers:dockerfileVersions",
     "customManagers:githubActionsVersions",
   ],
-  enabledManagers: ["custom.regex", "github-actions", "pyenv"],
-  schedule: ["before 4am on the first day of the month"],
+  ignorePresets: [
+    ":maintainLockFilesWeekly",
+    ":configMigration",
+    ":ignoreModulesAndTests",
+  ],
+  enabledManagers: ["custom.regex", "github-actions", "nodenv", "pyenv"],
+  schedule: ["* * 1-7 * *"],
+  timezone: "Etc/UTC",
+  prConcurrentLimit: 2,
+  prHourlyLimit: 3,
+  commitHourlyLimit: 4,
   minimumReleaseAge: "7 days",
   minimumReleaseAgeBehaviour: "timestamp-optional",
-  automerge: false,
-  lockFileMaintenance: {
-    enabled: false,
-  },
   customManagers: [
     {
       customType: "regex",
@@ -46,16 +53,10 @@
     },
     {
       matchPackageNames: ["mongo"],
-      allowedVersions: "/^8\\.0\\.\\d+-noble$/",
+      matchManagers: ["custom.regex"],
+      matchDatasources: ["docker"],
+      pinDigests: false,
       groupName: "MongoDB test and benchmark image",
-    },
-    {
-      matchManagers: ["pyenv"],
-      allowedVersions: "/^3\\.14\\.\\d+$/",
-    },
-    {
-      matchPackageNames: ["node"],
-      allowedVersions: "/^24(?:\\.|$)/",
     },
     {
       matchPackageNames: ["prek"],

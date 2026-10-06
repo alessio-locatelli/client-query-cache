@@ -1,0 +1,138 @@
+name: Accept dependency updates
+
+on:
+  workflow_run: # zizmor: ignore[dangerous-triggers] -- Trusted main code and live API metadata only; no checkout, run artifacts, or caches.
+    workflows: ["Pull request validation"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Existing dependency pull request number
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: read # Verify live PR metadata before issuing an App token.
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  GH_REPO: ${{ github.repository }}
+  PR_POLICY: >-
+    .state == "open" and .draft == false and
+    .user.type == "Bot" and
+    (.user.login == "dependabot[bot]" or .user.login == "renovate[bot]") and
+    .head.repo.full_name == $repo and .base.repo.full_name == $repo and
+    .base.ref == "main" and ($head == "" or .head.sha == $head)
+
+jobs:
+  select:
+    name: Verify dependency update
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event_name == 'workflow_run' &&
+        github.event.workflow_run.event == 'pull_request' &&
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.path == '.github/workflows/test.yml' &&
+        github.event.workflow_run.head_repository.full_name == github.repository))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    concurrency:
+      group: dependency-selection-${{ github.event.workflow_run.head_sha || inputs.pr_number }}
+      cancel-in-progress: true
+    outputs:
+      eligible: ${{ steps.metadata.outputs.eligible }}
+      pr_number: ${{ steps.metadata.outputs.pr_number }}
+      head_sha: ${{ steps.metadata.outputs.head_sha }}
+    steps:
+      - id: metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          RUN_HEAD: ${{ github.event.workflow_run.head_sha }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+        run: |
+          if [[ "$EVENT_NAME" == "workflow_run" ]]; then
+            if ! jq -e '.workflow_run.actor | .type == "Bot" and (.login == "dependabot[bot]" or .login == "renovate[bot]")' "$GITHUB_EVENT_PATH" > /dev/null; then
+              echo "::notice::Validation was not initiated by a dependency bot; no acceptance requested."
+              exit 0
+            fi
+            candidates="$(gh api --paginate --slurp "repos/$GH_REPO/commits/$RUN_HEAD/pulls" | jq 'add')"
+          else
+            if [[ ! "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
+              echo "::error::A positive pull request number is required."
+              exit 1
+            fi
+            candidates="$(gh api "repos/$GH_REPO/pulls/$PR_NUMBER" --jq '[.]')"
+          fi
+          if pr="$(jq -er --arg repo "$GH_REPO" --arg head "$RUN_HEAD" \
+            "map(select($PR_POLICY)) | if length == 1 then .[0] else empty end" <<< "$candidates")"; then
+            echo "eligible=true" >> "$GITHUB_OUTPUT"
+            jq -r '"pr_number=\(.number)\nhead_sha=\(.head.sha)"' <<< "$pr" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::No unique eligible PR matches the validated head; no acceptance requested."
+          fi
+
+  accept:
+    name: Approve and enable native auto-merge
+    needs: select
+    if: needs.select.outputs.eligible == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    concurrency:
+      group: dependency-automerge-${{ needs.select.outputs.pr_number }}
+      cancel-in-progress: false
+    env:
+      PR_NUMBER: ${{ needs.select.outputs.pr_number }}
+      HEAD_SHA: ${{ needs.select.outputs.head_sha }}
+    steps:
+      - id: metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          pr="$(gh api "repos/$GH_REPO/pulls/$PR_NUMBER")"
+          if jq -e --arg repo "$GH_REPO" --arg head "$HEAD_SHA" "$PR_POLICY" <<< "$pr" > /dev/null; then
+            echo "eligible=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::PR metadata changed; no acceptance requested."
+          fi
+
+      - id: configuration
+        if: steps.metadata.outputs.eligible == 'true'
+        env:
+          CONFIGURED: ${{ vars.DEPENDENCY_AUTOMERGE_APP_ID != '' && secrets.DEPENDENCY_AUTOMERGE_APP_PRIVATE_KEY != '' }} # zizmor: ignore[secrets-outside-env] -- Repository App configuration; only test presence after metadata verification.
+        run: |
+          echo "configured=$CONFIGURED" >> "$GITHUB_OUTPUT"
+          if [[ "$CONFIGURED" != "true" ]]; then
+            echo "::warning::Dependency acceptance is inactive: configure the App ID and private-key secret."
+            echo "Dependency acceptance is inactive. Configure DEPENDENCY_AUTOMERGE_APP_ID and DEPENDENCY_AUTOMERGE_APP_PRIVATE_KEY after completing the operator checklist." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: app-token
+        if: steps.configuration.outputs.configured == 'true'
+        with:
+          app-id: ${{ vars.DEPENDENCY_AUTOMERGE_APP_ID }}
+          private-key: ${{ secrets.DEPENDENCY_AUTOMERGE_APP_PRIVATE_KEY }} # zizmor: ignore[secrets-outside-env] -- Repository App credential goes only to this pinned action after metadata verification.
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-pull-requests: write
+
+      - if: steps.configuration.outputs.configured == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          verify_pr() {
+            gh api "repos/$GH_REPO/pulls/$PR_NUMBER" \
+              | jq -e --arg repo "$GH_REPO" --arg head "$HEAD_SHA" "$PR_POLICY" > /dev/null
+          }
+          verify_pr
+          gh api --method POST "repos/$GH_REPO/pulls/$PR_NUMBER/reviews" \
+            -f event=APPROVE -f commit_id="$HEAD_SHA" --silent
+          verify_pr
+          gh pr merge "$PR_NUMBER" --auto --rebase --match-head-commit "$HEAD_SHA"

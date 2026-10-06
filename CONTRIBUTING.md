@@ -12,8 +12,10 @@ tools on `PATH`.
 ## Environment
 
 The image pins its base digest, Python, and tools installed outside DNF. DNF selects
-`bash`, `just`, `nodejs24`, `nodejs24-npm`, and `uv` from the Fedora 44 repositories
-at build time; Node.js stays on the 24 package track. These package versions are
+`bash`, `just`, `uv`, and the Node.js/npm packages from the Fedora 44 repositories
+at build time. Renovate maintains `.node-version`; CI reads that file and the
+container selects the same Node.js major track. A Node.js update must pass the
+container build and tool checks before it can merge. These RPM versions are
 unpinned because the selected update bots cannot safely update the Fedora RPM pins:
 Renovate’s [RPM parser](https://github.com/renovatebot/renovate/blob/main/lib/modules/datasource/rpm/providers/xml.ts)
 omits epochs and architecture filtering.
@@ -46,7 +48,10 @@ just setup
 ## Executable updates
 
 See the [executable update inventory and validation commands](docs/development/executable-version-updates.md).
-CI and the development image use the exact Python patch selected in `.python-version`.
+Renovate maintains the latest stable development Python in `.python-version`; the
+development image uses that exact patch. CI retains the exact declared minimum Python patch, intermediate supported
+release lines, and the exact development interpreter. Python hook
+environments retain the supported 3.14 compatibility baseline independently.
 
 ## Validate changes
 

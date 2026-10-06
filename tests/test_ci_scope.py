@@ -61,6 +61,9 @@ pytestmark = pytest.mark.unit
             (".python-version",), True, False, True, True, True, id="python-version"
         ),
         pytest.param(
+            (".node-version",), False, True, True, False, False, id="node-version"
+        ),
+        pytest.param(
             ("tests/conftest.py",),
             True,
             False,
