@@ -9,7 +9,7 @@ Update proposals SHALL retain exact version selection, digest pinning, and image
 #### Scenario: A new MongoDB major version is available
 
 - **WHEN** a newer MongoDB major has an eligible noble image tag
-- **THEN** Renovate automatically proposes the newer major for both test and benchmark images and requests merging after required CI passes, without a separate maintainer decision
+- **THEN** Renovate automatically proposes the newer major for both test and benchmark images, and the PR merges after required CI and automated approval without a separate maintainer decision
 
 #### Scenario: Fedora packages are installed during a rebuild
 
@@ -25,7 +25,7 @@ Update proposals SHALL retain exact version selection, digest pinning, and image
 
 ### Requirement: Bots create and accept eligible updates automatically
 
-Dependabot and Renovate SHALL create eligible update PRs without a manual dashboard action and request GitHub native automerge. After required CI and automated approval succeed, updates SHALL merge without maintainer action. Major, minor, patch, and digest updates SHALL use the same acceptance policy within existing bot ownership. Missing setup or permissions SHALL produce a visible blocker, not a claim of successful activation.
+Dependabot and Renovate SHALL create eligible update PRs without manual dashboard action. Eligible PRs SHALL have GitHub native automerge requested automatically and merge after required CI and automated approval without maintainer action. Major, minor, patch, and digest updates SHALL share the same acceptance policy within existing bot ownership. Missing setup or permissions SHALL produce a visible blocker.
 
 #### Scenario: An eligible bot update passes CI
 
@@ -96,6 +96,11 @@ Renovate policy SHALL reuse official presets for best practices and semantic com
 
 - **WHEN** the best-practices preset is resolved
 - **THEN** weekly lockfile maintenance and experimental configuration migration are excluded without restating their disabled defaults
+
+#### Scenario: An inherited preset ignores test directories
+
+- **WHEN** Renovate resolves the best-practices baseline for its MongoDB custom manager
+- **THEN** the nested test-directory ignore preset is excluded, so both test and benchmark image occurrences remain available for coupled extraction
 
 ### Requirement: Ordinary update proposals have bounded volume
 
