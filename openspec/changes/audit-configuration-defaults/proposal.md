@@ -6,7 +6,7 @@ Restating tool defaults adds configuration noise and suggests that ordinary beha
 
 ## What Changes
 
-- Audit repository-owned configuration and automation, remove behaviorally redundant defaults, and explain every retained non-default option or flag using the requested sentence format.
+- Audit repository-owned configuration and automation, remove behaviorally redundant defaults, and explain retained behavioral overrides using the requested sentence format within the scope defined by the specification delta.
 - Establish a durable contributor policy for verifying defaults and maintaining override explanations.
 
 ## Capabilities
