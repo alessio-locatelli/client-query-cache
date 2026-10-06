@@ -72,7 +72,20 @@ writes and schema changes occur.
 
 Both find cursor paths build exact and limit-independent identities through
 `_core.find_reads.find_read_shape()` from the same final native fields, preserving
-the executed filter representation. Only non-boolean integer limits at least zero
+the executed filter representation. `_core.query_filters.find_filter_key()`
+sorts top-level scalar equality predicates only for plain dictionaries whose
+field names are exact built-in strings not starting with `$` and whose values are `None` or
+exact built-in bool, int, float, or str instances. A private tag separates this
+representation from ordered fallback, and existing numeric value tags retain
+bool/int/float/BSON Int64 distinctions through full key canonicalization.
+Documents, arrays, operators, BSON scalars, regexes, and custom forms use the
+unchanged order-sensitive representation. The helper performs no recursive
+semantic classification and never rewrites the native `_spec`; eligibility
+still examines the original query. Lookup, limit-family membership, and capture
+admission share the same filter representation. Other read methods do not use
+this helper. [Differential evidence and measurements](../../reports/query-filter-normalization/summary.md)
+record the tested MongoDB/PyMongo versions and limitations.
+Only non-boolean integer limits at least zero
 produce `FindSource` admission metadata; zero denotes an unlimited source.
 Each namespace's `find_families` maps compact family hashes to actual resident
 entry tokens and their physical keys. Source descriptors retain only the hash

@@ -43,7 +43,7 @@ def test_family_preserves_every_other_final_input(component: int) -> None:
         "codec",
     ]
     changes = [
-        {"b": 2, "a": 1},
+        {"b": 3, "a": 1},
         {"b": 1},
         {"b": -1, "a": 1},
         1,

@@ -12,7 +12,7 @@ The current find discriminator preserves all mapping order, including top-level 
 - Normalize cache identity only; pass the caller's original filter unchanged to native execution and validation.
 - Require raw-server differential evidence on the existing supported MongoDB fixture, including matching documents, explicitly sorted ordering, relevant errors, and embedded-document-order fallback counterexamples. Add selected version checks only for a concrete compatibility concern.
 - Apply the same filter representation to synchronous and asyncio find lookup and admission, retaining all other read-shape and namespace distinctions.
-- Exclude other read methods and additional equivalence rules from this first change. Limit subsumption is planned separately in `add-find-limit-subsumption`.
+- Exclude other read methods and additional equivalence rules from this first change.
 
 ## Capabilities
 
@@ -27,6 +27,6 @@ None.
 
 ## Impact
 
-Add a small filter-key helper under `_core` and integrate it into both find cursor preparation paths. Keep `canonical.py`, `order_sensitive_keys.py`, single-document optimizations, counts, distinct, and aggregation semantics unchanged. Extend core property tests and real-server cursor command monitoring using the existing disposable MongoDB fixture. No test-runner option, version inventory, or new test infrastructure is required. Update the public cached-read guide, affected API references, and `context7.json` during implementation.
+Add a small filter-key helper under `_core` and integrate it into both find cursor preparation paths. Keep `canonical.py`, `order_sensitive_keys.py`, single-document optimizations, counts, distinct, and aggregation semantics unchanged. Use one-off differential and performance experiments for implementation evidence, with focused core/cached-read regressions and representative key benchmarks retained in the suite. No test-runner option, version inventory, or new test infrastructure is required. Update the public cached-read guide, affected API references, and `context7.json` during implementation.
 
 This change is executable on its own and modifies only the find filter component. The shared cache-core requirement uses operation-neutral wording; normalization-specific scenarios live in their own added requirement, so no deferred delta reconciliation is required.

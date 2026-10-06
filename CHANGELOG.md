@@ -9,6 +9,7 @@
 
 ### Features
 
+- Cached `find()` reuses results across top-level permutations of ordinary scalar equality predicates in synchronous and asyncio views.
 - **Breaking:** Cached `find()` and `aggregate()` return native PyMongo cursor subclasses. Call asyncio `find()` without `await` and consume results through the cursor.
 - Streaming reads populate the cache only after full consumption and within configured cache limits. Requests with cursor-only options execute through PyMongo without caching.
 
