@@ -4,17 +4,17 @@
 
 ### Requirement: Updates preserve release policies and review
 
-Update proposals SHALL retain exact versions, existing digests, image variants, and configured release tracks, use monthly cadence, and merge automatically after required CI passes. Timestamped releases SHALL age at least seven days; missing timestamps SHALL NOT block indefinitely. Fedora DNF tools SHALL remain unpinned, resolve from Fedora 44 with Node.js 24, and be excluded from bot extraction.
+Update proposals SHALL retain exact version selection, digest pinning, and image variants, use monthly cadence, and merge automatically after required CI passes. Major updates SHALL have the same automatic creation and acceptance policy as other updates, without repository version caps. Timestamped releases SHALL age at least seven days; missing timestamps SHALL NOT block indefinitely. Fedora DNF tools SHALL remain unpinned and excluded from bot extraction.
 
 #### Scenario: A new MongoDB major version is available
 
-- **WHEN** an image is configured on the MongoDB 8.0 noble track and a newer major is published
-- **THEN** its automatic proposal stays on 8.0 noble, while an intentional track change requires a separate maintainer decision
+- **WHEN** a newer MongoDB major has an eligible noble image tag
+- **THEN** Renovate automatically proposes the newer major for both test and benchmark images and requests merging after required CI passes, without a separate maintainer decision
 
 #### Scenario: Fedora packages are installed during a rebuild
 
 - **WHEN** the development image is rebuilt
-- **THEN** DNF resolves compatible package versions from Fedora 44 repositories, retaining the Node.js 24 package track without requiring bot updates to RPM pins
+- **THEN** DNF resolves package versions from the selected Fedora base repositories without requiring bot updates to RPM pins
 
 #### Scenario: A release has no timestamp
 
@@ -25,17 +25,17 @@ Update proposals SHALL retain exact versions, existing digests, image variants, 
 
 ### Requirement: Bots create and accept eligible updates automatically
 
-Dependabot and Renovate SHALL create eligible update PRs without a manual dashboard action and request GitHub native automerge. After required CI and automated approval succeed, eligible updates SHALL merge without maintainer action. This policy SHALL apply to all update types permitted by existing release and ownership constraints. Missing setup or permissions SHALL produce a visible blocker, not a claim of successful activation.
+Dependabot and Renovate SHALL create eligible update PRs without a manual dashboard action and request GitHub native automerge. After required CI and automated approval succeed, updates SHALL merge without maintainer action. Major, minor, patch, and digest updates SHALL use the same acceptance policy within existing bot ownership. Missing setup or permissions SHALL produce a visible blocker, not a claim of successful activation.
 
 #### Scenario: An eligible bot update passes CI
 
 - **WHEN** a same-repository Dependabot or Renovate update targeting main passes all required checks against the current base and receives automated approval
 - **THEN** GitHub merges it automatically using the permitted merge method without manual creation, approval, or merge
 
-#### Scenario: A permitted major update passes CI
+#### Scenario: A major update passes CI
 
-- **WHEN** a major dependency update is allowed by its existing update policy and passes required CI
-- **THEN** its update type does not impose an extra manual-approval requirement
+- **WHEN** a bot proposes a major dependency update and it passes required CI
+- **THEN** automated approval and native automerge accept it under the same policy as other updates
 
 ### Requirement: Required validation gates automatic merging
 
@@ -85,7 +85,7 @@ The repository SHALL retain one recognized root Renovate configuration with the 
 
 ### Requirement: Dependency update policy reuses official presets
 
-Renovate policy SHALL reuse official presets for best practices and semantic commits. Repository configuration SHALL specify only necessary overrides and ownership-specific rules, without restating inherited defaults. Preset adoption SHALL preserve exclusive bot ownership, release tracks, coupled updates, automated acceptance, and exclusive lockfile ownership.
+Renovate policy SHALL reuse official presets for best practices and semantic commits. Repository configuration SHALL specify only necessary overrides and ownership-specific rules, without restating inherited defaults. Preset adoption SHALL preserve exclusive bot ownership, coupled updates, automated acceptance, and exclusive lockfile ownership without restricting major updates.
 
 #### Scenario: Best-practice presets are enabled
 
@@ -99,7 +99,7 @@ Renovate policy SHALL reuse official presets for best practices and semantic com
 
 ### Requirement: Ordinary update proposals have bounded volume
 
-Ordinary Renovate updates SHALL be limited to two concurrent PRs and one newly created PR per hour, with the concurrent branch limit inherited from the PR limit. Contributor guidance SHALL explain that these limits apply to Renovate, do not control hosted polling, and have documented vulnerability-alert exceptions.
+Ordinary Renovate updates SHALL be limited to two concurrent PRs and three newly created PRs per hour, with the concurrent branch limit inherited from the PR limit. Contributor guidance SHALL explain that these limits apply to Renovate, do not control hosted polling, and have documented vulnerability-alert exceptions.
 
 #### Scenario: The ordinary update queue is full
 
@@ -108,16 +108,16 @@ Ordinary Renovate updates SHALL be limited to two concurrent PRs and one newly c
 
 #### Scenario: The hourly proposal budget is used
 
-- **WHEN** Renovate has created one ordinary update PR in the current hourly period
+- **WHEN** Renovate has created three ordinary update PRs in the current hourly period
 - **THEN** another ordinary update PR waits for a later hourly period
 
 ### Requirement: Automatic branch commits have a separate budget
 
-Renovate SHALL limit ordinary automatic branch creation and rebasing to two pushed commits per hour. Contributor guidance SHALL distinguish this CI-load budget from PR creation limits and disclose manual-rebase and vulnerability-alert exceptions rather than promising an absolute bound on runs.
+Renovate SHALL limit ordinary automatic branch creation and rebasing to four pushed commits per hour. Contributor guidance SHALL distinguish this CI-load budget from PR creation limits and disclose manual-rebase and vulnerability-alert exceptions rather than promising an absolute bound on runs.
 
 #### Scenario: An automatic rebase consumes the commit budget
 
-- **WHEN** two ordinary branch creation or automatic rebase commits have been pushed in an hourly period
+- **WHEN** four ordinary branch creation or automatic rebase commits have been pushed in an hourly period
 - **THEN** further ordinary automatic commits wait for a later hourly period
 
 ### Requirement: The monthly proposal window accommodates throttling
