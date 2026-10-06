@@ -31,3 +31,8 @@
 - [x] 5.2 If you are Claude Code, confirm that you added no new prose to code; all why explanations must go in specs and commit bodies. OpenAI Codex is exempt; this proposal targets Codex's permitted inline comments.
 
 - [x] 5.3 Apply revised Decision 3 to every entry of the current reference page, deleting the page and its links after relocation. Verify that executable configuration and commands are unchanged, and carry the locality delta into main specs during completion.
+
+- [x] 5.4 Correct default-pin terminology in the workflow comments and rationale requirement; verify the parsed workflows are unchanged.
+
+- [x] 5.5 Consolidate repeated workflow rationales using the existing traceability and locality requirements, enumerating shared occurrences within each owning file; verify executable workflows are unchanged.
+- [x] 5.6 Verify the Prek rationale evidence against the selected version and correct the evidence comments without changing the project pins.

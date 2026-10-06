@@ -3,7 +3,7 @@ name: Publish to PyPI
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   # https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#concurrency
-  # The default is false. We override it because release publication must not be interrupted after publishing to PyPI but before undrafting its GitHub release; this privileged safety pin stays explicit because disposable jobs cannot exercise that live two-service transition.
+  # The default is false. We keep it explicit because release publication must not be interrupted after publishing to PyPI but before undrafting its GitHub release; this privileged safety pin stays explicit because disposable jobs cannot exercise that live two-service transition.
   cancel-in-progress: false
 
 on:
@@ -28,9 +28,10 @@ jobs:
     # their assigned validation/publication budgets.
     timeout-minutes: 15
     permissions:
-      # contents: The default is workflow read access. We override it because these
-      # release jobs create a draft and publish the verified GitHub release.
-      contents: write # Required by `gh release create` to draft the GitHub Release.
+      # contents for build-and-verify and publish-github-release: The default is
+      # workflow read access. We override it because these jobs create a draft and
+      # publish the verified GitHub release.
+      contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -109,9 +110,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
-      # contents: The default is workflow read access. We override it because these
-      # release jobs create a draft and publish the verified GitHub release.
-      contents: write # Required by `gh release edit` to undraft the GitHub Release.
+      contents: write
     steps:
       # gh 2.97.0: https://cli.github.com/manual/gh_release_edit
       # --draft=false: The default is preserving existing draft state. We override it
