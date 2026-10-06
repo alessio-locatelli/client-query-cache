@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.3.0] - 2026-10-06
+
 ### Bug fixes
 
 - Cached `count_documents()` preserves explicit options and native PyMongo/MongoDB errors in synchronous and asyncio views. Omitted `skip` and `skip=0` share cached counts.
