@@ -1,8 +1,8 @@
 name: Publish documentation
 
 concurrency:
-  group: documentation-publication
-  cancel-in-progress: false
+  group: ${{ github.ref == 'refs/heads/main' && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success') && 'documentation-publication' || format('documentation-skipped-{0}', github.run_id) }}
+  cancel-in-progress: true
 
 on: # zizmor: ignore[dangerous-triggers] Trusted main only; no triggering-run code or artifacts.
   push:
@@ -64,7 +64,6 @@ jobs:
 
   deploy:
     name: Deploy documentation
-    if: github.ref == 'refs/heads/main' && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success')
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 10
