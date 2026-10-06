@@ -43,6 +43,29 @@ The ceiling measures neither process RSS nor cumulative allocation volume. This 
 does not prove cursor, thread, asyncio-task, or telemetry cleanup, and small leaks can remain below
 the ceiling. Structural checks complement the allocation limit.
 
+## Command options
+
+The `justfile` memory recipe and the calibration command below share these
+options. Defaults include the inherited `pytest.ini` values.
+
+- `--trace-python-allocators`: The default is false. We override it because the
+  allocation ceiling must include Python allocator activity, not only native allocations.
+- `--capture=no`: The default is fd capture. We override it because retained
+  captured output would distort the allocation measurement.
+- `--log-level=CRITICAL` and `--log-file-level=CRITICAL`: The default is configured
+  DEBUG for each. We override it because retained debug records would distort
+  the allocation measurement.
+- `--log-file=/dev/null`: The default is configured pytest.log. We override it
+  because measurement runs must not create persistent diagnostic log files.
+- `--timeout=120`: The default is configured 30s. We override it because profiled
+  allocation workloads need a longer bounded runtime.
+
+Sources: [pytest-memray 1.11.0 options](https://pytest-memray.readthedocs.io/en/latest/usage.html),
+[pytest logging/capture](https://docs.pytest.org/en/stable/reference/reference.html),
+and [pytest-timeout 2.4.0](https://pypi.org/project/pytest-timeout/2.4.0/).
+Marker and worker selections are explained in
+[configuration overrides](configuration-overrides.md#pytest-command-overrides).
+
 ## Calibration
 
 Calibrate on Ubuntu 24.04, the same operating system family as CI's `ubuntu-24.04` runner label,
@@ -56,7 +79,7 @@ workload changes and record the reason for changing a ceiling.
 ```bash
 for case in identity-with-alias namespace; do
     for run in {1..10}; do
-        uv run --locked --group memory -- pytest tests/memory -m memory -k "$case" \
+        uv run --locked --group memory -- pytest tests/memory -m memory -n 0 -k "$case" \
             --memray --trace-python-allocators \
             --memray-bin-path="memory-reports/baseline/$case/$run" --capture=no \
             --log-level=CRITICAL --log-file=/dev/null --log-file-level=CRITICAL --timeout=120

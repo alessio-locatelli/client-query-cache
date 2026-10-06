@@ -113,7 +113,7 @@ class IsolatedReplicaSet:
         container: DockerContainer | None = None
         try:
             container = DockerContainer(MONGODB_IMAGE)
-            container.with_command(["--replSet", _REPLICA_SET_NAME, "--bind_ip_all"])
+            container.with_command(["--replSet", _REPLICA_SET_NAME])
             container.with_exposed_ports(_MONGODB_PORT)
             container.with_kwargs(
                 nano_cpus=int(self._limits.cpus * _NANOCPUS_PER_CPU),

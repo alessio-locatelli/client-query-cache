@@ -60,7 +60,7 @@ def _revision() -> str:
     if git_path is None:  # pragma: no cover - git always installed in CI
         raise RuntimeError("git is required to identify the benchmark revision")
     return subprocess.check_output(  # noqa: S603 - fixed git arguments
-        [git_path, "rev-parse", "--short=7", "HEAD"], text=True, shell=False
+        [git_path, "rev-parse", "--short=7", "HEAD"], text=True
     ).strip()
 
 

@@ -9,7 +9,6 @@ on:
     inputs:
       tag:
         description: Candidate release tag (e.g. v1.2.3) to check against the declared package version. Leave empty to verify build and import only.
-        required: false
         type: string
 
 permissions:

@@ -38,13 +38,13 @@ build:
     uv build
 
 docs-serve:
-    uv run --locked --only-group docs -- zensical serve
+    uv run --only-group docs -- zensical serve
 
 docs-build:
-    uv run --locked --only-group docs -- zensical build --clean --strict
+    uv run --only-group docs -- zensical build --clean --strict
 
 docs-build-editions stable_tag:
-    uv run --locked --only-group docs -- python -m scripts.build_versioned_docs {{ quote(stable_tag) }}
+    uv run --only-group docs -- python -m scripts.build_versioned_docs {{ quote(stable_tag) }}
 
 verify-release tag='': build
     #!/usr/bin/env bash
@@ -94,7 +94,7 @@ pytest *args:
     exec uv run "${env_file_args[@]}" --group docs -- pytest "$@"
 
 build-dev-image:
-    podman build --tag {{ dev_image }} --file Containerfile .
+    podman build --tag {{ dev_image }} .
 
 create-toolbox:
     @if podman container exists {{ dev_container }}; then printf '%s already exists.\n' {{ dev_container }}; else toolbox create --image {{ dev_image }} {{ dev_container }}; fi
@@ -165,7 +165,7 @@ test-memory:
         Linux) ;;
         *) printf '%s\n' 'Memory tests require the locked Linux environment: https://bloomberg.github.io/memray/' >&2; exit 1 ;;
     esac
-    exec uv run --locked --group memory -- pytest tests/memory -m memory -n 0 --memray --trace-python-allocators --memray-bin-path=memory-reports --capture=no --log-level=CRITICAL --log-file=/dev/null --log-file-level=CRITICAL --timeout=120
+    exec uv run --group memory -- pytest tests/memory -m memory -n 0 --memray --trace-python-allocators --memray-bin-path=memory-reports --capture=no --log-level=CRITICAL --log-file=/dev/null --log-file-level=CRITICAL --timeout=120
 
 test-integration:
     #!/usr/bin/env bash

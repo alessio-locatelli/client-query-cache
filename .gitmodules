@@ -1,4 +1,6 @@
 [submodule "specifications"]
 	path = specifications
 	url = https://github.com/mongodb/specifications/
+	# Git 2.55: https://git-scm.com/docs/gitmodules
+	# The default is a non-shallow clone. We override it because contract references use the pinned snapshot without upstream commit history.
 	shallow = true

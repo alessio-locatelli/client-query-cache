@@ -2,6 +2,8 @@ name: Publish to PyPI
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
+  # https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#concurrency
+  # The default is false. We override it because release publication must not be interrupted after publishing to PyPI but before undrafting its GitHub release; this privileged safety pin stays explicit because disposable jobs cannot exercise that live two-service transition.
   cancel-in-progress: false
 
 on:

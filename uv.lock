@@ -243,6 +243,7 @@ dev = [
     { name = "pytest-timeout" },
     { name = "pytest-xdist", extra = ["psutil"] },
     { name = "python-snappy" },
+    { name = "pyyaml" },
     { name = "slotscheck" },
     { name = "strict-no-cover" },
     { name = "testcontainers", extra = ["mongodb"] },
@@ -255,6 +256,7 @@ dev = [
     { name = "types-psutil" },
     { name = "types-pygments" },
     { name = "types-pysocks" },
+    { name = "types-pyyaml" },
     { name = "types-simplejson" },
 ]
 docs = [
@@ -289,6 +291,7 @@ dev = [
     { name = "pytest-timeout", specifier = ">=2.4.0" },
     { name = "pytest-xdist", extras = ["psutil"], specifier = ">=3.8.0" },
     { name = "python-snappy", specifier = ">=0.7.3" },
+    { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "slotscheck", specifier = ">=0.21.0" },
     { name = "strict-no-cover", specifier = ">=0.1.1" },
     { name = "testcontainers", extras = ["mongodb"], specifier = ">=4.15.0" },
@@ -301,6 +304,7 @@ dev = [
     { name = "types-psutil", specifier = ">=7.2.2.20260906" },
     { name = "types-pygments", specifier = ">=2.21.0.20260819" },
     { name = "types-pysocks", specifier = ">=1.7.1.20260518" },
+    { name = "types-pyyaml", specifier = ">=6.0.12.20260906" },
     { name = "types-simplejson", specifier = ">=4.1.0.20260724" },
 ]
 docs = [
@@ -1494,6 +1498,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/b3/6e/9f03a9eecb77b3c54870818877f00c2120570d6768efcc317522a157b002/types_pysocks-1.7.1.20260518.tar.gz", hash = "sha256:0ef3ae07bff70b2baa21b2ee323a724ceb7b242d13102528c5b495bbf2dc053c", size = 8915, upload-time = "2026-05-18T06:04:36.451Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/d7/c5/eff9e732f267e6fe01a3cc91461804ddb35db3985feebe2711fb97093bd7/types_pysocks-1.7.1.20260518-py3-none-any.whl", hash = "sha256:2adc0bb2f696017ea6a8ed834d3f74d4d8b347b19a0ef25e96e939737f222295", size = 9621, upload-time = "2026-05-18T06:04:35.706Z" },
+]
+
+[[package]]
+name = "types-pyyaml"
+version = "6.0.12.20260906"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/90/6e/abec85b9013db5b934b0280a6dd104904d84f7bcbaab2e2f3def87ac7463/types_pyyaml-6.0.12.20260906.tar.gz", hash = "sha256:f59c1cc05010b833d2d72287bbaa72610106b28d42d89a907313117faba85212", size = 18649, upload-time = "2026-09-06T06:35:35.362Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/15/c0/fc0644b7ddcfb969e95845837143cb5173ddd6e06ee4ba5fc493cd9329b7/types_pyyaml-6.0.12.20260906-py3-none-any.whl", hash = "sha256:bca893ff0d51df5c9053137d5d0e6ccd36e939a196356f1d5c16372422f5137b", size = 21282, upload-time = "2026-09-06T06:35:34.372Z" },
 ]
 
 [[package]]
