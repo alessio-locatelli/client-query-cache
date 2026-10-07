@@ -76,14 +76,7 @@ class CacheManager[DocumentType: Mapping[str, Any]]:
     def active_stream_cost_databases(self) -> list[str]:
         return self._cache.active_stream_cost_databases()
 
-    def ensure_cache_eligible(
-        self,
-        namespace: NamespaceId,
-        collection_probe: Callable[[], CollectionProbeResult | None],
-    ) -> bool:
-        return self.cache_ineligibility_reason(namespace, collection_probe) is None
-
-    def cache_ineligibility_reason(
+    def _cache_ineligibility_reason(
         self,
         namespace: NamespaceId,
         collection_probe: Callable[[], CollectionProbeResult | None],
@@ -110,23 +103,25 @@ class CacheManager[DocumentType: Mapping[str, Any]]:
             self._metadata.put(namespace, cached)
         return cached.bypass_reason
 
-    def default_collation_for(self, namespace: NamespaceId) -> Mapping[str, Any] | None:
+    def _default_collation_for(
+        self, namespace: NamespaceId
+    ) -> Mapping[str, Any] | None:
         cached = self._metadata.get(namespace)
         return cached.default_collation if cached is not None else None
 
     @overload
-    def unique_keys_for(
+    def _unique_keys_for(
         self,
         namespace: NamespaceId,
         list_indexes: Callable[[], Sequence[Mapping[str, Any]] | None],
     ) -> tuple[UniqueKeyDefinition, ...]: ...
 
     @overload
-    def unique_keys_for(
+    def _unique_keys_for(
         self, namespace: NamespaceId, list_indexes: None = None
     ) -> tuple[UniqueKeyDefinition, ...] | None: ...
 
-    def unique_keys_for(
+    def _unique_keys_for(
         self,
         namespace: NamespaceId,
         list_indexes: Callable[[], Sequence[Mapping[str, Any]] | None] | None = None,
@@ -151,7 +146,7 @@ class CacheManager[DocumentType: Mapping[str, Any]]:
     def __getitem__(self, name: str) -> CachedDatabase[DocumentType]:
         return CachedDatabase(self, self._client[name])
 
-    def cached(
+    def get_cached_collection(
         self, collection: Collection[DocumentType]
     ) -> CachedCollection[DocumentType]:
         if collection.database.client is not self._client:

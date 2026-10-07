@@ -28,7 +28,7 @@ POLICY_ID = "read-policy"
 class CachedMongoStorage(MongoStorage):  # type: ignore[misc]
     def __init__(self, manager: CacheManager[dict[str, Any]]) -> None:
         super().__init__(manager.client, db_name=DATABASE_NAME)
-        self.cached_collection = manager.cached(self.collection)
+        self.cached_collection = manager.get_cached_collection(self.collection)
 
     def get(self, uid: str) -> Policy | None:
         document = self.cached_collection.find_one(uid)

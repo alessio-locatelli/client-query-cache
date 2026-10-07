@@ -13,6 +13,11 @@ bodies or OpenSpec. An empty Unreleased section is valid.
 
 ## Unreleased
 
+### Features
+
+- **Breaking:** Rename `CacheManager.cached(collection)` to `CacheManager.get_cached_collection(collection)` in synchronous and asyncio managers.
+- **Breaking:** Remove `CacheManager.ensure_cache_eligible` and make `cache_ineligibility_reason`, `default_collation_for`, and `unique_keys_for` private.
+
 ## [0.3.0] - 2026-10-06
 
 ### Bug fixes

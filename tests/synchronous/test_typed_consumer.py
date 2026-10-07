@@ -22,7 +22,7 @@ def test_consumer_keeps_pymongo_typing_beside_its_cached_view(
     collection = cache_manager.client[cached_database_name][
         nonpersistent_collection_name
     ]
-    cached_collection = cache_manager.cached(collection)
+    cached_collection = cache_manager.get_cached_collection(collection)
     document = make_fake_document()
 
     collection.insert_one(document)

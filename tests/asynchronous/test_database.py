@@ -100,7 +100,7 @@ def test_optioned_raw_database_collection_keeps_its_options_through_the_cached_v
 ) -> None:
     raw_collection = get_raw_collection(manager["example"].raw)
 
-    collection = manager.cached(raw_collection)
+    collection = manager.get_cached_collection(raw_collection)
 
     assert collection.raw is raw_collection
     assert collection.name == "items"

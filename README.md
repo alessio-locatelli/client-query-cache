@@ -31,7 +31,7 @@ with (
     MongoClient("mongodb://localhost:27017") as client,
     CacheManager(client) as cache,
 ):
-    users = cache.cached(client["my_database"]["users"])
+    users = cache.get_cached_collection(client["my_database"]["users"])
     users.find_one({"_id": "alice"})  # Reads from MongoDB.
     users.find_one({"_id": "alice"})  # Repeated reads can use the cache.
 ```

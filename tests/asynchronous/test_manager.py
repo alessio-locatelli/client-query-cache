@@ -82,7 +82,7 @@ async def test_unique_keys_for_rejects_a_probe_racing_a_concurrent_index_change(
         manager.cache_core.record_index_change(namespace)
         return [{"key": {"email": 1}, "name": "email_1", "unique": True}]
 
-    assert await manager.unique_keys_for(namespace, racing_list_indexes) == ()
+    assert await manager._unique_keys_for(namespace, racing_list_indexes) == ()
 
 
 @pytest.mark.parametrize(
@@ -112,7 +112,7 @@ def test_cached_view_retains_the_exact_supplied_collection(
     manager = CacheManager(client)
     raw_collection = get_raw_collection(client["example"])
 
-    collection = manager.cached(raw_collection)
+    collection = manager.get_cached_collection(raw_collection)
 
     assert isinstance(collection, CachedCollection)
     assert collection.raw is raw_collection
@@ -129,7 +129,7 @@ def test_cached_rejects_a_collection_owned_by_another_client(
     )
 
     with pytest.raises(ValueError, match="different client"):
-        manager.cached(foreign_client["example"]["items"])
+        manager.get_cached_collection(foreign_client["example"]["items"])
 
 
 def test_repeated_cached_views_share_the_manager_and_raw_collection(
@@ -138,8 +138,8 @@ def test_repeated_cached_views_share_the_manager_and_raw_collection(
     manager = CacheManager(client)
     raw_collection = client["example"]["items"]
 
-    first = manager.cached(raw_collection)
-    second = manager.cached(raw_collection)
+    first = manager.get_cached_collection(raw_collection)
+    second = manager.get_cached_collection(raw_collection)
 
     assert first.raw is second.raw is raw_collection
     assert first.database.manager is second.database.manager is manager

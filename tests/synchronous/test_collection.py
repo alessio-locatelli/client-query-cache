@@ -97,7 +97,7 @@ def make_uuid_collection(
     def _make_uuid_collection(
         uuid_representation: int,
     ) -> CachedCollection[dict[str, Any]]:
-        return cache_manager.cached(
+        return cache_manager.get_cached_collection(
             raw_collection.with_options(
                 codec_options=CodecOptions(uuid_representation=uuid_representation)
             )
@@ -139,7 +139,7 @@ def test_collection_sub_collection_access_returns_a_cached_facade(
     ],
     expected_name: str,
 ) -> None:
-    collection = CacheManager(client).cached(client["example"]["items"])
+    collection = CacheManager(client).get_cached_collection(client["example"]["items"])
 
     sub_collection = get_sub_collection(collection)
 
@@ -156,7 +156,7 @@ def test_collection_sub_collection_access_returns_a_cached_facade(
 def test_collection_does_not_expose_undeclared_pymongo_attributes(
     client: MongoClient[dict[str, Any]], name: str
 ) -> None:
-    collection = CacheManager(client).cached(client["example"]["items"])
+    collection = CacheManager(client).get_cached_collection(client["example"]["items"])
 
     with pytest.raises(AttributeError, match=repr(name)):
         getattr(collection, name)
@@ -192,7 +192,7 @@ def test_optioned_raw_collection_keeps_its_options_through_the_cached_view(
         nonpersistent_collection_name
     ].with_options(read_preference=ReadPreference.SECONDARY)
 
-    collection = cache_manager.cached(raw_collection)
+    collection = cache_manager.get_cached_collection(raw_collection)
 
     assert collection.raw is raw_collection
     assert collection.raw.read_preference == ReadPreference.SECONDARY
@@ -207,7 +207,7 @@ def test_created_raw_collection_is_readable_through_the_cached_view(
         nonpersistent_collection_name
     )
 
-    collection = cache_manager.cached(raw_collection)
+    collection = cache_manager.get_cached_collection(raw_collection)
 
     assert collection.raw is raw_collection
     assert list(collection.find({})) == []
@@ -236,10 +236,12 @@ def test_repeated_cached_views_share_entries_and_one_database_stream(
             Collection, "find_one", autospec=True, side_effect=Collection.find_one
         ) as find_one_spy,
     ):
-        admitted = cache_manager.cached(raw_collection).find_one(
+        admitted = cache_manager.get_cached_collection(raw_collection).find_one(
             {"_id": document["_id"]}
         )
-        hit = cache_manager.cached(raw_collection).find_one({"_id": document["_id"]})
+        hit = cache_manager.get_cached_collection(raw_collection).find_one(
+            {"_id": document["_id"]}
+        )
 
     assert admitted == hit == document
     assert find_one_spy.call_count == 1
@@ -350,7 +352,7 @@ def test_find_one_by_id_bypasses_cache_for_an_incompatible_read_profile(
     raw_collection = cache_manager.client[cached_database_name][
         nonpersistent_collection_name
     ].with_options(**with_options_kwargs)
-    collection = cache_manager.cached(raw_collection)
+    collection = cache_manager.get_cached_collection(raw_collection)
     document = make_fake_document()
     collection.raw.insert_one(document)
 
