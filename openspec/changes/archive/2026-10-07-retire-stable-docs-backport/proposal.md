@@ -21,6 +21,7 @@ None.
 
 - `public-library-documentation`: release provenance, automatic validation selection, and native edition exports.
 - `development-environment`: GitHub CLI availability for release discovery.
+- `release-publishing`: changelog eligibility follows the canonical editing policy.
 
 ## Impact
 
