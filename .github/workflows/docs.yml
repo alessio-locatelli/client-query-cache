@@ -15,7 +15,6 @@ on: # zizmor: ignore[dangerous-triggers] Trusted main only; no triggering-run co
       - "examples/README.md"
       - "examples/*.py"
       - "zensical.toml"
-      - "stable-docs.toml"
       - "scripts/build_versioned_docs.py"
       - "pyproject.toml"
       - "uv.lock"
@@ -59,29 +58,14 @@ jobs:
           # ref: The default is the event reference/SHA. We override it because
           # publication must use current trusted main rather than an earlier snapshot.
           ref: main
-          # fetch-depth: The default is 1. We override it because source selection and
-          # revision comparisons require earlier history.
-          fetch-depth: 0
 
       - uses: $/.github/actions/setup-toolchain
 
       - name: Assemble current published release and development
         env:
           GH_TOKEN: ${{ github.token }}
-          REPOSITORY: ${{ github.repository }}
-        run: |
-          stable_tag="$(gh api "repos/${REPOSITORY}/releases/latest" --jq \
-            'if .draft or .prerelease then error("Expected a published stable release") else .tag_name end')"
-          # Git 2.55.0: https://git-scm.com/docs/git-fetch
-          # --no-tags for both stable-tag and backport fetches: The default is inherited
-          # remote.origin.tagOpt, otherwise auto-following reachable tags. We override
-          # it because assembly needs only the selected release/correction references.
-          git fetch --no-tags origin "refs/tags/${stable_tag}:refs/tags/${stable_tag}"
-          backport="$(STABLE_TAG="${stable_tag}" python3 -c 'import os, tomllib; records = tomllib.load(open("stable-docs.toml", "rb"))["backports"]; tag = os.environ["STABLE_TAG"]; print(records[tag]["fetch_ref"] if tag in records else "")')"
-          if [[ -n "${backport}" ]]; then
-            git fetch --no-tags origin "${backport}:${backport}"
-          fi
-          just docs-build-editions "${stable_tag}"
+          GH_REPO: ${{ github.repository }}
+        run: just docs-build-editions
 
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:

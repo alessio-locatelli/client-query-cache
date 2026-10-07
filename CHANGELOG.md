@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Improved documentation
+
+- Documentation validation and publication automatically build stable guidance from the latest published release, alongside development guidance.
+
 ## [0.3.0] - 2026-10-06
 
 ### Bug fixes

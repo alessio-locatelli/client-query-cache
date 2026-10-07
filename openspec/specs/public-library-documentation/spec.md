@@ -226,7 +226,7 @@ Readers SHALL proceed from installation through synchronous or asyncio usage, wo
 #### Scenario: A reader learns the library on the site
 
 - **WHEN** a reader follows getting-started and usage navigation from the landing page
-- **THEN** installation and complete synchronous and asyncio quick starts render on the site, with manager cleanup, raw writes, list-returning reads, and eventual invalidation explained
+- **THEN** installation and complete synchronous and asyncio quick starts render on the site, with manager cleanup, raw writes, cursor-returning reads, and eventual invalidation explained
 
 #### Scenario: A reader studies an integration
 
@@ -235,7 +235,7 @@ Readers SHALL proceed from installation through synchronous or asyncio usage, wo
 
 ### Requirement: Stable documentation matches the published package
 
-The stable edition SHALL describe the latest published non-prerelease package and identify its version. Development-only API changes SHALL NOT appear as stable guidance. Reviewed documentation-only corrections MAY use a recorded immutable source revision matching that release’s runtime and package metadata. Drafts, prereleases, and failed package publication SHALL NOT advance the stable edition.
+The stable edition SHALL describe the latest published non-prerelease package and identify its version. Development-only API changes SHALL NOT appear as stable guidance. Stable guides and examples SHALL come directly from that release’s exact tag, without correction revisions. Drafts, prereleases, and failed package publication SHALL NOT advance the stable edition.
 
 #### Scenario: Development gains an unreleased option
 
@@ -311,20 +311,6 @@ Documentation assembly SHALL stage replacement output on the destination filesys
 
 - **WHEN** the previous artifact cannot be restored after installation fails
 - **THEN** it remains available in a recovery location identified by the error
-
-### Requirement: Stable correction provenance survives merge changes
-
-A documentation correction SHALL record an immutable source SHA and a supported retained retrieval ref. Validation and publication SHALL fetch the named ref and verify it reaches that SHA. Rebase merge and source-branch deletion SHALL NOT prevent retrieval. Missing or unreachable provenance SHALL fail visibly without substituting the ref tip or development content.
-
-#### Scenario: A correction is merged with rewritten commit identities
-
-- **WHEN** a fresh checkout builds stable guidance after rebase merge and deletion of the original branch
-- **THEN** fetching the recorded retained ref recovers the exact correction SHA
-
-#### Scenario: The ref no longer retains the source
-
-- **WHEN** the recorded ref is missing or does not reach the correction SHA
-- **THEN** the build fails rather than changing the stable source
 
 ### Requirement: Documentation builds respect checkout permissions
 
@@ -407,8 +393,8 @@ Published stable and development editions SHALL each expose indexes, selected Ma
 
 #### Scenario: Stable sources predate agent exports
 
-- **WHEN** publication uses an accepted immutable stable documentation source created before export support and a development corpus containing an additional page
-- **THEN** stable exports are still generated from that stable corpus, without importing the development-only page or changing its source provenance
+- **WHEN** a selected stable release lacks native export configuration
+- **THEN** assembly fails visibly without borrowing development settings or replacing a previously complete artifact
 
 ### Requirement: Agent exports follow ordinary documentation builds
 
@@ -431,12 +417,17 @@ Ordinary local and publication documentation builds SHALL regenerate agent-facin
 
 ### Requirement: Edition export policies follow source snapshots
 
-Each documentation edition SHALL preserve its source snapshot’s export policy when present, including page selection, section names and order, description, and combined-output setting. Stable sources without an export policy SHALL inherit development’s policy. Root discovery and combined exports SHALL follow the effective stable policy.
+Each documentation edition SHALL preserve its source snapshot’s export policy, including page selection, section names and order, description, and combined-output setting. A source lacking required export settings SHALL fail visibly rather than inherit another edition’s policy. Root discovery and combined exports SHALL follow the stable policy.
 
 #### Scenario: Development changes a released export policy
 
 - **WHEN** stable sources define an export policy and development changes section paths, description, order, or combined output
 - **THEN** stable and root exports preserve the stable policy while development exports follow development’s policy
+
+#### Scenario: A selected source lacks required exports
+
+- **WHEN** a selected documentation snapshot has no native export configuration
+- **THEN** assembly fails visibly without replacing a previously complete artifact
 
 ### Requirement: Repository provides Context7 configuration
 
@@ -483,3 +474,22 @@ Changes to behavior described by Context7 rules SHALL update affected rules in t
 
 - **WHEN** a change leaves all usage contracts summarized by the rules intact
 - **THEN** no mechanical rewrite of unchanged rules is required
+
+### Requirement: Combined builds discover the published release
+
+Combined documentation builds SHALL discover the latest published stable GitHub Release and fetch its exact tag by default. PR validation and publication SHALL use the same discovery and assembly command without a maintained release baseline. An explicit locally available tag SHALL remain usable for reproduction without release discovery. Discovery or fetch failures SHALL abort visibly without selecting local tags or development content as substitutes.
+
+#### Scenario: A new stable release becomes available
+
+- **WHEN** the next combined build starts after a stable release is published
+- **THEN** its stable edition uses that release without a repository configuration update
+
+#### Scenario: A contributor reproduces a specific release
+
+- **WHEN** a contributor supplies an exact locally available release tag
+- **THEN** assembly uses that tag without contacting GitHub to discover or fetch a release
+
+#### Scenario: Release discovery or retrieval fails
+
+- **WHEN** GitHub discovery or the selected tag fetch fails
+- **THEN** the build exits unsuccessfully before installing a new artifact

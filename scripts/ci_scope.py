@@ -35,7 +35,6 @@ def main() -> None:
         or path
         in {
             "zensical.toml",
-            "stable-docs.toml",
             "scripts/build_versioned_docs.py",
             ".github/workflows/test.yml",
             "pyproject.toml",

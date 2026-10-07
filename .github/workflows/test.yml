@@ -27,8 +27,8 @@ env:
 # persist-credentials in scope, prek, prettier, documentation, package, integration-e2e,
 # memory, guard, container and benchmark-startup: The default is true. We override it
 # because later repository commands must not inherit checkout credentials.
-# fetch-depth in scope, documentation and guard: The default is 1. We override it
-# because revision comparisons and documentation assembly need earlier history.
+# fetch-depth in scope and guard: The default is 1. We override it because revision
+# comparisons need earlier history.
 # uv 0.12.19: https://docs.astral.sh/uv/reference/cli/
 # uv sync --locked in prek, package, integration-e2e, memory, guard and
 # benchmark-startup: The default is inherited UV_LOCKED, otherwise unlocked resolution.
@@ -185,24 +185,15 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          fetch-depth: 0
 
       - if: needs.scope.outputs.documentation == 'true'
         uses: $/.github/actions/setup-toolchain
 
       - if: needs.scope.outputs.documentation == 'true'
-        run: |
-          stable_tag="$(python3 -c 'import tomllib; print(tomllib.load(open("stable-docs.toml", "rb"))["validation_tag"])')"
-          # Git 2.55.0: https://git-scm.com/docs/git-fetch
-          # --no-tags for both stable-tag and backport fetches: The default is inherited
-          # remote.origin.tagOpt, otherwise auto-following reachable tags. We override
-          # it because assembly needs only the selected release/correction references.
-          git fetch --no-tags origin "refs/tags/${stable_tag}:refs/tags/${stable_tag}"
-          backport="$(STABLE_TAG="${stable_tag}" python3 -c 'import os, tomllib; records = tomllib.load(open("stable-docs.toml", "rb"))["backports"]; tag = os.environ["STABLE_TAG"]; print(records[tag]["fetch_ref"] if tag in records else "")')"
-          if [[ -n "${backport}" ]]; then
-            git fetch --no-tags origin "${backport}:${backport}"
-          fi
-          just docs-build-editions "${stable_tag}"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: just docs-build-editions
 
   package:
     name: Static checks, packaging, and isolated install (${{ matrix.python }})
