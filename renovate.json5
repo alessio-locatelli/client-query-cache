@@ -33,6 +33,8 @@
   minimumReleaseAge: "7 days",
   // The default is timestamp-required. We override it because missing timestamps must not indefinitely block eligible updates.
   minimumReleaseAgeBehaviour: "timestamp-optional",
+  // It was auto-enabled with the current settings as [Dependency Dashboard](https://github.com/alessio-locatelli/client-query-cache/issues/180), so we are closing the issue and disabling it explicitly because for a logged in admin the same information is available at https://developer.mend.io/github/alessio-locatelli/client-query-cache.
+  dependencyDashboard: false,
   customManagers: [
     {
       customType: "regex",
