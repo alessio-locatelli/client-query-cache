@@ -289,8 +289,16 @@ jobs:
           PACKAGE_RESULT: ${{ needs.package.result }}
           TEST_RESULT: ${{ needs.integration-e2e.result }}
         run: |
-          test "${PACKAGE_RESULT}" = success
-          test "${TEST_RESULT}" = success
+          status=0
+          if [[ "${PACKAGE_RESULT}" != success ]]; then
+            echo "::error title=Python compatibility::The static checks, packaging, and isolated install matrix finished with '${PACKAGE_RESULT}'; open its failed lane for the cause."
+            status=1
+          fi
+          if [[ "${TEST_RESULT}" != success ]]; then
+            echo "::error title=Python compatibility::The Docker-backed integration, end-to-end, and coverage matrix finished with '${TEST_RESULT}'; open its failed lane for the cause."
+            status=1
+          fi
+          exit "${status}"
 
   memory:
     name: Cache memory regression guard
