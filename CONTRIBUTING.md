@@ -167,7 +167,7 @@ To roll back, revert the faulty controller/configuration on `main` and redeploy 
 
 ## Changelog
 
-`CHANGELOG.md` records changes relevant to users upgrading the PyPI package. Before adding a one-line entry under "Unreleased", ask: "If this were the sole changelog entry, would publishing a new package to PyPI be warranted?" If no, omit the entry. Describe the effect on package users; keep internal development work in commit bodies or OpenSpec. An empty "Unreleased" section is valid.
+Follow the editing policy in the HTML comment at the top of the [changelog source](CHANGELOG.md?plain=1).
 
 ## Real-server benchmark
 

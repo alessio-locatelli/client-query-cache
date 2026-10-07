@@ -7,6 +7,7 @@ See [README.md](README.md).
 ### General
 
 - Use the OpenSpec workflow for all non-trivial work.
+- Never duplicate information across files, including paraphrases or shorter versions. Designate one source of truth and reference it from other files.
 - Follow the [development-environment configuration requirements](openspec/specs/development-environment/spec.md) when changing tool settings or command flags.
 - **Review findings in an active change:** While a branch's OpenSpec change remains active, valid review findings belong to that change. Amend its existing delta specs, design, or tasks when needed; when existing requirements already cover the behavior, add only the necessary task, implementation, and regression test. A review round never by itself justifies a new change. Create a separate change only when the finding is outside the active change's declared scope or the user explicitly requests a split. Archive only after the whole branch has been cleanly reviewed.
 - Leverage the [Generic Development Workflow](openspec/generic_development_workflow.md) when planning designs and tasks.
@@ -74,7 +75,7 @@ For more details or a first time setup see [CONTRIBUTING.md](CONTRIBUTING.md).
 - **No historical/postmortem framing.** Phrases like "the old default", "before this flag existed", "used to qualify for X" are meaningless to a reader who only has the current codebase — they imply a diff against a history the reader can't see and doesn't care about. Describe what the feature does today, full stop.
 - Non-recoverable persistent failures (such as missing files, missing dependencies, permission or access errors, etc.) must not go unreported. At minimum, produce a visible error message so users can either take corrective action or report the issue.
 - **Do not compete with official documentation:** Do not teach users how to install third-party tools, how to debug or configure their environment, etc. Use a short hint and a reference to the official resource.
-- In the "unreleased" section, a changelog entry should describe the final behavior once, not accumulate review history.
+- Follow the editing policy in the HTML comment at the top of the [changelog source](CHANGELOG.md?plain=1).
 
 ## References
 
