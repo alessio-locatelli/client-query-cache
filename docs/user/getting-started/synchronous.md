@@ -12,7 +12,7 @@ with (
     CacheManager(client) as cache_manager,
 ):
     collection = client["client_query_cache_tutorial"]["items"]
-    cached_collection = cache_manager.cached(collection)
+    cached_collection = cache_manager.get_cached_collection(collection)
 
     collection.replace_one(
         {"_id": "example"}, {"_id": "example", "value": 42}, upsert=True

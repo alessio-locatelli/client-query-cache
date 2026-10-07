@@ -20,7 +20,7 @@ cache_manager = CacheManager(client)
 
 - `cache_manager.client` — the wrapped PyMongo client, unchanged.
 - `cache_manager.cache_core` — the manager's cache storage and bookkeeping object; see [Observability](../operations/monitoring.md#observability).
-- `cache_manager.cached(collection)` — a cached read view of one of your PyMongo collections; see [Cached collection views](#cached-collection-views).
+- `cache_manager.get_cached_collection(collection)` — a cached read view of one of your PyMongo collections; see [Cached collection views](#cached-collection-views).
 - `cache_manager.close()` (`await cache_manager.close()` for asyncio) — stops every change stream the manager opened and releases cached data. Does not close `cache_manager.client`.
 - `CacheManager` is also a context manager (`with` / `async with`), calling `close()` on exit.
 
@@ -34,7 +34,7 @@ Keep two handles for a collection: PyMongo's own collection for writes, administ
 
 ```python
 collection = client["my_database"]["my_collection"]
-cached_collection = cache_manager.cached(collection)
+cached_collection = cache_manager.get_cached_collection(collection)
 
 collection.insert_one({"_id": "example", "value": 42})
 cached_collection.find_one({"_id": "example"})
@@ -44,15 +44,15 @@ The asyncio version is identical except that both calls are awaited:
 
 ```python
 collection = client["my_database"]["my_collection"]
-cached_collection = cache_manager.cached(collection)
+cached_collection = cache_manager.get_cached_collection(collection)
 
 await collection.insert_one({"_id": "example", "value": 42})
 await cached_collection.find_one({"_id": "example"})
 ```
 
-`cache_manager.cached(collection)` returns a `CachedCollection` whose `.raw` is exactly the collection you passed, including options you chose with `get_collection(...)` or `with_options(...)` — those options decide whether a read can use the cache (see [Bypass conditions](#bypass-conditions)). The collection must come from the manager's own client; a collection from any other client raises `ValueError`.
+`cache_manager.get_cached_collection(collection)` returns a `CachedCollection` whose `.raw` is exactly the collection you passed, including options you chose with `get_collection(...)` or `with_options(...)` — those options decide whether a read can use the cache (see [Bypass conditions](#bypass-conditions)). The collection must come from the manager's own client; a collection from any other client raises `ValueError`.
 
-Calling `cached(collection)` more than once is safe and cheap: every view from one manager shares that manager's cache and its single change stream per database, so a result cached through one view is a hit through another. Each call may return a new view object, so don't rely on two views being the same object; keep one around when convenient.
+Calling `get_cached_collection(collection)` more than once is safe and cheap: every view from one manager shares that manager's cache and its single change stream per database, so a result cached through one view is a hit through another. Each call may return a new view object, so don't rely on two views being the same object; keep one around when convenient.
 
 `cache_manager[name]` returns a `CachedDatabase`, and `database[name]` returns a `CachedCollection`, as a shorthand for cached reads when you don't already hold a PyMongo collection. Attribute access (`database.users`, `cached_collection.chunks`) also returns a cached view of that collection or sub-collection. Index access always works, including for a collection named like a PyMongo method (`database["create_collection"]`).
 
@@ -263,12 +263,12 @@ from client_query_cache import (
 The three cache exceptions below inherit from `CacheError`, which you can catch to handle them together.
 The same exception classes apply to synchronous and asyncio managers.
 
-| Exception                      | Raised when                                                                       | What to do                                                         |
-| ------------------------------ | --------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| `CacheConfigurationError`      | A `CacheCoreConfig` value or the manager's `max_await_time_ms` is invalid.        | Fix the configuration value.                                       |
-| `CacheClosedError`             | A cached read is attempted after `cache_manager.close()`.                         | Don't use a manager (or a view obtained from it) after closing it. |
-| `UnsupportedCacheRequestError` | An explicit low-level cache operation receives an unsupported key value.          | Use a supported key or the native collection.                      |
-| `ValueError`                   | `cache_manager.cached(collection)` receives a collection from a different client. | Pass a collection from `cache_manager.client`.                     |
+| Exception                      | Raised when                                                                                      | What to do                                                         |
+| ------------------------------ | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------ |
+| `CacheConfigurationError`      | A `CacheCoreConfig` value or the manager's `max_await_time_ms` is invalid.                       | Fix the configuration value.                                       |
+| `CacheClosedError`             | A cached read is attempted after `cache_manager.close()`.                                        | Don't use a manager (or a view obtained from it) after closing it. |
+| `UnsupportedCacheRequestError` | An explicit low-level cache operation receives an unsupported key value.                         | Use a supported key or the native collection.                      |
+| `ValueError`                   | `cache_manager.get_cached_collection(collection)` receives a collection from a different client. | Pass a collection from `cache_manager.client`.                     |
 
 Every other unsupported or ambiguous condition — an incompatible read preference or read concern, a session-bound
 read, a nondeterministic filter or pipeline, a view, a time-series collection, an oversized result, a database whose

@@ -28,7 +28,7 @@ class CachedMongoBackend(MongoBackend):  # type: ignore[misc]
         self.cache_manager = cache_manager
         super().__init__(app=app)
         self.database_name = DATABASE_NAME
-        self.cached_collection = cache_manager.cached(self.collection)
+        self.cached_collection = cache_manager.get_cached_collection(self.collection)
 
     def _get_connection(self) -> MongoClient[dict[str, Any]]:
         return self.cache_manager.client

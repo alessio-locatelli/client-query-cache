@@ -17,10 +17,6 @@ from pymongo.errors import ConnectionFailure
 from pymongo.synchronous.cursor import Cursor
 
 from client_query_cache import BypassReason, CacheManager
-from client_query_cache._core.collection_metadata import (
-    interpret_list_collections_entry,
-)
-from client_query_cache._core.keys import NamespaceId
 from client_query_cache.asynchronous import CacheManager as AsyncCacheManager
 from client_query_cache.otel import register_cache_metrics
 from tests.cursor_helpers import materialize
@@ -147,13 +143,13 @@ async def test_public_find_one_records_the_first_request_reason(
     manager = cached_collection.database.manager
     if secondary:
         if isinstance(manager, AsyncCacheManager):
-            cached_collection = manager.cached(
+            cached_collection = manager.get_cached_collection(
                 manager.client["observations"]["widgets"].with_options(
                     read_preference=ReadPreference.SECONDARY
                 )
             )
         else:
-            cached_collection = manager.cached(
+            cached_collection = manager.get_cached_collection(
                 manager.client["observations"]["widgets"].with_options(
                     read_preference=ReadPreference.SECONDARY
                 )
@@ -269,26 +265,6 @@ def test_inspection_types_are_public(package: str) -> None:
         "StreamHealthSnapshot",
     ):
         assert dataclasses.is_dataclass(getattr(module, name))
-
-
-@pytest.mark.parametrize(
-    "entry",
-    [None, {"type": "collection"}, {"type": "view"}],
-    ids=["missing", "ordinary", "view"],
-)
-async def test_advanced_eligibility_remains_boolean(
-    cached_collection: Collection, entry: dict[str, object] | None
-) -> None:
-    manager = cached_collection.database.manager
-    probe = (AsyncMock if isinstance(manager, AsyncCacheManager) else Mock)(
-        return_value=interpret_list_collections_entry(entry)
-    )
-    eligible = manager.ensure_cache_eligible(
-        NamespaceId("observations", "widgets"), probe
-    )
-    if inspect.isawaitable(eligible):
-        eligible = await eligible
-    assert eligible is (entry is not None and entry["type"] == "collection")
 
 
 @pytest.fixture
@@ -412,13 +388,13 @@ async def test_unhashable_timezone_constructs_and_bypasses(
     )
     collection: Collection
     if isinstance(manager, AsyncCacheManager):
-        collection = manager.cached(
+        collection = manager.get_cached_collection(
             manager.client["observations"]["widgets"].with_options(
                 codec_options=options
             )
         )
     else:
-        collection = manager.cached(
+        collection = manager.get_cached_collection(
             manager.client["observations"]["widgets"].with_options(
                 codec_options=options
             )

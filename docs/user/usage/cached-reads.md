@@ -4,7 +4,7 @@ Keep a PyMongo handle for writes and administration, and a cached view for repea
 
 ```python
 collection = client["shop"]["products"]
-cached_products = cache_manager.cached(collection)
+cached_products = cache_manager.get_cached_collection(collection)
 
 collection.update_one({"_id": "book"}, {"$set": {"price": 12}}, upsert=True)
 product = cached_products.find_one({"_id": "book"})

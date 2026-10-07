@@ -52,7 +52,7 @@ class CachedMongoDict(MongoDict):
             serializer=serializer,
             decode_content=decode_content,
         )
-        self.cached_collection = cache_manager.cached(self.collection)
+        self.cached_collection = cache_manager.get_cached_collection(self.collection)
 
     def __getitem__(self, key: str) -> object:
         document = self.cached_collection.find_one({"_id": key})

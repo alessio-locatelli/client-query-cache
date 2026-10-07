@@ -88,7 +88,7 @@ database_name = os.environ["MONGODB_TEST_DATABASE"]
 collection_name = os.environ["MONGODB_TEST_COLLECTION"]
 with MongoClient(uri) as client, CacheManager(client) as cache_manager:
     collection = client[database_name][collection_name]
-    cached_collection = cache_manager.cached(collection)
+    cached_collection = cache_manager.get_cached_collection(collection)
     collection.insert_one({"_id": "independent-write", "value": 42})
     document = cached_collection.find_one({"_id": "independent-write"})
     assert document == {"_id": "independent-write", "value": 42}
@@ -104,7 +104,7 @@ async def consume():
     async with AsyncMongoClient(uri) as client, AsyncCacheManager(client) as manager:
         raw = client[database_name][collection_name]
         await raw.insert_one({"_id": "async-write", "value": 42})
-        cached = manager.cached(raw)
+        cached = manager.get_cached_collection(raw)
         cursor = cached.find({})
         assert isinstance(cursor, AsyncCursor)
         assert [row async for row in cursor] == [{"_id": "async-write", "value": 42}]

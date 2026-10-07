@@ -178,7 +178,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
             )
         effective_collation = effective_find_one_collation(
             collation,
-            self._database.manager.default_collation_for(self._namespace()),
+            self._database.manager._default_collation_for(self._namespace()),  # noqa: SLF001
         )
         if collation is None and effective_collation is not None:
             read_shape = canonicalize(
@@ -195,7 +195,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
             )
         namespace = self._namespace()
         cache = self._database.manager.cache_core
-        known_keys = self._database.manager.unique_keys_for(namespace)
+        known_keys = self._database.manager._unique_keys_for(namespace)  # noqa: SLF001
         unique_key_match = (
             match_unique_key(filter_query, known_keys, effective_collation)
             if identity is NO_IDENTITY and known_keys is not None
@@ -491,7 +491,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
     def _match_unique_key(
         self, filter_query: object, effective_collation: Mapping[str, Any] | None
     ) -> tuple[UniqueKeyDefinition, tuple[Any, ...]] | None:
-        keys = self._database.manager.unique_keys_for(
+        keys = self._database.manager._unique_keys_for(  # noqa: SLF001
             self._namespace(), self._list_indexes_probe
         )
         if not keys:
@@ -651,7 +651,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
         return self._forced_database
 
     def _cache_ineligibility_reason(self) -> BypassReason | None:
-        return self._database.manager.cache_ineligibility_reason(
+        return self._database.manager._cache_ineligibility_reason(  # noqa: SLF001
             self._namespace(), self._probe_collection
         )
 

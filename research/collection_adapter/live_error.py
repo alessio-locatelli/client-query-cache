@@ -124,7 +124,7 @@ def run(control: MongoClient[Document]) -> None:
         )
         raw.insert_one({"_id": "one-record"})
         with CacheManager(client) as manager:
-            view = manager.cached(raw)
+            view = manager.get_cached_collection(raw)
             warm(view, manager)
             with failure(control):
                 before = commands.count
