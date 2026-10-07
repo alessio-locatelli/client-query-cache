@@ -22,6 +22,10 @@ Remove correction-source selection, its runtime comparisons, and edition export-
 
 Keeping the old paths would support obsolete releases at the cost of retaining configuration and tests for an unused publication path. Releasing prose corrections independently of package releases is intentionally no longer supported. The observed release contents resolve compatibility questions; no further research or follow-up is necessary.
 
+### Changelog guidance
+
+This change affects documentation infrastructure without changing the PyPI package's behavior, so it intentionally has no package changelog entry. The user also explicitly requested a hidden editing hint in `CHANGELOG.md`. That comment is the source of truth for changelog editing policy; `CONTRIBUTING.md` and `AGENTS.md` reference it. This decision introduces no repository-wide rule against duplication.
+
 ## Risks / Trade-offs
 
 - Automatic builds depend on GitHub availability and CLI authentication. Required discovery and fetch failures propagate; explicit local-tag reproduction remains available.
