@@ -28,6 +28,7 @@ from client_query_cache.synchronous.manager import CacheManager
 from client_query_cache.synchronous.streams import DatabaseStreamSupervisor
 from tests.codec_helpers import DecodedPriceCase, decode_only_decimal_options
 from tests.polling import wait_until as _wait_until
+from tests.stream_helpers import wait_for_stream_barrier
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -1929,9 +1930,6 @@ def test_generic_find_one_invalidates_for_namespace_changes(
     expected = None if operation == "negative-insert" else document
     assert collection.find_one(query) == expected
     assert collection.find_one(query) == expected
-    before = cache_manager.cache_core.capture_namespace_generation(
-        NamespaceId(cached_database_name, nonpersistent_collection_name)
-    ).generation
     writer = independent_writer[cached_database_name][nonpersistent_collection_name]
     if operation == "matching-write":
         writer.update_one({"_id": document["_id"]}, {"$set": {"rank": 2}})
@@ -1945,13 +1943,8 @@ def test_generic_find_one_invalidates_for_namespace_changes(
         writer.drop()
         expected = {**document, "fresh": True}
         writer.insert_one(expected)
-    _wait_until(
-        lambda: (
-            cache_manager.cache_core.capture_namespace_generation(
-                NamespaceId(cached_database_name, nonpersistent_collection_name)
-            ).generation
-            > before
-        )
+    wait_for_stream_barrier(
+        cache_manager.cache_core, independent_writer[cached_database_name]
     )
     with patch.object(
         Collection, "find_one", autospec=True, side_effect=Collection.find_one

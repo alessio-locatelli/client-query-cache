@@ -31,6 +31,7 @@ from tests.codec_helpers import DecodedPriceCase, decode_only_decimal_options
 from tests.cursor_helpers import materialize
 from tests.polling import wait_until_async as _wait_until
 from tests.polling import wait_until_value_async
+from tests.stream_helpers import wait_for_stream_barrier_async
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine
@@ -1998,9 +1999,6 @@ async def test_generic_find_one_invalidates_for_namespace_changes(
     expected = None if operation == "negative-insert" else document
     assert await collection.find_one(query) == expected
     assert await collection.find_one(query) == expected
-    before = cache_manager.cache_core.capture_namespace_generation(
-        NamespaceId(cached_database_name, nonpersistent_collection_name)
-    ).generation
     writer = independent_writer[cached_database_name][nonpersistent_collection_name]
     if operation == "matching-write":
         await writer.update_one({"_id": document["_id"]}, {"$set": {"rank": 2}})
@@ -2014,13 +2012,8 @@ async def test_generic_find_one_invalidates_for_namespace_changes(
         await writer.drop()
         expected = {**document, "fresh": True}
         await writer.insert_one(expected)
-    await _wait_until(
-        lambda: (
-            cache_manager.cache_core.capture_namespace_generation(
-                NamespaceId(cached_database_name, nonpersistent_collection_name)
-            ).generation
-            > before
-        )
+    await wait_for_stream_barrier_async(
+        cache_manager.cache_core, independent_writer[cached_database_name]
     )
     with patch.object(
         AsyncCollection, "find_one", autospec=True, side_effect=AsyncCollection.find_one
