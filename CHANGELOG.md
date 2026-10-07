@@ -4,7 +4,8 @@
 This changelog is for users upgrading the PyPI package.
 Before adding an entry, ask: "If this were the sole changelog entry, would
 publishing a new package to PyPI be warranted?" If no, omit the entry.
-Describe the effect on package users. Exclude internal refactoring, CI,
+Describe the final effect on package users once, without review history.
+Exclude internal refactoring, CI,
 development tooling, tests/coverage, documentation publishing, OpenSpec
 completion, and coding-agent achievements. Put internal rationale in commit
 bodies or OpenSpec. An empty Unreleased section is valid.
