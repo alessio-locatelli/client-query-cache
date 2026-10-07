@@ -32,8 +32,9 @@ tar -cf - Containerfile .python-version .node-version | "$@" build --quiet --tag
     --env "EXPECTED_TAPLO=${taplo_version}" \
     --env "EXPECTED_ZIZMOR=${zizmor_version}" \
     "${image}" bash -ec '
-        rpm -q bash just "nodejs${EXPECTED_NODE_MAJOR}" "nodejs${EXPECTED_NODE_MAJOR}-npm" uv
+        rpm -q bash gh just "nodejs${EXPECTED_NODE_MAJOR}" "nodejs${EXPECTED_NODE_MAJOR}-npm" uv
         bash --version
+        gh --version
         just --version
         node --version | grep -E "^v${EXPECTED_NODE_MAJOR}\."
         npm --version

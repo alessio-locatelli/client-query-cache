@@ -141,11 +141,11 @@ Contributors SHALL be able to build a development container with the documented 
 #### Scenario: A contributor builds the dev container image
 
 - **WHEN** a contributor builds the container image from the documented definition
-- **THEN** the resulting container has `uv`, Node.js, npm, `prek`, `taplo`, `zizmor`, and `just` available on `PATH`, without further manual installation; tools installed outside DNF match their pinned versions and DNF packages follow Fedora 44 repositories with Node.js on the major track selected by `.node-version`
+- **THEN** the resulting container has `gh`, `uv`, Node.js, npm, `prek`, `taplo`, `zizmor`, and `just` available on `PATH`, without further manual installation; tools installed outside DNF match their pinned versions and DNF packages follow Fedora 44 repositories with Node.js on the major track selected by `.node-version`
 
 ### Requirement: Container image inputs are pinned
 
-The contributor image SHALL pin its base digest and tools installed outside DNF. DNF SHALL install `bash`, `just`, `uv`, and Node.js/npm on the `.node-version` major track from Fedora 44 without RPM pins. Contributor documentation SHALL explain the bots' RPM pin limitations, expected low development-tool breakage risk, and package variability across rebuilds.
+The contributor image SHALL pin its base digest and tools installed outside DNF. DNF SHALL install `bash`, `gh`, `just`, `uv`, and Node.js/npm on the `.node-version` major track from Fedora 44 without RPM pins. Contributor documentation SHALL explain the bots' RPM pin limitations, expected low development-tool breakage risk, and package variability across rebuilds.
 
 #### Scenario: A contributor rebuilds the image
 

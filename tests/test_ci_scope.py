@@ -179,15 +179,6 @@ pytestmark = pytest.mark.unit
             ("docker-compose.yaml",), True, True, False, True, False, id="compose-image"
         ),
         pytest.param(
-            ("stable-docs.toml",),
-            False,
-            False,
-            False,
-            False,
-            True,
-            id="edition-provenance",
-        ),
-        pytest.param(
             ("scripts/build_versioned_docs.py",),
             True,
             False,

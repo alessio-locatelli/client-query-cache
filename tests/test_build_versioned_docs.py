@@ -30,23 +30,15 @@ if TYPE_CHECKING:
 
 pytestmark = pytest.mark.unit
 
+RELEASE_VERSION = "1.0.0"
+RELEASE_TAG = f"v{RELEASE_VERSION}"
+MISMATCHED_TAG = "v9.0.0"
+
 
 def commit(repo: Path) -> Text:
     git(repo, "add", ".")
     git(repo, "commit", "-qm", "Fixture snapshot")
     return resolve(repo, "HEAD")
-
-
-def record_backport(
-    repo: Path,
-    source: Text,
-    tag: Text = "v0.2.0",
-    fetch_ref: Text = "refs/pull/143/head",
-) -> None:
-    git(repo, "update-ref", "refs/pull/143/head", "HEAD")
-    (repo / "stable-docs.toml").write_text(
-        f'[backports."{tag}"]\nsource = "{source}"\nfetch_ref = "{fetch_ref}"\n'
-    )
 
 
 @pytest.fixture
@@ -66,7 +58,7 @@ def release_repo(tmp_path: Path) -> Path:
     (repo / "examples/example.py").write_text('print("released")\n')
     (repo / "examples/README.md").write_text("# Released examples\n")
     (repo / "pyproject.toml").write_text(
-        '[project]\nname = "fixture"\nversion = "0.2.0"\n'
+        f'[project]\nname = "fixture"\nversion = "{RELEASE_VERSION}"\n'
     )
     (repo / "docs/user").mkdir(parents=True)
     (repo / "docs/user/index.md").write_text("# Released guide\n")
@@ -80,160 +72,42 @@ repo_url = "https://github.com/alessio-locatelli/client-query-cache"
 docs_dir = "docs/user"
 [project.theme]
 font = false
+features = ["content.action.copy"]
 [project.markdown_extensions.pymdownx.snippets]
 check_paths = true
+[project.plugins.llmstxt]
+full_output = "llms-full.txt"
+[project.plugins.llmstxt.sections]
+Guides = ["*.md"]
 [project.plugins.redirects.redirect_maps]
 """)
     commit(repo)
-    git(repo, "tag", "--no-sign", "v0.2.0")
-    (repo / "docs/user/index.md").write_text("# Corrected guide\n")
-    record_backport(repo, commit(repo))
+    git(repo, "tag", "--no-sign", RELEASE_TAG)
     return repo
 
 
 @pytest.fixture
-def selection_sources(release_repo: Path, request: pytest.FixtureRequest) -> Sources:
-    correction = resolve(release_repo, "HEAD")
-    if request.param == "release":
-        (release_repo / "stable-docs.toml").write_text("[backports]\n")
-    elif request.param == "different-tag":
-        record_backport(release_repo, correction, "v0.1.0")
+def development_source(release_repo: Path) -> Text:
     (release_repo / "src/client_query_cache/__init__.py").write_text(
         'VERSION = "development"\n'
     )
-    return Sources(
-        release=resolve(release_repo, "refs/tags/v0.2.0"),
-        stable=correction
-        if request.param == "backport"
-        else resolve(release_repo, "refs/tags/v0.2.0"),
-        development=commit(release_repo),
-        version="0.2.0",
-    )
+    (release_repo / "docs/user/index.md").write_text("# Development guide\n")
+    return commit(release_repo)
 
 
-@pytest.mark.parametrize(
-    "selection_sources", ["release", "backport", "different-tag"], indirect=True
-)
 def test_selects_exact_release_and_independent_development(
-    release_repo: Path, selection_sources: Sources
+    release_repo: Path, development_source: Text
 ) -> None:
-    assert select_sources(release_repo, "v0.2.0", "HEAD") == selection_sources
-
-
-@pytest.fixture
-def incompatible_backport(release_repo: Path, request: pytest.FixtureRequest) -> None:
-    path, replacement = request.param
-    (release_repo / path).write_text(replacement)
-    record_backport(release_repo, commit(release_repo))
+    stable = resolve(release_repo, f"refs/tags/{RELEASE_TAG}")
+    assert select_sources(release_repo, RELEASE_TAG, "HEAD") == Sources(
+        stable=stable, development=development_source, version=RELEASE_VERSION
+    )
+    assert stable != development_source
 
 
 @pytest.mark.parametrize(
-    "incompatible_backport",
-    [
-        pytest.param(
-            ("src/client_query_cache/__init__.py", 'VERSION = "unreleased"\n'),
-            id="runtime",
-        ),
-        pytest.param(
-            ("examples/example.py", 'print("unreleased")\n'), id="executable-example"
-        ),
-        pytest.param(
-            ("pyproject.toml", '[project]\nname = "changed"\nversion = "0.2.0"\n'),
-            id="project-metadata",
-        ),
-    ],
-    indirect=True,
+    "tag", ["HEAD", "main", "v1.0.0rc1"], ids=["head", "branch", "prerelease"]
 )
-@pytest.mark.usefixtures("incompatible_backport")
-def test_rejects_incompatible_backport(release_repo: Path) -> None:
-    with pytest.raises(ValueError, match="differs from the released"):
-        select_sources(release_repo, "v0.2.0", "HEAD")
-
-
-@pytest.fixture
-def mutable_backport(release_repo: Path, request: pytest.FixtureRequest) -> None:
-    record_backport(release_repo, request.param)
-
-
-@pytest.mark.parametrize("mutable_backport", ["HEAD", "main", "v0.2.0"], indirect=True)
-@pytest.mark.usefixtures("mutable_backport")
-def test_rejects_mutable_backport_provenance(release_repo: Path) -> None:
-    with pytest.raises(ValueError, match="immutable commit SHA"):
-        select_sources(release_repo, "v0.2.0", "HEAD")
-
-
-@pytest.fixture
-def correction_ref(release_repo: Path, request: pytest.FixtureRequest) -> Text:
-    correction = resolve(release_repo, "HEAD")
-    if request.param == "tag":
-        git(release_repo, "tag", "--no-sign", "docs-v0.2.0")
-        record_backport(release_repo, correction, fetch_ref="refs/tags/docs-v0.2.0")
-    elif request.param == "unreachable":
-        git(release_repo, "update-ref", "refs/pull/143/head", "refs/tags/v0.2.0")
-    else:
-        record_backport(release_repo, correction, fetch_ref="refs/heads/main")
-    return correction
-
-
-@pytest.mark.parametrize("correction_ref", ["tag"], indirect=True)
-def test_accepts_tag_transport(release_repo: Path, correction_ref: Text) -> None:
-    assert select_sources(release_repo, "v0.2.0", "HEAD")["stable"] == correction_ref
-
-
-@pytest.mark.parametrize("correction_ref", ["unreachable", "branch"], indirect=True)
-@pytest.mark.usefixtures("correction_ref")
-def test_rejects_unretained_correction(release_repo: Path) -> None:
-    with pytest.raises(ValueError, match="fetch ref"):
-        select_sources(release_repo, "v0.2.0", "HEAD")
-
-
-@pytest.fixture
-def merged_checkout(release_repo: Path, tmp_path: Path) -> Path:
-    correction = resolve(release_repo, "HEAD")
-    git(release_repo, "branch", "-m", "correction")
-    git(release_repo, "checkout", "-q", "-b", "main", "v0.2.0")
-    (release_repo / "docs/user/index.md").write_text("# Corrected guide\n")
-    record_backport(release_repo, correction)
-    commit(release_repo)
-    git(release_repo, "update-ref", "refs/pull/143/head", correction)
-    git(release_repo, "branch", "-D", "correction")
-    remote = tmp_path / "remote.git"
-    run(tmp_path, "git", "clone", "-q", "--bare", str(release_repo), str(remote))
-    git(
-        remote,
-        "fetch",
-        "-q",
-        str(release_repo),
-        "refs/pull/143/head:refs/pull/143/head",
-    )
-    checkout = tmp_path / "fresh-checkout"
-    run(tmp_path, "git", "clone", "-q", f"file://{remote}", str(checkout))
-    return checkout
-
-
-def test_retained_pr_ref_recovers_correction_after_rebase_merge(
-    merged_checkout: Path,
-) -> None:
-    with pytest.raises(subprocess.CalledProcessError):
-        resolve(merged_checkout, "refs/pull/143/head")
-    git(
-        merged_checkout,
-        "fetch",
-        "-q",
-        "--no-tags",
-        "origin",
-        "refs/pull/143/head:refs/pull/143/head",
-    )
-    sources = select_sources(merged_checkout, "v0.2.0", "HEAD")
-    assert sources["stable"] != sources["development"]
-    assert resolve(merged_checkout, "refs/pull/143/head") == sources["stable"]
-    assert (
-        git(merged_checkout, "show", f"{sources['stable']}:docs/user/index.md")
-        == b"# Corrected guide\n"
-    )
-
-
-@pytest.mark.parametrize("tag", ["HEAD", "main", "v0.2.0rc1"])
 def test_requires_exact_stable_release_tag(release_repo: Path, tag: Text) -> None:
     with pytest.raises(ValueError, match=r"exact vX\.Y\.Z"):
         select_sources(release_repo, tag, "HEAD")
@@ -241,13 +115,13 @@ def test_requires_exact_stable_release_tag(release_repo: Path, tag: Text) -> Non
 
 @pytest.fixture
 def mismatched_release(release_repo: Path) -> None:
-    git(release_repo, "tag", "--no-sign", "v0.3.0")
+    git(release_repo, "tag", "--no-sign", MISMATCHED_TAG)
 
 
 @pytest.mark.usefixtures("mismatched_release")
 def test_rejects_release_version_mismatch(release_repo: Path) -> None:
     with pytest.raises(ValueError, match="tag and package version disagree"):
-        select_sources(release_repo, "v0.3.0", "HEAD")
+        select_sources(release_repo, MISMATCHED_TAG, "HEAD")
 
 
 @pytest.fixture
@@ -257,12 +131,16 @@ def combined_output() -> Text | None:
 
 @pytest.fixture
 def exported_repo(release_repo: Path, combined_output: Text | None) -> Path:
-    with (release_repo / "zensical.toml").open("a") as configuration:
-        configuration.write("[project.plugins.llmstxt]\n")
-        if combined_output is not None:
-            configuration.write(f'full_output = "{combined_output}"\n')
-        configuration.write('[project.plugins.llmstxt.sections]\nGuides = ["*.md"]\n')
+    configuration_path = release_repo / "zensical.toml"
+    configuration = tomllib.loads(configuration_path.read_text())
+    policy = table(table(table(configuration["project"])["plugins"])["llmstxt"])
+    if combined_output is None:
+        del policy["full_output"]
+    else:
+        policy["full_output"] = combined_output
+    configuration_path.write_text(tomli_w.dumps(configuration))
     commit(release_repo)
+    git(release_repo, "tag", "--no-sign", "--force", RELEASE_TAG)
     return release_repo
 
 
@@ -316,18 +194,18 @@ def test_assembles_without_write_access_to_checkout_parent(
     output, temporary_storage, commands = restricted_checkout
     assemble(
         exported_repo,
-        select_sources(exported_repo, "v0.2.0", "HEAD"),
+        select_sources(exported_repo, RELEASE_TAG, "HEAD"),
         output,
     )
     assert commands[0].parent == temporary_storage
-    assert "Corrected guide" in (output / "stable/index.html").read_text()
-    assert "Corrected guide" in (output / "dev/index.html").read_text()
+    assert "Released guide" in (output / "stable/index.html").read_text()
+    assert "Released guide" in (output / "dev/index.html").read_text()
     assert not (output / "previous.txt").exists()
 
 
 @pytest.fixture
 def failed_edition(
-    exported_repo: Path, request: pytest.FixtureRequest
+    exported_repo: Path, request: pytest.FixtureRequest, failed_snapshot: Text
 ) -> tuple[type[Exception], Text]:
     failure: tuple[type[Exception], Text]
     if request.param == "heading":
@@ -350,25 +228,36 @@ def failed_edition(
             '# Invalid guide\n\n--8<-- "../stable/examples/example.py"\n'
         )
         failure = subprocess.CalledProcessError, "Snippet at path"
+    elif request.param == "exports":
+        configuration_path = exported_repo / "zensical.toml"
+        configuration = tomllib.loads(configuration_path.read_text())
+        del table(table(configuration["project"])["plugins"])["llmstxt"]
+        configuration_path.write_text(tomli_w.dumps(configuration))
+        failure = KeyError, "llmstxt"
     else:
         git(exported_repo, "rm", "-q", "docs/user/index.md")
         failure = ValueError, "public guide layout"
     commit(exported_repo)
+    if failed_snapshot == "stable":
+        git(exported_repo, "tag", "--no-sign", "--force", RELEASE_TAG)
     return failure
 
 
 @pytest.mark.parametrize(
     "failed_edition",
-    ["heading", "page", "snippet", "outside-snippet", "layout"],
+    ["heading", "page", "snippet", "outside-snippet", "layout", "exports"],
     indirect=True,
+    ids=["heading", "page", "snippet", "outside-snippet", "layout", "exports"],
 )
+@pytest.mark.parametrize("failed_snapshot", ["stable", "dev"], ids=["stable", "dev"])
+@pytest.mark.usefixtures("failed_snapshot")
 def test_failed_edition_preserves_previous_artifact(
     exported_repo: Path,
     previous_artifact: Path,
     failed_edition: tuple[type[Exception], Text],
     capfd: pytest.CaptureFixture[Text],
 ) -> None:
-    sources = select_sources(exported_repo, "v0.2.0", "HEAD")
+    sources = select_sources(exported_repo, RELEASE_TAG, "HEAD")
     exception, diagnostic = failed_edition
     with pytest.raises(exception) as failure:
         assemble(exported_repo, sources, previous_artifact)
@@ -426,7 +315,7 @@ def failed_swap(
 @pytest.mark.parametrize(
     "failed_swap",
     [
-        (phase, error)
+        pytest.param((phase, error), id=f"{phase}-{errno.errorcode[error]}")
         for phase in ("backup", "install", "restore")
         for error in (errno.EXDEV, errno.EACCES)
     ],
@@ -439,7 +328,7 @@ def test_swap_failure_preserves_previous_artifact(
     with pytest.raises(OSError, match="Forced artifact replacement failure") as failure:
         assemble(
             exported_repo,
-            select_sources(exported_repo, "v0.2.0", "HEAD"),
+            select_sources(exported_repo, RELEASE_TAG, "HEAD"),
             previous_artifact,
         )
     assert failure.value.errno == error
@@ -451,9 +340,12 @@ def test_swap_failure_preserves_previous_artifact(
     assert not tuple(exported_repo.glob(".docs-artifact-*"))
 
 
-@pytest.mark.parametrize("artifact_exists", [False])
+@pytest.mark.parametrize("artifact_exists", [False], ids=["first-install"])
 @pytest.mark.parametrize(
-    "failed_swap", [("install", errno.EXDEV), ("install", errno.EACCES)], indirect=True
+    "failed_swap",
+    [("install", errno.EXDEV), ("install", errno.EACCES)],
+    indirect=True,
+    ids=["cross-device", "access-denied"],
 )
 @pytest.mark.usefixtures("artifact_exists")
 def test_failed_first_install_leaves_no_partial_artifact(
@@ -462,7 +354,7 @@ def test_failed_first_install_leaves_no_partial_artifact(
     with pytest.raises(OSError, match="Forced artifact replacement failure"):
         assemble(
             exported_repo,
-            select_sources(exported_repo, "v0.2.0", "HEAD"),
+            select_sources(exported_repo, RELEASE_TAG, "HEAD"),
             previous_artifact,
         )
     assert failed_swap[0] == "install"
@@ -498,9 +390,9 @@ def test_assembles_independent_snapshots_with_development_only_page(
     output = (
         previous_artifact if artifact_name == "site" else exported_repo / artifact_name
     )
-    sources = select_sources(exported_repo, "v0.2.0", "HEAD")
+    sources = select_sources(exported_repo, RELEASE_TAG, "HEAD")
     assemble(exported_repo, sources, output)
-    assert "Corrected guide" in (output / "stable/index.html").read_text()
+    assert "Released guide" in (output / "stable/index.html").read_text()
     assert "DevelopmentOnlyToken" not in (output / "stable/index.html").read_text()
     assert "DevelopmentOnlyToken" in (output / "dev/index.html").read_text()
     for edition in ("stable", "dev"):
@@ -558,10 +450,10 @@ def released_export_policy(
     stable_page = release_repo / "docs/user/usage/guide.md"
     stable_page.write_text("# ReleasedUsageToken\n")
     (release_repo / "pyproject.toml").write_text(
-        '[project]\nname = "fixture"\nversion = "0.2.1"\n'
+        '[project]\nname = "fixture"\nversion = "1.0.1"\n'
     )
     commit(release_repo)
-    git(release_repo, "tag", "--no-sign", "v0.2.1")
+    git(release_repo, "tag", "--no-sign", "v1.0.1")
     (release_repo / "docs/user/usage").rename(release_repo / "docs/user/learning")
     (release_repo / "docs/user/learning/guide.md").write_text("# CurrentUsageToken\n")
     development_policy: Table = {
@@ -591,7 +483,7 @@ def test_preserves_released_export_policy(
     development_combined: Text | None,
 ) -> None:
     output = released_export_policy / "site"
-    sources = select_sources(released_export_policy, "v0.2.1", "HEAD")
+    sources = select_sources(released_export_policy, "v1.0.1", "HEAD")
     assemble(released_export_policy, sources, output)
     stable_index = (output / "stable/llms.txt").read_text()
     development_index = (output / "dev/llms.txt").read_text()
@@ -643,14 +535,19 @@ def missing_export(
     return filename
 
 
-@pytest.mark.parametrize("missing_export", ["llms.txt", "llms-full.txt"], indirect=True)
+@pytest.mark.parametrize(
+    "missing_export",
+    ["llms.txt", "llms-full.txt"],
+    indirect=True,
+    ids=["index", "combined"],
+)
 def test_missing_export_preserves_previous_artifact(
     exported_repo: Path, previous_artifact: Path, missing_export: Text
 ) -> None:
     with pytest.raises(FileNotFoundError, match=missing_export):
         assemble(
             exported_repo,
-            select_sources(exported_repo, "v0.2.0", "HEAD"),
+            select_sources(exported_repo, RELEASE_TAG, "HEAD"),
             previous_artifact,
         )
     assert tuple(previous_artifact.iterdir()) == (previous_artifact / "previous.txt",)
@@ -674,7 +571,7 @@ def test_rejects_linked_artifact_without_changing_it(
     with pytest.raises(ValueError, match="symbolic link"):
         assemble(
             exported_repo,
-            select_sources(exported_repo, "v0.2.0", "HEAD"),
+            select_sources(exported_repo, RELEASE_TAG, "HEAD"),
             linked_artifact,
         )
     assert linked_artifact.is_symlink()

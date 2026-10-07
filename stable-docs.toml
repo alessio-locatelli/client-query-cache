@@ -1,5 +1,0 @@
-validation_tag = "v0.2.0"
-
-[backports."v0.2.0"]
-source = "f9355d6043d35ff9d17f6cb76b7e8a8e09e32f14" # pragma: allowlist secret
-fetch_ref = "refs/pull/143/head"

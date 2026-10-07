@@ -25,7 +25,6 @@ def table(value: object) -> Table:
 
 
 class Sources(TypedDict):
-    release: Text
     stable: Text
     development: Text
     version: Text
@@ -50,70 +49,16 @@ def resolve(repo: Path, revision: Text) -> Text:
     )
 
 
-def project_metadata(repo: Path, revision: Text) -> Table:
-    return table(
-        tomllib.loads(git(repo, "show", f"{revision}:pyproject.toml").decode())[
-            "project"
-        ]
-    )
-
-
-def executable_examples(repo: Path, revision: Text) -> bytes:
-    entries = git(repo, "ls-tree", "-r", revision, "examples").splitlines()
-    return b"\n".join(entry for entry in entries if entry.endswith(b".py"))
-
-
 def select_sources(repo: Path, tag: Text, development: Text) -> Sources:
     if not re.fullmatch(r"v\d+\.\d+\.\d+", tag):
         raise ValueError("Stable source must be an exact vX.Y.Z release tag")
-    release = resolve(repo, f"refs/tags/{tag}")
-    metadata = project_metadata(repo, release)
+    stable = resolve(repo, f"refs/tags/{tag}")
+    metadata = table(
+        tomllib.loads(git(repo, "show", f"{stable}:pyproject.toml").decode())["project"]
+    )
     if metadata["version"] != tag.removeprefix("v"):
         raise ValueError("Release tag and package version disagree")
-    configuration = tomllib.loads((repo / "stable-docs.toml").read_text())
-    stable = release
-    if tag in configuration["backports"]:
-        correction = configuration["backports"][tag]
-        recorded = correction["source"]
-        if not re.fullmatch(r"[0-9a-f]{40}", recorded):
-            raise ValueError(
-                "Documentation backport source must be an immutable commit SHA"
-            )
-        stable = resolve(repo, recorded)
-        fetch_ref = correction["fetch_ref"]
-        if not re.fullmatch(r"refs/(?:tags/[^\s:]+|pull/[1-9]\d*/head)", fetch_ref):
-            raise ValueError(
-                "Documentation backport fetch ref must be a tag or retained PR ref"
-            )
-        reachable = subprocess.run(  # noqa: S603 - Fixed Git command, no shell.
-            (  # noqa: S607 - Git is supplied by the toolchain.
-                "git",
-                "-C",
-                str(repo),
-                "merge-base",
-                "--is-ancestor",
-                stable,
-                resolve(repo, fetch_ref),
-            ),
-            # Ruff requires explicit check; ancestry failure is handled below.
-            check=False,
-        )
-        if reachable.returncode != 0:
-            raise ValueError(
-                "Documentation backport source is not reachable from its fetch ref"
-            )
-        if (
-            git(repo, "rev-parse", f"{release}:src/client_query_cache")
-            != git(repo, "rev-parse", f"{stable}:src/client_query_cache")
-            or executable_examples(repo, release) != executable_examples(repo, stable)
-            or metadata != project_metadata(repo, stable)
-        ):
-            raise ValueError(
-                "Documentation backport differs from the released runtime, "
-                "examples or project metadata"
-            )
     return Sources(
-        release=release,
         stable=stable,
         development=resolve(repo, development),
         version=metadata["version"],
@@ -140,10 +85,7 @@ def extract_corpus(repo: Path, revision: Text, destination: Path) -> None:
         or (name.startswith("examples/") and name.endswith(".py"))
     )
     if "zensical.toml" not in files or "docs/user/index.md" not in files:
-        raise ValueError(
-            "Documentation source lacks the public guide layout; "
-            "record a reviewed release backport"
-        )
+        raise ValueError("Documentation source lacks the public guide layout")
     destination.mkdir()
     with tarfile.open(
         fileobj=io.BytesIO(git(repo, "archive", revision, "--", *files))
@@ -151,26 +93,16 @@ def extract_corpus(repo: Path, revision: Text, destination: Path) -> None:
         archive.extractall(destination, filter="data")
 
 
-def edition_config(
-    corpus: Path, revision: Text, export_policy: Table, *, stable: bool
-) -> None:
+def edition_config(corpus: Path, revision: Text, *, stable: bool) -> Table:
     configuration = tomllib.loads((corpus / "zensical.toml").read_text())
     project = table(configuration["project"])
+    export_policy = table(table(project["plugins"])["llmstxt"])
     # Zensical 0.0.68:
     # https://github.com/zensical/zensical/blob/v0.0.68/python/zensical/config.py
     # strict: The default is inherited from the extracted config. We override it because
     # publication must fail on warnings, including broken links.
     project["strict"] = True
     project["site_dir"] = str(corpus / "output")
-    table(project["plugins"])["llmstxt"] = export_policy
-    theme = table(project["theme"])
-    try:
-        features = cast("list[Text]", theme["features"])
-    except KeyError:
-        features = []
-        theme["features"] = features
-    if "content.action.copy" not in features:
-        features.append("content.action.copy")
     if "extra" not in project:
         project["extra"] = {}
     table(project["extra"])["version"] = {"provider": "mike"}
@@ -194,6 +126,7 @@ def edition_config(
             text = text.replace(f"]({repository})", f"]({repository}/tree/{revision})")
         page.write_text(text)
     (corpus / "zensical.toml").write_text(tomli_w.dumps(configuration))
+    return export_policy
 
 
 def run(cwd: Path, *arguments: Text) -> None:
@@ -307,33 +240,20 @@ def assemble(repo: Path, sources: Sources, output: Path) -> None:
             ("dev", sources["development"]),
         ):
             extract_corpus(repo, revision, workspace / edition)
-        development_configuration = tomllib.loads(
-            (workspace / "dev/zensical.toml").read_text()
-        )
-        export_policy = table(
-            table(table(development_configuration["project"])["plugins"])["llmstxt"]
-        )
-        stable_configuration = tomllib.loads(
-            (workspace / "stable/zensical.toml").read_text()
-        )
-        stable_plugins = table(table(stable_configuration["project"])["plugins"])
-        try:
-            stable_export_policy = table(stable_plugins["llmstxt"])
-        except KeyError:
-            stable_export_policy = export_policy
-        for edition, revision, title, edition_export_policy in (
-            (
-                "stable",
-                sources["stable"],
-                f"Latest release ({sources['version']})",
-                stable_export_policy,
-            ),
-            ("dev", sources["development"], "Development (main)", export_policy),
+        export_policies = {
+            edition: edition_config(
+                workspace / edition, revision, stable=edition == "stable"
+            )
+            for edition, revision in (
+                ("stable", sources["stable"]),
+                ("dev", sources["development"]),
+            )
+        }
+        for edition, title in (
+            ("stable", f"Latest release ({sources['version']})"),
+            ("dev", "Development (main)"),
         ):
             corpus = workspace / edition
-            edition_config(
-                corpus, revision, edition_export_policy, stable=edition == "stable"
-            )
             run(
                 corpus,
                 "mike",
@@ -381,6 +301,7 @@ def assemble(repo: Path, sources: Sources, output: Path) -> None:
             else:
                 shutil.copy2(entry, artifact / entry.name)
         shutil.copy2(artifact / "stable/llms.txt", artifact / "llms.txt")
+        stable_export_policy = export_policies["stable"]
         try:
             full_output = stable_export_policy["full_output"]
         except KeyError:
@@ -400,8 +321,7 @@ def main() -> None:
     repo = Path(git(Path.cwd(), "rev-parse", "--show-toplevel").decode().strip())
     sources = select_sources(repo, arguments.stable_tag, arguments.development_ref)
     print(
-        f"Release: {sources['release']}\n"
-        f"Stable docs: {sources['stable']}\n"
+        f"Stable ({sources['version']}): {sources['stable']}\n"
         f"Development: {sources['development']}",
         flush=True,
     )

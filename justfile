@@ -1,10 +1,11 @@
 # Just 1.57.0: https://just.systems/man/en/settings.html
-# The default is false. We override it because pytest and podman forward original arguments through $@.
+# The default is false. We override it because shell recipes consume original positional arguments.
 set positional-arguments
 # The default is running the first recipe. We override it because plain just must list commands without running setup.
 set default-list
 
-# Bash 5.3 help set; set -euo pipefail in typecheck-examples, verify-release, pytest,
+# Bash 5.3 help set; set -euo pipefail in docs-build-editions, typecheck-examples,
+# verify-release, pytest,
 # enable-podman-socket, podman, test-memory, test-integration, test-e2e and
 # tests_and_coverage:
 # The default is inherited Bash options, normally all three off. We override it because
@@ -86,8 +87,23 @@ docs-build:
     # warnings, including broken links.
     uv run --only-group docs -- zensical build --clean --strict
 
-docs-build-editions stable_tag:
-    uv run --only-group docs -- python -m scripts.build_versioned_docs {{ quote(stable_tag) }}
+docs-build-editions stable_tag="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    stable_tag="$1"
+    if [[ -z "${stable_tag}" ]]; then
+        # GitHub CLI: https://cli.github.com/manual/gh_api
+        # --jq: The default is the complete response. We override it because the
+        # assembler needs only the selected release tag.
+        stable_tag="$(gh api 'repos/{owner}/{repo}/releases/latest' --jq .tag_name)"
+        # Git 2.55.0: https://git-scm.com/docs/git-fetch
+        # --no-tags: The default is inherited remote.origin.tagOpt, otherwise
+        # auto-following reachable tags. We override it because assembly needs only
+        # the selected release tag.
+        git fetch --no-tags origin "refs/tags/${stable_tag}:refs/tags/${stable_tag}"
+    fi
+    uv run --only-group docs -- python -m scripts.build_versioned_docs "${stable_tag}"
 
 verify-release tag='': build
     #!/usr/bin/env bash
