@@ -7,7 +7,6 @@ See [README.md](README.md).
 ### General
 
 - Use the OpenSpec workflow for all non-trivial work.
-- Never duplicate information across files, including paraphrases or shorter versions. Designate one source of truth and reference it from other files.
 - Follow the [development-environment configuration requirements](openspec/specs/development-environment/spec.md) when changing tool settings or command flags.
 - **Review findings in an active change:** While a branch's OpenSpec change remains active, valid review findings belong to that change. Amend its existing delta specs, design, or tasks when needed; when existing requirements already cover the behavior, add only the necessary task, implementation, and regression test. A review round never by itself justifies a new change. Create a separate change only when the finding is outside the active change's declared scope or the user explicitly requests a split. Archive only after the whole branch has been cleanly reviewed.
 - Leverage the [Generic Development Workflow](openspec/generic_development_workflow.md) when planning designs and tasks.

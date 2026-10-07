@@ -9,6 +9,7 @@ PR documentation validation still builds the superseded release correction even 
 - Use automatic published-release selection for combined documentation builds.
 - Retire the documentation correction configuration and bootstrap support.
 - Keep strict assembly, edition isolation, source-specific exports, and recoverable artifact replacement.
+- Include the explicitly requested [changelog guidance](design.md#changelog-guidance).
 
 ## Capabilities
 
@@ -23,4 +24,4 @@ None.
 
 ## Impact
 
-The documentation assembler, its tests, both documentation workflows, the command surface, CI scope selection, contributor image, and contributor guidance change. Library runtime APIs and dependencies are unaffected.
+The documentation assembler, its tests, both documentation workflows, the command surface, CI scope selection, contributor image, contributor guidance, and changelog editing guidance in `CHANGELOG.md` and `AGENTS.md` change. Library runtime APIs and dependencies are unaffected.
