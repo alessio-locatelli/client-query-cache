@@ -13,6 +13,8 @@ bodies or OpenSpec. An empty Unreleased section is valid.
 
 ## Unreleased
 
+## [0.4.0] - 2026-10-07
+
 ### Features
 
 - **Breaking:** Rename `CacheManager.cached(collection)` to `CacheManager.get_cached_collection(collection)` in synchronous and asyncio managers.
