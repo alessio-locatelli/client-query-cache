@@ -12,6 +12,7 @@ Owner: Codex, implementing this branch through completion.
 - [x] 2.1 Implement the shared command described in design decision 1; call it from `.github/workflows/test.yml` and `.github/workflows/docs.yml`. Exercise default discovery against the actual latest release and explicit-tag local reproduction; inspect failure propagation without introducing configuration-text tests.
 - [x] 2.2 Remove obsolete path selection from `scripts/ci_scope.py`, its existing parametrization, and publication filters. Add `gh` to `Containerfile` and `scripts/check_dev_container.sh`; verify the image's CLI is executable with the existing container smoke check.
 - [x] 2.3 Replace backport/baseline instructions in `CONTRIBUTING.md` and correct the command in `docs/development/ci-validation-caches.md`. Apply the [changelog decision](design.md#changelog-guidance), including its explicitly requested editing hint and references from `CONTRIBUTING.md` and `AGENTS.md`. Verify documented default and explicit-tag invocations against the delivered commands; leave no unassigned cleanup prose.
+- [x] 2.4 Add the `release-publishing` delta and sync its changelog requirement to the canonical editing policy. Preserve the release-cut scenario and cover package behavior fixes and documentation-publication-only changes.
 
 ## 3. Code Quality
 
