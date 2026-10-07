@@ -6,6 +6,7 @@ import pytest
 
 from benchmarks.stream_cost.client import WireCompressor
 from benchmarks.stream_cost.compressor_preflight import (
+    PREFLIGHT_PAYLOAD_BYTES,
     CompressorPreflightResult,
     verify_compressor_negotiation,
 )
@@ -14,6 +15,8 @@ from benchmarks.stream_cost.errors import BenchmarkSetupError
 pytestmark = pytest.mark.unit
 
 _Counters = dict[str, dict[str, dict[str, int]]]
+
+_BACKGROUND_TRAFFIC_BYTES = 512
 
 _ZERO_COUNTERS: _Counters = {
     name: {"compressor": {"bytesIn": 0}, "decompressor": {"bytesIn": 0}}
@@ -112,23 +115,37 @@ def _run(
     "compressor",
     [WireCompressor.SNAPPY, WireCompressor.ZLIB, WireCompressor.ZSTD],
 )
+@pytest.mark.parametrize(
+    "background",
+    [{}, {"snappy": _BACKGROUND_TRAFFIC_BYTES, "zlib": _BACKGROUND_TRAFFIC_BYTES}],
+    ids=["quiet_server", "background_traffic"],
+)
 def test_verify_compressor_negotiation_accepts_a_clean_match(
-    compressor: WireCompressor,
+    compressor: WireCompressor, background: dict[str, int]
 ) -> None:
+    advanced = {**background, compressor.value: PREFLIGHT_PAYLOAD_BYTES}
     preflight_result, collection = _run(
-        compressor, _ZERO_COUNTERS, _counters(**{compressor.value: 1_000})
+        compressor, _ZERO_COUNTERS, _counters(**advanced)
     )
     assert preflight_result.compressor is compressor
-    assert preflight_result.counter_deltas[compressor.value] == 1_000
+    assert preflight_result.counter_deltas[compressor.value] == PREFLIGHT_PAYLOAD_BYTES
     assert collection.dropped == 2
 
 
-def test_verify_compressor_negotiation_accepts_a_clean_no_compression_match() -> None:
-    preflight_result, _collection = _run(
-        WireCompressor.NONE, _ZERO_COUNTERS, _ZERO_COUNTERS
-    )
+@pytest.mark.parametrize(
+    "after",
+    [_ZERO_COUNTERS, _counters(snappy=_BACKGROUND_TRAFFIC_BYTES)],
+    ids=["quiet_server", "background_traffic"],
+)
+def test_verify_compressor_negotiation_accepts_a_clean_no_compression_match(
+    after: _Counters,
+) -> None:
+    preflight_result, _collection = _run(WireCompressor.NONE, _ZERO_COUNTERS, after)
     assert preflight_result.compressor is WireCompressor.NONE
-    assert all(delta == 0 for delta in preflight_result.counter_deltas.values())
+    assert all(
+        delta < PREFLIGHT_PAYLOAD_BYTES
+        for delta in preflight_result.counter_deltas.values()
+    )
 
 
 @pytest.mark.parametrize(
@@ -142,19 +159,25 @@ def test_verify_compressor_negotiation_accepts_a_clean_no_compression_match() ->
         ),
         pytest.param(
             WireCompressor.ZSTD,
-            _counters(snappy=500),
+            _counters(zstd=PREFLIGHT_PAYLOAD_BYTES - 1),
+            "fell back to no compression",
+            id="less_than_the_preflight_payload",
+        ),
+        pytest.param(
+            WireCompressor.ZSTD,
+            _counters(snappy=PREFLIGHT_PAYLOAD_BYTES),
             "fell back to no compression",
             id="mislabeled_compressor",
         ),
         pytest.param(
             WireCompressor.ZSTD,
-            _counters(zstd=500, snappy=200),
+            _counters(zstd=PREFLIGHT_PAYLOAD_BYTES, snappy=PREFLIGHT_PAYLOAD_BYTES),
             "could not be verified",
             id="ambiguous_negotiation",
         ),
         pytest.param(
             WireCompressor.NONE,
-            _counters(zlib=300),
+            _counters(zlib=PREFLIGHT_PAYLOAD_BYTES),
             "was not verified as uncompressed",
             id="unexpected_compression",
         ),

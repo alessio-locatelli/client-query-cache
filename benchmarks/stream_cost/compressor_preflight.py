@@ -21,6 +21,7 @@ _PYMONGO_COMPRESSOR_NAMES: dict[WireCompressor, str] = {
 _PREFLIGHT_DOCUMENT_COUNT = 50
 _PREFLIGHT_PADDING_BYTES = 4_096
 _PREFLIGHT_COLLECTION_NAME = "compressor_preflight"
+PREFLIGHT_PAYLOAD_BYTES = _PREFLIGHT_DOCUMENT_COUNT * _PREFLIGHT_PADDING_BYTES
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,33 +81,35 @@ def verify_compressor_negotiation(
     after = _compression_counters(admin_client)
     deltas = _counter_deltas(before, after)
 
+    carried = sorted(
+        name for name, delta in deltas.items() if delta >= PREFLIGHT_PAYLOAD_BYTES
+    )
+
     if compressor is WireCompressor.NONE:
-        advanced = sorted(name for name, delta in deltas.items() if delta > 0)
-        if advanced:
+        if carried:
             message = (
                 "no compression was requested for this preflight, but the "
-                f"server's compression counter(s) advanced for {advanced}; the "
-                "connection was not verified as uncompressed"
+                f"server's compression counter(s) for {carried} advanced by at least "
+                "the preflight payload; the connection was not verified as "
+                "uncompressed"
             )
             raise BenchmarkSetupError(message)
         return CompressorPreflightResult(compressor=compressor, counter_deltas=deltas)
 
     expected_name = _PYMONGO_COMPRESSOR_NAMES[compressor]
-    if deltas.get(expected_name, 0) <= 0:
+    if expected_name not in carried:
         message = (
             f"the {compressor.value!r} compressor was requested but its "
-            "server-side compression counter did not advance during preflight; "
-            "negotiation likely fell back to no compression"
+            "server-side compression counter did not advance by the preflight "
+            "payload; negotiation likely fell back to no compression"
         )
         raise BenchmarkSetupError(message)
-    other_advanced = sorted(
-        name for name, delta in deltas.items() if name != expected_name and delta > 0
-    )
-    if other_advanced:
+    other_carried = [name for name in carried if name != expected_name]
+    if other_carried:
         message = (
             f"the {compressor.value!r} compressor was requested but "
-            f"{other_advanced} also advanced during preflight, so the negotiated "
-            "compressor could not be verified unambiguously"
+            f"{other_carried} also advanced by the preflight payload, so the "
+            "negotiated compressor could not be verified unambiguously"
         )
         raise BenchmarkSetupError(message)
     return CompressorPreflightResult(compressor=compressor, counter_deltas=deltas)

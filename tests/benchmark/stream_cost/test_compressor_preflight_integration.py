@@ -10,7 +10,10 @@ from benchmarks.stream_cost.client import (
     WireCompressor,
     build_dedicated_client,
 )
-from benchmarks.stream_cost.compressor_preflight import verify_compressor_negotiation
+from benchmarks.stream_cost.compressor_preflight import (
+    PREFLIGHT_PAYLOAD_BYTES,
+    verify_compressor_negotiation,
+)
 from benchmarks.stream_cost.errors import BenchmarkSetupError
 
 if TYPE_CHECKING:
@@ -55,7 +58,7 @@ def test_verify_compressor_negotiation_accepts_each_negotiated_mode(
             database_name=f"preflight_{uuid.uuid4().hex}",
         )
     assert preflight_result.compressor is compressor
-    assert preflight_result.counter_deltas[compressor.value] > 0
+    assert preflight_result.counter_deltas[compressor.value] >= PREFLIGHT_PAYLOAD_BYTES
 
 
 def test_verify_compressor_negotiation_accepts_an_uncompressed_connection(
@@ -72,7 +75,10 @@ def test_verify_compressor_negotiation_accepts_an_uncompressed_connection(
             database_name=f"preflight_{uuid.uuid4().hex}",
         )
     assert preflight_result.compressor is WireCompressor.NONE
-    assert all(delta == 0 for delta in preflight_result.counter_deltas.values())
+    assert all(
+        delta < PREFLIGHT_PAYLOAD_BYTES
+        for delta in preflight_result.counter_deltas.values()
+    )
 
 
 def test_verify_compressor_negotiation_rejects_an_unnegotiated_mode(
