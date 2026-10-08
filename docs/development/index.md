@@ -12,5 +12,6 @@ Start with [CONTRIBUTING](../../CONTRIBUTING.md) for the development environment
 - [Executable version updates](executable-version-updates.md): update ownership and validation.
 - [Causal invalidation barrier decision](decisions/defer-causal-invalidation-barrier.md): the deferred API and reopening criteria.
 - [Causal invalidation barrier research](research/causal-invalidation-barrier.md): provenance, findings, and reproduction guidance.
+- [Shared invalidation research](research/shared-invalidation-feasibility.md): multi-process measurements, coordination assessment, and reproduction guidance.
 
 Published library guides live in [docs/user](../user/index.md).
