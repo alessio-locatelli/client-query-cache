@@ -8,7 +8,7 @@ The two `src/client_query_cache/*/streams.py` implementations own a supervisor p
 
 `benchmarks/stream_cost/` already provides an isolated single-member replica set, container CPU collection, clock calibration, a direct-path byte proxy, and command-level `getMore` observation. `measurement.py` measures CPU of its calling process, so it cannot account for children by itself. The current runners do not compare worker counts.
 
-Manager startup, retry, and shutdown follow the [change-stream coherency contract](../../specs/change-stream-coherency/spec.md). Record the measured revision and require successful startup and warmup. The canonical coherency spec requires a stream per manager/database; a future supported shared mode would need an explicit opt-in contract revision. This research does not modify that requirement.
+Manager startup, retry, and shutdown follow the [change-stream coherency contract](../../../specs/change-stream-coherency/spec.md). Record the measured revision and require successful startup and warmup. The canonical coherency spec requires a stream per manager/database; a future supported shared mode would need an explicit opt-in contract revision. This research does not modify that requirement.
 
 ## Goals / Non-Goals
 
