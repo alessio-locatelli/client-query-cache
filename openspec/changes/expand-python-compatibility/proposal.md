@@ -24,4 +24,4 @@ None.
 
 ## Impact
 
-Package metadata and its lockfile, matrix selection and its regression tests, and existing installation and contributor guidance are affected. The cache API and runtime implementation are outside this change. Support for Python below 3.14 and additional interpreter variants is outside scope.
+Package metadata and its lockfile, runnable example eligibility, matrix selection and its regression tests, and existing installation and contributor guidance are affected. The cache API and runtime implementation are outside this change. Support for Python below 3.14 and additional interpreter variants is outside scope.

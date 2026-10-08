@@ -45,14 +45,7 @@ block indefinitely. Dependabot retains its seven-day cooldowns. Neither bot has 
 Node updates run tooling and container checks. If Fedora cannot provide a proposed
 track, the container build fails and blocks merging.
 
-Python development advances to stable releases through `.python-version`. CI runs
-packaging and full tests on the exact declared minimum Python patch, intermediate
-supported release lines, and the exact development interpreter. Only identical
-interpreter requests are deduplicated; 3.14.6 remains tested when development
-advances to 3.14.7 or 3.15. Advancing to 3.15
-retains a 3.14 lane. Python hooks use the 3.14 compatibility baseline independently
-and Prek installs that interpreter when needed. The stable `Python compatibility`
-check blocks merging if any applicable lane fails.
+Python updates follow the [support policy](#python-support-policy).
 
 The Renovate window permits branch creation when the hosted app runs; it does
 not schedule hosted polling. Blocked PRs or unavailable runs can carry a backlog
@@ -62,6 +55,32 @@ branches; PR creation limits alone do not bound CI runs. Renovate's
 bypass these ordinary limits and the window. Manually requested rebases bypass
 the [commit budget](https://docs.renovatebot.com/configuration-options/#commithourlylimit).
 Dependabot [security updates have a separate PR limit](https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference#open-pull-requests-limit).
+
+## Python support policy
+
+`pyproject.toml` permits installation on Python 3.14 or newer, without an upper
+bound. This eligibility does not promise validation of every future interpreter.
+The Python version classifiers declare the release lines covered by compatibility
+testing. A patch-level development pin does not establish a package requirement;
+the earliest eligible patch must pass validation before widening eligibility
+([issue #195](https://github.com/alessio-locatelli/client-query-cache/issues/195)).
+
+Renovate advances `.python-version` to stable development releases. The shared
+`scripts/ci_python_matrix.py` generator reads the package minimum, classifiers,
+and development selection. Packaging and full tests cover the exact earliest
+eligible patch (an omitted patch means zero), the exact development interpreter,
+and every release line between the minimum and the highest classified or
+development line. Lines already represented by either exact request need no
+floating request; other lines use major/minor requests. Only identical requests
+are deduplicated.
+
+With the current declarations, CI selects `3.14.0`, `3.15`, and `3.14.6`. The
+floating request permits early candidate testing and selects stable Python when
+the toolchain provides it. The stable `Python compatibility` check blocks merging
+if any applicable packaging or test lane fails. Publishing advertised support
+also requires the [stable-release acceptance procedure](../../CONTRIBUTING.md#per-release-steps).
+The README badge reflects published PyPI classifiers, so it can differ from
+development declarations until publication.
 
 ## Repository validation
 

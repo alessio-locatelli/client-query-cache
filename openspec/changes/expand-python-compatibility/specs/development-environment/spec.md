@@ -4,7 +4,7 @@
 
 ### Requirement: The project supports CPython 3.14 and newer
 
-The project SHALL declare `requires-python = ">=3.14"` without a Python upper bound. `.python-version` SHALL select the exact default development interpreter, maintained by Renovate on stable releases without a repository release-line cap. CI SHALL exercise the earliest eligible patch, treating an omitted minimum patch as zero, and the exact selected development interpreter.
+The project SHALL declare `requires-python = ">=3.14"` without a Python upper bound. Runnable examples SHALL declare the same minimum. `.python-version` SHALL select the exact default development interpreter, maintained by Renovate on stable releases without a repository release-line cap. CI SHALL exercise the earliest eligible patch, treating an omitted minimum patch as zero, and the exact selected development interpreter.
 
 #### Scenario: Development advances to Python 3.15
 
