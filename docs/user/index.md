@@ -12,6 +12,6 @@ Caching requires MongoDB 8.0+ on a replica set or sharded cluster. Writes go thr
 
 - [Usage](usage/cached-reads.md): choose cached reads and understand raw fallback.
 - [Benchmarks](benchmarks/index.md): evaluate your workload and inspect reproducible measurement evidence.
-- [Examples](examples/index.md): study and run integrations with MongoDB-backed libraries.
+- [Examples](examples/index.md): study and run applications and integrations with MongoDB-backed libraries.
 - [API reference](reference/api.md): exact options, limits, errors, and ownership contracts.
 - [Operations](operations/index.md): plan capacity, security, recovery, and monitoring.

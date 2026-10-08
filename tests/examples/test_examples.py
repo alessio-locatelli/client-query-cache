@@ -23,8 +23,16 @@ REPOSITORY = Path(__file__).parents[2]
         "py_abac_example.py",
         "aiohttp_client_cache_example.py",
         "eve_example.py",
+        "fastapi_catalogue_example.py",
     ],
-    ids=["requests-cache", "celery", "py-abac", "aiohttp-client-cache", "eve"],
+    ids=[
+        "requests-cache",
+        "celery",
+        "py-abac",
+        "aiohttp-client-cache",
+        "eve",
+        "fastapi",
+    ],
 )
 def test_example_runs(name: str, mongodb_uri: MongoDbUri) -> None:
     uv = shutil.which("uv")
