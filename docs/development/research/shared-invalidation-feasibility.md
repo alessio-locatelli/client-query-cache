@@ -60,10 +60,44 @@ bounded drain remain included. Calibration runs every 50 ms; detected clock
 steps, excessive offset drift, and primary changes invalidate a window. Clock
 sampling cannot exclude transients that occur between observations.
 
-## Evidence status
+## Recorded baseline attempt
+
+The registered run at revision
+`9954d9fc9ae4f3d09cd0616b0859c1dd12d7abc5` stopped in its second window.
+The synchronous, one-worker idle raw-client control completed; the matching
+native-manager window failed with `application schedule exceeded tolerance`.
+The runner rejected that window under the registered 50 ms tolerance. The
+available error does not identify whether start or end scheduling was late,
+or establish why the worker was delayed.
+
+Configuration SHA-256:
+`fce88933afd2354f2f37699f10d1ede9d5b3ba82e34b454061ad8a1f7886b065`.
+
+Evaluate retained baseline evidence with:
+
+```bash
+uv run -- python -m benchmarks.stream_cost.shared_invalidation_decision benchmark-reports/shared-invalidation/baseline.json
+```
+
+| Comparison         | Complete matched blocks | Outcome      |
+| ------------------ | ----------------------- | ------------ |
+| Synchronous idle   | 0/6                     | Inconclusive |
+| Synchronous active | 0/6                     | Inconclusive |
+| Asyncio idle       | 0/6                     | Inconclusive |
+| Asyncio active     | 0/6                     | Inconclusive |
+
+The investment gate is inconclusive because no registered stream-only/control
+comparison is complete. A shared-delivery prototype is not justified by this
+attempt. This is an incomplete measurement, not evidence that duplicated stream
+cost is below the investment threshold. The cause and repeatability of the
+schedule failure remain unresolved under
+[issue #87](https://github.com/alessio-locatelli/client-query-cache/issues/87).
+No supported-manager saving, coordination benefit, or universal deferral follows
+from these observations.
 
 The shortened instrumentation run completed for synchronous and asyncio clients,
 covering raw reads, native cached reads, no-stream controls, and stream-only
-consumers. These observations verify instrumentation only. Registered baseline
-outcomes, the investment-gate decision, and any conditional prototype assessment
-are pending under [issue #87](https://github.com/alessio-locatelli/client-query-cache/issues/87).
+consumers. It also completed after rebasing onto the merged stream-startup
+coordination implementation. These observations verify instrumentation only.
+Conditional prototype work and the final transport assessment remain pending
+under [issue #87](https://github.com/alessio-locatelli/client-query-cache/issues/87).
