@@ -5,7 +5,7 @@ set positional-arguments
 set default-list
 
 # Bash 5.3 help set; set -euo pipefail in docs-build-editions, typecheck-examples,
-# verify-release, pytest,
+# verify-release, pytest, test-pymongo-min,
 # enable-podman-socket, podman, test-memory, test-integration, test-e2e and
 # tests_and_coverage:
 # The default is inherited Bash options, normally all three off. We override it because
@@ -159,6 +159,18 @@ pytest *args:
         env_file_args=(--env-file "{{ justfile_directory() }}/.env")
     fi
     exec uv run "${env_file_args[@]}" --group docs -- pytest "$@"
+
+test-pymongo-min:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    source "{{ justfile_directory() }}/scripts/testcontainers-bridge.sh"
+    # tox 4.64.5: https://tox.wiki/en/latest/cli_interface.html
+    # -r: The default reuses environments. We override it because each minimum-driver
+    # run must resolve the current published dependency floor in a fresh environment.
+    # -e: The default is tox.ini envlist. We override it because this command runs
+    # only the minimum-driver lane.
+    exec uv run -- tox run -r -e pymongo-min
 
 build-dev-image:
     podman build --tag {{ dev_image }} .

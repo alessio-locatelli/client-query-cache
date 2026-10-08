@@ -64,7 +64,14 @@ just tests_and_coverage
 ```
 
 `just tests_and_coverage` runs the current test suite and reports coverage. Run `just pytest -- -m unit` for
-the container-free unit-test tier. To discover focused recipes, run:
+the container-free unit-test tier.
+
+Run `just test-pymongo-min` to test the exact PyMongo minimum declared by the package,
+independently of the lockfile. It checks synchronous and asyncio collection reads,
+cursors, and bound sessions against disposable MongoDB, using the same host runtime
+as the full suite.
+
+To discover focused recipes, run:
 
 ```console
 just --list | grep -E 'test|coverage'
