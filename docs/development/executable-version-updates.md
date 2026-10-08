@@ -81,6 +81,10 @@ if any applicable packaging or test lane fails. Publishing advertised support
 also requires the [stable-release acceptance procedure](../../CONTRIBUTING.md#per-release-steps).
 The README badge reflects published PyPI classifiers, so it can differ from
 development declarations until publication.
+Verification of the badge after publishing classifiers is tracked in
+[issue #205](https://github.com/alessio-locatelli/client-query-cache/issues/205),
+owned by @alessio-locatelli and delegated to the next coding agent completing
+the change's post-publication verification task.
 
 ## Repository validation
 

@@ -16,3 +16,7 @@
 
 - [x] 3.1 Review all of `tests/test_ci_python_matrix.py`, including pre-existing tests, against `AGENTS.md`'s Writing Tests guidelines; check that matrix cases share parametrized test logic and fixture setup. Apply the same whole-file review to any other test files edited during implementation.
 - [x] 3.2 If implementing with Claude Code, confirm no new prose was added to code and keep all why explanations in specs and commit bodies. Inapplicable to this Codex-authored plan; OpenAI Codex is exempt.
+
+## 4. Post-publication verification
+
+- [ ] 4.1 After the next release containing the Python classifiers is published, the next coding agent completing this change must verify the released metadata and live Shields badge, including its rendering in GitHub's README, against the public-library-documentation delta. Record the release version, verification date, source URLs, and observed badge text in [issue #205](https://github.com/alessio-locatelli/client-query-cache/issues/205). If the badge still shows `missing` or an error, investigate and fix it before closing the issue and checking off this task. Do not publish a package just to complete this check.
