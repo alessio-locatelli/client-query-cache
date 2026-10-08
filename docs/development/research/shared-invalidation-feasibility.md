@@ -60,6 +60,10 @@ bounded drain remain included. Calibration runs every 50 ms; detected clock
 steps, excessive offset drift, and primary changes invalidate a window. Clock
 sampling cannot exclude transients that occur between observations.
 
+Worker deadline waits sleep for at most one second at a time. Their wakeups are
+included in worker CPU on every path, including controls. The application
+schedule and its 50 ms lateness tolerance remain fixed.
+
 ## Recorded baseline attempt
 
 The registered run at revision
@@ -68,7 +72,19 @@ The synchronous, one-worker idle raw-client control completed; the matching
 native-manager window failed with `application schedule exceeded tolerance`.
 The runner rejected that window under the registered 50 ms tolerance. The
 available error does not identify whether start or end scheduling was late,
-or establish why the worker was delayed.
+or establish why the worker was delayed. A diagnostic repeat of the same cell
+identified a 60.0 ms late wakeup at the end of its single 60-second sleep.
+A standalone timer comparison measured 55.7 ms lateness with one sleep and
+0.9 ms with one-second waits; CPU over the minute was respectively 0.2 ms and
+9.3 ms. These diagnostics are excluded from baseline inference.
+
+The delay is consistent with Linux's timeout-dependent timer slack:
+[epoll uses the slack estimate](https://github.com/torvalds/linux/blob/e557793799c5a8406afb08aa170509619f7eac36/fs/eventpoll.c#L1764),
+whose [calculation](https://code.googlesource.com/linux/torvalds/linux/+/e557793799c5a8406afb08aa170509619f7eac36/fs/select.c)
+allows 0.1% of the timeout for ordinary tasks. Bounding individual sleeps avoids
+a minute-long timeout without changing system settings or accepting late work.
+Repeating the native idle cell with bounded waits completed with 1.5 ms end
+lateness and 0.08 worker CPU seconds over the minute.
 
 Configuration SHA-256:
 `fce88933afd2354f2f37699f10d1ede9d5b3ba82e34b454061ad8a1f7886b065`.
@@ -89,9 +105,9 @@ uv run -- python -m benchmarks.stream_cost.shared_invalidation_decision benchmar
 The investment gate is inconclusive because no registered stream-only/control
 comparison is complete. A shared-delivery prototype is not justified by this
 attempt. This is an incomplete measurement, not evidence that duplicated stream
-cost is below the investment threshold. The cause and repeatability of the
-schedule failure remain unresolved under
-[issue #87](https://github.com/alessio-locatelli/client-query-cache/issues/87).
+cost is below the investment threshold. A fresh registered run must establish
+the gate after the scheduling correction; the incomplete attempt remains
+retained under [issue #87](https://github.com/alessio-locatelli/client-query-cache/issues/87).
 No supported-manager saving, coordination benefit, or universal deferral follows
 from these observations.
 

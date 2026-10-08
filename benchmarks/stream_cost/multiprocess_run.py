@@ -307,10 +307,17 @@ async def invoke[**P, T](
     return value
 
 
-async def wait_until(deadline: float, tolerance: float) -> None:
-    await asyncio.sleep(max(0.0, deadline - time.monotonic()))
-    if time.monotonic() - deadline > tolerance:
-        raise BenchmarkSetupError("application schedule exceeded tolerance")
+async def wait_until(
+    deadline: float, tolerance: float, phase: Literal["start", "read", "end"]
+) -> None:
+    while (remaining := deadline - time.monotonic()) > 0:  # noqa: ASYNC110 - Bound timer slack, not a polled condition.
+        await asyncio.sleep(min(remaining, 1.0))
+    lateness = time.monotonic() - deadline
+    if lateness > tolerance:
+        message = (
+            f"application {phase} schedule exceeded tolerance: {lateness:.6f}s late"
+        )
+        raise BenchmarkSetupError(message)
 
 
 async def consume_stream(stream: Stream, observed: list[float]) -> None:
@@ -414,7 +421,7 @@ async def worker_window(
                 }
             )
             start = cast("float", await asyncio.to_thread(connection.recv))
-            await wait_until(start, protocol.schedule_tolerance_seconds)
+            await wait_until(start, protocol.schedule_tolerance_seconds, "start")
             boundary = process_reading()  # pytriage: TR11 (metric boundary)
             commands_before = listener.snapshot()
             sent, received = proxy.bytes_sent, proxy.bytes_received
@@ -431,6 +438,7 @@ async def worker_window(
                     await wait_until(
                         start + ordinal * protocol.read_interval_seconds,
                         protocol.schedule_tolerance_seconds,
+                        "read",
                     )
                     issued = time.monotonic()
                     offsets.append(issued - start)
@@ -447,7 +455,9 @@ async def worker_window(
                         raise BenchmarkSetupError("scheduled document disappeared")
                     latencies.append(time.monotonic() - issued)
             await wait_until(
-                start + protocol.window_seconds, protocol.schedule_tolerance_seconds
+                start + protocol.window_seconds,
+                protocol.schedule_tolerance_seconds,
+                "end",
             )
             application_end = process_reading()  # pytriage: TR11 (metric boundary)
             connection.send({"kind": "application-end"})
