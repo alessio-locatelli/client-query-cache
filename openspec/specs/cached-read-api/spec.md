@@ -485,7 +485,7 @@ A malformed or unsupported single-document read option SHALL NOT hit a previousl
 
 ### Requirement: Count reads preserve explicit options
 
-Synchronous and asyncio cached `count_documents` reads SHALL preserve explicitly supplied options in native execution. Cache keys SHALL distinguish options with different native behavior, including invalid bounds and `hint=None`, while omitted skip and integer `skip=0` SHALL share a cache shape. Omitted bounds SHALL count all matching documents. Native PyMongo/MongoDB errors SHALL propagate on cold and bypassed reads without reusing incompatible warm entries. General live-error policy is unchanged.
+Synchronous and asyncio cached `count_documents` reads SHALL preserve explicitly supplied options in native execution, including native PyMongo/MongoDB errors on cold and bypassed reads. Omitted bounds SHALL count all matching documents. General live-error policy SHALL remain unchanged.
 
 #### Scenario: Bounds are omitted
 
@@ -502,11 +502,24 @@ Synchronous and asyncio cached `count_documents` reads SHALL preserve explicitly
 - **WHEN** a caller supplies an explicit invalid option on a count that bypasses caching
 - **THEN** native execution receives that value and preserves its error
 
+#### Scenario: A cold count supplies zero skip
+
+- **WHEN** a caller supplies integer `skip=0` on a cold count
+- **THEN** native execution receives the explicit zero unchanged
+
+### Requirement: Count cache identity preserves option semantics
+
+Count cache keys SHALL distinguish options with different native behavior, including invalid bounds and `hint=None`, without reusing incompatible warm entries. Omitted skip and integer `skip=0` SHALL share a cache shape.
+
+#### Scenario: An invalid count option follows a valid warm count
+
+- **WHEN** a caller warms an omitted-option count and then supplies `limit=0`, `limit=None`, `skip=None`, or `hint=None`
+- **THEN** the invalid option does not reuse the omitted-option entry and the native error propagates
+
 #### Scenario: Zero skip is equivalent to omission
 
 - **WHEN** a caller warms an eligible count with omitted skip and repeats it with `skip=0`, or performs these calls in reverse order
 - **THEN** the repeated read reuses the same cached entry
-- **AND** an explicit zero skip reaches native execution unchanged when that request performs the cold read
 
 ### Requirement: Multi-document reads preserve native cursor call shapes
 

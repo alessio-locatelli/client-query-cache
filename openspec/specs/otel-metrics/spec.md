@@ -140,19 +140,28 @@ The optional metrics bridge SHALL accept either execution model's manager as its
 
 ### Requirement: Bypass reasons have bounded metric cardinality
 
-The bridge SHALL publish ordinary reason counts on a separate cumulative observable counter named `client_query_cache.cache.bypasses.by_reason` with the fixed attribute `cache.bypass.reason`. Each reason observation SHALL equal its snapshot count. The existing aggregate and oversized instruments SHALL retain their identities and semantics. The reason dimension SHALL use only the fixed public vocabulary and SHALL contain no database name, collection name, filter, document ID, credential, error message, or resume token.
+The bridge SHALL publish ordinary reason counts on a separate cumulative observable counter named `client_query_cache.cache.bypasses.by_reason` with the fixed attribute `cache.bypass.reason`. Each reason observation SHALL equal its snapshot count. The reason dimension SHALL use only the fixed public vocabulary and contain no database name, collection name, filter, document ID, credential, error message, or resume token.
 
 #### Scenario: Expected and unhealthy bypasses are exported
 
 - **WHEN** collection gathers ordinary reason counts for missing collections and unavailable streams
-- **THEN** each has a distinct fixed reason observation on the new instrument and the aggregate remains separately available
-
-#### Scenario: An oversized result is exported
-
-- **WHEN** a result exceeds the maximum admission size
-- **THEN** its count is available on the existing oversized instrument without appearing in the ordinary reason counter
+- **THEN** each has a distinct fixed reason observation equal to its snapshot count on `client_query_cache.cache.bypasses.by_reason` with attribute `cache.bypass.reason`
 
 #### Scenario: Many query shapes produce bypasses
 
 - **WHEN** an application issues many distinct queries and collection names that bypass for the same reason
 - **THEN** reason metric cardinality depends on the fixed vocabulary rather than on those queries or collection names
+
+### Requirement: Reason metrics preserve aggregate and oversized instruments
+
+The aggregate and oversized instruments SHALL retain their identities and semantics independently of the ordinary reason counter.
+
+#### Scenario: Ordinary reasons are exported alongside the aggregate
+
+- **WHEN** collection gathers ordinary reason counts
+- **THEN** the existing aggregate remains separately available with its identity and semantics unchanged
+
+#### Scenario: An oversized result is exported
+
+- **WHEN** a result exceeds the maximum admission size
+- **THEN** its count is available on the existing oversized instrument without appearing in the ordinary reason counter
