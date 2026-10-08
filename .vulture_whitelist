@@ -190,3 +190,4 @@ worker_counts  # TypedDict key read by subscription in multiprocess_run.py.
 lag_capture  # TypedDict key read by subscription in multiprocess_run.py.
 calibration_seconds  # TypedDict key read by subscription in multiprocess_run.py.
 clock_tolerance_seconds  # TypedDict key read by subscription in multiprocess_run.py.
+active_minus_idle  # TypedDict key read by subscription and JSON serialization.
