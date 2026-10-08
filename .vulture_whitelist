@@ -183,3 +183,10 @@ pytestmark  # unused variable (tests/test_removed_prototype_api.py:7)
 release_measurement_tracing  # pytest autouse teardown (tests/benchmark/test_cached_read_cursors.py)
 
 small_workload  # pytest usefixtures (tests/benchmark/test_stream_startup.py)
+separation  # TypedDict key read by subscription in multiprocess_run.py.
+directConnection  # TypedDict key unpacked into PyMongo client options.
+serverSelectionTimeoutMS  # TypedDict key unpacked into PyMongo client options.
+worker_counts  # TypedDict key read by subscription in multiprocess_run.py.
+lag_capture  # TypedDict key read by subscription in multiprocess_run.py.
+calibration_seconds  # TypedDict key read by subscription in multiprocess_run.py.
+clock_tolerance_seconds  # TypedDict key read by subscription in multiprocess_run.py.
