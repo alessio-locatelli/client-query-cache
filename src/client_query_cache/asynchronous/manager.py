@@ -81,7 +81,8 @@ class CacheManager[DocumentType: Mapping[str, Any]]:
         namespace: NamespaceId,
         collection_probe: Callable[[], Awaitable[CollectionProbeResult | None]],
     ) -> BypassReason | None:
-        await self._coordinator.activate_database(namespace.database)
+        if await self._coordinator.activate_database(namespace.database) is None:
+            return BypassReason.STREAM_UNAVAILABLE
         if not self._cache.is_database_available(namespace.database):
             return BypassReason.STREAM_UNAVAILABLE
         current_epoch = self._cache.current_epoch(namespace)
@@ -159,8 +160,10 @@ class CacheManager[DocumentType: Mapping[str, Any]]:
         return CachedCollection(CachedDatabase(self, collection.database), collection)
 
     async def close(self) -> None:
-        await self._coordinator.close()
-        self._cache.close()
+        try:
+            await self._coordinator.close()
+        finally:
+            self._cache.close()
 
     async def __aenter__(self) -> Self:
         return self

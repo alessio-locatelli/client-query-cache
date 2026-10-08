@@ -181,3 +181,5 @@ _.side_effect  # unused attribute (tests/test_public_observability.py:212)
 raw_method  # unused function (tests/test_public_observability.py:294)
 pytestmark  # unused variable (tests/test_removed_prototype_api.py:7)
 release_measurement_tracing  # pytest autouse teardown (tests/benchmark/test_cached_read_cursors.py)
+
+small_workload  # pytest usefixtures (tests/benchmark/test_stream_startup.py)

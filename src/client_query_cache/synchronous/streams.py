@@ -9,6 +9,7 @@ from bson.errors import BSONError
 from pymongo.errors import OperationFailure, PyMongoError
 
 from client_query_cache._core.errors import StreamLifecycleError, StreamStartupError
+from client_query_cache._core.stream_activation import StreamActivation
 from client_query_cache._core.stream_events import (
     build_change_stream_pipeline,
     is_unresumable_change_stream_error,
@@ -103,41 +104,45 @@ class DatabaseStreamSupervisor:
             )
             raise StreamStartupError(message) from exc
         with self._lifecycle_lock:
-            if self._stop_event.is_set():
-                assert self._stream is not None
-                try:
-                    self._stream.close()
-                except PyMongoError:
-                    pass
-                self._set_health(StreamHealth.CLOSED)
-                message = "stop() was called while start() was still connecting"
-                raise StreamLifecycleError(message)
-            self._set_health(StreamHealth.HEALTHY)
-            self._thread = threading.Thread(
-                target=self._run,
-                name=f"client-query-cache-stream-{self._database.name}",
-                daemon=True,
-            )
-            self._thread.start()
+            stopped = self._stop_event.is_set()
+            if not stopped:
+                self._set_health(StreamHealth.HEALTHY)
+                self._thread = threading.Thread(
+                    target=self._run,
+                    name=f"client-query-cache-stream-{self._database.name}",
+                    daemon=True,
+                )
+                self._thread.start()
+        if stopped:
+            self.stop()
+            message = "stop() was called while start() was still connecting"
+            raise StreamLifecycleError(message)
 
-    def stop(self) -> None:
+    def request_stop(self) -> None:
         with self._lifecycle_lock:
             self._stop_event.set()
             self._set_health(StreamHealth.CLOSED)
+
+    def stop(self) -> None:
+        self.request_stop()
+        with self._lifecycle_lock:
             stream = self._stream
-            if stream is not None:
-                try:
-                    stream.close()
-                except PyMongoError:
-                    logger.warning(
-                        "change stream close failed during shutdown",
-                        extra={"database": self._database.name},
-                        exc_info=True,
-                    )
             thread = self._thread
+        if stream is not None:
+            try:
+                stream.close()
+            except PyMongoError:
+                logger.warning(
+                    "change stream close failed during shutdown",
+                    extra={"database": self._database.name},
+                    exc_info=True,
+                )
         if thread is not None:
             thread.join()
-        self._set_health(StreamHealth.CLOSED)
+        with self._lifecycle_lock:
+            if self._stream is stream:
+                self._stream = None
+            self._set_health(StreamHealth.CLOSED)
 
     def _ensure_server_supports_expanded_events(self) -> None:
         server_info = self._database.client.server_info()
@@ -168,11 +173,13 @@ class DatabaseStreamSupervisor:
                 previous_stream.close()
             except PyMongoError:
                 pass
+
         if self._stop_event.is_set():
             try:
                 self._stream.close()
             except PyMongoError:
                 pass
+            self._stream = None
 
     def _set_health(self, health: StreamHealth) -> None:
         with self._lifecycle_lock:
@@ -262,12 +269,14 @@ class DatabaseStreamSupervisor:
 
 class ChangeStreamCoordinator:
     __slots__ = (
+        "_activations",
         "_cache",
         "_client",
         "_closed",
         "_health_registry",
         "_lock",
         "_max_await_time_ms",
+        "_shutdown_complete",
         "_supervisors",
     )
 
@@ -281,46 +290,105 @@ class ChangeStreamCoordinator:
         self._client = client
         self._max_await_time_ms = max_await_time_ms
         self._cache = cache
+        self._activations: dict[
+            str, StreamActivation[DatabaseStreamSupervisor, threading.Event]
+        ] = {}  # Can be empty.
         self._supervisors: dict[str, DatabaseStreamSupervisor] = {}
         self._closed = False
         self._health_registry = StreamHealthRegistry()
         self._lock = threading.Lock()
+        self._shutdown_complete = threading.Event()
 
     def activate_database(self, name: str) -> DatabaseStreamSupervisor | None:
         with self._lock:
             if self._closed:
                 raise StreamLifecycleError("coordinator is closed")
             try:
-                supervisor = self._supervisors[name]
+                return self._supervisors[name]
             except KeyError:
-                supervisor = DatabaseStreamSupervisor(
-                    self._client[name],
-                    self._cache,
-                    max_await_time_ms=self._max_await_time_ms,
+                pass
+            try:
+                activation = self._activations[name]
+            except KeyError:
+                activation = None
+            if activation is not None and (
+                activation.pending or not activation.retry.ready()
+            ):
+                return None
+            supervisor = DatabaseStreamSupervisor(
+                self._client[name],
+                self._cache,
+                max_await_time_ms=self._max_await_time_ms,
+            )
+            if activation is None:
+                activation = StreamActivation(supervisor, threading.Event())
+                self._activations[name] = activation
+            else:
+                activation.supervisor = supervisor
+                activation.pending = True
+                activation.completion.clear()
+            self._health_registry.record_connecting(name)
+        published = False
+        try:
+            try:
+                supervisor.start()
+            except StreamStartupError:
+                with self._lock:
+                    if not self._closed:
+                        activation.retry.failed()
+                        self._health_registry.record_startup_failure(name)
+                logger.warning(
+                    "change stream startup failed for database %r; reads for "
+                    "this database will bypass the cache",
+                    name,
+                    exc_info=True,
                 )
-                self._health_registry.record_starting(name, supervisor.health_status)
-                try:
-                    supervisor.start()
-                except StreamStartupError:
-                    self._health_registry.record_startup_failure(name)
-                    logger.warning(
-                        "change stream startup failed for database %r; reads for "
-                        "this database will bypass the cache",
-                        name,
-                        exc_info=True,
-                    )
-                    return None
+                return None
+            with self._lock:
+                if self._closed:
+                    raise StreamLifecycleError("coordinator is closed")
                 self._supervisors[name] = supervisor
+                del self._activations[name]
+                self._health_registry.record_starting(name, supervisor.health_status)
+                published = True
             return supervisor
+        finally:
+            if not published:
+                try:
+                    supervisor.stop()
+                finally:
+                    with self._lock:
+                        if not self._closed:
+                            self._health_registry.record_startup_failure(name)
+                        activation.pending = False
+                        activation.completion.set()
+            else:
+                activation.completion.set()
 
     def stream_health_snapshot(self, database_name: str) -> StreamHealthSnapshot:
         return self._health_registry.snapshot(database_name)
 
     def close(self) -> None:
         with self._lock:
-            self._closed = True
-            self._health_registry.close()
-            supervisors = list(self._supervisors.values())
-            self._supervisors.clear()
-        for supervisor in supervisors:
-            supervisor.stop()
+            owns_cleanup = not self._closed
+            if owns_cleanup:
+                self._closed = True
+                self._health_registry.close()
+                supervisors = tuple(self._supervisors.values())
+                activations = tuple(self._activations.values())
+                for supervisor in supervisors:
+                    supervisor.request_stop()
+                for activation in activations:
+                    activation.supervisor.request_stop()
+                self._supervisors.clear()
+                self._activations.clear()
+        if not owns_cleanup:
+            self._shutdown_complete.wait()
+            return
+        try:
+            for activation in activations:
+                activation.completion.wait()
+            for supervisor in supervisors:
+                supervisor.stop()
+        finally:
+            self._shutdown_complete.set()

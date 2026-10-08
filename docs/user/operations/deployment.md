@@ -6,6 +6,12 @@ Invalidation is asynchronous. Plan direct PyMongo reads for operations that must
 
 ## Retry and error handling
 
+- **Initial stream startup**: one read starts a stream for its database. Concurrent reads for that
+  database run uncached while startup is pending; other databases can start or use their caches independently.
+  Failed attempts emit a warning and enter a cooldown. Retry delays are sampled between half and all of
+  an exponential cap, starting at 100 ms and doubling to 30 seconds. A read at or after the deadline
+  initiates the next attempt; idle databases do not retry in the background. This also applies to
+  unsupported servers and denied watch permissions, so corrected deployments can recover on later reads.
 - **Change-stream reconnection**: a dropped stream connection reconnects automatically using capped exponential
   backoff with jitter (starting near 100 ms, capped at 30 seconds), resuming from its last saved position. While
   reconnecting, that database's cache bypasses reads and admissions until the stream is healthy again — never
@@ -49,6 +55,10 @@ that many concurrent long-poll consumers in mind, alongside your application's o
 ## Recovery behavior
 
 Each database can start, connect, become healthy, reconnect, and close independently. Caching is permitted only while its change stream is healthy; reads bypass the cache in every other state. Shutting down a manager (`cache_manager.close()`, or exiting its context manager) makes every active database unavailable before waiting for streams and background workers to stop. Close the manager before its PyMongo client; use `await cache_manager.close()` with asyncio.
+
+Shutdown waits for pending startup and native stream cleanup. Cancelling asyncio `close()` defers
+cancellation until those resources and the manager's cache are released. Concurrent or later calls
+join the same shutdown. Driver I/O can delay completion; configure timeouts on your PyMongo client.
 
 ## Capacity estimation
 

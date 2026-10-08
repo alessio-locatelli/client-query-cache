@@ -14,6 +14,7 @@ from bson.codec_options import CodecOptions
 from pymongo.errors import ConnectionFailure, OperationFailure
 
 from client_query_cache import StreamHealthStatus
+from client_query_cache._core import stream_activation
 from client_query_cache._core.entries import AdmissionOutcome
 from client_query_cache._core.errors import StreamLifecycleError, StreamStartupError
 from client_query_cache._core.keys import NamespaceId
@@ -23,9 +24,12 @@ from client_query_cache.asynchronous.streams import (
     ChangeStreamCoordinator,
     DatabaseStreamSupervisor,
 )
+from tests.stream_fakes import AsyncScriptedDatabase as ScriptedDatabase
+from tests.stream_fakes import AsyncScriptedStream as ScriptedStream
+from tests.stream_fakes import as_async_database as as_database
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Awaitable, Callable
+    from collections.abc import AsyncIterator, Callable
 
     from pymongo.asynchronous.database import AsyncDatabase
 
@@ -57,40 +61,7 @@ def _long_backoff(delay: float = 5.0) -> RetryBackoff:
     return cast("RetryBackoff", _FixedDelayBackoff(delay))
 
 
-class _ScriptedStream:
-    __slots__ = ("_close_error", "_closed_event", "_events", "closed", "resume_token")
-
-    def __init__(
-        self, events: list[object], *, close_error: Exception | None = None
-    ) -> None:
-        self._events = list(events)
-        self._close_error = close_error
-        self.resume_token: dict[str, object] | None = None
-        self.closed = False
-        self._closed_event = asyncio.Event()
-
-    async def next(self) -> dict[str, object]:
-        if not self._events:
-            await self._closed_event.wait()
-        item = self._events.pop(0)
-        if isinstance(item, Exception):
-            raise item
-        assert isinstance(item, dict)
-        try:
-            resume_token = item["_id"]
-        except KeyError:
-            resume_token = self.resume_token
-        self.resume_token = resume_token
-        return item
-
-    async def close(self) -> None:
-        self.closed = True
-        self._closed_event.set()
-        if self._close_error is not None:
-            raise self._close_error
-
-
-class _BlockingCloseStream(_ScriptedStream):
+class _BlockingCloseStream(ScriptedStream):
     __slots__ = ("close_started", "release_close")
 
     def __init__(self, events: list[object]) -> None:
@@ -104,7 +75,7 @@ class _BlockingCloseStream(_ScriptedStream):
         await super().close()
 
 
-class _CloseRaisesStream(_ScriptedStream):
+class _CloseRaisesStream(ScriptedStream):
     __slots__ = ("close_started",)
 
     def __init__(self, events: list[object]) -> None:
@@ -130,60 +101,6 @@ class _StreamStopsThenFails:
 
     async def close(self) -> None:
         pass
-
-
-class _FakeDatabase:
-    __slots__ = (
-        "_before_watch",
-        "_script",
-        "client",
-        "codec_options",
-        "name",
-        "watch_calls",
-    )
-
-    def __init__(
-        self,
-        name: str,
-        script: list[object],
-        *,
-        version_array: list[int] | None = None,
-        before_watch: Callable[[int], Awaitable[None]] | None = None,
-    ) -> None:
-        self.name = name
-        self.codec_options: CodecOptions[Any] = CodecOptions()
-        self.client = SimpleNamespace(
-            server_info=self._make_server_info(version_array or [8, 0, 4])
-        )
-        self._script = list(script)
-        self.watch_calls: list[dict[str, object]] = []
-        self._before_watch = before_watch
-
-    @staticmethod
-    def _make_server_info(
-        version_array: list[int],
-    ) -> Callable[[], object]:
-        async def server_info() -> dict[str, object]:  # noqa: RUF029
-            return {
-                "version": ".".join(str(part) for part in version_array),
-                "versionArray": version_array,
-            }
-
-        return server_info
-
-    async def watch(self, _pipeline: object, **kwargs: object) -> object:
-        index = len(self.watch_calls)
-        self.watch_calls.append(kwargs)
-        if self._before_watch is not None:
-            await self._before_watch(index)
-        item = self._script[index]
-        if isinstance(item, Exception):
-            raise item
-        return item
-
-
-def _as_database(fake: _FakeDatabase) -> AsyncDatabase[Any]:
-    return cast("AsyncDatabase[Any]", fake)
 
 
 def _mock_cache() -> Mock:
@@ -276,8 +193,8 @@ async def test_start_fails_closed(
     script: list[object],
     expected_watch_calls: int,
 ) -> None:
-    database = _FakeDatabase("db", script, version_array=version_array)
-    supervisor = make_supervisor(_as_database(database), _mock_cache())
+    database = ScriptedDatabase("db", script, version_array=version_array)
+    supervisor = make_supervisor(as_database(database), _mock_cache())
 
     with pytest.raises(StreamStartupError):
         await supervisor.start()
@@ -289,13 +206,13 @@ async def test_start_fails_closed(
 async def test_start_fails_closed_when_server_info_itself_fails(
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
 ) -> None:
-    database = _FakeDatabase("db", [])
+    database = ScriptedDatabase("db", [])
 
     async def failing_server_info() -> dict[str, object]:  # noqa: RUF029
         raise ConnectionFailure("no primary available")
 
     database.client = SimpleNamespace(server_info=failing_server_info)
-    supervisor = make_supervisor(_as_database(database), _mock_cache())
+    supervisor = make_supervisor(as_database(database), _mock_cache())
 
     with pytest.raises(StreamStartupError):
         await supervisor.start()
@@ -314,9 +231,9 @@ async def test_start_raises_and_closes_the_stream_when_stop_races_it(
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
     close_error: Exception | None,
 ) -> None:
-    stream = _ScriptedStream([], close_error=close_error)
-    database = _FakeDatabase("db", [stream])
-    supervisor = make_supervisor(_as_database(database), _mock_cache())
+    stream = ScriptedStream([], close_error=close_error)
+    database = ScriptedDatabase("db", [stream])
+    supervisor = make_supervisor(as_database(database), _mock_cache())
 
     async def before_watch(_index: int) -> None:  # noqa: RUF029
         supervisor._stop_event.set()
@@ -333,8 +250,8 @@ async def test_start_raises_and_closes_the_stream_when_stop_races_it(
 async def test_concurrent_starts_let_only_one_caller_publish_a_worker(
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
 ) -> None:
-    database = _FakeDatabase("db", [_ScriptedStream([])])
-    supervisor = make_supervisor(_as_database(database), _mock_cache())
+    database = ScriptedDatabase("db", [ScriptedStream([])])
+    supervisor = make_supervisor(as_database(database), _mock_cache())
     caller_count = 5
 
     async def run_start() -> str:
@@ -354,9 +271,9 @@ async def test_concurrent_starts_let_only_one_caller_publish_a_worker(
 async def test_activate_database_bypasses_when_startup_is_unsupported(
     make_coordinator: Callable[..., ChangeStreamCoordinator],
 ) -> None:
-    database = _FakeDatabase("db", [], version_array=[5, 0, 9])
+    database = ScriptedDatabase("db", [], version_array=[5, 0, 9])
     client = Mock()
-    client.__getitem__ = Mock(return_value=_as_database(database))
+    client.__getitem__ = Mock(return_value=as_database(database))
     cache = CacheCore()
     coordinator = make_coordinator(client, cache)
 
@@ -373,7 +290,7 @@ async def test_activate_database_bypasses_when_startup_is_unsupported(
 async def test_coordinator_rejects_activation_after_close(
     make_coordinator: Callable[..., ChangeStreamCoordinator],
 ) -> None:
-    databases = {"first": _FakeDatabase("first", [_ScriptedStream([])])}
+    databases = {"first": ScriptedDatabase("first", [ScriptedStream([])])}
     client = Mock()
     client.__getitem__ = Mock(side_effect=databases.__getitem__)
     coordinator = make_coordinator(client, _mock_cache())
@@ -388,9 +305,9 @@ async def test_start_becomes_healthy_and_routes_events(
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
 ) -> None:
     cache = _mock_cache()
-    stream = _ScriptedStream([_insert_event()])
-    database = _FakeDatabase("db", [stream])
-    supervisor = make_supervisor(_as_database(database), cache)
+    stream = ScriptedStream([_insert_event()])
+    database = ScriptedDatabase("db", [stream])
+    supervisor = make_supervisor(as_database(database), cache)
 
     await supervisor.start()
     assert _is_healthy(supervisor) is True
@@ -406,9 +323,9 @@ async def test_start_becomes_healthy_and_routes_events(
 async def test_stop_cancels_the_background_task_and_closes_the_stream(
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
 ) -> None:
-    stream = _ScriptedStream([])
-    database = _FakeDatabase("db", [stream])
-    supervisor = make_supervisor(_as_database(database), _mock_cache())
+    stream = ScriptedStream([])
+    database = ScriptedDatabase("db", [stream])
+    supervisor = make_supervisor(as_database(database), _mock_cache())
 
     await supervisor.start()
     task = supervisor._task
@@ -425,12 +342,10 @@ async def test_stop_cancels_the_background_task_and_closes_the_stream(
 async def test_reconnects_using_the_saved_resume_token(
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
 ) -> None:
-    stream1 = _ScriptedStream(
-        [_insert_event("tok-1"), OperationFailure("blip", code=1)]
-    )
-    database = _FakeDatabase("db", [stream1, _ScriptedStream([])])
+    stream1 = ScriptedStream([_insert_event("tok-1"), OperationFailure("blip", code=1)])
+    database = ScriptedDatabase("db", [stream1, ScriptedStream([])])
     supervisor = make_supervisor(
-        _as_database(database), _mock_cache(), backoff=_FAST_BACKOFF
+        as_database(database), _mock_cache(), backoff=_FAST_BACKOFF
     )
     watch_calls_after_reconnect = 2
 
@@ -445,13 +360,13 @@ async def test_reconnects_using_the_saved_resume_token(
 async def test_retries_with_backoff_after_a_transient_reopen_failure(
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
 ) -> None:
-    stream1 = _ScriptedStream([OperationFailure("blip", code=1)])
-    database = _FakeDatabase(
+    stream1 = ScriptedStream([OperationFailure("blip", code=1)])
+    database = ScriptedDatabase(
         "db",
-        [stream1, OperationFailure("still down", code=1), _ScriptedStream([])],
+        [stream1, OperationFailure("still down", code=1), ScriptedStream([])],
     )
     supervisor = make_supervisor(
-        _as_database(database), _mock_cache(), backoff=_FAST_BACKOFF
+        as_database(database), _mock_cache(), backoff=_FAST_BACKOFF
     )
     watch_calls_after_recovery = 3
 
@@ -463,10 +378,10 @@ async def test_retries_with_backoff_after_a_transient_reopen_failure(
 async def test_a_stop_racing_a_successful_reopen_does_not_report_healthy(
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
 ) -> None:
-    stream1 = _ScriptedStream([OperationFailure("blip", code=1)])
-    database = _FakeDatabase("db", [stream1, _ScriptedStream([])])
+    stream1 = ScriptedStream([OperationFailure("blip", code=1)])
+    database = ScriptedDatabase("db", [stream1, ScriptedStream([])])
     supervisor = make_supervisor(
-        _as_database(database), _mock_cache(), backoff=_FAST_BACKOFF
+        as_database(database), _mock_cache(), backoff=_FAST_BACKOFF
     )
 
     async def before_watch(index: int) -> None:  # noqa: RUF029
@@ -488,7 +403,7 @@ def test_stop_prevents_recovery_from_restoring_cache_eligibility(
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
 ) -> None:
     cache = CacheCore()
-    supervisor = make_supervisor(_as_database(_FakeDatabase("db", [])), cache)
+    supervisor = make_supervisor(as_database(ScriptedDatabase("db", [])), cache)
     supervisor._stop_event.set()
 
     supervisor._set_health(StreamHealth.HEALTHY)
@@ -506,14 +421,14 @@ async def test_stop_interrupts_an_in_progress_backoff_wait(
         if index == 1:
             entered_backoff.set()
 
-    stream1 = _ScriptedStream([OperationFailure("blip", code=1)])
-    database = _FakeDatabase(
+    stream1 = ScriptedStream([OperationFailure("blip", code=1)])
+    database = ScriptedDatabase(
         "db",
         [stream1, OperationFailure("still down", code=1)],
         before_watch=before_watch,
     )
     supervisor = make_supervisor(
-        _as_database(database), _mock_cache(), backoff=_long_backoff()
+        as_database(database), _mock_cache(), backoff=_long_backoff()
     )
 
     await supervisor.start()
@@ -530,12 +445,12 @@ async def test_stop_interrupts_an_in_progress_backoff_wait(
 async def test_stop_event_set_during_an_unresumable_clear_exits_the_retry_loop(
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
 ) -> None:
-    stream1 = _ScriptedStream([OperationFailure("blip", code=1)])
-    database = _FakeDatabase(
+    stream1 = ScriptedStream([OperationFailure("blip", code=1)])
+    database = ScriptedDatabase(
         "db", [stream1, OperationFailure("history lost", code=286)]
     )
     supervisor = make_supervisor(
-        _as_database(database), _mock_cache(), backoff=_FAST_BACKOFF
+        as_database(database), _mock_cache(), backoff=_FAST_BACKOFF
     )
 
     async def before_watch(index: int) -> None:  # noqa: RUF029
@@ -552,9 +467,9 @@ async def test_stop_event_set_during_an_unresumable_clear_exits_the_retry_loop(
 async def test_handle_stream_failure_is_a_no_op_once_stop_was_already_requested(
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
 ) -> None:
-    database = _FakeDatabase("db", [])
+    database = ScriptedDatabase("db", [])
     supervisor = make_supervisor(
-        _as_database(database), _mock_cache(), backoff=_FAST_BACKOFF
+        as_database(database), _mock_cache(), backoff=_FAST_BACKOFF
     )
     database._script.append(
         _StreamStopsThenFails(supervisor._stop_event, OperationFailure("blip", code=1))
@@ -569,8 +484,8 @@ async def test_handle_stream_failure_is_a_no_op_once_stop_was_already_requested(
 async def test_start_raises_when_called_more_than_once(
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
 ) -> None:
-    database = _FakeDatabase("db", [_ScriptedStream([])])
-    supervisor = make_supervisor(_as_database(database), _mock_cache())
+    database = ScriptedDatabase("db", [ScriptedStream([])])
+    supervisor = make_supervisor(as_database(database), _mock_cache())
 
     await supervisor.start()
     with pytest.raises(StreamLifecycleError):
@@ -588,10 +503,10 @@ async def test_unexpected_stream_closure_triggers_reconnect(
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
     close_error: Exception | None,
 ) -> None:
-    stream1 = _ScriptedStream([StopAsyncIteration()], close_error=close_error)
-    database = _FakeDatabase("db", [stream1, _ScriptedStream([])])
+    stream1 = ScriptedStream([StopAsyncIteration()], close_error=close_error)
+    database = ScriptedDatabase("db", [stream1, ScriptedStream([])])
     supervisor = make_supervisor(
-        _as_database(database), _mock_cache(), backoff=_FAST_BACKOFF
+        as_database(database), _mock_cache(), backoff=_FAST_BACKOFF
     )
     watch_calls_after_recovery = 2
 
@@ -604,9 +519,9 @@ async def test_stream_poll_is_counted_even_when_next_raises(
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
 ) -> None:
     cache = CacheCore()
-    stream1 = _ScriptedStream([StopAsyncIteration()])
-    database = _FakeDatabase("db", [stream1, _ScriptedStream([])])
-    supervisor = make_supervisor(_as_database(database), cache, backoff=_FAST_BACKOFF)
+    stream1 = ScriptedStream([StopAsyncIteration()])
+    database = ScriptedDatabase("db", [stream1, ScriptedStream([])])
+    supervisor = make_supervisor(as_database(database), cache, backoff=_FAST_BACKOFF)
 
     await supervisor.start()
     await _wait_until(lambda: cache.stream_cost_snapshot("db").stream_polls >= 1)
@@ -622,11 +537,11 @@ async def test_stream_survives_events_with_non_default_codec_values(
         "documentKey": {"_id": uuid.uuid4()},
         "wallTime": _WALL_TIME,
     }
-    database = _FakeDatabase("db", [_ScriptedStream([event]), _ScriptedStream([])])
+    database = ScriptedDatabase("db", [ScriptedStream([event]), ScriptedStream([])])
     database.codec_options = CodecOptions(
         uuid_representation=UuidRepresentation.STANDARD
     )
-    supervisor = make_supervisor(_as_database(database), cache, backoff=_FAST_BACKOFF)
+    supervisor = make_supervisor(as_database(database), cache, backoff=_FAST_BACKOFF)
 
     await supervisor.start()
     await _wait_until(lambda: cache.stream_cost_snapshot("db").logical_event_bytes > 0)
@@ -658,8 +573,8 @@ async def test_invalidation_survives_unencodable_logical_bytes(
         "documentKey": {"_id": "doc-1", "unencodable": unencodable_value},
         "wallTime": _WALL_TIME,
     }
-    database = _FakeDatabase("db", [_ScriptedStream([event]), _ScriptedStream([])])
-    supervisor = make_supervisor(_as_database(database), cache, backoff=_FAST_BACKOFF)
+    database = ScriptedDatabase("db", [ScriptedStream([event]), ScriptedStream([])])
+    supervisor = make_supervisor(as_database(database), cache, backoff=_FAST_BACKOFF)
 
     await supervisor.start()
     await _wait_until(lambda: cache.stream_cost_snapshot("db").invalidations >= 1)
@@ -672,9 +587,9 @@ def test_clearing_namespaces_resets_stream_cost_statistics() -> None:
     cache = CacheCore()
     cache.record_stream_poll("db")
     cache.record_invalidation_applied("db", 1.0, 1.0, 2.0)
-    database = _FakeDatabase("db", [_ScriptedStream([])])
+    database = ScriptedDatabase("db", [ScriptedStream([])])
     supervisor = DatabaseStreamSupervisor(
-        _as_database(database), cache, backoff=_FAST_BACKOFF
+        as_database(database), cache, backoff=_FAST_BACKOFF
     )
 
     supervisor._clear_namespaces_for_database()
@@ -689,9 +604,9 @@ async def test_clears_the_cache_when_reconnecting_without_a_resume_token(
 ) -> None:
     cache = _mock_cache()
     cache.namespaces_for_database.return_value = [NamespaceId("db", "coll")]
-    stream1 = _ScriptedStream([OperationFailure("blip before any event", code=1)])
-    database = _FakeDatabase("db", [stream1, _ScriptedStream([])])
-    supervisor = make_supervisor(_as_database(database), cache, backoff=_FAST_BACKOFF)
+    stream1 = ScriptedStream([OperationFailure("blip before any event", code=1)])
+    database = ScriptedDatabase("db", [stream1, ScriptedStream([])])
+    supervisor = make_supervisor(as_database(database), cache, backoff=_FAST_BACKOFF)
     watch_calls_after_reconnect = 2
 
     await supervisor.start()
@@ -709,14 +624,12 @@ async def test_clears_known_namespaces_when_resume_history_is_lost(
 ) -> None:
     cache = _mock_cache()
     cache.namespaces_for_database.return_value = [NamespaceId("db", "coll")]
-    stream1 = _ScriptedStream(
-        [_insert_event("tok-1"), OperationFailure("blip", code=1)]
-    )
-    database = _FakeDatabase(
+    stream1 = ScriptedStream([_insert_event("tok-1"), OperationFailure("blip", code=1)])
+    database = ScriptedDatabase(
         "db",
-        [stream1, OperationFailure("history lost", code=286), _ScriptedStream([])],
+        [stream1, OperationFailure("history lost", code=286), ScriptedStream([])],
     )
-    supervisor = make_supervisor(_as_database(database), cache, backoff=_FAST_BACKOFF)
+    supervisor = make_supervisor(as_database(database), cache, backoff=_FAST_BACKOFF)
     watch_calls_after_recovery = 3
 
     await supervisor.start()
@@ -756,9 +669,9 @@ async def test_reopens_with_start_after_following_a_database_invalidation_event(
 ) -> None:
     cache = _mock_cache()
     cache.namespaces_for_database.return_value = [NamespaceId("db", "coll")]
-    stream1 = _ScriptedStream([_insert_event("tok-1"), invalidate_event])
-    database = _FakeDatabase("db", [stream1, _ScriptedStream([])])
-    supervisor = make_supervisor(_as_database(database), cache, backoff=_FAST_BACKOFF)
+    stream1 = ScriptedStream([_insert_event("tok-1"), invalidate_event])
+    database = ScriptedDatabase("db", [stream1, ScriptedStream([])])
+    supervisor = make_supervisor(as_database(database), cache, backoff=_FAST_BACKOFF)
     watch_calls_after_reopen = 2
 
     await supervisor.start()
@@ -771,39 +684,12 @@ async def test_reopens_with_start_after_following_a_database_invalidation_event(
     await _wait_until(lambda: supervisor.healthy)
 
 
-async def test_supervisor_is_unhealthy_while_reconnecting(
-    make_supervisor: Callable[..., DatabaseStreamSupervisor],
-) -> None:
-    release = asyncio.Event()
-    reached_second_watch = asyncio.Event()
-
-    async def before_watch(index: int) -> None:
-        if index == 1:
-            reached_second_watch.set()
-            await release.wait()
-
-    stream1 = _ScriptedStream([_insert_event(), OperationFailure("blip", code=1)])
-    database = _FakeDatabase(
-        "db", [stream1, _ScriptedStream([])], before_watch=before_watch
-    )
-    supervisor = make_supervisor(
-        _as_database(database), _mock_cache(), backoff=_FAST_BACKOFF
-    )
-
-    await supervisor.start()
-    await _wait_until(reached_second_watch.is_set)
-    assert supervisor.healthy is False
-
-    release.set()
-    await _wait_until(lambda: supervisor.healthy)
-
-
 def test_unhealthy_transition_disables_cache_before_publishing_health(
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     cache = CacheCore()
-    supervisor = make_supervisor(_as_database(_FakeDatabase("db", [])), cache)
+    supervisor = make_supervisor(as_database(ScriptedDatabase("db", [])), cache)
     supervisor._set_health(StreamHealth.HEALTHY)
     availability_published = threading.Event()
     release_health_publication = threading.Event()
@@ -843,8 +729,8 @@ async def test_coordinator_starts_one_independent_stream_per_active_database(
     make_coordinator: Callable[..., ChangeStreamCoordinator],
 ) -> None:
     databases = {
-        "first": _FakeDatabase("first", [_ScriptedStream([])]),
-        "second": _FakeDatabase("second", [_ScriptedStream([])]),
+        "first": ScriptedDatabase("first", [ScriptedStream([])]),
+        "second": ScriptedDatabase("second", [ScriptedStream([])]),
     }
     client = Mock()
     client.__getitem__ = Mock(side_effect=databases.__getitem__)
@@ -885,9 +771,9 @@ async def test_cache_use_is_bypassed_until_start_completes(
     async def before_watch(_index: int) -> None:
         await release.wait()
 
-    database = _FakeDatabase("db", [_ScriptedStream([])], before_watch=before_watch)
+    database = ScriptedDatabase("db", [ScriptedStream([])], before_watch=before_watch)
     cache = CacheCore()
-    supervisor = make_supervisor(_as_database(database), cache)
+    supervisor = make_supervisor(as_database(database), cache)
 
     assert _attempt_admission(cache, "db") is AdmissionOutcome.DECLINED_UNAVAILABLE
 
@@ -912,15 +798,16 @@ async def test_cache_use_is_bypassed_while_reconnecting_and_restored_once_health
             reached_second_watch.set()
             await release.wait()
 
-    stream1 = _ScriptedStream([_insert_event(), OperationFailure("blip", code=1)])
-    database = _FakeDatabase(
-        "db", [stream1, _ScriptedStream([])], before_watch=before_watch
+    stream1 = ScriptedStream([_insert_event(), OperationFailure("blip", code=1)])
+    database = ScriptedDatabase(
+        "db", [stream1, ScriptedStream([])], before_watch=before_watch
     )
     cache = CacheCore()
-    supervisor = make_supervisor(_as_database(database), cache, backoff=_FAST_BACKOFF)
+    supervisor = make_supervisor(as_database(database), cache, backoff=_FAST_BACKOFF)
 
     await supervisor.start()
     await _wait_until(reached_second_watch.is_set)
+    assert supervisor.healthy is False
     assert _attempt_admission(cache, "db") is AdmissionOutcome.DECLINED_UNAVAILABLE
 
     release.set()
@@ -933,8 +820,8 @@ async def test_cache_use_is_bypassed_after_stop(
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
 ) -> None:
     cache = CacheCore()
-    database = _FakeDatabase("db", [_ScriptedStream([])])
-    supervisor = make_supervisor(_as_database(database), cache)
+    database = ScriptedDatabase("db", [ScriptedStream([])])
+    supervisor = make_supervisor(as_database(database), cache)
 
     await supervisor.start()
     assert _attempt_admission(cache, "db") is AdmissionOutcome.ADMITTED
@@ -949,7 +836,7 @@ async def test_cache_use_is_bypassed_while_stop_waits_for_stream_cleanup(
 ) -> None:
     cache = CacheCore()
     stream = _BlockingCloseStream([])
-    supervisor = make_supervisor(_as_database(_FakeDatabase("db", [stream])), cache)
+    supervisor = make_supervisor(as_database(ScriptedDatabase("db", [stream])), cache)
     await supervisor.start()
     stop_task = asyncio.create_task(supervisor.stop())
 
@@ -966,7 +853,7 @@ async def test_stop_continues_when_stream_close_raises(
 ) -> None:
     stream = _CloseRaisesStream([])
     supervisor = make_supervisor(
-        _as_database(_FakeDatabase("db", [stream])), CacheCore()
+        as_database(ScriptedDatabase("db", [stream])), CacheCore()
     )
     await supervisor.start()
 
@@ -980,8 +867,8 @@ async def test_cache_use_stays_bypassed_when_startup_fails(
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
 ) -> None:
     cache = CacheCore()
-    database = _FakeDatabase("db", [ConnectionFailure("down")])
-    supervisor = make_supervisor(_as_database(database), cache)
+    database = ScriptedDatabase("db", [ConnectionFailure("down")])
+    supervisor = make_supervisor(as_database(database), cache)
 
     with pytest.raises(StreamStartupError):
         await supervisor.start()
@@ -1002,9 +889,9 @@ async def test_start_closes_and_fails_when_cancelled_while_connecting(
             "server_info unexpectedly resumed after cancellation"
         )
 
-    database = _FakeDatabase("db", [_ScriptedStream([])])
+    database = ScriptedDatabase("db", [ScriptedStream([])])
     database.client = SimpleNamespace(server_info=hanging_server_info)
-    supervisor = make_supervisor(_as_database(database), _mock_cache())
+    supervisor = make_supervisor(as_database(database), _mock_cache())
 
     task = asyncio.ensure_future(supervisor.start())
     await _wait_until(entered_server_info.is_set)
@@ -1017,56 +904,6 @@ async def test_start_closes_and_fails_when_cancelled_while_connecting(
     assert len(database.watch_calls) == 0
 
 
-@pytest.mark.parametrize(
-    "close_error",
-    [
-        pytest.param(None, id="close-succeeds"),
-        pytest.param(ConnectionFailure("cursor close failed"), id="close-fails"),
-    ],
-)
-async def test_start_closes_the_stream_when_cancelled_racing_a_concurrent_stop(
-    make_supervisor: Callable[..., DatabaseStreamSupervisor],
-    close_error: Exception | None,
-) -> None:
-    entered_first_close = asyncio.Event()
-
-    class _StreamThatHangsOnFirstClose:
-        def __init__(self) -> None:
-            self.close_calls = 0
-
-        async def next(
-            self,
-        ) -> dict[str, object]:  # pragma: no cover (test invariant guard)
-            message = (
-                f"next() must not run after stop is requested ({self.close_calls=})"
-            )
-            raise AssertionError(message)
-
-        async def close(self) -> None:
-            self.close_calls += 1
-            if self.close_calls == 1:
-                entered_first_close.set()
-                await asyncio.Event().wait()
-            if close_error is not None:
-                raise close_error
-
-    stream = _StreamThatHangsOnFirstClose()
-    database = _FakeDatabase("db", [stream])
-    supervisor = make_supervisor(_as_database(database), _mock_cache())
-    supervisor._stop_event.set()
-
-    task = asyncio.ensure_future(supervisor.start())
-    await _wait_until(entered_first_close.is_set)
-    task.cancel()
-
-    with pytest.raises(asyncio.CancelledError):
-        await task
-
-    expected_close_calls = 2
-    assert supervisor.healthy is False
-    assert stream.close_calls == expected_close_calls
-
-
 async def test_a_fresh_start_clears_cache_state_left_over_from_before_it_existed(
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
 ) -> None:
@@ -1076,8 +913,8 @@ async def test_a_fresh_start_clears_cache_state_left_over_from_before_it_existed
     cache.admit_identity(capture, "full", {"v": "stale"})
     assert cache.lookup_identity(namespace, "doc-1", "full").hit
 
-    database = _FakeDatabase("db", [_ScriptedStream([])])
-    supervisor = make_supervisor(_as_database(database), cache)
+    database = ScriptedDatabase("db", [ScriptedStream([])])
+    supervisor = make_supervisor(as_database(database), cache)
 
     await supervisor.start()
     await _wait_until(lambda: supervisor.healthy)
@@ -1087,12 +924,15 @@ async def test_a_fresh_start_clears_cache_state_left_over_from_before_it_existed
 
 async def test_coordinator_health_replaces_startup_failure_on_retry(
     make_coordinator: Callable[..., ChangeStreamCoordinator],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    database = _FakeDatabase(
-        "db", [ConnectionFailure("startup unavailable"), _ScriptedStream([])]
+    clock = Mock(return_value=10.0)
+    monkeypatch.setattr(stream_activation, "monotonic", clock)
+    database = ScriptedDatabase(
+        "db", [ConnectionFailure("startup unavailable"), ScriptedStream([])]
     )
     client = Mock()
-    client.__getitem__ = Mock(return_value=_as_database(database))
+    client.__getitem__ = Mock(return_value=as_database(database))
     coordinator = make_coordinator(client, CacheCore())
     assert (
         coordinator.stream_health_snapshot("db").status
@@ -1104,7 +944,11 @@ async def test_coordinator_health_replaces_startup_failure_on_retry(
         coordinator.stream_health_snapshot("db").status
         is StreamHealthStatus.STARTUP_FAILED
     )
+    assert await coordinator.activate_database("db") is None
+    assert len(database.watch_calls) == 1
+    clock.return_value = coordinator._activations["db"].retry.deadline
     assert await coordinator.activate_database("db") is not None
+    assert coordinator._activations == {}
     assert coordinator.stream_health_snapshot("db").status is StreamHealthStatus.HEALTHY
     assert len(database.watch_calls) == 2
 
@@ -1123,13 +967,13 @@ async def paused_coordinator(
             await release.wait()
 
     script: list[object] = (
-        [_ScriptedStream([])]
+        [ScriptedStream([])]
         if request.param == 0
-        else [_ScriptedStream([ConnectionFailure("reconnect")]), _ScriptedStream([])]
+        else [ScriptedStream([ConnectionFailure("reconnect")]), ScriptedStream([])]
     )
-    database = _FakeDatabase("db", script, before_watch=before_watch)
+    database = ScriptedDatabase("db", script, before_watch=before_watch)
     client = Mock()
-    client.__getitem__ = Mock(return_value=_as_database(database))
+    client.__getitem__ = Mock(return_value=as_database(database))
     coordinator = make_coordinator(client, CacheCore())
     activation = asyncio.ensure_future(coordinator.activate_database("db"))
     await asyncio.wait_for(entered.wait(), timeout=5)

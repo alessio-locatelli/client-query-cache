@@ -81,7 +81,8 @@ class CacheManager[DocumentType: Mapping[str, Any]]:
         namespace: NamespaceId,
         collection_probe: Callable[[], CollectionProbeResult | None],
     ) -> BypassReason | None:
-        self._coordinator.activate_database(namespace.database)
+        if self._coordinator.activate_database(namespace.database) is None:
+            return BypassReason.STREAM_UNAVAILABLE
         if not self._cache.is_database_available(namespace.database):
             return BypassReason.STREAM_UNAVAILABLE
         current_epoch = self._cache.current_epoch(namespace)

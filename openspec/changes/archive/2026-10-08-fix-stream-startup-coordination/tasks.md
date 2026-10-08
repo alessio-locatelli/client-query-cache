@@ -1,0 +1,18 @@
+# Tasks
+
+## 1. Activation ownership and retry policy
+
+- [x] 1.1 Implement the retry policy from design.md's "Share retry arithmetic" section in `_core/stream_activation.py`, with deterministic clock/random coverage in `tests/core/test_stream_activation.py`; verify the cooldown and delay scenarios in the delta without real sleeps.
+- [x] 1.2 Apply "Reserve locally, then perform I/O" to both `streams.py` coordinators and both manager eligibility paths, extending their existing stream tests and public-observability tests; verify same-database single ownership, unrelated activation and established reads while startup is paused, pending-state bypass counts, permission/version/transient failure cooldown, deadline retry, and success reset against the delta. Add deterministic pauses after native startup succeeds but before registration and between registration and callback installation, verifying the public-health scenarios without blocking inspection. Update deployment and monitoring guidance and affected Context7 rules with the implemented startup timeline in the same group.
+- [x] 1.3 Implement design.md's two shutdown sections in both supervisors/coordinators and the async manager; extend existing fixtures to pause watch and cleanup independently and cover every close/cancellation/exception scenario in the delta for manager and standalone coordinator ownership. Queue activation ahead of the retained cleanup task, then enter async close directly; verify activation is rejected with no new supervisor or watch call before the cleanup task's body runs, with terminal health and tracked databases unavailable. Verify every late stream closes before closure completes. Gate native cleanup, cancel its caller repeatedly, and exercise concurrent/subsequent close calls; after releasing the gate, verify resource release, deferred cancellation, manager cache closure, and one shared cleanup result.
+- [x] 1.4 Compare parent and candidate revisions using a committed harness built from the shared scripted stream support: 10,000 healthy activations, 10,000 failed-database activations with the clock held before a retry deadline, and two-database activation with the first watch gated. Record attempt/warning counts and healthy-path timings across repeated fresh processes; profile the healthy path with cProfile. Retain a concise report with reproduction commands under `docs/development/stream-startup-coordination.md` and include measured results in the implementation commit body; raw outputs remain untracked. Investigate any healthy-path regression before accepting the change.
+
+## 2. Code Quality
+
+- [x] 2.1 Scan the entire file for each edited or added test file, including pre-existing tests, and apply AGENTS.md's Writing Tests guidelines and parametrization; verify the resulting test diff.
+- [x] 2.2 Confirm no new code prose if applying with Claude Code — inapplicable to OpenAI Codex; another applying agent must reassess its exemption.
+
+## 3. PR #201 review fixes
+
+- [x] 3.1 Extract shared fake databases, scripted streams, and database casts into a dedicated test-support module consumed by the synchronous, asynchronous, and startup suites. Split startup scenarios into focused modules with scoped coordination fixtures, preserving their interleavings and assertions.
+- [x] 3.2 Commit the task 1.4 harness under `benchmarks/`, update the report to invoke committed code, and reproduce its workloads against the parent and candidate from separate source trees. Keep generated results and profiles untracked.

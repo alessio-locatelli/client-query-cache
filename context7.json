@@ -31,6 +31,9 @@
     "Reuse one long-lived CacheManager per MongoClient or AsyncMongoClient per process. Each manager has independent cached data, a stored-BSON budget, and change-stream progress.",
     "Close the manager before closing its caller-owned client, or use with / async with. Await close() for asyncio. The manager does not close the client.",
     "Cache coherence uses MongoDB change streams, not TTL. LRU eviction enforces the configured stored-BSON budget; it is not a freshness mechanism.",
-    "Caching requires MongoDB 8.0+ on a replica set or sharded cluster, database change-stream access, and a healthy stream. Reads bypass caching while the stream is unavailable or unhealthy."
+    "Caching requires MongoDB 8.0+ on a replica set or sharded cluster, database change-stream access, and a healthy stream. Reads bypass caching while the stream is unavailable or unhealthy.",
+    "Initial startup is independent per database. Competing reads bypass with stream_unavailable while health is connecting. Failed startup reports startup_failed and warns once per attempt.",
+    "Later reads retry failed startup after a jittered exponential cooldown capped at 30 seconds; idle databases do not retry. Established streams reconnect automatically. Healthy stream health does not promise event catch-up.",
+    "Async close() defers cancellation until stream cleanup and cache release finish. Concurrent or subsequent calls join the same shutdown."
   ]
 }
