@@ -16,6 +16,7 @@ def main() -> None:
         or path
         in {
             "pytest.ini",
+            "tox.ini",
             "docker-compose.yaml",
             ".coveragerc",
             "pyproject.toml",
