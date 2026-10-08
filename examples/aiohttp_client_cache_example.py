@@ -1,5 +1,5 @@
 # /// script
-# requires-python = ">=3.14.6"
+# requires-python = ">=3.14"
 # dependencies = ["client-query-cache", "aiohttp-client-cache[mongodb]>=0.15.0"]
 #
 # [tool.uv.sources]

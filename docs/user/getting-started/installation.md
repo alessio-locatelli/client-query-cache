@@ -2,7 +2,7 @@
 
 ## Requirements
 
-- Python 3.14.6 or newer and PyMongo 4.18.1 or newer, as declared by the package.
+- Python 3.14 or newer and PyMongo 4.18.1 or newer, as declared by the package.
 - Caching requires MongoDB 8.0+ on a replica set or sharded cluster. Change streams are unavailable on standalone servers; the library also enforces its MongoDB version floor at startup.
 - A caller-owned PyMongo client with access to the collections and their database change stream.
 

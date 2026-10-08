@@ -13,20 +13,95 @@ pytestmark = pytest.mark.unit
 
 @pytest.fixture
 def matrix_checkout(tmp_path: Path, request: pytest.FixtureRequest) -> Path:
+    minimum, classifiers, selected = request.param
     (tmp_path / "pyproject.toml").write_text(
-        '[project]\nrequires-python = ">=3.14.6"\n'
+        f'[project]\nrequires-python = ">={minimum}"\n'
+        f"classifiers = {json.dumps(classifiers)}\n",
+        encoding="utf-8",
     )
-    (tmp_path / ".python-version").write_text(request.param, encoding="utf-8")
+    (tmp_path / ".python-version").write_text(selected, encoding="utf-8")
     return tmp_path
 
 
 @pytest.mark.parametrize(
     ("matrix_checkout", "expected_versions"),
     [
-        pytest.param("3.14.6", ("3.14.6",), id="exact-minimum"),
-        pytest.param("3.14.7", ("3.14.6", "3.14.7"), id="later-patch"),
-        pytest.param("3.15.0", ("3.14.6", "3.15.0"), id="next-release"),
-        pytest.param("3.16.0", ("3.14.6", "3.15", "3.16.0"), id="intermediate-release"),
+        pytest.param(
+            ("3.14", ("Programming Language :: Python :: 3.14",), "3.14.0"),
+            ("3.14.0",),
+            id="exact-minimum",
+        ),
+        pytest.param(
+            ("3.14", ("Programming Language :: Python :: 3.15",), "3.14.0"),
+            ("3.14.0", "3.15"),
+            id="exact-minimum-with-next-release",
+        ),
+        pytest.param(
+            (
+                "3.14",
+                (
+                    "Programming Language :: Python :: 3.14",
+                    "Programming Language :: Python :: 3.15",
+                ),
+                "3.14.6",
+            ),
+            ("3.14.0", "3.15", "3.14.6"),
+            id="classified-next-release",
+        ),
+        pytest.param(
+            ("3.14", ("Programming Language :: Python :: 3.15",), "3.15.0"),
+            ("3.14.0", "3.15.0"),
+            id="development-next-release",
+        ),
+        pytest.param(
+            ("3.14", ("Programming Language :: Python :: 3.15",), "3.16.0"),
+            ("3.14.0", "3.15", "3.16.0"),
+            id="development-beyond-classifiers",
+        ),
+        pytest.param(
+            (
+                "3.14",
+                (
+                    "Programming Language :: Python :: 3.16",
+                    "Programming Language :: Python :: 3.14",
+                ),
+                "3.14.6",
+            ),
+            ("3.14.0", "3.15", "3.16", "3.14.6"),
+            id="highest-classifier-with-intermediate-release",
+        ),
+        pytest.param(
+            ("3.14.6", (), "3.14.6"),
+            ("3.14.6",),
+            id="explicit-exact-minimum",
+        ),
+        pytest.param(
+            ("3.14.6", (), "3.14.7"),
+            ("3.14.6", "3.14.7"),
+            id="explicit-minimum-later-patch",
+        ),
+        pytest.param(
+            ("3.14.6", (), "3.15.0"),
+            ("3.14.6", "3.15.0"),
+            id="explicit-minimum-next-release",
+        ),
+        pytest.param(
+            ("3.14.6", (), "3.16.0"),
+            ("3.14.6", "3.15", "3.16.0"),
+            id="explicit-minimum-intermediate-release",
+        ),
+        pytest.param(
+            (
+                "3.14",
+                (
+                    "Programming Language :: Python",
+                    "Programming Language :: Python :: 3",
+                ),
+                "3.14.6",
+            ),
+            ("3.14.0", "3.14.6"),
+            id="general-classifiers",
+        ),
     ],
     indirect=("matrix_checkout",),
 )

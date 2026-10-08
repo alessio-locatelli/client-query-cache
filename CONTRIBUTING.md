@@ -49,9 +49,10 @@ just setup
 
 See the [executable update inventory and validation commands](docs/development/executable-version-updates.md).
 Renovate maintains the latest stable development Python in `.python-version`; the
-development image uses that exact patch. CI retains the exact declared minimum Python patch, intermediate supported
-release lines, and the exact development interpreter. Python hook
-environments retain the supported 3.14 compatibility baseline independently.
+development image uses that exact patch. Python hook environments retain the
+supported 3.14 compatibility baseline independently. The
+[Python support policy](docs/development/executable-version-updates.md#python-support-policy)
+explains package eligibility and CI release-line selection.
 
 ## Validate changes
 
@@ -233,9 +234,41 @@ Before the first release, complete the [one-time PyPI publishing setup](docs/dev
 2. In `CHANGELOG.md`, rename "Unreleased" to `[X.Y.Z] - YYYY-MM-DD` and open a new empty
    "Unreleased" section above it.
 3. Commit these changes.
-4. Tag the commit: `git tag vX.Y.Z`.
-5. Push the tag: `git push origin vX.Y.Z`.
+4. Validate that exact commit on stable CPython 3.15 before publishing support for
+   that release line. Select an exact stable patch in `UV_PYTHON` and run the
+   existing packaging and test commands:
+
+   ```console
+   export UV_PYTHON=3.15.0
+   uv sync --locked --all-groups
+   uv run -- python -c 'import sys; print(sys.version); print(sys.version_info); assert sys.version_info[:3] == (3, 15, 0) and sys.version_info.releaselevel == "final"'
+   uv run -- mypy --install-types
+   just typecheck-examples
+   uv run -- python -m slotscheck src tests
+   just verify-release
+   just tests_and_coverage
+   ```
+
+   Use the uv version pinned in `.github/actions/setup-toolchain/action.yml`;
+   update the pin through a reviewed change if its catalogue lacks the stable
+   download. A floating `3.15` request can select a release candidate, whose
+   results do not satisfy release acceptance.
+
+   After testing, retain an acceptance record outside the tested checkout, such
+   as CI logs and a job summary. Record the tested commit SHA, full `sys.version`
+   and `sys.version_info`, uv version, validation commands, and their results.
+   Require a clean checkout of the recorded commit so uncommitted changes cannot
+   invalidate that evidence.
+
+5. Tag the validated commit: `git tag vX.Y.Z`.
+6. Push the tag: `git push origin vX.Y.Z`.
 
 Pushing the tag triggers the `publish.yml` workflow, which builds and verifies the release
 artifacts, then pauses for the `pypi` environment's required reviewer to approve before uploading to
 PyPI and creating the matching GitHub Release.
+
+Link the acceptance record from the publishing run's `pypi` approval context.
+Before approving, the reviewer must compare its tested commit with the release
+tag's resolved commit and confirm the interpreter is stable CPython 3.15. Refuse
+publication if stable validation is unavailable or failed, the record is absent,
+the interpreter is a prerelease, or the tested revision differs from the tag.

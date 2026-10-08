@@ -1,5 +1,5 @@
 # /// script
-# requires-python = ">=3.14.6"
+# requires-python = ">=3.14"
 # dependencies = ["client-query-cache", "requests-cache>=1.3.3"]
 #
 # [tool.uv.sources]

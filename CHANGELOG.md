@@ -13,6 +13,10 @@ bodies or OpenSpec. An empty Unreleased section is valid.
 
 ## Unreleased
 
+### Features
+
+- Allow installation on every Python 3.14 patch release.
+
 ### Bug fixes
 
 - Failed change-stream startups retry on later reads with a bounded cooldown. Starting one database's stream allows other databases to activate or use their caches; competing reads for the starting database run uncached.

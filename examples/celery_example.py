@@ -1,5 +1,5 @@
 # /// script
-# requires-python = ">=3.14.6"
+# requires-python = ">=3.14"
 # dependencies = ["client-query-cache", "celery>=5.6.2"]
 #
 # [tool.uv.sources]
