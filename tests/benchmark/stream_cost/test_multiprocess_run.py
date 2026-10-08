@@ -3,8 +3,9 @@ from __future__ import annotations
 import multiprocessing
 import time
 from dataclasses import replace
+from functools import partial
 from typing import TYPE_CHECKING, cast
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 
 import psutil
 import pytest
@@ -22,6 +23,7 @@ from benchmarks.stream_cost.multiprocess_run import (
     receive,
     stop_workers,
     validate_capture,
+    wait_until,
 )
 from client_query_cache._core.stream_cost import (
     LagCaptureWindowConfig,
@@ -49,6 +51,56 @@ def pipe() -> Iterator[tuple[Connection, Connection]]:
     yield parent, child
     parent.close()
     child.close()
+
+
+def _advance_clock(clock: Mock, lateness: float, delay: float) -> None:
+    clock.monotonic.return_value += delay + lateness
+
+
+@pytest.fixture
+def schedule_clock(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> Mock:
+    clock = Mock()
+    clock.monotonic.return_value = request.param[0]
+    clock.sleep = AsyncMock(
+        side_effect=partial(_advance_clock, clock, request.param[1])
+    )
+    monkeypatch.setattr(
+        "benchmarks.stream_cost.multiprocess_run.time.monotonic", clock.monotonic
+    )
+    monkeypatch.setattr(
+        "benchmarks.stream_cost.multiprocess_run.asyncio.sleep", clock.sleep
+    )
+    return clock
+
+
+@pytest.mark.parametrize(
+    ("schedule_clock", "deadline"),
+    [((0.0, 0.001), 60.0), ((0.0, 0.001), 0.3), ((60.01, 0.0), 60.0)],
+    indirect=["schedule_clock"],
+    ids=["idle-minute", "paced-read", "already-due"],
+)
+async def test_schedule_preserves_deadline_with_bounded_waits(
+    schedule_clock: Mock, deadline: float
+) -> None:
+    await wait_until(deadline, 0.05, "end")
+    assert deadline <= schedule_clock.monotonic.return_value <= deadline + 0.05
+    assert all(0 < call.args[0] <= 1 for call in schedule_clock.sleep.await_args_list)
+
+
+@pytest.mark.parametrize(
+    "schedule_clock",
+    [(0.0, 0.06), (60.06, 0.0)],
+    indirect=True,
+    ids=["late-wakeup", "late-arrival"],
+)
+@pytest.mark.usefixtures("schedule_clock")
+async def test_schedule_rejects_lateness_without_relaxing_tolerance() -> None:
+    with pytest.raises(
+        BenchmarkSetupError, match=r"application end schedule.*0\.060000s"
+    ):
+        await wait_until(60.0, 0.05, "end")
 
 
 def _park() -> None:
