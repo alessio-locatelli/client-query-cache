@@ -13,6 +13,8 @@ bodies or OpenSpec. An empty Unreleased section is valid.
 
 ## Unreleased
 
+## [0.5.0] - 2026-10-08
+
 ### Features
 
 - Allow installation on every Python 3.14 patch release.
