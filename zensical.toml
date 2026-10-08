@@ -24,6 +24,8 @@ nav = [
     { "requests-cache" = "examples/requests-cache.md" },
     { "Celery" = "examples/celery.md" },
     { "py-abac" = "examples/py-abac.md" },
+    { "aiohttp-client-cache" = "examples/aiohttp-client-cache.md" },
+    { "Eve" = "examples/eve.md" },
   ] },
   { "Reference" = [
     { "API" = "reference/api.md" },

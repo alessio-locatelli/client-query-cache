@@ -20,7 +20,7 @@
 
 ## 4. aiohttp-client-cache example
 
-- [ ] 4.1 BLOCKED by [aiohttp-client-cache#415](https://github.com/requests-cache/aiohttp-client-cache/issues/415) (replace deprecated Motor with PyMongo's asyncio client). Do not start until a released `aiohttp-client-cache` has a `MongoDBBackend` on `pymongo.AsyncMongoClient`. Then add `examples/aiohttp_client_cache_example.py` mirroring tasks 1.1–1.4 with `client_query_cache.asynchronous.CacheManager` and an `aiohttp.web` local origin (design D7). Add it to the parametrization in `tests/examples/test_examples.py` and to `examples/README.md`. Verify with `just examples` and `just typecheck-examples`.
+- [x] 4.1 The release gate is verified in design D7. Add `examples/aiohttp_client_cache_example.py` mirroring tasks 1.1–1.4 with `client_query_cache.asynchronous.CacheManager` and an `aiohttp.web` local origin (design D7). Add it to the parametrization in `tests/examples/test_examples.py` and to `examples/README.md`. Verify with `just examples` and `just typecheck-examples`.
 
 ## 5. Celery example
 
@@ -36,15 +36,16 @@
 
 ## 7. Eve example
 
-- [ ] 7.1 Verify a published Eve release's environment and prototype a Mongo data-layer subclass. Inspect read consumers for cursor requirements and verify preservation of pagination, sorting, projection, authorization filters, and response metadata with list-returning cached reads. Record the version, exact source revision, adapter decision, and any blockers in D8; an infeasible target requires an explicit planning revision.
-- [ ] 7.2 Add `examples/eve_example.py` using the verified adapter per D8 and the existing example requirements. Exercise repeated GETs and a mutation through an in-process application client, retain upstream raw writes, and demonstrate cache hits and bounded invalidation observation. Use inline dependencies, public cache APIs, and explicit client/manager cleanup.
-- [ ] 7.3 Add the delivered Eve example to subprocess verification and `examples/README.md`, verify the documented run command and existing type-check path, and record integration friction per D6.
+- [x] 7.1 Verify a published Eve release's environment and prototype a Mongo data-layer subclass. Inspect read consumers for cursor requirements and verify preservation of pagination, sorting, projection, authorization filters, and response metadata with the current cached read contract (design D8). Record the version, exact source revision, adapter decision, and any blockers in D8; an infeasible target requires an explicit planning revision.
+- [x] 7.2 Add `examples/eve_example.py` using the verified adapter per D8 and the existing example requirements. Exercise repeated GETs and a mutation through an in-process application client, retain upstream raw writes, and demonstrate cache hits and bounded invalidation observation. Use inline dependencies, public cache APIs, and explicit client/manager cleanup.
+- [x] 7.3 Add the delivered Eve example to subprocess verification and `examples/README.md`, verify the documented run command and existing type-check path, and record integration friction per D6.
+- [x] 7.4 Apply the Eve routing refinement in D8 and verify its regression self-check and public guide.
 
 ## 8. Hyperopt feasibility investigation
 
-- [ ] 8.1 Inspect a published Hyperopt release's `MongoTrials` dependencies and MongoDB calls for compatibility with supported Python/PyMongo. Assess legacy APIs, native cursor requirements, repeated-read opportunities, and invalidation frequency during trial updates. Record the version, exact source revision, and a go/no-go decision in D8. This task does not require a runnable example; propose a further planning revision before implementation if viable, and do not repair upstream within this change.
+- [x] 8.1 Inspect a published Hyperopt release's `MongoTrials` dependencies and MongoDB calls for compatibility with supported Python/PyMongo. Assess legacy APIs, native cursor requirements, repeated-read opportunities, and invalidation frequency during trial updates. Record the version, exact source revision, and a go/no-go decision in D8. This task does not require a runnable example; propose a further planning revision before implementation if viable, and do not repair upstream within this change.
 
 ## 9. Code Quality
 
-- [ ] 9.1 Scan `tests/examples/test_examples.py` in full for edited or added tests and apply the "Writing tests" guidelines from `AGENTS.md`, including `@pytest.mark.parametrize` over example names and no duplicated subprocess setup.
-- [ ] 9.2 If you are Claude Code, confirm that `examples/`, `tests/examples/`, and the `justfile` changes add no new prose comments or docstrings (the PEP 723 metadata block is packaging metadata, not prose). All "why" explanations must go in the specs and commit bodies.
+- [x] 9.1 Scan `tests/examples/test_examples.py` in full for edited or added tests and apply the "Writing tests" guidelines from `AGENTS.md`, including `@pytest.mark.parametrize` over example names and no duplicated subprocess setup.
+- [x] 9.2 If you are Claude Code, confirm that `examples/`, `tests/examples/`, and the `justfile` changes add no new prose comments or docstrings (the PEP 723 metadata block is packaging metadata, not prose). All "why" explanations must go in the specs and commit bodies. Not applicable when applied by Codex.
