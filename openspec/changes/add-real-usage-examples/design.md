@@ -10,9 +10,9 @@ Observed state of the integration targets (PyPI releases and the upstream reposi
   - reads: `__getitem__` → `find_one({'_id': key})`; `__iter__` → `find({}, {'_id': True})`; `__len__` → `estimated_document_count()`; `get_ttl` → `index_information()`;
   - writes/admin: `__setitem__` → `replace_one(..., upsert=True)`; `__delitem__` → `find_one_and_delete`; `bulk_delete` → `delete_many`; `clear` → `drop`; `set_ttl` → `create_index`/`drop_index` on `created_at` (TTL deletions arrive as change-stream deletes).
   - `requests_cache` ships `py.typed`, so its API can be type-checked.
-- `aiohttp-client-cache` 0.14.3 implements `MongoDBBackend` in [`aiohttp_client_cache/backends/mongodb.py`](https://github.com/requests-cache/aiohttp-client-cache/blob/1bfe9cb/aiohttp_client_cache/backends/mongodb.py) on Motor's `AsyncIOMotorClient` and imports `motor` at module level. `client-query-cache` supports only `pymongo.AsyncMongoClient`. Upstream tracks the migration in [aiohttp-client-cache#415](https://github.com/requests-cache/aiohttp-client-cache/issues/415).
-- On CPython 3.14.6, `requests-cache` 1.3.3, `aiohttp-client-cache` 0.14.3, `motor` 3.7.1, and `pymongo` 4.18.1 install and import together with the working-tree package.
-- `CacheManager.get_cached_collection(collection)` returns a `CachedCollection` exposing only six reads plus `.raw`. `find` returns a list. Cached values are BSON-decoded on every hit, so callers may mutate returned documents safely. Invalidation is asynchronous, and the public API has no per-write "wait until invalidated" primitive. `cache_manager.cache_core.snapshot()` exposes `hits`, `misses`, `bypasses`, and `entry_count`.
+- See D7 for the released async backend and its source revision.
+- The additional integration environments are recorded with their verification below.
+- `CacheManager.get_cached_collection(collection)` returns a `CachedCollection` exposing only six reads plus `.raw`. `find` and `aggregate` return PyMongo-compatible cached cursors; admission requires complete consumption. Cached values are BSON-decoded on every hit, so callers may mutate returned documents safely. Invalidation is asynchronous, and the public API has no per-write "wait until invalidated" primitive. `cache_manager.snapshot()` exposes statistics, including bypass reasons.
 - A read against a collection that does not exist yet bypasses the cache. A cached `find_one` miss on an existing collection is cached negatively and invalidated by a later insert.
 - `mypy.ini` checks `src`, `tests`, and `benchmarks`. Ruff and the other Prek hooks lint every tracked Python file. The `justfile` exports `UV_LOCKED=1`.
 
@@ -29,7 +29,6 @@ Observed state of the integration targets (PyPI releases and the upstream reposi
 - Changing `client_query_cache` source or its public API. Friction is recorded here and fixed in follow-up changes.
 - Contributing to the upstream libraries. The examples subclass their public backend classes.
 - Performance claims or benchmarks. The examples print cache statistics as evidence of behavior, not latency numbers. No library hot path changes, so the per-change benchmark rule does not apply; the commit body states that.
-- Implementing the `aiohttp-client-cache` example before upstream #415 lands.
 
 ## Decisions
 
@@ -74,11 +73,15 @@ Alternative: a standalone `just examples` that runs scripts against `docker-comp
 
 ### D6. Friction log
 
-While implementing each example, record every point where the public interface made the integration awkward, surprising, or impossible in a `## Friction log` section appended to this design. Each entry names the observed symptom, the example code that shows it (by symbol, since line numbers drift), the constraints a follow-up proposal must respect, and a proposed follow-up change name. Candidates to evaluate, not yet confirmed: no drop-in collection-shaped object for libraries that call reads and writes on one attribute (D2); no public way to wait for a specific write's invalidation (D4); stats reachable only via `cache_manager.cache_core.snapshot()`. Follow-up changes are proposed separately and are not tracked as open tasks here.
+While implementing each example, record every point where the public interface made the integration awkward, surprising, or impossible in a `## Friction log` section appended to this design. Each entry names the observed symptom, the example code that shows it (by symbol, since line numbers drift), the constraints a follow-up proposal must respect, and a proposed follow-up change name. Candidates to evaluate, not yet confirmed: no drop-in collection-shaped object for libraries that call reads and writes on one attribute (D2); no public way to wait for a specific write's invalidation (D4); statistics and bypass diagnosis (resolved below). Follow-up changes are proposed separately and are not tracked as open tasks here.
 
-### D7. aiohttp-client-cache example: blocked placeholder
+### D7. aiohttp-client-cache example
 
-This change carries the task in a blocked state. Once upstream #415 releases a PyMongo-async `MongoDBBackend`, the example mirrors D2–D4 on `AsyncMongoClient` and `client_query_cache.asynchronous.CacheManager` with `aiohttp` and an `aiohttp.web` local origin. No code, placeholder file, or skipped test is added for it until then.
+Verified **0.15.0**, revision [`6721bafc14f77ed421b820ce68bee636b2823eef`](https://github.com/requests-cache/aiohttp-client-cache/tree/6721bafc14f77ed421b820ce68bee636b2823eef), on CPython 3.14.6, PyMongo 4.18.2, and MongoDB 8.0.4. The released `MongoDBBackend` uses `AsyncMongoClient`; [upstream #415](https://github.com/requests-cache/aiohttp-client-cache/issues/415) is closed. The implementation gate is satisfied.
+
+`CachedMongoDBCache` overrides `read` and `contains` with cached `find_one` projections. `CachedMongoDBPickleCache` places upstream's pickle storage before that subclass in its method resolution order: upstream `read` deserializes the cached read, and upstream `write` serializes before the raw update. Other storage methods remain upstream-owned. `CachedMongoDBBackend` initializes `CacheBackend` and installs the two storages with the manager's caller-owned client. Upstream 0.15.0 closes only connections it owns, so enabling `autoclose` releases backend resources without closing that client.
+
+`local_origin` uses an aiohttp `AppRunner` with an ephemeral loopback port and guaranteed cleanup. `run_scenario` mirrors D4 using `delete_url` and bounded `has_url` polling. Package types require imports from the defining public `session` and `backends.base` modules. The script environment imports the working-tree package; the subprocess case demonstrates repeated read hits, invalidation, and two origin requests.
 
 ### D8. Additional targets and feasibility gates
 
@@ -86,7 +89,7 @@ Pursue Celery, py-abac, and Eve in that order, then investigate Hyperopt. These 
 
 - **Celery:** The [MongoDB result backend](https://github.com/celery/celery/blob/main/celery/backends/mongodb.py) reads task and group records with `find_one({'_id': ...})` and writes through raw collection methods. Subclass the backend to route selected reads through a cached view while preserving upstream decoding, metadata handling, raw writes/admin calls, and caller-owned client lifecycle. Confirm a supported way to reuse the manager's client before settling the adapter. Demonstrate repeated polling of an unfinished task, then a state/result write and bounded observation of its invalidation, without requiring an external broker or worker. Do not use repeated reads of a completed `AsyncResult` as cache evidence: [AsyncResult](https://github.com/celery/celery/blob/main/celery/result.py) retains ready-state metadata, and the [backend](https://github.com/celery/celery/blob/main/celery/backends/base.py) can also cache successful results. Ensure the chosen public read path reaches the MongoDB adapter on repeated calls and attribute hits to `client-query-cache` statistics.
 - **py-abac:** [MongoStorage](https://github.com/ketgo/py-abac/blob/master/py_abac/storage/mongo/storage.py) uses scalar `_id` `find_one` in `get`, `find` in `get_all`, and `aggregate` in `get_for_target`. A storage subclass can retain raw `add`/`update`/`delete` and redirect these reads, preserving validation and policy conversion. Verify the released [target pipeline](https://github.com/ketgo/py-abac/blob/master/py_abac/storage/mongo/model.py) against cache eligibility rules rather than assuming all aggregations cache. Exercise policy retrieval and authorization evaluation, including a policy update whose changed decision is eventually observed; prove cache hits for each supported read shape used by the example.
-- **Eve:** The [Mongo data layer](https://github.com/pyeve/eve/blob/master/eve/io/mongo/mongo.py) performs `find`, `count_documents`, and `find_one` reads. Prototype a data-layer subclass and inspect its consumers before choosing overrides: cached `find` returns a list, so native cursor assumptions, pagination, sorting, projection, authorization filters, and response metadata must remain correct. Use an in-process application client for repeated GETs and a mutation, with bounded invalidation observation and cache statistics. Keep writes on the upstream raw path. Record incompatibilities rather than replacing the whole collection with the read-only facade or promising a cursor-compatible adapter.
+- **Eve:** The [Mongo data layer](https://github.com/pyeve/eve/blob/master/eve/io/mongo/mongo.py) performs `find`, `count_documents`, and `find_one` reads. Prototype a data-layer subclass and inspect its consumers before choosing overrides: the current cached cursor contract must preserve pagination, sorting, projection, authorization filters, and response metadata. Use an in-process application client for repeated GETs and a mutation, with bounded invalidation observation and cache statistics. Keep writes on the upstream raw path. Record incompatibilities rather than replacing the whole collection with the read-only facade or bypassing upstream query construction.
 - **Hyperopt (investigation only):** The inspected [MongoTrials implementation](https://github.com/hyperopt/hyperopt/blob/master/hyperopt/mongoexp.py) contains legacy calls such as `find_and_modify`, `collection.update`, and cursor `count`. Verify a published version's compatibility and its repeated-read opportunities before proposing implementation. Assess both cursor requirements and invalidation frequency during trial updates. Do not modify upstream or expand this change into an upstream compatibility repair. Record a go/no-go decision with version/source evidence; adding a runnable example requires a subsequent approved revision of this plan.
 
 #### Celery verification
@@ -101,6 +104,18 @@ Verified py-abac **0.4.1**, release revision [`2f9420ffbb24b72a75055ce9338d5ef30
 
 `main` constructs policies and requests through upstream validation, verifies each retrieval's policy ID, evaluates the allow policy with `PDP`, writes the deny policy through raw upstream `update`, and bounds the poll until authorization denies the same request. The script checks each read shape's own hit delta rather than inferring all shapes from one total. py-abac also lacks a typing marker; narrow annotations cover its untyped boundary. Its `objectpath` dependency emits `SyntaxWarning` messages for literal identity comparisons when first compiled on Python 3.14; installation, policy validation, storage conversion, and the demonstrated target-based authorization still succeed. This upstream warning is reported, not suppressed or repaired here.
 
+#### Eve verification
+
+Verified **2.3.1**, revision [`fe7d9c919bf35fe149feb42e51ba9c5c337e3119`](https://github.com/pyeve/eve/tree/fe7d9c919bf35fe149feb42e51ba9c5c337e3119), on CPython 3.14.6, PyMongo 4.18.2, and MongoDB 8.0.4. `Mongo.init_app` creates its driver registry before allocating a client. `CachedMongo.init_app` installs a caller-owned client/database receiver in that registry. `ReadThroughCollection.__getattr__` routes `find`, `find_one`, and `count_documents` to cached reads only during GET/HEAD requests. Mutations and operations without an HTTP request context use the raw collection, including when a receiver is reused across contexts. Eve's [`get_document`](https://github.com/pyeve/eve/blob/fe7d9c919bf35fe149feb42e51ba9c5c337e3119/eve/methods/common.py) uses `find_one` for mutation ETag checks, so eligibility by read method alone would change those preconditions. Upstream writes use raw `with_options(write_concern=...)` handles, and reads with explicit `mongo_options` also remain raw. The example supports one database and ordinary document resources; it makes no promise about GridFS or multiple Mongo prefixes.
+
+No upstream query transformation or response conversion is copied. Eve consumes the find cursor by iteration; the current cached cursor supports that complete consumption. The in-process scenario verifies descending sort, page-two skip/limit, inclusive projection, owner-specific collection counts and item lookups, response links, ETags, and timestamps. It checks page/count hit deltas separately from item hits. `patch_consecutively` sends two PATCHes using each preceding response's ETag, without waiting for invalidation. The cache's hit, miss, and bypass counters must remain unchanged during those mutations; this detects cached precondition reads regardless of stream timing. The scenario then polls page and item GETs until both expose the final name. Eve has no typing marker, so import/subclass annotations and casts cover its untyped boundary.
+
+The initial prototype's `w=1` writes returned success while majority reads still saw an empty collection. The resource explicitly uses `mongo_write_concern={"w": "majority"}` so acknowledged setup writes are visible to majority reads. The later cached-read invalidation remains asynchronous and bounded by the consumer poll.
+
+#### Hyperopt feasibility
+
+**No-go** for the published 0.3.0 backend, revision [`9834314879c09c13e0b8e93eb678408ba46441a8`](https://github.com/hyperopt/hyperopt/tree/9834314879c09c13e0b8e93eb678408ba46441a8). The dependency/runtime evidence, removed APIs, repeated-read opportunities, cursor requirements, invalidation frequency, reproduction, and upstream ticket are recorded in [the feasibility report](https://github.com/alessio-locatelli/client-query-cache/blob/main/docs/development/research/hyperopt-integration-feasibility.md). Task 8.1 is an investigation, so this decision completes it without an implementation obligation.
+
 Each delivered example follows D1, D5, and D6: inline dependencies, existing subprocess/type-check verification, public cache statistics, bounded self-checks, and a friction log. Add only delivered examples to `examples/README.md`; do not publish this candidate backlog as runnable usage guidance. No new requirement is needed in the usage-examples delta spec, whose library-independent requirements already cover these targets.
 
 ## Risks / Trade-offs
@@ -109,7 +124,6 @@ Each delivered example follows D1, D5, and D6: inline dependencies, existing sub
 - [Upstream releases can break the examples without any change in this repository] → Minimum-version pins in the script metadata. A break surfaces in CI as a named failing example, which is the dogfooding signal wanted.
 - [Asynchronous invalidation can make the self-check flaky] → A bounded poll through the cached read path instead of a fixed sleep.
 - [Examples use the cache's negative caching and "collection doesn't exist yet" bypass paths] → The self-check tolerates the first post-write miss (D4 step 2) instead of asserting exact counts.
-- [The change cannot be archived while the aiohttp task is blocked] → This is intended by the user. The blocked task names its upstream unblock condition.
 - [Ruff may flag `examples/*.py` (for example, implicit namespace package)] → Add a narrow `examples/*` per-file ignore in `ruff.toml` only for rules that fire, and do not add `__init__.py`.
 
 ## Friction log
@@ -120,20 +134,17 @@ Confirmed:
 
 - **No drop-in collection-shaped object** (D6 candidate, confirmed).
   - Symptom: requests-cache's `MongoDict` calls reads and writes on the same `self.collection` attribute, and `CachedCollection` has no write methods. The example therefore keeps `self.collection` as the raw PyMongo collection, adds a second attribute, `CachedMongoDict.cached_collection`, and overrides `CachedMongoDict.__getitem__`, `__iter__`, and `__len__`. The `__getitem__` override copies upstream's result handling (`'data'` unwrapping, `KeyError`, `deserialize`) only to change which object it calls, so it can drift from upstream.
-  - Constraint: views without write methods were a deliberate decision. `openspec/changes/archive/2026-09-30-restore-pymongo-method-navigation/design.md` removed attribute forwarding from the views and lists "make cached reads drop-in PyMongo cursor operations" as a non-goal. `openspec/changes/archive/2026-09-26-proxy-cached-facades/design.md` holds the earlier forwarding design. A proposal must either work within that decision or explicitly revisit it. Note that `find` returns a list, not a cursor.
+  - Constraint: views without write methods were a deliberate decision. `openspec/changes/archive/2026-09-30-restore-pymongo-method-navigation/design.md` removed attribute forwarding from the views and lists "make cached reads drop-in PyMongo cursor operations" as a non-goal. `openspec/changes/archive/2026-09-26-proxy-cached-facades/design.md` holds the earlier forwarding design. A proposal must either work within that decision or explicitly revisit it. Cached reads now have the cursor contract described in Context.
   - Proposed follow-up: `evaluate-read-through-collection-adapter`, which weighs an opt-in object that serves the six cached reads from the cache and forwards writes to PyMongo.
 - **No public way to wait for a write's invalidation** (D6 candidate, confirmed).
   - Symptom: after `session.cache.delete(...)` in `run_scenario`, the example can only poll `session.cache.contains(...)` against a fixed deadline (`INVALIDATION_TIMEOUT_SECONDS`). The loop cannot tell a slow change stream from a lost event. A clean run observes invalidation after about 6 ms on a local replica set.
   - Constraint: invalidation arrives asynchronously from a per-database change stream (`src/client_query_cache/synchronous/streams.py`). The public API has no mapping from a completed write to a change-stream position (for example, the write's operation time compared with the stream's resume point). A proposal must define that mapping for both the synchronous and asyncio packages.
   - Proposed follow-up: `add-invalidation-wait-primitive`.
-- **Statistics only through `cache_core`** (D6 candidate, confirmed).
-  - Symptom: to report hits, `main` and `run_scenario` go through `cache_manager.cache_core.snapshot()` and import `CacheCore` just for a type annotation. The name "core" reads as an internal layer, not a user-facing statistics entry point.
-  - Existing surface: `CacheManager.cache_core` is a public, documented property (`docs/user/reference/api.md`, `docs/user/operations/monitoring.md` "Observability"). `snapshot()` returns `CacheSnapshot` (`src/client_query_cache/_core/snapshots.py`), whose fields include `hits`, `misses`, `evictions`, `bypasses`, `oversized_bypasses`, and `entry_count`. `client_query_cache.otel.register_cache_metrics` also takes `cache_core`. A proposal changes only where users reach statistics, not what is counted.
-  - Proposed follow-up: `add-manager-statistics-accessor`.
-- **Bypasses carry no reason**.
-  - Symptom: a clean run reports `bypasses: 5`. Instrumenting `CachedMongoDict.__getitem__` and `__iter__` attributed them as follows: one `responses` lookup during the first request, before requests-cache has created the `responses` collection, and four `redirects` reads (three lookups and one iteration), because the scenario never creates the `redirects` collection. All five are expected, because reads against a collection that does not exist yet bypass the cache. `CacheSnapshot` gives an adopter no way to tell these apart from a misconfiguration such as a non-primary read preference or a session argument.
-  - Constraint: bypasses are counted by one untyped call. `CachedCollection._record_bypass` in both `src/client_query_cache/synchronous/collection.py` and `src/client_query_cache/asynchronous/collection.py` is called from every bypass branch in the view, and `CacheCore` records further bypasses internally (`src/client_query_cache/_core/manager.py`, calls to `self._statistics.record_bypass()`). A reason has to be passed at each of these call sites. The OpenTelemetry bridge in `src/client_query_cache/otel.py` exports the counter and would need a matching attribute.
-  - Proposed follow-up: `add-bypass-reason-statistics`.
+
+### Resolved candidates
+
+- The statistics-accessor candidate is resolved by [`clarify-manager-public-surface`](https://github.com/alessio-locatelli/client-query-cache/blob/main/openspec/changes/archive/2026-10-07-clarify-manager-public-surface/design.md): examples use `manager.snapshot()`.
+- The bypass-reason candidate is resolved by the public `CacheSnapshot.bypass_reasons` contract in `openspec/specs/cached-read-api/spec.md`.
 
 Dropped, because the cause is upstream and not in this package:
 
@@ -144,15 +155,17 @@ Dropped, because the cause is upstream and not in this package:
 
 - **Read/write separation requires copied upstream read conversion** (the existing collection-adapter candidate remains confirmed).
   - Symptom: `CachedMongoBackend._get_task_meta_for` and `CachedMongoStorage.get`, `get_all`, and `get_for_target` retain the upstream conversion and validation while changing the read receiver. Celery's group reads are deliberately left raw; the selected task metadata reads are sufficient for the example.
-  - Constraint: a follow-up must preserve Celery's metadata/exception decoding, py-abac's policy conversion and pagination checks, raw writes/admin operations, and the deliberate read-only/list-returning cached-view contract. It must not mutate the receiver temporarily during a read, which would make concurrent writes unsafe.
+  - Constraint: a follow-up must preserve Celery's metadata/exception decoding, py-abac's policy conversion and pagination checks, raw writes/admin operations, and the read-only cached-view contract. It must not mutate the receiver temporarily during a read, which would make concurrent writes unsafe.
   - Proposed follow-up: `evaluate-read-through-collection-adapter`.
 - **Invalidation requires application-level polling** (the existing wait-primitive candidate remains confirmed).
   - Symptom: both examples' `main` functions poll their actual consumer read after the upstream write, bounded to five seconds. Celery polls task metadata with its own cache disabled; py-abac polls `PDP.is_allowed` through the target aggregation.
   - Constraint: a follow-up must relate the completed raw write to the stream position and support both single-document and query-result invalidation, without relying on a fixed sleep.
   - Proposed follow-up: `add-invalidation-wait-primitive`.
-- **Statistics remain reachable through `cache_core`** (the existing statistics-accessor candidate remains confirmed).
-  - Symptom: both `main` functions read `manager.cache_core.snapshot()` to check hit deltas and print hits, misses, and bypasses.
-  - Constraint: preserve existing counter semantics and the documented public `cache_core` API.
-  - Proposed follow-up: `add-manager-statistics-accessor`.
 
 Neither new example needed bypass-reason diagnostics: each selected read shape produced its own expected hits. The existing requests-cache observation remains valid. The upstream missing typing markers and objectpath warnings are dependency limitations, not additional cache API follow-ups.
+
+### aiohttp-client-cache and Eve observations
+
+`CachedMongoDBCache.read` and `contains` confirm the existing read/write separation friction; the MRO preserves upstream pickle conversion without copying it. `CachedMongo.init_app` and `ReadThroughCollection` show that Eve can retain upstream query construction by installing an explicit read-through receiver. Its constraints are recorded in D8; this does not add forwarding to the package's read-only views.
+
+Both `run_scenario` functions confirm the existing invalidation-wait candidate: they poll their consumer read within a five-second deadline. The majority-write setup requirement in Eve is configuration friction, not a new cache API defect. Neither target requires a new follow-up change beyond the existing candidates.

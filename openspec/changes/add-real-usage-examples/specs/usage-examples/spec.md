@@ -24,14 +24,27 @@ Each example SHALL declare its third-party libraries, with a minimum version, in
 - **WHEN** a contributor adds an example that needs a third-party library
 - **THEN** `pyproject.toml` and `uv.lock` are unchanged, and `uv run examples/<example>.py` runs it against the working-tree package
 
-### Requirement: Examples are self-contained and observable
+### Requirement: Examples are self-contained
 
-Each example SHALL read the MongoDB connection string from the `MONGODB_URI` environment variable, defaulting to the replica set from the repository's `docker-compose.yaml`. It SHALL need no internet access beyond downloading packages: an HTTP-client example SHALL serve its HTTP responses from a local in-process server. Each example SHALL print evidence that the cache served repeated storage reads and that a storage write invalidated the cached entry through the change stream. The evidence SHALL include cache statistics from the public API and origin request counts where applicable. An example SHALL exit with a non-zero status when that expected behavior does not occur within a bounded wait.
+Each example SHALL read the MongoDB connection string from `MONGODB_URI`, defaulting to the replica set from the repository's `docker-compose.yaml`. It SHALL need no internet access beyond downloading packages; HTTP-client examples SHALL serve responses from a local in-process server.
+
+#### Scenario: An example runs offline
+
+- **WHEN** a user runs an example against a MongoDB 8.0+ replica set with no internet access and the packages already cached
+- **THEN** it uses that replica set and any required local server without contacting an external service
+
+### Requirement: Examples demonstrate cache behavior
+
+Each example SHALL print public cache statistics proving repeated storage reads used the cache and evidence that a later storage write was observed through change-stream invalidation. HTTP-client examples SHALL include origin request counts.
 
 #### Scenario: An example runs against a supported replica set
 
-- **WHEN** a user runs an example against a MongoDB 8.0+ replica set with no internet access and the packages already cached
+- **WHEN** a user runs an example against a supported replica set
 - **THEN** it completes, prints cache hits for repeated storage reads, prints that a later write was observed through invalidation, and exits with status 0
+
+### Requirement: Examples fail when expected cache behavior is absent
+
+Each example SHALL exit with a non-zero status and a message naming the missing behavior when repeated storage reads produce no cache hits or invalidation is not observed within a bounded wait.
 
 #### Scenario: Caching does not happen
 
