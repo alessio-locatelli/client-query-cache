@@ -203,12 +203,16 @@ A namespace-guarded entry SHALL use a namespace-prefixed key encoding every outp
 
 ### Requirement: Cache health is inspectable
 
-The manager SHALL expose immutable health, capacity, hit, miss, eviction, and bypass observations without returning document values, queries, credentials, or resume tokens. Both execution models SHALL provide a synchronous, local inspection method on the manager and publicly importable result types. Inspection SHALL NOT perform database I/O, start a stream, reset counters, or change cache state. The existing advanced cache inspection interface SHALL remain available with equivalent cache measurements.
+The manager SHALL expose immutable health, capacity, hit, miss, eviction, and bypass observations through publicly importable result types, without returning document values, queries, credentials, or resume tokens.
 
 #### Scenario: An application inspects the manager
 
 - **WHEN** an application requests a cache inspection snapshot
-- **THEN** it receives current lifecycle and capacity information without cached document contents
+- **THEN** it receives immutable lifecycle, capacity, hit, miss, eviction, and bypass observations in publicly importable result types, without document values, queries, credentials, or resume tokens
+
+### Requirement: Manager inspection is synchronous and read-only
+
+Both execution models SHALL provide synchronous, local manager inspection that performs no database I/O, starts no stream, resets no counter, and changes no cache state.
 
 #### Scenario: An asyncio application inspects statistics
 
@@ -220,9 +224,23 @@ The manager SHALL expose immutable health, capacity, hit, miss, eviction, and by
 - **WHEN** an application inspects a manager repeatedly, including after close
 - **THEN** inspection exposes the available lifecycle/statistics observations without reopening streams or resetting cumulative counters
 
+### Requirement: Advanced cache inspection remains available
+
+The advanced cache inspection interface SHALL remain available with measurements equivalent to manager inspection.
+
+#### Scenario: An advanced caller inspects the cache
+
+- **WHEN** a caller uses the advanced cache inspection interface
+- **THEN** it exposes equivalent cache measurements for the same underlying state
+
 ### Requirement: Bypass recording has fixed safe reasons
 
-Every ordinary bypass recording SHALL increment the existing ordinary aggregate count and exactly one count from a fixed, publicly typed reason vocabulary. The vocabulary SHALL distinguish session-bound reads, incompatible read profiles, unsupported options, unsafe filters, unsafe projections, unsafe pipelines, uncanonicalizable keys, missing collections, views, time-series collections, unavailable metadata, unavailable streams, invalidated admissions, and unspecified advanced recording. A snapshot SHALL expose immutable reason counts whose sum equals its ordinary bypass aggregate. Oversized-result recordings SHALL remain separate and SHALL NOT increment ordinary reason counts. Existing recording-event semantics SHALL be preserved rather than redefined as one outcome per application request.
+Every ordinary bypass recording SHALL increment the existing ordinary aggregate count and exactly one count from a fixed, publicly typed reason vocabulary.
+
+#### Scenario: A caller inspects the reason vocabulary
+
+- **WHEN** a caller inspects the public bypass reason type
+- **THEN** it distinguishes session-bound reads, incompatible read profiles, unsupported options, unsafe filters, unsafe projections, unsafe pipelines, uncanonicalizable keys, missing collections, views, time-series collections, unavailable metadata, unavailable streams, invalidated admissions, and unspecified advanced recording
 
 #### Scenario: A missing collection produces a bypass
 
@@ -239,20 +257,37 @@ Every ordinary bypass recording SHALL increment the existing ordinary aggregate 
 - **WHEN** a previously eligible admission is declined because its availability generation changed while the database is currently available
 - **THEN** the existing bypass recording is classified as an invalidated admission without claiming that the stream is currently unavailable
 
-#### Scenario: A result exceeds the entry limit
-
-- **WHEN** a cache admission is declined because its encoded result is oversized
-- **THEN** the oversized count increments without incrementing the ordinary bypass aggregate or any ordinary reason
-
-#### Scenario: Concurrent recordings and inspection
-
-- **WHEN** bypass recordings race snapshot creation
-- **THEN** each returned snapshot's ordinary reason counts sum to that snapshot's ordinary bypass aggregate, without promising a single atomic sample of independently observed capacity fields
-
 #### Scenario: Advanced callers record an unspecified bypass
 
 - **WHEN** an advanced caller uses the existing explicit bypass-recording interface without providing a reason
 - **THEN** the call remains supported and increments the ordinary aggregate and the unspecified reason
+
+### Requirement: Bypass counts retain recording-event semantics
+
+Bypass counts SHALL preserve existing recording-event semantics rather than represent one outcome per application request.
+
+#### Scenario: An application request produces bypass recordings
+
+- **WHEN** an application request produces ordinary bypass recording events
+- **THEN** each event increments the ordinary aggregate and one reason count without being redefined as one outcome per request
+
+### Requirement: Bypass reason snapshots agree with their aggregate
+
+A snapshot SHALL expose immutable ordinary reason counts whose sum equals its ordinary bypass aggregate, without promising an atomic sample of independently observed capacity fields.
+
+#### Scenario: Concurrent recordings and inspection
+
+- **WHEN** bypass recordings race snapshot creation
+- **THEN** each returned snapshot's immutable ordinary reason counts sum to that snapshot's ordinary bypass aggregate, without promising a single atomic sample of independently observed capacity fields
+
+### Requirement: Oversized-result recordings remain separate
+
+Oversized-result recordings SHALL NOT increment the ordinary bypass aggregate or ordinary reason counts.
+
+#### Scenario: A result exceeds the entry limit
+
+- **WHEN** a cache admission is declined because its encoded result is oversized
+- **THEN** the oversized count increments without incrementing the ordinary bypass aggregate or any ordinary reason
 
 ### Requirement: Manager access preserves stream-cost inspection
 

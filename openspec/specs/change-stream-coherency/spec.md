@@ -156,17 +156,23 @@ Public guidance SHALL describe `max_await_time_ms` as an upper bound on an idle 
 
 ### Requirement: Database stream health is locally inspectable
 
-Both execution models SHALL expose an immutable, synchronous health observation for a named database. The observation SHALL distinguish a stream that has not started, a connection in progress, healthy operation, reconnection, unsuccessful startup, and closed management. Inspection SHALL NOT activate a database or perform database I/O. Startup failures SHALL remain observable until superseded by a later attempt or manager closure. Health observations SHALL contain no credentials, application data, exception text, or resume positions, and SHALL NOT assert per-write catch-up.
+Both execution models SHALL expose an immutable, synchronous health observation for a named database, distinguishing a stream that has not started, a connection in progress, healthy operation, reconnection, unsuccessful startup, and closed management. Startup failures SHALL remain observable until superseded by a later attempt or manager closure.
 
 #### Scenario: An application inspects an untouched database
 
 - **WHEN** a caller requests health for a database the manager has never activated
 - **THEN** the result reports that no stream has started and inspection does not create one
 
+#### Scenario: Stream connection is in progress
+
+- **WHEN** a caller inspects a database while its stream connection is in progress
+- **THEN** the observation distinguishes connecting from healthy operation
+
 #### Scenario: Stream startup fails
 
 - **WHEN** a cached read cannot establish a database stream and the caller subsequently inspects that database
 - **THEN** inspection reports unsuccessful startup even though no healthy supervisor was retained
+- **AND** the failure remains observable until a later attempt or manager closure supersedes it
 
 #### Scenario: A later startup succeeds
 
@@ -182,6 +188,28 @@ Both execution models SHALL expose an immutable, synchronous health observation 
 
 - **WHEN** a caller inspects any database after manager closure
 - **THEN** the observation reports closed management without reopening a stream
+
+### Requirement: Database health inspection is local and read-only
+
+Database health inspection SHALL NOT activate a database or perform database I/O.
+
+#### Scenario: Repeated database health inspection
+
+- **WHEN** a caller inspects a named database repeatedly
+- **THEN** inspection performs no database I/O and does not activate that database
+
+### Requirement: Database health observations expose no sensitive data
+
+Database health observations SHALL contain no credentials, application data, exception text, or resume positions.
+
+#### Scenario: A caller inspects a failed database stream
+
+- **WHEN** a caller inspects health after stream startup fails
+- **THEN** the observation includes no credentials, application data, exception text, or resume positions
+
+### Requirement: Database health does not assert write catch-up
+
+Database health observations SHALL NOT assert per-write catch-up.
 
 #### Scenario: A healthy stream has not processed a concurrent write
 

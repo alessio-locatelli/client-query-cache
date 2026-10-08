@@ -85,22 +85,27 @@ GitHub Actions SHALL restore and save reusable caches produced by validation too
 
 ### Requirement: Executable pin changes validate affected consumers
 
-Pull requests changing executable dependency configuration SHALL run validation of the affected consumers even when no Python source changes. MongoDB Testcontainers image updates SHALL run owned-runtime integration and end-to-end tests and a bounded isolated benchmark startup check. Development-container pin or download-integrity updates SHALL build the image and verify its declared tools. Python or shared Python-toolchain updates SHALL run package validation and database-backed tests. Expensive consumer checks SHALL wait for applicable quality checks.
+Pull requests changing executable dependency configuration SHALL validate the affected consumers even when no Python source changes. Expensive consumer checks SHALL wait for applicable quality checks.
 
 #### Scenario: A MongoDB pin changes without Python source edits
 
 - **WHEN** a pull request updates a configuration value consumed by the test and benchmark replica sets
-- **THEN** CI runs database-backed tests and checks isolated benchmark startup under the selected image
+- **THEN** CI runs owned-runtime integration and end-to-end tests and a bounded isolated benchmark startup check under the selected image after applicable quality checks pass
 
 #### Scenario: A development-container package changes
 
-- **WHEN** a pull request updates a Containerfile package, base image, or Taplo download
+- **WHEN** a pull request updates a Containerfile package, base image, Taplo download, or download-integrity value
 - **THEN** CI builds that definition and verifies the pinned tools after applicable quality checks pass
 
 #### Scenario: An interpreter selection changes
 
 - **WHEN** a pull request updates an executable Python selection without changing Python source
 - **THEN** package validation and database-backed tests run using the proposed interpreter and performance comparisons retain their matched-interpreter constraint
+
+#### Scenario: Shared Python-toolchain configuration changes
+
+- **WHEN** a pull request updates shared Python-toolchain configuration without changing Python source
+- **THEN** package validation and database-backed tests run after applicable quality checks pass
 
 #### Scenario: An unrelated document changes
 
@@ -109,22 +114,40 @@ Pull requests changing executable dependency configuration SHALL run validation 
 
 ### Requirement: Pull requests validate documentation-site inputs
 
-Pull requests that change rendered documentation sources or assets, site configuration, documentation dependencies, build recipes, the publishing workflow, or shared toolchain setup SHALL run a clean strict documentation build after applicable linting and formatting gates succeed. Other pull requests SHALL retain a stable documentation-check outcome without executing an unnecessary site build. Documentation build failures SHALL prevent successful validation. Documentation-only Markdown changes SHALL not add Python package or database test execution beyond the existing validation scope.
+Pull requests changing documentation-site inputs SHALL run a clean strict documentation build after applicable linting and formatting gates succeed. Build failures SHALL prevent successful validation.
 
 #### Scenario: A guide changes
 
 - **WHEN** a pull request changes a public guide and its applicable quality gates pass
-- **THEN** CI builds the documentation and reports its actual success or failure without starting Python package or database tests for that Markdown-only change
+- **THEN** CI runs a clean strict documentation build and reports its actual success or failure
 
 #### Scenario: A shared input changes
 
-- **WHEN** a pull request changes the lockfile, site configuration, or shared toolchain setup
+- **WHEN** a pull request changes rendered documentation assets, site configuration, documentation dependencies, the lockfile, build recipes, the publishing workflow, or shared toolchain setup
 - **THEN** CI selects the documentation build even when no guide changed
 
 #### Scenario: Quality checks fail
 
 - **WHEN** a pull request fails an applicable linting or formatting gate
 - **THEN** the documentation build does not start and the failed prerequisite remains independently visible as a merge-blocking check when merge rules are configured
+
+### Requirement: Documentation-only Markdown retains its test scope
+
+Documentation-only Markdown changes SHALL NOT add Python package or database test execution beyond the existing validation scope.
+
+#### Scenario: Only Markdown documentation changes
+
+- **WHEN** a pull request changes only Markdown documentation
+- **THEN** Python package and database test execution remain within the existing validation scope
+
+### Requirement: Unaffected pull requests retain a documentation-check outcome
+
+Pull requests that do not change documentation-site inputs SHALL retain a stable documentation-check outcome without running an unnecessary site build.
+
+#### Scenario: No documentation-site input changes
+
+- **WHEN** a pull request changes no documentation-site input
+- **THEN** CI reports a stable documentation-check outcome without building the site
 
 ### Requirement: Documentation deployment promotes trusted built artifacts
 
