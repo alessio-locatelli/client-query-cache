@@ -28,10 +28,9 @@ jobs:
     # their assigned validation/publication budgets.
     timeout-minutes: 15
     permissions:
-      # contents for build-and-verify and publish-github-release: The default is
-      # workflow read access. We override it because these jobs create a draft and
-      # publish the verified GitHub release.
-      contents: write
+      # GitHub Releases API: https://docs.github.com/en/rest/releases/releases#create-a-release
+      # The default is workflow read access. Draft creation requires Contents write.
+      contents: write # Required by gh release create --draft.
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -110,7 +109,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
-      contents: write
+      # GitHub Releases API: https://docs.github.com/en/rest/releases/releases#update-a-release
+      # The default is workflow read access. Publishing the draft requires Contents write.
+      contents: write # Required by gh release edit --draft=false.
     steps:
       # gh 2.97.0: https://cli.github.com/manual/gh_release_edit
       # --draft=false: The default is preserving existing draft state. We override it
