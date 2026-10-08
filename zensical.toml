@@ -22,6 +22,7 @@ nav = [
   { "Examples" = [
     { "Run the examples" = "examples/index.md" },
     { "requests-cache" = "examples/requests-cache.md" },
+    { "FastAPI catalogue" = "examples/fastapi.md" },
     { "Celery" = "examples/celery.md" },
     { "py-abac" = "examples/py-abac.md" },
     { "aiohttp-client-cache" = "examples/aiohttp-client-cache.md" },

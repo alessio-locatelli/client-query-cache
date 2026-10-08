@@ -14,6 +14,15 @@ The repository SHALL provide a top-level `examples/` directory of complete progr
 - **WHEN** a reader opens the web-framework example
 - **THEN** it demonstrates application-owned MongoDB storage rather than claiming the framework supplies a MongoDB backend
 
+### Requirement: Examples are discoverable
+
+The README SHALL link to the `examples/` directory. `examples/README.md` SHALL list each example with the library or framework it integrates, its run command, and its MongoDB prerequisite. It SHALL describe current behavior only.
+
+#### Scenario: A new user looks for integration guidance
+
+- **WHEN** a new user reads the README
+- **THEN** they find a link to runnable examples, and each listed example states how to run it
+
 ## ADDED Requirements
 
 ### Requirement: A catalogue application demonstrates web lifecycle ownership

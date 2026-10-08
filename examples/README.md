@@ -1,6 +1,6 @@
 # Examples
 
-Each example is a complete program that adds `client-query-cache` to a real library that already stores its data in MongoDB. Writes still go to PyMongo, and the library's reads are served from the cache. Each run prints cache statistics as evidence that repeated reads came from the cache and that a later write invalidated the cached entry, and exits with an error if either did not happen.
+Each example is a complete program that adds `client-query-cache` to a MongoDB-backed library or an application with explicit MongoDB storage. Writes go to PyMongo, and supported reads use cached views. Each run prints cache statistics as evidence that repeated reads came from the cache and that a later write invalidated the cached entry, and exits with an error if either did not happen.
 
 ## Prerequisites
 
@@ -13,9 +13,10 @@ Each example deletes its own database when it starts, for example `client_query_
 
 Run each command from the [repository checkout](https://github.com/alessio-locatelli/client-query-cache). The filenames below link to executable source; the hosted guides explain the integrations.
 
-| Example                                                                                                                                         | Library                                                                        | Run                                               |
+| Example                                                                                                                                         | Library or framework                                                           | Run                                               |
 | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------- |
 | [`requests_cache_example.py`](https://github.com/alessio-locatelli/client-query-cache/blob/main/examples/requests_cache_example.py)             | [requests-cache](https://github.com/requests-cache/requests-cache)             | `uv run examples/requests_cache_example.py`       |
+| [`fastapi_catalogue_example.py`](https://github.com/alessio-locatelli/client-query-cache/blob/main/examples/fastapi_catalogue_example.py)       | [FastAPI](https://fastapi.tiangolo.com/)                                       | `uv run examples/fastapi_catalogue_example.py`    |
 | [`celery_example.py`](https://github.com/alessio-locatelli/client-query-cache/blob/main/examples/celery_example.py)                             | [Celery](https://github.com/celery/celery)                                     | `uv run examples/celery_example.py`               |
 | [`py_abac_example.py`](https://github.com/alessio-locatelli/client-query-cache/blob/main/examples/py_abac_example.py)                           | [py-abac](https://github.com/ketgo/py-abac)                                    | `uv run examples/py_abac_example.py`              |
 | [`aiohttp_client_cache_example.py`](https://github.com/alessio-locatelli/client-query-cache/blob/main/examples/aiohttp_client_cache_example.py) | [aiohttp-client-cache](https://github.com/requests-cache/aiohttp-client-cache) | `uv run examples/aiohttp_client_cache_example.py` |
@@ -24,6 +25,7 @@ Run each command from the [repository checkout](https://github.com/alessio-locat
 ## Hosted integration guides
 
 - [requests-cache guide](https://alessio-locatelli.github.io/client-query-cache/examples/requests-cache/)
+- [FastAPI catalogue guide](https://alessio-locatelli.github.io/client-query-cache/examples/fastapi/)
 - [Celery guide](https://alessio-locatelli.github.io/client-query-cache/examples/celery/)
 - [py-abac guide](https://alessio-locatelli.github.io/client-query-cache/examples/py-abac/)
 - [aiohttp-client-cache guide](https://alessio-locatelli.github.io/client-query-cache/examples/aiohttp-client-cache/)
