@@ -28,7 +28,7 @@ A floating baseline reduces lanes but cannot demonstrate the widened floor. An e
 
 ### Let Shields read published support declarations
 
-Use `https://img.shields.io/pypi/pyversions/client-query-cache.svg` linked to `https://pypi.org/project/client-query-cache/`, matching the mechanism in [FastAPI's README](https://github.com/fastapi/fastapi/blob/master/README.md). [Shields documents this badge](https://shields.io/badges/py-pi-python-version). Publication, rather than a repository edit, updates its displayed versions; the current release may show no version list because this checkout's metadata lacks classifiers.
+Use `https://img.shields.io/pypi/pyversions/client-query-cache.svg` linked to `https://pypi.org/project/client-query-cache/`, matching the mechanism in [FastAPI's README](https://github.com/fastapi/fastapi/blob/master/README.md). [Shields documents this badge](https://shields.io/badges/py-pi-python-version). Publishing classifiers is expected to populate its displayed versions; this has not been verified after publication. [Issue #205](https://github.com/alessio-locatelli/client-query-cache/issues/205) records the observed badge defect and current metadata evidence; task 4.1 owns post-publication verification.
 
 A static range would immediately reflect the branch but require another maintained declaration and could advertise unreleased support. Artifact metadata inspection in task 1.2 establishes what the next release will provide; a public badge cannot validate unpublished metadata.
 
