@@ -38,6 +38,8 @@ class PausedCoordinator(TypedDict):
     coordinator: ChangeStreamCoordinator
     release: threading.Event
     activation: Future[DatabaseStreamSupervisor | None]
+    executor: ThreadPoolExecutor
+    streams: tuple[ScriptedStream, ...]
     phase: int  # Zero means initial startup; one means reconnect.
 
 
@@ -959,26 +961,30 @@ def paused_coordinator(
             entered.set()
             assert release.wait(5)
 
-    script: list[object] = (
-        [ScriptedStream([])]
+    streams = (
+        (ScriptedStream([]),)
         if request.param == 0
-        else [ScriptedStream([ConnectionFailure("reconnect")]), ScriptedStream([])]
+        else (ScriptedStream([ConnectionFailure("reconnect")]), ScriptedStream([]))
     )
-    database = ScriptedDatabase("db", script, before_watch=before_watch)
+    database = ScriptedDatabase("db", list(streams), before_watch=before_watch)
     client = Mock()
     client.__getitem__ = Mock(return_value=as_database(database))
     coordinator = make_coordinator(client, CacheCore())
     with ThreadPoolExecutor(max_workers=1) as executor:
         activation = executor.submit(coordinator.activate_database, "db")
         assert entered.wait(5)
-        yield PausedCoordinator(
-            coordinator=coordinator,
-            release=release,
-            activation=activation,
-            phase=request.param,
-        )
-        release.set()
-        activation.result(timeout=5)
+        try:
+            yield PausedCoordinator(
+                coordinator=coordinator,
+                release=release,
+                activation=activation,
+                executor=executor,
+                streams=streams,
+                phase=request.param,
+            )
+        finally:
+            release.set()
+            activation.result(timeout=5)
 
 
 def test_coordinator_health_inspection_during_io_does_not_deadlock(
@@ -1004,3 +1010,24 @@ def test_coordinator_health_inspection_during_io_does_not_deadlock(
             is StreamHealthStatus.HEALTHY
         )
     )
+
+
+@pytest.mark.parametrize("paused_coordinator", [1], indirect=True, ids=["reconnect"])
+def test_stop_waits_for_an_in_flight_reopen_and_closes_its_stream(
+    paused_coordinator: PausedCoordinator,
+) -> None:
+    supervisor = paused_coordinator["activation"].result(timeout=5)
+    assert supervisor is not None
+    initial, replacement = paused_coordinator["streams"]
+
+    stopping = paused_coordinator["executor"].submit(supervisor.stop)
+    _wait_until(lambda: initial.closed)
+    assert not stopping.done()
+
+    paused_coordinator["release"].set()
+    assert stopping.result(timeout=5) is None
+    assert replacement.closed
+    assert supervisor._stream is None
+    assert supervisor._thread is not None
+    assert not supervisor._thread.is_alive()
+    assert not supervisor.healthy
