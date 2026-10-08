@@ -7,7 +7,7 @@
 
 ## 2. Conditional prototype
 
-Tasks 2.1–2.3 are completed by the conditional skip rule: the registered gate did not pass. See [baseline result](../../../docs/development/research/shared-invalidation-feasibility.md#baseline-result) for the evidence and scope.
+Tasks 2.1–2.3 are completed by the conditional skip rule: the registered gate did not pass. See [baseline result](../../../../docs/development/research/shared-invalidation-feasibility.md#baseline-result) for the evidence and scope.
 
 - [x] 2.1 Implement the receiver state and local read/admission driver from design.md's "Model delivery at the cache-core boundary" in `benchmarks/stream_cost/shared_invalidation.py`. Add parametrized fault tests plus Hypothesis operation-ordering tests over real `CacheCore` instances for the delta's uncertainty and recovery scenarios; verify both read shapes reject admissions spanning recovery. Document the observed state transitions in the research reference.
 - [x] 2.2 Add the coordinator, bounded IPC, and independent-stream research variant described in design.md. Add real-replica-set tests covering every listed delivery fault with sync, asyncio, and mixed subscribers; verify one coordinator stream serves the shared group, healthy local lookups issue no IPC/database calls, and a stalled subscriber leaves the other subscribers progressing. Record transport and lifecycle observations in the research reference.
