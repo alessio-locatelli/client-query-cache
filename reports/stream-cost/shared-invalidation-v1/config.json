@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "seed": 87,
+  "blocks": 6,
+  "models": ["sync", "async"],
+  "worker_counts": [1, 8],
+  "workloads": ["idle", "active"],
+  "paths": ["native-control", "native", "stream-control", "stream-only"],
+  "window_seconds": 60,
+  "documents": 1024,
+  "collections": ["first", "second"],
+  "payload_bytes": 4096,
+  "reads": 1800,
+  "read_interval_seconds": 0.03333333333333333,
+  "updates": 200,
+  "update_interval_seconds": 0.3,
+  "max_await_time_ms": 1000,
+  "schedule_tolerance_seconds": 0.05,
+  "startup_seconds": 30,
+  "drain_seconds": 10,
+  "shutdown_seconds": 10,
+  "lag_capture": { "windows": 6, "events": 20, "separation": 16 },
+  "calibration_seconds": 0.05,
+  "clock_tolerance_seconds": 0.005,
+  "topology": { "cpus": 2, "memory": "2g" },
+  "client_options": {
+    "directConnection": true,
+    "serverSelectionTimeoutMS": 10000
+  },
+  "baseline_gate": {
+    "family_alpha": 0.05,
+    "alternatives": 4,
+    "cpu_rate": 0.05
+  },
+  "prototype": {
+    "subscribers": 8,
+    "groups": ["sync", "async", "mixed"],
+    "mixed_sync": 4,
+    "blocks": 6,
+    "alternatives": 6,
+    "application_cpu_ratio": 1.05,
+    "reference_cpu_resolution": 0.000001,
+    "absolute_lag_seconds": 0.5,
+    "added_lag_seconds": 0.01,
+    "lease_seconds": 3,
+    "queue_messages": 256
+  }
+}
