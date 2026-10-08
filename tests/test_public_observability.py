@@ -228,6 +228,38 @@ async def test_public_metadata_reasons_preserve_probe_lifetimes(
     )
 
 
+@pytest.mark.parametrize(
+    "available", [False, True], ids=["watch-pending", "publication-pending"]
+)
+async def test_pending_activation_records_stream_unavailable(
+    cached_collection: Collection,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    available: bool,
+) -> None:
+    manager = cached_collection.database.manager
+    mock_type = AsyncMock if isinstance(manager, AsyncCacheManager) else Mock
+    monkeypatch.setattr(
+        type(manager._coordinator), "activate_database", mock_type(return_value=None)
+    )
+    manager.cache_core.set_database_available("observations", available=available)
+    for _ in range(3):
+        returned = cached_collection.find_one({})
+        if inspect.isawaitable(returned):
+            await returned
+    snapshot = manager.snapshot()
+    assert snapshot.bypasses == 3
+    assert snapshot.misses == snapshot.hits == 0
+    assert (
+        next(
+            record.count
+            for record in snapshot.bypass_reasons
+            if record.reason is BypassReason.STREAM_UNAVAILABLE
+        )
+        == 3
+    )
+
+
 def test_manager_metric_callbacks_are_local_and_read_only(
     manager: Manager,
 ) -> None:

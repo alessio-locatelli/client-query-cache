@@ -63,6 +63,10 @@ class StreamHealthRegistry:
             str, StreamHealthStatus | Callable[[], StreamHealthStatus]
         ] = {}  # Can be empty.
 
+    def record_connecting(self, database_name: str) -> None:
+        with self._lock:
+            self._states[database_name] = StreamHealthStatus.CONNECTING
+
     def record_starting(
         self, database_name: str, health: Callable[[], StreamHealthStatus]
     ) -> None:

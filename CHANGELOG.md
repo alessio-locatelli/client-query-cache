@@ -13,6 +13,11 @@ bodies or OpenSpec. An empty Unreleased section is valid.
 
 ## Unreleased
 
+### Bug fixes
+
+- Failed change-stream startups retry on later reads with a bounded cooldown. Starting one database's stream allows other databases to activate or use their caches; competing reads for the starting database run uncached.
+- Manager shutdown waits for pending stream startup and cleanup. Async shutdown releases its resources before propagating cancellation, including repeated cancellation requests.
+
 ## [0.4.0] - 2026-10-07
 
 ### Features
