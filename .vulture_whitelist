@@ -191,3 +191,6 @@ lag_capture  # TypedDict key read by subscription in multiprocess_run.py.
 calibration_seconds  # TypedDict key read by subscription in multiprocess_run.py.
 clock_tolerance_seconds  # TypedDict key read by subscription in multiprocess_run.py.
 active_minus_idle  # TypedDict key read by subscription and JSON serialization.
+p95_seconds  # TypedDict key read by subscription and JSON serialization.
+lower_seconds  # TypedDict key read by subscription and JSON serialization.
+upper_seconds  # TypedDict key read by subscription and JSON serialization.

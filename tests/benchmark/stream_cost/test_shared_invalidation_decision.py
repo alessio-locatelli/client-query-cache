@@ -1,14 +1,19 @@
 from __future__ import annotations
 
+import math
 from dataclasses import asdict
 from hashlib import sha256
+from itertools import product
 from typing import TYPE_CHECKING, cast
 
 import pytest
 
 from benchmarks.stream_cost.errors import BenchmarkSetupError
 from benchmarks.stream_cost.multiprocess_run import _CONFIG, Protocol, planned_cells
-from benchmarks.stream_cost.shared_invalidation_decision import evaluate_baseline
+from benchmarks.stream_cost.shared_invalidation_decision import (
+    describe_native_lag,
+    evaluate_baseline,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -17,11 +22,83 @@ if TYPE_CHECKING:
 
 pytestmark = pytest.mark.unit
 _CONTROL_CPU_SECONDS = 6.0
+_CAPTURE_P95_INDEX = 114  # Existing estimator: floor(0.95 * 120), zero-based.
 
 
 @pytest.fixture
 def baseline_factory() -> Callable[[tuple[float, ...], tuple[float, ...]], Payload]:
     return _baseline_report
+
+
+@pytest.fixture
+def native_report() -> Payload:
+    return {
+        "cells": [
+            {
+                "path": "native",
+                "workload": "active",
+                "healthy": True,
+                "model": "sync",
+                "block": 0,
+                "workers": 1,
+                "clock_offset_seconds": 0.01,
+                "clock_uncertainty_seconds": 0.003,
+                "workers_measured": [
+                    {
+                        "invalidations": 200,
+                        "lag_windows": tuple(
+                            tuple(rank * 0.0001 for rank in range(start, start + 20))
+                            for start in range(0, 120, 20)
+                        ),
+                    }
+                ],
+            }
+        ]
+    }
+
+
+@pytest.mark.parametrize(
+    "clock_offset", [-0.02, 0.0, 0.01], ids=["negative-lag", "aligned", "server-ahead"]
+)
+def test_native_lag_matches_exact_capture_percentiles_and_clock_margin(
+    native_report: Payload, clock_offset: float
+) -> None:
+    cast("list[Payload]", native_report["cells"])[0]["clock_offset_seconds"] = (
+        clock_offset
+    )
+    interval = describe_native_lag(native_report)[0]
+    percentiles = sorted(
+        sorted(
+            rank * 0.0001
+            for window in indices
+            for rank in range(window * 20, window * 20 + 20)
+        )[_CAPTURE_P95_INDEX]
+        for indices in product(range(6), repeat=6)
+    )
+    assert interval["p95_seconds"] == pytest.approx(0.0114 + clock_offset)
+    assert interval["lower_seconds"] == pytest.approx(
+        percentiles[math.ceil(0.025 * len(percentiles)) - 1] + clock_offset - 0.003
+    )
+    assert interval["upper_seconds"] == pytest.approx(
+        percentiles[math.ceil(0.975 * len(percentiles)) - 1] + clock_offset + 0.003
+    )
+
+
+@pytest.mark.parametrize(
+    "fault", ["failed", "capture"], ids=["failed-native-cell", "incomplete-capture"]
+)
+def test_native_lag_cannot_describe_failed_or_incomplete_cells(
+    native_report: Payload, fault: str
+) -> None:
+    sample = cast("list[Payload]", native_report["cells"])[0]
+    if fault == "failed":
+        sample["healthy"] = False
+        assert describe_native_lag(native_report) == ()
+    else:
+        worker = cast("list[Payload]", sample["workers_measured"])[0]
+        worker["lag_windows"] = ((0.01,) * 20,) * 5
+        with pytest.raises(BenchmarkSetupError, match="capture"):
+            describe_native_lag(native_report)
 
 
 def _baseline_report(idle: tuple[float, ...], active: tuple[float, ...]) -> Payload:

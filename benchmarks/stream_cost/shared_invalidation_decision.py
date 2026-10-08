@@ -10,12 +10,17 @@ from pathlib import Path
 from statistics import fmean
 from typing import TYPE_CHECKING, Literal, TypedDict, cast
 
-from benchmarks.stream_cost.await_statistics import exact_basic_bootstrap
+from benchmarks.stream_cost.await_statistics import (
+    WeightedStatistic,
+    exact_basic_bootstrap,
+    exact_block_draws,
+    weighted_quantile,
+)
 from benchmarks.stream_cost.errors import BenchmarkSetupError
-from benchmarks.stream_cost.multiprocess_run import _CONFIG, Protocol
+from benchmarks.stream_cost.multiprocess_run import _CONFIG, Protocol, validate_capture
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Mapping, Sequence
 
     from benchmarks.stream_cost.multiprocess_run import Model, Payload, Workload
 
@@ -41,6 +46,77 @@ class BaselineDecision(TypedDict):
     alpha: float  # Positive per-alternative tail probability.
     threshold: float  # Positive CPU-rate investment threshold.
     active_minus_idle: dict[str, float | None]  # Two signed diagnostic rates.
+
+
+class NativeLag(TypedDict):
+    model: Model
+    block: int  # Zero-based block index.
+    workers: int  # Positive group size.
+    worker: int  # Zero-based worker index.
+    p95_seconds: float  # Clock-corrected lag can be zero or negative.
+    lower_seconds: float  # Expanded endpoint can be zero or negative.
+    upper_seconds: float  # Expanded endpoint can be zero or negative.
+
+
+def _capture_p95(
+    windows: tuple[tuple[float, ...], ...], indices: tuple[int, ...]
+) -> float:
+    ordered = sorted(value for index in indices for value in windows[index])
+    return ordered[math.floor(0.95 * len(ordered))]
+
+
+def describe_native_lag(report: Mapping[str, object]) -> tuple[NativeLag, ...]:
+    expected_events = Protocol.load().updates
+    intervals: list[NativeLag] = []  # No entries until a complete native capture.
+    for sample in cast("list[Payload]", report["cells"]):
+        if (
+            sample["path"] != "native"
+            or sample["workload"] != "active"
+            or not sample["healthy"]
+        ):
+            continue
+        for worker, metrics in enumerate(
+            cast("Sequence[Payload]", sample["workers_measured"])
+        ):
+            windows = tuple(
+                tuple(window)
+                for window in cast("Sequence[Sequence[float]]", metrics["lag_windows"])
+            )
+            validate_capture(
+                cast("int", metrics["invalidations"]), windows, expected_events
+            )
+            corrected = tuple(
+                tuple(
+                    value + cast("float", sample["clock_offset_seconds"])
+                    for value in window
+                )
+                for window in windows
+            )
+            statistic = partial(_capture_p95, corrected)
+            percentiles = tuple(
+                sorted(
+                    (
+                        WeightedStatistic(statistic(indices), weight)
+                        for indices, weight in exact_block_draws(len(corrected))
+                    ),
+                    key=lambda sample: sample.value,
+                )
+            )
+            uncertainty = cast("float", sample["clock_uncertainty_seconds"])
+            intervals.append(
+                {
+                    "model": cast("Model", sample["model"]),
+                    "block": cast("int", sample["block"]),
+                    "workers": cast("int", sample["workers"]),
+                    "worker": worker,
+                    "p95_seconds": statistic(tuple(range(len(corrected)))),
+                    "lower_seconds": weighted_quantile(percentiles, 0.025)
+                    - uncertainty,
+                    "upper_seconds": weighted_quantile(percentiles, 0.975)
+                    + uncertainty,
+                }
+            )
+    return tuple(intervals)
 
 
 def _mean_rates(values: tuple[float, ...], indices: tuple[int, ...]) -> float:
@@ -219,12 +295,16 @@ def evaluate_baseline(report: Mapping[str, object]) -> BaselineDecision:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Evaluate the registered shared-invalidation investment gate."
+        description="Evaluate the shared-invalidation gate and describe native lag."
     )
     parser.add_argument("report", type=Path)
+    report = json.loads(parser.parse_args().report.read_bytes())
     print(
         json.dumps(
-            evaluate_baseline(json.loads(parser.parse_args().report.read_bytes())),
+            {
+                **evaluate_baseline(report),
+                "native_lag_context": describe_native_lag(report),
+            },
             indent=2,
         )
     )
