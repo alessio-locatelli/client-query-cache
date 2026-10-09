@@ -18,6 +18,7 @@ from client_query_cache._core.find_one_reads import (
 )
 from client_query_cache._core.keys import NamespaceId
 from client_query_cache._core.manager import CacheCore
+from client_query_cache._types import NonNegativeInt
 
 pytestmark = pytest.mark.unit
 
@@ -52,10 +53,16 @@ class _CacheCoreMachine(RuleBasedStateMachine):
     def __init__(self) -> None:
         super().__init__()
         self.core = CacheCore()
-        self.namespace_generation: dict[NamespaceId, int] = defaultdict(int)
-        self.identity_epoch: dict[tuple[NamespaceId, str], int] = defaultdict(int)
-        self.identity_values: dict[tuple[NamespaceId, str, str], tuple[int, int]] = {}
-        self.namespace_values: dict[tuple[NamespaceId, object], tuple[object, int]] = {}
+        self.namespace_generation: dict[NamespaceId, NonNegativeInt] = defaultdict(int)
+        self.identity_epoch: dict[tuple[NamespaceId, str], NonNegativeInt] = (
+            defaultdict(int)
+        )
+        self.identity_values: dict[
+            tuple[NamespaceId, str, str], tuple[int, NonNegativeInt]
+        ] = {}
+        self.namespace_values: dict[
+            tuple[NamespaceId, object], tuple[object, NonNegativeInt]
+        ] = {}
         self.resident_identity_keys: set[tuple[NamespaceId, str, str]] = set()
         self.resident_namespace_keys: set[tuple[NamespaceId, object]] = set()
 

@@ -13,6 +13,7 @@ from benchmarks.stream_cost.oversized_result import (
     time_encoder_invocations,
 )
 from client_query_cache._core.codec import encode_value
+from client_query_cache._types import NonNegativeInt, PositiveInt
 
 pytestmark = pytest.mark.unit
 
@@ -21,7 +22,7 @@ _MAX_ENTRY_BYTES = 1_000
 
 
 def _padded_documents(
-    count: int, *, padding_bytes: int = _PADDING_BYTES
+    count: PositiveInt, *, padding_bytes: NonNegativeInt = _PADDING_BYTES
 ) -> list[dict[str, object]]:
     return [{"_id": index, "padding": "x" * padding_bytes} for index in range(count)]
 

@@ -13,6 +13,7 @@ from client_query_cache._core.entries import CacheEntry
 from client_query_cache._core.keys import NamespaceCacheKey, NamespaceId
 from client_query_cache._core.locking import LockOrderGuard
 from client_query_cache._core.lru import WeightedLru
+from client_query_cache._types import NonNegativeInt
 
 pytestmark = pytest.mark.unit
 
@@ -21,7 +22,9 @@ SHARED_BUDGET_BYTES = 1_000
 ENTRY_COUNT = 100
 
 
-def make_entry(generation_key: tuple[int, ...], weight: int = 10) -> CacheEntry:
+def make_entry(
+    generation_key: tuple[NonNegativeInt, ...], weight: NonNegativeInt = 10
+) -> CacheEntry:
     return CacheEntry(
         generation_key=generation_key,
         weight=weight,
@@ -66,8 +69,8 @@ def test_conditional_put_admits_into_empty_key(lru: WeightedLru) -> None:
 )
 def test_conditional_put_generation_ordering(
     lru: WeightedLru,
-    first_generation_key: tuple[int, ...],
-    second_generation_key: tuple[int, ...],
+    first_generation_key: tuple[NonNegativeInt, ...],
+    second_generation_key: tuple[NonNegativeInt, ...],
     second_should_replace: bool,
 ) -> None:
     key = make_key("k")
@@ -120,7 +123,7 @@ def test_touching_a_key_no_longer_resident_is_a_no_op(lru: WeightedLru) -> None:
 )
 def test_is_oversize(
     lru: WeightedLru,
-    weight: int,
+    weight: NonNegativeInt,
     expected_oversize: bool,
 ) -> None:
     assert lru.is_oversize(weight) is expected_oversize
@@ -164,7 +167,9 @@ class _WeightedLruMachine(RuleBasedStateMachine):
             max_entry_bytes=100,
             guard=LockOrderGuard(),
         )
-        self.resident_generation: dict[NamespaceCacheKey, tuple[int, ...]] = {}
+        self.resident_generation: dict[
+            NamespaceCacheKey, tuple[NonNegativeInt, ...]
+        ] = {}
 
     @rule(
         key=_STATE_MACHINE_KEYS,
@@ -172,7 +177,10 @@ class _WeightedLruMachine(RuleBasedStateMachine):
         weight=st.integers(min_value=1, max_value=90),
     )
     def conditional_put(
-        self, key: NamespaceCacheKey, generation_key: tuple[int, ...], weight: int
+        self,
+        key: NamespaceCacheKey,
+        generation_key: tuple[NonNegativeInt, ...],
+        weight: NonNegativeInt,
     ) -> None:
         entry = make_entry(generation_key, weight=weight)
         admitted, _displaced, _evicted = self.lru.conditional_put(key, entry)

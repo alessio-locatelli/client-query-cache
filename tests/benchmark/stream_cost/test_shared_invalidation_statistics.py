@@ -13,16 +13,19 @@ from benchmarks.stream_cost.await_statistics import (
     exact_block_bootstrap,
     exact_block_draws,
 )
+from client_query_cache._types import NonNegativeInt, PositiveInt
 
 pytestmark = pytest.mark.unit
 
 
-def _block_mean(values: tuple[float, ...], indices: tuple[int, ...]) -> float:
+def _block_mean(
+    values: tuple[float, ...], indices: tuple[NonNegativeInt, ...]
+) -> float:
     return fmean(values[index] for index in indices)
 
 
 @pytest.mark.parametrize("blocks", [3, 6], ids=["small", "registered"])
-def test_exact_weights_match_ordered_draws(blocks: int) -> None:
+def test_exact_weights_match_ordered_draws(blocks: PositiveInt) -> None:
     enumerated = tuple(exact_block_draws(blocks))
     reference = Counter(
         tuple(sorted(indices)) for indices in product(range(blocks), repeat=blocks)

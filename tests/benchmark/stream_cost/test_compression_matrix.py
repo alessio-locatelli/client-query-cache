@@ -16,6 +16,7 @@ from benchmarks.stream_cost.compression_matrix import (
 from benchmarks.stream_cost.errors import BenchmarkConfigurationError
 from benchmarks.stream_cost.generators import SMALL_DOCUMENT_PROFILE
 from benchmarks.stream_cost.workload import OperationCounts, WorkloadKind
+from client_query_cache._types import NonNegativeInt
 
 pytestmark = pytest.mark.unit
 
@@ -132,7 +133,7 @@ def test_compression_window_spec_rejects_invalid_fields(
 
 @pytest.mark.parametrize("block_index", range(8))
 def test_counterbalanced_mode_order_is_a_rotation_covering_every_mode(
-    block_index: int,
+    block_index: NonNegativeInt,
 ) -> None:
     order = counterbalanced_mode_order(block_index)
     assert set(order) == set(WIRE_COMPRESSION_MODES)
@@ -159,7 +160,7 @@ def test_counterbalanced_mode_order_rejects_a_negative_block_index() -> None:
     ],
 )
 def test_counterbalanced_path_order_alternates_across_blocks(
-    block_index: int, expected: tuple[WirePath, WirePath]
+    block_index: NonNegativeInt, expected: tuple[WirePath, WirePath]
 ) -> None:
     assert counterbalanced_path_order(block_index) == expected
 

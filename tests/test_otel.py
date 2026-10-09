@@ -18,6 +18,7 @@ from client_query_cache._core.stream_cost import (
     RESIDENT_BYTES_SCOPE,
     StreamCostSnapshot,
 )
+from client_query_cache._types import Probability
 from client_query_cache.otel import register_cache_metrics
 
 if TYPE_CHECKING:
@@ -266,7 +267,7 @@ def test_invalidation_lag_gauge_computes_the_nearest_rank_percentile(
     meter: Meter,
     reader: InMemoryMetricReader,
     lag_windows: tuple[tuple[float, ...], ...],
-    percentile: float,
+    percentile: Probability,
     expected: float,
 ) -> None:
     cache_core = _FakeCacheCore(

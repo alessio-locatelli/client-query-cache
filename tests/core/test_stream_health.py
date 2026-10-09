@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from client_query_cache._core.stream_health import RetryBackoff
+from client_query_cache._types import NonNegativeFloat
 
 pytestmark = pytest.mark.unit
 
@@ -53,9 +54,11 @@ def test_delay_stays_capped_after_saturating_without_overflowing() -> None:
 
 def test_delay_is_drawn_from_a_uniform_range_starting_at_zero() -> None:
     backoff = RetryBackoff(base_seconds=1.0, max_seconds=4.0, multiplier=2.0)
-    seen_bounds: list[tuple[float, float]] = []
+    seen_bounds: list[tuple[NonNegativeFloat, NonNegativeFloat]] = []
 
-    def record_uniform(low: float, high: float) -> float:
+    def record_uniform(
+        low: NonNegativeFloat, high: NonNegativeFloat
+    ) -> NonNegativeFloat:
         seen_bounds.append((low, high))
         return low
 

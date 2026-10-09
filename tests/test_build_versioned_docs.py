@@ -326,7 +326,7 @@ def failed_swap(
     indirect=True,
 )
 def test_swap_failure_preserves_previous_artifact(
-    exported_repo: Path, previous_artifact: Path, failed_swap: tuple[Text, int]
+    exported_repo: Path, previous_artifact: Path, failed_swap: tuple[Text, PositiveInt]
 ) -> None:
     phase, error = failed_swap
     with pytest.raises(OSError, match="Forced artifact replacement failure") as failure:
@@ -351,7 +351,7 @@ def test_swap_failure_preserves_previous_artifact(
 )
 @pytest.mark.usefixtures("artifact_exists")
 def test_failed_first_install_leaves_no_partial_artifact(
-    exported_repo: Path, previous_artifact: Path, failed_swap: tuple[Text, int]
+    exported_repo: Path, previous_artifact: Path, failed_swap: tuple[Text, PositiveInt]
 ) -> None:
     with pytest.raises(OSError, match="Forced artifact replacement failure"):
         assemble(

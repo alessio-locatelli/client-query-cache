@@ -29,6 +29,7 @@ from benchmarks.stream_cost.pair_runner import (
     run_consolidated_stream_pair,
     run_consolidated_stream_pairs,
 )
+from client_query_cache._types import NonNegativeFloat, NonNegativeInt, PositiveFloat
 
 if TYPE_CHECKING:
     from pymongo import MongoClient
@@ -40,7 +41,7 @@ _ORDER = (PairVariant.CONTROL, PairVariant.LOADED)
 
 
 def _config(
-    *, clock_drift_tolerance_seconds: float = 1.0
+    *, clock_drift_tolerance_seconds: PositiveFloat = 1.0
 ) -> ConsolidatedStreamPairConfig:
     return ConsolidatedStreamPairConfig(
         acceptable_lag_percentile=0.5,
@@ -59,10 +60,10 @@ def _config(
 
 def _clock_sample(
     *,
-    wall_t0: float,
+    wall_t0: NonNegativeFloat,
     offset: float,
     election_id: object = "election-1",
-    monotonic_t0: float | None = None,
+    monotonic_t0: NonNegativeFloat | None = None,
 ) -> ClockSample:
     resolved_monotonic_t0 = wall_t0 if monotonic_t0 is None else monotonic_t0
     wall_t1 = wall_t0 + 0.1
@@ -213,7 +214,7 @@ def test_propagates_a_failure_before_any_manager_is_created(
 
 
 def _server_event(
-    address: tuple[str, int],
+    address: tuple[str, NonNegativeInt],
 ) -> TopologyDescriptionChangedEvent:
     @dataclass(frozen=True, slots=True)
     class _FakeServerDescription:
@@ -221,9 +222,11 @@ def _server_event(
 
     @dataclass(frozen=True, slots=True)
     class _FakeTopologyDescription:
-        servers: dict[tuple[str, int], _FakeServerDescription]
+        servers: dict[tuple[str, NonNegativeInt], _FakeServerDescription]
 
-        def server_descriptions(self) -> dict[tuple[str, int], _FakeServerDescription]:
+        def server_descriptions(
+            self,
+        ) -> dict[tuple[str, NonNegativeInt], _FakeServerDescription]:
             return self.servers
 
     @dataclass(frozen=True, slots=True)

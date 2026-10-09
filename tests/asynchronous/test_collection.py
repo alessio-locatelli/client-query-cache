@@ -24,6 +24,7 @@ from pymongo.read_concern import ReadConcern
 
 from client_query_cache._core.keys import NamespaceId
 from client_query_cache._core.manager import CacheCore, CacheCoreConfig
+from client_query_cache._types import NonNegativeInt
 from client_query_cache.asynchronous.collection import CachedCollection
 from client_query_cache.asynchronous.manager import CacheManager
 from client_query_cache.asynchronous.streams import DatabaseStreamSupervisor
@@ -102,13 +103,13 @@ def make_uuid_collection(
     cache_manager: CacheManager[dict[str, Any]],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
-) -> Callable[[int], CachedCollection[dict[str, Any]]]:
+) -> Callable[[NonNegativeInt], CachedCollection[dict[str, Any]]]:
     raw_collection = cache_manager.client[cached_database_name][
         nonpersistent_collection_name
     ]
 
     def _make_uuid_collection(
-        uuid_representation: int,
+        uuid_representation: NonNegativeInt,
     ) -> CachedCollection[dict[str, Any]]:
         return cache_manager.get_cached_collection(
             raw_collection.with_options(
@@ -394,7 +395,7 @@ async def test_find_one_by_id_bypasses_cache_for_an_incompatible_read_profile(
 
 
 async def test_find_one_by_id_preserves_a_non_default_uuid_representation(
-    make_uuid_collection: Callable[[int], CachedCollection[dict[str, Any]]],
+    make_uuid_collection: Callable[[NonNegativeInt], CachedCollection[dict[str, Any]]],
 ) -> None:
     collection = make_uuid_collection(UuidRepresentation.STANDARD)
     identifier = uuid.uuid4()
@@ -411,7 +412,7 @@ async def test_find_one_by_a_uuid_id_invalidates_after_an_independent_write(
     independent_writer: AsyncMongoClient[dict[str, Any]],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
-    make_uuid_collection: Callable[[int], CachedCollection[dict[str, Any]]],
+    make_uuid_collection: Callable[[NonNegativeInt], CachedCollection[dict[str, Any]]],
 ) -> None:
     collection = make_uuid_collection(UuidRepresentation.STANDARD)
     identifier = uuid.uuid4()
@@ -437,7 +438,7 @@ async def test_find_one_by_a_uuid_id_invalidates_after_an_independent_write(
 )
 async def test_reads_with_different_uuid_codecs_do_not_share_a_cache_entry(
     method: str,
-    make_uuid_collection: Callable[[int], CachedCollection[dict[str, Any]]],
+    make_uuid_collection: Callable[[NonNegativeInt], CachedCollection[dict[str, Any]]],
 ) -> None:
     standard_collection = make_uuid_collection(UuidRepresentation.STANDARD)
     legacy_collection = make_uuid_collection(UuidRepresentation.JAVA_LEGACY)

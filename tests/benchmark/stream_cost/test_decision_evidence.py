@@ -23,6 +23,7 @@ from benchmarks.stream_cost.oversized_result import (
     OversizedResultWorkloadMeasurement,
 )
 from benchmarks.stream_cost.pair_runner import PairResult, RunResult
+from client_query_cache._types import NonNegativeFloat
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -103,7 +104,7 @@ def test_consolidated_decision_requires_every_pair_to_pass(
     ],
 )
 def test_oversized_decision_uses_encoder_savings_only(
-    monkeypatch: pytest.MonkeyPatch, full_cost: float, decision: str
+    monkeypatch: pytest.MonkeyPatch, full_cost: NonNegativeFloat, decision: str
 ) -> None:
     registration = json.loads(decision_evidence._PREREGISTRATION.read_text())
     config = registration["oversized_result"]

@@ -17,6 +17,7 @@ from benchmarks.stream_cost.proxy import (
     DirectPathByteProxy,
     DirectPathProxyConfig,
 )
+from client_query_cache._types import NonNegativeInt
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -81,7 +82,7 @@ def bound_socket() -> Iterator[socket.socket]:
 
 
 @pytest.fixture
-def echo_server(bound_socket: socket.socket) -> Iterator[int]:
+def echo_server(bound_socket: socket.socket) -> Iterator[NonNegativeInt]:
     listener = bound_socket
 
     def _serve() -> None:
@@ -100,7 +101,9 @@ def echo_server(bound_socket: socket.socket) -> Iterator[int]:
     thread.join(timeout=5)
 
 
-def test_proxy_forwards_and_counts_direct_path_bytes(echo_server: int) -> None:
+def test_proxy_forwards_and_counts_direct_path_bytes(
+    echo_server: NonNegativeInt,
+) -> None:
     config = DirectPathProxyConfig(
         client_topology=_direct_topology(),
         upstream_host="127.0.0.1",
@@ -133,7 +136,7 @@ def test_proxy_forwards_and_counts_direct_path_bytes(echo_server: int) -> None:
         assert proxy._connection_threads == []
 
 
-def _proxy_config(upstream_port: int = 1) -> DirectPathProxyConfig:
+def _proxy_config(upstream_port: NonNegativeInt = 1) -> DirectPathProxyConfig:
     return DirectPathProxyConfig(
         client_topology=_direct_topology(),
         upstream_host="127.0.0.1",

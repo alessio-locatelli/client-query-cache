@@ -11,6 +11,7 @@ from pymongo.errors import ConnectionFailure, OperationFailure
 
 from client_query_cache._core.keys import NamespaceId
 from client_query_cache._core.manager import CacheCore, CacheCoreConfig
+from client_query_cache._types import PositiveFloat
 from client_query_cache.asynchronous.streams import DatabaseStreamSupervisor
 from tests.stream_helpers import (
     SINGLE_EVENT_LAG_WINDOW,
@@ -70,7 +71,7 @@ async def make_supervisor() -> AsyncIterator[Callable[..., DatabaseStreamSupervi
 
 
 async def _wait_until(
-    predicate: Callable[[], bool], *, timeout_seconds: float = 15.0
+    predicate: Callable[[], bool], *, timeout_seconds: PositiveFloat = 15.0
 ) -> None:
     async def _poll() -> None:
         while not predicate():  # noqa: ASYNC110 (generic predicate, no single Event)

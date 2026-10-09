@@ -14,6 +14,8 @@ from urllib.parse import urlparse
 import dns.exception
 import dns.resolver
 
+from client_query_cache._types import NonNegativeFloat, NonNegativeInt, PositiveFloat
+
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
@@ -37,7 +39,7 @@ _ATLAS_COLLECTION_BUDGET_SECONDS = 8.0
 @dataclass(frozen=True, slots=True)
 class BandwidthEvidence:
     host_id: str
-    measurements: Mapping[str, tuple[float, ...]]
+    measurements: Mapping[str, tuple[NonNegativeFloat, ...]]
 
 
 def requested_metric_types() -> tuple[str, ...]:
@@ -48,7 +50,7 @@ def resolve_atlas_project_id() -> str | None:
     return os.environ.get(ATLAS_PROJECT_ID_ENV_VAR) or None
 
 
-def _run_atlas(arguments: Sequence[str], *, timeout: float) -> str:
+def _run_atlas(arguments: Sequence[str], *, timeout: PositiveFloat) -> str:
     atlas_path = shutil.which("atlas")
     if atlas_path is None:
         message = "the atlas CLI is not installed or not on PATH"
@@ -63,7 +65,7 @@ def _run_atlas(arguments: Sequence[str], *, timeout: float) -> str:
     return completed.stdout
 
 
-def _resolve_srv_members(mongodb_uri: str) -> frozenset[tuple[str, int]]:
+def _resolve_srv_members(mongodb_uri: str) -> frozenset[tuple[str, NonNegativeInt]]:
     parsed = urlparse(mongodb_uri)
     if parsed.scheme != "mongodb+srv":
         message = (
@@ -85,7 +87,7 @@ def _resolve_srv_members(mongodb_uri: str) -> frozenset[tuple[str, int]]:
 
 
 def _process_matches_srv_members(
-    process: Mapping[str, Any], members: frozenset[tuple[str, int]]
+    process: Mapping[str, Any], members: frozenset[tuple[str, NonNegativeInt]]
 ) -> bool:
     try:
         port = process["port"]
@@ -108,7 +110,10 @@ def _process_matches_srv_members(
 
 
 def _primary_process_host_id(
-    project_id: str, members: frozenset[tuple[str, int]], *, timeout: float
+    project_id: str,
+    members: frozenset[tuple[str, NonNegativeInt]],
+    *,
+    timeout: PositiveFloat,
 ) -> str:
     payload = json.loads(
         _run_atlas(["processes", "list", "--projectId", project_id], timeout=timeout)
@@ -125,10 +130,12 @@ def _primary_process_host_id(
     raise RuntimeError(message)
 
 
-def _measurements_by_type(payload: Mapping[str, Any]) -> dict[str, tuple[float, ...]]:
-    measurements: dict[str, tuple[float, ...]] = {}
+def _measurements_by_type(
+    payload: Mapping[str, Any],
+) -> dict[str, tuple[NonNegativeFloat, ...]]:
+    measurements: dict[str, tuple[NonNegativeFloat, ...]] = {}
     for measurement in payload["measurements"]:
-        values: list[float] = []
+        values: list[NonNegativeFloat] = []
         for point in measurement["dataPoints"]:
             value = point["value"]
             if value is not None:
@@ -139,7 +146,7 @@ def _measurements_by_type(payload: Mapping[str, Any]) -> dict[str, tuple[float, 
 
 
 def _fetch_process_and_metrics(
-    project_id: str, mongodb_uri: str, deadline: float
+    project_id: str, mongodb_uri: str, deadline: NonNegativeFloat
 ) -> tuple[str, Mapping[str, Any]] | None:
     remaining = deadline - time.monotonic()
     if remaining <= 0:

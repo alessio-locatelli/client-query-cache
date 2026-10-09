@@ -7,6 +7,7 @@ from client_query_cache._core.stream_cost import (
     LagCaptureWindowConfig,
     StreamCostSnapshot,
 )
+from client_query_cache._types import NonNegativeFloat, NonNegativeInt
 from tests.polling import wait_until, wait_until_async
 
 if TYPE_CHECKING:
@@ -23,7 +24,9 @@ _STREAM_BARRIER_COLLECTION_NAME = "stream_barrier"
 
 
 def assert_lag_matches_write_interval(
-    snapshot: StreamCostSnapshot, write_started: float, write_finished: float
+    snapshot: StreamCostSnapshot,
+    write_started: NonNegativeFloat,
+    write_finished: NonNegativeFloat,
 ) -> None:
     assert snapshot.invalidations == 1
     lag_seconds = snapshot.invalidation_lag_windows[0][0]
@@ -36,7 +39,7 @@ def assert_lag_matches_write_interval(
     )
 
 
-def _generation(cache: CacheCore, namespace: NamespaceId) -> int:
+def _generation(cache: CacheCore, namespace: NamespaceId) -> NonNegativeInt:
     return cache.capture_namespace_generation(namespace).generation
 
 

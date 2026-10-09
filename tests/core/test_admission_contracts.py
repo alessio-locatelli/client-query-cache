@@ -13,6 +13,7 @@ from client_query_cache._core.errors import UnsupportedCacheRequestError
 from client_query_cache._core.keys import IdentityCacheKey, NamespaceId
 from client_query_cache._core.locking import LockOrderViolationError
 from client_query_cache._core.manager import CacheCore, CacheCoreConfig
+from client_query_cache._types import NonNegativeInt
 from tests.core.conftest import (
     patch_conditional_put_hook as _patch_conditional_put_hook,
 )
@@ -350,7 +351,7 @@ def test_no_code_path_holds_the_namespace_lock_and_the_lru_lock_at_once(
 ) -> None:
     # Eight workers repeat 50 operations each; five IDs per worker force reuse,
     # and clearing every tenth iteration interleaves namespace invalidation.
-    def worker(worker_id: int) -> None:
+    def worker(worker_id: NonNegativeInt) -> None:
         for iteration in range(50):
             identity = f"doc-{worker_id}-{iteration % 5}"
             capture = core.begin_identity_admission(namespace, identity)

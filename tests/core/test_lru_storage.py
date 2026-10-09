@@ -9,6 +9,7 @@ from hypothesis import strategies as st
 from client_query_cache import CacheConfigurationError
 from client_query_cache._core.entries import AdmissionOutcome
 from client_query_cache._core.manager import CacheCore, CacheCoreConfig
+from client_query_cache._types import PositiveInt
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -48,7 +49,7 @@ def test_config_rejects_invalid_budgets(
     max_entry_bytes=st.from_type(_CONFIG_HINTS["max_entry_bytes"]),
 )
 def test_config_accepts_every_annotated_budget(
-    shared_budget_bytes: int, max_entry_bytes: int
+    shared_budget_bytes: PositiveInt, max_entry_bytes: PositiveInt
 ) -> None:
     max_entry_bytes = min(max_entry_bytes, shared_budget_bytes)
     config = CacheCoreConfig(

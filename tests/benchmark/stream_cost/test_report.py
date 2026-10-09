@@ -27,6 +27,7 @@ from benchmarks.stream_cost.workload import (
     PrimingDelta,
     WorkloadVariantOutcome,
 )
+from client_query_cache._types import NonNegativeInt
 
 pytestmark = pytest.mark.unit
 
@@ -247,7 +248,7 @@ def test_validate_report_rejects_idle_latency_samples() -> None:
 
 @pytest.mark.parametrize("variant_index", [0, 1])
 def test_validate_report_rejects_missing_operation_latency_samples(
-    variant_index: int,
+    variant_index: NonNegativeInt,
 ) -> None:
     report = _valid_report()
     report["workload"]["parameters"]["sample_reads"] = 1

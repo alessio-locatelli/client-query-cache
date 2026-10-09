@@ -17,6 +17,7 @@ from client_query_cache._core.codec import decode_value, encode_value
 from client_query_cache._core.cursor_capture import CursorCapture
 from client_query_cache._core.entries import AdmissionOutcome
 from client_query_cache._core.manager import CacheCore, CacheCoreConfig
+from client_query_cache._types import PositiveInt
 from tests.codec_helpers import (
     Decimal128ToDecimalDecoder,
     decode_only_decimal_options,
@@ -46,10 +47,10 @@ def test_empty_capture_is_admitted(core: CacheCore, namespace: NamespaceId) -> N
 
 
 @pytest.fixture
-def make_core() -> Iterator[Callable[[int], CacheCore]]:
+def make_core() -> Iterator[Callable[[PositiveInt], CacheCore]]:
     cores: list[CacheCore] = []
 
-    def create(limit: int) -> CacheCore:
+    def create(limit: PositiveInt) -> CacheCore:
         core = CacheCore(
             CacheCoreConfig(shared_budget_bytes=limit * 2, max_entry_bytes=limit)
         )
@@ -108,7 +109,7 @@ def test_capture_owns_values_before_caller_mutation(
     ],
 )
 def test_capture_limit_includes_snapshot_envelope(
-    make_core: Callable[[int], CacheCore],
+    make_core: Callable[[PositiveInt], CacheCore],
     namespace: NamespaceId,
     delta: int,
     expected: AdmissionOutcome | None,
@@ -248,7 +249,7 @@ def test_finalization_matches_ordinary_cache_codec_round_trip(
 
 
 def test_exact_final_entry_size_is_enforced(
-    make_core: Callable[[int], CacheCore], namespace: NamespaceId
+    make_core: Callable[[PositiveInt], CacheCore], namespace: NamespaceId
 ) -> None:
     # A single document's stored list envelope exceeds its snapshot envelope.
     documents = [{"value": True}]

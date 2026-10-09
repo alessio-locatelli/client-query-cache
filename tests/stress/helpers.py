@@ -95,7 +95,7 @@ class StressRun:
         self.issued: dict[Target, NonNegativeInt] = {}  # Zero means unwritten.
         self.processed: dict[Target, NonNegativeInt] = {}  # Zero means unwritten.
         self.deleted: dict[Target, NonNegativeInt] = {}  # Zero means unwritten.
-        self.origin_reads: dict[tuple[Target, ReadShape], int] = {}
+        self.origin_reads: dict[tuple[Target, ReadShape], NonNegativeInt] = {}
         self.revision = 0
         self.background_reads = [0] * 4
         self.lock = threading.Lock()
@@ -193,7 +193,7 @@ class StressRun:
 
     async def checkpoint(self, target: Target, expected: Document | None) -> None:
         await wait_until(lambda: self.applied(target))
-        previous_origin_reads: tuple[int, ...] = ()
+        previous_origin_reads: tuple[NonNegativeInt, ...] = ()
         for _ in range(2):
             documents = await asyncio.gather(
                 *(
@@ -233,7 +233,7 @@ class StressRun:
     async def reader(
         self,
         targets: Sequence[Target],
-        offset: int,
+        offset: NonNegativeInt,
         stop: asyncio.Event,
         started: asyncio.Event,
     ) -> None:

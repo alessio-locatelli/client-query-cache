@@ -10,6 +10,7 @@ from pymongo.synchronous.command_cursor import CommandCursor
 from pymongo.synchronous.cursor import Cursor
 
 from client_query_cache._core.cursor_capture import CursorCapture
+from client_query_cache._types import NonNegativeInt, PositiveInt
 from client_query_cache.asynchronous import CachedCollection as AsyncCachedCollection
 from client_query_cache.synchronous import CachedCollection
 
@@ -17,7 +18,7 @@ if TYPE_CHECKING:
     from bson.codec_options import CodecOptions
 
 
-def live_capture_ids() -> set[int]:
+def live_capture_ids() -> set[NonNegativeInt]:
     # Inspect lifetimes without retaining collectors in the test itself.
     gc.collect()
     # Exact types avoid dereferencing expired weak proxies in the GC inventory.
@@ -40,7 +41,7 @@ async def resolve_cursor[DocumentType: Mapping[str, Any]](
 
 async def materialize[DocumentType: Mapping[str, Any]](
     cursor: ReadCursor[DocumentType] | Awaitable[AsyncCommandCursor[DocumentType]],
-    length: int | None = None,
+    length: PositiveInt | None = None,
 ) -> list[DocumentType]:
     selected = await resolve_cursor(cursor)
     documents = selected.to_list(length)

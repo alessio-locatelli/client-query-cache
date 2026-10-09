@@ -6,6 +6,7 @@ import pytest
 
 from client_query_cache._core.canonical import canonicalize
 from client_query_cache._core.find_reads import find_read_shape
+from client_query_cache._types import NonNegativeInt
 
 pytestmark = pytest.mark.unit
 
@@ -32,7 +33,7 @@ def test_limits_keep_exact_identity_and_share_only_a_family(limit: int) -> None:
     range(7),
     ids=["filter", "projection", "sort", "skip", "limit", "collation", "codec"],
 )
-def test_family_preserves_every_other_final_input(component: int) -> None:
+def test_family_preserves_every_other_final_input(component: NonNegativeInt) -> None:
     options = [
         {"a": 1, "b": 2},
         {"a": 1},
@@ -55,7 +56,7 @@ def test_family_preserves_every_other_final_input(component: int) -> None:
         options[0],
         options[1],
         options[2],
-        cast("int", options[3]),
+        cast("NonNegativeInt", options[3]),
         cast("int", options[4]),
         collation=options[5],
         codec=options[6],
@@ -65,7 +66,7 @@ def test_family_preserves_every_other_final_input(component: int) -> None:
         options[0],
         options[1],
         options[2],
-        cast("int", options[3]),
+        cast("NonNegativeInt", options[3]),
         cast("int", options[4]),
         collation=options[5],
         codec=options[6],

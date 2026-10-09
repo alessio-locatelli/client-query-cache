@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from benchmarks.stream_cost.guard_decision import BLOCK_PAIRS, Decision, evaluate_case
+from client_query_cache._types import NonNegativeFloat
 
 BASE_BLOCK_SECONDS = 0.025
 # Small timing variation stays safely below the material-slowdown boundary.
@@ -52,7 +53,9 @@ NOISY_HEAD_BLOCKS = (
         (NOISY_HEAD_BLOCKS, Decision.INCONCLUSIVE),
     ],
 )
-def test_paired_decision(head: tuple[float, ...], expected: Decision) -> None:
+def test_paired_decision(
+    head: tuple[NonNegativeFloat, ...], expected: Decision
+) -> None:
     decision = evaluate_case((BASE_BLOCK_SECONDS,) * BLOCK_PAIRS, head)
     assert decision.decision is expected
     assert decision.base_median_seconds == BASE_BLOCK_SECONDS

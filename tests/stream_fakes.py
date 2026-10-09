@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING, Any, cast
 
 from bson.codec_options import CodecOptions
 
+from client_query_cache._types import NonNegativeInt
+
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
@@ -63,8 +65,8 @@ class ScriptedDatabase:
         name: str,
         script: list[object],
         *,
-        version_array: list[int] | None = None,
-        before_watch: Callable[[int], None] | None = None,
+        version_array: list[NonNegativeInt] | None = None,
+        before_watch: Callable[[NonNegativeInt], None] | None = None,
     ) -> None:
         self.name = name
         self.codec_options: CodecOptions[Any] = CodecOptions()
@@ -141,8 +143,8 @@ class AsyncScriptedDatabase:
         name: str,
         script: list[object],
         *,
-        version_array: list[int] | None = None,
-        before_watch: Callable[[int], Awaitable[None]] | None = None,
+        version_array: list[NonNegativeInt] | None = None,
+        before_watch: Callable[[NonNegativeInt], Awaitable[None]] | None = None,
     ) -> None:
         self.name = name
         self.codec_options: CodecOptions[Any] = CodecOptions()
@@ -155,7 +157,7 @@ class AsyncScriptedDatabase:
 
     @staticmethod
     def _make_server_info(
-        version_array: list[int],
+        version_array: list[NonNegativeInt],
     ) -> Callable[[], object]:
         async def server_info() -> dict[str, object]:  # noqa: RUF029
             return {

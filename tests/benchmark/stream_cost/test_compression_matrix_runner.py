@@ -20,12 +20,16 @@ from benchmarks.stream_cost.errors import BenchmarkSetupError
 from benchmarks.stream_cost.generators import SMALL_DOCUMENT_PROFILE
 from benchmarks.stream_cost.workload import OperationCounts, WorkloadKind
 from client_query_cache._core.stream_cost import InvalidationApplyReading
+from client_query_cache._types import NonNegativeFloat, NonNegativeInt
 
 pytestmark = pytest.mark.unit
 
 
 def _window(
-    *, kind: WorkloadKind = WorkloadKind.BALANCED, writes: int = 3, seed: int = 5
+    *,
+    kind: WorkloadKind = WorkloadKind.BALANCED,
+    writes: NonNegativeInt = 3,
+    seed: int = 5,
 ) -> CompressionWindowSpec:
     sampling = (
         OperationCounts(reads=0, writes=0)
@@ -69,7 +73,7 @@ def test_invalidation_latencies_is_empty_without_scheduled_writes() -> None:
     assert _invalidation_latencies((), 0.0, ()) == ()
 
 
-def _reading(monotonic_seconds: float) -> InvalidationApplyReading:
+def _reading(monotonic_seconds: NonNegativeFloat) -> InvalidationApplyReading:
     return InvalidationApplyReading(
         wall_seconds=monotonic_seconds, monotonic_seconds=monotonic_seconds
     )
@@ -123,8 +127,8 @@ def test_prime_cache_reads_falls_back_to_the_first_dataset_id_when_idle() -> Non
 
 @dataclass(frozen=True, slots=True)
 class _FakeSnapshot:
-    hits: int
-    misses: int
+    hits: NonNegativeInt
+    misses: NonNegativeInt
 
 
 class _FakeCacheCore:

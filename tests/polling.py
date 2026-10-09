@@ -7,11 +7,13 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from client_query_cache._types import PositiveFloat
+
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
 
-def wait_until(predicate: Callable[[], bool], *, timeout: float = 15.0) -> None:
+def wait_until(predicate: Callable[[], bool], *, timeout: PositiveFloat = 15.0) -> None:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if predicate():
@@ -33,7 +35,9 @@ async def _poll(predicate: Callable[[], bool | Awaitable[bool]]) -> None:
 
 
 async def wait_until_async(
-    predicate: Callable[[], bool | Awaitable[bool]], *, timeout_seconds: float = 15.0
+    predicate: Callable[[], bool | Awaitable[bool]],
+    *,
+    timeout_seconds: PositiveFloat = 15.0,
 ) -> None:
     try:
         async with asyncio.timeout(timeout_seconds):

@@ -8,6 +8,7 @@ from benchmarks.stream_cost import guard_workload
 from benchmarks.stream_cost.errors import BenchmarkSetupError
 from benchmarks.stream_cost.guard_workload import CASE_NAMES, PROFILES, run_case
 from client_query_cache._core.stream_events import route_change_event
+from client_query_cache._types import NonNegativeInt
 from client_query_cache.synchronous.collection import CachedCollection
 
 if TYPE_CHECKING:
@@ -40,7 +41,7 @@ def _uncached_find(
     query: Mapping[str, Any],
     *,
     sort: Sequence[tuple[str, int]],
-    limit: int,
+    limit: NonNegativeInt,
 ) -> list[dict[str, Any]]:
     return list(collection.raw.find(query, sort=sort, limit=limit))
 
