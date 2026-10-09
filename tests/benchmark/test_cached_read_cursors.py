@@ -127,9 +127,9 @@ async def test_cursor_measurements(
                 continue
             assert await materialize(construct("cold")) == documents
             assert core.snapshot().entry_count == 1
-        elapsed: list[float] = []  # Filled by repetitions.
-        first_document: list[float] = []  # Filled by repetitions.
-        origin_counts: list[dict[str, int]] = []  # Filled by repetitions.
+        elapsed: list[float] = []
+        first_document: list[float] = []
+        origin_counts: list[dict[str, int]] = []
         retained_peak = 0
         before_hits = core.snapshot().hits
         for _ in range(REPETITIONS):
@@ -297,9 +297,9 @@ async def measure_find_limit_phase(
         "bypass": 10,
     }[phase]
     expected = await materialize(view.raw.find({}, sort=[("_id", 1)], limit=requested))
-    timings: list[float] = []  # Repetitions populate the measurements.
+    timings: list[float] = []
     command_counts: list[dict[str, int]] = []  # One count per execution.
-    peaks: list[int] = []  # Zero allocations are possible.
+    peaks: list[int] = []
     resident = core.snapshot()
     for repetition in range(REPETITIONS):
         core.clear_namespace(namespace)
@@ -456,7 +456,7 @@ def test_scalar_filter_key_cost(predicates: Literal[2, 32]) -> None:
         ("exact", filter_document),
         ("permuted", dict(reversed(tuple(filter_document.items())))),
     ):
-        timings: list[float] = []  # Filled by independent CPU batches.
+        timings: list[float] = []
         for _ in range(REPETITIONS):
             started = process_time()
             for _ in range(100):

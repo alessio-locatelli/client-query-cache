@@ -132,7 +132,7 @@ def test_native_lag_rejects_incomplete_capture(native_report: Payload) -> None:
 
 
 def _baseline_report(idle: tuple[float, ...], active: tuple[float, ...]) -> Payload:
-    cells: list[Payload] = []  # Populated with the registered cells.
+    cells: list[Payload] = []
     for cell in planned_cells():
         cpu_seconds = _CONTROL_CPU_SECONDS
         if cell.path == "stream-only" and cell.workers == 8:

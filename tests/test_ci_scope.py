@@ -261,7 +261,7 @@ pytestmark = pytest.mark.unit
     ],
 )
 def test_ci_scope_selects_validation_tiers(
-    changed_paths: tuple[str, ...],  # Can be empty when no paths changed.
+    changed_paths: tuple[str, ...],
     *,
     python: bool,
     formatting: bool,

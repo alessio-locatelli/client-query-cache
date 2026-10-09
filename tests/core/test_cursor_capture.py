@@ -47,7 +47,7 @@ def test_empty_capture_is_admitted(core: CacheCore, namespace: NamespaceId) -> N
 
 @pytest.fixture
 def make_core() -> Iterator[Callable[[int], CacheCore]]:
-    cores: list[CacheCore] = []  # Tests may create no bounded cores.
+    cores: list[CacheCore] = []
 
     def create(limit: int) -> CacheCore:
         core = CacheCore(
@@ -266,7 +266,7 @@ def test_exact_final_entry_size_is_enforced(
 def test_snapshots_encode_each_document_once(
     core: CacheCore, namespace: NamespaceId, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    encoded_documents: list[object] = []  # Records can be empty before consumption.
+    encoded_documents: list[object] = []
     original_encode = encode_value
 
     def record(document: object, options: CodecOptions[Mapping[str, Any]]) -> bytes:

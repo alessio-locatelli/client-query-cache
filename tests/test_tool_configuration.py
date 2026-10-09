@@ -12,7 +12,7 @@ pytestmark = pytest.mark.unit
 
 class ToolProbe(TypedDict):
     completed: subprocess.CompletedProcess[str]
-    diagnostic: str | None  # Tool output can be empty.
+    diagnostic: str | None
 
 
 @pytest.fixture
