@@ -76,14 +76,20 @@ class CalibrationPoint:
 
 
 def _validated_hello(response: Mapping[str, object]) -> tuple[object, datetime]:
-    if response.get("isWritablePrimary") is not True:
+    if response["isWritablePrimary"] is not True:
         message = "hello response is not from a writable primary"
         raise BenchmarkConfigurationError(message)
-    election_id = response.get("electionId")
+    try:
+        election_id = response["electionId"]
+    except KeyError:
+        election_id = None
     if election_id is None:
         message = "hello response is missing electionId"
         raise BenchmarkConfigurationError(message)
-    local_time = response.get("localTime")
+    try:
+        local_time = response["localTime"]
+    except KeyError:
+        local_time = None
     if not isinstance(local_time, datetime):
         message = "hello response is missing or has a malformed localTime"
         raise BenchmarkConfigurationError(message)
