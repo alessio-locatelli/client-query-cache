@@ -6,7 +6,7 @@ import socket
 import threading
 import time
 from dataclasses import asdict, replace
-from typing import TYPE_CHECKING, override
+from typing import TYPE_CHECKING, cast, override
 from urllib.parse import urlsplit
 
 import psutil
@@ -14,8 +14,10 @@ import psutil
 from benchmarks.stream_cost.client import BenchmarkClientTopologyConfig, WireCompressor
 from benchmarks.stream_cost.proxy import DirectPathByteProxy, DirectPathProxyConfig
 from benchmarks.stream_cost.shared_cache.coordinator import SharedCacheOwner
+from benchmarks.stream_cost.shared_cache.profiling import WindowProfiler
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from multiprocessing.connection import Connection
 
     from benchmarks.stream_cost.shared_cache.coordinator import Message, OwnerConfig
@@ -48,7 +50,7 @@ class FaultableProxy(DirectPathByteProxy):
         for sock in sockets:
             try:
                 sock.shutdown(socket.SHUT_RDWR)
-            except OSError:
+            except OSError:  # pragma: lax no cover (connection teardown race)
                 pass
 
     @override
@@ -89,41 +91,53 @@ def process_sample() -> Message:
     }
 
 
+_PROFILER = WindowProfiler()
+
+
+def _sample(owner: SharedCacheOwner, proxy: FaultableProxy) -> Message:
+    database = owner.config.databases[0]
+    telemetry = owner.core.stream_cost_snapshot(database)
+    return {
+        **process_sample(),
+        "monotonic": time.monotonic(),
+        "observation": owner.observation(time.monotonic()),
+        "commands": owner.progress.snapshot(),
+        "wire_sent": proxy.bytes_sent,
+        "wire_received": proxy.bytes_received,
+        "invalidations": telemetry.invalidations,
+        "lag_windows": telemetry.invalidation_lag_windows,
+        "apply_readings": [
+            asdict(reading) for reading in telemetry.invalidation_apply_readings
+        ],
+        "health": owner.streams.stream_health_snapshot(database).status.value,
+    }
+
+
+_CONTROL: dict[str, Callable[[SharedCacheOwner, FaultableProxy, Message], object]] = {
+    "reset": lambda owner, _proxy, _request: owner.core.reset_stream_cost_statistics(
+        owner.config.databases[0]
+    ),
+    "pause-server": lambda owner, _proxy, request: owner.pause(
+        cast("float", request["seconds"])
+    ),
+    "pause-watch": lambda _owner, proxy, _request: proxy.pause(),
+    "resume-watch": lambda _owner, proxy, _request: proxy.resume(),
+    "sever": lambda _owner, proxy, _request: proxy.sever(),
+    "lose-history": lambda owner, _proxy, _request: owner.lose_history(
+        owner.config.databases[0]
+    ),
+    "profile-start": lambda _owner, _proxy, _request: _PROFILER.start(),
+    "profile-stop": lambda _owner, _proxy, _request: _PROFILER.stop("owner"),
+}
+
+
 def _control(
     owner: SharedCacheOwner, proxy: FaultableProxy, request: Message
-) -> Message | None:
-    operation = request["op"]
-    database = owner.config.databases[0]
-    match operation:
-        case "sample":
-            telemetry = owner.core.stream_cost_snapshot(database)
-            return {
-                **process_sample(),
-                "monotonic": time.monotonic(),
-                "observation": owner.observation(time.monotonic()),
-                "commands": owner.progress.snapshot(),
-                "wire_sent": proxy.bytes_sent,
-                "wire_received": proxy.bytes_received,
-                "invalidations": telemetry.invalidations,
-                "lag_windows": telemetry.invalidation_lag_windows,
-                "apply_readings": [
-                    asdict(reading) for reading in telemetry.invalidation_apply_readings
-                ],
-                "health": owner.streams.stream_health_snapshot(database).status.value,
-            }
-        case "reset":
-            owner.core.reset_stream_cost_statistics(database)
-            return {"ok": True}
-        case "pause-server":
-            owner.pause(float(request["seconds"]))  # type: ignore[arg-type]
-        case "pause-watch":
-            proxy.pause()
-        case "resume-watch":
-            proxy.resume()
-        case "sever":
-            proxy.sever()
-        case "lose-history":
-            owner.lose_history(database)
+) -> Message:
+    operation = cast("str", request["op"])
+    if operation == "sample":
+        return _sample(owner, proxy)
+    _CONTROL[operation](owner, proxy, request)
     return {"ok": True}
 
 
@@ -136,6 +150,8 @@ def owner_main(config: OwnerConfig, control: Connection) -> None:
             owner.bind()
             control.send({"kind": "ready", "pid": os.getpid(), **process_sample()})
             owner.serve(control, lambda request: _control(owner, proxy, request))
+        except RuntimeError as error:
+            control.send({"kind": "failure", "error": str(error)})
         finally:
             proxy.resume()
             owner.close()

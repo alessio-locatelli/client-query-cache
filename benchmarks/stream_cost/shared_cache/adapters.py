@@ -9,7 +9,11 @@ from typing import TYPE_CHECKING, Any, override
 
 from bson.errors import BSONError
 
-from benchmarks.stream_cost.shared_cache.wire import UnportableKeyError, to_wire
+from benchmarks.stream_cost.shared_cache.wire import (
+    KeyCache,
+    UnportableKeyError,
+    encode_key,
+)
 from client_query_cache._core.canonical import canonicalize, is_canonicalizable
 from client_query_cache._core.codec import codec_fingerprint, decode_value, encode_value
 from client_query_cache._core.collection_metadata import CollectionMetadata
@@ -59,6 +63,7 @@ UNPORTABLE_KEY = "unportable-key"
 PROTOTYPE_SCOPE = "prototype-scope"
 METADATA_REFRESH = "metadata-refresh"
 OWNER_UNAVAILABLE = "owner-unavailable"
+_KEY_CACHE_ENTRIES = 256
 
 
 @dataclass(slots=True)
@@ -193,8 +198,8 @@ def _identity_message(
     if not is_canonicalizable(cache_identity):
         return BypassReason.UNCANONICALIZABLE_KEY.value
     try:
-        identity_key = to_wire(canonicalize(order_sensitive_key(cache_identity)))
-        shape_key = to_wire(read_shape)
+        identity_key = encode_key(canonicalize(order_sensitive_key(cache_identity)))
+        shape_key = view._shared.keys.encode(read_shape)
     except UnportableKeyError:
         return UNPORTABLE_KEY
     return _select(
@@ -208,7 +213,7 @@ def _identity_message(
 
 def _find_message(cursor: Cursor, shape: FindReadShape) -> Message | str:
     try:
-        family = to_wire(canonicalize(shape.family))
+        family = cursor._shared.keys.encode(canonicalize(shape.family))
     except UnportableKeyError:
         return UNPORTABLE_KEY
     return _select(
@@ -628,7 +633,14 @@ class AsyncSharedCachedDatabase[DocumentType: Mapping[str, Any]](
 
 
 class SharedCacheManager[DocumentType: Mapping[str, Any]]:
-    __slots__ = ("_client", "_metadata", "endpoint", "max_entry_bytes", "observation")
+    __slots__ = (
+        "_client",
+        "_metadata",
+        "endpoint",
+        "keys",
+        "max_entry_bytes",
+        "observation",
+    )
 
     def __init__(
         self, client: MongoClient[DocumentType], endpoint: SyncEndpoint
@@ -637,6 +649,7 @@ class SharedCacheManager[DocumentType: Mapping[str, Any]]:
         self.endpoint = endpoint
         self.max_entry_bytes = endpoint.config.max_entry_bytes
         self.observation = LocalObservation()
+        self.keys = KeyCache(_KEY_CACHE_ENTRIES)
         self._metadata: dict[NamespaceId, CollectionMetadata] = {}
 
     @property
@@ -695,7 +708,14 @@ class SharedCacheManager[DocumentType: Mapping[str, Any]]:
 
 
 class AsyncSharedCacheManager[DocumentType: Mapping[str, Any]]:
-    __slots__ = ("_client", "_metadata", "endpoint", "max_entry_bytes", "observation")
+    __slots__ = (
+        "_client",
+        "_metadata",
+        "endpoint",
+        "keys",
+        "max_entry_bytes",
+        "observation",
+    )
 
     def __init__(
         self, client: AsyncMongoClient[DocumentType], endpoint: AsyncEndpoint
@@ -704,6 +724,7 @@ class AsyncSharedCacheManager[DocumentType: Mapping[str, Any]]:
         self.endpoint = endpoint
         self.max_entry_bytes = endpoint.config.max_entry_bytes
         self.observation = LocalObservation()
+        self.keys = KeyCache(_KEY_CACHE_ENTRIES)
         self._metadata: dict[NamespaceId, CollectionMetadata] = {}
 
     @property

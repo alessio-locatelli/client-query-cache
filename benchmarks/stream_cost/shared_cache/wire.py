@@ -140,6 +140,57 @@ def from_wire(value: object) -> object:
     raise ProtocolError("unknown canonical node")
 
 
+def encode_key(value: object) -> bytes:
+    return bson.encode({"k": to_wire(value)})
+
+
+def decode_key(encoded: object) -> object:
+    if not isinstance(encoded, bytes):
+        raise ProtocolError("cache keys must be encoded BSON")
+    try:
+        document = bson.decode(encoded, codec_options=_WIRE_OPTIONS)
+    except BSONError as error:
+        raise ProtocolError("invalid cache key") from error
+    try:
+        node = document["k"]
+    except KeyError as error:
+        raise ProtocolError("cache key has no value") from error
+    return from_wire(node)
+
+
+class KeyCache:
+    __slots__ = ("_decoded", "_encoded", "_limit")
+
+    def __init__(self, limit: PositiveInt) -> None:
+        self._limit = limit
+        self._encoded: dict[object, bytes] = {}
+        self._decoded: dict[bytes, object] = {}
+
+    def encode(self, value: object) -> bytes:
+        try:
+            return self._encoded[value]
+        except KeyError:
+            pass
+        encoded = encode_key(value)
+        if len(self._encoded) >= self._limit:
+            self._encoded.clear()
+        self._encoded[value] = encoded
+        return encoded
+
+    def decode(self, encoded: object) -> object:
+        try:
+            return self._decoded[encoded]  # type: ignore[index]
+        except KeyError:
+            pass
+        except TypeError as error:
+            raise ProtocolError("cache keys must be encoded BSON") from error
+        value = decode_key(encoded)
+        if len(self._decoded) >= self._limit:
+            self._decoded.clear()
+        self._decoded[encoded] = value  # type: ignore[index]
+        return value
+
+
 def encode_frame(message: Mapping[str, object]) -> bytes:
     body = bson.encode(message)
     return _LENGTH.pack(len(body)) + body
