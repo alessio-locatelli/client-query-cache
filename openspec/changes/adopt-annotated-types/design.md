@@ -20,7 +20,7 @@ See [proposal.md](proposal.md) for motivation and the two delta specs for the co
 
 ### Alias module
 
-All aliases live in a private module at `src/client_query_cache/_types.py`. It is the only module that imports `annotated_types`, and it contains no comments, per the project's no-code-prose rule. The rationale for each alias lives in this file.
+All reusable aliases live in a private module at `src/client_query_cache/_types.py`. It contains no comments, per the project's no-code-prose rule. The rationale for each alias lives in this file.
 
 | Alias                                | Definition                             | Use for                                                         |
 | ------------------------------------ | -------------------------------------- | --------------------------------------------------------------- |
@@ -29,13 +29,12 @@ All aliases live in a private module at `src/client_query_cache/_types.py`. It i
 | `Probability`                        | `Interval(ge=0, le=1)`                 | p-values                                                        |
 | `ExclusiveProbability`               | `Interval(gt=0, lt=1)`                 | tail probabilities and confidence levels                        |
 | `MaxAwaitTimeMs`                     | `Interval(ge=1, le=MAX_AWAIT_TIME_MS)` | the public stream await-time parameter                          |
-| `NonEmptyStr`                        | `MinLen(1)`                            | identifiers and names, where one character is valid             |
-| `Text`                               | `MinLen(2)`                            | human-readable messages, rationales, and descriptions           |
+| `NonEmptyStr`                        | `MinLen(1)`                            | identifiers, names, messages, rationales, and descriptions      |
 | `NonEmpty[T: Sized]`                 | `MinLen(1)`                            | nonempty collections, for example `NonEmpty[list[PositiveInt]]` |
 
 Notes on the alias set:
 
-- `Text` serves two purposes. Its minimum length distinguishes prose from single-character strings. It also marks a parameter as one string rather than an iterable of strings. With metadata-only annotations, mypy still accepts `"abc"` where `Iterable[Text]` is expected, so the second purpose serves readers and Hypothesis rather than static checking.
+- Exact lengths, such as the six registered block permutations in `benchmarks/stream_cost/await_model.py`, use `Annotated[..., Len(n, n)]` inline, importing `Len` from `annotated_types`. PEP 695 type parameters cannot be integers, so a reusable exact-length alias is impossible, and a per-count alias would have a single use.
 - Integer aliases state the static type `int` and a range. The exact built-in-integer rule of the `validate-cache-numeric-configuration` change, which rejects booleans and integer subclasses, is not expressible as metadata and stays a validation rule.
 - `MaxAwaitTimeMs` imports the existing bound constant, so the limit has one source.
 
@@ -51,7 +50,7 @@ No research is needed: the tool behavior listed under Context settles this decis
 
 ### Runtime imports and the dependency
 
-Every consumer in `src/`, `tests/`, and `benchmarks/` imports aliases at runtime. `ruff.toml` sets `exempt-modules = ["typing", "client_query_cache._types"]`, with a rationale comment in the development-environment override format, so that flake8-type-checking does not move these imports under `TYPE_CHECKING`. As a result, public dataclass annotations keep resolving at runtime, as the `type-annotations` delta requires. Package import now loads `annotated_types`. This is a one-time cost of a few milliseconds next to the PyMongo-dominated package import; task 4.1 records the measurement. Because the shipped package imports it at runtime, `annotated-types>=0.8.0` is a published runtime dependency. The floor is the version the suite exercises, and following existing policy it has no upper bound.
+Every consumer in `src/`, `tests/`, and `benchmarks/` imports aliases at runtime. `ruff.toml` sets `exempt-modules = ["typing", "annotated_types", "client_query_cache._types"]`, with a rationale comment in the development-environment override format, so that flake8-type-checking moves neither alias imports nor inline `Len` imports under `TYPE_CHECKING`. As a result, public dataclass annotations keep resolving at runtime, as the `type-annotations` delta requires. Package import now loads `annotated_types`. This is a one-time cost of a few milliseconds next to the PyMongo-dominated package import; task 4.1 records the measurement. Because the shipped package imports it at runtime, `annotated-types>=0.8.0` is a published runtime dependency. The floor is the version the suite exercises, and following existing policy it has no upper bound.
 
 `scripts/` does not import library aliases, because the docs build runs it without the project installed.
 
@@ -74,23 +73,19 @@ No research is needed.
 
 Each comment clause is handled by the first rule that applies:
 
-1. A clause that states sign, bounds, emptiness, or length becomes the alias and is deleted, for example "Positive window count" or "Nonempty execution models".
+1. A clause that states sign, bounds, emptiness, or length becomes the alias or inline metadata and is deleted, for example "Positive window count", "Nonempty execution models", or "Six nonempty candidate permutations".
 2. A clause that only says a bare value can be zero, negative, signed, or empty, or that explains why a collection starts empty, is deleted, for example "Can be empty" or "Filled by repetitions".
-3. A clause that states meaning is kept, for example "Zero denotes unlimited" or "None means unavailable". An index base is not kept as meaning when the range already implies it: "Zero-based block index" becomes `NonNegativeInt`.
+3. A clause that states meaning is kept, for example "Zero denotes unlimited", "None means unavailable", or an index base. A range does not imply an index base: "Zero-based block index" becomes `NonNegativeInt` with the comment "Zero-based.", and "Positive one-based rank" becomes `PositiveInt` with "One-based.".
 
 If a comment has no clause left, it is removed.
 
 ### Public interfaces
 
-`CacheCoreConfig` budgets and the lag-window counts use the ranges that `__post_init__` enforces, and the manager `max_await_time_ms` parameters use `MaxAwaitTimeMs`. Snapshot counters and byte totals use `NonNegativeInt`, and the configured budgets that snapshots echo use `PositiveInt`. Lag-window floats stay bare, because they include an unmeasured clock offset between hosts that can make them zero or negative. Internal code without type prose is converted only where it receives a public value directly. A repository-wide sweep of bare `int` would add churn and little clarity.
+`CacheCoreConfig` budgets and the lag-window counts use the ranges that `__post_init__` enforces, and the manager `max_await_time_ms` parameters use `MaxAwaitTimeMs`. Snapshot counters and byte totals use `NonNegativeInt`, and the configured budgets that snapshots echo use `PositiveInt`. `logical_event_bytes` is the only snapshot total fed by a caller-supplied count. Its non-negativity is an invariant expected of callers of the public `record_logical_event_bytes` methods, whose `count` parameters become `NonNegativeInt`. The library's own callers record encoded event lengths. A runtime check would add a branch on the per-event invalidation path to guard against direct `CacheCore` misuse, so it is not added. Lag-window floats stay bare, because they include an unmeasured clock offset between hosts that can make them zero or negative. Internal code without type prose is converted only where it receives a public value directly. A repository-wide sweep of bare `int` would add churn and little clarity.
 
 ### Narrowing
 
 If a changed annotation requires narrowing, tests prefer `assert isinstance(...)`, which is checked at runtime. `cast(...)` is a runtime function call, so it is allowed only where it runs once or a few times per application lifetime, such as configuration loading or report assembly. It is banned on hot paths, including cached-read paths and benchmark measurement loops.
-
-### Local alias cleanup
-
-`scripts/build_versioned_docs.py` defines a `Text = str` that admits empty strings and conflicts with the shared name. Its uses, including the importing test, become bare `str`, and `Table` loses its emptiness comment.
 
 ### Guidance location
 
