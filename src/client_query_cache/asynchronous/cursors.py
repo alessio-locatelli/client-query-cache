@@ -17,6 +17,7 @@ from client_query_cache._core.codec import codec_fingerprint
 from client_query_cache._core.cursor_capture import CursorCapture
 from client_query_cache._core.find_reads import find_read_shape
 from client_query_cache._core.read_classification import query_bypass_reason
+from client_query_cache._types import NonNegativeInt, PositiveInt
 
 if TYPE_CHECKING:
     from pymongo.asynchronous.client_session import AsyncClientSession
@@ -116,7 +117,7 @@ class CachedCursor[DocumentType: Mapping[str, Any]](AsyncCursor[DocumentType]):
         self._read_preference = forced.read_preference
 
     @override
-    async def _refresh(self) -> int:
+    async def _refresh(self) -> NonNegativeInt:
         try:
             if not self._prepared and not self._killed:
                 await self._prepare()
@@ -152,7 +153,7 @@ class CachedCursor[DocumentType: Mapping[str, Any]](AsyncCursor[DocumentType]):
 
     @override
     async def _next_batch(
-        self, documents: list[DocumentType], total: int | None = None
+        self, documents: list[DocumentType], total: NonNegativeInt | None = None
     ) -> bool:
         start = len(documents)
         available = await super()._next_batch(documents, total)
@@ -188,7 +189,7 @@ class CachedCursor[DocumentType: Mapping[str, Any]](AsyncCursor[DocumentType]):
         return clone
 
     @override
-    def batch_size(self, batch_size: int) -> Self:
+    def batch_size(self, batch_size: NonNegativeInt) -> Self:
         super().batch_size(batch_size)
         self._unsupported = True
         return self
@@ -232,7 +233,7 @@ class CachedCommandCursor[DocumentType: Mapping[str, Any]](
             self._receiving = False
 
     @override
-    async def _refresh(self) -> int:
+    async def _refresh(self) -> NonNegativeInt:
         try:
             return await super()._refresh()
         except BaseException:
@@ -256,7 +257,7 @@ class CachedCommandCursor[DocumentType: Mapping[str, Any]](
 
     @override
     async def _next_batch(
-        self, documents: list[DocumentType], total: int | None = None
+        self, documents: list[DocumentType], total: NonNegativeInt | None = None
     ) -> bool:
         start = len(documents)
         available = await super()._next_batch(documents, total)
@@ -267,7 +268,7 @@ class CachedCommandCursor[DocumentType: Mapping[str, Any]](
         return available
 
     @override
-    async def to_list(self, length: int | None = None) -> list[DocumentType]:
+    async def to_list(self, length: PositiveInt | None = None) -> list[DocumentType]:
         documents = await super().to_list(length)
         self._finish_capture()
         return documents

@@ -85,16 +85,16 @@ class CacheCoreConfig:
 class IdentityCapture:
     namespace: NamespaceId
     identity: Canonical
-    generation_key: tuple[int, int]
-    availability_generation: int
+    generation_key: tuple[NonNegativeInt, NonNegativeInt]
+    availability_generation: NonNegativeInt
     released: bool = field(default=False)
 
 
 @dataclass(slots=True)
 class NamespaceCapture:
     namespace: NamespaceId
-    generation: int
-    availability_generation: int
+    generation: NonNegativeInt
+    availability_generation: NonNegativeInt
 
 
 def _maybe_prune_identity_locked(
@@ -131,7 +131,7 @@ def _discard_entry_locked(state: NamespaceState, entry: CacheEntry) -> None:
 def _match_identity_state(
     state: NamespaceState,
     identity: Canonical,
-    generation_key: tuple[int, int],
+    generation_key: tuple[NonNegativeInt, NonNegativeInt],
 ) -> IdentityState | None:
     try:
         identity_state = state.identities[identity]
@@ -171,7 +171,7 @@ class _CacheCoreBase:
         self._lifecycle = CacheLifecycleState.ACTIVE
         self._lifecycle_lock = threading.Lock()
         self._statistics = CacheStatistics()
-        self._database_availability: dict[str, tuple[bool, int]] = {}
+        self._database_availability: dict[str, tuple[bool, NonNegativeInt]] = {}
         self._availability_lock = threading.RLock()
         self._stream_cost = StreamCostRegistry(
             resolved_config.lag_capture_window_config
@@ -188,7 +188,7 @@ class _CacheCoreBase:
                 available, _generation = _DEFAULT_DATABASE_AVAILABILITY
             return available
 
-    def _capture_database_availability(self, database: str) -> int:
+    def _capture_database_availability(self, database: str) -> NonNegativeInt:
         with self._availability_lock:
             try:
                 _available, generation = self._database_availability[database]
@@ -200,8 +200,8 @@ class _CacheCoreBase:
     def _admission_section(
         self,
         namespace: NamespaceId,
-        availability_generation: int,
-        weight: int,
+        availability_generation: NonNegativeInt,
+        weight: NonNegativeInt,
     ) -> Generator[AdmissionOutcome | None]:
         with self._availability_lock:
             try:
@@ -360,12 +360,12 @@ class _CacheCoreNamespaceLifecycle(_CacheCoreBase):
         with self._namespaces_lock:
             return namespace in self._namespaces
 
-    def current_epoch(self, namespace: NamespaceId) -> int:
+    def current_epoch(self, namespace: NamespaceId) -> NonNegativeInt:
         state = self._namespace(namespace)
         with self._namespace_section(state):
             return state.epoch
 
-    def current_index_generation(self, namespace: NamespaceId) -> int:
+    def current_index_generation(self, namespace: NamespaceId) -> NonNegativeInt:
         state = self._namespace(namespace)
         with self._namespace_section(state):
             return state.index_generation
@@ -677,7 +677,7 @@ class _CacheCoreUniqueKeyAdmission(_CacheCoreBase):
             _discard_alias_locked(state, alias, expected_identity)
 
     def discard_namespace_entry(
-        self, namespace: NamespaceId, discriminator: object, generation: int
+        self, namespace: NamespaceId, discriminator: object, generation: NonNegativeInt
     ) -> None:
         self._ensure_active()
         key = NamespaceCacheKey(namespace, canonicalize(discriminator))
@@ -811,7 +811,7 @@ class _CacheCoreUniqueKeyAdmission(_CacheCoreBase):
 
 def _find_candidate_order(
     candidate: tuple[CacheEntry, NamespaceCacheKey],
-) -> tuple[bool, int]:
+) -> tuple[bool, NonNegativeInt]:
     descriptor = candidate[0].find_source
     assert descriptor is not None
     # Zero denotes unlimited and sorts after every covering positive limit.

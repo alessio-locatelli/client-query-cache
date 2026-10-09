@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 from client_query_cache._core.canonical import is_canonicalizable
 from client_query_cache._core.collation import normalize_collation
 from client_query_cache._core.identity_reads import NO_IDENTITY, extract_equality_value
+from client_query_cache._types import NonNegativeInt
 
 if TYPE_CHECKING:
     from client_query_cache._core.keys import NamespaceId
@@ -109,7 +110,7 @@ def match_unique_key(
 
 @dataclass(frozen=True, slots=True)
 class UniqueKeyMetadata:
-    checked_index_generation: int
+    checked_index_generation: NonNegativeInt
     keys: tuple[UniqueKeyDefinition, ...]
 
 

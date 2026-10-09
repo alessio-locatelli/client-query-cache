@@ -4,6 +4,8 @@ import enum
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from client_query_cache._types import NonNegativeInt
+
 if TYPE_CHECKING:
     from client_query_cache._core.canonical import Canonical
     from client_query_cache._core.find_reads import FindSource
@@ -20,8 +22,8 @@ class AdmissionOutcome(enum.Enum):
 
 @dataclass(eq=False, slots=True)
 class CacheEntry:
-    generation_key: tuple[int, ...]
-    weight: int
+    generation_key: tuple[NonNegativeInt, ...]
+    weight: NonNegativeInt
     value: bytes
     namespace: NamespaceId
     identity: Canonical | None

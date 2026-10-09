@@ -81,7 +81,7 @@ class CacheStatistics:
         with self._lock:
             self._misses += 1
 
-    def record_evictions(self, count: int) -> None:
+    def record_evictions(self, count: NonNegativeInt) -> None:
         with self._lock:
             self._evictions += count
 
@@ -94,7 +94,16 @@ class CacheStatistics:
         with self._lock:
             self._oversized_bypasses += 1
 
-    def snapshot(self) -> tuple[int, int, int, int, int, tuple[BypassReasonCount, ...]]:
+    def snapshot(
+        self,
+    ) -> tuple[
+        NonNegativeInt,
+        NonNegativeInt,
+        NonNegativeInt,
+        NonNegativeInt,
+        NonNegativeInt,
+        tuple[BypassReasonCount, ...],
+    ]:
         with self._lock:
             return (
                 self._hits,

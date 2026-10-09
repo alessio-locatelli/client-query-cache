@@ -73,7 +73,7 @@ class DatabaseStreamSupervisor:
         cache: CacheCore,
         *,
         backoff: RetryBackoff | None = None,
-        max_await_time_ms: int = DEFAULT_MAX_AWAIT_TIME_MS,
+        max_await_time_ms: MaxAwaitTimeMs = DEFAULT_MAX_AWAIT_TIME_MS,
     ) -> None:
         self._database = database
         self._cache = cache

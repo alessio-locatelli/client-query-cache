@@ -12,7 +12,7 @@ The rule covers every `int` written as a field, parameter, or return annotation,
 
 ### Classifying an integer
 
-An integer is non-negative when every value the code produces or accepts is at least zero: counts, sizes, lengths, indexes, generations, ports, durations in whole units, bit masks, and values a native API rejects when negative before the annotated code sees them. An integer stays bare when the domain includes negative values: hashes, sort directions, signed differences, random seeds, find limits with native negative semantics, and validation inputs that accept any caller value before checking it. `PositiveInt` or `MaxAwaitTimeMs` replaces `NonNegativeInt` where validation already guarantees that narrower range.
+An integer is non-negative when every value the code produces or accepts is at least zero: counts, sizes, lengths, indexes, generations, ports, durations in whole units, bit masks, and values a native API rejects when negative before the annotated code sees them. An integer stays bare when the domain includes negative values: hashes, sort directions, signed differences, random seeds, find limits with native negative semantics, and the parameter of a function whose purpose is to validate an arbitrary caller value. A public parameter whose negative values raise states its valid range, as the configuration dataclasses already do. `PositiveInt` or `MaxAwaitTimeMs` replaces `NonNegativeInt` where validation already guarantees that narrower range.
 
 Alternatives considered:
 

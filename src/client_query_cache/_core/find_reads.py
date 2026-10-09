@@ -48,7 +48,7 @@ def find_read_shape(
     filter_document: object,
     projection: object,
     ordering: object,
-    skip: int,  # Zero means no skipped documents.
+    skip: NonNegativeInt,  # Zero means no skipped documents.
     limit: int,  # Zero and negative limits use native semantics.
     *,
     collation: object,
