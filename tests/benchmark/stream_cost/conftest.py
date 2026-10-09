@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import logging
+import time
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
 import pytest
 from pymongo import MongoClient
 
+from benchmarks.stream_cost import calibration
 from client_query_cache.synchronous.manager import CacheManager
 
 if TYPE_CHECKING:
@@ -14,6 +17,15 @@ if TYPE_CHECKING:
     from tests.conftest import MongoDbUri
 
 logger = logging.getLogger(__name__)
+
+
+@pytest.fixture(autouse=True)
+def isolated_calibration_clock(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        calibration,
+        "time",
+        SimpleNamespace(time=time.time, monotonic=time.monotonic),
+    )
 
 
 @pytest.fixture

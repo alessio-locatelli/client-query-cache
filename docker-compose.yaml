@@ -1,6 +1,6 @@
 services:
   mongo:
-    image: mongo:9.0.2@sha256:c73153413b453d7d31199be36e101ab51195a4e6cff7bee8a2aa52a9769e4e11
+    image: mongo:9.0.2@sha256:bac22ea7710d774103dcad3ec8ac13cba1eb378f488e3ce8a6b3a1adf2ba9dcc
     # MongoDB 9.0 / official image entrypoint: https://www.mongodb.com/docs/manual/reference/program/mongod/
     # --replSet: The default is no replica set. We override it because change-stream tests and examples require replication.
     # --quiet: The default is normal logging. We override it because this contributor service should suppress routine server chatter.
@@ -18,7 +18,7 @@ services:
       retries: 5
 
   mongo_helper:
-    image: mongo:9.0.2@sha256:c73153413b453d7d31199be36e101ab51195a4e6cff7bee8a2aa52a9769e4e11
+    image: mongo:9.0.2@sha256:bac22ea7710d774103dcad3ec8ac13cba1eb378f488e3ce8a6b3a1adf2ba9dcc
     # https://docs.docker.com/reference/compose-file/services/#entrypoint
     # The default is the image's docker-entrypoint.sh. We override it because this helper runs bounded replica-set initialization rather than starting another mongod.
     entrypoint: ["/bin/sh", "-c"]
