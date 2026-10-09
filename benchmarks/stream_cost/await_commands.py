@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from time import monotonic
 from typing import TYPE_CHECKING, cast
 
-from client_query_cache._types import NonNegativeInt
+from client_query_cache._types import NonNegativeFloat, NonNegativeInt, PositiveFloat
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -20,8 +20,8 @@ from pymongo.monitoring import (
 
 @dataclass(frozen=True, slots=True)
 class AwaitCommand:
-    started_seconds: float  # Monotonic.
-    completed_seconds: float | None  # Monotonic; None means in flight.
+    started_seconds: NonNegativeFloat  # Monotonic.
+    completed_seconds: NonNegativeFloat | None  # Monotonic; None means in flight.
     max_time_ms: NonNegativeInt | None  # None means the option was absent.
     failed: bool
 
@@ -83,7 +83,7 @@ class AwaitCommandListener(CommandListener):
         with self._lock:
             return self._version
 
-    def wait_for_change(self, version: NonNegativeInt, seconds: float) -> None:
+    def wait_for_change(self, version: NonNegativeInt, seconds: PositiveFloat) -> None:
         with self._lock:
             if not self._lock.wait_for(lambda: self._version != version, seconds):
                 raise TimeoutError("no getMore boundary observed within the window")

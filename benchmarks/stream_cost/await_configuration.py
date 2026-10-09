@@ -4,7 +4,12 @@ import json
 from typing import TYPE_CHECKING, cast
 
 from benchmarks.stream_cost.errors import BenchmarkConfigurationError
-from client_query_cache._types import MaxAwaitTimeMs, NonNegativeInt
+from client_query_cache._types import (
+    MaxAwaitTimeMs,
+    NonNegativeFloat,
+    NonNegativeInt,
+    PositiveFloat,
+)
 
 if TYPE_CHECKING:
     from benchmarks.stream_cost.await_model import (
@@ -34,7 +39,7 @@ def _expand_comparisons(plan: object) -> list[Comparison]:
                         "model": cast("ExecutionModel", model),
                         "workload": cast("AwaitWorkload", workload),
                         "metric": cast("AwaitMetric", metric),
-                        "limit": cast("float", limit),
+                        "limit": cast("PositiveFloat", limit),
                     }
                 )
     pairwise = groups["pairwise_idle"]
@@ -52,16 +57,16 @@ def _expand_comparisons(plan: object) -> list[Comparison]:
                             "model": cast("ExecutionModel", model),
                             "workload": "idle",
                             "metric": cast("AwaitMetric", metric),
-                            "limit": cast("float", limit),
+                            "limit": cast("PositiveFloat", limit),
                         }
                     )
     return comparisons
 
 
-def _expand_schedule(pattern: object) -> list[float]:
+def _expand_schedule(pattern: object) -> list[NonNegativeFloat]:
     schedule = cast("dict[str, object]", pattern)
-    start = cast("float", schedule["start_seconds"])
-    interval = cast("float", schedule["interval_seconds"])
+    start = cast("NonNegativeFloat", schedule["start_seconds"])
+    interval = cast("PositiveFloat", schedule["interval_seconds"])
     count = cast("NonNegativeInt", schedule["count"])
     return [round(start + interval * index, 3) for index in range(count)]
 
@@ -79,12 +84,12 @@ def expand_await_configuration(raw: object) -> AwaitConfiguration:
     expanded = configuration.copy()
     schedules = cast("dict[str, object]", expanded.pop("write_schedule_patterns"))
     burst = cast("dict[str, object]", schedules["burst"])
-    interval = cast("float", burst["interval_seconds"])
+    interval = cast("PositiveFloat", burst["interval_seconds"])
     expanded["write_offsets_seconds"] = {
         "paced": _expand_schedule(schedules["paced"]),
         "burst": [
             round(base + interval * index, 3)
-            for base in cast("list[float]", burst["starts_seconds"])
+            for base in cast("list[NonNegativeFloat]", burst["starts_seconds"])
             for index in range(cast("NonNegativeInt", burst["count_per_burst"]))
         ],
     }

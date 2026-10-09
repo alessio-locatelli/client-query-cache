@@ -10,6 +10,7 @@ from client_query_cache._types import (
     MaxAwaitTimeMs,
     NonEmpty,
     NonEmptyStr,
+    NonNegativeFloat,
     NonNegativeInt,
     PositiveFloat,
     PositiveInt,
@@ -62,7 +63,7 @@ class AwaitConfiguration(TypedDict):
     idle_minimum_seconds: PositiveFloat
     idle_minimum_completed_commands: PositiveInt
     active_window_seconds: PositiveFloat
-    write_offsets_seconds: dict[str, NonEmpty[list[float]]]
+    write_offsets_seconds: dict[str, NonEmpty[list[NonNegativeFloat]]]
     write_schedule_tolerance_seconds: dict[str, PositiveFloat]  # Per workload.
     event_settle_timeout_seconds: PositiveFloat
     shutdown_schedule_tolerance_seconds: PositiveFloat  # Permitted scheduling error.
@@ -82,8 +83,8 @@ class AwaitWindow:
     model: ExecutionModel
     workload: AwaitWorkload
     elapsed_seconds: PositiveFloat
-    server_cpu_seconds: float | None  # Not measured during shutdown.
-    client_cpu_seconds: float | None  # Not measured during shutdown.
+    server_cpu_seconds: NonNegativeFloat | None  # Not measured during shutdown.
+    client_cpu_seconds: NonNegativeFloat | None  # Not measured during shutdown.
     bytes_sent: NonNegativeInt | None  # Not measured during shutdown.
     bytes_received: NonNegativeInt | None  # Not measured during shutdown.
     getmore_started: NonNegativeInt
@@ -91,13 +92,13 @@ class AwaitWindow:
     requested_max_time_ms: tuple[NonNegativeInt | None, ...]  # None means absent.
     command_failures: NonNegativeInt
     manager_iteration_calls: NonNegativeInt
-    issue_offsets_seconds: tuple[float, ...]
-    lag_seconds: tuple[float, ...]
-    shutdown_seconds: tuple[float, ...]
+    issue_offsets_seconds: tuple[NonNegativeFloat, ...]
+    lag_seconds: tuple[NonNegativeFloat, ...]
+    shutdown_seconds: tuple[NonNegativeFloat, ...]
     invalidations: NonNegativeInt
     healthy: bool
     failure: NonEmptyStr | None  # Error category, or None for a completed window.
-    shutdown_start_offsets_seconds: tuple[float, ...] = ()
+    shutdown_start_offsets_seconds: tuple[NonNegativeFloat, ...] = ()
     shutdown_inflight: tuple[bool, ...] = ()
     getmore_inflight_at_start: NonNegativeInt = 0
 

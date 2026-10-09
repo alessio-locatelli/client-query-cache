@@ -39,7 +39,12 @@ from benchmarks.stream_cost.client import BenchmarkClientTopologyConfig, WireCom
 from benchmarks.stream_cost.errors import BenchmarkSetupError
 from benchmarks.stream_cost.proxy import DirectPathByteProxy, DirectPathProxyConfig
 from benchmarks.stream_cost.topology import IsolatedReplicaSet, ResourceLimits
-from client_query_cache._types import MaxAwaitTimeMs, NonNegativeInt
+from client_query_cache._types import (
+    MaxAwaitTimeMs,
+    NonNegativeFloat,
+    NonNegativeInt,
+    PositiveFloat,
+)
 from client_query_cache.asynchronous.manager import CacheManager as AsyncCacheManager
 from client_query_cache.synchronous.manager import CacheManager
 
@@ -66,7 +71,9 @@ async def _invoke[**P, T](
 
 
 async def _wait_for(
-    predicate: Callable[[], bool], seconds: float, listener: AwaitCommandListener
+    predicate: Callable[[], bool],
+    seconds: PositiveFloat,
+    listener: AwaitCommandListener,
 ) -> None:
     async with asyncio.timeout(seconds):
         version = listener.version
@@ -76,7 +83,7 @@ async def _wait_for(
 
 
 async def _wait_for_command_count(
-    listener: AwaitCommandListener, count: NonNegativeInt, seconds: float
+    listener: AwaitCommandListener, count: NonNegativeInt, seconds: PositiveFloat
 ) -> None:
     await _wait_for(lambda: len(listener.snapshot()) >= count, seconds, listener)
 
@@ -110,9 +117,9 @@ def _build_manager(
 
 @dataclass(frozen=True, slots=True)
 class WindowStart:
-    wall_seconds: float  # Monotonic.
-    process_cpu_seconds: float
-    server_cpu_seconds: float
+    wall_seconds: NonNegativeFloat  # Monotonic.
+    process_cpu_seconds: NonNegativeFloat
+    server_cpu_seconds: NonNegativeFloat
     bytes_sent: NonNegativeInt
     bytes_received: NonNegativeInt
     command_offset: NonNegativeInt  # Zero-based offset into observed command metadata.
@@ -135,9 +142,9 @@ def _capture_start(
 
 @dataclass(frozen=True, slots=True)
 class WindowDeltas:
-    elapsed: float
-    cpu: float
-    server: float
+    elapsed: NonNegativeFloat
+    cpu: NonNegativeFloat
+    server: NonNegativeFloat
     sent: NonNegativeInt
     received: NonNegativeInt
 
@@ -146,8 +153,8 @@ def _capture_deltas(
     replica: IsolatedReplicaSet,
     proxy: DirectPathByteProxy,
     boundary: WindowStart,
-    start: float,
-    end: float,
+    start: NonNegativeFloat,
+    end: NonNegativeFloat,
 ) -> WindowDeltas:
     elapsed = end - start
     cpu = time.process_time() - boundary.process_cpu_seconds
@@ -185,7 +192,7 @@ async def _idle_start(
 
 def _issue_write(
     client: MongoClient[dict[str, object]], database: str, value: int
-) -> float:
+) -> NonNegativeFloat:
     issued = time.monotonic()
     client[database]["measured"].update_one({"_id": 0}, {"$set": {"value": value}})
     return issued
@@ -236,7 +243,7 @@ async def run_window(
             )
             first_index = boundary.command_offset
             start = boundary.wall_seconds
-            issue_offsets: list[float] = []
+            issue_offsets: list[NonNegativeFloat] = []
             if workload == "idle":
                 await asyncio.sleep(configuration["idle_minimum_seconds"])
                 await _wait_for(
@@ -358,8 +365,8 @@ async def run_shutdown(
     candidate: MaxAwaitTimeMs,
     model: ExecutionModel,
 ) -> AwaitWindow:
-    durations: list[float] = []
-    actual_offsets: list[float] = []
+    durations: list[NonNegativeFloat] = []
+    actual_offsets: list[NonNegativeFloat] = []
     requested: list[NonNegativeInt | None] = []
     started_count = completed_count = failed_count = inflight_count = 0
     for trial, offset in enumerate(configuration["shutdown_trial_offsets_seconds"]):

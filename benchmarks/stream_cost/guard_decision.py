@@ -5,6 +5,8 @@ import statistics
 from dataclasses import dataclass
 from enum import StrEnum
 
+from client_query_cache._types import NonNegativeFloat, PositiveFloat
+
 MATERIAL_SLOWDOWN = 1.30
 BLOCK_PAIRS = 15
 MINIMUM_BLOCK_SECONDS = 0.005
@@ -20,11 +22,11 @@ class Decision(StrEnum):
 @dataclass(frozen=True, slots=True)
 class CaseDecision:
     decision: Decision
-    base_median_seconds: float
-    head_median_seconds: float
-    median_ratio: float
-    lower_ratio: float
-    upper_ratio: float
+    base_median_seconds: NonNegativeFloat
+    head_median_seconds: NonNegativeFloat
+    median_ratio: PositiveFloat
+    lower_ratio: NonNegativeFloat
+    upper_ratio: PositiveFloat
     reason: str
 
 

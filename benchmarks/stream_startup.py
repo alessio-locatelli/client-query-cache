@@ -19,7 +19,7 @@ from unittest.mock import Mock
 from pymongo.errors import ConnectionFailure
 
 from client_query_cache._core.manager import CacheCore
-from client_query_cache._types import NonNegativeInt
+from client_query_cache._types import NonNegativeFloat, NonNegativeInt
 from client_query_cache.asynchronous.streams import (
     ChangeStreamCoordinator as AsyncCoordinator,
 )
@@ -53,22 +53,22 @@ class Warnings(logging.Handler):
 class Measurement:
     mode: str
     source: str
-    healthy_seconds: float
-    failed_seconds: float
+    healthy_seconds: NonNegativeFloat
+    failed_seconds: NonNegativeFloat
     failure_attempts: NonNegativeInt
     failure_warnings: NonNegativeInt
     b_independent: bool
-    b_seconds: float
+    b_seconds: NonNegativeFloat
 
 
-def _batch_sync(coordinator: ChangeStreamCoordinator, name: str) -> float:
+def _batch_sync(coordinator: ChangeStreamCoordinator, name: str) -> NonNegativeFloat:
     started = time.perf_counter()
     for _ in range(ACTIVATIONS):
         coordinator.activate_database(name)
     return time.perf_counter() - started
 
 
-async def _batch_async(coordinator: AsyncCoordinator, name: str) -> float:
+async def _batch_async(coordinator: AsyncCoordinator, name: str) -> NonNegativeFloat:
     started = time.perf_counter()
     for _ in range(ACTIVATIONS):
         await coordinator.activate_database(name)
@@ -122,7 +122,7 @@ def measure_sync(profile: Path | None, warnings: Warnings) -> Measurement:
             entered.wait()
             started = time.perf_counter()
 
-            def activate_b() -> float:
+            def activate_b() -> NonNegativeFloat:
                 assert coordinator.activate_database("b") is not None
                 return time.perf_counter() - started
 
@@ -198,7 +198,7 @@ async def measure_async(profile: Path | None, warnings: Warnings) -> Measurement
         await asyncio.to_thread(entered.wait)
         started = time.perf_counter()
 
-        async def activate_b() -> float:
+        async def activate_b() -> NonNegativeFloat:
             assert await coordinator.activate_database("b") is not None
             return time.perf_counter() - started
 

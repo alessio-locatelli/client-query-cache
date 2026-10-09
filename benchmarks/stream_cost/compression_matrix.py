@@ -12,7 +12,7 @@ from benchmarks.stream_cost.generators import (
     DocumentSizeProfile,
 )
 from benchmarks.stream_cost.workload import OperationCounts, WorkloadKind
-from client_query_cache._types import NonNegativeInt
+from client_query_cache._types import NonNegativeInt, PositiveFloat, PositiveInt
 
 MINIMUM_COMPRESSION_BLOCKS = 4
 WARMUP_READ_REPEATS = 2
@@ -42,8 +42,8 @@ class WirePath(enum.Enum):
 class CompressionWindowSpec:
     kind: WorkloadKind
     data_size: DocumentSizeProfile
-    document_count: NonNegativeInt
-    duration_seconds: float
+    document_count: PositiveInt
+    duration_seconds: PositiveFloat
     warmup: OperationCounts
     sampling: OperationCounts
     seed: int

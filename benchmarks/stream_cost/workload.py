@@ -18,7 +18,7 @@ from benchmarks.stream_cost.generators import (
     generate_seeded_documents,
 )
 from benchmarks.stream_cost.measurement import OperationLatency
-from client_query_cache._types import NonNegativeInt, PositiveInt
+from client_query_cache._types import NonNegativeFloat, NonNegativeInt, PositiveInt
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
@@ -363,7 +363,7 @@ def run_workload_variant(
     )
 
 
-def time_call[T](call: Callable[[], T]) -> tuple[T, float]:
+def time_call[T](call: Callable[[], T]) -> tuple[T, NonNegativeFloat]:
     start = time.monotonic()
     call_result = call()
     elapsed_seconds = time.monotonic() - start

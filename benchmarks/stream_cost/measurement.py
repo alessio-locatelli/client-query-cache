@@ -3,10 +3,15 @@ from __future__ import annotations
 import math
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Annotated
+
+from annotated_types import Interval
 
 from benchmarks.stream_cost.errors import BenchmarkSetupError
-from client_query_cache._types import NonNegativeInt
+from client_query_cache._types import (
+    NonNegativeFloat,
+    NonNegativeInt,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -20,14 +25,14 @@ if TYPE_CHECKING:
 class OperationLatency:
     operation: str
     outcome: str
-    seconds: float
+    seconds: NonNegativeFloat
 
 
 @dataclass(frozen=True, slots=True)
 class ControlledMeasurement:
-    wall_seconds: float
-    process_cpu_seconds: float
-    container_cpu_seconds: float
+    wall_seconds: NonNegativeFloat
+    process_cpu_seconds: NonNegativeFloat
+    container_cpu_seconds: NonNegativeFloat
     direct_path_bytes_sent: NonNegativeInt | None
     direct_path_bytes_received: NonNegativeInt | None
 
@@ -38,11 +43,16 @@ class ChangeStreamCostComparison:
     cache: ControlledMeasurement
 
 
-def _percentile(sorted_values: Sequence[float], fraction: float) -> float:
+def _percentile(
+    sorted_values: Sequence[NonNegativeFloat],
+    fraction: Annotated[float, Interval(gt=0, le=1)],
+) -> NonNegativeFloat:
     return sorted_values[math.ceil(fraction * len(sorted_values)) - 1]
 
 
-def _timed[T](operation: Callable[[], T]) -> tuple[T, float, float]:
+def _timed[T](
+    operation: Callable[[], T],
+) -> tuple[T, NonNegativeFloat, NonNegativeFloat]:
     process_cpu_before = time.process_time()
     wall_before = time.monotonic()
     value = operation()  # pytriage: TR5 (keep the operation inside the timed interval)
@@ -92,7 +102,7 @@ def measure_controlled[T](
 def latency_distribution(samples: Sequence[OperationLatency]) -> dict[str, object]:
     if not samples:
         return {"operation_count": 0, "no_latency_samples": True, "by_outcome": []}
-    groups: dict[tuple[str, str], list[float]] = {}
+    groups: dict[tuple[str, str], list[NonNegativeFloat]] = {}
     for sample in samples:
         groups.setdefault((sample.operation, sample.outcome), []).append(sample.seconds)
     distributions: list[dict[str, object]] = []
@@ -116,7 +126,9 @@ def latency_distribution(samples: Sequence[OperationLatency]) -> dict[str, objec
     }
 
 
-def scalar_latency_distribution(samples: Sequence[float]) -> dict[str, object]:
+def scalar_latency_distribution(
+    samples: Sequence[NonNegativeFloat],
+) -> dict[str, object]:
     if not samples:
         return {"sample_count": 0, "no_latency_samples": True}
     values = sorted(samples)

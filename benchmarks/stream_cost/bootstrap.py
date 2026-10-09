@@ -6,7 +6,13 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from benchmarks.stream_cost.errors import BenchmarkConfigurationError
-from client_query_cache._types import NonNegativeInt, PositiveInt
+from client_query_cache._types import (
+    ExclusiveProbability,
+    NonNegativeFloat,
+    NonNegativeInt,
+    PositiveFloat,
+    PositiveInt,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -16,7 +22,7 @@ _FLOATING_POINT_GUARD_DECIMALS = 9
 MINIMUM_BOOTSTRAP_WINDOWS = 2
 
 
-def minimum_sample_count(percentile: float) -> PositiveInt:
+def minimum_sample_count(percentile: ExclusiveProbability) -> PositiveInt:
     if not 0 < percentile < 1:
         message = "percentile must be between 0 and 1 exclusive"
         raise BenchmarkConfigurationError(message)
@@ -24,12 +30,14 @@ def minimum_sample_count(percentile: float) -> PositiveInt:
     return math.ceil(exact_count)
 
 
-def _percentile_index(count: PositiveInt, percentile: float) -> NonNegativeInt:
+def _percentile_index(
+    count: PositiveInt, percentile: ExclusiveProbability
+) -> NonNegativeInt:
     exact_rank = round(percentile * count, _FLOATING_POINT_GUARD_DECIMALS)
     return min(max(math.floor(exact_rank), 0), count - 1)
 
 
-def _percentile(values: Sequence[float], percentile: float) -> float:
+def _percentile(values: Sequence[float], percentile: ExclusiveProbability) -> float:
     sorted_values = sorted(values)
     return sorted_values[_percentile_index(len(sorted_values), percentile)]
 
@@ -49,8 +57,8 @@ class ConfidenceInterval:
 def block_bootstrap_percentile_ci(
     windows: Sequence[Sequence[float]],
     *,
-    percentile: float,
-    confidence_level: float,
+    percentile: ExclusiveProbability,
+    confidence_level: ExclusiveProbability,
     resample_count: PositiveInt,
     seed: int,
 ) -> ConfidenceInterval:
@@ -102,7 +110,7 @@ def block_bootstrap_percentile_ci(
 
 
 def expand_with_uncertainty(
-    interval: ConfidenceInterval, total_uncertainty_seconds: float
+    interval: ConfidenceInterval, total_uncertainty_seconds: NonNegativeFloat
 ) -> ConfidenceInterval:
     return ConfidenceInterval(
         lower=interval.lower - total_uncertainty_seconds,
@@ -113,21 +121,23 @@ def expand_with_uncertainty(
 
 def absolute_threshold_decisive(
     interval: ConfidenceInterval,
-    threshold_seconds: float,
+    threshold_seconds: PositiveFloat,
     *,
-    total_uncertainty_seconds: float,
+    total_uncertainty_seconds: NonNegativeFloat,
 ) -> bool:
     expanded = expand_with_uncertainty(interval, total_uncertainty_seconds)
     return expanded.upper <= threshold_seconds
 
 
 def delta_threshold_decisive(
-    delta_interval: ConfidenceInterval, threshold_seconds: float
+    delta_interval: ConfidenceInterval, threshold_seconds: NonNegativeFloat
 ) -> bool:
     return delta_interval.upper <= threshold_seconds
 
 
-def bonferroni_confidence_level(target_confidence_level: float) -> float:
+def bonferroni_confidence_level(
+    target_confidence_level: ExclusiveProbability,
+) -> ExclusiveProbability:
     if not 0 < target_confidence_level < 1:
         message = "target_confidence_level must be between 0 and 1 exclusive"
         raise BenchmarkConfigurationError(message)
@@ -139,8 +149,8 @@ def bonferroni_delta_interval(
     control_windows: Sequence[Sequence[float]],
     loaded_windows: Sequence[Sequence[float]],
     *,
-    percentile: float,
-    confidence_level: float,
+    percentile: ExclusiveProbability,
+    confidence_level: ExclusiveProbability,
     resample_count: PositiveInt,
     seed: int,
     delta_seconds: float,

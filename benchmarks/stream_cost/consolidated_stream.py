@@ -16,7 +16,13 @@ from benchmarks.stream_cost.errors import (
     BenchmarkConfigurationError,
     BenchmarkSetupError,
 )
-from client_query_cache._types import NonNegativeInt, PositiveInt
+from client_query_cache._types import (
+    ExclusiveProbability,
+    NonNegativeFloat,
+    NonNegativeInt,
+    PositiveFloat,
+    PositiveInt,
+)
 from client_query_cache.synchronous.manager import CacheManager
 
 if TYPE_CHECKING:
@@ -45,17 +51,17 @@ class PairVariant(enum.Enum):
 
 @dataclass(frozen=True, slots=True)
 class ConsolidatedStreamPairConfig:
-    acceptable_lag_percentile: float
-    acceptable_lag_threshold_seconds: float
-    relevant_write_count: NonNegativeInt
-    relevant_write_schedule_tolerance_seconds: float
+    acceptable_lag_percentile: ExclusiveProbability
+    acceptable_lag_threshold_seconds: PositiveFloat
+    relevant_write_count: PositiveInt
+    relevant_write_schedule_tolerance_seconds: PositiveFloat
     relevant_write_count_tolerance: NonNegativeInt
-    unrelated_write_minimum_count: NonNegativeInt
-    unrelated_write_interval_seconds: float
-    clock_drift_tolerance_seconds: float
-    calibration_cadence_seconds: float
+    unrelated_write_minimum_count: PositiveInt
+    unrelated_write_interval_seconds: PositiveFloat
+    clock_drift_tolerance_seconds: PositiveFloat
+    calibration_cadence_seconds: PositiveFloat
     pair_count: PositiveInt
-    warmup_duration_seconds: float
+    warmup_duration_seconds: PositiveFloat
 
     def __post_init__(self) -> None:
         if not 0 < self.acceptable_lag_percentile < 1:
@@ -116,8 +122,8 @@ def counterbalanced_pair_order(
 
 
 def generate_relevant_write_schedule(
-    count: NonNegativeInt, *, total_duration_seconds: float, seed: int
-) -> tuple[float, ...]:
+    count: PositiveInt, *, total_duration_seconds: PositiveFloat, seed: int
+) -> tuple[NonNegativeFloat, ...]:
     if count <= 0:
         message = "count must be positive"
         raise BenchmarkConfigurationError(message)
@@ -131,11 +137,11 @@ def generate_relevant_write_schedule(
 
 def replay_write_schedule(
     issue_write: Callable[[], None],
-    schedule: Sequence[float],
+    schedule: Sequence[NonNegativeFloat],
     *,
-    start_monotonic: float,
-    tolerance_seconds: float,
-) -> tuple[float, ...]:
+    start_monotonic: NonNegativeFloat,
+    tolerance_seconds: PositiveFloat,
+) -> tuple[NonNegativeFloat, ...]:
     if tolerance_seconds <= 0:
         message = "tolerance_seconds must be positive"
         raise BenchmarkConfigurationError(message)
@@ -145,7 +151,7 @@ def replay_write_schedule(
     if list(schedule) != sorted(schedule):
         message = "schedule offsets must be sorted in non-decreasing order"
         raise BenchmarkConfigurationError(message)
-    actual_offsets: list[float] = []
+    actual_offsets: list[NonNegativeFloat] = []
     for scheduled_offset in schedule:
         target = start_monotonic + scheduled_offset
         remaining = target - time.monotonic()
@@ -195,14 +201,14 @@ class UnrelatedWriteWorkload:
     )
 
     def __init__(
-        self, collection: Collection[dict[str, Any]], *, interval_seconds: float
+        self, collection: Collection[dict[str, Any]], *, interval_seconds: PositiveFloat
     ) -> None:
         if interval_seconds <= 0:
             message = "interval_seconds must be positive"
             raise BenchmarkConfigurationError(message)
         self._collection = collection
         self._interval_seconds = interval_seconds
-        self._completion_times: deque[float] = deque()
+        self._completion_times: deque[NonNegativeFloat] = deque()
         self._count = 0
         self._error: PyMongoError | BenchmarkSetupError | None = None
         self._lock = threading.Lock()
@@ -233,7 +239,7 @@ class UnrelatedWriteWorkload:
             return self._count
 
     def count_between(
-        self, start_monotonic: float, end_monotonic: float
+        self, start_monotonic: NonNegativeFloat, end_monotonic: NonNegativeFloat
     ) -> NonNegativeInt:
         with self._lock:
             return sum(
