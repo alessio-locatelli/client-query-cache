@@ -24,7 +24,7 @@ from client_query_cache._core.stream_health import (
     public_stream_health,
 )
 from client_query_cache._core.stream_options import DEFAULT_MAX_AWAIT_TIME_MS
-from client_query_cache._types import MaxAwaitTimeMs
+from client_query_cache._types import MaxAwaitTimeMs, NonNegativeFloat
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -198,7 +198,7 @@ class DatabaseStreamSupervisor:
             except PyMongoError:
                 pass
 
-    async def _interruptible_sleep(self, delay: float) -> bool:
+    async def _interruptible_sleep(self, delay: NonNegativeFloat) -> bool:
         try:
             await asyncio.wait_for(self._stop_event.wait(), timeout=delay)
         except TimeoutError:

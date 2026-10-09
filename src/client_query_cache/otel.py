@@ -17,6 +17,7 @@ from client_query_cache._core.stream_cost import (
     INVALIDATION_LAG_CLOCK_SKEW_LIMITATION,
     RESIDENT_BYTES_SCOPE,
 )
+from client_query_cache._types import Probability
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
@@ -77,7 +78,7 @@ _LAG_GAUGE_DESCRIPTION = (
 )
 
 
-def _percentile(sorted_samples: tuple[float, ...], percentile: float) -> float:
+def _percentile(sorted_samples: tuple[float, ...], percentile: Probability) -> float:
     index = round(percentile * (len(sorted_samples) - 1))
     return sorted_samples[index]
 
@@ -158,7 +159,7 @@ def _register_stream_counters(meter: Meter, cache_core: StatisticsSource) -> Non
 
 
 def _make_lag_percentile_callback(
-    cache_core: StatisticsSource, lag_percentiles: tuple[float, ...]
+    cache_core: StatisticsSource, lag_percentiles: tuple[Probability, ...]
 ) -> Callable[[CallbackOptions], Iterable[Observation]]:
     def callback(_options: CallbackOptions) -> Iterable[Observation]:
         for database in cache_core.active_stream_cost_databases():
@@ -185,7 +186,7 @@ def _make_lag_percentile_callback(
 
 
 def _register_lag_gauges(
-    meter: Meter, cache_core: StatisticsSource, lag_percentiles: tuple[float, ...]
+    meter: Meter, cache_core: StatisticsSource, lag_percentiles: tuple[Probability, ...]
 ) -> None:
     meter.create_observable_gauge(
         "client_query_cache.stream.invalidation_lag",
@@ -209,7 +210,7 @@ def register_cache_metrics(
     meter: Meter,
     cache_core: StatisticsSource,
     *,
-    lag_percentiles: tuple[float, ...] = (0.5, 0.95, 1.0),
+    lag_percentiles: tuple[Probability, ...] = (0.5, 0.95, 1.0),
 ) -> None:
     _validate_lag_percentiles(lag_percentiles)
     _register_cache_counters(meter, cache_core)

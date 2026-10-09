@@ -38,7 +38,7 @@ from client_query_cache._core.stream_cost import (
     StreamCostRegistry,
     StreamCostSnapshot,
 )
-from client_query_cache._types import NonNegativeInt, PositiveInt
+from client_query_cache._types import NonNegativeFloat, NonNegativeInt, PositiveInt
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator
@@ -973,8 +973,8 @@ class _CacheCoreStreamCostTelemetry(_CacheCoreBase):
         self,
         database: str,
         raw_lag_seconds: float,
-        wall_seconds: float,
-        monotonic_seconds: float,
+        wall_seconds: NonNegativeFloat,
+        monotonic_seconds: NonNegativeFloat,
     ) -> None:
         self._stream_cost.record_invalidation(
             database, raw_lag_seconds, wall_seconds, monotonic_seconds
