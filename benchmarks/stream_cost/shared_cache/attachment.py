@@ -349,7 +349,8 @@ class AsyncEndpoint:
         pending = tuple(self._pending.values())
         self._pending.clear()
         for future in pending:
-            future.set_result(_LOST)
+            if not future.done():
+                future.set_result(_LOST)
 
     async def request(self, message: Message) -> Message | None:
         self._check_owner()

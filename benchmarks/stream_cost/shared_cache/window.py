@@ -32,6 +32,7 @@ from benchmarks.stream_cost.shared_cache.attachment import AttachmentConfig
 from benchmarks.stream_cost.shared_cache.coordinator import OwnerConfig
 from benchmarks.stream_cost.shared_cache.dataset import seed_catalogue
 from benchmarks.stream_cost.shared_cache.owner import owner_main, proxy_for
+from benchmarks.stream_cost.shared_cache.profiling import enabled as profiling_enabled
 from benchmarks.stream_cost.shared_cache.worker import WorkerSpec, worker_main
 from benchmarks.stream_cost.shared_cache.workload import key_order
 
@@ -76,19 +77,18 @@ class GroupMemorySampler:
         self.error: str | None = None
 
     def _run(self) -> None:
-        processes = {name: psutil.Process(pid) for name, pid in self._pids.items()}
-        while not self._stop.is_set():
-            try:
+        try:
+            processes = {name: psutil.Process(pid) for name, pid in self._pids.items()}
+            while not self._stop.is_set():
                 self.samples.append(
                     {
                         name: process.memory_full_info().pss
                         for name, process in processes.items()
                     }
                 )
-            except psutil.Error as error:
-                self.error = f"PSS sampling failed: {error}"
-                return
-            self._stop.wait(self._seconds)
+                self._stop.wait(self._seconds)
+        except psutil.Error as error:
+            self.error = f"PSS sampling failed: {error}"
 
     def __enter__(self) -> Self:
         self._thread.start()
@@ -158,7 +158,10 @@ def _workload(registration: Registration, cell: Cell) -> _Workload:
         expected_invalidations=updates if active and cell.path != "direct" else 0,
         expected_entries=1 if cell.workload == "cold" else len(keys),
         writes=tuple(
-            ((ordinal + 0.5) * cell.window_seconds / updates, targets[ordinal])
+            (
+                (ordinal + 0.5) * cell.window_seconds / updates,
+                targets[ordinal % len(targets)],
+            )
             for ordinal in range(updates)
         )
         if active
@@ -321,7 +324,6 @@ def _spec(
         attachment=attachment,
         outstanding=cast("int", registration.raw["outstanding_per_worker"]),
         drain_seconds=registration.number("drain_seconds"),
-        startup_seconds=registration.number("startup_seconds"),
         expected_invalidations=workload.expected_invalidations
         if cell.path == "independent"
         else 0,
@@ -349,6 +351,13 @@ def _verify_ready(
     expected_streams = cell.workers if cell.path == "independent" else 0
     if sum(_count(sample, "streams") for sample in ready) != expected_streams:
         raise BenchmarkSetupError("worker stream ownership differs from its path")
+
+
+def reject_failed_commands(samples: list[Payload]) -> None:
+    for sample in samples:
+        commands = cast("dict[str, int]", sample["commands"])
+        if any(count for key, count in commands.items() if key.endswith(":failed")):
+            raise BenchmarkSetupError("observed a failed wire command")
 
 
 def _pooled(samples: list[Payload], model: str | None) -> Payload:
@@ -391,10 +400,12 @@ def _drain_owner(
 ) -> Payload:
     drained = end
     while _count(drained, "invalidations") < expected:
+        time.sleep(_OWNER_POLL_SECONDS)
         if time.monotonic() > deadline:
             raise BenchmarkSetupError("shared invalidation drain incomplete")
-        time.sleep(_OWNER_POLL_SECONDS)
-        drained = group.owner_request({"op": "sample"}, deadline)
+        drained = group.owner_request(
+            {"op": "sample"}, deadline + _CONTROL_GRACE_SECONDS
+        )
     return drained
 
 
@@ -498,7 +509,10 @@ def run_window(
             if group.owner_control is not None
             else None
         )
+        if owner_before is not None and profiling_enabled():
+            group.owner_request({"op": "profile-start"}, window_end)
         write_offsets: list[NonNegativeFloat] = []
+        write_lateness = 0.0
         with GroupMemorySampler(
             pids, registration.number("memory_sample_seconds")
         ) as memory:
@@ -506,9 +520,12 @@ def run_window(
                 due = window_start + offset
                 _wait(due)
                 issued = time.monotonic()
-                if issued - due > registration.number("schedule_tolerance_seconds"):
+                if cell.loop == "open" and issued - due > registration.number(
+                    "schedule_tolerance_seconds"
+                ):
                     raise BenchmarkSetupError("write schedule exceeded tolerance")
                 write_offsets.append(issued - window_start)
+                write_lateness = max(write_lateness, issued - due)
                 try:
                     writer[database][collection].update_one(
                         {"_id": target}, {"$inc": {"revision": 1}}
@@ -516,6 +533,8 @@ def run_window(
                 except PyMongoError as error:
                     raise BenchmarkSetupError("harness MongoDB write failed") from error
             _wait(window_end)
+        if owner_before is not None and profiling_enabled():
+            group.owner_request({"op": "profile-stop"}, window_end + 5)
         server_end = replica.container_cpu_usage_seconds()
         server_memory = replica.container_memory_usage_bytes()
         drain_deadline = (
@@ -527,6 +546,7 @@ def run_window(
             else None
         )
         samples = group.collect("sample", drain_deadline)
+        reject_failed_commands(samples)
         owner_drained = (
             _drain_owner(
                 group, owner_end, workload.expected_invalidations, drain_deadline
@@ -555,6 +575,7 @@ def run_window(
                 "received": writer_proxy.bytes_received - writer_received,
                 "commands": command_delta(commands_before, writer_listener.snapshot()),
                 "offsets": write_offsets,
+                "max_lateness_seconds": write_lateness,
             },
             "memory": memory.summary(),
             "offered": sum(_count(sample, "loop", "offered") for sample in samples),

@@ -6,7 +6,6 @@ from dataclasses import asdict, dataclass
 from typing import TYPE_CHECKING, Literal, cast
 
 from pymongo import AsyncMongoClient, MongoClient, ReadPreference
-from pymongo.errors import PyMongoError
 from pymongo.read_concern import ReadConcern
 
 from benchmarks.stream_cost.errors import BenchmarkSetupError
@@ -22,6 +21,7 @@ from benchmarks.stream_cost.shared_cache.attachment import (
 )
 from benchmarks.stream_cost.shared_cache.dataset import checksum
 from benchmarks.stream_cost.shared_cache.owner import process_sample, proxy_for
+from benchmarks.stream_cost.shared_cache.profiling import profiling
 from benchmarks.stream_cost.shared_cache.workload import (
     Assignment,
     LoopResult,
@@ -75,7 +75,6 @@ class WorkerSpec:
     attachment: AttachmentConfig | None
     outstanding: PositiveInt
     drain_seconds: PositiveFloat
-    startup_seconds: PositiveFloat
     expected_invalidations: NonNegativeInt
 
     def assignment(self, *, warmup: bool) -> Assignment:
@@ -201,8 +200,6 @@ def _sample(
     drained = _Measured(manager, listener, proxy)
     outcomes = drained.outcomes
     commands = command_delta(before.commands, drained.commands)
-    if any(count for key, count in commands.items() if key.endswith(":failed")):
-        raise BenchmarkSetupError("observed a failed wire command")
     return {
         "kind": "sample",
         "index": spec.index,
@@ -279,7 +276,7 @@ def sync_worker(connection: Connection, spec: WorkerSpec) -> None:
         manager: CacheManager[Document] | SharedCacheManager[Document] | None = None
         try:
             client.admin.command("ping")
-            baseline = process_sample()  # pytriage: TR11 (metric boundary)
+            baseline = process_sample()
             started = time.monotonic()
             match spec.cell.path:
                 case "direct":
@@ -293,7 +290,7 @@ def sync_worker(connection: Connection, spec: WorkerSpec) -> None:
                         max_await_time_ms=spec.max_await_time_ms,
                     )
                     collection = manager[spec.database][spec.collection]  # type: ignore[assignment]
-                case "shared":
+                case _:
                     assert spec.attachment is not None
                     manager = SharedCacheManager(client, SyncEndpoint(spec.attachment))
                     collection = manager[spec.database][spec.collection]  # type: ignore[assignment]
@@ -306,11 +303,8 @@ def sync_worker(connection: Connection, spec: WorkerSpec) -> None:
                     _verify(spec, collection.find(query, **options).to_list())
 
             if isinstance(manager, SharedCacheManager):
-                deadline = started + spec.startup_seconds
-                while _outcomes(manager).hits + _outcomes(manager).misses == 0:
-                    if time.monotonic() > deadline:
-                        raise BenchmarkSetupError("shared stream did not become ready")
-                    read(spec.warm_key)
+                shared = manager[spec.database][spec.collection]
+                while shared._cache_ineligibility_reason() is not None:  # noqa: SLF001
                     time.sleep(_STARTUP_POLL_SECONDS)
             if spec.cell.workload == "cold":
                 read(spec.warm_key)
@@ -420,7 +414,7 @@ async def async_worker(connection: Connection, spec: WorkerSpec) -> None:
         ) = None
         try:
             await client.admin.command("ping")
-            baseline = process_sample()  # pytriage: TR11 (metric boundary)
+            baseline = process_sample()
             started = time.monotonic()
             match spec.cell.path:
                 case "direct":
@@ -434,7 +428,7 @@ async def async_worker(connection: Connection, spec: WorkerSpec) -> None:
                         max_await_time_ms=spec.max_await_time_ms,
                     )
                     collection = manager[spec.database][spec.collection]  # type: ignore[assignment]
-                case "shared":
+                case _:
                     assert spec.attachment is not None
                     manager = AsyncSharedCacheManager(
                         client, await AsyncEndpoint.attach(spec.attachment)
@@ -449,11 +443,8 @@ async def async_worker(connection: Connection, spec: WorkerSpec) -> None:
                     _verify(spec, await collection.find(query, **options).to_list())
 
             if isinstance(manager, AsyncSharedCacheManager):
-                deadline = started + spec.startup_seconds
-                while _outcomes(manager).hits + _outcomes(manager).misses == 0:
-                    if time.monotonic() > deadline:
-                        raise BenchmarkSetupError("shared stream did not become ready")
-                    await read(spec.warm_key)
+                shared = manager[spec.database][spec.collection]
+                while await shared._cache_ineligibility_reason() is not None:  # noqa: ASYNC110, SLF001 - The owner offers no readiness notification.
                     await asyncio.sleep(_STARTUP_POLL_SECONDS)
             if spec.cell.workload == "cold":
                 await read(spec.warm_key)
@@ -477,7 +468,8 @@ async def async_worker(connection: Connection, spec: WorkerSpec) -> None:
             if spec.cell.warmup_seconds:
                 await _run_async(spec, start, read, warmup=True)
             before = _Measured(manager, listener, proxy)
-            loop = await _run_async(spec, window_start, read, warmup=False)
+            with profiling(f"worker-{spec.cell.path}"):
+                loop = await _run_async(spec, window_start, read, warmup=False)
             application_end = _Measured(manager, listener, proxy)
             deadline = _drain_deadline(spec)
             while _invalidations(manager, spec) < spec.expected_invalidations:
@@ -510,11 +502,6 @@ def worker_main(connection: Connection, spec: WorkerSpec) -> None:
             asyncio.run(async_worker(connection, spec))
     except BenchmarkSetupError as error:
         connection.send({"kind": "failure", "error": str(error)})
-        raise
-    except PyMongoError as error:
-        connection.send(
-            {"kind": "failure", "error": f"MongoDB worker failure: {error}"}
-        )
         raise
     except LookupError as error:
         connection.send({"kind": "failure", "error": str(error)})

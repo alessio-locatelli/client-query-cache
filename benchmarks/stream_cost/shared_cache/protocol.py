@@ -103,10 +103,6 @@ class Cell:
     rate: PositiveFloat | None = None
     identities: PositiveInt | None = None
 
-    @property
-    def key(self) -> tuple[str, str, Model, PositiveInt, PositiveInt]:
-        return (self.workload, self.profile, self.model, self.workers, self.concurrency)
-
     def sync_workers(self) -> NonNegativeInt:
         if self.model == "mixed":
             return self.workers // 2

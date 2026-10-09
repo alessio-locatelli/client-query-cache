@@ -1,0 +1,168 @@
+{
+  "schema_version": 1,
+  "registration": 2,
+  "status": "pending-calibration",
+  "seed": 197,
+  "topology": { "cpus": 2, "memory": "2g" },
+  "client_options": {
+    "directConnection": true,
+    "serverSelectionTimeoutMS": 10000
+  },
+  "start_method": "spawn",
+  "max_await_time_ms": 1000,
+  "database": "shared_worker_cache_research",
+  "collection": "catalogue",
+  "profiles": {
+    "primary": {
+      "documents": 16384,
+      "payload_bytes": 4096,
+      "read": "find_one"
+    },
+    "large": { "documents": 1088, "payload_bytes": 65536, "read": "find_one" },
+    "find16": {
+      "documents": 16384,
+      "payload_bytes": 4096,
+      "read": "find",
+      "categories": 64,
+      "limit": 16
+    },
+    "smoke": { "documents": 256, "payload_bytes": 4096, "read": "find_one" }
+  },
+  "budget_bytes": 100663296,
+  "max_entry_bytes": 1048576,
+  "concurrency_per_worker": 4,
+  "outstanding_per_worker": 256,
+  "warmup_seconds": 10,
+  "startup_seconds": 120,
+  "drain_seconds": 10,
+  "shutdown_seconds": 15,
+  "schedule_tolerance_seconds": 0.05,
+  "memory_sample_seconds": 0.2,
+  "calibration_seconds": 0.05,
+  "clock_tolerance_seconds": 0.005,
+  "calibration": {
+    "probe_windows": 3,
+    "probe_seconds": 15,
+    "cold_probe_identities": 10000,
+    "selected_fraction": 0.75,
+    "caps": { "primary": 6000, "cold": 1000, "sensitivity": 500 },
+    "validation_repetitions": 3,
+    "minimum_completion": 0.99,
+    "rate_attempts": 3,
+    "sample_floor": 10000,
+    "window_cap_seconds": 120,
+    "families": {
+      "primary": [
+        ["hot", "sync", 1],
+        ["hot", "sync", 4],
+        ["hot", "sync", 8],
+        ["hot", "async", 1],
+        ["hot", "async", 4],
+        ["hot", "async", 8],
+        ["active", "sync", 4],
+        ["active", "sync", 8],
+        ["active", "async", 4],
+        ["active", "async", 8],
+        ["active", "mixed", 8]
+      ],
+      "cold": [
+        ["cold", "sync", 4],
+        ["cold", "sync", 8],
+        ["cold", "async", 4],
+        ["cold", "async", 8]
+      ],
+      "sensitivity": [
+        ["large", "sync", 8],
+        ["large", "async", 8],
+        ["find16", "sync", 8],
+        ["find16", "async", 8]
+      ]
+    }
+  },
+  "frozen": {
+    "rates": { "primary": null, "cold": null, "sensitivity": null },
+    "window_seconds": { "hot": null, "active": null, "sensitivity": null },
+    "calibration_summary": null
+  },
+  "nominal_seconds": { "hot": 30, "active": 60, "sensitivity": 30 },
+  "active": {
+    "updates": 200,
+    "lag_capture": { "windows": 6, "events": 20, "separation": 16 }
+  },
+  "phases": {
+    "smoke": {
+      "window_seconds": 3,
+      "warmup_seconds": 1,
+      "rate": 200,
+      "identities": 100
+    },
+    "screening": { "blocks": 6, "worker_counts": [1, 4, 8] },
+    "confirmation": { "blocks": 12, "worker_counts": [4, 8] },
+    "capacity": {
+      "worker_counts": [1, 4, 8],
+      "concurrency": [1, 4, 16],
+      "windows": 3,
+      "window_seconds": 15,
+      "minimum_gain": 0.05,
+      "failed_points_to_stop": 2
+    },
+    "active": { "blocks": 12, "worker_counts": [4, 8], "mixed": [4, 4] },
+    "cold": { "blocks": 12, "worker_counts": [4, 8] },
+    "sensitivity": {
+      "blocks": 3,
+      "workers": 8,
+      "profiles": ["large", "find16"]
+    },
+    "fault": { "workers": 4, "sync_workers": 2, "repetitions": 5 }
+  },
+  "fault_cases": [
+    "coordinator-restart",
+    "coordinator-pause",
+    "watch-pause",
+    "stream-interruption",
+    "history-loss",
+    "worker-killed-with-capture",
+    "worker-replacement",
+    "slow-reader",
+    "malformed-frames",
+    "shutdown-during-startup",
+    "cancellation-during-publication"
+  ],
+  "transport": {
+    "rpc_deadline_seconds": 0.1,
+    "progress_expiry_seconds": 3,
+    "queued_bytes_per_connection": 4194304,
+    "requests_per_connection": 256,
+    "connections": 64,
+    "captures": 4096,
+    "capture_seconds": 30,
+    "frame_overhead_bytes": 65536
+  },
+  "inference": {
+    "draws": 200000,
+    "seeds": [197, 1970],
+    "confidence": 0.95,
+    "two_candidate_confidence": 0.975,
+    "leave_one_out_draws": 20000,
+    "percentile_floor": 10000
+  },
+  "gate": {
+    "pss_ratio": 0.75,
+    "peak_pss_ratio": 1.1,
+    "resident_total_ratio": 1.1,
+    "hit_p95_ratio": 0.75,
+    "hit_p99_ratio": 1.0,
+    "request_p99_ratio": 1.25,
+    "request_p99_delta_seconds": 0.001,
+    "miss_delta_seconds": 0.001,
+    "completion": 0.99,
+    "capacity_independent_ratio": 0.9,
+    "capacity_direct_ratio": 1.25,
+    "capacity_headroom": 0.2,
+    "cpu_ratio": 1.1,
+    "wire_ratio": 1.1,
+    "lag_p95_seconds": 0.5,
+    "lag_p95_delta_seconds": 0.05,
+    "readiness_seconds": 5
+  }
+}

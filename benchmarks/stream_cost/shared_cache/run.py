@@ -44,7 +44,7 @@ if TYPE_CHECKING:
 
 type Payload = dict[str, object]
 
-_CONFIG = Path("reports/shared-worker-cache/v1/config.json")
+_CONFIG = Path("reports/shared-worker-cache/v2/config.json")
 _PHASES = ("screening", "confirmation", "capacity", "active", "cold", "sensitivity")
 _CAPS: dict[Family, str] = {
     "primary": "primary",
@@ -74,7 +74,7 @@ def environment(registration: Registration) -> Payload:
         "psutil": version("psutil"),
         "testcontainers": version("testcontainers"),
         "platform": platform.platform(),
-        "processor": _processor(),
+        "processor": processor_name(Path("/proc/cpuinfo").read_text(encoding="utf-8")),
         "logical_cpus": os.cpu_count(),
         "available_memory_bytes": memory.available,
         "total_memory_bytes": memory.total,
@@ -86,8 +86,8 @@ def environment(registration: Registration) -> Payload:
     }
 
 
-def _processor() -> str:
-    for line in Path("/proc/cpuinfo").read_text(encoding="utf-8").splitlines():
+def processor_name(cpuinfo: str) -> str:
+    for line in cpuinfo.splitlines():
         if line.startswith("model name"):
             return line.split(":", 1)[1].strip()
     return platform.processor()
@@ -293,8 +293,6 @@ def calibrate(
                 durations.update(proposed)
                 break
             rate //= 2
-            if rate < 1:
-                break
         selections[family] = {
             "probe_throughputs": [throughput(record) for record in family_probes],
             "attempts": attempts,

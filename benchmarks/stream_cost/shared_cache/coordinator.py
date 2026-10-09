@@ -2,7 +2,7 @@
 # ruff: noqa: SLF001
 from __future__ import annotations
 
-import errno
+import fcntl
 import hmac
 import pathlib
 import secrets
@@ -12,7 +12,7 @@ import threading
 import time
 from collections import deque
 from dataclasses import asdict, dataclass, field
-from typing import TYPE_CHECKING, Final, Literal
+from typing import TYPE_CHECKING, Final, Literal, TextIO
 
 from bson.int64 import Int64
 from pymongo import MongoClient
@@ -22,14 +22,15 @@ from pymongo.monitoring import CommandListener
 from benchmarks.stream_cost.shared_cache.wire import (
     LENGTH_BYTES,
     PROTOCOL_VERSION,
+    KeyCache,
     ProtocolError,
     decode_frame,
+    decode_key,
     encode_frame,
     frame_length,
-    from_wire,
 )
 from client_query_cache._core.entries import AdmissionOutcome
-from client_query_cache._core.errors import CacheClosedError, StreamLifecycleError
+from client_query_cache._core.errors import StreamLifecycleError
 from client_query_cache._core.find_reads import FindReadShape
 from client_query_cache._core.keys import NamespaceId
 from client_query_cache._core.manager import (
@@ -68,6 +69,7 @@ _RECEIVE_BYTES: Final = 262_144
 _SWEEP_SECONDS: Final = 0.05
 _ACTIVATION_RETRY_SECONDS: Final = 1.0
 _HISTORY_LOST: Final = 286
+_KEY_CACHE_ENTRIES: Final = 1024
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,6 +156,7 @@ class _Connection:
     session: NonNegativeInt | None = None
     handles: set[NonNegativeInt] = field(default_factory=set)
     writable: bool = False
+    closed: bool = False
 
 
 @dataclass(slots=True)
@@ -184,14 +187,15 @@ class OwnerCounters:
 
 class SharedCacheOwner:
     __slots__ = (
-        "_accepting",
         "_activation",
         "_activation_lock",
         "_connections",
         "_handles",
+        "_keys",
         "_lease_epoch",
         "_lease_live",
         "_listener",
+        "_lock_file",
         "_next_handle",
         "_next_session",
         "_paused_until",
@@ -230,25 +234,29 @@ class SharedCacheOwner:
         self._lease_live: dict[str, bool] = {}
         self._lease_epoch: dict[str, NonNegativeInt] = {}
         self._handles: dict[NonNegativeInt, _Handle] = {}
+        self._keys = KeyCache(_KEY_CACHE_ENTRIES)
         self._next_handle = 1
         self._next_session = 1
         self._connections: dict[int, _Connection] = {}
         self._selector = selectors.DefaultSelector()
         self._listener: socket.socket | None = None
-        self._accepting = True
+        self._lock_file: TextIO | None = None
         self._paused_until = 0.0
 
     def bind(self) -> None:
-        listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        path = pathlib.Path(self.config.socket_path)
+        lock = path.with_suffix(".lock").open("a", encoding="utf-8")
         try:
-            listener.bind(self.config.socket_path)
-        except OSError as error:
-            listener.close()
-            if error.errno == errno.EADDRINUSE:
-                message = "another owner already holds this endpoint"
-                raise RuntimeError(message) from error
-            raise
-        pathlib.Path(self.config.socket_path).chmod(0o600)
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            lock.close()
+            message = "another owner already holds this endpoint"
+            raise RuntimeError(message) from error
+        self._lock_file = lock
+        path.unlink(missing_ok=True)
+        listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        listener.bind(str(path))
+        path.chmod(0o600)
         listener.listen(self.config.limits.connections)
         listener.settimeout(0.0)
         self._listener = listener
@@ -307,8 +315,6 @@ class SharedCacheOwner:
     def _gate(self, database: str, now: NonNegativeFloat) -> str | None:
         if database not in self.config.databases:
             return "database-not-authorized"
-        if not self._accepting:
-            return "owner-closing"
         if self._activate(database, now) != "active":
             return "stream-starting"
         if not self.core.is_database_available(database):
@@ -329,8 +335,7 @@ class SharedCacheOwner:
         assert connection.session is not None
         if len(self._handles) >= self.config.limits.captures:
             self.counters.capture_limit_misses += 1
-            if isinstance(capture, IdentityCapture):
-                self.core.discard_identity_admission(capture)
+            self._drop_capture(capture)
             return None
         handle = self._next_handle
         self._next_handle += 1
@@ -349,13 +354,13 @@ class SharedCacheOwner:
         )
         return handle
 
-    def _release(self, handle_id: NonNegativeInt) -> _Handle | None:
-        try:
-            handle = self._handles.pop(handle_id)
-        except KeyError:
-            return None
-        if isinstance(handle.capture, IdentityCapture):
-            self.core.discard_identity_admission(handle.capture)
+    def _drop_capture(self, capture: IdentityCapture | NamespaceCapture) -> None:
+        if isinstance(capture, IdentityCapture):
+            self.core.discard_identity_admission(capture)
+
+    def _release(self, handle_id: NonNegativeInt) -> _Handle:
+        handle = self._handles.pop(handle_id)
+        self._drop_capture(handle.capture)
         return handle
 
     def _sweep(self, now: NonNegativeFloat) -> None:
@@ -366,7 +371,6 @@ class SharedCacheOwner:
         )
         for handle_id in expired:
             handle = self._release(handle_id)
-            assert handle is not None
             self.counters.expired_captures += 1
             for connection in self._connections.values():
                 if connection.session == handle.session:
@@ -421,8 +425,8 @@ class SharedCacheOwner:
                 refresh = self._epoch_reply(namespace, message["epoch"])
                 if refresh is not None:
                     return refresh
-                identity = from_wire(message["identity"])
-                shape = from_wire(message["shape"])
+                identity = decode_key(message["identity"])
+                shape = self._keys.decode(message["shape"])
                 value = self.core.lookup_identity_encoded(namespace, identity, shape)
                 if value is not None:
                     self.counters.hits += 1
@@ -444,7 +448,7 @@ class SharedCacheOwner:
                 limit = message["limit"]
                 if not isinstance(limit, int) or isinstance(limit, bool):
                     raise ProtocolError("find limit must be an integer")
-                shape = FindReadShape(from_wire(message["family"]), limit)
+                shape = FindReadShape(self._keys.decode(message["family"]), limit)
                 value = self.core.lookup_find_encoded(namespace, shape)
                 if value is not None:
                     self.counters.hits += 1
@@ -505,23 +509,16 @@ class SharedCacheOwner:
             or handle.lease != self._lease(handle.database)
         ):
             self.counters.rejected_admissions += 1
-            if isinstance(handle.capture, IdentityCapture):
-                self.core.discard_identity_admission(handle.capture)
+            self._drop_capture(handle.capture)
             return
-        try:
-            if isinstance(handle.capture, IdentityCapture):
-                outcome = self.core.admit_identity_encoded(
-                    handle.capture, handle.shape, value
-                )
-            else:
-                outcome = self.core.admit_namespace_encoded(
-                    handle.capture,
-                    handle.shape,
-                    value,
-                    find_source=handle.find_source,
-                )
-        except CacheClosedError:
-            outcome = AdmissionOutcome.DECLINED_STALE
+        if isinstance(handle.capture, IdentityCapture):
+            outcome = self.core.admit_identity_encoded(
+                handle.capture, handle.shape, value
+            )
+        else:
+            outcome = self.core.admit_namespace_encoded(
+                handle.capture, handle.shape, value, find_source=handle.find_source
+            )
         if outcome is AdmissionOutcome.ADMITTED:
             self.counters.admitted += 1
         else:
@@ -551,6 +548,7 @@ class SharedCacheOwner:
             },
             "captures": len(self._handles),
             "connections": len(self._connections),
+            "upstream_commands": self.progress.snapshot(),
             "counters": asdict(self.counters),
         }
 
@@ -561,10 +559,7 @@ class SharedCacheOwner:
                 sock, _address = self._listener.accept()
             except BlockingIOError:
                 return
-            if (
-                not self._accepting
-                or len(self._connections) >= self.config.limits.connections
-            ):
+            if len(self._connections) >= self.config.limits.connections:
                 self.counters.connections_rejected += 1
                 sock.close()
                 continue
@@ -575,16 +570,11 @@ class SharedCacheOwner:
             self.counters.connections_accepted += 1
 
     def detach(self, connection: _Connection) -> None:
-        try:
-            self._selector.unregister(connection.sock)
-        except KeyError:
-            pass
-        except ValueError:
-            pass
-        try:
-            del self._connections[connection.sock.fileno()]
-        except KeyError:
-            pass
+        if connection.closed:
+            return
+        connection.closed = True
+        self._selector.unregister(connection.sock)
+        del self._connections[connection.sock.fileno()]
         for handle_id in tuple(connection.handles):
             self._release(handle_id)
         connection.handles.clear()
@@ -639,7 +629,7 @@ class SharedCacheOwner:
     def _receive(self, connection: _Connection, now: NonNegativeFloat) -> None:
         try:
             chunk = connection.sock.recv(_RECEIVE_BYTES)
-        except BlockingIOError:
+        except BlockingIOError:  # pragma: no cover (selector reported readability)
             return
         except OSError:
             self.detach(connection)
@@ -702,12 +692,9 @@ class SharedCacheOwner:
         self.detach(connection)
 
     def serve(
-        self,
-        control: Connection | None,
-        on_control: Callable[[Message], Message | None] | None = None,
+        self, control: Connection, on_control: Callable[[Message], Message | None]
     ) -> None:
-        if control is not None:
-            self._selector.register(control.fileno(), selectors.EVENT_READ, control)
+        self._selector.register(control.fileno(), selectors.EVENT_READ, control)
         next_sweep = 0.0
         while True:
             events = self._selector.select(timeout=_SWEEP_SECONDS)
@@ -721,19 +708,14 @@ class SharedCacheOwner:
                     self._accept()
                 elif isinstance(source, _Connection):
                     if mask & selectors.EVENT_READ:
-                        if source.sock.fileno() < 0:
-                            continue
                         self._receive(source, started)
-                    if mask & selectors.EVENT_WRITE and source.sock.fileno() >= 0:
+                    if mask & selectors.EVENT_WRITE and not source.closed:
                         self._flush(source)
                 else:
-                    assert control is not None
                     request = control.recv()
                     if request == "close":
                         return
-                    reply = on_control(request) if on_control is not None else None
-                    if reply is not None:
-                        control.send(reply)
+                    control.send(on_control(request))
             if started >= next_sweep:
                 self._sweep(started)
                 next_sweep = started + _SWEEP_SECONDS
@@ -743,15 +725,11 @@ class SharedCacheOwner:
         self._paused_until = time.monotonic() + seconds
 
     def close(self) -> None:
-        self._accepting = False
         if self._listener is not None:
             self._selector.unregister(self._listener)
             self._listener.close()
             self._listener = None
-            try:
-                pathlib.Path(self.config.socket_path).unlink()
-            except FileNotFoundError:
-                pass
+            pathlib.Path(self.config.socket_path).unlink(missing_ok=True)
         for connection in tuple(self._connections.values()):
             self.detach(connection)
         try:
@@ -761,6 +739,8 @@ class SharedCacheOwner:
                 self.core.close()
             finally:
                 self.client.close()
+                if self._lock_file is not None:
+                    self._lock_file.close()
 
     def lose_history(self, database: str) -> None:
         supervisor = self.streams._supervisors[database]
@@ -768,17 +748,13 @@ class SharedCacheOwner:
         original = supervisor_type._open_stream
 
         def unresumable(
-            instance: DatabaseStreamSupervisor,
+            _instance: DatabaseStreamSupervisor,
             *,
-            resume_token: Mapping[str, object] | None,
-            use_start_after: bool,
+            resume_token: Mapping[str, object] | None,  # noqa: ARG001
+            use_start_after: bool,  # noqa: ARG001
         ) -> None:
-            if instance is supervisor and resume_token is not None:
-                supervisor_type._open_stream = original  # type: ignore[method-assign]
-                raise OperationFailure("history lost", code=_HISTORY_LOST)
-            original(
-                instance, resume_token=resume_token, use_start_after=use_start_after
-            )
+            supervisor_type._open_stream = original  # type: ignore[method-assign]
+            raise OperationFailure("history lost", code=_HISTORY_LOST)
 
         supervisor_type._open_stream = unresumable  # type: ignore[method-assign,assignment]
         stream = supervisor._stream
