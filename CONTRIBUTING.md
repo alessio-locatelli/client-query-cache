@@ -84,7 +84,7 @@ include the leading `--`, mirroring `just podman -- <arguments>` below, since so
 
 Run `just examples` to run every program in [`examples/`](examples/README.md) against a disposable replica set. The first run downloads each example's libraries.
 
-To run a single example or an experiment against a long-lived local replica set, start the one defined in [`docker-compose.yaml`](docker-compose.yaml) with `just podman -- compose up --detach`, and stop it with `just podman -- compose down`. It listens on `localhost:27017`, which the examples use by default. Podman's `compose` command requires a [compose provider](https://docs.podman.io/en/latest/markdown/podman-compose.1.html) on the host.
+To run a single example or an experiment against a long-lived local replica set, follow the [local MongoDB setup](docs/user/getting-started/installation.md#local-mongodb), replacing `docker compose` with `just podman -- compose` inside the contributor container. Run examples only after the helper exits successfully: until then, the server can reject writes. The replica set listens on `localhost:27017`, which the examples use by default. Podman's `compose` command requires a [compose provider](https://docs.podman.io/en/latest/markdown/podman-compose.1.html) on the host.
 
 See the [CI validation cache inventory](docs/development/ci-validation-caches.md) for the tools run on GitHub Actions and their cache paths.
 
