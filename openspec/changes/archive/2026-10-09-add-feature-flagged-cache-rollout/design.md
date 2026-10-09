@@ -2,9 +2,13 @@
 
 ## Context
 
-See [proposal.md](proposal.md) for motivation and the [delta](specs/usage-examples/spec.md) for acceptance criteria. At planning time, `add-fastapi-catalogue-example` has no implementation in this checkout. **Implementation is gated on that change being delivered and reviewed.** Its [design](../add-fastapi-catalogue-example/design.md) establishes the target script, trusted principals, lifespan, direct mutation workflow, and hosted guide. Task 1.1 reconciles this plan with the delivered artifacts before editing them; this change does not implement that prerequisite.
+See [proposal.md](proposal.md) for motivation and the [delta](specs/usage-examples/spec.md) for acceptance criteria. At planning time, `add-fastapi-catalogue-example` has no implementation in this checkout. **Implementation is gated on that change being delivered and reviewed.** Its [design](../2026-10-08-add-fastapi-catalogue-example/design.md) establishes the target script, trusted principals, lifespan, direct mutation workflow, and hosted guide. Task 1.1 reconciles this plan with the delivered artifacts before editing them; this change does not implement that prerequisite.
 
 Current `tests/examples/test_examples.py` parametrizes subprocess execution, and `just typecheck-examples` discovers `examples/*.py`. The prerequisite will register the catalogue program there. No extra runner is needed. The async manager exposes synchronous, non-activating public inspection methods; direct collection calls do not record cache outcomes.
+
+### Integration adjustments
+
+The delivered catalogue (archived as `2026-10-08-add-fastapi-catalogue-example`) exposes a module-level application whose self-check swaps that application's lifespan and dependency overrides and restores them afterwards. Add a `create_app` factory with the configuration boolean, register routes on a module-level router, and let the lifespan read the flag from the application state set by the factory. Each self-check phase builds a fresh application, so the restore step disappears. `seed_catalogue` resets the database before seeding; call it only in the first phase. A closed manager reports `closed` stream health whether or not a stream ever started.
 
 ## Goals / Non-Goals
 
@@ -36,7 +40,7 @@ Live toggling would reuse one lifespan but leave streams active after disabling 
 
 ### Keep guidance canonical
 
-Extend `docs/user/examples/fastapi.md` with a short rollout section and link it from `docs/user/operations/deployment.md`. Reuse the script snippet already planned there. Link the current consistency, [monitoring and OTel](../../../docs/user/operations/monitoring.md), and [rollback](../../../docs/user/reference/api.md#rollback-to-plain-pymongo) guides instead of copying their contracts. A separate rollout guide adds navigation and duplicate context without enough new material to justify it. No documentation research is needed.
+Extend `docs/user/examples/fastapi.md` with a short rollout section and link it from `docs/user/operations/deployment.md`. Reuse the script snippet already planned there. Link the current consistency, [monitoring and OTel](../../../../docs/user/operations/monitoring.md), and [rollback](../../../../docs/user/reference/api.md#rollback-to-plain-pymongo) guides instead of copying their contracts. A separate rollout guide adds navigation and duplicate context without enough new material to justify it. No documentation research is needed.
 
 ## Risks / Trade-offs
 
