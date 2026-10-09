@@ -39,7 +39,6 @@ All aliases live in a private module at `src/client_query_cache/_types.py`. It i
 Notes on the alias set:
 
 - `Text` serves two purposes. Its minimum length distinguishes prose from single-character strings. It also marks a parameter as one string rather than an iterable of strings. With metadata-only annotations, mypy still accepts `"abc"` where `Iterable[Text]` is expected, so the second purpose serves readers and Hypothesis rather than static checking.
-- A recursive `JSON` value union is not defined, because no annotation in the repository needs one. Vulture reports unused module-level aliases, which enforces the one-use rule of the `type-annotations` spec.
 - `BsonValue` and `JsonDict` use `object` values rather than `Any`, so mypy keeps checking value use; `Any` would silently disable checks at the roughly 210 sites already typed `dict[str, object]`. Converting `dict[str, Any]` document sites surfaces errors of two kinds: dict invariance at insert sites and unnarrowed value access. Annotating document literals with `BsonDict` fixes the first group. Narrowing at the access site fixes the second: tests prefer `assert isinstance(...)`, which is checked at runtime, over `cast`.
 - `MaxAwaitTimeMs` imports the existing bound constant, so the limit has one source.
 
