@@ -145,6 +145,20 @@ def test_repeated_cached_views_share_the_manager_and_raw_collection(
     assert first.database.manager is second.database.manager is manager
 
 
+@pytest.mark.parametrize("requested", ["", "never-activated"], ids=["empty", "unknown"])
+async def test_stream_health_echoes_the_requested_name_without_validation(
+    client: AsyncMongoClient[dict[str, Any]], requested: str
+) -> None:
+    manager = CacheManager(client)
+    health = manager.stream_health_snapshot(requested)
+    assert health.requested_database_name == requested
+    assert health.status is StreamHealthStatus.NOT_STARTED
+    await manager.close()
+    health = manager.stream_health_snapshot(requested)
+    assert health.requested_database_name == requested
+    assert health.status is StreamHealthStatus.CLOSED
+
+
 async def test_manager_inspection_delegates_without_activation(
     client: AsyncMongoClient[dict[str, Any]],
 ) -> None:

@@ -34,7 +34,7 @@ class StreamHealthStatus(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class StreamHealthSnapshot:
-    database_name: str  # Requested name; can be empty during local inspection.
+    requested_database_name: str
     status: StreamHealthStatus
 
 
