@@ -9,6 +9,14 @@ from benchmarks.stream_cost.await_statistics import (
     holm_adjusted,
     nearest_rank_p95,
 )
+from client_query_cache._types import (
+    ExclusiveProbability,
+    MaxAwaitTimeMs,
+    NonEmptyStr,
+    PositiveFloat,
+    PositiveInt,
+    Probability,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -29,24 +37,24 @@ class UnresolvedComparisonError(ValueError):
 @dataclass(frozen=True, slots=True)
 class ComparisonEvidence:
     comparison: Comparison
-    estimate: float | None  # Positive estimate, absent when unresolved.
-    nominal_upper: float | None  # Positive bound, absent when unresolved.
-    holm_step_upper: float | None  # Positive bound, absent when unresolved.
-    p_value: float  # Probability in [0, 1].
-    adjusted_p_value: float  # Probability in [0, 1].
+    estimate: PositiveFloat | None  # Absent when unresolved.
+    nominal_upper: PositiveFloat | None  # Absent when unresolved.
+    holm_step_upper: PositiveFloat | None  # Absent when unresolved.
+    p_value: Probability
+    adjusted_p_value: Probability
     passes: bool
     unresolved: bool
-    holm_rank: int  # Positive one-based rank in the complete comparison family.
-    holm_step_alpha: float  # Positive per-step tail probability.
-    bootstrap_distribution: tuple[WeightedStatistic, ...]  # Empty when unresolved.
+    holm_rank: PositiveInt  # One-based rank in the complete comparison family.
+    holm_step_alpha: ExclusiveProbability  # Per-step tail probability.
+    bootstrap_distribution: tuple[WeightedStatistic, ...]
 
 
 @dataclass(frozen=True, slots=True)
 class AwaitDecision:
-    selected_ms: int  # Positive selected await time.
-    eligible_ms: tuple[int, ...]  # Empty if no larger candidate qualifies.
+    selected_ms: MaxAwaitTimeMs
+    eligible_ms: tuple[MaxAwaitTimeMs, ...]
     inconclusive: bool
-    rationale: str  # Nonempty selection explanation.
+    rationale: NonEmptyStr
     comparisons: tuple[ComparisonEvidence, ...]
 
 

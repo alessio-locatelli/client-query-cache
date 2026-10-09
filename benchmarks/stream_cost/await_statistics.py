@@ -6,25 +6,32 @@ from dataclasses import dataclass
 from itertools import accumulate, combinations_with_replacement
 from typing import TYPE_CHECKING
 
+from client_query_cache._types import (
+    ExclusiveProbability,
+    PositiveFloat,
+    PositiveInt,
+    Probability,
+)
+
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Sequence
 
 
 @dataclass(frozen=True, slots=True)
 class WeightedStatistic:
-    value: float  # The statistic may be zero or negative.
-    weight: int  # Positive multinomial multiplicity.
+    value: float
+    weight: PositiveInt  # Multinomial multiplicity.
 
 
 @dataclass(frozen=True, slots=True)
 class BootstrapTest:
-    estimate: float  # Positive observed statistic.
-    p_value: float  # Probability in [0, 1].
+    estimate: PositiveFloat  # Observed statistic.
+    p_value: Probability
     centered_samples: tuple[WeightedStatistic, ...]
 
     def upper_bound(
         self,
-        alpha: float,  # Tail probability in (0, 1).
+        alpha: ExclusiveProbability,  # Tail probability.
     ) -> float:
         return self.estimate * math.exp(
             -weighted_quantile(self.centered_samples, alpha)
@@ -33,7 +40,7 @@ class BootstrapTest:
 
 def weighted_quantile(
     samples: Sequence[WeightedStatistic],
-    probability: float,  # Probability lies in (0, 1).
+    probability: ExclusiveProbability,
 ) -> float:
     threshold = math.ceil(probability * sum(sample.weight for sample in samples))
     return next(
@@ -48,7 +55,7 @@ def weighted_quantile(
 
 
 def exact_block_draws(
-    block_count: int,  # Positive block count.
+    block_count: PositiveInt,
 ) -> Iterator[tuple[tuple[int, ...], int]]:
     for indices in combinations_with_replacement(range(block_count), block_count):
         multiplicities = Counter(indices)
@@ -60,18 +67,18 @@ def exact_block_draws(
 
 @dataclass(frozen=True, slots=True)
 class BasicBootstrap:
-    estimate: float  # Signed observed statistic, including zero.
+    estimate: float  # Observed statistic.
     centered_samples: tuple[WeightedStatistic, ...]
 
     def lower_bound(
         self,
-        alpha: float,  # Tail probability in (0, 1).
+        alpha: ExclusiveProbability,  # Tail probability.
     ) -> float:
         return self.estimate - weighted_quantile(self.centered_samples, 1 - alpha)
 
     def upper_bound(
         self,
-        alpha: float,  # Tail probability in (0, 1).
+        alpha: ExclusiveProbability,  # Tail probability.
     ) -> float:
         return self.estimate - weighted_quantile(self.centered_samples, alpha)
 
@@ -79,7 +86,7 @@ class BasicBootstrap:
 def exact_basic_bootstrap(
     statistic: Callable[[tuple[int, ...]], float],
     *,
-    block_count: int,  # Positive block count.
+    block_count: PositiveInt,
 ) -> BasicBootstrap:
     observed = statistic(tuple(range(block_count)))
     samples = tuple(
@@ -94,12 +101,12 @@ def exact_basic_bootstrap(
 def exact_block_bootstrap(
     statistic: Callable[[tuple[int, ...]], float],
     *,
-    block_count: int,  # Positive block count.
-    limit: float,  # Positive registered upper limit.
+    block_count: PositiveInt,
+    limit: PositiveFloat,  # Registered upper limit.
 ) -> BootstrapTest:
     observed = statistic(tuple(range(block_count)))
     log_observed = math.log(observed)
-    weighted_samples: list[WeightedStatistic] = []  # Empty until the first resample.
+    weighted_samples: list[WeightedStatistic] = []
     null_threshold = log_observed - math.log(limit)
     lower_tail = 0
     for indices, weight in exact_block_draws(block_count):

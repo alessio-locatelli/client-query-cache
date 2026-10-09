@@ -18,7 +18,7 @@ Define each alias from the design's alias table in the same group that first use
 
 ## 3. Benchmarks
 
-- [ ] 3.1 Replace type prose in `benchmarks/` comments that the listing command finds. Verify that `uv run -- mypy` and `just lint` pass, and that the listing shows only meaning clauses and non-type prose in `benchmarks/`.
+- [x] 3.1 Replace type prose in `benchmarks/` comments that the listing command finds. Verify that `uv run -- mypy` and `just lint` pass, and that the listing shows only meaning clauses and non-type prose in `benchmarks/`.
 
 ## 4. Integration
 

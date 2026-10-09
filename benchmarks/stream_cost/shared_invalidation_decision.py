@@ -8,7 +8,9 @@ from functools import partial
 from hashlib import sha256
 from pathlib import Path
 from statistics import fmean
-from typing import TYPE_CHECKING, Literal, TypedDict, cast
+from typing import TYPE_CHECKING, Annotated, Literal, TypedDict, cast
+
+from annotated_types import Len
 
 from benchmarks.stream_cost.await_statistics import (
     WeightedStatistic,
@@ -18,6 +20,13 @@ from benchmarks.stream_cost.await_statistics import (
 )
 from benchmarks.stream_cost.errors import BenchmarkSetupError
 from benchmarks.stream_cost.multiprocess_run import _CONFIG, Protocol, validate_capture
+from client_query_cache._types import (
+    ExclusiveProbability,
+    NonEmptyStr,
+    NonNegativeInt,
+    PositiveFloat,
+    PositiveInt,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -33,29 +42,29 @@ class Opportunity(TypedDict):
     workload: Workload
     outcome: Outcome
     complete: bool
-    block_rates: tuple[float, ...]  # Can be empty when evidence is incomplete.
-    estimate: float | None  # Signed CPU rate; None means unavailable.
-    lower: float | None  # Signed lower bound; None means unavailable.
-    upper: float | None  # Signed upper bound; None means unavailable.
-    failure: str | None  # Nonempty explanation for unavailable evidence.
+    block_rates: tuple[float, ...]
+    estimate: float | None  # CPU rate; None means unavailable.
+    lower: float | None  # None means unavailable.
+    upper: float | None  # None means unavailable.
+    failure: NonEmptyStr | None  # Explanation for unavailable evidence.
 
 
 class BaselineDecision(TypedDict):
     outcome: Literal["proceed", "below-threshold", "inconclusive"]
     comparisons: tuple[Opportunity, ...]
-    alpha: float  # Positive per-alternative tail probability.
-    threshold: float  # Positive CPU-rate investment threshold.
-    active_minus_idle: dict[str, float | None]  # Two signed diagnostic rates.
+    alpha: ExclusiveProbability  # Per-alternative tail probability.
+    threshold: PositiveFloat  # CPU-rate investment threshold.
+    active_minus_idle: Annotated[dict[str, float | None], Len(2, 2)]
 
 
 class NativeLag(TypedDict):
     model: Model
-    block: int  # Zero-based block index.
-    workers: int  # Positive group size.
-    worker: int  # Zero-based worker index.
-    p95_seconds: float  # Clock-corrected lag can be zero or negative.
-    lower_seconds: float  # Expanded endpoint can be zero or negative.
-    upper_seconds: float  # Expanded endpoint can be zero or negative.
+    block: NonNegativeInt  # Zero-based.
+    workers: PositiveInt  # Group size.
+    worker: NonNegativeInt  # Zero-based.
+    p95_seconds: float  # Clock-corrected lag.
+    lower_seconds: float  # Expanded endpoint.
+    upper_seconds: float  # Expanded endpoint.
 
 
 def _capture_p95(
@@ -67,7 +76,7 @@ def _capture_p95(
 
 def describe_native_lag(report: Mapping[str, object]) -> tuple[NativeLag, ...]:
     expected_events = Protocol.load().updates
-    intervals: list[NativeLag] = []  # No entries until a complete native capture.
+    intervals: list[NativeLag] = []
     for sample in cast("list[Payload]", report["cells"]):
         if (
             sample["path"] != "native"
@@ -154,7 +163,7 @@ def _block_rate(
     block: int,
     seconds: float,
 ) -> float:
-    rates: dict[tuple[int, str], float] = {}  # Four matched cells per complete block.
+    rates: dict[tuple[int, str], float] = {}
     for workers in (1, 8):
         for path in ("stream-only", "stream-control"):
             matched = tuple(
@@ -271,7 +280,7 @@ def evaluate_baseline(report: Mapping[str, object]) -> BaselineDecision:
         if all(comparison["outcome"] == "below-threshold" for comparison in comparisons)
         else "inconclusive"
     )
-    diagnostics: dict[str, float | None] = {}  # Populated for both execution models.
+    diagnostics: dict[str, float | None] = {}
     for model in configuration["models"]:
         active = next(
             comparison["estimate"]

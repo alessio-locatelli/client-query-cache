@@ -18,9 +18,9 @@ from pymongo.monitoring import (
 
 @dataclass(frozen=True, slots=True)
 class AwaitCommand:
-    started_seconds: float  # Monotonic timestamp can be zero.
-    completed_seconds: float | None  # Timestamp can be zero; None means in flight.
-    max_time_ms: int | None  # Zero is observable; None means the option was absent.
+    started_seconds: float  # Monotonic.
+    completed_seconds: float | None  # Monotonic; None means in flight.
+    max_time_ms: int | None  # None means the option was absent.
     failed: bool
 
 
@@ -29,8 +29,8 @@ class AwaitCommandListener(CommandListener):
         self._lock = threading.Condition()
         self._version = 0
         self._on_next_start: Callable[[], None] | None = None
-        self._commands: list[AwaitCommand] = []  # Empty before the first getMore.
-        self._in_flight: dict[int, int] = {}  # Empty when no command is in flight.
+        self._commands: list[AwaitCommand] = []
+        self._in_flight: dict[int, int] = {}
 
     def started(self, event: CommandStartedEvent) -> None:
         if event.command_name != "getMore":
@@ -60,7 +60,7 @@ class AwaitCommandListener(CommandListener):
         if event.command_name == "getMore":
             self._complete(event.request_id, failed=True)
 
-    def _complete(self, request_id: int, *, failed: bool) -> None:  # ID can be zero.
+    def _complete(self, request_id: int, *, failed: bool) -> None:
         with self._lock:
             index = self._in_flight.pop(request_id)
             command = self._commands[index]
@@ -75,7 +75,7 @@ class AwaitCommandListener(CommandListener):
             return tuple(self._commands)
 
     @property
-    def version(self) -> int:  # Zero before the first observed command.
+    def version(self) -> int:
         with self._lock:
             return self._version
 

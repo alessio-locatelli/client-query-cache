@@ -42,6 +42,13 @@ from client_query_cache._core.stream_events import (
     _wall_time_seconds,
     build_change_stream_pipeline,
 )
+from client_query_cache._types import (
+    MaxAwaitTimeMs,
+    NonEmpty,
+    NonNegativeInt,
+    PositiveFloat,
+    PositiveInt,
+)
 from client_query_cache.asynchronous.manager import CacheManager as AsyncCacheManager
 from client_query_cache.synchronous.manager import CacheManager
 
@@ -73,33 +80,33 @@ type Stream = (
     DatabaseChangeStream[dict[str, object]]
     | AsyncDatabaseChangeStream[dict[str, object]]
 )
-type Payload = dict[str, object]  # Messages and reports can be empty during assembly.
+type Payload = dict[str, object]
 
 
 class CaptureConfiguration(TypedDict):
-    windows: int  # Positive window count.
-    events: int  # Positive events per window.
-    separation: int  # Separation can be zero.
+    windows: PositiveInt
+    events: PositiveInt  # Per window.
+    separation: int
 
 
 class ClientOptions(TypedDict):
     directConnection: bool
-    serverSelectionTimeoutMS: int  # Positive connection deadline.
+    serverSelectionTimeoutMS: PositiveInt
 
 
 class RegisteredConfiguration(TypedDict):
-    blocks: int  # Positive paired block count.
-    models: list[Model]  # Nonempty execution models.
-    worker_counts: list[int]  # Nonempty positive counts.
-    workloads: list[Workload]  # Nonempty workload identifiers.
-    paths: list[PathKind]  # Nonempty path identifiers.
-    seed: int  # Seed can be zero.
-    collections: list[str]  # Nonempty collection names.
-    payload_bytes: int  # Positive encoded padding length.
-    max_await_time_ms: int  # Positive stream await duration.
+    blocks: PositiveInt  # Paired blocks.
+    models: NonEmpty[list[Model]]
+    worker_counts: NonEmpty[list[PositiveInt]]
+    workloads: NonEmpty[list[Workload]]
+    paths: NonEmpty[list[PathKind]]
+    seed: int
+    collections: NonEmpty[list[str]]
+    payload_bytes: PositiveInt  # Encoded padding length.
+    max_await_time_ms: MaxAwaitTimeMs
     lag_capture: CaptureConfiguration
-    calibration_seconds: float  # Positive sampling interval.
-    clock_tolerance_seconds: float  # Positive drift tolerance.
+    calibration_seconds: PositiveFloat  # Sampling interval.
+    clock_tolerance_seconds: PositiveFloat  # Drift tolerance.
     client_options: ClientOptions
 
 
@@ -109,16 +116,16 @@ def load_registration() -> RegisteredConfiguration:
 
 @dataclass(frozen=True, slots=True)
 class Protocol:
-    window_seconds: float  # Positive application duration.
-    documents: int  # Positive even working-set size.
-    reads: int  # Positive aggregate active read count.
-    updates: int  # Positive aggregate active write count.
-    read_interval_seconds: float  # Positive pacing interval.
-    update_interval_seconds: float  # Positive pacing interval.
-    schedule_tolerance_seconds: float  # Positive allowed lateness.
-    startup_seconds: float  # Positive group startup deadline.
-    drain_seconds: float  # Positive group drain deadline.
-    shutdown_seconds: float  # Positive group shutdown deadline.
+    window_seconds: PositiveFloat  # Application duration.
+    documents: PositiveInt  # Even working-set size.
+    reads: PositiveInt  # Aggregate active read count.
+    updates: PositiveInt  # Aggregate active write count.
+    read_interval_seconds: PositiveFloat  # Pacing interval.
+    update_interval_seconds: PositiveFloat  # Pacing interval.
+    schedule_tolerance_seconds: PositiveFloat  # Allowed lateness.
+    startup_seconds: PositiveFloat  # Group startup deadline.
+    drain_seconds: PositiveFloat  # Group drain deadline.
+    shutdown_seconds: PositiveFloat  # Group shutdown deadline.
     registration: RegisteredConfiguration = field(default_factory=load_registration)
 
     @classmethod
@@ -140,16 +147,16 @@ class Protocol:
 
 @dataclass(frozen=True, slots=True)
 class Cell:
-    block: int  # Zero-based block index.
+    block: NonNegativeInt  # Zero-based.
     model: Model
-    workers: int  # Positive worker count.
+    workers: PositiveInt
     workload: Workload
     path: PathKind
 
 
 def planned_cells() -> tuple[Cell, ...]:
     registration = load_registration()
-    cells: list[Cell] = []  # Populated in counterbalanced block order.
+    cells: list[Cell] = []
     for block in range(registration["blocks"]):
         models = tuple(registration["models"])
         counts = tuple(registration["worker_counts"])
@@ -207,10 +214,10 @@ class WireCommands(CommandListener):
     def __init__(self, collections: tuple[str, ...]) -> None:
         self._collections = frozenset(collections)
         self._lock = threading.Lock()
-        self._counts: dict[str, int] = {}  # Empty before client creation.
+        self._counts: dict[str, int] = {}
         self.streams = 0
-        self._event_wall_seconds: list[float] = []  # Empty before scheduled updates.
-        self._poll_seconds: list[float] = []  # Empty before the first completed poll.
+        self._event_wall_seconds: list[float] = []
+        self._poll_seconds: list[float] = []
 
     def _record(self, name: str, outcome: str) -> None:
         with self._lock:
@@ -250,7 +257,7 @@ class WireCommands(CommandListener):
     def failed(self, event: CommandFailedEvent) -> None:
         self._record(event.command_name, "failed")
 
-    def snapshot(self) -> dict[str, int]:  # Can be empty before the first command.
+    def snapshot(self) -> dict[str, int]:
         with self._lock:
             return self._counts.copy()
 
@@ -265,10 +272,10 @@ class WireCommands(CommandListener):
 
 def idle_poll_max_gap(
     completions: tuple[float, ...],
-    start: float,  # Monotonic boundary can be zero.
-    end: float,  # Positive end boundary.
-    limit: float,  # Positive maximum polling gap.
-) -> float:  # Positive gap within a nonempty window.
+    start: float,  # Monotonic.
+    end: PositiveFloat,
+    limit: PositiveFloat,  # Maximum polling gap.
+) -> PositiveFloat:
     polls = tuple(stamp for stamp in completions if start <= stamp <= end)
     if not polls:
         raise BenchmarkSetupError("idle stream issued no completed getMore")
@@ -283,7 +290,7 @@ def idle_poll_max_gap(
 def command_delta(
     before: Mapping[str, int], after: Mapping[str, int]
 ) -> dict[str, int]:
-    deltas: dict[str, int] = {}  # No commands during some idle controls.
+    deltas: dict[str, int] = {}
     for key, count in after.items():
         try:
             previous = before[key]
@@ -370,7 +377,7 @@ async def worker_window(
         manager: Manager | None = None
         stream: Stream | None = None
         receiver: asyncio.Task[None] | None = None
-        observed: list[float] = []  # Stream-only event timestamps, empty in controls.
+        observed: list[float] = []  # Stream-only event timestamps.
         try:
             await invoke(client.admin.command, "ping")
             if cell.path == "native":
@@ -451,10 +458,8 @@ async def worker_window(
             commands_before = listener.snapshot()
             sent, received = proxy.bytes_sent, proxy.bytes_received
             cache_before = manager.snapshot() if manager is not None else None
-            latencies: list[
-                float
-            ] = []  # No application reads in idle or stream-only cells.
-            offsets: list[float] = []  # No read schedule in idle or stream-only cells.
+            latencies: list[float] = []
+            offsets: list[float] = []
             if reads_for_path(cell.path, cell.workload):
                 database = (
                     manager[_DATABASE] if manager is not None else client[_DATABASE]
@@ -697,7 +702,7 @@ def seed_documents(
     padding = generator.randbytes(protocol.registration["payload_bytes"]).hex()[
         : protocol.registration["payload_bytes"]
     ]
-    encoded_sizes: list[int] = []  # Populated for every seeded document.
+    encoded_sizes: list[int] = []
     for name in protocol.registration["collections"]:
         documents = tuple(
             {"_id": index, "value": 0, "padding": padding}
@@ -719,7 +724,7 @@ def seed_documents(
 
 def run_cell(replica: IsolatedReplicaSet, cell: Cell, protocol: Protocol) -> Payload:
     context = multiprocessing.get_context("spawn")
-    processes: list[BaseProcess] = []  # No children until startup.
+    processes: list[BaseProcess] = []
     connections: list[Connection] = []  # One private pipe per spawned child.
     shutdown_deadline: float | None = None
     with ExitStack() as resources:
@@ -777,7 +782,7 @@ def run_cell(replica: IsolatedReplicaSet, cell: Cell, protocol: Protocol) -> Pay
             start = time.monotonic()
             for connection in connections:
                 connection.send(start)
-            write_offsets: list[float] = []  # No writes in idle cells.
+            write_offsets: list[float] = []
             if cell.workload == "active":
                 for ordinal in range(protocol.updates):
                     deadline = start + ordinal * protocol.update_interval_seconds
