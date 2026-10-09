@@ -9,12 +9,12 @@ from bson import ObjectId
 from faker import Faker
 
 from benchmarks.stream_cost.errors import BenchmarkConfigurationError
-from client_query_cache._types import NonNegativeInt, PositiveInt
+from client_query_cache._types import NonEmptyStr, NonNegativeInt, PositiveInt
 
 
 @dataclass(frozen=True, slots=True)
 class DocumentSizeProfile:
-    name: str
+    name: NonEmptyStr
     target_bytes: PositiveInt
 
     def __post_init__(self) -> None:

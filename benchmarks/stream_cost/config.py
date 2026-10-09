@@ -1,14 +1,11 @@
 from __future__ import annotations
 
+from collections.abc import Mapping  # noqa: TC003 - Required for dataclass introspection.
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import TYPE_CHECKING
 
 from benchmarks.stream_cost.errors import BenchmarkConfigurationError
-from client_query_cache._types import PositiveInt
-
-if TYPE_CHECKING:
-    from collections.abc import Mapping
+from client_query_cache._types import NonEmpty, NonEmptyStr, PositiveInt
 
 _JSONScalar = str | int | float | bool | None
 
@@ -31,10 +28,10 @@ def _require_scalar_values(mapping: Mapping[str, object], field_name: str) -> No
 
 @dataclass(frozen=True, slots=True)
 class BenchmarkIdentity:
-    revision: str
-    library_version: str
-    python_version: str
-    pymongo_version: str
+    revision: NonEmptyStr
+    library_version: NonEmptyStr
+    python_version: NonEmptyStr
+    pymongo_version: NonEmptyStr
 
     def __post_init__(self) -> None:
         _require_non_empty_string(self.revision, "revision")
@@ -45,10 +42,10 @@ class BenchmarkIdentity:
 
 @dataclass(frozen=True, slots=True)
 class BenchmarkEnvironment:
-    mongodb_version: str
-    topology: str
+    mongodb_version: NonEmptyStr
+    topology: NonEmptyStr
     member_count: PositiveInt
-    resource_limits: Mapping[str, str]
+    resource_limits: NonEmpty[Mapping[str, str]]
 
     def __post_init__(self) -> None:
         _require_non_empty_string(self.mongodb_version, "mongodb_version")
@@ -66,8 +63,8 @@ class BenchmarkEnvironment:
 
 @dataclass(frozen=True, slots=True)
 class WorkloadParameters:
-    name: str
-    parameters: Mapping[str, _JSONScalar]
+    name: NonEmptyStr
+    parameters: NonEmpty[Mapping[str, _JSONScalar]]
 
     def __post_init__(self) -> None:
         _require_non_empty_string(self.name, "name")
@@ -80,8 +77,8 @@ class WorkloadParameters:
 
 @dataclass(frozen=True, slots=True)
 class Limitation:
-    label: str
-    description: str
+    label: NonEmptyStr
+    description: NonEmptyStr
 
     def __post_init__(self) -> None:
         _require_non_empty_string(self.label, "label")

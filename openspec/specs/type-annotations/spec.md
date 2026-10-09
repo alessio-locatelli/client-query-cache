@@ -32,12 +32,17 @@ Repository Python code SHALL express sign, numeric bounds, and minimum or exact 
 
 ### Requirement: Bare annotations need no permissive prose
 
-Prose SHALL NOT state that a value with a bare numeric, string, or collection annotation can be zero, negative, or empty, or explain why such a collection starts empty, because the bare type already admits those values.
+Prose SHALL NOT merely restate that a bare numeric, string, or collection annotation admits zero, negative, or empty values, or explain an accumulator's empty initialization. Prose SHALL be preserved when it explains a sentinel, cache eligibility, or the conditions under which a collection is empty.
 
 #### Scenario: An accumulator starts empty
 
 - **WHEN** a list is initialized empty and filled later
 - **THEN** its bare list annotation is sufficient and no comment explains the empty start
+
+#### Scenario: An empty collection has domain meaning
+
+- **WHEN** a comment explains that an empty result is cacheable or that a collection is empty for a particular workload or unresolved comparison
+- **THEN** the comment remains because the annotation cannot express that behavior
 
 ### Requirement: Shared constrained aliases have one source
 

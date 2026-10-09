@@ -48,13 +48,13 @@ class ComparisonEvidence:
     unresolved: bool
     holm_rank: PositiveInt  # One-based rank in the complete comparison family.
     holm_step_alpha: ExclusiveProbability  # Per-step tail probability.
-    bootstrap_distribution: tuple[WeightedStatistic, ...]
+    bootstrap_distribution: tuple[WeightedStatistic, ...]  # Empty when unresolved.
 
 
 @dataclass(frozen=True, slots=True)
 class AwaitDecision:
     selected_ms: MaxAwaitTimeMs
-    eligible_ms: tuple[MaxAwaitTimeMs, ...]
+    eligible_ms: tuple[MaxAwaitTimeMs, ...]  # Empty if no larger candidate qualifies.
     inconclusive: bool
     rationale: NonEmptyStr
     comparisons: tuple[ComparisonEvidence, ...]

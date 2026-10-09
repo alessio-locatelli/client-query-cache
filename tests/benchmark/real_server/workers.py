@@ -30,7 +30,7 @@ _SOCKET_TIMEOUT_MS = 5_000
 class ReadPhaseResult:
     duration_seconds: NonNegativeFloat
     find_command_count: NonNegativeInt
-    max_observed_counter: NonNegativeInt
+    max_observed_counter: int  # -1 when no counter was observed.
 
 
 def _bounded_mongo_client(
@@ -100,7 +100,7 @@ def write_documents_until_stopped(
             stop_event.wait(update_interval_seconds)
 
 
-def _read_each_document(collection: Any, document_ids: Sequence[str]) -> NonNegativeInt:  # noqa: ANN401
+def _read_each_document(collection: Any, document_ids: Sequence[str]) -> int:  # noqa: ANN401
     max_counter = -1
     for document_id in document_ids:
         document = collection.find_one({"_id": document_id})
@@ -110,7 +110,7 @@ def _read_each_document(collection: Any, document_ids: Sequence[str]) -> NonNega
     return max_counter
 
 
-def _counter_or_default(document: dict[str, Any]) -> NonNegativeInt:
+def _counter_or_default(document: dict[str, Any]) -> int:
     try:
         counter: NonNegativeInt = document["counter"]
     except KeyError:
