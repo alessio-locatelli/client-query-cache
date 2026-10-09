@@ -51,6 +51,7 @@ from client_query_cache._core.traversal import (
     ensure_subcollection_name,
 )
 from client_query_cache._core.unique_keys import match_unique_key
+from client_query_cache._types import NonNegativeInt
 from client_query_cache.asynchronous.cursors import (
     CachedCommandCursor,
     CachedCursor,
@@ -332,7 +333,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
         *,
         session: AsyncClientSession | None = None,
         **kwargs: object,
-    ) -> int:
+    ) -> NonNegativeInt:
         options = count_read_options(kwargs)
         codec_options = self._collection.codec_options
         discriminator = order_sensitive_discriminator_key(
@@ -361,7 +362,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
             namespace, discriminator, codec_options=codec_options
         )
         if lookup_result.hit:
-            return cast("int", lookup_result.value)
+            return cast("NonNegativeInt", lookup_result.value)
         if not cache.is_database_available(namespace.database):
             return await self._collection.count_documents(
                 filter, session=session, **kwargs
@@ -375,7 +376,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
         )
         return count
 
-    async def estimated_document_count(self, **kwargs: object) -> int:
+    async def estimated_document_count(self, **kwargs: object) -> NonNegativeInt:
         reason = (
             self._request_bypass_reason(session=None, kwargs=kwargs)
             or await self._cache_ineligibility_reason()
@@ -391,7 +392,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
             namespace, discriminator, codec_options=codec_options
         )
         if lookup_result.hit:
-            return cast("int", lookup_result.value)
+            return cast("NonNegativeInt", lookup_result.value)
         if not cache.is_database_available(namespace.database):
             return await self._collection.estimated_document_count()
         capture = cache.capture_namespace_generation(namespace)

@@ -4,8 +4,8 @@ List candidates with `rg -n --type py '\bint\b' <tree> | rg -v 'isinstance\(|\bi
 
 ## 1. Library
 
-- [ ] 1.1 Apply the rule in `src/`, keeping each synchronous/asynchronous pair identical. Verify that `just lint` passes.
-- [ ] 1.2 Extend the constrained-annotations bullet in `AGENTS.md` with the rule. Verify that `just lint` passes.
+- [x] 1.1 Apply the rule in `src/`, keeping each synchronous/asynchronous pair identical. Verify that `just lint` passes.
+- [x] 1.2 Extend the constrained-annotations bullet in `AGENTS.md` with the rule. Verify that `just lint` passes.
 
 ## 2. Benchmarks and tests
 

@@ -144,9 +144,9 @@ class StreamCostStatistics:
     def snapshot(
         self,
     ) -> tuple[
-        int,
-        int,
-        int,
+        NonNegativeInt,
+        NonNegativeInt,
+        NonNegativeInt,
         tuple[tuple[float, ...], ...],
         tuple[InvalidationApplyReading, ...],
     ]:
@@ -212,7 +212,9 @@ class StreamCostRegistry:
         for stats in all_stats:
             stats.reset()
 
-    def snapshot(self, database: str, *, resident_bytes: int) -> StreamCostSnapshot:
+    def snapshot(
+        self, database: str, *, resident_bytes: NonNegativeInt
+    ) -> StreamCostSnapshot:
         stats = self._get(database)
         if stats is None:
             stream_polls, logical_event_bytes, invalidations = 0, 0, 0

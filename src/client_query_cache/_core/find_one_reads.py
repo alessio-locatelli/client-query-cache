@@ -9,6 +9,7 @@ from client_query_cache._core.collation import normalize_collation
 from client_query_cache._core.order_sensitive_keys import (
     order_sensitive_discriminator_key,
 )
+from client_query_cache._types import NonNegativeInt
 
 type CollationInput = Collation | Mapping[str, Any]
 
@@ -101,7 +102,7 @@ def find_one_read_shape(
 def generic_find_one_discriminator(
     filter_query: object,
     read_shape: object,
-    index_generation: int,
+    index_generation: NonNegativeInt,
 ) -> object:
     return order_sensitive_discriminator_key(
         ("find_one_generic", filter_query, read_shape, index_generation)

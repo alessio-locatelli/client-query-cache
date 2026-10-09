@@ -4,6 +4,8 @@ import threading
 from collections import OrderedDict
 from typing import TYPE_CHECKING
 
+from client_query_cache._types import NonNegativeInt, PositiveInt
+
 if TYPE_CHECKING:
     from client_query_cache._core.entries import CacheEntry
     from client_query_cache._core.keys import CacheKey
@@ -23,8 +25,8 @@ class WeightedLru:
     def __init__(
         self,
         *,
-        shared_budget_bytes: int,
-        max_entry_bytes: int,
+        shared_budget_bytes: PositiveInt,
+        max_entry_bytes: PositiveInt,
         guard: LockOrderGuard,
     ) -> None:
         self._shared_budget_bytes = shared_budget_bytes
@@ -35,17 +37,17 @@ class WeightedLru:
         self._lock = threading.Lock()
 
     @property
-    def max_entry_bytes(self) -> int:
+    def max_entry_bytes(self) -> PositiveInt:
         return self._max_entry_bytes
 
     @property
-    def shared_budget_bytes(self) -> int:
+    def shared_budget_bytes(self) -> PositiveInt:
         return self._shared_budget_bytes
 
-    def is_oversize(self, weight: int) -> bool:
+    def is_oversize(self, weight: NonNegativeInt) -> bool:
         return weight > self._max_entry_bytes
 
-    def snapshot_usage(self) -> tuple[int, int]:
+    def snapshot_usage(self) -> tuple[NonNegativeInt, NonNegativeInt]:
         with self._guard.lru_section(), self._lock:
             return self._used_bytes, len(self._order)
 

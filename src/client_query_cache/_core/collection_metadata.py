@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 from client_query_cache._core.collation import normalize_collation
 from client_query_cache._core.snapshots import BypassReason
+from client_query_cache._types import NonNegativeInt
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -22,7 +23,7 @@ _COLLECTION_REASONS = {
 
 @dataclass(frozen=True, slots=True)
 class CollectionMetadata:
-    checked_epoch: int
+    checked_epoch: NonNegativeInt
     bypass_reason: BypassReason | None
     default_collation: Mapping[str, Any] | None
 

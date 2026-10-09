@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
+from client_query_cache._types import NonNegativeInt
+
 if TYPE_CHECKING:
     from collections.abc import Callable
 
@@ -99,7 +101,7 @@ class RetryBackoff:
     base_seconds: float = DEFAULT_BASE_DELAY_SECONDS
     max_seconds: float = DEFAULT_MAX_DELAY_SECONDS
     multiplier: float = DEFAULT_MULTIPLIER
-    _attempt: int = field(default=0, init=False)
+    _attempt: NonNegativeInt = field(default=0, init=False)
     _saturated: bool = field(default=False, init=False)
 
     def reset(self) -> None:

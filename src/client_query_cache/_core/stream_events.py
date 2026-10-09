@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 from bson.datetime_ms import DatetimeMS
 
 from client_query_cache._core.keys import NamespaceId
+from client_query_cache._types import NonNegativeInt
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -28,7 +29,7 @@ RELEVANT_OPERATION_TYPES = (
     | frozenset({"drop", "dropDatabase", "rename", "create", "invalidate"})
 )
 
-CHANGE_STREAM_PROJECTION: Mapping[str, int] = {
+CHANGE_STREAM_PROJECTION: Mapping[str, NonNegativeInt] = {
     "_id": 1,
     "operationType": 1,
     "ns": 1,
