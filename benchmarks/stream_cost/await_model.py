@@ -49,7 +49,7 @@ class UncertaintyConfig(TypedDict):
     one_sided_p_value: NonEmptyStr  # Procedure description.
     upper_bound: NonEmptyStr  # Procedure description.
     multiplicity: NonEmptyStr  # Procedure description.
-    resolution: NonEmpty[dict[str, PositiveFloat]]  # Keyed by metric.
+    resolution: NonEmpty[dict[AwaitMetric, PositiveFloat]]
     unresolved_denominator: NonEmptyStr  # Resolution procedure description.
 
 
@@ -89,18 +89,20 @@ class AwaitWindow:
     bytes_received: NonNegativeInt | None  # Not measured during shutdown.
     getmore_started: NonNegativeInt
     getmore_completed: NonNegativeInt
-    requested_max_time_ms: tuple[NonNegativeInt | None, ...]  # None means absent.
+    # Empty on failure; None means absent.
+    requested_max_time_ms: tuple[NonNegativeInt | None, ...]
     command_failures: NonNegativeInt
     manager_iteration_calls: NonNegativeInt
-    issue_offsets_seconds: tuple[NonNegativeFloat, ...]
-    lag_seconds: tuple[NonNegativeFloat, ...]
-    shutdown_seconds: tuple[NonNegativeFloat, ...]
+    issue_offsets_seconds: tuple[NonNegativeFloat, ...]  # Empty for idle windows.
+    lag_seconds: tuple[NonNegativeFloat, ...]  # Empty for idle windows.
+    shutdown_seconds: tuple[NonNegativeFloat, ...]  # Empty outside shutdown trials.
     invalidations: NonNegativeInt
     healthy: bool
     failure: NonEmptyStr | None  # Error category, or None for a completed window.
+    # Empty outside shutdown.
     shutdown_start_offsets_seconds: tuple[NonNegativeFloat, ...] = ()
-    shutdown_inflight: tuple[bool, ...] = ()
-    getmore_inflight_at_start: NonNegativeInt = 0
+    shutdown_inflight: tuple[bool, ...] = ()  # Empty outside shutdown.
+    getmore_inflight_at_start: NonNegativeInt = 0  # Zero at a command boundary.
 
 
 type WindowIdentity = tuple[

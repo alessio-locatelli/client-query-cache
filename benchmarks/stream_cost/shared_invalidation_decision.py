@@ -19,7 +19,12 @@ from benchmarks.stream_cost.await_statistics import (
     weighted_quantile,
 )
 from benchmarks.stream_cost.errors import BenchmarkSetupError
-from benchmarks.stream_cost.multiprocess_run import _CONFIG, Protocol, validate_capture
+from benchmarks.stream_cost.multiprocess_run import (
+    _CONFIG,
+    Model,
+    Protocol,
+    validate_capture,
+)
 from client_query_cache._types import (
     ExclusiveProbability,
     NonEmptyStr,
@@ -32,7 +37,7 @@ from client_query_cache._types import (
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
-    from benchmarks.stream_cost.multiprocess_run import Model, Payload, Workload
+    from benchmarks.stream_cost.multiprocess_run import Payload, Workload
 
 
 type Outcome = Literal["opportunity", "below-threshold", "inconclusive"]
@@ -55,7 +60,7 @@ class BaselineDecision(TypedDict):
     comparisons: tuple[Opportunity, ...]
     alpha: ExclusiveProbability  # Per-alternative tail probability.
     threshold: PositiveFloat  # CPU-rate investment threshold.
-    active_minus_idle: Annotated[dict[str, float | None], Len(2, 2)]
+    active_minus_idle: Annotated[dict[Model, float | None], Len(2, 2)]
 
 
 class NativeLag(TypedDict):
@@ -287,7 +292,7 @@ def evaluate_baseline(report: Mapping[str, object]) -> BaselineDecision:
         if all(comparison["outcome"] == "below-threshold" for comparison in comparisons)
         else "inconclusive"
     )
-    diagnostics: dict[str, float | None] = {}
+    diagnostics: dict[Model, float | None] = {}
     for model in configuration["models"]:
         active = next(
             comparison["estimate"]

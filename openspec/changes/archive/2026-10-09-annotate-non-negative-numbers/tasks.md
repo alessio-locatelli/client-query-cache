@@ -17,3 +17,8 @@ List candidates with `rg -n --type py '\b(int|float)\b' <tree> | rg -v 'isinstan
 ## 3. Code Quality
 
 - [x] 3.1 If implementing with Claude Code, confirm that no new prose was added to code, and that every why explanation is in specs or commit bodies. OpenAI Codex is exempt.
+
+## 4. PR review corrections
+
+- [x] 4.1 Preserve signed counter sentinels, restore conditional semantic comments, and align validated benchmark fields and metric/model keys with their domains.
+- [x] 4.2 Clarify the annotation comment policy, validate the corrections, and review the completed branch before syncing and archiving.

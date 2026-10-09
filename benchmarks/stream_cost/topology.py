@@ -19,7 +19,12 @@ from benchmarks.stream_cost.errors import (
     BenchmarkConfigurationError,
     BenchmarkSetupError,
 )
-from client_query_cache._types import NonNegativeFloat, NonNegativeInt, PositiveFloat
+from client_query_cache._types import (
+    NonEmptyStr,
+    NonNegativeFloat,
+    NonNegativeInt,
+    PositiveFloat,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -64,7 +69,7 @@ def _parse_memory_bytes(memory: str) -> NonNegativeFloat:
 @dataclass(frozen=True, slots=True)
 class ResourceLimits:
     cpus: PositiveFloat
-    memory: str
+    memory: NonEmptyStr
 
     def __post_init__(self) -> None:
         if not math.isfinite(self.cpus):
