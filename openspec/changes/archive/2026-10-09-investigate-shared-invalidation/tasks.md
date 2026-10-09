@@ -29,3 +29,4 @@ Tasks 2.1–2.3 are completed by the conditional skip rule: the registered gate 
 - [x] 5.3 Restore the report's measurement provenance through reachable equivalent source revisions and retain concise derived block-rate summaries; audit the retained idle samples against the added polling check.
 - [x] 5.4 Place argument constraint comments beside their arguments and audit inline comments in the changed Python files after formatting.
 - [x] 5.5 Isolate calibration test clocks from driver threads and give instrumentation-only integration tests scheduling slack under coverage; retain the registered benchmark protocol and explicit lateness rejection test.
+- [x] 5.6 Gate delayed delivery on the actual application-window end, let failed children finish cleanup within the existing deadline, and allow forced-shutdown tests enough time to save coverage before escalation.
