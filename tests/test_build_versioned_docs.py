@@ -33,6 +33,7 @@ pytestmark = pytest.mark.unit
 RELEASE_VERSION = "1.0.0"
 RELEASE_TAG = f"v{RELEASE_VERSION}"
 MISMATCHED_TAG = "v9.0.0"
+PREVIOUS_ARTIFACT_TEXT = "Previous complete artifact\n"
 
 
 def commit(repo: Path) -> Text:
@@ -154,7 +155,7 @@ def previous_artifact(exported_repo: Path, artifact_exists: bool) -> Path:
     output = exported_repo / "site"
     if artifact_exists:
         output.mkdir()
-        (output / "previous.txt").write_text("Previous complete artifact\n")
+        (output / "previous.txt").write_text(PREVIOUS_ARTIFACT_TEXT)
     return output
 
 
@@ -201,6 +202,11 @@ def test_assembles_without_write_access_to_checkout_parent(
     assert "Released guide" in (output / "stable/index.html").read_text()
     assert "Released guide" in (output / "dev/index.html").read_text()
     assert not (output / "previous.txt").exists()
+
+
+def assert_previous_artifact(directory: Path) -> None:
+    assert tuple(directory.iterdir()) == (directory / "previous.txt",)
+    assert (directory / "previous.txt").read_text() == PREVIOUS_ARTIFACT_TEXT
 
 
 @pytest.fixture
@@ -266,10 +272,7 @@ def test_failed_edition_preserves_previous_artifact(
         assert diagnostic in captured.out + captured.err
     else:
         assert diagnostic in str(failure.value)
-    assert tuple(previous_artifact.iterdir()) == (previous_artifact / "previous.txt",)
-    assert (
-        previous_artifact / "previous.txt"
-    ).read_text() == "Previous complete artifact\n"
+    assert_previous_artifact(previous_artifact)
 
 
 @pytest.fixture
@@ -333,9 +336,7 @@ def test_swap_failure_preserves_previous_artifact(
         )
     assert failure.value.errno == error
     backups = tuple(exported_repo.glob(".docs-previous-*"))
-    preserved = backups[0] if phase == "restore" else previous_artifact
-    assert (preserved / "previous.txt").read_text() == "Previous complete artifact\n"
-    assert tuple(preserved.iterdir()) == (preserved / "previous.txt",)
+    assert_previous_artifact(backups[0] if phase == "restore" else previous_artifact)
     assert len(backups) == (1 if phase == "restore" else 0)
     assert not tuple(exported_repo.glob(".docs-artifact-*"))
 
@@ -550,10 +551,7 @@ def test_missing_export_preserves_previous_artifact(
             select_sources(exported_repo, RELEASE_TAG, "HEAD"),
             previous_artifact,
         )
-    assert tuple(previous_artifact.iterdir()) == (previous_artifact / "previous.txt",)
-    assert (
-        previous_artifact / "previous.txt"
-    ).read_text() == "Previous complete artifact\n"
+    assert_previous_artifact(previous_artifact)
 
 
 @pytest.fixture

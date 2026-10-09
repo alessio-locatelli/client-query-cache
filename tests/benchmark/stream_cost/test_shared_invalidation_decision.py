@@ -118,21 +118,17 @@ def test_native_lag_matches_exact_capture_percentiles_and_clock_margin(
     )
 
 
-@pytest.mark.parametrize(
-    "fault", ["failed", "capture"], ids=["failed-native-cell", "incomplete-capture"]
-)
-def test_native_lag_cannot_describe_failed_or_incomplete_cells(
-    native_report: Payload, fault: str
-) -> None:
+def test_native_lag_omits_failed_cells(native_report: Payload) -> None:
+    cast("list[Payload]", native_report["cells"])[0]["healthy"] = False
+    assert describe_native_lag(native_report) == ()
+
+
+def test_native_lag_rejects_incomplete_capture(native_report: Payload) -> None:
     sample = cast("list[Payload]", native_report["cells"])[0]
-    if fault == "failed":
-        sample["healthy"] = False
-        assert describe_native_lag(native_report) == ()
-    else:
-        worker = cast("list[Payload]", sample["workers_measured"])[0]
-        worker["lag_windows"] = ((0.01,) * 20,) * 5
-        with pytest.raises(BenchmarkSetupError, match="capture"):
-            describe_native_lag(native_report)
+    worker = cast("list[Payload]", sample["workers_measured"])[0]
+    worker["lag_windows"] = ((0.01,) * 20,) * 5
+    with pytest.raises(BenchmarkSetupError, match="capture"):
+        describe_native_lag(native_report)
 
 
 def _baseline_report(idle: tuple[float, ...], active: tuple[float, ...]) -> Payload:
@@ -201,29 +197,35 @@ def test_active_opportunity_can_pass_with_idle_below_threshold(
 
 
 @pytest.mark.parametrize(
-    "fault",
+    "inject_fault",
     [
-        "missing",
-        "failed",
-        "duplicate",
-        "metric-missing",
-        "metric-negative",
-        "metric-nan",
-        "duration",
-    ],
-    ids=[
-        "missing-cell",
-        "failed-cell",
-        "duplicate-cell",
-        "missing-cpu",
-        "negative-cpu",
-        "nan-cpu",
-        "wrong-duration",
+        pytest.param(lambda cells, sample: cells.remove(sample), id="missing-cell"),
+        pytest.param(
+            lambda _cells, sample: sample.update(healthy=False), id="failed-cell"
+        ),
+        pytest.param(
+            lambda cells, sample: cells.append(sample.copy()), id="duplicate-cell"
+        ),
+        pytest.param(
+            lambda _cells, sample: sample.pop("server_cpu_seconds"), id="missing-cpu"
+        ),
+        pytest.param(
+            lambda _cells, sample: sample.update(server_cpu_seconds=-1),
+            id="negative-cpu",
+        ),
+        pytest.param(
+            lambda _cells, sample: sample.update(server_cpu_seconds=float("nan")),
+            id="nan-cpu",
+        ),
+        pytest.param(
+            lambda _cells, sample: sample.update(application_seconds=59),
+            id="wrong-duration",
+        ),
     ],
 )
 def test_gate_retains_incomplete_alternatives(
     baseline_factory: Callable[[tuple[float, ...], tuple[float, ...]], Payload],
-    fault: str,
+    inject_fault: Callable[[list[Payload], Payload], object],
 ) -> None:
     report = baseline_factory((0.01,) * 6, (0.01,) * 6)
     cells = cast("list[Payload]", report["cells"])
@@ -236,20 +238,7 @@ def test_gate_retains_incomplete_alternatives(
         and cell["workers"] == 8
         and cell["path"] == "stream-only"
     )
-    if fault == "missing":
-        cells.remove(sample)
-    elif fault == "failed":
-        sample["healthy"] = False
-    elif fault == "duplicate":
-        cells.append(sample.copy())
-    elif fault == "metric-missing":
-        del sample["server_cpu_seconds"]
-    elif fault == "metric-negative":
-        sample["server_cpu_seconds"] = -1
-    elif fault == "metric-nan":
-        sample["server_cpu_seconds"] = float("nan")
-    else:
-        sample["application_seconds"] = 59
+    inject_fault(cells, sample)
     decision = evaluate_baseline(report)
     assert decision["outcome"] == "inconclusive"
     assert len(decision["comparisons"]) == 4
@@ -280,20 +269,24 @@ def test_gate_includes_active_drain_and_ignores_native_refetch_savings(
 
 
 @pytest.mark.parametrize(
-    "fault",
-    ["smoke", "hash", "protocol"],
-    ids=["smoke-phase", "changed-registration", "shortened-schedule"],
+    "unregister",
+    [
+        pytest.param(lambda report: report.update(phase="smoke"), id="smoke-phase"),
+        pytest.param(
+            lambda report: report.update(configuration_sha256="different protocol"),
+            id="changed-registration",
+        ),
+        pytest.param(
+            lambda report: cast("Payload", report["protocol"]).update(window_seconds=1),
+            id="shortened-schedule",
+        ),
+    ],
 )
 def test_gate_rejects_unregistered_reports(
     baseline_factory: Callable[[tuple[float, ...], tuple[float, ...]], Payload],
-    fault: str,
+    unregister: Callable[[Payload], object],
 ) -> None:
     report = baseline_factory((0.01,) * 6, (0.01,) * 6)
-    if fault == "smoke":
-        report["phase"] = "smoke"
-    elif fault == "hash":
-        report["configuration_sha256"] = "different protocol"
-    else:
-        cast("Payload", report["protocol"])["window_seconds"] = 1
+    unregister(report)
     with pytest.raises(BenchmarkSetupError, match="registered baseline protocol"):
         evaluate_baseline(report)

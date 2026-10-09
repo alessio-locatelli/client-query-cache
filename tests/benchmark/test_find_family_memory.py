@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
 pytestmark = [pytest.mark.benchmark, pytest.mark.timeout(180)]
+HEAP_NAMESPACE = NamespaceId("heap", "empty")
 
 
 @pytest.fixture
@@ -31,7 +32,7 @@ def traced_family_core() -> Iterator[CacheCore]:
         core.capture_namespace_generation(NamespaceId("warm", "codec")), "warm", []
     )
     core.clear_namespace(NamespaceId("warm", "codec"))
-    core._namespace(NamespaceId("heap", "empty"))
+    core._namespace(HEAP_NAMESPACE)
     gc.collect()
     yield core
     tracemalloc.stop()
@@ -55,7 +56,6 @@ def populate_sources(
     predicate: object,
     descending: bool = False,
 ) -> None:
-    namespace = NamespaceId("heap", "empty")
     limits = range(100, 100 + count)
     for limit in reversed(limits) if descending else limits:
         shape = find_read_shape(
@@ -63,7 +63,7 @@ def populate_sources(
         )
         assert (
             core.admit_namespace(
-                core.capture_namespace_generation(namespace),
+                core.capture_namespace_generation(HEAP_NAMESPACE),
                 shape.discriminator,
                 [],
                 find_source=shape.source if indexed else None,
@@ -88,17 +88,14 @@ def measure_heap(
     retained = tracemalloc.get_traced_memory()[0] - before
     snapshot = core.snapshot()
     tokens = sum(
-        len(bucket)
-        for bucket in core._namespace(
-            NamespaceId("heap", "empty")
-        ).find_families.values()
+        len(bucket) for bucket in core._namespace(HEAP_NAMESPACE).find_families.values()
     )
     assert snapshot.entry_count == count
     assert tokens == (count if indexed else 0)
-    core.clear_namespace(NamespaceId("heap", "empty"))
+    core.clear_namespace(HEAP_NAMESPACE)
     gc.collect()
     cleared = tracemalloc.get_traced_memory()[0] - before
-    assert not core._namespace(NamespaceId("heap", "empty")).find_families
+    assert not core._namespace(HEAP_NAMESPACE).find_families
     return {
         "retained_heap_bytes": retained,
         "payload_bytes": snapshot.used_bytes,
@@ -144,7 +141,6 @@ def test_find_family_lookup(
     populate_sources(
         core, count, indexed=True, predicate=predicate, descending=descending
     )
-    namespace = NamespaceId("heap", "empty")
     request = find_read_shape(
         predicate, None, {"_id": 1}, 0, 10, collation=None, codec="codec"
     )
@@ -152,17 +148,17 @@ def test_find_family_lookup(
     timings: list[float] = []  # Timing samples populate the initially empty list.
     for _ in range(21):
         started = perf_counter()
-        lookup = core.lookup_find(namespace, request)
+        lookup = core.lookup_find(HEAP_NAMESPACE, request)
         timings.append(perf_counter() - started)
         assert lookup.hit
         assert lookup.value == []
     tracemalloc.start()
-    assert core.lookup_find(namespace, request).hit
+    assert core.lookup_find(HEAP_NAMESPACE, request).hit
     peak = tracemalloc.get_traced_memory()[1]
     tracemalloc.stop()
     profiler = cProfile.Profile()
     profiler.enable()
-    assert core.lookup_find(namespace, request).hit
+    assert core.lookup_find(HEAP_NAMESPACE, request).hit
     profiler.disable()
     probes = count_current_thread_calls(
         monkeypatch, type(core), "_probe_namespace_entry"
@@ -170,7 +166,7 @@ def test_find_family_lookup(
     discriminators = count_current_thread_calls(
         monkeypatch, core_module, "find_discriminator"
     )
-    assert core.lookup_find(namespace, request).hit
+    assert core.lookup_find(HEAP_NAMESPACE, request).hit
     print(
         json.dumps(
             {

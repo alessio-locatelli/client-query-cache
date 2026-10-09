@@ -39,7 +39,7 @@ from client_query_cache._core.stream_cost import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
     from multiprocessing.connection import Connection
     from multiprocessing.process import BaseProcess
     from pathlib import Path
@@ -204,27 +204,29 @@ def test_cli_records_failed_cell_and_stops(
     assert sample["failure"] == "worker exited unsuccessfully"
 
 
-@pytest.mark.parametrize(
-    "fault", ["exists", "git"], ids=["preserve-evidence", "missing-git"]
-)
-def test_cli_rejects_unreproducible_output(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fault: str
-) -> None:
+@pytest.fixture
+def cli_output(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     output = tmp_path / "report.json"
     monkeypatch.setattr("sys.argv", ["multiprocess_run", "--output", str(output)])
-    if fault == "exists":
-        output.write_text("existing evidence")
-        with pytest.raises(SystemExit) as error:
-            runpy.run_path(str(multiprocess_run.__file__), run_name="__main__")
-        assert error.value.code == 2
-        assert output.read_text() == "existing evidence"
-    else:
-        monkeypatch.setattr(
-            "benchmarks.stream_cost.multiprocess_run.shutil.which",
-            Mock(return_value=None),
-        )
-        with pytest.raises(BenchmarkSetupError, match="git is required"):
-            multiprocess_run.main()
+    return output
+
+
+def test_cli_preserves_existing_evidence(cli_output: Path) -> None:
+    cli_output.write_text("existing evidence", encoding="utf-8")
+    with pytest.raises(SystemExit) as error:
+        runpy.run_path(str(multiprocess_run.__file__), run_name="__main__")
+    assert error.value.code == 2
+    assert cli_output.read_text(encoding="utf-8") == "existing evidence"
+
+
+@pytest.mark.usefixtures("cli_output")
+def test_cli_requires_git(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "benchmarks.stream_cost.multiprocess_run.shutil.which",
+        Mock(return_value=None),
+    )
+    with pytest.raises(BenchmarkSetupError, match="git is required"):
+        multiprocess_run.main()
 
 
 @pytest.mark.parametrize(
@@ -294,35 +296,42 @@ def test_counterbalances_complete_cells() -> None:
     assert len(set(cells)) == 192
 
 
-@pytest.mark.parametrize(
-    "event_count", [199, 200, 201], ids=["missing", "complete", "extra"]
-)
-def test_requires_complete_capture_and_separations(event_count: int) -> None:
+def record_capture(
+    event_count: int,
+) -> tuple[LagCaptureWindows, tuple[int, ...]]:
     captures = LagCaptureWindows(LagCaptureWindowConfig(6, 20, 16))
     admitted_ordinals = tuple(
         index for index in range(1, event_count + 1) if captures.record(float(index))
     )
-    if event_count != 200:
-        with pytest.raises(BenchmarkSetupError, match="invalidations"):
-            validate_capture(event_count, captures.snapshot(), 200)
-    else:
-        validate_capture(event_count, captures.snapshot(), 200)
-        assert captures.snapshot() == capture_ordinals()
-        assert admitted_ordinals == tuple(
-            index for window in capture_ordinals() for index in window
-        )
-        assert sum(len(window) for window in captures.snapshot()) == 120
-        assert (
-            tuple(
-                right[0] - left[-1] - 1
-                for left, right in zip(
-                    capture_ordinals(),
-                    capture_ordinals()[1:],
-                    strict=False,
-                )
+    return captures, admitted_ordinals
+
+
+def test_accepts_complete_capture_with_separations() -> None:
+    captures, admitted_ordinals = record_capture(200)
+    validate_capture(200, captures.snapshot(), 200)
+    assert captures.snapshot() == capture_ordinals()
+    assert admitted_ordinals == tuple(
+        index for window in capture_ordinals() for index in window
+    )
+    assert sum(len(window) for window in captures.snapshot()) == 120
+    assert (
+        tuple(
+            right[0] - left[-1] - 1
+            for left, right in zip(
+                capture_ordinals(),
+                capture_ordinals()[1:],
+                strict=False,
             )
-            == (16,) * 5
         )
+        == (16,) * 5
+    )
+
+
+@pytest.mark.parametrize("event_count", [199, 201], ids=["missing", "extra"])
+def test_rejects_incomplete_or_extra_invalidations(event_count: int) -> None:
+    captures, _admitted_ordinals = record_capture(event_count)
+    with pytest.raises(BenchmarkSetupError, match="invalidations"):
+        validate_capture(event_count, captures.snapshot(), 200)
 
 
 def test_rejects_incomplete_capture_with_complete_event_count() -> None:
@@ -331,20 +340,25 @@ def test_rejects_incomplete_capture_with_complete_event_count() -> None:
 
 
 @pytest.mark.parametrize(
-    "failure",
-    ["late", "eof", "startup", "wrong-message"],
-    ids=["deadline", "child-exit", "startup-failure", "ordering"],
+    "act_as_child",
+    [
+        pytest.param(lambda _child: None, id="deadline"),
+        pytest.param(lambda child: child.close(), id="child-exit"),
+        pytest.param(
+            lambda child: child.send(
+                {"kind": "failure", "error": "manager startup failed"}
+            ),
+            id="startup-failure",
+        ),
+        pytest.param(lambda child: child.send({"kind": "sample"}), id="ordering"),
+    ],
 )
 def test_rejects_child_startup_failure(
-    pipe: tuple[Connection, Connection], failure: str
+    pipe: tuple[Connection, Connection],
+    act_as_child: Callable[[Connection], object],
 ) -> None:
     parent, child = pipe
-    if failure == "eof":
-        child.close()
-    elif failure == "startup":
-        child.send({"kind": "failure", "error": "manager startup failed"})
-    elif failure == "wrong-message":
-        child.send({"kind": "sample"})
+    act_as_child(child)
     with pytest.raises(BenchmarkSetupError):
         receive(parent, time.monotonic() + 0.01, "ready")
 
@@ -394,35 +408,33 @@ def test_command_counts_preserve_inflight_and_failed_outcomes() -> None:
 
 
 @pytest.mark.parametrize(
-    ("completions", "expected", "message"),
+    ("completions", "expected"),
     [
-        (tuple(range(61)), 1.0, None),
-        ((-1.0, *range(61), 61.0), 1.0, None),
-        ((0.0, 1.04, *range(2, 61)), 1.04, None),
-        ((1.0,), None, "polling gap exceeded"),
-        (tuple(range(10, 61)), None, "polling gap exceeded"),
-        ((*range(30), *range(32, 61)), None, "polling gap exceeded"),
-        (tuple(range(59)), None, "polling gap exceeded"),
-        ((-1.0, 61.0), None, "no completed getMore"),
-    ],
-    ids=[
-        "continuous",
-        "outside-window",
-        "scheduling-slack",
-        "one-poll-then-stall",
-        "initial-gap",
-        "middle-gap",
-        "final-gap",
-        "only-outside-window",
+        pytest.param(tuple(range(61)), 1.0, id="continuous"),
+        pytest.param((-1.0, *range(61), 61.0), 1.0, id="outside-window"),
+        pytest.param((0.0, 1.04, *range(2, 61)), 1.04, id="scheduling-slack"),
     ],
 )
 def test_idle_polling_covers_the_entire_application_window(
-    completions: tuple[float, ...],
-    expected: float | None,  # Positive maximum gap for accepted windows.
-    message: str | None,  # Nonempty rejection reason for invalid windows.
+    completions: tuple[float, ...], expected: float
 ) -> None:
-    if message is not None:
-        with pytest.raises(BenchmarkSetupError, match=message):
-            idle_poll_max_gap(completions, 0, 60, 1.05)
-    else:
-        assert idle_poll_max_gap(completions, 0, 60, 1.05) == pytest.approx(expected)
+    assert idle_poll_max_gap(completions, 0, 60, 1.05) == pytest.approx(expected)
+
+
+@pytest.mark.parametrize(
+    ("completions", "message"),
+    [
+        pytest.param((1.0,), "polling gap exceeded", id="one-poll-then-stall"),
+        pytest.param(tuple(range(10, 61)), "polling gap exceeded", id="initial-gap"),
+        pytest.param(
+            (*range(30), *range(32, 61)), "polling gap exceeded", id="middle-gap"
+        ),
+        pytest.param(tuple(range(59)), "polling gap exceeded", id="final-gap"),
+        pytest.param((-1.0, 61.0), "no completed getMore", id="only-outside-window"),
+    ],
+)
+def test_idle_polling_rejects_an_uncovered_application_window(
+    completions: tuple[float, ...], message: str
+) -> None:
+    with pytest.raises(BenchmarkSetupError, match=message):
+        idle_poll_max_gap(completions, 0, 60, 1.05)

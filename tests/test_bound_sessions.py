@@ -255,21 +255,29 @@ async def test_foreign_context_preserves_native_error_precedence(
     assert view.database.manager.snapshot().hits == before
 
 
-async def test_explicit_session_takes_precedence(foreign_context: Binding) -> None:
+@pytest.fixture
+async def explicit_session(
+    foreign_context: Binding,
+) -> AsyncIterator[ClientSession | AsyncClientSession]:
+    async with AsyncExitStack() as stack:
+        yield await session_context(stack, foreign_context["client"])
+
+
+async def test_explicit_session_takes_precedence(
+    foreign_context: Binding, explicit_session: ClientSession | AsyncClientSession
+) -> None:
     view = foreign_context["view"]
     before = view.database.manager.snapshot().hits
-    async with AsyncExitStack() as stack:
-        session = await session_context(stack, foreign_context["client"])
-        if isinstance(view, CachedCollection):
-            assert isinstance(session, ClientSession)
-            assert view.find_one(DOCUMENT_ID, session=session) == view.raw.find_one(
-                DOCUMENT_ID, session=session
-            )
-        else:
-            assert isinstance(session, AsyncClientSession)
-            assert await view.find_one(
-                DOCUMENT_ID, session=session
-            ) == await view.raw.find_one(DOCUMENT_ID, session=session)
+    if isinstance(view, CachedCollection):
+        assert isinstance(explicit_session, ClientSession)
+        assert view.find_one(
+            DOCUMENT_ID, session=explicit_session
+        ) == view.raw.find_one(DOCUMENT_ID, session=explicit_session)
+    else:
+        assert isinstance(explicit_session, AsyncClientSession)
+        assert await view.find_one(
+            DOCUMENT_ID, session=explicit_session
+        ) == await view.raw.find_one(DOCUMENT_ID, session=explicit_session)
     assert view.database.manager.snapshot().hits == before
 
 
@@ -334,21 +342,13 @@ async def test_find_preserves_foreign_bound_context_errors(
     await close_cursor(cached)
 
 
-@pytest.mark.parametrize("method", ["find", "aggregate"], ids=["find", "aggregate"])
-@pytest.mark.parametrize(
-    "state", ["active", "ended", "foreign"], ids=["active", "ended", "foreign"]
-)
-async def test_explicit_cursor_sessions_preserve_native_behavior(
-    warm_binding: Binding, mongodb_uri: MongoDbUri, method: str, state: str
-) -> None:
-    view = warm_binding["view"]
-    argument: Document | list[Document] = {} if method == "find" else []
-    expected = [{"_id": DOCUMENT_ID, "v": COMMITTED_VALUE}]
-    assert await materialize(getattr(view, method)(argument)) == expected
-    before = view.database.manager.snapshot()
+@pytest.fixture
+async def explicit_cursor_session(
+    request: pytest.FixtureRequest, warm_binding: Binding, mongodb_uri: MongoDbUri
+) -> AsyncIterator[ClientSession | AsyncClientSession]:
     async with AsyncExitStack() as stack:
         client = warm_binding["client"]
-        if state == "foreign":
+        if request.param == "foreign":
             client = await enter(
                 stack,
                 MongoClient[Document](mongodb_uri)
@@ -356,20 +356,42 @@ async def test_explicit_cursor_sessions_preserve_native_behavior(
                 else AsyncMongoClient[Document](mongodb_uri),
             )
         session = await session_context(stack, client)
-        if state == "ended":
+        if request.param == "ended":
             await execute(session.end_session())
-        options: dict[str, Any] = {"session": session}
-        if state == "active":
-            assert await materialize(
-                getattr(view, method)(argument, **options)
-            ) == await materialize(getattr(view.raw, method)(argument, **options))
-        else:
-            with pytest.raises(InvalidOperation) as native_error:
-                await materialize(getattr(view.raw, method)(argument, **options))
-            with pytest.raises(
-                InvalidOperation, match=re.escape(str(native_error.value))
-            ):
-                await materialize(getattr(view, method)(argument, **options))
+        yield session
+
+
+@pytest.mark.parametrize("method", ["find", "aggregate"], ids=["find", "aggregate"])
+@pytest.mark.parametrize(
+    ("explicit_cursor_session", "native_error_type"),
+    [
+        pytest.param("active", None, id="active"),
+        pytest.param("ended", InvalidOperation, id="ended"),
+        pytest.param("foreign", InvalidOperation, id="foreign"),
+    ],
+    indirect=["explicit_cursor_session"],
+)
+async def test_explicit_cursor_sessions_preserve_native_behavior(
+    warm_binding: Binding,
+    explicit_cursor_session: ClientSession | AsyncClientSession,
+    method: str,
+    native_error_type: type[InvalidOperation] | None,
+) -> None:
+    view = warm_binding["view"]
+    argument: Document | list[Document] = {} if method == "find" else []
+    expected = [{"_id": DOCUMENT_ID, "v": COMMITTED_VALUE}]
+    assert await materialize(getattr(view, method)(argument)) == expected
+    before = view.database.manager.snapshot()
+    options: dict[str, Any] = {"session": explicit_cursor_session}
+    if native_error_type is None:
+        assert await materialize(
+            getattr(view, method)(argument, **options)
+        ) == await materialize(getattr(view.raw, method)(argument, **options))
+    else:
+        with pytest.raises(native_error_type) as native_error:
+            await materialize(getattr(view.raw, method)(argument, **options))
+        with pytest.raises(native_error_type, match=re.escape(str(native_error.value))):
+            await materialize(getattr(view, method)(argument, **options))
     after = view.database.manager.snapshot()
     assert after.hits == before.hits
     assert after.entry_count == before.entry_count
