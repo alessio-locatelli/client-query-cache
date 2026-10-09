@@ -80,8 +80,7 @@ A missing collection or unavailable metadata is checked again on a later read.
 
 `manager.stream_health_snapshot(database_name)` reports `not_started`, `connecting`, `healthy`,
 `reconnecting`, `startup_failed`, or `closed`. Inspection is synchronous for both managers and never
-starts a stream. Its `requested_database_name` echoes the name you passed without checking it
-against MongoDB, so an empty or mistyped name reports `not_started`. `connecting` covers initial startup until it is available to cached reads. An actual
+starts a stream. Its `requested_database_name` echoes the name you passed without checking it against MongoDB. While the manager is open, a name without a stream, including an empty or mistyped one, reports `not_started`. `connecting` covers initial startup until it is available to cached reads. An actual
 failed attempt emits a startup warning and leaves `startup_failed` visible during its retry cooldown;
 reads continue through PyMongo and record `stream_unavailable` without another startup warning.
 A later read can initiate a retry and move health through `connecting` to `healthy`. See
