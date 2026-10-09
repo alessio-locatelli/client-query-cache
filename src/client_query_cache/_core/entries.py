@@ -32,3 +32,4 @@ class CacheEntry:
 class LookupResult:
     hit: bool
     value: Any = None
+    deferred_miss: bool = False

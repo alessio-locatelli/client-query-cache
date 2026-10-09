@@ -54,6 +54,8 @@ DEFAULT_MAX_ENTRY_BYTES = 1 * 1024 * 1024
 
 _NOT_INDEXED = object()
 _DEFAULT_DATABASE_AVAILABILITY = (True, 0)
+_MISS = LookupResult(hit=False)
+_DEFERRED_MISS = LookupResult(hit=False, deferred_miss=True)
 
 logger = logging.getLogger(__name__)
 
@@ -312,6 +314,9 @@ class _CacheCoreLifecycle(_CacheCoreBase):
             self._namespaces.clear()
             self._database_namespaces.clear()
         logger.info("cache manager closed")
+
+    def record_miss(self) -> None:
+        self._statistics.record_miss()
 
     def record_bypass(self, reason: BypassReason = BypassReason.UNSPECIFIED) -> None:
         self._statistics.record_bypass(reason)
@@ -908,6 +913,7 @@ class _CacheCoreLookup(_CacheCoreBase):
         discriminator: object,
         *,
         codec_options: CodecOptions[Any] | None = None,
+        defer_miss: bool = False,
     ) -> LookupResult:
         self._ensure_active()
         if not self._is_database_available(namespace.database):
@@ -917,17 +923,21 @@ class _CacheCoreLookup(_CacheCoreBase):
         key = NamespaceCacheKey(namespace, canonical_discriminator)
         entry = self._lru.peek(key)
         if entry is None:
-            self._statistics.record_miss()
-            return LookupResult(hit=False)
+            return self._namespace_miss(defer_miss=defer_miss)
         state = self._namespace(namespace)
         with self._namespace_section(state):
             valid = (state.generation,) == entry.generation_key
         if not valid:
-            self._statistics.record_miss()
-            return LookupResult(hit=False)
+            return self._namespace_miss(defer_miss=defer_miss)
         self._lru.touch(key)
         self._statistics.record_hit()
         return LookupResult(hit=True, value=decode_value(entry.value, codec_options))
+
+    def _namespace_miss(self, *, defer_miss: bool) -> LookupResult:
+        if defer_miss:
+            return _DEFERRED_MISS
+        self._statistics.record_miss()
+        return _MISS
 
     def resolve_alias(
         self,

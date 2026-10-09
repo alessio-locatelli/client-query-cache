@@ -89,6 +89,7 @@ def test_unique_key_read_is_cached_after_the_first_lookup(
     with patch.object(
         Collection, "find_one", autospec=True, side_effect=Collection.find_one
     ) as spy:
+        start = cache_manager.cache_core.snapshot()
         first = collection.find_one({"email": email})
         before = cache_manager.cache_core.snapshot()
         second = collection.find_one({"email": email})
@@ -97,8 +98,36 @@ def test_unique_key_read_is_cached_after_the_first_lookup(
     assert first == expected
     assert second == expected
     assert spy.call_count == 1
+    assert (before.hits, before.misses) == (start.hits, start.misses + 1)
     assert after.hits == before.hits + 1
     assert after.misses == before.misses
+
+
+@pytest.mark.parametrize("unique_index_on_other_field", [False, True])
+def test_cold_read_without_a_unique_key_match_records_one_miss(
+    cache_manager: CacheManager[dict[str, Any]],
+    cached_database_name: DatabaseName,
+    nonpersistent_collection_name: CollectionName,
+    *,
+    unique_index_on_other_field: bool,
+    faker: Faker,
+) -> None:
+    name = faker.first_name()
+    document = {"_id": faker.uuid4(), "email": faker.email(), "name": name}
+    collection = cache_manager[cached_database_name][nonpersistent_collection_name]
+    if unique_index_on_other_field:
+        collection.raw.create_index("email", unique=True)
+    collection.raw.insert_one(document)
+
+    start = cache_manager.cache_core.snapshot()
+    first = collection.find_one({"name": name})
+    before = cache_manager.cache_core.snapshot()
+    second = collection.find_one({"name": name})
+    after = cache_manager.cache_core.snapshot()
+
+    assert first == second == document
+    assert (before.hits, before.misses) == (start.hits, start.misses + 1)
+    assert (after.hits, after.misses) == (before.hits + 1, before.misses)
 
 
 @pytest.mark.parametrize(
@@ -785,13 +814,18 @@ def test_generic_read_caches_when_index_inspection_fails(
             Collection, "find_one", autospec=True, side_effect=Collection.find_one
         ) as spy,
     ):
+        start = cache_manager.cache_core.snapshot()
         first = collection.find_one({"email": email})
+        before = cache_manager.cache_core.snapshot()
         second = collection.find_one({"email": email})
+        after = cache_manager.cache_core.snapshot()
 
     assert first == document
     assert second == document
     assert spy.call_count == 1
     assert index_spy.call_count == 1
+    assert (before.hits, before.misses) == (start.hits, start.misses + 1)
+    assert (after.hits, after.misses) == (before.hits + 1, before.misses)
     assert caplog.records
     assert all(record.levelname == "WARNING" for record in caplog.records)
 

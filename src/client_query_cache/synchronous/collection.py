@@ -209,15 +209,21 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
                     cache.current_index_generation(namespace),
                 )
             )
+            discovers_unique_keys = identity is NO_IDENTITY and known_keys is None
             lookup_result = cache.lookup_namespace(
-                namespace, discriminator, codec_options=codec_options
+                namespace,
+                discriminator,
+                codec_options=codec_options,
+                defer_miss=discovers_unique_keys,
             )
             if lookup_result.hit:
                 return cast("DocumentType | None", lookup_result.value)
-            if identity is NO_IDENTITY and known_keys is None:
+            if discovers_unique_keys:
                 unique_key_match = self._match_unique_key(
                     filter_query, effective_collation
                 )
+                if unique_key_match is None and lookup_result.deferred_miss:
+                    cache.record_miss()
         if unique_key_match is not None:
             key_definition, key_values = unique_key_match
             return self._find_one_by_unique_key(

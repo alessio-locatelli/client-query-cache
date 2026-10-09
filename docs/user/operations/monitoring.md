@@ -11,9 +11,8 @@ Use cache counters to measure reuse, and inspect stream health to explain bypass
   lifecycle state, resident bytes, configured budget and max entry size, entry count, and cumulative hits, misses,
   evictions, bypasses, and oversized bypasses. `bypass_reasons` contains fixed `BypassReasonCount` records in
   `BypassReason` order, including zeros. Ordinary reasons sum to `bypasses`; oversized recordings are separate.
-  Counters describe recording events, so a request can produce a miss and more than one bypass.
-  The first `find_one()` on a new manager whose filter matches a unique index currently records two misses
-  ([issue #213](https://github.com/alessio-locatelli/client-query-cache/issues/213)). None of these fields expose document contents, queries, or
+  Counters describe recording events: a read records at most one hit or miss, and can also record more than one bypass.
+  None of these fields expose document contents, queries, or
   credentials, so the snapshot is safe to log or export to a metrics system directly.
 - **Per-database stream telemetry**: `cache_manager.stream_cost_snapshot(database_name)` returns manager iteration-call counts,
   logical event bytes, invalidation counts, and invalidation-delivery-lag samples for one database, and
