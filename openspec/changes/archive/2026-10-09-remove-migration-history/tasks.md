@@ -9,4 +9,4 @@
 
 ## 2. Archive
 
-- [ ] 2.1 After review, archive the change and delete `openspec/specs/prototype-recovery/` per the design.
+- [x] 2.1 After review, archive the change so that it retires `openspec/specs/prototype-recovery/` per the design.

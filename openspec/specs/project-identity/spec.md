@@ -18,7 +18,7 @@ The repository, distribution, guidance, and diagnostics SHALL identify the proje
 #### Scenario: A startup error identifies the library
 
 - **WHEN** synchronous or asynchronous cache startup reports an error that names the library
-- **THEN** the diagnostic uses the new identity rather than `mongo_client_cache`
+- **THEN** the diagnostic names it `client_query_cache`
 
 ### Requirement: Public positioning describes independent PyMongo caching
 
@@ -29,16 +29,11 @@ Public guidance SHALL describe client-side caching for PyMongo kept coherent by 
 - **WHEN** public guidance describes the library's purpose
 - **THEN** it explains the PyMongo cache and change-stream coherency without claiming MongoDB authorship or endorsement
 
-### Requirement: The public import package uses the new name
+### Requirement: The distribution provides the public import packages
 
-The `client-query-cache` distribution SHALL provide `client_query_cache`, `client_query_cache.synchronous`, and `client_query_cache.asynchronous` as its public import paths. The project SHALL document the rename from `mongo-client-cache` and `mongo_client_cache` as a breaking migration, with an explicit dependency and import update for existing users. The old import path SHALL NOT be retained as a compatibility alias.
+The `client-query-cache` distribution SHALL provide `client_query_cache`, `client_query_cache.synchronous`, and `client_query_cache.asynchronous` as its public import paths.
 
-#### Scenario: A user installs the renamed distribution
+#### Scenario: A user installs the distribution
 
 - **WHEN** a user installs a built `client-query-cache` distribution in an isolated environment
 - **THEN** documented synchronous and asynchronous public classes import through `client_query_cache`
-
-#### Scenario: A current user migrates
-
-- **WHEN** a user follows the migration guidance for the rename
-- **THEN** they can identify both the new dependency name and the new import paths, including that the former import path is unavailable
