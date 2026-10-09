@@ -94,10 +94,17 @@ def _processor() -> str:
 
 
 class Recorder:
-    __slots__ = ("output", "report")
+    __slots__ = ("_resumed", "output", "report")
 
-    def __init__(self, output: Path, phase: str, registration: Registration) -> None:
+    def __init__(
+        self,
+        output: Path,
+        phase: str,
+        registration: Registration,
+        resumed: list[Payload],
+    ) -> None:
         self.output = output
+        self._resumed = resumed
         self.report: Payload = {
             "phase": phase,
             "environment": environment(registration),
@@ -126,14 +133,36 @@ class Recorder:
                 f"{cell.workers}x{cell.concurrency} {cell.path}",
                 flush=True,
             )
-            try:
-                record = run_window(replica, registration, cell)
-            except BenchmarkSetupError as error:
-                record = {**asdict(cell), "healthy": False, "failure": str(error)}
+            record = self._measure(replica, registration, cell)
             records.append(record)
             cast("list[Payload]", self.report["cells"]).append(record)
             self.flush()
         return records
+
+    def _measure(
+        self, replica: IsolatedReplicaSet, registration: Registration, cell: Cell
+    ) -> Payload:
+        if self._resumed and all(
+            self._resumed[0][key] == value for key, value in asdict(cell).items()
+        ):
+            return self._resumed.pop(0)
+        try:
+            return run_window(replica, registration, cell)
+        except BenchmarkSetupError as error:
+            return {**asdict(cell), "healthy": False, "failure": str(error)}
+
+
+def resumed_cells(path: Path, phase: str, registration: Registration) -> list[Payload]:
+    report = json.loads(path.read_text(encoding="utf-8"))
+    current = environment(registration)
+    previous = cast("Payload", report["environment"])
+    if report["phase"] != phase or any(
+        previous[key] != current[key]
+        for key in ("revision", "dirty_tree", "configuration_sha256")
+    ):
+        message = "resumed report has another phase, revision or registration"
+        raise BenchmarkSetupError(message)
+    return cast("list[Payload]", report["cells"])
 
 
 def throughput(record: Payload) -> float:
@@ -344,6 +373,9 @@ def main(argv: list[str] | None = None) -> None:
     )
     mode.add_argument("--phase", choices=_PHASES)
     parser.add_argument("--baselines-only", action="store_true")
+    parser.add_argument(
+        "--resume", type=Path, help="Reuse completed windows from an earlier report."
+    )
     arguments = parser.parse_args(argv)
     if arguments.freeze is not None:
         freeze(arguments.config, arguments.freeze)
@@ -364,7 +396,14 @@ def main(argv: list[str] | None = None) -> None:
         parser.error("choose --smoke, --calibrate-baselines, --freeze or --phase")
     if phase not in {"smoke", "calibration"} and not registration.frozen:
         parser.error("candidate phases require a frozen registration")
-    recorder = Recorder(arguments.output, phase, registration)
+    recorder = Recorder(
+        arguments.output,
+        phase,
+        registration,
+        resumed_cells(arguments.resume, phase, registration)
+        if arguments.resume is not None
+        else [],
+    )
     limits = ResourceLimits(**registration.section("topology"))  # type: ignore[arg-type]
     with IsolatedReplicaSet(limits) as replica:
         if phase == "smoke":

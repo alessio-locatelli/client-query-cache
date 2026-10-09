@@ -121,4 +121,4 @@ uv run -- python -m benchmarks.stream_cost.shared_cache.run --freeze benchmark-r
 uv run -- python -m benchmarks.stream_cost.shared_cache.run --phase screening --output benchmark-reports/shared-worker-cache/screening.json
 ```
 
-Use a new output path for every run; raw reports stay untracked.
+Use a new output path for every run; raw reports stay untracked. A run interrupted by the host can continue with `--resume <earlier report>` at the same revision and registration: completed windows are copied in their planned order and the remaining windows run fresh. Windows are independent, so resuming changes neither schedules nor inference.
