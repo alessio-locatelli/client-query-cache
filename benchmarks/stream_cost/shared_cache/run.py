@@ -44,7 +44,7 @@ if TYPE_CHECKING:
 
 type Payload = dict[str, object]
 
-_CONFIG = Path("reports/shared-worker-cache/v3/config.json")
+_CONFIG = Path("reports/shared-worker-cache/v4/config.json")
 _PHASES = ("screening", "confirmation", "capacity", "active", "cold", "sensitivity")
 _CAPS: dict[Family, str] = {
     "primary": "primary",

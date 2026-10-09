@@ -50,7 +50,7 @@ if TYPE_CHECKING:
 
 pytestmark = pytest.mark.unit
 
-_CONFIG = Path("reports/shared-worker-cache/v3/config.json")
+_CONFIG = Path("reports/shared-worker-cache/v4/config.json")
 _FROZEN_RATES = {"primary": 3000, "cold": 1000, "sensitivity": 500}
 _FROZEN_WINDOWS = {"hot": 30, "active": 60, "sensitivity": 30}
 

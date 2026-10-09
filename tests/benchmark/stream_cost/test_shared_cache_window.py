@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 
 pytestmark = pytest.mark.unit
 
-_CONFIG = Path("reports/shared-worker-cache/v3/config.json")
+_CONFIG = Path("reports/shared-worker-cache/v4/config.json")
 
 
 @pytest.fixture

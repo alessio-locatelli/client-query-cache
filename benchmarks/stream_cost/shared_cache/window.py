@@ -7,6 +7,7 @@ import shutil
 import tempfile
 import threading
 import time
+from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import ExitStack
 from dataclasses import asdict, dataclass
 from typing import TYPE_CHECKING, Self, cast
@@ -41,6 +42,8 @@ if TYPE_CHECKING:
     from multiprocessing.context import SpawnContext
     from multiprocessing.process import BaseProcess
 
+    from pymongo.synchronous.collection import Collection
+
     from benchmarks.stream_cost.shared_cache.protocol import Cell, Registration
     from benchmarks.stream_cost.topology import IsolatedReplicaSet
     from client_query_cache._types import (
@@ -54,6 +57,7 @@ type Payload = dict[str, object]
 _START_LEAD_SECONDS = 1.0
 _OWNER_POLL_SECONDS = 0.01
 _CONTROL_GRACE_SECONDS = 5.0
+_WRITERS = 4
 SERVER_MEMORY_SCOPE = "Podman cgroup memory usage, including page cache"
 HARNESS_INCLUDES = (
     "writer",
@@ -421,6 +425,12 @@ def _check_clock(
         raise BenchmarkSetupError("clock or primary changed during window")
 
 
+def _timed_write(collection: Collection[dict[str, object]], target: int) -> float:
+    started = time.monotonic()
+    collection.update_one({"_id": target}, {"$inc": {"revision": 1}})
+    return time.monotonic() - started
+
+
 def _process_cpu() -> float:
     times = psutil.Process().cpu_times()
     return times.user + times.system
@@ -513,9 +523,13 @@ def run_window(
             group.owner_request({"op": "profile-start"}, window_end)
         write_offsets: list[NonNegativeFloat] = []
         write_lateness = 0.0
-        with GroupMemorySampler(
-            pids, registration.number("memory_sample_seconds")
-        ) as memory:
+        pending: list[Future[float]] = []
+        with (
+            GroupMemorySampler(
+                pids, registration.number("memory_sample_seconds")
+            ) as memory,
+            ThreadPoolExecutor(max_workers=_WRITERS) as writes,
+        ):
             for offset, target in workload.writes:
                 due = window_start + offset
                 _wait(due)
@@ -526,13 +540,14 @@ def run_window(
                     raise BenchmarkSetupError("write schedule exceeded tolerance")
                 write_offsets.append(issued - window_start)
                 write_lateness = max(write_lateness, issued - due)
-                try:
-                    writer[database][collection].update_one(
-                        {"_id": target}, {"$inc": {"revision": 1}}
-                    )
-                except PyMongoError as error:
-                    raise BenchmarkSetupError("harness MongoDB write failed") from error
+                pending.append(
+                    writes.submit(_timed_write, writer[database][collection], target)
+                )
             _wait(window_end)
+        try:
+            write_seconds = [future.result() for future in pending]
+        except PyMongoError as error:
+            raise BenchmarkSetupError("harness MongoDB write failed") from error
         if owner_before is not None and profiling_enabled():
             group.owner_request({"op": "profile-stop"}, window_end + 5)
         server_end = replica.container_cpu_usage_seconds()
@@ -576,6 +591,7 @@ def run_window(
                 "commands": command_delta(commands_before, writer_listener.snapshot()),
                 "offsets": write_offsets,
                 "max_lateness_seconds": write_lateness,
+                "max_write_seconds": max(write_seconds, default=0.0),
             },
             "memory": memory.summary(),
             "offered": sum(_count(sample, "loop", "offered") for sample in samples),
