@@ -15,6 +15,7 @@ from benchmarks.stream_cost.measurement import (
     scalar_latency_distribution,
 )
 from benchmarks.stream_cost.workload import WorkloadKind
+from client_query_cache._types import NonNegativeInt
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -39,7 +40,7 @@ _DIRECT_PATH_BYTES_SCOPE = "dedicated direct benchmark path only"
 
 @dataclass(frozen=True, slots=True)
 class CompressionBlockPlan:
-    block_index: int
+    block_index: NonNegativeInt
     mode_order: tuple[WireCompressor, ...]
     path_order: tuple[WirePath, WirePath]
 
@@ -137,7 +138,9 @@ def _stream_minus_control_payload(
 
 
 def _negotiation_payload(
-    block_index: int, mode: WireCompressor, preflight_result: CompressorPreflightResult
+    block_index: NonNegativeInt,
+    mode: WireCompressor,
+    preflight_result: CompressorPreflightResult,
 ) -> dict[str, object]:
     return {
         "block_index": block_index,
@@ -153,7 +156,9 @@ def build_compression_report(
     environment: BenchmarkEnvironment,
     windows: Sequence[CompressionWindowSpec],
     blocks: Sequence[CompressionBlockPlan],
-    negotiations: Mapping[tuple[int, WireCompressor], CompressorPreflightResult],
+    negotiations: Mapping[
+        tuple[NonNegativeInt, WireCompressor], CompressorPreflightResult
+    ],
     window_results: Sequence[CompressionWindowResult],
     limitations: Sequence[Limitation],
 ) -> dict[str, object]:

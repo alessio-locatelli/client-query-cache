@@ -38,6 +38,7 @@ from benchmarks.stream_cost.config import (
 )
 from benchmarks.stream_cost.proxy import DirectPathByteProxy, DirectPathProxyConfig
 from benchmarks.stream_cost.topology import IsolatedReplicaSet, ResourceLimits
+from client_query_cache._types import NonNegativeInt, PositiveInt
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -107,10 +108,12 @@ def _run_block(
     replica_set: IsolatedReplicaSet,
     proxy: DirectPathByteProxy,
 ) -> tuple[
-    dict[tuple[int, WireCompressor], CompressorPreflightResult],
+    dict[tuple[NonNegativeInt, WireCompressor], CompressorPreflightResult],
     list[CompressionWindowResult],
 ]:
-    negotiations: dict[tuple[int, WireCompressor], CompressorPreflightResult] = {}
+    negotiations: dict[
+        tuple[NonNegativeInt, WireCompressor], CompressorPreflightResult
+    ] = {}
     window_results: list[CompressionWindowResult] = []
     for mode in block.mode_order:
         with _client_for_mode(proxy, mode) as client:
@@ -133,7 +136,7 @@ def _run_block(
 def run_compression_matrix(
     *,
     windows: Sequence[CompressionWindowSpec] = STANDARD_COMPRESSION_WINDOWS,
-    block_count: int,
+    block_count: PositiveInt,
     limits: ResourceLimits,
 ) -> dict[str, object]:
     require_minimum_compression_blocks(block_count)
@@ -146,7 +149,9 @@ def run_compression_matrix(
         for block_index in range(block_count)
     ]
 
-    negotiations: dict[tuple[int, WireCompressor], CompressorPreflightResult] = {}
+    negotiations: dict[
+        tuple[NonNegativeInt, WireCompressor], CompressorPreflightResult
+    ] = {}
     window_results: list[CompressionWindowResult] = []
 
     with IsolatedReplicaSet(limits) as replica_set:

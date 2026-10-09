@@ -4,6 +4,7 @@ import json
 from typing import TYPE_CHECKING, cast
 
 from benchmarks.stream_cost.errors import BenchmarkConfigurationError
+from client_query_cache._types import MaxAwaitTimeMs, NonNegativeInt
 
 if TYPE_CHECKING:
     from benchmarks.stream_cost.await_model import (
@@ -19,11 +20,13 @@ def _expand_comparisons(plan: object) -> list[Comparison]:
     groups = cast("dict[str, dict[str, object]]", plan)
     comparisons: list[Comparison] = []
     baseline = groups["baseline"]
-    for candidate in cast("list[int]", baseline["candidates_ms"]):
+    for candidate in cast("list[MaxAwaitTimeMs]", baseline["candidates_ms"]):
         for model in cast("list[str]", baseline["models"]):
             for case in cast("list[list[object]]", baseline["comparisons"]):
                 workload, metric, limit = case[:3]
-                reference = cast("int | None", case[3]) if len(case) == 4 else 1000
+                reference = (
+                    cast("MaxAwaitTimeMs | None", case[3]) if len(case) == 4 else 1000
+                )
                 comparisons.append(
                     {
                         "candidate": candidate,
@@ -36,9 +39,9 @@ def _expand_comparisons(plan: object) -> list[Comparison]:
                 )
     pairwise = groups["pairwise_idle"]
     references_by_candidate = cast(
-        "dict[str, list[int]]", pairwise["references_by_candidate_ms"]
+        "dict[str, list[MaxAwaitTimeMs]]", pairwise["references_by_candidate_ms"]
     )
-    for candidate in cast("list[int]", pairwise["candidates_ms"]):
+    for candidate in cast("list[MaxAwaitTimeMs]", pairwise["candidates_ms"]):
         for reference in references_by_candidate[str(candidate)]:
             for model in cast("list[str]", pairwise["models"]):
                 for metric, limit in cast("list[list[object]]", pairwise["metrics"]):
@@ -59,7 +62,7 @@ def _expand_schedule(pattern: object) -> list[float]:
     schedule = cast("dict[str, object]", pattern)
     start = cast("float", schedule["start_seconds"])
     interval = cast("float", schedule["interval_seconds"])
-    count = cast("int", schedule["count"])
+    count = cast("NonNegativeInt", schedule["count"])
     return [round(start + interval * index, 3) for index in range(count)]
 
 
@@ -82,7 +85,7 @@ def expand_await_configuration(raw: object) -> AwaitConfiguration:
         "burst": [
             round(base + interval * index, 3)
             for base in cast("list[float]", burst["starts_seconds"])
-            for index in range(cast("int", burst["count_per_burst"]))
+            for index in range(cast("NonNegativeInt", burst["count_per_burst"]))
         ],
     }
     expanded["comparisons"] = _expand_comparisons(expanded.pop("comparison_plan"))

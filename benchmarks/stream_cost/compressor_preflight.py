@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 from benchmarks.stream_cost.client import WireCompressor
 from benchmarks.stream_cost.errors import BenchmarkSetupError
+from client_query_cache._types import NonNegativeInt
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -37,7 +38,7 @@ class CompressorPreflightResult:
 
 def _compression_counters(
     admin_client: MongoClient[dict[str, Any]],
-) -> Mapping[str, Mapping[str, Mapping[str, int]]]:
+) -> Mapping[str, Mapping[str, Mapping[str, NonNegativeInt]]]:
     status = admin_client.admin.command("serverStatus")
     compression = status["network"]["compression"]
     assert isinstance(compression, dict)
@@ -45,15 +46,15 @@ def _compression_counters(
 
 
 def _counter_bytes_in(
-    counters: Mapping[str, Mapping[str, Mapping[str, int]]], name: str
-) -> int:
+    counters: Mapping[str, Mapping[str, Mapping[str, NonNegativeInt]]], name: str
+) -> NonNegativeInt:
     entry = counters[name]
     return entry["compressor"]["bytesIn"] + entry["decompressor"]["bytesIn"]
 
 
 def _counter_deltas(
-    before: Mapping[str, Mapping[str, Mapping[str, int]]],
-    after: Mapping[str, Mapping[str, Mapping[str, int]]],
+    before: Mapping[str, Mapping[str, Mapping[str, NonNegativeInt]]],
+    after: Mapping[str, Mapping[str, Mapping[str, NonNegativeInt]]],
 ) -> dict[str, int]:
     return {
         name: _counter_bytes_in(after, name) - _counter_bytes_in(before, name)

@@ -33,6 +33,7 @@ from benchmarks.stream_cost.topology import IsolatedReplicaSet, ResourceLimits
 from benchmarks.stream_cost.workload import verify_oversized_primed
 from client_query_cache._core.manager import CacheCoreConfig
 from client_query_cache._core.stream_cost import LagCaptureWindowConfig
+from client_query_cache._types import NonNegativeInt
 from client_query_cache.synchronous.manager import CacheManager
 
 if TYPE_CHECKING:
@@ -52,7 +53,7 @@ _TOPOLOGY = BenchmarkClientTopologyConfig(
 
 
 def _pair_evidence(
-    pair: PairResult, config: Mapping[str, Any], *, pair_index: int
+    pair: PairResult, config: Mapping[str, Any], *, pair_index: NonNegativeInt
 ) -> dict[str, object]:
     offset = pair.calibration.initial.offset_seconds
     uncertainty = pair.calibration.total_uncertainty_seconds

@@ -16,6 +16,7 @@ from benchmarks.stream_cost.errors import (
     BenchmarkConfigurationError,
     BenchmarkSetupError,
 )
+from client_query_cache._types import NonNegativeInt, PositiveInt
 from client_query_cache.synchronous.manager import CacheManager
 
 if TYPE_CHECKING:
@@ -46,14 +47,14 @@ class PairVariant(enum.Enum):
 class ConsolidatedStreamPairConfig:
     acceptable_lag_percentile: float
     acceptable_lag_threshold_seconds: float
-    relevant_write_count: int
+    relevant_write_count: NonNegativeInt
     relevant_write_schedule_tolerance_seconds: float
-    relevant_write_count_tolerance: int
-    unrelated_write_minimum_count: int
+    relevant_write_count_tolerance: NonNegativeInt
+    unrelated_write_minimum_count: NonNegativeInt
     unrelated_write_interval_seconds: float
     clock_drift_tolerance_seconds: float
     calibration_cadence_seconds: float
-    pair_count: int
+    pair_count: PositiveInt
     warmup_duration_seconds: float
 
     def __post_init__(self) -> None:
@@ -97,7 +98,7 @@ class ConsolidatedStreamPairConfig:
 
 
 def counterbalanced_pair_order(
-    pair_count: int,
+    pair_count: PositiveInt,
 ) -> tuple[tuple[PairVariant, PairVariant], ...]:
     if pair_count < MINIMUM_REPEATED_PAIRS:
         message = (
@@ -115,7 +116,7 @@ def counterbalanced_pair_order(
 
 
 def generate_relevant_write_schedule(
-    count: int, *, total_duration_seconds: float, seed: int
+    count: NonNegativeInt, *, total_duration_seconds: float, seed: int
 ) -> tuple[float, ...]:
     if count <= 0:
         message = "count must be positive"
@@ -164,7 +165,10 @@ def replay_write_schedule(
 
 
 def verify_relevant_write_counts_match(
-    control_count: int, loaded_count: int, *, tolerance: int
+    control_count: NonNegativeInt,
+    loaded_count: NonNegativeInt,
+    *,
+    tolerance: NonNegativeInt,
 ) -> None:
     if tolerance < 0:
         message = "tolerance must not be negative"
@@ -212,7 +216,7 @@ class UnrelatedWriteWorkload:
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 
-    def stop(self) -> int:
+    def stop(self) -> NonNegativeInt:
         self._stop_event.set()
         if self._thread is not None:
             self._thread.join()
@@ -224,11 +228,13 @@ class UnrelatedWriteWorkload:
         return self.count
 
     @property
-    def count(self) -> int:
+    def count(self) -> NonNegativeInt:
         with self._lock:
             return self._count
 
-    def count_between(self, start_monotonic: float, end_monotonic: float) -> int:
+    def count_between(
+        self, start_monotonic: float, end_monotonic: float
+    ) -> NonNegativeInt:
         with self._lock:
             return sum(
                 start_monotonic <= completed <= end_monotonic
@@ -255,7 +261,7 @@ class UnrelatedWriteWorkload:
 
 
 def verify_unrelated_write_minimum(
-    observed_count_during_window: int, *, minimum_count: int
+    observed_count_during_window: NonNegativeInt, *, minimum_count: NonNegativeInt
 ) -> None:
     if minimum_count <= 0:
         message = "minimum_count must be positive"

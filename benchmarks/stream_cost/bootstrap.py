@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from benchmarks.stream_cost.errors import BenchmarkConfigurationError
+from client_query_cache._types import NonNegativeInt, PositiveInt
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -15,7 +16,7 @@ _FLOATING_POINT_GUARD_DECIMALS = 9
 MINIMUM_BOOTSTRAP_WINDOWS = 2
 
 
-def minimum_sample_count(percentile: float) -> int:
+def minimum_sample_count(percentile: float) -> PositiveInt:
     if not 0 < percentile < 1:
         message = "percentile must be between 0 and 1 exclusive"
         raise BenchmarkConfigurationError(message)
@@ -23,7 +24,7 @@ def minimum_sample_count(percentile: float) -> int:
     return math.ceil(exact_count)
 
 
-def _percentile_index(count: int, percentile: float) -> int:
+def _percentile_index(count: PositiveInt, percentile: float) -> NonNegativeInt:
     exact_rank = round(percentile * count, _FLOATING_POINT_GUARD_DECIMALS)
     return min(max(math.floor(exact_rank), 0), count - 1)
 
@@ -50,7 +51,7 @@ def block_bootstrap_percentile_ci(
     *,
     percentile: float,
     confidence_level: float,
-    resample_count: int,
+    resample_count: PositiveInt,
     seed: int,
 ) -> ConfidenceInterval:
     if len(windows) < MINIMUM_BOOTSTRAP_WINDOWS:
@@ -140,7 +141,7 @@ def bonferroni_delta_interval(
     *,
     percentile: float,
     confidence_level: float,
-    resample_count: int,
+    resample_count: PositiveInt,
     seed: int,
     delta_seconds: float,
 ) -> ConfidenceInterval:

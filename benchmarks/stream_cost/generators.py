@@ -9,12 +9,13 @@ from bson import ObjectId
 from faker import Faker
 
 from benchmarks.stream_cost.errors import BenchmarkConfigurationError
+from client_query_cache._types import NonNegativeInt, PositiveInt
 
 
 @dataclass(frozen=True, slots=True)
 class DocumentSizeProfile:
     name: str
-    target_bytes: int
+    target_bytes: PositiveInt
 
     def __post_init__(self) -> None:
         if not self.name:
@@ -33,7 +34,7 @@ LARGE_DOCUMENT_PROFILE = DocumentSizeProfile("large", 20_000)
 _DOCUMENT_DATE_LIMIT = datetime.datetime(2020, 1, 1, tzinfo=datetime.UTC)
 
 
-def _deterministic_object_id(seed: int, index: int) -> ObjectId:
+def _deterministic_object_id(seed: int, index: NonNegativeInt) -> ObjectId:
     digest = hashlib.sha256(f"{seed}:{index}".encode()).digest()
     return ObjectId(digest[:12])
 
@@ -43,7 +44,7 @@ def _millisecond_precision(value: datetime.datetime) -> datetime.datetime:
 
 
 def generate_seeded_documents(
-    profile: DocumentSizeProfile, *, count: int, seed: int
+    profile: DocumentSizeProfile, *, count: PositiveInt, seed: int
 ) -> list[dict[str, object]]:
     if count <= 0:
         message = "count must be positive"

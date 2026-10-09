@@ -25,6 +25,7 @@ from benchmarks.stream_cost.workload import (
     verify_primed,
     wait_for_invalidations_to_settle,
 )
+from client_query_cache._types import NonNegativeInt
 from client_query_cache.synchronous.manager import CacheManager
 
 if TYPE_CHECKING:
@@ -52,13 +53,13 @@ class CompressionWindowResult:
     window: CompressionWindowSpec
     mode: WireCompressor
     path: WirePath
-    block_index: int
+    block_index: NonNegativeInt
     measurement: ControlledMeasurement
     read_latencies: tuple[OperationLatency, ...]
     write_latencies: tuple[OperationLatency, ...]
     invalidation_latencies_seconds: tuple[float, ...]
-    reads_issued: int
-    writes_issued: int
+    reads_issued: NonNegativeInt
+    writes_issued: NonNegativeInt
 
 
 def _seed_window_dataset(window: CompressionWindowSpec) -> SeededDataset:
@@ -203,7 +204,7 @@ def _prime_cache_reads(
     *,
     dataset: SeededDataset,
     read_ids: Sequence[object],
-    warmup_reads: int,
+    warmup_reads: NonNegativeInt,
 ) -> None:
     if read_ids:
         distinct_ids = list(dict.fromkeys(read_ids))
@@ -304,7 +305,7 @@ def run_compression_window(
     *,
     mode: WireCompressor,
     path: WirePath,
-    block_index: int,
+    block_index: NonNegativeInt,
     client: MongoClient[dict[str, Any]],
     replica_set: IsolatedReplicaSet,
     proxy: DirectPathByteProxy | None,
@@ -355,7 +356,7 @@ def run_compression_mode_block(
     *,
     mode: WireCompressor,
     path_order: tuple[WirePath, WirePath],
-    block_index: int,
+    block_index: NonNegativeInt,
     client: MongoClient[dict[str, Any]],
     admin_client: MongoClient[dict[str, Any]],
     replica_set: IsolatedReplicaSet,

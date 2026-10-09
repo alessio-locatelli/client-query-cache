@@ -13,6 +13,7 @@ from client_query_cache._types import (
     ExclusiveProbability,
     MaxAwaitTimeMs,
     NonEmptyStr,
+    NonNegativeInt,
     PositiveFloat,
     PositiveInt,
     Probability,
@@ -84,7 +85,8 @@ def _metric(samples: Sequence[AwaitWindow], metric: AwaitMetric) -> float:
         )
     return (
         sum(
-            cast("int", sample.bytes_sent) + cast("int", sample.bytes_received)
+            cast("NonNegativeInt", sample.bytes_sent)
+            + cast("NonNegativeInt", sample.bytes_received)
             for sample in samples
         )
         / elapsed
@@ -118,7 +120,7 @@ def _comparison_test(
     metric = comparison["metric"]
     resolution = configuration["uncertainty"]["resolution"][metric]
 
-    def statistic(indices: tuple[int, ...]) -> float:
+    def statistic(indices: tuple[NonNegativeInt, ...]) -> float:
         numerator = _metric(tuple(candidate[index] for index in indices), metric)
         if numerator <= 0:
             raise UnresolvedComparisonError("nonpositive candidate statistic")
@@ -270,8 +272,8 @@ def evaluate_await_decision(
 
 
 def _resource_order(
-    evidence: Sequence[ComparisonEvidence], metric: str, candidate: int
-) -> tuple[float, int]:
+    evidence: Sequence[ComparisonEvidence], metric: str, candidate: MaxAwaitTimeMs
+) -> tuple[float, MaxAwaitTimeMs]:
     estimates = tuple(
         item.estimate
         for item in evidence
