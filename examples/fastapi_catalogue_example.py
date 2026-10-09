@@ -272,7 +272,7 @@ def recorded_outcome(before: CacheSnapshot, after: CacheSnapshot) -> str:
             return "direct"
         case (1, 0, 0):
             return "hit"
-        case (0, misses, 0) if misses > 0:
+        case (0, 1, 0):
             return "miss"
         case (0, 0, bypasses) if bypasses > 0:
             return "bypass"

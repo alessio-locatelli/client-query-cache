@@ -8,11 +8,14 @@ from typing import TYPE_CHECKING
 import pytest
 
 from client_query_cache import BypassReason, BypassReasonCount
-from client_query_cache._core.entries import AdmissionOutcome
+from client_query_cache._core.canonical import canonicalize
+from client_query_cache._core.codec import encode_value
+from client_query_cache._core.entries import AdmissionOutcome, CacheEntry
+from client_query_cache._core.keys import NamespaceCacheKey
 from client_query_cache._core.manager import CacheCore, CacheCoreConfig
 
 if TYPE_CHECKING:
-    from collections.abc import Generator
+    from collections.abc import Callable, Generator
 
     from client_query_cache._core.keys import NamespaceId
 
@@ -57,6 +60,84 @@ def test_snapshot_tracks_hits_and_misses(
     snapshot = core.snapshot()
     assert snapshot.misses == 1
     assert snapshot.hits == 1
+
+
+_DISCRIMINATOR: tuple[str, dict[str, object]] = ("find", {})
+
+
+def _seed_valid_entry(core: CacheCore, namespace: NamespaceId) -> None:
+    capture = core.capture_namespace_generation(namespace)
+    core.admit_namespace(capture, _DISCRIMINATOR, ["current"])
+
+
+def _seed_stale_entry(core: CacheCore, namespace: NamespaceId) -> None:
+    capture = core.capture_namespace_generation(namespace)
+    encoded = encode_value(["stale"])
+    entry = CacheEntry(
+        generation_key=(capture.generation,),
+        weight=len(encoded),
+        value=encoded,
+        namespace=namespace,
+        identity=None,
+    )
+    key = NamespaceCacheKey(namespace, canonicalize(_DISCRIMINATOR))
+    admitted, _displaced, _evicted = core._lru.conditional_put(key, entry)
+    assert admitted
+    core.clear_namespace(namespace)
+
+
+@pytest.mark.parametrize("defer_miss", [False, True])
+@pytest.mark.parametrize(
+    ("seed", "hit"),
+    [
+        pytest.param(lambda _core, _namespace: None, False, id="absent"),
+        pytest.param(_seed_stale_entry, False, id="stale"),
+        pytest.param(_seed_valid_entry, True, id="valid"),
+    ],
+)
+def test_namespace_lookup_defers_only_a_requested_miss(
+    core: CacheCore,
+    namespace: NamespaceId,
+    seed: Callable[[CacheCore, NamespaceId], None],
+    *,
+    hit: bool,
+    defer_miss: bool,
+) -> None:
+    seed(core, namespace)
+
+    lookup_result = core.lookup_namespace(
+        namespace, _DISCRIMINATOR, defer_miss=defer_miss
+    )
+
+    snapshot = core.snapshot()
+    assert lookup_result.hit is hit
+    assert lookup_result.deferred_miss is (defer_miss and not hit)
+    assert snapshot.hits == int(hit)
+    assert snapshot.misses == int(not hit and not defer_miss)
+    assert snapshot.bypasses == 0
+
+
+def test_a_deferred_miss_is_recorded_once_on_request(
+    core: CacheCore, namespace: NamespaceId
+) -> None:
+    core.lookup_namespace(namespace, _DISCRIMINATOR, defer_miss=True)
+
+    core.record_miss()
+
+    assert core.snapshot().misses == 1
+
+
+def test_an_unavailable_database_records_a_bypass_instead_of_deferring_a_miss(
+    core: CacheCore, namespace: NamespaceId
+) -> None:
+    core.set_database_available(namespace.database, available=False)
+
+    lookup_result = core.lookup_namespace(namespace, _DISCRIMINATOR, defer_miss=True)
+
+    snapshot = core.snapshot()
+    assert lookup_result.deferred_miss is False
+    assert snapshot.misses == 0
+    assert snapshot.bypasses == 1
 
 
 def test_snapshot_tracks_evictions(namespace: NamespaceId) -> None:
