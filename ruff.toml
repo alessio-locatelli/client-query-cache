@@ -66,3 +66,8 @@ ignore = [
 ]
 # The default is enabled by ALL. We override it because benchmarks measure internal cache mechanisms alongside the public API.
 "benchmarks/*" = ["import-private-name"]
+
+[lint.flake8-type-checking]
+# The default is ["typing"]. We override it because public dataclass annotations must resolve at runtime through typing.get_type_hints, so constrained aliases and their metadata stay runtime imports.
+# https://docs.astral.sh/ruff/settings/#lint_flake8-type-checking_exempt-modules
+exempt-modules = ["typing", "annotated_types", "client_query_cache._types"]

@@ -101,7 +101,7 @@ def find_one_read_shape(
 def generic_find_one_discriminator(
     filter_query: object,
     read_shape: object,
-    index_generation: int,  # Can be zero.
+    index_generation: int,
 ) -> object:
     return order_sensitive_discriminator_key(
         ("find_one_generic", filter_query, read_shape, index_generation)

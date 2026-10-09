@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, get_type_hints
 
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 
 from client_query_cache import CacheConfigurationError
 from client_query_cache._core.entries import AdmissionOutcome
@@ -14,6 +16,8 @@ if TYPE_CHECKING:
     from client_query_cache._core.keys import NamespaceId
 
 pytestmark = pytest.mark.unit
+
+_CONFIG_HINTS = get_type_hints(CacheCoreConfig, include_extras=True)
 
 
 def test_default_budget_and_max_entry_size() -> None:
@@ -37,6 +41,21 @@ def test_config_rejects_invalid_budgets(
         CacheCoreConfig(
             shared_budget_bytes=shared_budget_bytes, max_entry_bytes=max_entry_bytes
         )
+
+
+@given(
+    shared_budget_bytes=st.from_type(_CONFIG_HINTS["shared_budget_bytes"]),
+    max_entry_bytes=st.from_type(_CONFIG_HINTS["max_entry_bytes"]),
+)
+def test_config_accepts_every_annotated_budget(
+    shared_budget_bytes: int, max_entry_bytes: int
+) -> None:
+    max_entry_bytes = min(max_entry_bytes, shared_budget_bytes)
+    config = CacheCoreConfig(
+        shared_budget_bytes=shared_budget_bytes, max_entry_bytes=max_entry_bytes
+    )
+    assert config.shared_budget_bytes == shared_budget_bytes
+    assert config.max_entry_bytes == max_entry_bytes
 
 
 def test_eviction_keeps_used_bytes_within_the_shared_budget(

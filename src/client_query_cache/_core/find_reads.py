@@ -8,6 +8,7 @@ from client_query_cache._core.order_sensitive_keys import (
     order_sensitive_discriminator_key,
 )
 from client_query_cache._core.query_filters import find_filter_key
+from client_query_cache._types import NonNegativeInt
 
 if TYPE_CHECKING:
     from client_query_cache._core.canonical import Canonical
@@ -15,8 +16,8 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, slots=True)
 class FindSource:
-    family: int  # A compact hash, possibly zero; collisions require key equality.
-    limit: int  # Zero denotes unlimited; negative and boolean limits are excluded.
+    family: int  # A compact hash; collisions require key equality.
+    limit: NonNegativeInt  # Zero denotes unlimited; boolean limits are excluded.
 
 
 @dataclass(frozen=True, slots=True)

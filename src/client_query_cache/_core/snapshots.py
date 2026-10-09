@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING, Protocol
 
+from client_query_cache._types import NonNegativeInt, PositiveInt
+
 if TYPE_CHECKING:
     from client_query_cache._core.stream_cost import StreamCostSnapshot
 from itertools import starmap
@@ -30,7 +32,7 @@ class BypassReason(StrEnum):
 @dataclass(frozen=True, slots=True)
 class BypassReasonCount:
     reason: BypassReason
-    count: int  # Can be zero.
+    count: NonNegativeInt
 
 
 _EMPTY_BYPASS_REASONS = tuple(BypassReasonCount(reason, 0) for reason in BypassReason)
@@ -39,15 +41,15 @@ _EMPTY_BYPASS_REASONS = tuple(BypassReasonCount(reason, 0) for reason in BypassR
 @dataclass(frozen=True, slots=True)
 class CacheSnapshot:
     lifecycle: str
-    used_bytes: int
-    shared_budget_bytes: int
-    max_entry_bytes: int
-    entry_count: int
-    hits: int
-    misses: int
-    evictions: int
-    bypasses: int
-    oversized_bypasses: int
+    used_bytes: NonNegativeInt
+    shared_budget_bytes: PositiveInt
+    max_entry_bytes: PositiveInt
+    entry_count: NonNegativeInt
+    hits: NonNegativeInt
+    misses: NonNegativeInt
+    evictions: NonNegativeInt
+    bypasses: NonNegativeInt
+    oversized_bypasses: NonNegativeInt
     bypass_reasons: tuple[BypassReasonCount, ...] = _EMPTY_BYPASS_REASONS
 
 

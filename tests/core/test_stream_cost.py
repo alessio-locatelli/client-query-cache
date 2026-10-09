@@ -4,10 +4,12 @@ import dataclasses
 import datetime
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, get_type_hints
 
 import pytest
 from bson.datetime_ms import DatetimeMS
+from hypothesis import given
+from hypothesis import strategies as st
 
 from client_query_cache._core.errors import CacheConfigurationError
 from client_query_cache._core.keys import NamespaceId
@@ -25,6 +27,7 @@ if TYPE_CHECKING:
 pytestmark = pytest.mark.unit
 
 _WALL_TIME = datetime.datetime(2024, 1, 1, tzinfo=datetime.UTC)
+_LAG_CONFIG_HINTS = get_type_hints(LagCaptureWindowConfig, include_extras=True)
 
 
 @pytest.fixture
@@ -69,6 +72,17 @@ def test_lag_capture_window_config_rejects_invalid_values(
 ) -> None:
     with pytest.raises(CacheConfigurationError):
         LagCaptureWindowConfig(**kwargs)
+
+
+@given(
+    st.fixed_dictionaries(
+        {name: st.from_type(hint) for name, hint in _LAG_CONFIG_HINTS.items()}
+    )
+)
+def test_lag_capture_window_config_accepts_every_annotated_value(
+    kwargs: dict[str, int],
+) -> None:
+    assert dataclasses.asdict(LagCaptureWindowConfig(**kwargs)) == kwargs
 
 
 @pytest.mark.parametrize(
