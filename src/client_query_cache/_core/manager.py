@@ -4,7 +4,7 @@ import logging
 import threading
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 from bson.errors import BSONError
 
@@ -872,7 +872,9 @@ class _CacheCoreLookup(_CacheCoreBase):
             return LookupResult(hit=False)
         self._lru.touch(key)
         self._statistics.record_hit()
-        documents = cast("list[object]", decode_value(entry.value, codec_options))
+        documents: list[object] = decode_value(  # type: ignore[assignment]
+            entry.value, codec_options
+        )
         if not isinstance(shape.limit, bool) and shape.limit > 0:
             documents = documents[: shape.limit]
         return LookupResult(hit=True, value=documents)

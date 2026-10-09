@@ -8,7 +8,7 @@
 
 import os
 from time import monotonic, sleep
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from py_abac import PDP, AccessRequest, Policy  # type: ignore[import-untyped]
 from py_abac.storage.mongo import MongoStorage  # type: ignore[import-untyped]
@@ -34,7 +34,7 @@ class CachedMongoStorage(MongoStorage):  # type: ignore[misc]
         document = self.cached_collection.find_one(uid)
         if not document:
             return None
-        return cast("Policy", PolicyModel.from_doc(document).to_policy())
+        return PolicyModel.from_doc(document).to_policy()
 
     def get_all(  # pytriage: TR4 -- upstream storage method name
         self, limit: int, offset: int

@@ -3,7 +3,7 @@ from __future__ import annotations
 import threading
 from dataclasses import dataclass
 from time import monotonic
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 from client_query_cache._types import NonNegativeFloat, NonNegativeInt, PositiveFloat
 
@@ -38,9 +38,7 @@ class AwaitCommandListener(CommandListener):
         if event.command_name != "getMore":
             return
         try:
-            requested: NonNegativeInt | None = cast(
-                "NonNegativeInt", event.command["maxTimeMS"]
-            )
+            requested: NonNegativeInt | None = event.command["maxTimeMS"]
         except KeyError:
             requested = None
         with self._lock:
