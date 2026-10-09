@@ -495,12 +495,41 @@ class _CacheCoreIdentityAdmission(_CacheCoreBase):
     ) -> AdmissionOutcome:
         self._ensure_active()
         try:
-            try:
-                encoded = encode_value(value, codec_options)
-            except BSONError:
-                return AdmissionOutcome.DECLINED_UNENCODABLE
-            except OverflowError:
-                return AdmissionOutcome.DECLINED_UNENCODABLE
+            encoded = encode_value(value, codec_options)
+        except BSONError:
+            self._release_identity_capture(capture)
+            return AdmissionOutcome.DECLINED_UNENCODABLE
+        except OverflowError:
+            self._release_identity_capture(capture)
+            return AdmissionOutcome.DECLINED_UNENCODABLE
+        except BaseException:
+            self._release_identity_capture(capture)
+            raise
+        return self._admit_identity_encoded(capture, read_shape, encoded, alias)
+
+    def admit_identity_encoded(
+        self,
+        capture: IdentityCapture,
+        read_shape: object,
+        encoded: bytes,
+        *,
+        alias: AliasKey | None = None,
+    ) -> AdmissionOutcome:
+        try:
+            self._ensure_active()
+        except CacheClosedError:
+            self._release_identity_capture(capture)
+            raise
+        return self._admit_identity_encoded(capture, read_shape, encoded, alias)
+
+    def _admit_identity_encoded(
+        self,
+        capture: IdentityCapture,
+        read_shape: object,
+        encoded: bytes,
+        alias: AliasKey | None,
+    ) -> AdmissionOutcome:
+        try:
             canonical_shape = canonicalize(read_shape)
             weight = len(encoded)
             with self._admission_section(
@@ -627,6 +656,30 @@ class _CacheCoreNamespaceAdmission(_CacheCoreBase):
             return AdmissionOutcome.DECLINED_UNENCODABLE
         except OverflowError:
             return AdmissionOutcome.DECLINED_UNENCODABLE
+        return self._admit_namespace_encoded(
+            capture, discriminator, encoded, find_source
+        )
+
+    def admit_namespace_encoded(
+        self,
+        capture: NamespaceCapture,
+        discriminator: object,
+        encoded: bytes,
+        *,
+        find_source: FindSource | None = None,
+    ) -> AdmissionOutcome:
+        self._ensure_active()
+        return self._admit_namespace_encoded(
+            capture, discriminator, encoded, find_source
+        )
+
+    def _admit_namespace_encoded(
+        self,
+        capture: NamespaceCapture,
+        discriminator: object,
+        encoded: bytes,
+        find_source: FindSource | None,
+    ) -> AdmissionOutcome:
         canonical_discriminator = canonicalize(discriminator)
         weight = len(encoded)
         with self._admission_section(
@@ -841,10 +894,23 @@ class _CacheCoreLookup(_CacheCoreBase):
         *,
         codec_options: CodecOptions[Any] | None = None,
     ) -> LookupResult:
+        encoded = self.lookup_find_encoded(namespace, shape)
+        if encoded is None:
+            return _MISS
+        documents: list[object] = decode_value(  # type: ignore[assignment]
+            encoded, codec_options
+        )
+        if not isinstance(shape.limit, bool) and shape.limit > 0:
+            documents = documents[: shape.limit]
+        return LookupResult(hit=True, value=documents)
+
+    def lookup_find_encoded(
+        self, namespace: NamespaceId, shape: FindReadShape
+    ) -> bytes | None:
         self._ensure_active()
         if not self._is_database_available(namespace.database):
             self._statistics.record_bypass(BypassReason.STREAM_UNAVAILABLE)
-            return LookupResult(hit=False)
+            return None
         state = self._namespace(namespace)
         family = canonicalize(shape.family)
         key = NamespaceCacheKey(namespace, find_discriminator(family, shape.limit))
@@ -869,15 +935,10 @@ class _CacheCoreLookup(_CacheCoreBase):
                     break
         if entry is None:
             self._statistics.record_miss()
-            return LookupResult(hit=False)
+            return None
         self._lru.touch(key)
         self._statistics.record_hit()
-        documents: list[object] = decode_value(  # type: ignore[assignment]
-            entry.value, codec_options
-        )
-        if not isinstance(shape.limit, bool) and shape.limit > 0:
-            documents = documents[: shape.limit]
-        return LookupResult(hit=True, value=documents)
+        return entry.value
 
     def lookup_identity(
         self,
@@ -887,16 +948,24 @@ class _CacheCoreLookup(_CacheCoreBase):
         *,
         codec_options: CodecOptions[Any] | None = None,
     ) -> LookupResult:
+        encoded = self.lookup_identity_encoded(namespace, identity, read_shape)
+        if encoded is None:
+            return _MISS
+        return LookupResult(hit=True, value=decode_value(encoded, codec_options))
+
+    def lookup_identity_encoded(
+        self, namespace: NamespaceId, identity: object, read_shape: object
+    ) -> bytes | None:
         self._ensure_active()
         if not self._is_database_available(namespace.database):
             self._statistics.record_bypass(BypassReason.STREAM_UNAVAILABLE)
-            return LookupResult(hit=False)
+            return None
         canonical_identity = canonicalize(order_sensitive_key(identity))
         key = IdentityCacheKey(namespace, canonical_identity, canonicalize(read_shape))
         entry = self._lru.peek(key)
         if entry is None:
             self._statistics.record_miss()
-            return LookupResult(hit=False)
+            return None
         state = self._namespace(namespace)
         entry_generation_key = (entry.generation_key[0], entry.generation_key[1])
         with self._namespace_section(state):
@@ -905,10 +974,10 @@ class _CacheCoreLookup(_CacheCoreBase):
             )
         if matched is None:
             self._statistics.record_miss()
-            return LookupResult(hit=False)
+            return None
         self._lru.touch(key)
         self._statistics.record_hit()
-        return LookupResult(hit=True, value=decode_value(entry.value, codec_options))
+        return entry.value
 
     def lookup_namespace(
         self,
@@ -918,10 +987,24 @@ class _CacheCoreLookup(_CacheCoreBase):
         codec_options: CodecOptions[Any] | None = None,
         defer_miss: bool = False,
     ) -> LookupResult:
+        encoded = self.lookup_namespace_encoded(
+            namespace, discriminator, defer_miss=defer_miss
+        )
+        if isinstance(encoded, LookupResult):
+            return encoded
+        return LookupResult(hit=True, value=decode_value(encoded, codec_options))
+
+    def lookup_namespace_encoded(
+        self,
+        namespace: NamespaceId,
+        discriminator: object,
+        *,
+        defer_miss: bool = False,
+    ) -> bytes | LookupResult:
         self._ensure_active()
         if not self._is_database_available(namespace.database):
             self._statistics.record_bypass(BypassReason.STREAM_UNAVAILABLE)
-            return LookupResult(hit=False)
+            return _MISS
         canonical_discriminator = canonicalize(discriminator)
         key = NamespaceCacheKey(namespace, canonical_discriminator)
         entry = self._lru.peek(key)
@@ -934,7 +1017,7 @@ class _CacheCoreLookup(_CacheCoreBase):
             return self._namespace_miss(defer_miss=defer_miss)
         self._lru.touch(key)
         self._statistics.record_hit()
-        return LookupResult(hit=True, value=decode_value(entry.value, codec_options))
+        return entry.value
 
     def _namespace_miss(self, *, defer_miss: bool) -> LookupResult:
         if defer_miss:
