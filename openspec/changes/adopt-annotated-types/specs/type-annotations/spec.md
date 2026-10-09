@@ -20,6 +20,16 @@ Repository Python code SHALL express sign, numeric bounds, and minimum or exact 
 - **WHEN** a comment states that zero denotes an unlimited limit
 - **THEN** the annotation states the non-negative range and the comment keeps only the meaning of zero
 
+#### Scenario: A comment states an index base
+
+- **WHEN** a comment describes a field as a zero-based index
+- **THEN** the annotation states the non-negative range and the comment keeps that the index is zero-based
+
+#### Scenario: A comment states an exact collection length
+
+- **WHEN** a comment states that a list holds exactly six entries
+- **THEN** the annotation states that exact length and no comment restates it
+
 ### Requirement: Bare annotations need no permissive prose
 
 Prose SHALL NOT state that a value with a bare numeric, string, or collection annotation can be zero, negative, or empty, or explain why such a collection starts empty, because the bare type already admits those values.
@@ -31,7 +41,7 @@ Prose SHALL NOT state that a value with a bare numeric, string, or collection an
 
 ### Requirement: Shared constrained aliases have one source
 
-Reusable constrained aliases SHALL be defined in one private library module, which SHALL be the only module that imports annotation-metadata types. Each alias SHALL have at least one use in the repository.
+Reusable constrained aliases SHALL be defined in one private library module, and each SHALL have at least one use in the repository. Other modules SHALL use annotation metadata inline only for a constraint no shared alias can express, such as an exact length.
 
 #### Scenario: A second module needs a positive integer
 
@@ -49,7 +59,7 @@ Annotation metadata SHALL NOT replace runtime validation. Annotations state a va
 
 ### Requirement: Public numeric interfaces state their ranges
 
-Public numeric configuration fields and parameters whose range the library validates, and public snapshot fields whose range the library guarantees, SHALL carry annotations that state that range.
+Public numeric configuration fields and parameters whose range the library validates SHALL carry annotations that state that range. Public snapshot fields SHALL carry annotations stating the range they keep whenever callers respect the annotated ranges of public recording parameters, and those parameters SHALL carry their ranges.
 
 #### Scenario: A user inspects a cache budget field
 
@@ -60,6 +70,11 @@ Public numeric configuration fields and parameters whose range the library valid
 
 - **WHEN** a user or tool reads the annotation of a public snapshot hit, miss, or byte counter
 - **THEN** the annotation states that the counter is non-negative
+
+#### Scenario: A caller records logical event bytes directly
+
+- **WHEN** a caller reads the annotation of a public method that records a logical event byte count
+- **THEN** the annotation states that the count is non-negative, the range the snapshot total relies on
 
 ### Requirement: Public dataclass annotations resolve at runtime
 
