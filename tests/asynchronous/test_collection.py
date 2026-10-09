@@ -264,27 +264,27 @@ async def test_repeated_cached_views_share_entries_and_one_database_stream(
     assert start_spy.call_count == 1
 
 
-async def test_composed_facade_and_direct_client_access_can_mix_incrementally(
+async def test_composed_facade_and_direct_client_access_can_mix(
     cache_manager: CacheManager[dict[str, Any]],
     cached_database_name: DatabaseName,
     persistent_collection_name: CollectionName,
     nonpersistent_collection_name: CollectionName,
     make_fake_document: Callable[..., dict[str, Any]],
 ) -> None:
-    migrated_collection = cache_manager[cached_database_name][
+    cached_collection = cache_manager[cached_database_name][
         nonpersistent_collection_name
     ]
-    unmigrated_collection = cache_manager.client[cached_database_name][
+    direct_collection = cache_manager.client[cached_database_name][
         persistent_collection_name
     ]
-    migrated_document = make_fake_document()
-    unmigrated_document = make_fake_document()
+    cached_document = make_fake_document()
+    direct_document = make_fake_document()
 
-    await migrated_collection.raw.insert_one(migrated_document)
-    await unmigrated_collection.insert_one(unmigrated_document)
+    await cached_collection.raw.insert_one(cached_document)
+    await direct_collection.insert_one(direct_document)
 
-    assert await migrated_collection.raw.find_one({"_id": migrated_document["_id"]})
-    assert await unmigrated_collection.find_one({"_id": unmigrated_document["_id"]})
+    assert await cached_collection.raw.find_one({"_id": cached_document["_id"]})
+    assert await direct_collection.find_one({"_id": direct_document["_id"]})
 
 
 async def test_manager_never_takes_ownership_of_the_caller_client_lifecycle(

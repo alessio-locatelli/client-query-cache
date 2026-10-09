@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:mongo-client-cache:benchmarks:stream-cost:report:v1",
+  "$id": "urn:client-query-cache:benchmarks:stream-cost:report:v1",
   "title": "Stream cost benchmark report (v1)",
   "type": "object",
   "required": [
