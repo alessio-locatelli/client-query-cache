@@ -86,7 +86,7 @@ type Payload = dict[str, object]
 class CaptureConfiguration(TypedDict):
     windows: PositiveInt
     events: PositiveInt  # Per window.
-    separation: int
+    separation: NonNegativeInt
 
 
 class ClientOptions(TypedDict):
