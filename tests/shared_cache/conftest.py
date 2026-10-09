@@ -16,13 +16,19 @@ from benchmarks.stream_cost.multiprocess_run import reclaim_workers
 from benchmarks.stream_cost.shared_cache.coordinator import OwnerConfig, TransportLimits
 from benchmarks.stream_cost.shared_cache.owner import owner_main
 from benchmarks.stream_cost.shared_cache.window import attachment_for
+from benchmarks.stream_cost.shared_cache.wire import encode_key
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
     from multiprocessing.connection import Connection
     from multiprocessing.process import BaseProcess
 
-    from benchmarks.stream_cost.shared_cache.attachment import AttachmentConfig
+    from benchmarks.stream_cost.shared_cache.adapters import SharedCacheManager
+    from benchmarks.stream_cost.shared_cache.attachment import (
+        AttachmentConfig,
+        Message,
+        SyncEndpoint,
+    )
     from tests.conftest import DatabaseName, MongoDbUri
 
 type Payload = dict[str, Any]
@@ -80,6 +86,29 @@ def wait_for(predicate: Callable[[], bool], timeout: float = 10.0) -> None:
         time.sleep(0.02)
 
 
+def ready(manager: SharedCacheManager[dict[str, Any]], database: str) -> None:
+    collection = manager[database][COLLECTION]
+    wait_for(lambda: collection._cache_ineligibility_reason() is None)
+
+
+def select_identity(
+    endpoint: SyncEndpoint,
+    manager: SharedCacheManager[dict[str, Any]],
+    database: str,
+    key: int,
+) -> Message | None:
+    namespace = next(iter(manager._metadata))
+    return endpoint.request(
+        {
+            "op": "select-identity",
+            "ns": [database, COLLECTION],
+            "epoch": manager._metadata[namespace].checked_epoch,
+            "identity": encode_key(key),
+            "shape": encode_key(manager[database][COLLECTION]._find_one_default_shape),
+        }
+    )
+
+
 @pytest.fixture
 def seeded_database(
     mongodb_uri: MongoDbUri, cached_database_name: DatabaseName
@@ -107,7 +136,7 @@ def start_owner(
     owners: list[Owner] = []
     capability = secrets.token_bytes(32)
 
-    def start(**limits: object) -> Owner:
+    def start(*, max_entry_bytes: int = 1024 * 1024, **limits: object) -> Owner:
         config = OwnerConfig(
             socket_path=str(socket_directory / "owner.sock"),
             capability=capability,
@@ -118,7 +147,7 @@ def start_owner(
             },
             databases=(seeded_database,),
             budget_bytes=8 * 1024 * 1024,
-            max_entry_bytes=1024 * 1024,
+            max_entry_bytes=max_entry_bytes,
             max_await_time_ms=AWAIT_MS,
             limits=replace(LIMITS, **limits),  # type: ignore[arg-type]
             lag_capture=(1, 1, 0),

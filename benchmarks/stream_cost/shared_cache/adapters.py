@@ -7,8 +7,6 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, override
 
-from bson.errors import BSONError
-
 from benchmarks.stream_cost.shared_cache.wire import (
     KeyCache,
     UnportableKeyError,
@@ -60,6 +58,7 @@ if TYPE_CHECKING:
 
 _STALE = CollectionMetadata(checked_epoch=0, bypass_reason=None, default_collation=None)
 UNPORTABLE_KEY = "unportable-key"
+_UNCANONICALIZABLE = BypassReason.UNCANONICALIZABLE_KEY.value
 PROTOTYPE_SCOPE = "prototype-scope"
 METADATA_REFRESH = "metadata-refresh"
 OWNER_UNAVAILABLE = "owner-unavailable"
@@ -140,19 +139,18 @@ class RemoteCursorCapture(CursorCapture):
 
     @override
     def abandon(self) -> None:
-        if self._active:
-            self._remote.discard(self._capture)
+        self._remote.discard(self._capture)
         super().abandon()
 
 
 def _admission(
     handle: object, value: object, codec_options: CodecOptions[Any]
 ) -> Message:
-    try:
-        encoded = encode_value(value, codec_options)
-    except BSONError:
-        return {"op": "discard", "handle": handle}
-    return {"op": "admit", "handle": handle, "value": encoded}
+    return {
+        "op": "admit",
+        "handle": handle,
+        "value": encode_value(value, codec_options),
+    }
 
 
 def _metadata(
@@ -196,7 +194,7 @@ def _identity_message(
         identity, view._collection.codec_options, view._shared.client.codec_options
     )
     if not is_canonicalizable(cache_identity):
-        return BypassReason.UNCANONICALIZABLE_KEY.value
+        return _UNCANONICALIZABLE  # pragma: no cover (portable round trips)
     try:
         identity_key = encode_key(canonicalize(order_sensitive_key(cache_identity)))
         shape_key = view._shared.keys.encode(read_shape)

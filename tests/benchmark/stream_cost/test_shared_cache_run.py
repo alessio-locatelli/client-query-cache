@@ -50,7 +50,7 @@ if TYPE_CHECKING:
 
 pytestmark = pytest.mark.unit
 
-_CONFIG = Path("reports/shared-worker-cache/v2/config.json")
+_CONFIG = Path("reports/shared-worker-cache/v3/config.json")
 _FROZEN_RATES = {"primary": 3000, "cold": 1000, "sensitivity": 500}
 _FROZEN_WINDOWS = {"hot": 30, "active": 60, "sensitivity": 30}
 
@@ -1022,3 +1022,27 @@ def test_seeding_inserts_bounded_batches(documents: int, batches: list[int]) -> 
 
     assert client.collection.batches == batches
     assert summary["documents"] == documents
+
+
+def test_reused_probes_keep_only_healthy_probe_windows(
+    tmp_path: Path, registration: Registration
+) -> None:
+    probe = probe_cells(registration)[0]
+    validation = validation_cells(
+        registration, "primary", 100.0, {"hot": 30.0, "active": 60.0}
+    )[0]
+    report = tmp_path / "calibration.json"
+    healthy = _record(probe)
+    report.write_text(
+        json.dumps(
+            {
+                "phase": "calibration",
+                "cells": [healthy, _record(probe, healthy=False), _record(validation)],
+            }
+        )
+    )
+
+    assert run.reused_probes(report) == [healthy]
+    report.write_text(json.dumps({"phase": "smoke", "cells": [healthy]}))
+    with pytest.raises(BenchmarkSetupError, match="healthy probes"):
+        run.reused_probes(report)

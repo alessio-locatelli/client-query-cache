@@ -30,7 +30,13 @@ from benchmarks.stream_cost.shared_cache.attachment import (
 )
 from benchmarks.stream_cost.shared_cache.wire import encode_frame, encode_key
 from tests.codec_helpers import Decimal128ToDecimalDecoder
-from tests.shared_cache.conftest import COLLECTION, DOCUMENTS, wait_for
+from tests.shared_cache.conftest import (
+    COLLECTION,
+    DOCUMENTS,
+    ready,
+    select_identity,
+    wait_for,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -59,38 +65,15 @@ def sync_manager(
     manager.close()
 
 
-def _ready(manager: SharedCacheManager[dict[str, Any]], database: str) -> None:
-    collection = manager[database][COLLECTION]
-    wait_for(lambda: collection._cache_ineligibility_reason() is None)
-
-
-def _select(
-    endpoint: SyncEndpoint,
-    manager: SharedCacheManager[dict[str, Any]],
-    database: str,
-    key: int,
-) -> Message | None:
-    namespace = next(iter(manager._metadata))
-    return endpoint.request(
-        {
-            "op": "select-identity",
-            "ns": [database, COLLECTION],
-            "epoch": manager._metadata[namespace].checked_epoch,
-            "identity": encode_key(key),
-            "shape": encode_key(manager[database][COLLECTION]._find_one_default_shape),
-        }
-    )
-
-
 def _reader_main(
     connection: Connection, uri: str, config: AttachmentConfig, database: str, mode: str
 ) -> None:
     with MongoClient[dict[str, Any]](uri) as raw:
         manager = SharedCacheManager(raw, SyncEndpoint(config))
         collection = manager[database][COLLECTION]
-        _ready(manager, database)
-        if mode == "capture":
-            reply = _select(manager.endpoint, manager, database, DOCUMENTS + 10)
+        ready(manager, database)
+        if mode == "capture":  # pragma: lax no cover (the test kills this process)
+            reply = select_identity(manager.endpoint, manager, database, DOCUMENTS + 10)
             connection.send(reply)
             connection.recv()
             return
@@ -124,7 +107,7 @@ def test_sync_and_async_workers_reuse_one_admitted_payload_across_processes(
     mongodb_uri: MongoDbUri,
 ) -> None:
     manager, owner = sync_manager
-    _ready(manager, seeded_database)
+    ready(manager, seeded_database)
     for index in range(DOCUMENTS):
         manager[seeded_database][COLLECTION].find_one({"_id": index})
     wait_for(lambda: owner.observation()["cache"]["entry_count"] == DOCUMENTS)
@@ -158,7 +141,7 @@ def test_mutating_a_shared_hit_leaves_the_group_entry_unchanged(
 ) -> None:
     manager, _owner = sync_manager
     collection = manager[seeded_database][COLLECTION]
-    _ready(manager, seeded_database)
+    ready(manager, seeded_database)
     collection.find_one({"_id": 1})
 
     first = collection.find_one({"_id": 1})
@@ -179,7 +162,7 @@ def test_processed_invalidation_prevents_a_stale_selection(
 ) -> None:
     manager, owner = sync_manager
     collection = manager[seeded_database][COLLECTION]
-    _ready(manager, seeded_database)
+    ready(manager, seeded_database)
     collection.find_one({"_id": 2})
     before = owner.request("sample")["invalidations"]
 
@@ -198,8 +181,8 @@ def test_owner_restart_fences_old_sessions_and_handles(
 ) -> None:
     first = start_owner()
     manager = SharedCacheManager(client, SyncEndpoint(first.attachment()))
-    _ready(manager, seeded_database)
-    reply = _select(manager.endpoint, manager, seeded_database, 3)
+    ready(manager, seeded_database)
+    reply = select_identity(manager.endpoint, manager, seeded_database, 3)
     assert reply is not None
     old_incarnation = manager.endpoint.incarnation
 
@@ -208,7 +191,11 @@ def test_owner_restart_fences_old_sessions_and_handles(
     document = manager[seeded_database][COLLECTION].find_one({"_id": 4})
     replacement = start_owner()
     time.sleep(0.2)
-    wait_for(lambda: _select(manager.endpoint, manager, seeded_database, 4) is not None)
+    wait_for(
+        lambda: (
+            select_identity(manager.endpoint, manager, seeded_database, 4) is not None
+        )
+    )
     manager.endpoint.send(
         {"op": "admit", "handle": reply["handle"], "value": bson.encode({"v": {}})}
     )
@@ -235,7 +222,7 @@ def test_a_paused_owner_times_out_and_the_read_stays_native(
 ) -> None:
     manager, owner = sync_manager
     collection = manager[seeded_database][COLLECTION]
-    _ready(manager, seeded_database)
+    ready(manager, seeded_database)
     owner.request("pause-server", seconds=1.0)
 
     document = collection.find_one({"_id": 5})
@@ -255,16 +242,17 @@ def test_a_stalled_watch_disables_selection_and_fences_captures(
     sync_manager: tuple[SharedCacheManager[dict[str, Any]], Owner], seeded_database: str
 ) -> None:
     manager, owner = sync_manager
-    _ready(manager, seeded_database)
-    capture = _select(manager.endpoint, manager, seeded_database, 6)
+    ready(manager, seeded_database)
+    capture = select_identity(manager.endpoint, manager, seeded_database, 6)
     assert capture is not None
 
     owner.request("pause-watch")
     wait_for(
         lambda: (
-            cast("Payload", _select(manager.endpoint, manager, seeded_database, 7)).get(
-                "reason"
-            )
+            cast(
+                "Payload",
+                select_identity(manager.endpoint, manager, seeded_database, 7),
+            ).get("reason")
             == "progress-expired"
         )
     )
@@ -274,7 +262,10 @@ def test_a_stalled_watch_disables_selection_and_fences_captures(
     owner.request("resume-watch")
     wait_for(
         lambda: (
-            cast("Payload", _select(manager.endpoint, manager, seeded_database, 7))["r"]
+            cast(
+                "Payload",
+                select_identity(manager.endpoint, manager, seeded_database, 7),
+            )["r"]
             == "miss"
         )
     )
@@ -289,17 +280,19 @@ def _after_stream_reopen(
     manager: SharedCacheManager[dict[str, Any]], owner: Owner, database: str, fault: str
 ) -> Message:
     collection = manager[database][COLLECTION]
-    _ready(manager, database)
+    ready(manager, database)
     collection.find_one({"_id": 8})
     assert owner.observation()["cache"]["entry_count"] == 1
-    capture = _select(manager.endpoint, manager, database, 9)
+    capture = select_identity(manager.endpoint, manager, database, 9)
     assert capture is not None
 
     owner.request(fault)
     wait_for(lambda: owner.request("sample")["commands"]["stream:opened"] == 2)
     wait_for(
         lambda: (
-            cast("Payload", _select(manager.endpoint, manager, database, 10))["r"]
+            cast("Payload", select_identity(manager.endpoint, manager, database, 10))[
+                "r"
+            ]
             in {"miss", "refresh"}
         )
     )
@@ -380,7 +373,7 @@ def _closed(sock: socket.socket) -> bool:
     try:
         while sock.recv(65_536):
             pass
-    except ConnectionResetError:
+    except ConnectionResetError:  # pragma: lax no cover (peer reset timing)
         pass
     return True
 
@@ -392,15 +385,11 @@ def test_a_slow_reader_is_detached_without_blocking_peers(
 ) -> None:
     owner = start_owner(queued_bytes_per_connection=16_384)
     manager = SharedCacheManager(client, SyncEndpoint(owner.attachment()))
-    _ready(manager, seeded_database)
+    ready(manager, seeded_database)
     slow = _raw_connection(owner.attachment(), authenticate=True)
     slow.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4_096)
     request = encode_frame({"v": 1, "id": 1, "op": "observe"})
-    try:
-        for _ in range(4_000):
-            slow.sendall(request)
-    except OSError:
-        pass
+    slow.sendall(request * 64)
 
     wait_for(lambda: owner.counters()["detached"] == 1)
     manager[seeded_database][COLLECTION].find_one({"_id": 11})
@@ -497,7 +486,7 @@ def test_malformed_peers_are_rejected_while_others_continue(
     counter: str,
 ) -> None:
     manager, owner = sync_manager
-    _ready(manager, seeded_database)
+    ready(manager, seeded_database)
     peer = _raw_connection(owner.attachment(), authenticate=authenticate)
 
     for frame in frames(seeded_database):
@@ -544,11 +533,11 @@ def test_capture_limits_and_expiry_bound_owner_state(
 ) -> None:
     owner = start_owner(captures=1, capture_seconds=0.3)
     manager = SharedCacheManager(client, SyncEndpoint(owner.attachment()))
-    _ready(manager, seeded_database)
+    ready(manager, seeded_database)
     wait_for(lambda: owner.observation()["captures"] == 0)
 
-    first = _select(manager.endpoint, manager, seeded_database, 12)
-    second = _select(manager.endpoint, manager, seeded_database, 13)
+    first = select_identity(manager.endpoint, manager, seeded_database, 12)
+    second = select_identity(manager.endpoint, manager, seeded_database, 13)
     wait_for(lambda: owner.counters()["expired_captures"] >= 1)
     manager.endpoint.send(
         {
@@ -705,7 +694,7 @@ def test_unportable_and_out_of_scope_reads_execute_natively(
     client: MongoClient[dict[str, Any]],
 ) -> None:
     manager, _owner = sync_manager
-    _ready(manager, seeded_database)
+    ready(manager, seeded_database)
     custom = client[seeded_database].get_collection(
         COLLECTION,
         codec_options=CodecOptions(
@@ -732,7 +721,7 @@ def test_collection_metadata_failures_bypass_shared_selection(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     manager, _owner = sync_manager
-    _ready(manager, seeded_database)
+    ready(manager, seeded_database)
 
     missing = manager[seeded_database]["missing"].find_one({"_id": 0})
     unavailable = manager[seeded_database]["unprobed"]
@@ -750,7 +739,7 @@ def test_shared_find_cursors_admit_complete_results_only(
 ) -> None:
     manager, owner = sync_manager
     collection = manager[seeded_database][COLLECTION]
-    _ready(manager, seeded_database)
+    ready(manager, seeded_database)
 
     partial = collection.find({"revision": 0}, sort=[("_id", 1)], limit=8)
     next(partial)

@@ -326,6 +326,8 @@ class AsyncEndpoint:
                 self._dispatch(await self._read_frame(reader))
         except asyncio.IncompleteReadError:
             pass
+        except ConnectionResetError:  # pragma: lax no cover (peer reset timing)
+            pass
         finally:
             self._abandon(writer)
 

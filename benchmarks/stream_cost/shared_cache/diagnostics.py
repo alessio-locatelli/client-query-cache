@@ -45,7 +45,7 @@ if TYPE_CHECKING:
 
 type Payload = dict[str, object]
 
-_CONFIG = Path("reports/shared-worker-cache/v2/config.json")
+_CONFIG = Path("reports/shared-worker-cache/v3/config.json")
 _LABEL = "exploratory diagnostic; excluded from promotion inference"
 
 
