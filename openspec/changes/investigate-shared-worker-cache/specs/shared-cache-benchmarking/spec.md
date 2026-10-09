@@ -20,6 +20,25 @@ Shared-value experiments SHALL preregister workload schedules, data, candidate s
 - **WHEN** an existing study measures independent streams without a shared-value prototype
 - **THEN** the shared-value report cites its limits without treating that evidence as proof of shared storage viability
 
+### Requirement: Offered workloads follow baseline capacity calibration
+
+Fixed-work offered rates SHALL be selected by preregistered baseline-only calibration on the test host and validated for both baseline paths at every required worker count and execution model. Rates and sample-preserving durations SHALL be frozen before candidate timing and applied equally across compared paths. Calibration SHALL NOT replace maximum-throughput experiments.
+
+#### Scenario: Direct reads cannot sustain the proposed rate
+
+- **WHEN** baseline validation overloads at the provisional offered rate
+- **THEN** the registered selection rule lowers the common rate and revalidates baselines before freezing candidate workloads, or reports an inconclusive setup at its cap
+
+#### Scenario: Candidate results suggest a more favorable rate
+
+- **WHEN** candidate measurement has started
+- **THEN** its results cannot select a replacement load; any recalibration uses baselines only, a new registration and fresh comparisons for all affected paths
+
+#### Scenario: A lower rate extends an active window
+
+- **WHEN** calibration extends the duration to preserve each path/run's percentile sample floor
+- **THEN** baseline validation and candidate runs replay the same frozen read and write schedules, and samples from different runs cannot be pooled to satisfy that floor
+
 ### Requirement: Shared-value comparisons execute equivalent application work
 
 The benchmark SHALL compare direct MongoDB reads, independent managers and shared storage with equivalent data, queries, decode work, concerns, concurrency and offered schedules. Fixed-work resource comparisons SHALL keep aggregate demand constant across worker counts. Hot-cache comparisons SHALL verify complete working-set residency; explicitly cold-miss comparisons SHALL begin without resident results.
@@ -103,6 +122,15 @@ Production promotion SHALL require every registered correctness and performance 
 
 - **WHEN** all bounded candidate investigations fail or remain inconclusive
 - **THEN** the delivered outcome is an evidence-backed recommendation without a supported shared-cache mode or unimplemented runtime promises in the main specifications
+
+### Requirement: Negative outcomes preserve executable research evidence
+
+A report SHALL identify executable measured source, configuration and dependency versions after unsupported production functionality is removed. The research implementation and required seams SHALL remain in the delivered tree or at a permanent published source revision linked by the report. The documented smoke invocation SHALL be verified from a clean checkout of that source before dependent code is removed.
+
+#### Scenario: A rejected prototype depends on an internal core refactor
+
+- **WHEN** cleanup would remove a seam required by the research runner
+- **THEN** that seam remains with the research implementation or the report points to permanently published complete source and checkout-specific reproduction commands that still execute
 
 ### Requirement: Shared-value promotion uses independent confirmation blocks
 
