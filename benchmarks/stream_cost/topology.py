@@ -4,7 +4,7 @@ import math
 import re
 from dataclasses import dataclass
 from time import monotonic, sleep
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, Any, Self, cast
 
 from docker.errors import DockerException
 from pymongo import MongoClient
@@ -275,6 +275,17 @@ class IsolatedReplicaSet:
         except OverflowError as error:
             raise _cpu_usage_unreadable(error) from None
         return usage_nanoseconds / _NANOSECONDS_PER_SECOND
+
+    def container_memory_usage_bytes(self) -> NonNegativeInt:
+        if self._container is None:
+            message = "IsolatedReplicaSet has not been started"
+            raise BenchmarkSetupError(message)
+        try:
+            stats = self._container.get_wrapped_container().stats(stream=False)
+        except DockerException as error:
+            message = f"Could not read MongoDB container memory usage: {error}"
+            raise BenchmarkSetupError(message) from None
+        return int(cast("dict[str, Any]", stats)["memory_stats"]["usage"])
 
     @staticmethod
     def _parse_cpu_usage_nanoseconds(stats: object) -> NonNegativeInt:
