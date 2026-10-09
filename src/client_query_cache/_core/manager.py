@@ -38,6 +38,7 @@ from client_query_cache._core.stream_cost import (
     StreamCostRegistry,
     StreamCostSnapshot,
 )
+from client_query_cache._types import NonNegativeInt, PositiveInt
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator
@@ -62,8 +63,8 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True, slots=True)
 class CacheCoreConfig:
-    shared_budget_bytes: int = DEFAULT_SHARED_BUDGET_BYTES
-    max_entry_bytes: int = DEFAULT_MAX_ENTRY_BYTES
+    shared_budget_bytes: PositiveInt = DEFAULT_SHARED_BUDGET_BYTES
+    max_entry_bytes: PositiveInt = DEFAULT_MAX_ENTRY_BYTES
     lag_capture_window_config: LagCaptureWindowConfig = (
         DEFAULT_LAG_CAPTURE_WINDOW_CONFIG
     )
@@ -965,7 +966,7 @@ class _CacheCoreStreamCostTelemetry(_CacheCoreBase):
     def record_stream_poll(self, database: str) -> None:
         self._stream_cost.record_poll(database)
 
-    def record_logical_event_bytes(self, database: str, count: int) -> None:
+    def record_logical_event_bytes(self, database: str, count: NonNegativeInt) -> None:
         self._stream_cost.record_logical_event_bytes(database, count)
 
     def record_invalidation_applied(

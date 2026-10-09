@@ -18,6 +18,7 @@ from client_query_cache._core.unique_keys import (
     UniqueKeyMetadataCache,
     discover_unique_keys,
 )
+from client_query_cache._types import MaxAwaitTimeMs
 from client_query_cache.synchronous.collection import CachedCollection
 from client_query_cache.synchronous.database import CachedDatabase
 from client_query_cache.synchronous.streams import ChangeStreamCoordinator
@@ -45,7 +46,7 @@ class CacheManager[DocumentType: Mapping[str, Any]]:
         client: MongoClient[DocumentType],
         *,
         cache_config: CacheCoreConfig | None = None,
-        max_await_time_ms: int = DEFAULT_MAX_AWAIT_TIME_MS,
+        max_await_time_ms: MaxAwaitTimeMs = DEFAULT_MAX_AWAIT_TIME_MS,
     ) -> None:
         validate_max_await_time_ms(max_await_time_ms)
         self._client = client

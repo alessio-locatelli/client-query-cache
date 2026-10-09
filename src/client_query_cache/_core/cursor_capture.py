@@ -47,8 +47,8 @@ class CursorCapture:
         self._codec_options = codec_options
         self._find_source = find_source
         self._max_entry_bytes = core.snapshot().max_entry_bytes
-        self._documents: list[RawBSONDocument] = []  # An empty result is cacheable.
-        self.retained_bytes = 0  # Empty and abandoned captures retain no payload.
+        self._documents: list[RawBSONDocument] = []
+        self.retained_bytes = 0
         self._active = True
 
     def append(self, document: Mapping[str, Any]) -> None:

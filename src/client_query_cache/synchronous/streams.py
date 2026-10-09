@@ -24,6 +24,7 @@ from client_query_cache._core.stream_health import (
     public_stream_health,
 )
 from client_query_cache._core.stream_options import DEFAULT_MAX_AWAIT_TIME_MS
+from client_query_cache._types import MaxAwaitTimeMs
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -285,14 +286,14 @@ class ChangeStreamCoordinator:
         client: MongoClient[Any],
         cache: CacheCore,
         *,
-        max_await_time_ms: int = DEFAULT_MAX_AWAIT_TIME_MS,
+        max_await_time_ms: MaxAwaitTimeMs = DEFAULT_MAX_AWAIT_TIME_MS,
     ) -> None:
         self._client = client
         self._max_await_time_ms = max_await_time_ms
         self._cache = cache
         self._activations: dict[
             str, StreamActivation[DatabaseStreamSupervisor, threading.Event]
-        ] = {}  # Can be empty.
+        ] = {}
         self._supervisors: dict[str, DatabaseStreamSupervisor] = {}
         self._closed = False
         self._health_registry = StreamHealthRegistry()

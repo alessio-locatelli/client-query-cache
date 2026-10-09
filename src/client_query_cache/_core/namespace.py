@@ -38,6 +38,6 @@ class NamespaceState:
     aliases: dict[AliasKey, Canonical] = field(default_factory=dict)
     entry_index: dict[CacheEntry, CacheKey] = field(default_factory=dict)
     find_families: dict[int, dict[CacheEntry, NamespaceCacheKey]] = field(
-        default_factory=dict  # Empty without compatible resident sources.
+        default_factory=dict
     )
     identity_generation_watermark: int = 0

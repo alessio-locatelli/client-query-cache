@@ -61,7 +61,7 @@ class StreamHealthRegistry:
         self._lock = threading.Lock()
         self._states: dict[
             str, StreamHealthStatus | Callable[[], StreamHealthStatus]
-        ] = {}  # Can be empty.
+        ] = {}
 
     def record_connecting(self, database_name: str) -> None:
         with self._lock:

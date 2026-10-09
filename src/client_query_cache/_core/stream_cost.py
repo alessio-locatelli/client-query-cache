@@ -5,6 +5,7 @@ from collections import deque
 from dataclasses import dataclass
 
 from client_query_cache._core.errors import CacheConfigurationError
+from client_query_cache._types import NonNegativeInt, PositiveInt
 
 INVALIDATION_LAG_CLOCK_SKEW_LIMITATION = (
     "raw invalidation-delivery-lag values include unmeasured clock offset between "
@@ -20,9 +21,9 @@ RESIDENT_BYTES_SCOPE = (
 
 @dataclass(frozen=True, slots=True)
 class LagCaptureWindowConfig:
-    window_count: int
-    events_per_window: int
-    min_separation_events: int
+    window_count: PositiveInt
+    events_per_window: PositiveInt
+    min_separation_events: NonNegativeInt
 
     def __post_init__(self) -> None:
         if self.window_count <= 0:
@@ -84,13 +85,13 @@ class InvalidationApplyReading:
 @dataclass(frozen=True, slots=True)
 class StreamCostSnapshot:
     database: str
-    stream_polls: int
-    logical_event_bytes: int
-    invalidations: int
+    stream_polls: NonNegativeInt
+    logical_event_bytes: NonNegativeInt
+    invalidations: NonNegativeInt
     invalidation_lag_windows: tuple[tuple[float, ...], ...]
     invalidation_lag_clock_skew_limitation: str
     invalidation_apply_readings: tuple[InvalidationApplyReading, ...]
-    resident_bytes: int
+    resident_bytes: NonNegativeInt
     resident_bytes_scope: str
 
 
@@ -118,7 +119,7 @@ class StreamCostStatistics:
         with self._lock:
             self._stream_polls += 1
 
-    def record_logical_event_bytes(self, count: int) -> None:
+    def record_logical_event_bytes(self, count: NonNegativeInt) -> None:
         with self._lock:
             self._logical_event_bytes += count
 
@@ -186,7 +187,7 @@ class StreamCostRegistry:
     def record_poll(self, database: str) -> None:
         self._get_or_create(database).record_poll()
 
-    def record_logical_event_bytes(self, database: str, count: int) -> None:
+    def record_logical_event_bytes(self, database: str, count: NonNegativeInt) -> None:
         self._get_or_create(database).record_logical_event_bytes(count)
 
     def record_invalidation(

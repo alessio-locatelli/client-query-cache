@@ -14,7 +14,7 @@ _OMITTED = object()
 
 class CountReadOptions(TypedDict):
     cache_options: tuple[object, object, object, object]
-    extra_options: dict[str, object]  # Can be empty for cacheable reads.
+    extra_options: dict[str, object]
 
 
 def count_read_options(kwargs: Mapping[str, object]) -> CountReadOptions:
