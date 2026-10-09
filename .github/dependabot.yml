@@ -1,7 +1,7 @@
 version: 2
 # Hosted Dependabot, reviewed 2026-10-06:
 # https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference
-# For pip, github-actions, npm, pre-commit, uv, and docker open-pull-requests-limit:
+# For pip, github-actions, npm, pre-commit, uv, docker, and docker-compose open-pull-requests-limit:
 # The default is 5 per ecosystem. We override it because two version-update PRs per ecosystem bound review and CI load.
 # For each ecosystem's cooldown.default-days:
 # The default is no cooldown. We override it because new releases need seven days of aging before ordinary proposals.
@@ -42,6 +42,13 @@ updates:
     cooldown:
       default-days: 7
   - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 2
+    cooldown:
+      default-days: 7
+  - package-ecosystem: "docker-compose"
     directory: "/"
     schedule:
       interval: "monthly"
