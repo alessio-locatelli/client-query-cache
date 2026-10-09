@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -236,15 +237,10 @@ def _validate_completeness(report: Mapping[str, object], errors: list[str]) -> N
     windows = _as_dicts(report["windows"])
     window_names = [window["name"] for window in windows]
 
-    sample_keys: dict[tuple[object, object, object, object], int] = {}
-    for sample in _as_dicts(report["samples"]):
-        sample_key = (
-            sample["block_index"],
-            sample["mode"],
-            sample["window"],
-            sample["path"],
-        )
-        sample_keys[sample_key] = sample_keys.get(sample_key, 0) + 1
+    sample_keys = Counter(
+        (sample["block_index"], sample["mode"], sample["window"], sample["path"])
+        for sample in _as_dicts(report["samples"])
+    )
     for sample_key, count in sample_keys.items():
         if count > 1:
             errors.append(f"duplicate sample for {sample_key}")
@@ -267,12 +263,10 @@ def _validate_completeness(report: Mapping[str, object], errors: list[str]) -> N
             if negotiation_key not in negotiation_keys:
                 errors.append(f"missing verified negotiation for {negotiation_key}")
 
-    stream_minus_control_keys: dict[tuple[object, object, object], int] = {}
-    for entry in _as_dicts(report["stream_minus_control"]):
-        control_key = (entry["block_index"], entry["mode"], entry["window"])
-        stream_minus_control_keys[control_key] = (
-            stream_minus_control_keys.get(control_key, 0) + 1
-        )
+    stream_minus_control_keys = Counter(
+        (entry["block_index"], entry["mode"], entry["window"])
+        for entry in _as_dicts(report["stream_minus_control"])
+    )
     for control_key, count in stream_minus_control_keys.items():
         if count > 1:
             errors.append(f"duplicate stream-minus-control entry for {control_key}")
@@ -291,8 +285,9 @@ def _validate_samples(report: Mapping[str, object], errors: list[str]) -> None:
         window["name"]: window for window in _as_dicts(report["windows"])
     }
     for sample in _as_dicts(report["samples"]):
-        window = windows_by_name.get(sample["window"])
-        if window is None:
+        try:
+            window = windows_by_name[sample["window"]]
+        except KeyError:
             errors.append(f"sample references undeclared window {sample['window']!r}")
             continue
         label = (

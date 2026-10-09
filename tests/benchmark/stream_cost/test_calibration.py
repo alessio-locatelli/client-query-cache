@@ -194,16 +194,28 @@ def test_sample_clock_offset_rejects_a_response_not_from_the_primary() -> None:
         sample_clock_offset(send_hello, rounds=1)
 
 
-def test_sample_clock_offset_rejects_a_response_missing_election_id() -> None:
-    def send_hello() -> dict[str, object]:
-        return {
-            "localTime": datetime(2024, 1, 1, tzinfo=UTC),
-            "electionId": None,
-            "isWritablePrimary": True,
-        }
-
+@pytest.mark.parametrize(
+    "response",
+    [
+        pytest.param(
+            {"localTime": datetime(2024, 1, 1, tzinfo=UTC), "isWritablePrimary": True},
+            id="absent",
+        ),
+        pytest.param(
+            {
+                "localTime": datetime(2024, 1, 1, tzinfo=UTC),
+                "electionId": None,
+                "isWritablePrimary": True,
+            },
+            id="null",
+        ),
+    ],
+)
+def test_sample_clock_offset_rejects_a_response_missing_election_id(
+    response: dict[str, object],
+) -> None:
     with pytest.raises(BenchmarkConfigurationError, match="missing electionId"):
-        sample_clock_offset(send_hello, rounds=1)
+        sample_clock_offset(lambda: response, rounds=1)
 
 
 @pytest.mark.parametrize(

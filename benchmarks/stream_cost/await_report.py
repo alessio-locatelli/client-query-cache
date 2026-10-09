@@ -199,7 +199,9 @@ def validate_await_report(
     _require(
         condition=isinstance(environment, dict)
         and all(
-            isinstance(environment.get(key), str) and bool(environment[key])
+            key in environment
+            and isinstance(environment[key], str)
+            and bool(environment[key])
             for key in (
                 "python",
                 "pymongo",

@@ -35,7 +35,10 @@ class AwaitCommandListener(CommandListener):
     def started(self, event: CommandStartedEvent) -> None:
         if event.command_name != "getMore":
             return
-        requested = cast("int | None", event.command.get("maxTimeMS"))
+        try:
+            requested: int | None = cast("int", event.command["maxTimeMS"])
+        except KeyError:
+            requested = None
         with self._lock:
             callback = self._on_next_start
             self._on_next_start = None
