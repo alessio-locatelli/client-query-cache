@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import json
 import multiprocessing
+import runpy
+import signal
 import time
+from contextlib import nullcontext
 from dataclasses import replace
 from functools import partial
 from typing import TYPE_CHECKING, cast
@@ -9,7 +13,9 @@ from unittest.mock import AsyncMock, Mock
 
 import psutil
 import pytest
+from pymongo.errors import ConnectionFailure
 
+from benchmarks.stream_cost import multiprocess_run
 from benchmarks.stream_cost.errors import BenchmarkSetupError
 from benchmarks.stream_cost.multiprocess_run import (
     Protocol,
@@ -21,6 +27,7 @@ from benchmarks.stream_cost.multiprocess_run import (
     process_reading,
     reads_for_path,
     receive,
+    reclaim_workers,
     stop_workers,
     validate_capture,
     wait_until,
@@ -34,6 +41,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
     from multiprocessing.connection import Connection
     from multiprocessing.process import BaseProcess
+    from pathlib import Path
 
     from benchmarks.stream_cost.multiprocess_run import PathKind, Workload
 
@@ -107,6 +115,37 @@ def _park() -> None:
     multiprocessing.Event().wait(60)
 
 
+def _ignore_term(connection: Connection) -> None:  # pragma: lax no cover - SIGKILL.
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    connection.send(None)
+    multiprocessing.Event().wait(60)
+
+
+@pytest.fixture
+def stubborn_child(pipe: tuple[Connection, Connection]) -> Iterator[BaseProcess]:
+    parent, child = pipe
+    process = multiprocessing.get_context("spawn").Process(
+        target=_ignore_term, args=(child,)
+    )
+    process.start()
+    assert parent.poll(5)
+    parent.recv()
+    yield process
+    reclaim_workers((process,), time.monotonic() + 1, graceful=False)
+    assert process.exitcode == -signal.SIGKILL
+    process.close()
+
+
+def test_shutdown_kills_a_worker_that_ignores_termination(
+    stubborn_child: BaseProcess,
+) -> None:
+    with pytest.raises(
+        BenchmarkSetupError,
+        match=r"shutdown exceeded|children remain alive after cleanup deadline",
+    ):
+        stop_workers((stubborn_child,), 1)
+
+
 @pytest.fixture
 def parked_children(
     request: pytest.FixtureRequest,
@@ -118,11 +157,100 @@ def parked_children(
     for child in children:
         child.start()
     yield children
+    reclaim_workers(children, time.monotonic() + 1, graceful=False)
     for child in children:
-        if child.is_alive():
-            child.terminate()
-        child.join(1)
         child.close()
+
+
+@pytest.fixture
+def cli_collector(monkeypatch: pytest.MonkeyPatch) -> Mock:
+    collector = Mock(return_value={"healthy": True})
+    monkeypatch.setattr(multiprocess_run, "run_cell", collector)
+    monkeypatch.setattr(
+        multiprocess_run, "IsolatedReplicaSet", Mock(return_value=nullcontext(object()))
+    )
+    return collector
+
+
+@pytest.mark.parametrize("smoke", [False, True], ids=["baseline", "smoke"])
+def test_cli_preserves_protocol_and_revision(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cli_collector: Mock, smoke: bool
+) -> None:
+    output = tmp_path / "new-directory" / "report.json"
+    monkeypatch.setattr(
+        "sys.argv",
+        ["multiprocess_run", "--output", str(output), *(["--smoke"] if smoke else [])],
+    )
+    multiprocess_run.main()
+    report = json.loads(output.read_text())
+    assert report["phase"] == ("smoke" if smoke else "baseline")
+    assert len(report["revision"]) == 40
+    assert len(report["cells"]) == cli_collector.call_count == (8 if smoke else 192)
+    assert report["protocol"]["window_seconds"] == (1 if smoke else 60)
+
+
+def test_cli_records_failed_cell_and_stops(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cli_collector: Mock
+) -> None:
+    output = tmp_path / "failed.json"
+    cli_collector.side_effect = BenchmarkSetupError("worker exited unsuccessfully")
+    monkeypatch.setattr("sys.argv", ["multiprocess_run", "--output", str(output)])
+    with pytest.raises(BenchmarkSetupError, match="worker exited unsuccessfully"):
+        multiprocess_run.main()
+    assert cli_collector.call_count == 1
+    sample = json.loads(output.read_text())["cells"][0]
+    assert not sample["healthy"]
+    assert sample["failure"] == "worker exited unsuccessfully"
+
+
+@pytest.mark.parametrize(
+    "fault", ["exists", "git"], ids=["preserve-evidence", "missing-git"]
+)
+def test_cli_rejects_unreproducible_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fault: str
+) -> None:
+    output = tmp_path / "report.json"
+    monkeypatch.setattr("sys.argv", ["multiprocess_run", "--output", str(output)])
+    if fault == "exists":
+        output.write_text("existing evidence")
+        with pytest.raises(SystemExit) as error:
+            runpy.run_path(str(multiprocess_run.__file__), run_name="__main__")
+        assert error.value.code == 2
+        assert output.read_text() == "existing evidence"
+    else:
+        monkeypatch.setattr(
+            "benchmarks.stream_cost.multiprocess_run.shutil.which",
+            Mock(return_value=None),
+        )
+        with pytest.raises(BenchmarkSetupError, match="git is required"):
+            multiprocess_run.main()
+
+
+@pytest.mark.parametrize(
+    ("failure", "message"),
+    [
+        (BenchmarkSetupError("startup failed"), "startup failed"),
+        (ConnectionFailure("disconnected"), "MongoDB worker failure: disconnected"),
+        (TimeoutError(), "worker drain deadline exceeded"),
+    ],
+    ids=["startup", "database", "deadline"],
+)
+def test_worker_reports_failure_and_exits_unsuccessfully(
+    pipe: tuple[Connection, Connection],
+    monkeypatch: pytest.MonkeyPatch,
+    failure: Exception,
+    message: str,
+) -> None:
+    parent, child = pipe
+    monkeypatch.setattr(
+        multiprocess_run, "worker_window", AsyncMock(side_effect=failure)
+    )
+    with pytest.raises(type(failure)):
+        multiprocess_run.worker_main(
+            child, "unused", planned_cells()[0], 0, Protocol.smoke()
+        )
+    assert parent.recv() == {"kind": "failure", "error": message}
+    assert child.closed
 
 
 @pytest.mark.parametrize("workers", [1, 8], ids=["one", "eight"])

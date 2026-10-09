@@ -460,6 +460,7 @@ async def worker_window(
                 "end",
             )
             application_end = process_reading()  # pytriage: TR11 (metric boundary)
+            commands_at_end = listener.snapshot()
             connection.send({"kind": "application-end"})
             expected = (
                 protocol.updates
@@ -468,6 +469,9 @@ async def worker_window(
             )
             async with asyncio.timeout(protocol.drain_seconds):
                 while True:
+                    if receiver is not None and receiver.done():
+                        receiver.result()
+                        raise BenchmarkSetupError("stream receiver stopped")
                     count = (
                         manager.stream_cost_snapshot(_DATABASE).invalidations
                         if manager is not None
@@ -475,8 +479,6 @@ async def worker_window(
                     )
                     if count >= expected:
                         break
-                    if receiver is not None and receiver.done():
-                        receiver.result()
                     await asyncio.sleep(0.005)
             drained = process_reading()  # pytriage: TR11 (metric boundary)
             cache_after = manager.snapshot() if manager is not None else None
@@ -521,6 +523,14 @@ async def worker_window(
                     raise BenchmarkSetupError("incomplete stream-only delivery")
             if not healthy or listener.streams != expected_streams:
                 raise BenchmarkSetupError("stream continuity changed during window")
+            if expected_streams and cell.workload == "idle":
+                application_commands = command_delta(commands_before, commands_at_end)
+                try:
+                    polls = application_commands["getMore:completed"]
+                except KeyError:
+                    polls = 0
+                if polls <= 0:
+                    raise BenchmarkSetupError("idle stream issued no completed getMore")
             commands = command_delta(commands_before, listener.snapshot())
             if any(count for key, count in commands.items() if key.endswith(":failed")):
                 raise BenchmarkSetupError("observed a failed wire command")
@@ -579,12 +589,15 @@ def worker_main(
         asyncio.run(worker_window(connection, uri, cell, worker, protocol))
     except BenchmarkSetupError as error:
         connection.send({"kind": "failure", "error": str(error)})
+        raise
     except PyMongoError as error:
         connection.send(
             {"kind": "failure", "error": f"MongoDB worker failure: {error}"}
         )
+        raise
     except TimeoutError:
         connection.send({"kind": "failure", "error": "worker drain deadline exceeded"})
+        raise
     finally:
         connection.close()
 
@@ -627,7 +640,8 @@ def reclaim_workers(
             process.kill()
     for process in stalled:
         process.join(max(0.0, deadline - time.monotonic()))
-    if any(process.is_alive() for process in processes):
+    # SIGKILL reaping can race the shared cleanup deadline.
+    if any(process.is_alive() for process in processes):  # pragma: lax no cover
         raise BenchmarkSetupError("children remain alive after cleanup deadline")
     return bool(stalled)
 

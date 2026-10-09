@@ -22,15 +22,19 @@ class BootstrapTest:
     p_value: float  # Probability in [0, 1].
     centered_samples: tuple[WeightedStatistic, ...]
 
-    def upper_bound(self, alpha: float) -> float:  # Tail probability in (0, 1).
+    def upper_bound(
+        self,
+        alpha: float,  # Tail probability in (0, 1).
+    ) -> float:
         return self.estimate * math.exp(
             -weighted_quantile(self.centered_samples, alpha)
         )
 
 
 def weighted_quantile(
-    samples: Sequence[WeightedStatistic], probability: float
-) -> float:  # Probability lies in (0, 1).
+    samples: Sequence[WeightedStatistic],
+    probability: float,  # Probability lies in (0, 1).
+) -> float:
     threshold = math.ceil(probability * sum(sample.weight for sample in samples))
     return next(
         sample.value
@@ -44,8 +48,8 @@ def weighted_quantile(
 
 
 def exact_block_draws(
-    block_count: int,
-) -> Iterator[tuple[tuple[int, ...], int]]:  # Positive block count and weights.
+    block_count: int,  # Positive block count.
+) -> Iterator[tuple[tuple[int, ...], int]]:
     for indices in combinations_with_replacement(range(block_count), block_count):
         multiplicities = Counter(indices)
         weight = math.factorial(block_count) // math.prod(
@@ -59,16 +63,24 @@ class BasicBootstrap:
     estimate: float  # Signed observed statistic, including zero.
     centered_samples: tuple[WeightedStatistic, ...]
 
-    def lower_bound(self, alpha: float) -> float:  # Tail probability in (0, 1).
+    def lower_bound(
+        self,
+        alpha: float,  # Tail probability in (0, 1).
+    ) -> float:
         return self.estimate - weighted_quantile(self.centered_samples, 1 - alpha)
 
-    def upper_bound(self, alpha: float) -> float:  # Tail probability in (0, 1).
+    def upper_bound(
+        self,
+        alpha: float,  # Tail probability in (0, 1).
+    ) -> float:
         return self.estimate - weighted_quantile(self.centered_samples, alpha)
 
 
 def exact_basic_bootstrap(
-    statistic: Callable[[tuple[int, ...]], float], *, block_count: int
-) -> BasicBootstrap:  # Positive block count.
+    statistic: Callable[[tuple[int, ...]], float],
+    *,
+    block_count: int,  # Positive block count.
+) -> BasicBootstrap:
     observed = statistic(tuple(range(block_count)))
     samples = tuple(
         WeightedStatistic(statistic(indices) - observed, weight)

@@ -2,6 +2,29 @@
 
 ## ADDED Requirements
 
+### Requirement: Idle multi-process stream samples demonstrate polling
+
+An idle watching-worker sample SHALL require completed command-observed `getMore` activity during the application window. A completed stream-only receiver SHALL invalidate the sample even when its stream remains open and no events were scheduled.
+
+#### Scenario: An idle receiver stops without closing its stream
+
+- **WHEN** a stream-only receiver finishes before the idle application window ends
+- **THEN** the collector rejects the sample rather than accepting an open stream as evidence of continued polling
+
+#### Scenario: Idle polling is absent
+
+- **WHEN** a watching worker has no completed `getMore` commands during the idle application window
+- **THEN** the collector rejects the sample even if polling occurs later during drain
+
+### Requirement: Multi-process sample acceptance waits for successful shutdown
+
+The collector SHALL accept a multi-process cell only after every worker completes cleanup and exits successfully.
+
+#### Scenario: A worker fails cleanup after sending its sample
+
+- **WHEN** worker cleanup raises after its final sample has reached the parent
+- **THEN** the worker exits unsuccessfully and the parent rejects the cell
+
 ### Requirement: Multi-process comparisons match aggregate application work
 
 Multi-process investigations SHALL compare independent managers with matched no-stream controls at multiple worker counts, covering idle and concurrent read/write traffic. Aggregate application work SHALL remain fixed across worker counts, and reports SHALL identify manager, database, and actual stream counts.
