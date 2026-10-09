@@ -11,7 +11,6 @@ from client_query_cache._core.codec import encode_value
 from client_query_cache._core.entries import AdmissionOutcome
 from client_query_cache._core.find_reads import (
     FindReadShape,
-    find_discriminator,
     find_read_shape,
 )
 from client_query_cache._core.keys import NamespaceId
@@ -20,10 +19,10 @@ from client_query_cache._core.manager import (
     CacheCoreConfig,
     _discard_entry_locked,
 )
+from tests.call_counting import count_current_thread_calls
 from tests.core.conftest import patch_conditional_put_hook
 
 if TYPE_CHECKING:
-    from client_query_cache._core.canonical import Canonical
     from client_query_cache._core.entries import CacheEntry
     from client_query_cache._core.keys import CacheKey
     from client_query_cache._core.lru import WeightedLru
@@ -330,26 +329,13 @@ def test_lookup_probes_only_its_family(
             namespace if index % 2 else NamespaceId("other", str(index)),
             shape(100, index),
         )
-    original = type(core._lru).peek
-    original_discriminator = find_discriminator
-    probes = 0
-    discriminators = 0
-
-    def counted_peek(lru: WeightedLru, key: CacheKey) -> CacheEntry | None:
-        nonlocal probes
-        probes += 1
-        return original(lru, key)
-
-    def counted_discriminator(family: Canonical, limit: int) -> Canonical:
-        nonlocal discriminators
-        discriminators += 1
-        return original_discriminator(family, limit)
-
-    monkeypatch.setattr(type(core._lru), "peek", counted_peek)
-    monkeypatch.setattr(core_module, "find_discriminator", counted_discriminator)
+    probes = count_current_thread_calls(monkeypatch, type(core._lru), "peek")
+    discriminators = count_current_thread_calls(
+        monkeypatch, core_module, "find_discriminator"
+    )
     assert core.lookup_find(namespace, shape(10)).value == [100]
-    assert probes == 2
-    assert discriminators == 2
+    assert probes.count == 2
+    assert discriminators.count == 2
 
 
 @example([("admit", limit) for limit in range(5)])
