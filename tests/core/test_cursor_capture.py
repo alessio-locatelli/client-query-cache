@@ -100,10 +100,18 @@ def test_capture_owns_values_before_caller_mutation(
 
 
 @pytest.mark.parametrize(
-    "delta", [-1, 0, 1], ids=["over-budget", "exact-budget", "under-budget"]
+    ("delta", "expected"),
+    [
+        pytest.param(-1, None, id="over-budget"),
+        pytest.param(0, AdmissionOutcome.DECLINED_OVERSIZE, id="exact-budget"),
+        pytest.param(1, AdmissionOutcome.DECLINED_OVERSIZE, id="under-budget"),
+    ],
 )
 def test_capture_limit_includes_snapshot_envelope(
-    make_core: Callable[[int], CacheCore], namespace: NamespaceId, delta: int
+    make_core: Callable[[int], CacheCore],
+    namespace: NamespaceId,
+    delta: int,
+    expected: AdmissionOutcome | None,
 ) -> None:
     document = {"value": "bounded"}
     limit = len(encode_value(document)) + delta
@@ -111,12 +119,8 @@ def test_capture_limit_includes_snapshot_envelope(
     capture = capture_for(core, namespace)
     capture.append(document)
     assert capture.retained_bytes <= limit
-    outcome = capture.finish()
-    if delta < 0:
-        assert outcome is None
-        assert core.snapshot().oversized_bypasses == 1
-    else:
-        assert outcome is AdmissionOutcome.DECLINED_OVERSIZE
+    assert capture.finish() is expected
+    assert core.snapshot().oversized_bypasses == 1
     assert capture.retained_bytes == 0
 
 
@@ -167,27 +171,43 @@ def test_abandon_releases_snapshots(core: CacheCore, namespace: NamespaceId) -> 
     assert not core.lookup_namespace(namespace, QUERY).hit
 
 
+def make_unavailable(core: CacheCore, namespace: NamespaceId) -> None:
+    core.set_database_available(namespace.database, available=False)
+
+
+def make_unavailable_then_restore(core: CacheCore, namespace: NamespaceId) -> None:
+    make_unavailable(core, namespace)
+    core.set_database_available(namespace.database, available=True)
+
+
 @pytest.mark.parametrize(
-    "transition",
-    ["write", "unavailable", "restored", "close"],
-    ids=["write", "unavailable", "restored", "closed-manager"],
+    ("transition", "expected"),
+    [
+        pytest.param(
+            lambda core, namespace: core.record_write(namespace, "document"),
+            AdmissionOutcome.DECLINED_STALE,
+            id="write",
+        ),
+        pytest.param(
+            make_unavailable, AdmissionOutcome.DECLINED_UNAVAILABLE, id="unavailable"
+        ),
+        pytest.param(
+            make_unavailable_then_restore,
+            AdmissionOutcome.DECLINED_UNAVAILABLE,
+            id="restored",
+        ),
+        pytest.param(lambda core, _namespace: core.close(), None, id="closed-manager"),
+    ],
 )
 def test_capture_keeps_existing_admission_guards(
-    core: CacheCore, namespace: NamespaceId, transition: str
+    core: CacheCore,
+    namespace: NamespaceId,
+    transition: Callable[[CacheCore, NamespaceId], object],
+    expected: AdmissionOutcome | None,
 ) -> None:
     capture = capture_for(core, namespace)
     capture.append({"value": True})
-    if transition == "write":
-        core.record_write(namespace, "document")
-        expected = AdmissionOutcome.DECLINED_STALE
-    elif transition == "close":
-        core.close()
-        expected = None
-    else:
-        core.set_database_available(namespace.database, available=False)
-        if transition == "restored":
-            core.set_database_available(namespace.database, available=True)
-        expected = AdmissionOutcome.DECLINED_UNAVAILABLE
+    transition(core, namespace)
     assert capture.finish() is expected
     assert capture.retained_bytes == 0
     assert core.snapshot().entry_count == 0

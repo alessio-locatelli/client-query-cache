@@ -41,9 +41,15 @@ if TYPE_CHECKING:
     from client_query_cache._core.entries import LookupResult
     from client_query_cache._core.find_reads import FindReadShape
     from client_query_cache._core.manager import CacheCore
-    from tests.cursor_fixtures import Binding, Document, ReadCommands
+    from tests.cursor_fixtures import Binding, Document, ReadCommands, View
 
 pytestmark = [pytest.mark.benchmark, pytest.mark.timeout(180)]
+CACHED_CURSORS = (
+    CachedCursor,
+    AsyncCachedCursor,
+    CachedCommandCursor,
+    AsyncCachedCommandCursor,
+)
 REPETITIONS = 10
 PARTIAL_CURSORS = 8
 CONFIGURATIONS = (
@@ -65,6 +71,10 @@ CONFIGURATIONS = (
 def release_measurement_tracing() -> Generator[None]:
     yield
     tracemalloc.stop()
+
+
+def api_name(view: View) -> Literal["sync", "async"]:
+    return "async" if isinstance(view.raw.database.client, AsyncMongoClient) else "sync"
 
 
 def counts(commands: ReadCommands) -> dict[str, int]:
@@ -131,16 +141,7 @@ async def test_cursor_measurements(
             first = await advance(cursor)
             first_document.append(perf_counter() - started)
             assert first == documents[0]
-            if (
-                isinstance(
-                    cursor,
-                    CachedCursor
-                    | AsyncCachedCursor
-                    | CachedCommandCursor
-                    | AsyncCachedCommandCursor,
-                )
-                and cursor._capture is not None
-            ):
+            if isinstance(cursor, CACHED_CURSORS) and cursor._capture is not None:
                 retained_peak = max(retained_peak, cursor._capture.retained_bytes)
                 assert cursor._capture.retained_bytes <= limit
             if phase == "early-close":
@@ -152,13 +153,7 @@ async def test_cursor_measurements(
                     assert core.snapshot().entry_count == int(can_admit)
             elapsed.append(perf_counter() - started)
             origin_counts.append(counts(cursors["commands"]))
-            if isinstance(
-                cursor,
-                CachedCursor
-                | AsyncCachedCursor
-                | CachedCommandCursor
-                | AsyncCachedCommandCursor,
-            ):
+            if isinstance(cursor, CACHED_CURSORS):
                 assert cursor._capture is None
         hits = core.snapshot().hits - before_hits
         if phase in {"cold", "early-close"}:
@@ -190,9 +185,7 @@ async def test_cursor_measurements(
         print(
             json.dumps(
                 {
-                    "api": "async"
-                    if isinstance(view.raw.database.client, AsyncMongoClient)
-                    else "sync",
+                    "api": api_name(view),
                     "method": method,
                     "count": len(documents),
                     "payload": len(documents[0]["payload"]),
@@ -223,37 +216,17 @@ async def test_cursor_measurements(
     retained = sum(
         cursor._capture.retained_bytes
         for cursor in partial
-        if isinstance(
-            cursor,
-            CachedCursor
-            | AsyncCachedCursor
-            | CachedCommandCursor
-            | AsyncCachedCommandCursor,
-        )
-        and cursor._capture is not None
+        if isinstance(cursor, CACHED_CURSORS) and cursor._capture is not None
     )
     assert retained <= PARTIAL_CURSORS * limit
     capture_ids = {
         id(cursor._capture)
         for cursor in partial
-        if isinstance(
-            cursor,
-            CachedCursor
-            | AsyncCachedCursor
-            | CachedCommandCursor
-            | AsyncCachedCommandCursor,
-        )
-        and cursor._capture is not None
+        if isinstance(cursor, CACHED_CURSORS) and cursor._capture is not None
     }
     for cursor in partial:
         await close_cursor(cursor)
-        assert isinstance(
-            cursor,
-            CachedCursor
-            | AsyncCachedCursor
-            | CachedCommandCursor
-            | AsyncCachedCommandCursor,
-        )
+        assert isinstance(cursor, CACHED_CURSORS)
         assert cursor._capture is None
     current, peak = tracemalloc.get_traced_memory()
     tracemalloc.stop()
@@ -379,9 +352,7 @@ async def measure_find_limit_phase(
         json.dumps(
             {
                 "limit_workload": True,
-                "api": "async"
-                if isinstance(view.raw.database.client, AsyncMongoClient)
-                else "sync",
+                "api": api_name(view),
                 "payload": len(cursors["documents"][0]["payload"]),
                 "phase": phase,
                 "source_limit": min(source_limits),

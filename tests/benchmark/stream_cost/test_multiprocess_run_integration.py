@@ -348,55 +348,60 @@ def test_real_capture_retains_every_registered_event_and_gap(
     assert len(cast("tuple[tuple[int, ...], ...]", worker["capture_ordinals"])) == 6
 
 
-@pytest.mark.parametrize(
-    "failure",
-    ["cpu", "writer", "observer", "clock", "schedule"],
-    ids=[
-        "missing-server-cpu",
-        "failed-writer-command",
-        "failed-clock-observer",
-        "clock-drift",
-        "write-lateness",
-    ],
-)
-def test_harness_failures_reclaim_children(
-    multiprocess_replica: IsolatedReplicaSet,
-    smoke_protocol: Protocol,
+@pytest.fixture
+def failing_harness(
+    request: pytest.FixtureRequest,
     monkeypatch: pytest.MonkeyPatch,
-    failure: str,
-) -> None:
-    if failure == "cpu":
+    smoke_protocol: Protocol,
+) -> Protocol:
+    if request.param == "cpu":
         monkeypatch.setattr(
             IsolatedReplicaSet,
             "container_cpu_usage_seconds",
             Mock(side_effect=BenchmarkSetupError("server CPU unavailable")),
         )
-        message = "server CPU unavailable"
-    elif failure == "writer":
+    elif request.param == "writer":
         monkeypatch.setattr(
             Collection,
             "update_one",
             Mock(side_effect=ConnectionFailure("writer unavailable")),
         )
-        message = "harness MongoDB operation failed"
-    elif failure == "observer":
+    elif request.param == "observer":
         monkeypatch.setattr(PeriodicCalibrationSampler, "stop", _stop_then_fail)
-        message = "clock observer failed"
-    elif failure == "clock":
+    elif request.param == "clock":
         monkeypatch.setattr(
-            CalibrationSeries,
-            "exceeds_drift_tolerance",
-            Mock(return_value=True),
+            CalibrationSeries, "exceeds_drift_tolerance", Mock(return_value=True)
         )
-        message = "clock or primary changed"
     else:
-        smoke_protocol = replace(smoke_protocol, schedule_tolerance_seconds=1e-9)
-        message = "write schedule exceeded tolerance"
+        return replace(smoke_protocol, schedule_tolerance_seconds=1e-9)
+    return smoke_protocol
+
+
+@pytest.mark.parametrize(
+    ("failing_harness", "message"),
+    [
+        pytest.param("cpu", "server CPU unavailable", id="missing-server-cpu"),
+        pytest.param(
+            "writer", "harness MongoDB operation failed", id="failed-writer-command"
+        ),
+        pytest.param("observer", "clock observer failed", id="failed-clock-observer"),
+        pytest.param("clock", "clock or primary changed", id="clock-drift"),
+        pytest.param(
+            "schedule", "write schedule exceeded tolerance", id="write-lateness"
+        ),
+    ],
+    indirect=["failing_harness"],
+)
+def test_harness_failures_reclaim_children(
+    multiprocess_replica: IsolatedReplicaSet,
+    failing_harness: Protocol,
+    message: str,
+) -> None:
     with pytest.raises(BenchmarkSetupError, match=message):
         run_cell(
             multiprocess_replica,
             replace(planned_cells()[0], workload="active"),
-            smoke_protocol,
+            failing_harness,
         )
     assert not multiprocessing.active_children()
 
