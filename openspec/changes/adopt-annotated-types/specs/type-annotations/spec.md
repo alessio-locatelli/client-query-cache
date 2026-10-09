@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Defines how repository code states value constraints and document shapes in type annotations, so that readers and tools find them in one machine-readable place rather than in prose.
+Defines how repository code states value constraints in type annotations, so that readers and tools find them in one machine-readable place rather than in prose.
 
 ## ADDED Requirements
 
@@ -31,7 +31,7 @@ Prose SHALL NOT state that a value with a bare numeric, string, or collection an
 
 ### Requirement: Shared constrained aliases have one source
 
-Reusable constrained aliases SHALL be defined in one private library module, which SHALL be the only module that imports annotation-metadata types. Each alias SHALL have at least one use in the repository. Library modules SHALL import these aliases for type checking only.
+Reusable constrained aliases SHALL be defined in one private library module, which SHALL be the only module that imports annotation-metadata types. Each alias SHALL have at least one use in the repository.
 
 #### Scenario: A second module needs a positive integer
 
@@ -40,26 +40,12 @@ Reusable constrained aliases SHALL be defined in one private library module, whi
 
 ### Requirement: Annotation metadata is not runtime validation
 
-Annotation metadata SHALL NOT replace runtime validation. Explicit checks SHALL remain authoritative for caller input wherever the library validates it, and no runtime validator SHALL consume the metadata.
+Annotation metadata SHALL NOT replace runtime validation. Annotations state a value's static type and range; explicit checks SHALL remain authoritative for caller input, including exact-type rules such as rejecting booleans, and no runtime validator SHALL consume the metadata.
 
 #### Scenario: A caller passes a value outside an annotated range
 
 - **WHEN** a caller passes a value that its annotation excludes
 - **THEN** the outcome is determined by the library's explicit validation, exactly as without the annotation
-
-### Requirement: BSON documents and JSON objects use object-valued aliases
-
-Dictionary annotations of BSON documents SHALL use the shared BSON document alias. Dictionary annotations of JSON objects SHALL use the shared JSON object alias. Both aliases SHALL use `object` values so that use sites narrow a value before relying on its type. Keyword-argument bundles and option dictionaries are not documents and SHALL keep their own annotations.
-
-#### Scenario: A test inserts a document literal
-
-- **WHEN** a test annotates a document it writes to or reads from MongoDB
-- **THEN** the annotation uses the BSON document alias and the type checker accepts the code without weakening value types to `Any`
-
-#### Scenario: Options are forwarded as keyword arguments
-
-- **WHEN** a dictionary is unpacked as keyword arguments into a PyMongo call
-- **THEN** its annotation is not replaced by a document alias
 
 ### Requirement: Public numeric interfaces state their ranges
 
@@ -74,3 +60,12 @@ Public numeric configuration fields and parameters whose range the library valid
 
 - **WHEN** a user or tool reads the annotation of a public snapshot hit, miss, or byte counter
 - **THEN** the annotation states that the counter is non-negative
+
+### Requirement: Public dataclass annotations resolve at runtime
+
+Field annotations of every public dataclass SHALL resolve at runtime through `typing.get_type_hints`, including any constrained alias and its metadata.
+
+#### Scenario: A configuration tool introspects the cache configuration
+
+- **WHEN** a tool calls `typing.get_type_hints` with `include_extras=True` on a public configuration or snapshot dataclass
+- **THEN** the call succeeds and each constrained field resolves to its alias, whose value carries the range metadata
