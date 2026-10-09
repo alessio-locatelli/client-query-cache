@@ -107,10 +107,14 @@ those local objects.
 
 A retrospective audit of the retained report found 59–60 completed `getMore`
 commands in every one of its 216 idle watching-worker samples. The records
-therefore demonstrate idle polling. They do not certify exception-free cleanup:
+therefore demonstrate idle polling, but do not establish the maximum gaps between
+completions. They do not certify exception-free cleanup:
 the collector could previously accept a caught cleanup error after sending its
 sample. [PR #212](https://github.com/alessio-locatelli/client-query-cache/pull/212)
-adds failure exit codes and rejects stopped receivers or absent idle polling.
+adds failure exit codes and rejects stopped receivers, absent idle polling, or
+polling gaps longer than the one-second await plus scheduling tolerance, including
+the application-window boundaries. It retains the maximum idle polling gap in
+each watching-worker sample.
 These corrections do not replace the recorded measurements or retroactively
 establish successful cleanup for the earlier run.
 

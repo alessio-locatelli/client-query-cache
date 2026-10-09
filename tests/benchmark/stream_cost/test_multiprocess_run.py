@@ -22,6 +22,7 @@ from benchmarks.stream_cost.multiprocess_run import (
     capture_ordinals,
     command_delta,
     cpu_delta,
+    idle_poll_max_gap,
     partition_reads,
     planned_cells,
     process_reading,
@@ -353,7 +354,7 @@ def test_bounded_shutdown_terminates_stalled_children(
     parked_children: tuple[BaseProcess, ...],
 ) -> None:
     started = time.monotonic()
-    shutdown_seconds = Protocol.smoke().shutdown_seconds
+    shutdown_seconds = 1
     with pytest.raises(BenchmarkSetupError, match="shutdown exceeded"):
         stop_workers(parked_children, shutdown_seconds)
     assert all(not child.is_alive() for child in parked_children)
@@ -390,3 +391,38 @@ def test_command_counts_preserve_inflight_and_failed_outcomes() -> None:
         {"getMore:requested": 2},
         {"getMore:requested": 3, "getMore:completed": 2, "getMore:failed": 1},
     ) == {"getMore:requested": 1, "getMore:completed": 2, "getMore:failed": 1}
+
+
+@pytest.mark.parametrize(
+    ("completions", "expected", "message"),
+    [
+        (tuple(range(61)), 1.0, None),
+        ((-1.0, *range(61), 61.0), 1.0, None),
+        ((0.0, 1.04, *range(2, 61)), 1.04, None),
+        ((1.0,), None, "polling gap exceeded"),
+        (tuple(range(10, 61)), None, "polling gap exceeded"),
+        ((*range(30), *range(32, 61)), None, "polling gap exceeded"),
+        (tuple(range(59)), None, "polling gap exceeded"),
+        ((-1.0, 61.0), None, "no completed getMore"),
+    ],
+    ids=[
+        "continuous",
+        "outside-window",
+        "scheduling-slack",
+        "one-poll-then-stall",
+        "initial-gap",
+        "middle-gap",
+        "final-gap",
+        "only-outside-window",
+    ],
+)
+def test_idle_polling_covers_the_entire_application_window(
+    completions: tuple[float, ...],
+    expected: float | None,  # Positive maximum gap for accepted windows.
+    message: str | None,  # Nonempty rejection reason for invalid windows.
+) -> None:
+    if message is not None:
+        with pytest.raises(BenchmarkSetupError, match=message):
+            idle_poll_max_gap(completions, 0, 60, 1.05)
+    else:
+        assert idle_poll_max_gap(completions, 0, 60, 1.05) == pytest.approx(expected)
