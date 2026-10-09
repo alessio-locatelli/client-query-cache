@@ -861,7 +861,7 @@ def run_cell(replica: IsolatedReplicaSet, cell: Cell, protocol: Protocol) -> Pay
                     connection.close()
                 if shutdown_deadline is None:
                     shutdown_deadline = time.monotonic() + protocol.shutdown_seconds
-                reclaim_workers(tuple(processes), shutdown_deadline, graceful=False)
+                reclaim_workers(tuple(processes), shutdown_deadline, graceful=True)
 
 
 def main() -> None:

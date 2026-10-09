@@ -5,7 +5,7 @@ import multiprocessing
 import time
 from dataclasses import replace
 from functools import partial, partialmethod
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Literal, cast
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -31,6 +31,7 @@ from client_query_cache._core.stream_health import (
 if TYPE_CHECKING:
     from collections.abc import Iterator
     from multiprocessing.connection import Connection
+    from pathlib import Path
 
     from pymongo.monitoring import CommandStartedEvent
 
@@ -45,6 +46,7 @@ _ORIGINAL_WORKER_MAIN = multiprocess_run.worker_main
 _ORIGINAL_CONSUME = multiprocess_run.consume_stream
 _ORIGINAL_STARTED = multiprocess_run.WireCommands.started
 _ORIGINAL_EVENT_TIMES = multiprocess_run.WireCommands.event_wall_seconds
+_ORIGINAL_WAIT_UNTIL = multiprocess_run.wait_until
 
 
 def _stop_then_fail(sampler: PeriodicCalibrationSampler) -> None:
@@ -101,13 +103,29 @@ def _shift_event_time(listener: multiprocess_run.WireCommands) -> tuple[float, .
 
 
 async def _alter_stream_observations(
-    stream: multiprocess_run.Stream, observed: list[float], *, delay: float
+    stream: multiprocess_run.Stream, observed: list[float]
 ) -> None:
-    if delay:
-        await asyncio.sleep(delay)
-    else:
-        observed.append(time.monotonic())
+    observed.append(time.monotonic())
     await _ORIGINAL_CONSUME(stream, observed)
+
+
+async def _consume_after_window(
+    stream: multiprocess_run.Stream, observed: list[float], *, gate: asyncio.Event
+) -> None:
+    await gate.wait()
+    await _ORIGINAL_CONSUME(stream, observed)
+
+
+async def _release_after_window(
+    deadline: float,
+    tolerance: float,
+    phase: Literal["start", "read", "end"],
+    *,
+    gate: asyncio.Event,
+) -> None:
+    await _ORIGINAL_WAIT_UNTIL(deadline, tolerance, phase)
+    if phase == "end":
+        asyncio.get_running_loop().call_later(0.1, gate.set)
 
 
 def _faulty_worker(
@@ -118,9 +136,10 @@ def _faulty_worker(
     protocol: Protocol,
     *,
     fault: str,
+    cleanup_marker: Path,
 ) -> None:
     with pytest.MonkeyPatch.context() as patches:
-        if fault == "receiver":
+        if fault in {"receiver", "slow-failure"}:
             patches.setattr(
                 multiprocess_run, "consume_stream", AsyncMock(return_value=None)
             )
@@ -162,28 +181,63 @@ def _faulty_worker(
             patches.setattr(
                 multiprocess_run.WireCommands, "event_wall_seconds", _shift_event_time
             )
-        elif fault in {"drain", "extra-observation"}:
+        elif fault == "drain":
+            gate = asyncio.Event()
             patches.setattr(
                 multiprocess_run,
                 "consume_stream",
-                partial(
-                    _alter_stream_observations,
-                    delay=protocol.window_seconds + 0.1 if fault == "drain" else 0.0,
-                ),
+                partial(_consume_after_window, gate=gate),
+            )
+            patches.setattr(
+                multiprocess_run,
+                "wait_until",
+                partial(_release_after_window, gate=gate),
+            )
+        elif fault == "extra-observation":
+            patches.setattr(
+                multiprocess_run,
+                "consume_stream",
+                _alter_stream_observations,
             )
         else:
             patches.setattr(MongoClient, "close", _close_then_fail)
             patches.setattr(AsyncMongoClient, "close", _close_then_fail)
-        _ORIGINAL_WORKER_MAIN(connection, uri, cell, worker, protocol)
+        try:
+            _ORIGINAL_WORKER_MAIN(connection, uri, cell, worker, protocol)
+        finally:
+            if fault == "slow-failure":
+                time.sleep(0.1)
+                cleanup_marker.write_text("closed", encoding="utf-8")
 
 
 @pytest.fixture
 def faulty_worker(
-    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
-) -> None:
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> Path:
+    cleanup_marker = tmp_path / "worker-cleanup.txt"
     monkeypatch.setattr(
-        multiprocess_run, "worker_main", partial(_faulty_worker, fault=request.param)
+        multiprocess_run,
+        "worker_main",
+        partial(_faulty_worker, fault=request.param, cleanup_marker=cleanup_marker),
     )
+    return cleanup_marker
+
+
+@pytest.mark.parametrize(
+    "faulty_worker", ["slow-failure"], indirect=True, ids=["failed-worker-teardown"]
+)
+def test_failed_worker_finishes_cleanup_before_reclamation(
+    multiprocess_replica: IsolatedReplicaSet,
+    smoke_protocol: Protocol,
+    faulty_worker: Path,
+) -> None:
+    with pytest.raises(BenchmarkSetupError, match="stream receiver stopped"):
+        run_cell(
+            multiprocess_replica,
+            replace(planned_cells()[0], path="stream-only", workload="idle"),
+            smoke_protocol,
+        )
+    assert faulty_worker.read_text(encoding="utf-8") == "closed"
 
 
 @pytest.fixture(scope="module")

@@ -353,10 +353,11 @@ def test_bounded_shutdown_terminates_stalled_children(
     parked_children: tuple[BaseProcess, ...],
 ) -> None:
     started = time.monotonic()
+    shutdown_seconds = Protocol.smoke().shutdown_seconds
     with pytest.raises(BenchmarkSetupError, match="shutdown exceeded"):
-        stop_workers(parked_children, 1)
+        stop_workers(parked_children, shutdown_seconds)
     assert all(not child.is_alive() for child in parked_children)
-    assert time.monotonic() - started < 1.1
+    assert time.monotonic() - started < shutdown_seconds + 0.1
 
 
 def test_separates_required_process_metrics() -> None:
