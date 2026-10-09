@@ -21,3 +21,11 @@ Tasks 2.1–2.3 are completed by the conditional skip rule: the registered gate 
 
 - [x] 4.1 Scan the entire file for each edited or added test, including pre-existing tests, and verify compliance with the "Writing Tests" guidelines in `AGENTS.md`, including parametrization.
 - [x] 4.2 Confirm that no new prose was added to code if applying as Claude Code. OpenAI Codex is exempt; reconsider this completion marker if another agent applies the change.
+
+## 5. PR review corrections
+
+- [x] 5.1 Reject stopped receivers, idle watching workers without observed polling, and unsuccessful child cleanup; cover the receiver and shutdown failures with regression tests.
+- [x] 5.2 Collect spawned-worker coverage with the supported coverage.py integration, exercise meaningful missing benchmark behavior, and pass the repository's complete coverage gate without weakening its threshold.
+- [x] 5.3 Restore the report's measurement provenance through reachable equivalent source revisions and retain concise derived block-rate summaries; audit the retained idle samples against the added polling check.
+- [x] 5.4 Place argument constraint comments beside their arguments and audit inline comments in the changed Python files after formatting.
+- [x] 5.5 Isolate calibration test clocks from driver threads and give instrumentation-only integration tests scheduling slack under coverage; retain the registered benchmark protocol and explicit lateness rejection test.

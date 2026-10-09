@@ -1,31 +1,189 @@
 from __future__ import annotations
 
+import asyncio
 import multiprocessing
+import time
 from dataclasses import replace
+from functools import partial, partialmethod
 from typing import TYPE_CHECKING, cast
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
+from pymongo import AsyncMongoClient, MongoClient
 from pymongo.errors import ConnectionFailure
 from pymongo.synchronous.collection import Collection
 
-from benchmarks.stream_cost.calibration import PeriodicCalibrationSampler
+from benchmarks.stream_cost import multiprocess_run
+from benchmarks.stream_cost.calibration import (
+    CalibrationSeries,
+    PeriodicCalibrationSampler,
+)
 from benchmarks.stream_cost.errors import BenchmarkSetupError
 from benchmarks.stream_cost.multiprocess_run import Protocol, planned_cells, run_cell
 from benchmarks.stream_cost.topology import IsolatedReplicaSet, ResourceLimits
+from client_query_cache import CacheManager
+from client_query_cache._core.manager import CacheCoreConfig
+from client_query_cache._core.stream_health import (
+    StreamHealthSnapshot,
+    StreamHealthStatus,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+    from multiprocessing.connection import Connection
+
+    from pymongo.monitoring import CommandStartedEvent
 
 from benchmarks.stream_cost.multiprocess_run import Model, PathKind, Payload
 
 pytestmark = pytest.mark.integration
 _ORIGINAL_CALIBRATION_STOP = PeriodicCalibrationSampler.stop
+_ORIGINAL_SNAPSHOT = multiprocess_run.WireCommands.snapshot
+_ORIGINAL_SYNC_CLOSE = MongoClient.close
+_ORIGINAL_ASYNC_CLOSE = AsyncMongoClient.close
+_ORIGINAL_WORKER_MAIN = multiprocess_run.worker_main
+_ORIGINAL_CONSUME = multiprocess_run.consume_stream
+_ORIGINAL_STARTED = multiprocess_run.WireCommands.started
+_ORIGINAL_EVENT_TIMES = multiprocess_run.WireCommands.event_wall_seconds
 
 
 def _stop_then_fail(sampler: PeriodicCalibrationSampler) -> None:
     _ORIGINAL_CALIBRATION_STOP(sampler)
     raise BenchmarkSetupError("clock observer failed")
+
+
+def _hide_polls(
+    listener: multiprocess_run.WireCommands, *, absent: bool
+) -> dict[str, int]:
+    commands = _ORIGINAL_SNAPSHOT(listener)
+    if absent:
+        return {
+            key: count for key, count in commands.items() if key != "getMore:completed"
+        }
+    commands["getMore:completed"] = 0
+    return commands
+
+
+async def _close_then_fail(client: multiprocess_run.Client) -> None:
+    if isinstance(client, MongoClient):
+        _ORIGINAL_SYNC_CLOSE(client)
+    else:
+        await _ORIGINAL_ASYNC_CLOSE(client)
+    raise ConnectionFailure("cleanup failed after sample")
+
+
+def _extra_stream(
+    listener: multiprocess_run.WireCommands, event: CommandStartedEvent
+) -> None:
+    _ORIGINAL_STARTED(listener, event)
+    if event.command_name == "aggregate":
+        listener.streams += 1
+
+
+def _faulty_commands(
+    listener: multiprocess_run.WireCommands, *, fault: str, uri: str
+) -> dict[str, int]:
+    if fault == "document":
+        with MongoClient[dict[str, object]](uri) as client:
+            client[multiprocess_run._DATABASE][
+                Protocol.load().registration["collections"][0]
+            ].delete_one({"_id": 0})
+    elif fault == "stream-count":
+        listener.streams += 1
+    else:
+        listener._record("find", "failed")
+    return _ORIGINAL_SNAPSHOT(listener)
+
+
+def _shift_event_time(listener: multiprocess_run.WireCommands) -> tuple[float, ...]:
+    stamps = _ORIGINAL_EVENT_TIMES(listener)
+    return (stamps[0] + 0.001, *stamps[1:])
+
+
+async def _alter_stream_observations(
+    stream: multiprocess_run.Stream, observed: list[float], *, delay: float
+) -> None:
+    if delay:
+        await asyncio.sleep(delay)
+    else:
+        observed.append(time.monotonic())
+    await _ORIGINAL_CONSUME(stream, observed)
+
+
+def _faulty_worker(
+    connection: Connection,
+    uri: str,
+    cell: multiprocess_run.Cell,
+    worker: int,
+    protocol: Protocol,
+    *,
+    fault: str,
+) -> None:
+    with pytest.MonkeyPatch.context() as patches:
+        if fault == "receiver":
+            patches.setattr(
+                multiprocess_run, "consume_stream", AsyncMock(return_value=None)
+            )
+        elif fault in {"absent", "zero"}:
+            patches.setattr(
+                multiprocess_run.WireCommands,
+                "snapshot",
+                partialmethod(_hide_polls, absent=fault == "absent"),
+            )
+        elif fault == "streams":
+            patches.setattr(multiprocess_run.WireCommands, "started", _extra_stream)
+        elif fault == "startup":
+            patches.setattr(
+                CacheManager,
+                "stream_health_snapshot",
+                Mock(
+                    return_value=StreamHealthSnapshot(
+                        multiprocess_run._DATABASE, StreamHealthStatus.STARTUP_FAILED
+                    )
+                ),
+            )
+        elif fault == "budget":
+            patches.setattr(
+                multiprocess_run,
+                "CacheCoreConfig",
+                partial(
+                    CacheCoreConfig,
+                    shared_budget_bytes=1,
+                    max_entry_bytes=1,
+                ),
+            )
+        elif fault in {"document", "stream-count", "wire"}:
+            patches.setattr(
+                multiprocess_run.WireCommands,
+                "snapshot",
+                partialmethod(_faulty_commands, fault=fault, uri=uri),
+            )
+        elif fault == "lag":
+            patches.setattr(
+                multiprocess_run.WireCommands, "event_wall_seconds", _shift_event_time
+            )
+        elif fault in {"drain", "extra-observation"}:
+            patches.setattr(
+                multiprocess_run,
+                "consume_stream",
+                partial(
+                    _alter_stream_observations,
+                    delay=protocol.window_seconds + 0.1 if fault == "drain" else 0.0,
+                ),
+            )
+        else:
+            patches.setattr(MongoClient, "close", _close_then_fail)
+            patches.setattr(AsyncMongoClient, "close", _close_then_fail)
+        _ORIGINAL_WORKER_MAIN(connection, uri, cell, worker, protocol)
+
+
+@pytest.fixture
+def faulty_worker(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        multiprocess_run, "worker_main", partial(_faulty_worker, fault=request.param)
+    )
 
 
 @pytest.fixture(scope="module")
@@ -36,7 +194,8 @@ def multiprocess_replica() -> Iterator[IsolatedReplicaSet]:
 
 @pytest.fixture
 def smoke_protocol() -> Protocol:
-    return Protocol.smoke()
+    # Instrumentation tests tolerate coverage/xdist scheduling jitter.
+    return replace(Protocol.smoke(), schedule_tolerance_seconds=0.5)
 
 
 @pytest.mark.parametrize("model", ["sync", "async"], ids=["sync", "asyncio"])
@@ -115,8 +274,14 @@ def test_real_capture_retains_every_registered_event_and_gap(
 
 @pytest.mark.parametrize(
     "failure",
-    ["cpu", "writer", "observer"],
-    ids=["missing-server-cpu", "failed-writer-command", "failed-clock-observer"],
+    ["cpu", "writer", "observer", "clock", "schedule"],
+    ids=[
+        "missing-server-cpu",
+        "failed-writer-command",
+        "failed-clock-observer",
+        "clock-drift",
+        "write-lateness",
+    ],
 )
 def test_harness_failures_reclaim_children(
     multiprocess_replica: IsolatedReplicaSet,
@@ -138,13 +303,129 @@ def test_harness_failures_reclaim_children(
             Mock(side_effect=ConnectionFailure("writer unavailable")),
         )
         message = "harness MongoDB operation failed"
-    else:
+    elif failure == "observer":
         monkeypatch.setattr(PeriodicCalibrationSampler, "stop", _stop_then_fail)
         message = "clock observer failed"
+    elif failure == "clock":
+        monkeypatch.setattr(
+            CalibrationSeries,
+            "exceeds_drift_tolerance",
+            Mock(return_value=True),
+        )
+        message = "clock or primary changed"
+    else:
+        smoke_protocol = replace(smoke_protocol, schedule_tolerance_seconds=1e-9)
+        message = "write schedule exceeded tolerance"
     with pytest.raises(BenchmarkSetupError, match=message):
         run_cell(
             multiprocess_replica,
             replace(planned_cells()[0], workload="active"),
+            smoke_protocol,
+        )
+    assert not multiprocessing.active_children()
+
+
+@pytest.mark.parametrize(
+    ("faulty_worker", "path", "message"),
+    [
+        ("streams", "stream-only", "expected 1 stream, observed 2"),
+        ("startup", "native", "native manager stream startup failed"),
+        ("budget", "native", "working set was not fully admitted"),
+        ("document", "native-control", "scheduled document disappeared"),
+        ("stream-count", "stream-only", "stream continuity changed"),
+        ("wire", "stream-control", "observed a failed wire command"),
+        ("lag", "native", "lag capture separation"),
+        ("extra-observation", "stream-only", "incomplete stream-only delivery"),
+    ],
+    indirect=["faulty_worker"],
+    ids=[
+        "wrong-stream-count",
+        "startup-health",
+        "insufficient-budget",
+        "deleted-document",
+        "stream-count-change",
+        "wire-failure",
+        "capture-timestamp",
+        "extra-observation",
+    ],
+)
+@pytest.mark.usefixtures("faulty_worker")
+def test_faulty_instrumentation_rejects_measurements(
+    multiprocess_replica: IsolatedReplicaSet,
+    smoke_protocol: Protocol,
+    path: PathKind,
+    message: str,
+) -> None:
+    protocol = replace(
+        smoke_protocol, updates=200, update_interval_seconds=0.01, window_seconds=2.2
+    )
+    with pytest.raises(BenchmarkSetupError, match=message):
+        run_cell(
+            multiprocess_replica,
+            replace(planned_cells()[0], path=path, workload="active"),
+            protocol,
+        )
+    assert not multiprocessing.active_children()
+
+
+@pytest.mark.parametrize(
+    "faulty_worker", ["drain"], indirect=True, ids=["delayed-receiver"]
+)
+@pytest.mark.usefixtures("faulty_worker")
+def test_delivery_during_drain_remains_in_sample(
+    multiprocess_replica: IsolatedReplicaSet, smoke_protocol: Protocol
+) -> None:
+    sample = run_cell(
+        multiprocess_replica,
+        replace(planned_cells()[0], path="stream-only", workload="active"),
+        smoke_protocol,
+    )
+    worker = cast("tuple[Payload, ...]", sample["workers_measured"])[0]
+    assert worker["invalidations"] == smoke_protocol.updates
+
+
+@pytest.mark.parametrize("model", ["sync", "async"], ids=["sync", "asyncio"])
+@pytest.mark.parametrize("path", ["native", "stream-only"], ids=["cache", "isolated"])
+def test_idle_streams_demonstrate_polling(
+    multiprocess_replica: IsolatedReplicaSet,
+    smoke_protocol: Protocol,
+    model: Model,
+    path: PathKind,
+) -> None:
+    sample = run_cell(
+        multiprocess_replica,
+        replace(planned_cells()[0], model=model, path=path, workload="idle"),
+        smoke_protocol,
+    )
+    worker = cast("tuple[Payload, ...]", sample["workers_measured"])[0]
+    assert cast("dict[str, int]", worker["wire_commands"])["getMore:completed"] > 0
+    assert worker["invalidations"] == 0
+
+
+@pytest.mark.parametrize("model", ["sync", "async"], ids=["sync", "asyncio"])
+@pytest.mark.parametrize(
+    ("faulty_worker", "path", "message"),
+    [
+        ("receiver", "stream-only", "stream receiver stopped"),
+        ("absent", "stream-only", "idle stream issued no completed getMore"),
+        ("zero", "native", "idle stream issued no completed getMore"),
+        ("cleanup", "stream-only", "worker exited unsuccessfully"),
+    ],
+    indirect=["faulty_worker"],
+    ids=["completed-receiver", "absent-polls", "zero-polls", "failed-cleanup"],
+)
+@pytest.mark.usefixtures("faulty_worker")
+def test_idle_and_shutdown_failures_cannot_produce_healthy_cells(
+    multiprocess_replica: IsolatedReplicaSet,
+    smoke_protocol: Protocol,
+    model: Model,
+    path: PathKind,
+    message: str,
+) -> None:
+    with pytest.raises(BenchmarkSetupError, match=message):
+        run_cell(
+            multiprocess_replica,
+            replace(planned_cells()[0], model=model, path=path, workload="idle"),
             smoke_protocol,
         )
     assert not multiprocessing.active_children()

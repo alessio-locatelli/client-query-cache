@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import math
+import runpy
 from dataclasses import asdict
 from hashlib import sha256
 from itertools import product
@@ -8,6 +10,7 @@ from typing import TYPE_CHECKING, cast
 
 import pytest
 
+from benchmarks.stream_cost import shared_invalidation_decision
 from benchmarks.stream_cost.errors import BenchmarkSetupError
 from benchmarks.stream_cost.multiprocess_run import _CONFIG, Protocol, planned_cells
 from benchmarks.stream_cost.shared_invalidation_decision import (
@@ -17,12 +20,43 @@ from benchmarks.stream_cost.shared_invalidation_decision import (
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from pathlib import Path
 
     from benchmarks.stream_cost.multiprocess_run import Payload
 
 pytestmark = pytest.mark.unit
 _CONTROL_CPU_SECONDS = 6.0
 _CAPTURE_P95_INDEX = 114  # Existing estimator: floor(0.95 * 120), zero-based.
+
+
+def test_cli_prints_gate_and_lag_context(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    baseline_factory: Callable[[tuple[float, ...], tuple[float, ...]], Payload],
+    native_report: Payload,
+) -> None:
+    report = baseline_factory((0.01,) * 6, (0.01,) * 6)
+    native = cast("list[Payload]", native_report["cells"])[0]
+    for sample in cast("list[Payload]", report["cells"]):
+        if sample["path"] == "native" and sample["workload"] == "active":
+            sample.update(
+                {
+                    key: native[key]
+                    for key in (
+                        "workers_measured",
+                        "clock_offset_seconds",
+                        "clock_uncertainty_seconds",
+                    )
+                }
+            )
+    output = tmp_path / "baseline.json"
+    output.write_text(json.dumps(report))
+    monkeypatch.setattr("sys.argv", ["shared_invalidation_decision", str(output)])
+    runpy.run_path(str(shared_invalidation_decision.__file__), run_name="__main__")
+    decision = json.loads(capsys.readouterr().out)
+    assert decision["outcome"] == "below-threshold"
+    assert len(decision["native_lag_context"]) == 24
 
 
 @pytest.fixture

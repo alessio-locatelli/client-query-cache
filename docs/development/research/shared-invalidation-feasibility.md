@@ -86,8 +86,33 @@ schedule and its 50 ms lateness tolerance remain fixed.
 
 The complete run at revision
 `e12e78c0e532c4f6c9ea571fe7c07d5c5e2c097e` retained all 192 windows as
-healthy. Configuration SHA-256:
+healthy under the collector checks used for that run. Configuration SHA-256:
 `fce88933afd2354f2f37699f10d1ede9d5b3ba82e34b454061ad8a1f7886b065`.
+
+The recorded revisions predate rebases and are not published commit refs.
+Their benchmark, cache-library, and reproduction-configuration source is
+identical to these reachable commits in PR #212:
+
+| Measurement       | Recorded revision                          | Reachable equivalent source                                                                                                                         |
+| ----------------- | ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Complete baseline | `e12e78c0e532c4f6c9ea571fe7c07d5c5e2c097e` | [4c25915fae80b0de769e735955a071c30bd31bb7](https://github.com/alessio-locatelli/client-query-cache/commit/4c25915fae80b0de769e735955a071c30bd31bb7) |
+| Rejected attempt  | `9954d9fc9ae4f3d09cd0616b0859c1dd12d7abc5` | [e152f4d0ffbc57991be494fea0ab29dc913c35b5](https://github.com/alessio-locatelli/client-query-cache/commit/e152f4d0ffbc57991be494fea0ab29dc913c35b5) |
+
+The rebase changed project version and Python-support metadata in
+`pyproject.toml` and `uv.lock`; the measured runtime versions are recorded below.
+Verify source equivalence while the original local objects are available with
+`git diff <recorded-revision> <equivalent-revision> -- benchmarks src reports`.
+The published equivalents provide the measurement source without relying on
+those local objects.
+
+A retrospective audit of the retained report found 59–60 completed `getMore`
+commands in every one of its 216 idle watching-worker samples. The records
+therefore demonstrate idle polling. They do not certify exception-free cleanup:
+the collector could previously accept a caught cleanup error after sending its
+sample. [PR #212](https://github.com/alessio-locatelli/client-query-cache/pull/212)
+adds failure exit codes and rejects stopped receivers or absent idle polling.
+These corrections do not replace the recorded measurements or retroactively
+establish successful cleanup for the earlier run.
 
 The environment was Fedora Toolbx on kernel `7.2.8-200.fc44.x86_64`, with an
 AMD Ryzen 3 210 and eight logical CPUs. The runner used Python 3.14.6,
@@ -114,6 +139,20 @@ Bonferroni correction over four opportunity alternatives.
 | Synchronous active |                 0.01095 |     0.01005 |     0.01184 | Below threshold |
 | Asyncio idle       |                 0.00340 |     0.00267 |     0.00408 | Below threshold |
 | Asyncio active     |                 0.01104 |     0.00957 |     0.01269 | Below threshold |
+
+The derived paired block rates below retain the inputs to the exact gate
+calculation, in CPU seconds/second rounded to twelve decimal places. They
+support independent verification of the decision without a full rerun;
+individual cell counters and other raw measurements remain untracked.
+
+| Block |      Sync idle |    Sync active |   Asyncio idle | Asyncio active |
+| ----- | -------------: | -------------: | -------------: | -------------: |
+| 1     | 0.003354383333 | 0.011988666667 | 0.004591383333 | 0.007784416667 |
+| 2     | 0.005775983333 | 0.012050733333 | 0.003700316667 | 0.013460283333 |
+| 3     | 0.002919400000 | 0.011668816667 | 0.004110583333 | 0.011354983333 |
+| 4     | 0.002591650000 | 0.009575766667 | 0.002467850000 | 0.010284666667 |
+| 5     | 0.003536316667 | 0.010266433333 | 0.002793816667 | 0.011414650000 |
+| 6     | 0.002064500000 | 0.010122283333 | 0.002732666667 | 0.011940583333 |
 
 Every upper bound is below **0.05 CPU seconds/second**. The gate therefore
 does not pass, and conditional tasks 2.1–2.3 are skipped: no research receiver,
