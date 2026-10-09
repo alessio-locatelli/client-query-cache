@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, Self, cast
 from docker.errors import DockerException
 from pymongo import MongoClient
 from pymongo.errors import PyMongoError
+from requests.exceptions import ConnectionError as RequestsConnectionError
 from testcontainers.core.container import DockerContainer
 
 from benchmarks.stream_cost.client import (
@@ -39,6 +40,7 @@ _ELECTION_TIMEOUT_SECONDS = 30.0
 _ELECTION_POLL_INTERVAL_SECONDS = 0.1
 _NANOCPUS_PER_CPU = 1_000_000_000
 _NANOSECONDS_PER_SECOND = 1_000_000_000
+_STATS_ATTEMPTS = 3
 _MEMORY_PATTERN = re.compile(r"^(\d+(?:\.\d+)?)(kb|mb|gb|b|k|m|g)?$", re.IGNORECASE)
 _MEMORY_UNIT_MULTIPLIERS = {
     "": 1,
@@ -256,14 +258,23 @@ class IsolatedReplicaSet:
             )
             raise BenchmarkSetupError(message)
 
-    def container_cpu_usage_seconds(self) -> NonNegativeFloat:
+    def _stats(self) -> object:
         if self._container is None:
             message = "IsolatedReplicaSet has not been started"
             raise BenchmarkSetupError(message)
+        wrapped = self._container.get_wrapped_container()
+        attempts = _STATS_ATTEMPTS
+        while True:
+            try:
+                return wrapped.stats(stream=False)
+            except RequestsConnectionError as error:
+                attempts -= 1
+                if not attempts:
+                    raise DockerException(str(error)) from error
+
+    def container_cpu_usage_seconds(self) -> NonNegativeFloat:
         try:
-            wrapped = self._container.get_wrapped_container()
-            stats = wrapped.stats(stream=False)
-            usage_nanoseconds = self._parse_cpu_usage_nanoseconds(stats)
+            usage_nanoseconds = self._parse_cpu_usage_nanoseconds(self._stats())
         except DockerException as error:
             raise _cpu_usage_unreadable(error) from None
         except KeyError as error:
@@ -277,11 +288,8 @@ class IsolatedReplicaSet:
         return usage_nanoseconds / _NANOSECONDS_PER_SECOND
 
     def container_memory_usage_bytes(self) -> NonNegativeInt:
-        if self._container is None:
-            message = "IsolatedReplicaSet has not been started"
-            raise BenchmarkSetupError(message)
         try:
-            stats = self._container.get_wrapped_container().stats(stream=False)
+            stats = self._stats()
         except DockerException as error:
             message = f"Could not read MongoDB container memory usage: {error}"
             raise BenchmarkSetupError(message) from None

@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from typing import Any, ClassVar, Self
+from typing import TYPE_CHECKING, Any, ClassVar, Self
 from unittest.mock import patch
 
 import pytest
 from docker.errors import DockerException
 from pymongo.errors import PyMongoError
+from requests.exceptions import ConnectionError as RequestsConnectionError
 
 from benchmarks.stream_cost.client import BenchmarkClientTopologyConfig, WireCompressor
 from benchmarks.stream_cost.errors import (
@@ -14,6 +15,9 @@ from benchmarks.stream_cost.errors import (
 )
 from benchmarks.stream_cost.topology import IsolatedReplicaSet, ResourceLimits
 from client_query_cache._types import NonNegativeInt
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 pytestmark = pytest.mark.unit
 
@@ -247,6 +251,77 @@ def test_cpu_usage_wraps_missing_evidence(stats: object) -> None:
     replica_set._container = _FakeContainer(stats)  # type: ignore[assignment]
     with pytest.raises(BenchmarkSetupError, match="cgroup/stats evidence"):
         replica_set.container_cpu_usage_seconds()
+
+
+class _DisconnectingStats:
+    __slots__ = ("_failures", "calls")
+
+    def __init__(self, failures: NonNegativeInt) -> None:
+        self._failures = failures
+        self.calls = 0
+
+    def stats(self, *, stream: bool) -> object:
+        assert stream is False
+        self.calls += 1
+        if self.calls <= self._failures:
+            raise RequestsConnectionError("Remote end closed connection")
+        return {
+            "cpu_stats": {"cpu_usage": {"total_usage": 1_000_000_000}},
+            "memory_stats": {"usage": 4_096},
+        }
+
+
+@pytest.mark.parametrize(
+    ("read", "expected"),
+    [
+        pytest.param(IsolatedReplicaSet.container_cpu_usage_seconds, 1.0, id="cpu"),
+        pytest.param(
+            IsolatedReplicaSet.container_memory_usage_bytes, 4_096, id="memory"
+        ),
+    ],
+)
+def test_container_stats_retry_a_dropped_api_connection(
+    read: Callable[[IsolatedReplicaSet], float], expected: float
+) -> None:
+    replica_set = IsolatedReplicaSet(ResourceLimits(cpus=1.0, memory="512m"))
+    container = _FakeContainer(None)
+    container._wrapped = _DisconnectingStats(failures=2)  # type: ignore[assignment]
+    replica_set._container = container  # type: ignore[assignment]
+
+    assert read(replica_set) == expected
+
+
+@pytest.mark.parametrize(
+    ("read", "message"),
+    [
+        pytest.param(
+            IsolatedReplicaSet.container_cpu_usage_seconds,
+            "cgroup/stats evidence",
+            id="cpu",
+        ),
+        pytest.param(
+            IsolatedReplicaSet.container_memory_usage_bytes,
+            "container memory usage",
+            id="memory",
+        ),
+    ],
+)
+def test_container_stats_report_a_persistent_api_disconnect(
+    read: Callable[[IsolatedReplicaSet], float], message: str
+) -> None:
+    replica_set = IsolatedReplicaSet(ResourceLimits(cpus=1.0, memory="512m"))
+    container = _FakeContainer(None)
+    container._wrapped = _DisconnectingStats(failures=3)  # type: ignore[assignment]
+    replica_set._container = container  # type: ignore[assignment]
+
+    with pytest.raises(BenchmarkSetupError, match=message):
+        read(replica_set)
+
+
+def test_memory_usage_before_start_raises() -> None:
+    replica_set = IsolatedReplicaSet(ResourceLimits(cpus=1.0, memory="512m"))
+    with pytest.raises(BenchmarkSetupError, match="has not been started"):
+        replica_set.container_memory_usage_bytes()
 
 
 def test_exit_without_start_is_a_noop() -> None:
