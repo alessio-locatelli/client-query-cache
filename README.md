@@ -3,7 +3,6 @@
 [![PyPI](https://img.shields.io/pypi/v/client-query-cache?color=lightgrey)](https://pypi.org/project/client-query-cache/)
 [![Python](https://img.shields.io/pypi/pyversions/client-query-cache)](https://alessio-locatelli.github.io/client-query-cache/getting-started/installation/)
 [![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen)](https://github.com/alessio-locatelli/client-query-cache/actions/workflows/test.yml)
-[![Typing](https://img.shields.io/pypi/types/client-query-cache)](https://pypi.org/project/client-query-cache/)
 
 `client-query-cache` uses MongoDB change streams to keep cached reads coherent. It supports synchronous and asyncio applications without requiring a separate cache server.
 
