@@ -22,9 +22,9 @@ Define each alias from the design's alias table in the same group that first use
 
 ## 4. Integration
 
-- [ ] 4.1 Repeat the import-time measurement from task 1.1. Run `uv build` and confirm that the wheel's METADATA lists `Requires-Dist: annotated-types>=0.8.0`. Record the before and after medians in the commit body.
+- [x] 4.1 Repeat the import-time measurement from task 1.1. Run `uv build` and confirm that the wheel's METADATA lists `Requires-Dist: annotated-types>=0.8.0`. Record the before and after medians in the commit body.
 
 ## 5. Code Quality
 
-- [ ] 5.1 Scan the entire file for each edited or added test file, including pre-existing tests, and apply AGENTS.md's "Writing tests" guidelines, including parametrization; verify the resulting test diff.
-- [ ] 5.2 If implementing with Claude Code, confirm that no new prose was added to code, and that every why explanation is in specs or commit bodies. OpenAI Codex is exempt.
+- [x] 5.1 Scan the entire file for each edited or added test file, including pre-existing tests, and apply AGENTS.md's "Writing tests" guidelines, including parametrization; verify the resulting test diff.
+- [x] 5.2 If implementing with Claude Code, confirm that no new prose was added to code, and that every why explanation is in specs or commit bodies. OpenAI Codex is exempt.
