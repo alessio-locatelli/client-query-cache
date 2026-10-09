@@ -1,7 +1,19 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal, TypedDict
+from typing import Annotated, Literal, TypedDict
+
+from annotated_types import Len
+
+from client_query_cache._types import (
+    ExclusiveProbability,
+    MaxAwaitTimeMs,
+    NonEmpty,
+    NonEmptyStr,
+    NonNegativeInt,
+    PositiveFloat,
+    PositiveInt,
+)
 
 type ExecutionModel = Literal["sync", "async"]
 type AwaitWorkload = Literal["idle", "paced", "burst", "shutdown"]
@@ -19,83 +31,75 @@ type AwaitMetric = Literal[
 
 
 class Comparison(TypedDict):
-    candidate: int  # Positive await time in milliseconds.
-    reference: int | None  # Positive await time; None denotes an absolute gate.
+    candidate: MaxAwaitTimeMs
+    reference: MaxAwaitTimeMs | None  # None denotes an absolute gate.
     model: ExecutionModel
     workload: AwaitWorkload
     metric: AwaitMetric
-    limit: float  # Positive registered limit.
+    limit: PositiveFloat  # Registered limit.
 
 
 class UncertaintyConfig(TypedDict):
-    confidence_level: float  # Probability in (0, 1).
-    method: str  # Nonempty method identifier.
-    resample_count: int  # Positive number of ordered block resamples.
-    resampling: str  # Nonempty procedure description.
-    statistic: str  # Nonempty procedure description.
-    one_sided_p_value: str  # Nonempty procedure description.
-    upper_bound: str  # Nonempty procedure description.
-    multiplicity: str  # Nonempty procedure description.
-    resolution: dict[str, float]  # Nonempty metric-to-positive-resolution mapping.
-    unresolved_denominator: str  # Nonempty resolution procedure description.
+    confidence_level: ExclusiveProbability
+    method: NonEmptyStr
+    resample_count: PositiveInt  # Ordered block resamples.
+    resampling: NonEmptyStr  # Procedure description.
+    statistic: NonEmptyStr  # Procedure description.
+    one_sided_p_value: NonEmptyStr  # Procedure description.
+    upper_bound: NonEmptyStr  # Procedure description.
+    multiplicity: NonEmptyStr  # Procedure description.
+    resolution: NonEmpty[dict[str, PositiveFloat]]  # Keyed by metric.
+    unresolved_denominator: NonEmptyStr  # Resolution procedure description.
 
 
 class AwaitConfiguration(TypedDict):
     schema_version: Literal[1]
-    candidates_ms: list[int]  # Nonempty positive await times.
-    models: list[ExecutionModel]  # Nonempty execution model list.
-    block_orders: list[list[int]]  # Six nonempty candidate permutations.
-    model_orders: list[list[ExecutionModel]]  # Six nonempty model permutations.
-    warmup_seconds: float  # Positive duration.
-    idle_minimum_seconds: float  # Positive duration.
-    idle_minimum_completed_commands: int  # Positive command count.
-    active_window_seconds: float  # Positive duration.
-    write_offsets_seconds: dict[
-        str, list[float]  # Nonempty schedules; offsets may be zero.
-    ]
-    write_schedule_tolerance_seconds: dict[
-        str, float  # Positive per-workload tolerances.
-    ]
-    event_settle_timeout_seconds: float  # Positive timeout.
-    shutdown_schedule_tolerance_seconds: float  # Positive permitted scheduling error.
-    shutdown_window_timeout_seconds: float  # Positive deadline for all shutdown trials.
-    shutdown_trial_offsets_seconds: list[float]  # Nonempty positive offsets.
-    topology: dict[str, object]  # Nonempty topology descriptor.
-    client_options: dict[str, object]  # Nonempty client option mapping.
+    candidates_ms: NonEmpty[list[MaxAwaitTimeMs]]
+    models: NonEmpty[list[ExecutionModel]]
+    block_orders: Annotated[list[NonEmpty[list[int]]], Len(6, 6)]
+    model_orders: Annotated[list[NonEmpty[list[ExecutionModel]]], Len(6, 6)]
+    warmup_seconds: PositiveFloat
+    idle_minimum_seconds: PositiveFloat
+    idle_minimum_completed_commands: PositiveInt
+    active_window_seconds: PositiveFloat
+    write_offsets_seconds: dict[str, NonEmpty[list[float]]]
+    write_schedule_tolerance_seconds: dict[str, PositiveFloat]  # Per workload.
+    event_settle_timeout_seconds: PositiveFloat
+    shutdown_schedule_tolerance_seconds: PositiveFloat  # Permitted scheduling error.
+    shutdown_window_timeout_seconds: PositiveFloat  # Deadline for all shutdown trials.
+    shutdown_trial_offsets_seconds: NonEmpty[list[PositiveFloat]]
+    topology: NonEmpty[dict[str, object]]
+    client_options: NonEmpty[dict[str, object]]
     uncertainty: UncertaintyConfig
-    comparisons: list[Comparison]  # Nonempty complete comparison family.
-    selection: str  # Nonempty registered selection procedure.
+    comparisons: NonEmpty[list[Comparison]]  # Complete comparison family.
+    selection: NonEmptyStr  # Registered selection procedure.
 
 
 @dataclass(frozen=True, slots=True)
 class AwaitWindow:
-    block: int  # Zero-based block index.
-    candidate_ms: int  # Positive await time.
+    block: NonNegativeInt  # Zero-based.
+    candidate_ms: MaxAwaitTimeMs
     model: ExecutionModel
     workload: AwaitWorkload
-    elapsed_seconds: float  # Positive measured elapsed time.
-    server_cpu_seconds: float | None  # Delta can be zero; not measured during shutdown.
-    client_cpu_seconds: float | None  # Delta can be zero; not measured during shutdown.
-    bytes_sent: int | None  # Delta can be zero; not measured during shutdown.
-    bytes_received: int | None  # Delta can be zero; not measured during shutdown.
-    getmore_started: int  # Command count can be zero on failure.
-    getmore_completed: int  # Command count can be zero on failure.
-    requested_max_time_ms: tuple[
-        int | None, ...  # Empty on failure; None means absent.
-    ]
-    command_failures: int  # Failure count can be zero.
-    manager_iteration_calls: int  # Iteration-call count can be zero.
-    issue_offsets_seconds: tuple[float, ...]  # Empty for idle windows.
-    lag_seconds: tuple[float, ...]  # Empty for idle windows.
-    shutdown_seconds: tuple[float, ...]  # Empty outside shutdown trials.
-    invalidations: int  # Event count can be zero.
+    elapsed_seconds: PositiveFloat
+    server_cpu_seconds: float | None  # Not measured during shutdown.
+    client_cpu_seconds: float | None  # Not measured during shutdown.
+    bytes_sent: int | None  # Not measured during shutdown.
+    bytes_received: int | None  # Not measured during shutdown.
+    getmore_started: int
+    getmore_completed: int
+    requested_max_time_ms: tuple[int | None, ...]  # None means absent.
+    command_failures: int
+    manager_iteration_calls: int
+    issue_offsets_seconds: tuple[float, ...]
+    lag_seconds: tuple[float, ...]
+    shutdown_seconds: tuple[float, ...]
+    invalidations: int
     healthy: bool
-    failure: str | None  # Nonempty error category, or None for a completed window.
-    shutdown_start_offsets_seconds: tuple[float, ...] = ()  # Empty outside shutdown.
-    shutdown_inflight: tuple[bool, ...] = ()  # Empty outside shutdown.
-    getmore_inflight_at_start: int = (
-        0  # Zero for windows starting at a command boundary.
-    )
+    failure: NonEmptyStr | None  # Error category, or None for a completed window.
+    shutdown_start_offsets_seconds: tuple[float, ...] = ()
+    shutdown_inflight: tuple[bool, ...] = ()
+    getmore_inflight_at_start: int = 0
 
 
 type WindowIdentity = tuple[int, int, ExecutionModel, AwaitWorkload]

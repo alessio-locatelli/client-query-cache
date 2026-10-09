@@ -39,6 +39,7 @@ from benchmarks.stream_cost.client import BenchmarkClientTopologyConfig, WireCom
 from benchmarks.stream_cost.errors import BenchmarkSetupError
 from benchmarks.stream_cost.proxy import DirectPathByteProxy, DirectPathProxyConfig
 from benchmarks.stream_cost.topology import IsolatedReplicaSet, ResourceLimits
+from client_query_cache._types import NonNegativeInt
 from client_query_cache.asynchronous.manager import CacheManager as AsyncCacheManager
 from client_query_cache.synchronous.manager import CacheManager
 
@@ -106,12 +107,12 @@ def _build_manager(
 
 @dataclass(frozen=True, slots=True)
 class WindowStart:
-    wall_seconds: float  # Monotonic time can be zero.
-    process_cpu_seconds: float  # CPU counter can be zero.
-    server_cpu_seconds: float  # CPU counter can be zero.
-    bytes_sent: int  # Byte counter can be zero.
-    bytes_received: int  # Byte counter can be zero.
-    command_offset: int  # Zero-based offset into observed command metadata.
+    wall_seconds: float  # Monotonic.
+    process_cpu_seconds: float
+    server_cpu_seconds: float
+    bytes_sent: int
+    bytes_received: int
+    command_offset: NonNegativeInt  # Zero-based offset into observed command metadata.
 
 
 def _capture_start(
@@ -159,8 +160,8 @@ async def _idle_start(
     listener: AwaitCommandListener,
     candidate: int,
 ) -> WindowStart:
-    captures: list[WindowStart] = []  # Empty until the next command boundary.
-    failures: list[BenchmarkSetupError] = []  # Empty unless resource observation fails.
+    captures: list[WindowStart] = []
+    failures: list[BenchmarkSetupError] = []
 
     def capture() -> None:
         try:
