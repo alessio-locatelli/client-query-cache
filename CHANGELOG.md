@@ -13,6 +13,8 @@ bodies or OpenSpec. An empty Unreleased section is valid.
 
 ## Unreleased
 
+## [0.6.0] - 2026-10-09
+
 ### Bug fixes
 
 - The first `find_one()` whose filter matches a unique index records one cache miss instead of two in manager snapshots and OpenTelemetry metrics, in synchronous and asyncio managers.
