@@ -6,16 +6,16 @@ See [proposal.md](proposal.md) for motivation and the two delta specs for the co
 
 - Most of the roughly 210 trailing comments state ranges, emptiness, or lengths. They are concentrated in the `benchmarks/stream_cost` data models and `tests/stress/helpers.py`, with a few in `src/` fields and parameters. Other comments record override rationales, test-value choices required by the `test-value-conventions` spec, or behavior. Those comments are not type prose.
 - The repository has about 620 `dict[str, Any]` and 210 `dict[str, object]` annotations. Every `dict[str, Any]` in `src/` is a keyword-argument bundle unpacked into a PyMongo call. BSON documents and JSON objects occur in `tests/` and `benchmarks/`.
-- Ruff selects `ALL`, including flake8-type-checking. A Ruff 0.16.10 probe targeting Python 3.14 confirmed that an alias used only in annotations, including dataclass fields, must be imported under `TYPE_CHECKING`.
+- Ruff selects `ALL`, including flake8-type-checking. With the Python 3.14 target, Ruff requires an alias used only in annotations, including dataclass fields, to be imported under `TYPE_CHECKING`.
 - covdefaults measures every module under the source tree. A library module that no test imports at runtime is reported as uncovered.
 - The documentation build runs `scripts/` with `uv run --only-group docs`, so the project and its dependencies are not installed there.
-- `annotated-types` 0.8.0 is already locked as a transitive development dependency and ships `py.typed`. Probes confirmed two things: Hypothesis's `from_type` resolves PEP 695 aliases that carry its metadata into bounded strategies, and strict mypy accepts a generic alias whose type parameter is bound to `Sized`.
+- `annotated-types` 0.8.0 is already locked as a transitive development dependency and ships `py.typed`. Hypothesis's `from_type` resolves PEP 695 aliases that carry its metadata into bounded strategies, and strict mypy accepts a generic alias whose type parameter is bound to `Sized`.
 
 ## Goals / Non-Goals
 
 **Goals:** Make the repository-wide convention mechanical enough to apply file by file, keep mypy's checking strength at least as strong as it is today, and add no runtime cost to production imports.
 
-**Non-Goals:** No runtime enforcement, by user decision. Read-only `Mapping[str, Any]` parameters that mirror PyMongo signatures keep their annotations, because narrowing their values would add `isinstance` work to filter traversal on read paths. Closed value sets such as stream phases are not converted to `Literal`. The runnable examples are standalone user-facing scripts and must not import private modules.
+**Non-Goals:** No runtime enforcement: a runtime type checker would add call overhead on read paths, and the existing explicit checks already validate caller input. Read-only `Mapping[str, Any]` parameters that mirror PyMongo signatures keep their annotations, because narrowing their values would add `isinstance` work to filter traversal on read paths. Closed value sets such as stream phases are not converted to `Literal`. The runnable examples are standalone user-facing scripts and must not import private modules.
 
 ## Decisions
 
@@ -36,11 +36,11 @@ All aliases live in a private module at `src/client_query_cache/_types.py`. It i
 | `BsonValue`, `BsonDict`              | `object`, `dict[str, BsonValue]`       | BSON documents                                                  |
 | `JsonDict`                           | `dict[str, object]`                    | JSON objects                                                    |
 
-The user's sketch is adjusted in four ways:
+Notes on the alias set:
 
-- `Text` keeps both of its purposes. Its minimum length distinguishes prose from single-character strings. It also marks a parameter as one string rather than an iterable of strings. With metadata-only annotations, mypy still accepts `"abc"` where `Iterable[Text]` is expected, so the second purpose serves readers and Hypothesis rather than static checking.
-- The `JSON` union and the `Le`, `Len`, and `Predicate` imports are omitted because nothing would use them. Vulture 2.16 reports unused module-level aliases, which enforces the one-use rule of the `type-annotations` spec. The union was also incomplete, because it lacked arrays of scalars.
-- `BsonValue` and `JsonDict` use `object` values, by user decision, so mypy keeps checking value use. A probe rewrote every `dict[str, Any]` as `dict[str, object]` and produced 167 mypy errors in 20 files. 89 of them came from keyword-argument bundles, which stay as they are. The rest came from dict invariance at insert sites and from value access. Annotating document literals with `BsonDict` fixes the first group. Narrowing at the access site fixes the second: tests prefer `assert isinstance(...)`, which is checked at runtime, over `cast`.
+- `Text` serves two purposes. Its minimum length distinguishes prose from single-character strings. It also marks a parameter as one string rather than an iterable of strings. With metadata-only annotations, mypy still accepts `"abc"` where `Iterable[Text]` is expected, so the second purpose serves readers and Hypothesis rather than static checking.
+- A recursive `JSON` value union is not defined, because no annotation in the repository needs one. Vulture reports unused module-level aliases, which enforces the one-use rule of the `type-annotations` spec.
+- `BsonValue` and `JsonDict` use `object` values rather than `Any`, so mypy keeps checking value use; `Any` would silently disable checks at the roughly 210 sites already typed `dict[str, object]`. Converting `dict[str, Any]` document sites surfaces errors of two kinds: dict invariance at insert sites and unnarrowed value access. Annotating document literals with `BsonDict` fixes the first group. Narrowing at the access site fixes the second: tests prefer `assert isinstance(...)`, which is checked at runtime, over `cast`.
 - `MaxAwaitTimeMs` imports the existing bound constant, so the limit has one source.
 
 Alternatives considered:
@@ -52,7 +52,7 @@ Alternatives considered:
 - `NewType` ranges were considered. They would require a wrapping call at every construction site, including hot paths, and would carry no machine-readable bounds. Rejected.
 - `annotated_types.Doc` metadata could hold sentinel meanings. It would move prose into annotations without making that prose checkable. Rejected.
 
-No research is needed: the probes above settle the tool behavior this design depends on.
+No research is needed: the tool behavior listed under Context settles this decision.
 
 ### Import discipline and the dependency
 
