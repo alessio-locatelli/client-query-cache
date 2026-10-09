@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
-from client_query_cache._types import NonNegativeInt
+from client_query_cache._types import NonNegativeFloat, NonNegativeInt, PositiveFloat
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -98,9 +98,9 @@ class StreamHealthRegistry:
 
 @dataclass(slots=True)
 class RetryBackoff:
-    base_seconds: float = DEFAULT_BASE_DELAY_SECONDS
-    max_seconds: float = DEFAULT_MAX_DELAY_SECONDS
-    multiplier: float = DEFAULT_MULTIPLIER
+    base_seconds: PositiveFloat = DEFAULT_BASE_DELAY_SECONDS
+    max_seconds: PositiveFloat = DEFAULT_MAX_DELAY_SECONDS
+    multiplier: PositiveFloat = DEFAULT_MULTIPLIER
     _attempt: NonNegativeInt = field(default=0, init=False)
     _saturated: bool = field(default=False, init=False)
 
@@ -109,8 +109,11 @@ class RetryBackoff:
         self._saturated = False
 
     def next_delay(
-        self, random_uniform: Callable[[float, float], float] = random.uniform
-    ) -> float:
+        self,
+        random_uniform: Callable[
+            [NonNegativeFloat, NonNegativeFloat], NonNegativeFloat
+        ] = random.uniform,
+    ) -> NonNegativeFloat:
         if self._saturated:
             return random_uniform(0.0, self.max_seconds)
         cap = self.base_seconds * (self.multiplier**self._attempt)

@@ -5,7 +5,7 @@ from collections import deque
 from dataclasses import dataclass
 
 from client_query_cache._core.errors import CacheConfigurationError
-from client_query_cache._types import NonNegativeInt, PositiveInt
+from client_query_cache._types import NonNegativeFloat, NonNegativeInt, PositiveInt
 
 INVALIDATION_LAG_CLOCK_SKEW_LIMITATION = (
     "raw invalidation-delivery-lag values include unmeasured clock offset between "
@@ -78,8 +78,8 @@ class LagCaptureWindows:
 
 @dataclass(frozen=True, slots=True)
 class InvalidationApplyReading:
-    wall_seconds: float
-    monotonic_seconds: float
+    wall_seconds: NonNegativeFloat
+    monotonic_seconds: NonNegativeFloat
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,7 +124,10 @@ class StreamCostStatistics:
             self._logical_event_bytes += count
 
     def record_invalidation(
-        self, raw_lag_seconds: float, wall_seconds: float, monotonic_seconds: float
+        self,
+        raw_lag_seconds: float,
+        wall_seconds: NonNegativeFloat,
+        monotonic_seconds: NonNegativeFloat,
     ) -> None:
         with self._lock:
             self._invalidations += 1
@@ -194,8 +197,8 @@ class StreamCostRegistry:
         self,
         database: str,
         raw_lag_seconds: float,
-        wall_seconds: float,
-        monotonic_seconds: float,
+        wall_seconds: NonNegativeFloat,
+        monotonic_seconds: NonNegativeFloat,
     ) -> None:
         self._get_or_create(database).record_invalidation(
             raw_lag_seconds, wall_seconds, monotonic_seconds

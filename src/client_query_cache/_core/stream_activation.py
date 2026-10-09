@@ -5,15 +5,16 @@ from dataclasses import dataclass, field
 from time import monotonic
 
 from client_query_cache._core.stream_health import RetryBackoff
+from client_query_cache._types import NonNegativeFloat
 
 
-def _startup_jitter(_low: float, cap: float) -> float:
+def _startup_jitter(_low: NonNegativeFloat, cap: NonNegativeFloat) -> NonNegativeFloat:
     return random.uniform(cap / 2, cap)
 
 
 @dataclass(slots=True)
 class StartupRetry:
-    deadline: float = 0.0  # Zero permits the first attempt.
+    deadline: NonNegativeFloat = 0.0  # Zero permits the first attempt.
     backoff: RetryBackoff = field(default_factory=RetryBackoff)
 
     def ready(self) -> bool:
