@@ -11,10 +11,11 @@ from benchmarks.stream_cost.compressor_preflight import (
     verify_compressor_negotiation,
 )
 from benchmarks.stream_cost.errors import BenchmarkSetupError
+from client_query_cache._types import NonNegativeInt
 
 pytestmark = pytest.mark.unit
 
-_Counters = dict[str, dict[str, dict[str, int]]]
+_Counters = dict[str, dict[str, dict[str, NonNegativeInt]]]
 
 _BACKGROUND_TRAFFIC_BYTES = 512
 
@@ -24,7 +25,7 @@ _ZERO_COUNTERS: _Counters = {
 }
 
 
-def _counters(**advanced: int) -> _Counters:
+def _counters(**advanced: NonNegativeInt) -> _Counters:
     counters: _Counters = {
         name: {"compressor": {"bytesIn": 0}, "decompressor": {"bytesIn": 0}}
         for name in ("snappy", "zlib", "zstd")
@@ -121,7 +122,7 @@ def _run(
     ids=["quiet_server", "background_traffic"],
 )
 def test_verify_compressor_negotiation_accepts_a_clean_match(
-    compressor: WireCompressor, background: dict[str, int]
+    compressor: WireCompressor, background: dict[str, NonNegativeInt]
 ) -> None:
     advanced = {**background, compressor.value: PREFLIGHT_PAYLOAD_BYTES}
     preflight_result, collection = _run(

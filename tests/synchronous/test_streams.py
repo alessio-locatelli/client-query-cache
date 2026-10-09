@@ -21,6 +21,7 @@ from client_query_cache._core.errors import StreamLifecycleError, StreamStartupE
 from client_query_cache._core.keys import NamespaceId
 from client_query_cache._core.manager import CacheCore
 from client_query_cache._core.stream_health import RetryBackoff, StreamHealth
+from client_query_cache._types import NonNegativeFloat, NonNegativeInt, PositiveFloat
 from client_query_cache.synchronous.streams import (
     ChangeStreamCoordinator,
     DatabaseStreamSupervisor,
@@ -40,7 +41,7 @@ class PausedCoordinator(TypedDict):
     activation: Future[DatabaseStreamSupervisor | None]
     executor: ThreadPoolExecutor
     streams: tuple[ScriptedStream, ...]
-    phase: int  # Zero means initial startup; one means reconnect.
+    phase: NonNegativeInt  # Zero means initial startup; one means reconnect.
 
 
 pytestmark = pytest.mark.unit
@@ -52,14 +53,14 @@ _WALL_TIME = datetime.datetime(2024, 1, 1, tzinfo=datetime.UTC)
 class _FixedDelayBackoff:
     __slots__ = ("_delay",)
 
-    def __init__(self, delay: float) -> None:
+    def __init__(self, delay: NonNegativeFloat) -> None:
         self._delay = delay
 
-    def next_delay(self) -> float:
+    def next_delay(self) -> NonNegativeFloat:
         return self._delay
 
 
-def _long_backoff(delay: float = 5.0) -> RetryBackoff:
+def _long_backoff(delay: PositiveFloat = 5.0) -> RetryBackoff:
     return cast("RetryBackoff", _FixedDelayBackoff(delay))
 
 
@@ -136,7 +137,7 @@ def _attempt_admission(cache: CacheCore, database: str) -> AdmissionOutcome:
     return cache.admit_identity(capture, "full", {"v": "x"})
 
 
-def _wait_until(predicate: Callable[[], bool], *, timeout: float = 2.0) -> None:
+def _wait_until(predicate: Callable[[], bool], *, timeout: PositiveFloat = 2.0) -> None:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if predicate():
@@ -193,9 +194,9 @@ def make_coordinator() -> Iterator[Callable[..., ChangeStreamCoordinator]]:
 )
 def test_start_fails_closed(
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
-    version_array: list[int],
+    version_array: list[NonNegativeInt],
     script: list[object],
-    expected_watch_calls: int,
+    expected_watch_calls: NonNegativeInt,
 ) -> None:
     database = ScriptedDatabase("db", script, version_array=version_array)
     supervisor = make_supervisor(as_database(database), _mock_cache())
@@ -239,7 +240,7 @@ def test_start_raises_and_closes_the_stream_when_stop_races_it(
     database = ScriptedDatabase("db", [stream])
     supervisor = make_supervisor(as_database(database), _mock_cache())
 
-    def before_watch(_index: int) -> None:
+    def before_watch(_index: NonNegativeInt) -> None:
         supervisor._stop_event.set()
 
     database._before_watch = before_watch
@@ -379,7 +380,7 @@ def test_a_stop_racing_a_successful_reopen_does_not_report_healthy(
         as_database(database), _mock_cache(), backoff=_FAST_BACKOFF
     )
 
-    def before_watch(index: int) -> None:
+    def before_watch(index: NonNegativeInt) -> None:
         if index == 1:
             supervisor._stop_event.set()
 
@@ -459,7 +460,7 @@ def test_stop_interrupts_an_in_progress_backoff_wait(
 ) -> None:
     entered_backoff = threading.Event()
 
-    def before_watch(index: int) -> None:
+    def before_watch(index: NonNegativeInt) -> None:
         if index == 1:
             entered_backoff.set()
 
@@ -491,7 +492,7 @@ def test_stop_event_set_during_an_unresumable_clear_exits_the_retry_loop(
         as_database(database), _mock_cache(), backoff=_FAST_BACKOFF
     )
 
-    def before_watch(index: int) -> None:
+    def before_watch(index: NonNegativeInt) -> None:
         if index == 1:
             supervisor._stop_event.set()
 
@@ -783,7 +784,7 @@ def test_cache_use_is_bypassed_until_start_completes(
 ) -> None:
     release = threading.Event()
 
-    def before_watch(_index: int) -> None:
+    def before_watch(_index: NonNegativeInt) -> None:
         release.wait(timeout=2)
 
     database = ScriptedDatabase("db", [ScriptedStream([])], before_watch=before_watch)
@@ -809,7 +810,7 @@ def test_cache_use_is_bypassed_while_reconnecting_and_restored_once_healthy(
     release = threading.Event()
     watch_calls_before_release = 2
 
-    def before_watch(index: int) -> None:
+    def before_watch(index: NonNegativeInt) -> None:
         if index == 1:
             release.wait(timeout=2)
 
@@ -956,7 +957,7 @@ def paused_coordinator(
     release = threading.Event()
     entered = threading.Event()
 
-    def before_watch(index: int) -> None:
+    def before_watch(index: NonNegativeInt) -> None:
         if index == request.param:
             entered.set()
             assert release.wait(5)

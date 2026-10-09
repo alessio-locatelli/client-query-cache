@@ -22,6 +22,7 @@ from benchmarks.stream_cost.errors import BenchmarkSetupError
 from benchmarks.stream_cost.pair_runner import run_consolidated_stream_pair
 from client_query_cache._core.manager import CacheCoreConfig
 from client_query_cache._core.stream_cost import LagCaptureWindowConfig
+from client_query_cache._types import NonNegativeFloat, NonNegativeInt, PositiveFloat
 from client_query_cache.synchronous.manager import CacheManager
 
 if TYPE_CHECKING:
@@ -230,7 +231,7 @@ def test_execute_run_reports_observed_invalidations_not_the_schedule_length(
 
     def double_issue_replay(
         issue_write: Callable[[], None], *_args: object, **_kwargs: object
-    ) -> tuple[float, ...]:
+    ) -> tuple[NonNegativeFloat, ...]:
         issue_write()
         issue_write()
         pair_runner._await_condition(
@@ -276,7 +277,7 @@ class _RecordingUnrelatedWriteWorkload:
     __slots__ = ("stopped",)
     instances: ClassVar[list[_RecordingUnrelatedWriteWorkload]] = []
 
-    def __init__(self, _collection: object, *, interval_seconds: float) -> None:
+    def __init__(self, _collection: object, *, interval_seconds: PositiveFloat) -> None:
         del interval_seconds
         self.stopped = False
         type(self).instances.append(self)
@@ -284,7 +285,7 @@ class _RecordingUnrelatedWriteWorkload:
     def start(self) -> None:
         pass
 
-    def stop(self) -> int:
+    def stop(self) -> NonNegativeInt:
         self.stopped = True
         return 0
 

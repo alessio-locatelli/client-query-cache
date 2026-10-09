@@ -18,6 +18,8 @@ from pymongo import MongoClient
 from pymongo.errors import AutoReconnect
 from testcontainers.core.container import DockerContainer
 
+from client_query_cache._types import NonNegativeInt
+
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
@@ -37,7 +39,7 @@ logging.getLogger("pymongo").setLevel("INFO")
 
 
 @pytest.hookimpl(wrapper=True)  # pragma: lax no cover (startup; CLI verified)
-def pytest_xdist_auto_num_workers() -> Generator[None, int, int]:
+def pytest_xdist_auto_num_workers() -> Generator[None, NonNegativeInt, NonNegativeInt]:
     # Xdist's configured count can be zero to disable distribution.
     detected_workers = yield
     return min(detected_workers, 4)

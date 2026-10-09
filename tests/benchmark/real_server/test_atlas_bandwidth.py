@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 import dns.resolver
 import pytest
 
+from client_query_cache._types import NonNegativeInt
 from tests.benchmark.real_server import atlas_bandwidth
 from tests.benchmark.real_server.atlas_bandwidth import (
     ATLAS_PROJECT_ID_ENV_VAR,
@@ -133,7 +134,7 @@ _METRICS_RESPONSE_ALL_EMPTY = json.dumps(
 class _FakeSrvRecord:
     __slots__ = ("port", "target")
 
-    def __init__(self, target: str, port: int) -> None:
+    def __init__(self, target: str, port: NonNegativeInt) -> None:
         self.target = f"{target}."
         self.port = port
 

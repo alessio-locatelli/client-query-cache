@@ -11,6 +11,7 @@ from benchmarks.stream_cost.consolidated_stream import (
     verify_single_consolidated_stream,
 )
 from benchmarks.stream_cost.errors import BenchmarkSetupError
+from client_query_cache._types import PositiveFloat
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -23,7 +24,9 @@ if TYPE_CHECKING:
 pytestmark = pytest.mark.integration
 
 
-def _wait_until(predicate: Callable[[], bool], *, timeout: float = 15.0) -> None:
+def _wait_until(
+    predicate: Callable[[], bool], *, timeout: PositiveFloat = 15.0
+) -> None:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if predicate():

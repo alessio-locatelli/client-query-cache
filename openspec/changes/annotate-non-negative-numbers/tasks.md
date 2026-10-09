@@ -12,8 +12,8 @@ List candidates with `rg -n --type py '\b(int|float)\b' <tree> | rg -v 'isinstan
 
 - [x] 2.1 Apply the integer rule in `benchmarks/`. Verify that `uv run -- mypy` and `just lint` pass.
 - [x] 2.2 Apply the floating-point rule in `benchmarks/`. Verify that `uv run -- mypy` and `just lint` pass.
-- [ ] 2.3 Apply both rules in `tests/`. Verify that `just tests_and_coverage` passes.
+- [x] 2.3 Apply both rules in `tests/`. Verify that `just tests_and_coverage` passes.
 
 ## 3. Code Quality
 
-- [ ] 3.1 If implementing with Claude Code, confirm that no new prose was added to code, and that every why explanation is in specs or commit bodies. OpenAI Codex is exempt.
+- [x] 3.1 If implementing with Claude Code, confirm that no new prose was added to code, and that every why explanation is in specs or commit bodies. OpenAI Codex is exempt.

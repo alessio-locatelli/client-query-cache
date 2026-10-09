@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, TypedDict
 
 from client_query_cache import CacheManager
+from client_query_cache._types import NonNegativeInt
 from client_query_cache.asynchronous import CacheManager as AsyncCacheManager
 from client_query_cache.asynchronous.streams import (
     ChangeStreamCoordinator as AsyncCoordinator,
@@ -62,13 +63,13 @@ class StartupHarness:
     ) -> object:
         if self.is_async:
 
-            async def pause(_index: int) -> None:
+            async def pause(_index: NonNegativeInt) -> None:
                 self.entered.set()
                 await asyncio.to_thread(self.release.wait)
 
             return AsyncDatabase(name, script, before_watch=pause if paused else None)
 
-        def pause_sync(_index: int) -> None:
+        def pause_sync(_index: NonNegativeInt) -> None:
             self.entered.set()
             assert self.release.wait(5)
 

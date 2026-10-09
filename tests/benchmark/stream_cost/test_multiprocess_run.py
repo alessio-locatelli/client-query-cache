@@ -37,7 +37,13 @@ from client_query_cache._core.stream_cost import (
     LagCaptureWindowConfig,
     LagCaptureWindows,
 )
-from client_query_cache._types import NonEmptyStr, PositiveFloat
+from client_query_cache._types import (
+    NonEmptyStr,
+    NonNegativeFloat,
+    NonNegativeInt,
+    PositiveFloat,
+    PositiveInt,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -63,7 +69,9 @@ def pipe() -> Iterator[tuple[Connection, Connection]]:
     child.close()
 
 
-def _advance_clock(clock: Mock, lateness: float, delay: float) -> None:
+def _advance_clock(
+    clock: Mock, lateness: NonNegativeFloat, delay: NonNegativeFloat
+) -> None:
     clock.monotonic.return_value += delay + lateness
 
 
@@ -92,7 +100,7 @@ def schedule_clock(
     ids=["idle-minute", "paced-read", "already-due"],
 )
 async def test_schedule_preserves_deadline_with_bounded_waits(
-    schedule_clock: Mock, deadline: float
+    schedule_clock: Mock, deadline: NonNegativeFloat
 ) -> None:
     await wait_until(deadline, 0.05, "end")
     assert deadline <= schedule_clock.monotonic.return_value <= deadline + 0.05
@@ -258,7 +266,9 @@ def test_worker_reports_failure_and_exits_unsuccessfully(
 
 
 @pytest.mark.parametrize("workers", [1, 8], ids=["one", "eight"])
-def test_partitions_fixed_aggregate_schedule(protocol: Protocol, workers: int) -> None:
+def test_partitions_fixed_aggregate_schedule(
+    protocol: Protocol, workers: PositiveInt
+) -> None:
     partitions = tuple(
         partition_reads(protocol, workers, index) for index in range(workers)
     )
@@ -298,8 +308,8 @@ def test_counterbalances_complete_cells() -> None:
 
 
 def record_capture(
-    event_count: int,
-) -> tuple[LagCaptureWindows, tuple[int, ...]]:
+    event_count: NonNegativeInt,
+) -> tuple[LagCaptureWindows, tuple[NonNegativeInt, ...]]:
     captures = LagCaptureWindows(LagCaptureWindowConfig(6, 20, 16))
     admitted_ordinals = tuple(
         index for index in range(1, event_count + 1) if captures.record(float(index))
@@ -329,7 +339,7 @@ def test_accepts_complete_capture_with_separations() -> None:
 
 
 @pytest.mark.parametrize("event_count", [199, 201], ids=["missing", "extra"])
-def test_rejects_incomplete_or_extra_invalidations(event_count: int) -> None:
+def test_rejects_incomplete_or_extra_invalidations(event_count: NonNegativeInt) -> None:
     captures, _admitted_ordinals = record_capture(event_count)
     with pytest.raises(BenchmarkSetupError, match="invalidations"):
         validate_capture(event_count, captures.snapshot(), 200)
@@ -379,8 +389,8 @@ def test_bounded_shutdown_terminates_stalled_children(
 def test_separates_required_process_metrics() -> None:
     reading = process_reading()
     assert reading["pid"] == psutil.Process().pid
-    assert cast("int", reading["uss_bytes"]) > 0
-    assert cast("float", reading["cpu_seconds"]) >= 0
+    assert cast("NonNegativeInt", reading["uss_bytes"]) > 0
+    assert cast("NonNegativeFloat", reading["cpu_seconds"]) >= 0
 
 
 def test_required_private_memory_failure_is_visible(

@@ -6,13 +6,14 @@ import pytest
 
 from client_query_cache._core import stream_activation
 from client_query_cache._core.stream_activation import StartupRetry
+from client_query_cache._types import Probability
 
 pytestmark = pytest.mark.unit
 
 
 @pytest.mark.parametrize("fraction", [0.5, 1.0], ids=["lower-bound", "upper-bound"])
 def test_retry_deadlines_grow_and_saturate(
-    monkeypatch: pytest.MonkeyPatch, fraction: float
+    monkeypatch: pytest.MonkeyPatch, fraction: Probability
 ) -> None:
     clock = Mock(return_value=10.0)
     sampler = Mock(side_effect=lambda _low, high: high * fraction)

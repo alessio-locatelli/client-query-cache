@@ -28,6 +28,7 @@ from benchmarks.stream_cost.errors import ReportValidationError
 from benchmarks.stream_cost.generators import SMALL_DOCUMENT_PROFILE
 from benchmarks.stream_cost.measurement import ControlledMeasurement, OperationLatency
 from benchmarks.stream_cost.workload import OperationCounts, WorkloadKind
+from client_query_cache._types import NonNegativeFloat, NonNegativeInt
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -67,13 +68,13 @@ def _measurement() -> ControlledMeasurement:
 
 def _result(
     *,
-    block_index: int,
+    block_index: NonNegativeInt,
     mode: WireCompressor,
     path: WirePath,
     window: CompressionWindowSpec,
-    reads: int,
-    writes: int,
-    invalidations: tuple[float, ...] = (),
+    reads: NonNegativeInt,
+    writes: NonNegativeInt,
+    invalidations: tuple[NonNegativeFloat, ...] = (),
 ) -> CompressionWindowResult:
     outcome = "raw" if path is WirePath.NO_STREAM else "hit"
     return CompressionWindowResult(
@@ -103,7 +104,9 @@ def _full_report() -> dict[str, object]:
         )
         for index in range(4)
     ]
-    negotiations: dict[tuple[int, WireCompressor], CompressorPreflightResult] = {}
+    negotiations: dict[
+        tuple[NonNegativeInt, WireCompressor], CompressorPreflightResult
+    ] = {}
     window_results: list[CompressionWindowResult] = []
     for block in blocks:
         for mode in block.mode_order:

@@ -16,6 +16,7 @@ from client_query_cache._core.entries import AdmissionOutcome
 from client_query_cache._core.find_reads import find_read_shape
 from client_query_cache._core.keys import NamespaceId
 from client_query_cache._core.manager import CacheCore
+from client_query_cache._types import NonNegativeFloat, NonNegativeInt
 from tests.call_counting import count_current_thread_calls
 
 if TYPE_CHECKING:
@@ -73,9 +74,9 @@ def populate_sources(
 
 
 class HeapMeasurement(TypedDict):
-    retained_heap_bytes: int
-    payload_bytes: int
-    after_clear_heap_bytes: int
+    retained_heap_bytes: NonNegativeInt
+    payload_bytes: NonNegativeInt
+    after_clear_heap_bytes: NonNegativeInt
 
 
 def measure_heap(
@@ -145,7 +146,7 @@ def test_find_family_lookup(
         predicate, None, {"_id": 1}, 0, 10, collation=None, codec="codec"
     )
     before = core.snapshot()
-    timings: list[float] = []
+    timings: list[NonNegativeFloat] = []
     for _ in range(21):
         started = perf_counter()
         lookup = core.lookup_find(HEAP_NAMESPACE, request)

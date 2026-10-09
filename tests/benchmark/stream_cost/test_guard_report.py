@@ -18,6 +18,7 @@ from benchmarks.stream_cost.guard_runner import (
     PairedCaseMeasurement,
     RevisionEnvironment,
 )
+from client_query_cache._types import NonNegativeFloat
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -46,7 +47,7 @@ def _environment(tmp_path: Path, revision: str) -> RevisionEnvironment:
 def test_measure_and_evaluate_case_reports_decision(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    head_seconds: tuple[float, ...],
+    head_seconds: tuple[NonNegativeFloat, ...],
     expected_decision: Decision,
 ) -> None:
     measurement = PairedCaseMeasurement(

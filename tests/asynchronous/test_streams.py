@@ -20,6 +20,7 @@ from client_query_cache._core.errors import StreamLifecycleError, StreamStartupE
 from client_query_cache._core.keys import NamespaceId
 from client_query_cache._core.manager import CacheCore
 from client_query_cache._core.stream_health import RetryBackoff, StreamHealth
+from client_query_cache._types import NonNegativeFloat, NonNegativeInt, PositiveFloat
 from client_query_cache.asynchronous.streams import (
     ChangeStreamCoordinator,
     DatabaseStreamSupervisor,
@@ -38,7 +39,7 @@ class PausedCoordinator(TypedDict):
     coordinator: ChangeStreamCoordinator
     release: asyncio.Event
     activation: asyncio.Future[DatabaseStreamSupervisor | None]
-    phase: int  # Zero means initial startup; one means reconnect.
+    phase: NonNegativeInt  # Zero means initial startup; one means reconnect.
 
 
 pytestmark = pytest.mark.unit
@@ -50,14 +51,14 @@ _WALL_TIME = datetime.datetime(2024, 1, 1, tzinfo=datetime.UTC)
 class _FixedDelayBackoff:
     __slots__ = ("_delay",)
 
-    def __init__(self, delay: float) -> None:
+    def __init__(self, delay: NonNegativeFloat) -> None:
         self._delay = delay
 
-    def next_delay(self) -> float:
+    def next_delay(self) -> NonNegativeFloat:
         return self._delay
 
 
-def _long_backoff(delay: float = 5.0) -> RetryBackoff:
+def _long_backoff(delay: PositiveFloat = 5.0) -> RetryBackoff:
     return cast("RetryBackoff", _FixedDelayBackoff(delay))
 
 
@@ -130,7 +131,7 @@ def _attempt_admission(cache: CacheCore, database: str) -> AdmissionOutcome:
 
 
 async def _wait_until(
-    predicate: Callable[[], bool], *, timeout_seconds: float = 2.0
+    predicate: Callable[[], bool], *, timeout_seconds: PositiveFloat = 2.0
 ) -> None:
     async def _poll() -> None:
         while not predicate():  # noqa: ASYNC110 (generic predicate, no single Event)
@@ -189,9 +190,9 @@ async def make_coordinator() -> AsyncIterator[Callable[..., ChangeStreamCoordina
 )
 async def test_start_fails_closed(
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
-    version_array: list[int],
+    version_array: list[NonNegativeInt],
     script: list[object],
-    expected_watch_calls: int,
+    expected_watch_calls: NonNegativeInt,
 ) -> None:
     database = ScriptedDatabase("db", script, version_array=version_array)
     supervisor = make_supervisor(as_database(database), _mock_cache())
@@ -235,7 +236,7 @@ async def test_start_raises_and_closes_the_stream_when_stop_races_it(
     database = ScriptedDatabase("db", [stream])
     supervisor = make_supervisor(as_database(database), _mock_cache())
 
-    async def before_watch(_index: int) -> None:  # noqa: RUF029
+    async def before_watch(_index: NonNegativeInt) -> None:  # noqa: RUF029
         supervisor._stop_event.set()
 
     database._before_watch = before_watch
@@ -384,7 +385,7 @@ async def test_a_stop_racing_a_successful_reopen_does_not_report_healthy(
         as_database(database), _mock_cache(), backoff=_FAST_BACKOFF
     )
 
-    async def before_watch(index: int) -> None:  # noqa: RUF029
+    async def before_watch(index: NonNegativeInt) -> None:  # noqa: RUF029
         if index == 1:
             supervisor._stop_event.set()
 
@@ -417,7 +418,7 @@ async def test_stop_interrupts_an_in_progress_backoff_wait(
 ) -> None:
     entered_backoff = asyncio.Event()
 
-    async def before_watch(index: int) -> None:  # noqa: RUF029
+    async def before_watch(index: NonNegativeInt) -> None:  # noqa: RUF029
         if index == 1:
             entered_backoff.set()
 
@@ -453,7 +454,7 @@ async def test_stop_event_set_during_an_unresumable_clear_exits_the_retry_loop(
         as_database(database), _mock_cache(), backoff=_FAST_BACKOFF
     )
 
-    async def before_watch(index: int) -> None:  # noqa: RUF029
+    async def before_watch(index: NonNegativeInt) -> None:  # noqa: RUF029
         if index == 1:
             supervisor._stop_event.set()
 
@@ -768,7 +769,7 @@ async def test_cache_use_is_bypassed_until_start_completes(
 ) -> None:
     release = asyncio.Event()
 
-    async def before_watch(_index: int) -> None:
+    async def before_watch(_index: NonNegativeInt) -> None:
         await release.wait()
 
     database = ScriptedDatabase("db", [ScriptedStream([])], before_watch=before_watch)
@@ -793,7 +794,7 @@ async def test_cache_use_is_bypassed_while_reconnecting_and_restored_once_health
     release = asyncio.Event()
     reached_second_watch = asyncio.Event()
 
-    async def before_watch(index: int) -> None:
+    async def before_watch(index: NonNegativeInt) -> None:
         if index == 1:
             reached_second_watch.set()
             await release.wait()
@@ -961,7 +962,7 @@ async def paused_coordinator(
     release = asyncio.Event()
     entered = asyncio.Event()
 
-    async def before_watch(index: int) -> None:
+    async def before_watch(index: NonNegativeInt) -> None:
         if index == request.param:
             entered.set()
             await release.wait()

@@ -18,6 +18,7 @@ from client_query_cache._core.codec import encode_value
 from client_query_cache._core.cursor_capture import CursorCapture
 from client_query_cache._core.find_reads import find_read_shape
 from client_query_cache._core.keys import NamespaceId
+from client_query_cache._types import NonNegativeFloat, NonNegativeInt
 from client_query_cache.asynchronous.cursors import (
     CachedCommandCursor as AsyncCachedCommandCursor,
 )
@@ -77,7 +78,7 @@ def api_name(view: View) -> Literal["sync", "async"]:
     return "async" if isinstance(view.raw.database.client, AsyncMongoClient) else "sync"
 
 
-def counts(commands: ReadCommands) -> dict[str, int]:
+def counts(commands: ReadCommands) -> dict[str, NonNegativeInt]:
     return {
         name: sum(name in command for command in commands.commands)
         for name in ("find", "aggregate", "getMore", "killCursors")
@@ -127,9 +128,9 @@ async def test_cursor_measurements(
                 continue
             assert await materialize(construct("cold")) == documents
             assert core.snapshot().entry_count == 1
-        elapsed: list[float] = []
-        first_document: list[float] = []
-        origin_counts: list[dict[str, int]] = []
+        elapsed: list[NonNegativeFloat] = []
+        first_document: list[NonNegativeFloat] = []
+        origin_counts: list[dict[str, NonNegativeInt]] = []
         retained_peak = 0
         before_hits = core.snapshot().hits
         for _ in range(REPETITIONS):
@@ -297,9 +298,9 @@ async def measure_find_limit_phase(
         "bypass": 10,
     }[phase]
     expected = await materialize(view.raw.find({}, sort=[("_id", 1)], limit=requested))
-    timings: list[float] = []
-    command_counts: list[dict[str, int]] = []  # One count per execution.
-    peaks: list[int] = []
+    timings: list[NonNegativeFloat] = []
+    command_counts: list[dict[str, NonNegativeInt]] = []  # One count per execution.
+    peaks: list[NonNegativeInt] = []
     resident = core.snapshot()
     for repetition in range(REPETITIONS):
         core.clear_namespace(namespace)
@@ -456,7 +457,7 @@ def test_scalar_filter_key_cost(predicates: Literal[2, 32]) -> None:
         ("exact", filter_document),
         ("permuted", dict(reversed(tuple(filter_document.items())))),
     ):
-        timings: list[float] = []
+        timings: list[NonNegativeFloat] = []
         for _ in range(REPETITIONS):
             started = process_time()
             for _ in range(100):

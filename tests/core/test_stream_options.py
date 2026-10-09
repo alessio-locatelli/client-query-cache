@@ -10,6 +10,7 @@ from client_query_cache._core.stream_options import (
     MAX_AWAIT_TIME_MS,
     validate_max_await_time_ms,
 )
+from client_query_cache._types import MaxAwaitTimeMs
 from client_query_cache.asynchronous.manager import CacheManager as AsyncCacheManager
 from client_query_cache.synchronous.manager import CacheManager
 
@@ -41,5 +42,5 @@ def test_rejects_invalid_await_time_before_using_client(
     [1, 1_000, 5_000, MAX_AWAIT_TIME_MS],
     ids=["minimum", "baseline", "larger", "maximum"],
 )
-def test_accepts_supported_await_time(valid: int) -> None:
+def test_accepts_supported_await_time(valid: MaxAwaitTimeMs) -> None:
     validate_max_await_time_ms(valid)

@@ -27,6 +27,7 @@ from client_query_cache._core.stream_health import (
     StreamHealthSnapshot,
     StreamHealthStatus,
 )
+from client_query_cache._types import NonNegativeFloat, NonNegativeInt, PositiveFloat
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -56,7 +57,7 @@ def _stop_then_fail(sampler: PeriodicCalibrationSampler) -> None:
 
 def _hide_polls(
     listener: multiprocess_run.WireCommands, *, absent: bool
-) -> dict[str, int]:
+) -> dict[str, NonNegativeInt]:
     commands = _ORIGINAL_SNAPSHOT(listener)
     if absent:
         return {
@@ -76,7 +77,7 @@ async def _close_then_fail(client: multiprocess_run.Client) -> None:
 
 async def _poll_then_stall(
     stream: multiprocess_run.Stream,
-    _observed: list[float],
+    _observed: list[NonNegativeFloat],
     *,
     gate: asyncio.Event,
 ) -> None:
@@ -95,7 +96,7 @@ def _extra_stream(
 
 def _faulty_commands(
     listener: multiprocess_run.WireCommands, *, fault: str, uri: str
-) -> dict[str, int]:
+) -> dict[str, NonNegativeInt]:
     if fault == "document":
         with MongoClient[dict[str, object]](uri) as client:
             client[multiprocess_run._DATABASE][
@@ -108,28 +109,33 @@ def _faulty_commands(
     return _ORIGINAL_SNAPSHOT(listener)
 
 
-def _shift_event_time(listener: multiprocess_run.WireCommands) -> tuple[float, ...]:
+def _shift_event_time(
+    listener: multiprocess_run.WireCommands,
+) -> tuple[NonNegativeFloat, ...]:
     stamps = _ORIGINAL_EVENT_TIMES(listener)
     return (stamps[0] + 0.001, *stamps[1:])
 
 
 async def _alter_stream_observations(
-    stream: multiprocess_run.Stream, observed: list[float]
+    stream: multiprocess_run.Stream, observed: list[NonNegativeFloat]
 ) -> None:
     observed.append(time.monotonic())
     await _ORIGINAL_CONSUME(stream, observed)
 
 
 async def _consume_after_window(
-    stream: multiprocess_run.Stream, observed: list[float], *, gate: asyncio.Event
+    stream: multiprocess_run.Stream,
+    observed: list[NonNegativeFloat],
+    *,
+    gate: asyncio.Event,
 ) -> None:
     await gate.wait()
     await _ORIGINAL_CONSUME(stream, observed)
 
 
 async def _release_after_phase(
-    deadline: float,
-    tolerance: float,
+    deadline: NonNegativeFloat,
+    tolerance: PositiveFloat,
     phase: Literal["start", "read", "end"],
     *,
     gate: asyncio.Event,
@@ -144,7 +150,7 @@ def _faulty_worker(
     connection: Connection,
     uri: str,
     cell: multiprocess_run.Cell,
-    worker: int,
+    worker: NonNegativeInt,
     protocol: Protocol,
     *,
     fault: str,
@@ -295,22 +301,24 @@ def test_child_owned_clients_and_resource_measurements(
     workers = cast("tuple[Payload, ...]", sample["workers_measured"])
     assert len({worker["pid"] for worker in workers}) == 2
     assert all(worker["pid"] != sample["harness_pid"] for worker in workers)
-    assert cast("float", sample["server_cpu_seconds"]) > 0
-    assert cast("float", sample["harness_cpu_seconds"]) >= 0
+    assert cast("NonNegativeFloat", sample["server_cpu_seconds"]) > 0
+    assert cast("NonNegativeFloat", sample["harness_cpu_seconds"]) >= 0
     assert all(
-        cast("float", worker["worker_cpu_seconds"]) >= 0
-        and cast("int", worker["uss_bytes"]) > 0
+        cast("NonNegativeFloat", worker["worker_cpu_seconds"]) >= 0
+        and cast("NonNegativeInt", worker["uss_bytes"]) > 0
         for worker in workers
     )
     assert all(
-        cast("int", worker["bytes_sent"]) >= 0
-        and cast("int", worker["bytes_received"]) >= 0
+        cast("NonNegativeInt", worker["bytes_sent"]) >= 0
+        and cast("NonNegativeInt", worker["bytes_received"]) >= 0
         for worker in workers
     )
     harness_paths = cast("dict[str, Payload]", sample["harness_paths"])
-    writer_commands = cast("dict[str, int]", harness_paths["writer"]["wire_commands"])
+    writer_commands = cast(
+        "dict[str, NonNegativeInt]", harness_paths["writer"]["wire_commands"]
+    )
     observer_commands = cast(
-        "dict[str, int]", harness_paths["observer"]["wire_commands"]
+        "dict[str, NonNegativeInt]", harness_paths["observer"]["wire_commands"]
     )
     assert (
         writer_commands["update:requested"] == writer_commands["update:completed"] == 4
@@ -320,7 +328,8 @@ def test_child_owned_clients_and_resource_measurements(
     expected_events = 4 if path in {"native", "stream-only"} else 0
     assert all(worker["invalidations"] == expected_events for worker in workers)
     assert sum(
-        len(cast("list[float]", worker["read_offsets_seconds"])) for worker in workers
+        len(cast("list[NonNegativeFloat]", worker["read_offsets_seconds"]))
+        for worker in workers
     ) == (20 if path in {"native", "native-control"} else 0)
     if path == "native":
         assert all(
@@ -345,7 +354,10 @@ def test_real_capture_retains_every_registered_event_and_gap(
         tuple(map(len, cast("tuple[tuple[float, ...], ...]", worker["lag_windows"])))
         == (20,) * 6
     )
-    assert len(cast("tuple[tuple[int, ...], ...]", worker["capture_ordinals"])) == 6
+    assert (
+        len(cast("tuple[tuple[NonNegativeInt, ...], ...]", worker["capture_ordinals"]))
+        == 6
+    )
 
 
 @pytest.fixture
@@ -479,8 +491,11 @@ def test_idle_streams_demonstrate_polling(
         smoke_protocol,
     )
     worker = cast("tuple[Payload, ...]", sample["workers_measured"])[0]
-    assert cast("dict[str, int]", worker["wire_commands"])["getMore:completed"] > 0
-    assert cast("float", worker["idle_poll_max_gap_seconds"]) <= (
+    assert (
+        cast("dict[str, NonNegativeInt]", worker["wire_commands"])["getMore:completed"]
+        > 0
+    )
+    assert cast("PositiveFloat", worker["idle_poll_max_gap_seconds"]) <= (
         smoke_protocol.registration["max_await_time_ms"] / 1000
         + smoke_protocol.schedule_tolerance_seconds
     )

@@ -6,6 +6,7 @@ import pytest
 
 from benchmarks.stream_cost.client import WireCompressor
 from benchmarks.stream_cost.compression_decision import evaluate_compression_decision
+from client_query_cache._types import NonNegativeFloat, NonNegativeInt
 
 pytestmark = pytest.mark.unit
 
@@ -24,13 +25,13 @@ _WINDOWS = [
 
 def _sample(
     *,
-    block_index: int,
+    block_index: NonNegativeInt,
     mode: str,
     window: str,
-    cpu: float,
-    p95: float | None = None,
-    sent: int | None = None,
-    received: int | None = None,
+    cpu: NonNegativeFloat,
+    p95: NonNegativeFloat | None = None,
+    sent: NonNegativeInt | None = None,
+    received: NonNegativeInt | None = None,
 ) -> dict[str, Any]:
     sample: dict[str, Any] = {
         "block_index": block_index,

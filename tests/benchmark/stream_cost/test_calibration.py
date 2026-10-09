@@ -27,6 +27,7 @@ from benchmarks.stream_cost.errors import (
     BenchmarkConfigurationError,
     BenchmarkSetupError,
 )
+from client_query_cache._types import NonNegativeFloat, NonNegativeInt, PositiveFloat
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -40,7 +41,7 @@ if TYPE_CHECKING:
 pytestmark = pytest.mark.unit
 
 
-def _sequence_source(values: list[float]) -> Callable[[], float]:
+def _sequence_source(values: list[NonNegativeFloat]) -> Callable[[], NonNegativeFloat]:
     iterator = iter(values)
     return lambda: next(iterator)
 
@@ -242,7 +243,7 @@ def test_sample_clock_offset_rejects_a_response_with_a_bad_local_time(
 
 
 def _clock_sample(
-    *, round_trip: float, offset: float, election_id: object = None
+    *, round_trip: NonNegativeFloat, offset: float, election_id: object = None
 ) -> ClockSample:
     wall_t0 = 0.0
     wall_t1 = round_trip
@@ -258,7 +259,10 @@ def _clock_sample(
 
 
 def _point(
-    *, round_trip: float = 0.1, offset: float = 10.0, election_id: object = None
+    *,
+    round_trip: NonNegativeFloat = 0.1,
+    offset: float = 10.0,
+    election_id: object = None,
 ) -> CalibrationPoint:
     sample = _clock_sample(
         round_trip=round_trip, offset=offset, election_id=election_id
@@ -319,7 +323,7 @@ def test_calibration_series_total_uncertainty_dominated_by_drift() -> None:
     ],
 )
 def test_calibration_series_exceeds_drift_tolerance(
-    tolerance: float, expected: bool
+    tolerance: NonNegativeFloat, expected: bool
 ) -> None:
     initial = _point(round_trip=0.1, offset=10.0)
     drifted = _point(round_trip=0.1, offset=10.5)
@@ -356,7 +360,9 @@ def test_has_election_change_detects_change_in_a_discarded_round() -> None:
     assert series.has_election_change is True
 
 
-def _sample_with_readings(*, wall_t0: float, monotonic_t0: float) -> ClockSample:
+def _sample_with_readings(
+    *, wall_t0: NonNegativeFloat, monotonic_t0: NonNegativeFloat
+) -> ClockSample:
     return ClockSample(
         wall_t0=wall_t0,
         wall_t1=wall_t0 + 0.1,
@@ -367,7 +373,9 @@ def _sample_with_readings(*, wall_t0: float, monotonic_t0: float) -> ClockSample
     )
 
 
-def _point_with_readings(*, wall_t0: float, monotonic_t0: float) -> CalibrationPoint:
+def _point_with_readings(
+    *, wall_t0: NonNegativeFloat, monotonic_t0: NonNegativeFloat
+) -> CalibrationPoint:
     sample = _sample_with_readings(wall_t0=wall_t0, monotonic_t0=monotonic_t0)
     return CalibrationPoint(selected=sample, rounds=(sample,))
 
@@ -381,7 +389,10 @@ def _point_with_readings(*, wall_t0: float, monotonic_t0: float) -> CalibrationP
     ],
 )
 def test_calibration_series_has_host_clock_step(
-    second_wall_t0: float, second_monotonic_t0: float, tolerance: float, expected: bool
+    second_wall_t0: NonNegativeFloat,
+    second_monotonic_t0: NonNegativeFloat,
+    tolerance: NonNegativeFloat,
+    expected: bool,
 ) -> None:
     initial = _point_with_readings(wall_t0=0.0, monotonic_t0=0.0)
     second = _point_with_readings(
@@ -428,7 +439,9 @@ def test_has_host_clock_step_detects_step_in_a_discarded_round() -> None:
         (2.0, 10.0, True),
     ],
 )
-def test_validate_cadence(cadence: float, threshold: float, should_raise: bool) -> None:
+def test_validate_cadence(
+    cadence: PositiveFloat, threshold: PositiveFloat, should_raise: bool
+) -> None:
     if should_raise:
         with pytest.raises(BenchmarkConfigurationError, match="exceeds"):
             validate_cadence(cadence, threshold)
@@ -464,7 +477,10 @@ def test_validate_cadence_rejects_invalid_inputs(
     ],
 )
 def test_host_clock_stepped(
-    wall_elapsed: float, monotonic_elapsed: float, tolerance: float, expected: bool
+    wall_elapsed: NonNegativeFloat,
+    monotonic_elapsed: NonNegativeFloat,
+    tolerance: NonNegativeFloat,
+    expected: bool,
 ) -> None:
     first = PairedReading(wall_seconds=0.0, monotonic_seconds=0.0)
     second = PairedReading(
@@ -482,7 +498,10 @@ def test_host_clock_stepped(
     ],
 )
 def test_meets_absolute_threshold(
-    value: float, uncertainty: float, threshold: float, expected: bool
+    value: float,
+    uncertainty: NonNegativeFloat,
+    threshold: PositiveFloat,
+    expected: bool,
 ) -> None:
     assert meets_absolute_threshold(value, uncertainty, threshold) is expected
 
@@ -504,7 +523,11 @@ def test_drift_adjusted_delta_seconds_adds_margin() -> None:
     ],
 )
 def test_is_not_meaningfully_worse(
-    control: float, loaded: float, uncertainty: float, threshold: float, expected: bool
+    control: float,
+    loaded: float,
+    uncertainty: NonNegativeFloat,
+    threshold: NonNegativeFloat,
+    expected: bool,
 ) -> None:
     assert (
         is_not_meaningfully_worse(control, loaded, uncertainty, threshold) is expected
@@ -518,9 +541,11 @@ class _FakeServerDescription:
 
 @dataclass(frozen=True, slots=True)
 class _FakeTopologyDescription:
-    servers: dict[tuple[str, int], _FakeServerDescription]
+    servers: dict[tuple[str, NonNegativeInt], _FakeServerDescription]
 
-    def server_descriptions(self) -> dict[tuple[str, int], _FakeServerDescription]:
+    def server_descriptions(
+        self,
+    ) -> dict[tuple[str, NonNegativeInt], _FakeServerDescription]:
         return self.servers
 
 
@@ -530,7 +555,7 @@ class _FakeTopologyDescriptionChangedEvent:
 
 
 def _change_event(
-    servers: dict[tuple[str, int], _FakeServerDescription],
+    servers: dict[tuple[str, NonNegativeInt], _FakeServerDescription],
 ) -> TopologyDescriptionChangedEvent:
     event = _FakeTopologyDescriptionChangedEvent(_FakeTopologyDescription(servers))
     return cast("TopologyDescriptionChangedEvent", event)

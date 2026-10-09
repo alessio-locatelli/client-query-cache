@@ -27,6 +27,7 @@ from benchmarks.stream_cost.errors import (
     BenchmarkConfigurationError,
     BenchmarkSetupError,
 )
+from client_query_cache._types import NonNegativeFloat, NonNegativeInt, PositiveInt
 from client_query_cache.synchronous.manager import CacheManager
 
 if TYPE_CHECKING:
@@ -211,7 +212,7 @@ def test_replay_write_schedule_sleeps_until_a_writes_scheduled_offset(
         "benchmarks.stream_cost.consolidated_stream.time.monotonic",
         lambda: next(readings),
     )
-    sleep_calls: list[float] = []
+    sleep_calls: list[NonNegativeFloat] = []
     monkeypatch.setattr(
         "benchmarks.stream_cost.consolidated_stream.time.sleep", sleep_calls.append
     )
@@ -252,7 +253,10 @@ def test_verify_relevant_write_counts_match_rejects_negative_tolerance() -> None
     ],
 )
 def test_verify_relevant_write_counts_match(
-    control_count: int, loaded_count: int, tolerance: int, should_raise: bool
+    control_count: NonNegativeInt,
+    loaded_count: NonNegativeInt,
+    tolerance: NonNegativeInt,
+    should_raise: bool,
 ) -> None:
     if should_raise:
         with pytest.raises(BenchmarkSetupError, match="relevant writes"):
@@ -352,7 +356,7 @@ def test_verify_unrelated_write_minimum_rejects_non_positive_minimum() -> None:
     [(10, 10, False), (9, 10, True)],
 )
 def test_verify_unrelated_write_minimum(
-    observed_count: int, minimum_count: int, should_raise: bool
+    observed_count: NonNegativeInt, minimum_count: PositiveInt, should_raise: bool
 ) -> None:
     if should_raise:
         with pytest.raises(BenchmarkSetupError, match="below the pre-registered"):

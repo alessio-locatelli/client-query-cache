@@ -267,7 +267,7 @@ class UnrelatedWriteWorkload:
 
 
 def verify_unrelated_write_minimum(
-    observed_count_during_window: NonNegativeInt, *, minimum_count: NonNegativeInt
+    observed_count_during_window: NonNegativeInt, *, minimum_count: PositiveInt
 ) -> None:
     if minimum_count <= 0:
         message = "minimum_count must be positive"

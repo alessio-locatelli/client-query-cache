@@ -11,6 +11,7 @@ from pymongo.errors import ConnectionFailure, OperationFailure
 
 from client_query_cache._core.keys import NamespaceId
 from client_query_cache._core.manager import CacheCore, CacheCoreConfig
+from client_query_cache._types import NonNegativeInt, PositiveFloat
 from client_query_cache.synchronous import streams as streams_module
 from client_query_cache.synchronous.streams import DatabaseStreamSupervisor
 from tests.stream_helpers import (
@@ -70,7 +71,9 @@ def make_supervisor() -> Iterator[Callable[..., DatabaseStreamSupervisor]]:
         supervisor.stop()
 
 
-def _wait_until(predicate: Callable[[], bool], *, timeout: float = 15.0) -> None:
+def _wait_until(
+    predicate: Callable[[], bool], *, timeout: PositiveFloat = 15.0
+) -> None:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if predicate():
@@ -109,7 +112,9 @@ def test_write_invalidates_the_cached_document(
     independent_writer: MongoClient[dict[str, Any]],
     cached_database_name: DatabaseName,
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
-    invalidate: Callable[[MongoClient[dict[str, Any]], DatabaseName, str, int], object],
+    invalidate: Callable[
+        [MongoClient[dict[str, Any]], DatabaseName, str, NonNegativeInt], object
+    ],
     *,
     faker: Faker,
 ) -> None:

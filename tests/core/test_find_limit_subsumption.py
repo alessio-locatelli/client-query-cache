@@ -19,6 +19,7 @@ from client_query_cache._core.manager import (
     CacheCoreConfig,
     _discard_entry_locked,
 )
+from client_query_cache._types import NonNegativeInt
 from tests.call_counting import count_current_thread_calls
 from tests.core.conftest import patch_conditional_put_hook
 
@@ -318,7 +319,7 @@ def test_lookup_probes_only_its_family(
     core: CacheCore,
     namespace: NamespaceId,
     monkeypatch: pytest.MonkeyPatch,
-    unrelated: int,
+    unrelated: NonNegativeInt,
     limits: tuple[int, ...],
 ) -> None:
     for limit in limits:

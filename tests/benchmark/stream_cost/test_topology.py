@@ -13,6 +13,7 @@ from benchmarks.stream_cost.errors import (
     BenchmarkSetupError,
 )
 from benchmarks.stream_cost.topology import IsolatedReplicaSet, ResourceLimits
+from client_query_cache._types import NonNegativeInt
 
 pytestmark = pytest.mark.unit
 
@@ -133,7 +134,7 @@ class _FakeDockerContainer:
     def with_command(self, _command: object) -> _FakeDockerContainer:
         return self
 
-    def with_exposed_ports(self, *_ports: int) -> _FakeDockerContainer:
+    def with_exposed_ports(self, *_ports: NonNegativeInt) -> _FakeDockerContainer:
         return self
 
     def with_kwargs(self, **_kwargs: object) -> _FakeDockerContainer:
@@ -149,7 +150,7 @@ class _FakeDockerContainer:
         return "127.0.0.1"
 
     @staticmethod
-    def get_exposed_port(port: int) -> int:
+    def get_exposed_port(port: NonNegativeInt) -> NonNegativeInt:
         return port
 
     def stop(self) -> None:
@@ -352,7 +353,7 @@ def test_await_writable_primary_advertises_the_containers_own_listening_address(
 
 class _FlakyPingClient(_FakeMongoClient):
     __slots__ = ()
-    ping_attempts: ClassVar[int] = 0
+    ping_attempts: ClassVar[NonNegativeInt] = 0
 
     def command(
         self, name: str, *_args: object, **_kwargs: object
@@ -383,7 +384,7 @@ def test_await_writable_primary_retries_ping_until_reachable(
 
 class _FlakyElectionClient(_FakeMongoClient):
     __slots__ = ()
-    hello_attempts: ClassVar[int] = 0
+    hello_attempts: ClassVar[NonNegativeInt] = 0
 
     def command(
         self, name: str, *_args: object, **_kwargs: object

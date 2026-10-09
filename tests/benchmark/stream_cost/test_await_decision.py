@@ -26,6 +26,7 @@ from benchmarks.stream_cost.errors import (
     BenchmarkConfigurationError,
     BenchmarkSetupError,
 )
+from client_query_cache._types import MaxAwaitTimeMs, NonNegativeInt, Probability
 
 if TYPE_CHECKING:
     from benchmarks.stream_cost.await_model import AwaitConfiguration
@@ -345,7 +346,7 @@ def test_ineligible_candidates_retain_baseline(
 
 @given(st.lists(st.floats(min_value=0, max_value=1), min_size=1, max_size=30))
 def test_holm_adjustment_preserves_order_and_never_reduces_p_values(
-    p_values: list[float],
+    p_values: list[Probability],
 ) -> None:
     adjusted = holm_adjusted(p_values)
     assert all(
@@ -358,7 +359,7 @@ def test_holm_adjustment_preserves_order_and_never_reduces_p_values(
     assert ordered == sorted(ordered)
 
 
-def _constant_statistic(_indices: tuple[int, ...]) -> float:
+def _constant_statistic(_indices: tuple[NonNegativeInt, ...]) -> float:
     return 0.5
 
 
@@ -383,7 +384,9 @@ def test_rejects_changed_decision_rules_with_unchanged_hash(
     "candidate", [1000, 5000], ids=["failed-baseline", "failed-candidate"]
 )
 def test_retains_failed_windows_without_treating_them_as_savings(
-    report: dict[str, object], configuration: AwaitConfiguration, candidate: int
+    report: dict[str, object],
+    configuration: AwaitConfiguration,
+    candidate: MaxAwaitTimeMs,
 ) -> None:
     samples = cast("list[dict[str, object]]", report["samples"])
     failed = next(sample for sample in samples if sample["candidate_ms"] == candidate)

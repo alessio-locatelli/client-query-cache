@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from client_query_cache._types import NonNegativeFloat
 from tests.benchmark.real_server.atlas_bandwidth import (
     collect_bandwidth_evidence,
     resolve_atlas_project_id,
@@ -68,7 +69,7 @@ _CACHED_DURATION_CEILING_SECONDS = (
 
 def _log_bandwidth_evidence_excluding_its_duration(
     atlas_project_id: str | None, mongodb_uri: str
-) -> float:
+) -> NonNegativeFloat:
     if atlas_project_id is None:
         return 0.0
     collection_start = time.perf_counter()

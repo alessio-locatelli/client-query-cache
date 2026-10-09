@@ -13,6 +13,12 @@ from benchmarks.stream_cost.bootstrap import (
     minimum_sample_count,
 )
 from benchmarks.stream_cost.errors import BenchmarkConfigurationError
+from client_query_cache._types import (
+    ExclusiveProbability,
+    NonNegativeFloat,
+    PositiveFloat,
+    PositiveInt,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -25,7 +31,9 @@ pytestmark = pytest.mark.unit
         (0.99, 100),
     ],
 )
-def test_minimum_sample_count(percentile: float, expected: int) -> None:
+def test_minimum_sample_count(
+    percentile: ExclusiveProbability, expected: PositiveInt
+) -> None:
     assert minimum_sample_count(percentile) == expected
 
 
@@ -162,7 +170,11 @@ def test_expand_with_uncertainty() -> None:
     ],
 )
 def test_absolute_threshold_decisive(
-    lower: float, upper: float, uncertainty: float, threshold: float, expected: bool
+    lower: float,
+    upper: float,
+    uncertainty: NonNegativeFloat,
+    threshold: PositiveFloat,
+    expected: bool,
 ) -> None:
     interval = ConfidenceInterval(lower=lower, upper=upper, point_estimate=lower)
     assert (
@@ -182,7 +194,7 @@ def test_absolute_threshold_decisive(
     ],
 )
 def test_delta_threshold_decisive(
-    lower: float, upper: float, threshold: float, expected: bool
+    lower: float, upper: float, threshold: NonNegativeFloat, expected: bool
 ) -> None:
     interval = ConfidenceInterval(lower=lower, upper=upper, point_estimate=lower)
     assert delta_threshold_decisive(interval, threshold) is expected
@@ -195,7 +207,9 @@ def test_delta_threshold_decisive(
         (0.90, 0.95),
     ],
 )
-def test_bonferroni_confidence_level(target_confidence: float, expected: float) -> None:
+def test_bonferroni_confidence_level(
+    target_confidence: ExclusiveProbability, expected: ExclusiveProbability
+) -> None:
     assert bonferroni_confidence_level(target_confidence) == pytest.approx(expected)
 
 

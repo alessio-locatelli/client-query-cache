@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 from pymongo import MongoClient, ReadPreference
 from pymongo.monitoring import CommandListener
 
+from client_query_cache._types import NonNegativeFloat, NonNegativeInt, PositiveFloat
 from client_query_cache.synchronous.manager import CacheManager
 
 if TYPE_CHECKING:
@@ -27,9 +28,9 @@ _SOCKET_TIMEOUT_MS = 5_000
 
 @dataclass(frozen=True, slots=True)
 class ReadPhaseResult:
-    duration_seconds: float
-    find_command_count: int
-    max_observed_counter: int
+    duration_seconds: NonNegativeFloat
+    find_command_count: NonNegativeInt
+    max_observed_counter: NonNegativeInt
 
 
 def _bounded_mongo_client(
@@ -54,7 +55,7 @@ def preflight_ping(uri: str) -> None:
         client.admin.command("hello", read_preference=ReadPreference.PRIMARY)
 
 
-def run_preflight_and_start_clock(uri: str) -> float:
+def run_preflight_and_start_clock(uri: str) -> NonNegativeFloat:
     preflight_ping(uri)
     return time.perf_counter()
 
@@ -79,7 +80,7 @@ def write_documents_until_stopped(
     seed_documents: Sequence[dict[str, Any]],
     document_ids: Sequence[str],
     *,
-    update_interval_seconds: float,
+    update_interval_seconds: PositiveFloat,
     stop_event: EventClass,
     collection_name: str,
     ready_event: EventClass,
@@ -99,7 +100,7 @@ def write_documents_until_stopped(
             stop_event.wait(update_interval_seconds)
 
 
-def _read_each_document(collection: Any, document_ids: Sequence[str]) -> int:  # noqa: ANN401
+def _read_each_document(collection: Any, document_ids: Sequence[str]) -> NonNegativeInt:  # noqa: ANN401
     max_counter = -1
     for document_id in document_ids:
         document = collection.find_one({"_id": document_id})
@@ -109,9 +110,9 @@ def _read_each_document(collection: Any, document_ids: Sequence[str]) -> int:  #
     return max_counter
 
 
-def _counter_or_default(document: dict[str, Any]) -> int:
+def _counter_or_default(document: dict[str, Any]) -> NonNegativeInt:
     try:
-        counter: int = document["counter"]
+        counter: NonNegativeInt = document["counter"]
     except KeyError:
         return -1
     return counter
@@ -120,8 +121,8 @@ def _counter_or_default(document: dict[str, Any]) -> int:
 def _timed_read_cycles(
     collection: Any,  # noqa: ANN401
     document_ids: Sequence[str],
-    warmup_cycles: int,
-    measured_cycles: int,
+    warmup_cycles: NonNegativeInt,
+    measured_cycles: NonNegativeInt,
     counter: _FindCommandCounter,
 ) -> ReadPhaseResult:
     for _ in range(warmup_cycles):
@@ -146,8 +147,8 @@ def read_documents_repeatedly(
     document_ids: Sequence[str],
     *,
     use_cache: bool,
-    warmup_cycles: int,
-    measured_cycles: int,
+    warmup_cycles: NonNegativeInt,
+    measured_cycles: NonNegativeInt,
     collection_name: str,
 ) -> ReadPhaseResult:
     counter = _FindCommandCounter()
@@ -177,8 +178,8 @@ def read_documents_repeatedly_into_queue(
     document_ids: Sequence[str],
     *,
     use_cache: bool,
-    warmup_cycles: int,
-    measured_cycles: int,
+    warmup_cycles: NonNegativeInt,
+    measured_cycles: NonNegativeInt,
     collection_name: str,
 ) -> None:
     read_result = read_documents_repeatedly(

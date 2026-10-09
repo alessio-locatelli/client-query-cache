@@ -37,6 +37,7 @@ from benchmarks.stream_cost.workload import (
     wait_for_invalidations_to_settle,
 )
 from client_query_cache._core.snapshots import CacheSnapshot
+from client_query_cache._types import NonNegativeInt
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -48,10 +49,10 @@ pytestmark = pytest.mark.unit
 
 def _snapshot(
     *,
-    entry_count: int = 0,
-    hits: int = 0,
-    misses: int = 0,
-    oversized_bypasses: int = 0,
+    entry_count: NonNegativeInt = 0,
+    hits: NonNegativeInt = 0,
+    misses: NonNegativeInt = 0,
+    oversized_bypasses: NonNegativeInt = 0,
 ) -> CacheSnapshot:
     return CacheSnapshot(
         lifecycle="active",
@@ -311,7 +312,7 @@ def test_time_call_returns_the_result_and_a_non_negative_elapsed_time() -> None:
     ],
 )
 def test_perform_reads_helpers_issue_one_find_per_id(
-    perform_reads: Callable[[Any, tuple[int, ...]], None],
+    perform_reads: Callable[[Any, tuple[NonNegativeInt, ...]], None],
 ) -> None:
     collection = Mock(find_one=Mock(return_value={"_id": 1}))
 

@@ -20,6 +20,7 @@ from client_query_cache._core.stream_cost import (
     LagCaptureWindows,
 )
 from client_query_cache._core.stream_events import route_change_event
+from client_query_cache._types import NonNegativeInt
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -80,7 +81,7 @@ def test_lag_capture_window_config_rejects_invalid_values(
     )
 )
 def test_lag_capture_window_config_accepts_every_annotated_value(
-    kwargs: dict[str, int],
+    kwargs: dict[str, NonNegativeInt],
 ) -> None:
     assert dataclasses.asdict(LagCaptureWindowConfig(**kwargs)) == kwargs
 
@@ -292,7 +293,7 @@ def test_reset_stream_cost_statistics_on_an_untouched_database_is_a_no_op() -> N
     ],
 )
 def test_reset_stream_cost_statistics_scope(
-    reset_databases: tuple[str, ...], expected_db_two_polls: int
+    reset_databases: tuple[str, ...], expected_db_two_polls: NonNegativeInt
 ) -> None:
     core = CacheCore()
     core.record_stream_poll("db_one")

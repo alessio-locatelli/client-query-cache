@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 from pymongo import MongoClient
 
+from client_query_cache._types import NonNegativeInt
 from tests.benchmark.real_server.workers import (
     COLLECTION_NAME,
     DATABASE_NAME,
@@ -94,7 +95,7 @@ def test_reader_find_command_count(
     seed_documents: list[dict[str, Any]],
     document_ids: list[str],
     use_cache: bool,
-    warmup_cycles: int,
+    warmup_cycles: NonNegativeInt,
 ) -> None:
     with MongoClient[dict[str, Any]](mongodb_uri) as client:
         client[DATABASE_NAME][COLLECTION_NAME].insert_many(seed_documents)

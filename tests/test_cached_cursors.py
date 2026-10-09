@@ -17,6 +17,7 @@ from pymongo.errors import ConnectionFailure, InvalidOperation
 from pymongo.synchronous.command_cursor import CommandCursor
 from pymongo.synchronous.cursor import Cursor
 
+from client_query_cache._types import NonNegativeInt
 from client_query_cache.asynchronous.cursors import (
     CachedCommandCursor as AsyncCachedCommandCursor,
 )
@@ -49,7 +50,7 @@ pytestmark = pytest.mark.integration
 )
 @pytest.mark.parametrize("matching", [0, 3, 240], ids=["empty", "short", "full"])
 async def test_covering_find_returns_an_isolated_prefix(
-    cursors: Binding, source_limit: int, matching: int
+    cursors: Binding, source_limit: NonNegativeInt, matching: NonNegativeInt
 ) -> None:
     view = cursors["view"]
     query = {"_id": {"$lt": matching}}
@@ -301,7 +302,7 @@ async def test_prefix_clone_rewind_and_indexing_use_final_shape(
 
 @pytest.mark.parametrize("source_limit", [0, 100], ids=["unlimited", "larger"])
 async def test_partial_source_publishes_no_compatible_prefix(
-    cursors: Binding, source_limit: int
+    cursors: Binding, source_limit: NonNegativeInt
 ) -> None:
     view = cursors["view"]
     source = view.find({}).sort("_id").limit(source_limit)
@@ -654,7 +655,7 @@ async def test_chaining_copy_rewind_and_native_operations(cursors: Binding) -> N
 
 @pytest.mark.parametrize("setting", [0, 1, 5], ids=["default", "one", "five"])
 async def test_command_batching_keeps_selected_execution(
-    cursors: Binding, setting: int
+    cursors: Binding, setting: NonNegativeInt
 ) -> None:
     view = cursors["view"]
     pipeline = [{"$sort": {"_id": 1}}]
