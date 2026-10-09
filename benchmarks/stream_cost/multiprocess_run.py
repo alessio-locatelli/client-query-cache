@@ -14,6 +14,7 @@ import time
 from contextlib import ExitStack
 from dataclasses import asdict, dataclass, field
 from hashlib import sha256
+from itertools import pairwise
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, TypedDict, cast
 from urllib.parse import urlsplit
@@ -209,6 +210,7 @@ class WireCommands(CommandListener):
         self._counts: dict[str, int] = {}  # Empty before client creation.
         self.streams = 0
         self._event_wall_seconds: list[float] = []  # Empty before scheduled updates.
+        self._poll_seconds: list[float] = []  # Empty before the first completed poll.
 
     def _record(self, name: str, outcome: str) -> None:
         with self._lock:
@@ -235,6 +237,8 @@ class WireCommands(CommandListener):
             except KeyError:
                 batch = cursor["firstBatch"]
             with self._lock:
+                if event.command_name == "getMore":
+                    self._poll_seconds.append(time.monotonic())
                 self._event_wall_seconds.extend(
                     _wall_time_seconds(envelope["wallTime"])
                     for envelope in batch
@@ -253,6 +257,27 @@ class WireCommands(CommandListener):
     def event_wall_seconds(self) -> tuple[float, ...]:
         with self._lock:
             return tuple(self._event_wall_seconds)
+
+    def poll_completion_seconds(self) -> tuple[float, ...]:
+        with self._lock:
+            return tuple(self._poll_seconds)
+
+
+def idle_poll_max_gap(
+    completions: tuple[float, ...],
+    start: float,  # Monotonic boundary can be zero.
+    end: float,  # Positive end boundary.
+    limit: float,  # Positive maximum polling gap.
+) -> float:  # Positive gap within a nonempty window.
+    polls = tuple(stamp for stamp in completions if start <= stamp <= end)
+    if not polls:
+        raise BenchmarkSetupError("idle stream issued no completed getMore")
+    boundaries = (start, *polls, end)
+    longest = max(later - earlier for earlier, later in pairwise(boundaries))
+    if longest > limit:
+        message = f"idle getMore polling gap exceeded {limit:.3f}s"
+        raise BenchmarkSetupError(message)
+    return longest
 
 
 def command_delta(
@@ -523,6 +548,7 @@ async def worker_window(
                     raise BenchmarkSetupError("incomplete stream-only delivery")
             if not healthy or listener.streams != expected_streams:
                 raise BenchmarkSetupError("stream continuity changed during window")
+            poll_gap = None
             if expected_streams and cell.workload == "idle":
                 application_commands = command_delta(commands_before, commands_at_end)
                 try:
@@ -531,6 +557,13 @@ async def worker_window(
                     polls = 0
                 if polls <= 0:
                     raise BenchmarkSetupError("idle stream issued no completed getMore")
+                poll_gap = idle_poll_max_gap(
+                    listener.poll_completion_seconds(),
+                    start,
+                    start + protocol.window_seconds,
+                    protocol.registration["max_await_time_ms"] / 1000
+                    + protocol.schedule_tolerance_seconds,
+                )
             commands = command_delta(commands_before, listener.snapshot())
             if any(count for key, count in commands.items() if key.endswith(":failed")):
                 raise BenchmarkSetupError("observed a failed wire command")
@@ -544,6 +577,7 @@ async def worker_window(
                     "uss_bytes": drained["uss_bytes"],
                     "primed": primed,
                     "wire_commands": commands,
+                    "idle_poll_max_gap_seconds": poll_gap,
                     "bytes_sent": proxy.bytes_sent - sent,
                     "bytes_received": proxy.bytes_received - received,
                     "read_offsets_seconds": offsets,

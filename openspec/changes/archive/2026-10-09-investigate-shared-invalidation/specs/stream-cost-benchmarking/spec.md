@@ -4,7 +4,7 @@
 
 ### Requirement: Idle multi-process stream samples demonstrate polling
 
-An idle watching-worker sample SHALL require completed command-observed `getMore` activity during the application window. A completed stream-only receiver SHALL invalidate the sample even when its stream remains open and no events were scheduled.
+An idle watching-worker sample SHALL require completed command-observed `getMore` activity throughout the application window, with no gap exceeding `max_await_time_ms / 1000` plus the protocol scheduling tolerance, including both window boundaries. A completed stream-only receiver SHALL invalidate the sample even when its stream remains open and no events were scheduled.
 
 #### Scenario: An idle receiver stops without closing its stream
 
@@ -15,6 +15,11 @@ An idle watching-worker sample SHALL require completed command-observed `getMore
 
 - **WHEN** a watching worker has no completed `getMore` commands during the idle application window
 - **THEN** the collector rejects the sample even if polling occurs later during drain
+
+#### Scenario: Idle polling stalls after one successful command
+
+- **WHEN** an idle watching worker completes a poll but leaves an excessive gap before the next completion or the application-window end
+- **THEN** the collector rejects the sample even while the receiver remains pending and its stream remains open
 
 ### Requirement: Multi-process sample acceptance waits for successful shutdown
 

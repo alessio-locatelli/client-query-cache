@@ -74,6 +74,17 @@ async def _close_then_fail(client: multiprocess_run.Client) -> None:
     raise ConnectionFailure("cleanup failed after sample")
 
 
+async def _poll_then_stall(
+    stream: multiprocess_run.Stream,
+    _observed: list[float],  # Empty in this idle fault case.
+    *,
+    gate: asyncio.Event,
+) -> None:
+    await gate.wait()
+    await multiprocess_run.invoke(stream.try_next)
+    await asyncio.Event().wait()
+
+
 def _extra_stream(
     listener: multiprocess_run.WireCommands, event: CommandStartedEvent
 ) -> None:
@@ -116,15 +127,16 @@ async def _consume_after_window(
     await _ORIGINAL_CONSUME(stream, observed)
 
 
-async def _release_after_window(
+async def _release_after_phase(
     deadline: float,
     tolerance: float,
     phase: Literal["start", "read", "end"],
     *,
     gate: asyncio.Event,
+    release_phase: Literal["start", "end"],
 ) -> None:
     await _ORIGINAL_WAIT_UNTIL(deadline, tolerance, phase)
-    if phase == "end":
+    if phase == release_phase:
         asyncio.get_running_loop().call_later(0.1, gate.set)
 
 
@@ -142,6 +154,16 @@ def _faulty_worker(
         if fault in {"receiver", "slow-failure"}:
             patches.setattr(
                 multiprocess_run, "consume_stream", AsyncMock(return_value=None)
+            )
+        elif fault == "stalled-polls":
+            gate = asyncio.Event()
+            patches.setattr(
+                multiprocess_run, "consume_stream", partial(_poll_then_stall, gate=gate)
+            )
+            patches.setattr(
+                multiprocess_run,
+                "wait_until",
+                partial(_release_after_phase, gate=gate, release_phase="start"),
             )
         elif fault in {"absent", "zero"}:
             patches.setattr(
@@ -191,7 +213,7 @@ def _faulty_worker(
             patches.setattr(
                 multiprocess_run,
                 "wait_until",
-                partial(_release_after_window, gate=gate),
+                partial(_release_after_phase, gate=gate, release_phase="end"),
             )
         elif fault == "extra-observation":
             patches.setattr(
@@ -453,6 +475,10 @@ def test_idle_streams_demonstrate_polling(
     )
     worker = cast("tuple[Payload, ...]", sample["workers_measured"])[0]
     assert cast("dict[str, int]", worker["wire_commands"])["getMore:completed"] > 0
+    assert cast("float", worker["idle_poll_max_gap_seconds"]) <= (
+        smoke_protocol.registration["max_await_time_ms"] / 1000
+        + smoke_protocol.schedule_tolerance_seconds
+    )
     assert worker["invalidations"] == 0
 
 
@@ -466,7 +492,12 @@ def test_idle_streams_demonstrate_polling(
         ("cleanup", "stream-only", "worker exited unsuccessfully"),
     ],
     indirect=["faulty_worker"],
-    ids=["completed-receiver", "absent-polls", "zero-polls", "failed-cleanup"],
+    ids=[
+        "completed-receiver",
+        "absent-polls",
+        "zero-polls",
+        "failed-cleanup",
+    ],
 )
 @pytest.mark.usefixtures("faulty_worker")
 def test_idle_and_shutdown_failures_cannot_produce_healthy_cells(
@@ -481,5 +512,24 @@ def test_idle_and_shutdown_failures_cannot_produce_healthy_cells(
             multiprocess_replica,
             replace(planned_cells()[0], model=model, path=path, workload="idle"),
             smoke_protocol,
+        )
+    assert not multiprocessing.active_children()
+
+
+@pytest.mark.parametrize("model", ["sync", "async"], ids=["sync", "asyncio"])
+@pytest.mark.parametrize("faulty_worker", ["stalled-polls"], indirect=True)
+@pytest.mark.usefixtures("faulty_worker")
+def test_one_successful_poll_cannot_validate_a_stalled_idle_receiver(
+    multiprocess_replica: IsolatedReplicaSet,
+    smoke_protocol: Protocol,
+    model: Model,
+) -> None:
+    with pytest.raises(BenchmarkSetupError, match="idle getMore polling gap exceeded"):
+        run_cell(
+            multiprocess_replica,
+            replace(
+                planned_cells()[0], model=model, path="stream-only", workload="idle"
+            ),
+            replace(smoke_protocol, window_seconds=3.5),
         )
     assert not multiprocessing.active_children()
