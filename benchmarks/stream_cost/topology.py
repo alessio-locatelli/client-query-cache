@@ -19,7 +19,7 @@ from benchmarks.stream_cost.errors import (
     BenchmarkConfigurationError,
     BenchmarkSetupError,
 )
-from client_query_cache._types import NonNegativeInt
+from client_query_cache._types import NonNegativeFloat, NonNegativeInt, PositiveFloat
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -47,7 +47,7 @@ _MEMORY_UNIT_MULTIPLIERS = {
 }
 
 
-def _parse_memory_bytes(memory: str) -> float:
+def _parse_memory_bytes(memory: str) -> NonNegativeFloat:
     match = _MEMORY_PATTERN.match(memory.strip())
     if match is None:
         message = f"memory ({memory!r}) is not a valid Docker memory quantity"
@@ -63,7 +63,7 @@ def _parse_memory_bytes(memory: str) -> float:
 
 @dataclass(frozen=True, slots=True)
 class ResourceLimits:
-    cpus: float
+    cpus: PositiveFloat
     memory: str
 
     def __post_init__(self) -> None:
@@ -251,7 +251,7 @@ class IsolatedReplicaSet:
             )
             raise BenchmarkSetupError(message)
 
-    def container_cpu_usage_seconds(self) -> float:
+    def container_cpu_usage_seconds(self) -> NonNegativeFloat:
         if self._container is None:
             message = "IsolatedReplicaSet has not been started"
             raise BenchmarkSetupError(message)

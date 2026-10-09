@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from benchmarks.stream_cost.errors import BenchmarkConfigurationError
 from client_query_cache._core.codec import encode_value
-from client_query_cache._types import NonNegativeInt, PositiveInt
+from client_query_cache._types import NonNegativeFloat, NonNegativeInt, PositiveInt
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
@@ -78,14 +78,14 @@ def time_encoder_invocations(
     *,
     codec_options: CodecOptions[Any] | None = None,
     repetitions: PositiveInt,
-) -> tuple[float, ...]:
+) -> tuple[NonNegativeFloat, ...]:
     if repetitions < MINIMUM_ENCODER_REPETITIONS:
         message = (
             f"repetitions ({repetitions}) is below the pre-registered minimum of "
             f"{MINIMUM_ENCODER_REPETITIONS}"
         )
         raise BenchmarkConfigurationError(message)
-    costs: list[float] = []
+    costs: list[NonNegativeFloat] = []
     for _ in range(repetitions):
         start = time.monotonic()
         encode_value(value, codec_options)
@@ -96,9 +96,9 @@ def time_encoder_invocations(
 @dataclass(frozen=True, slots=True)
 class OversizedResultSavingsMeasurement:
     prefix_length: NonNegativeInt
-    prefix_costs_seconds: tuple[float, ...]
-    full_costs_seconds: tuple[float, ...]
-    acceptable_savings_threshold_seconds: float
+    prefix_costs_seconds: tuple[NonNegativeFloat, ...]
+    full_costs_seconds: tuple[NonNegativeFloat, ...]
+    acceptable_savings_threshold_seconds: NonNegativeFloat
 
     def __post_init__(self) -> None:
         if self.acceptable_savings_threshold_seconds < 0:
@@ -106,11 +106,11 @@ class OversizedResultSavingsMeasurement:
             raise BenchmarkConfigurationError(message)
 
     @property
-    def prefix_cost_seconds(self) -> float:
+    def prefix_cost_seconds(self) -> NonNegativeFloat:
         return statistics.median(self.prefix_costs_seconds)
 
     @property
-    def full_cost_seconds(self) -> float:
+    def full_cost_seconds(self) -> NonNegativeFloat:
         return statistics.median(self.full_costs_seconds)
 
     @property
@@ -128,7 +128,7 @@ def measure_oversized_result_savings(
     max_entry_bytes: PositiveInt,
     codec_options: CodecOptions[Any] | None = None,
     repetitions: PositiveInt,
-    acceptable_savings_threshold_seconds: float,
+    acceptable_savings_threshold_seconds: NonNegativeFloat,
 ) -> OversizedResultSavingsMeasurement:
     prefix_length = find_crossover_prefix_length(
         documents, max_entry_bytes=max_entry_bytes, codec_options=codec_options
@@ -150,7 +150,7 @@ def measure_oversized_result_savings(
 
 @dataclass(frozen=True, slots=True)
 class OversizedResultWorkloadMeasurement:
-    end_to_end_cost_seconds: float
+    end_to_end_cost_seconds: NonNegativeFloat
     savings: OversizedResultSavingsMeasurement
 
     def __post_init__(self) -> None:
@@ -165,7 +165,7 @@ def measure_oversized_result_workload(
     max_entry_bytes: PositiveInt,
     codec_options: CodecOptions[Any] | None = None,
     repetitions: PositiveInt,
-    acceptable_savings_threshold_seconds: float,
+    acceptable_savings_threshold_seconds: NonNegativeFloat,
 ) -> OversizedResultWorkloadMeasurement:
     start = time.monotonic()
     documents = perform_find()  # pytriage: TR5 (kept apart to time perform_find alone)

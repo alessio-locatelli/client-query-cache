@@ -28,7 +28,7 @@ PREFLIGHT_PAYLOAD_BYTES = _PREFLIGHT_DOCUMENT_COUNT * _PREFLIGHT_PADDING_BYTES
 @dataclass(frozen=True, slots=True)
 class CompressorPreflightResult:
     compressor: WireCompressor
-    counter_deltas: Mapping[str, int]
+    counter_deltas: Mapping[str, NonNegativeInt]
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -55,7 +55,7 @@ def _counter_bytes_in(
 def _counter_deltas(
     before: Mapping[str, Mapping[str, Mapping[str, NonNegativeInt]]],
     after: Mapping[str, Mapping[str, Mapping[str, NonNegativeInt]]],
-) -> dict[str, int]:
+) -> dict[str, NonNegativeInt]:
     return {
         name: _counter_bytes_in(after, name) - _counter_bytes_in(before, name)
         for name in before

@@ -12,7 +12,7 @@ from benchmarks.stream_cost.guard_decision import (
     evaluate_case,
 )
 from benchmarks.stream_cost.guard_runner import measure_paired_case
-from client_query_cache._types import PositiveInt
+from client_query_cache._types import NonNegativeFloat, PositiveFloat, PositiveInt
 
 if TYPE_CHECKING:
     from benchmarks.stream_cost.guard_runner import RevisionEnvironment
@@ -28,13 +28,13 @@ class CaseReport:
     profile: str
     decision: Decision
     reason: str
-    base_seconds: tuple[float, ...] | None
-    head_seconds: tuple[float, ...] | None
-    base_median_seconds: float | None
-    head_median_seconds: float | None
-    median_ratio: float | None
-    lower_ratio: float | None
-    upper_ratio: float | None
+    base_seconds: tuple[NonNegativeFloat, ...] | None
+    head_seconds: tuple[NonNegativeFloat, ...] | None
+    base_median_seconds: NonNegativeFloat | None
+    head_median_seconds: NonNegativeFloat | None
+    median_ratio: PositiveFloat | None
+    lower_ratio: NonNegativeFloat | None
+    upper_ratio: PositiveFloat | None
 
 
 def measurement_error_report(case: str, profile: str, reason: str) -> CaseReport:
@@ -103,7 +103,7 @@ class GuardReport:
     schema_version: PositiveInt
     base_revision: str
     head_revision: str
-    material_slowdown_boundary: float
+    material_slowdown_boundary: PositiveFloat
     block_pairs: PositiveInt
     cases: tuple[CaseReport, ...]
     base_python_version: str | None
@@ -135,8 +135,8 @@ def build_guard_report(
 
 
 def _json_seconds(
-    seconds: tuple[float, ...] | None,
-) -> tuple[float | None, ...] | None:
+    seconds: tuple[NonNegativeFloat, ...] | None,
+) -> tuple[NonNegativeFloat | None, ...] | None:
     if seconds is None:
         return None
     return tuple(value if math.isfinite(value) else None for value in seconds)

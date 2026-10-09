@@ -45,6 +45,7 @@ from client_query_cache._core.stream_events import (
 from client_query_cache._types import (
     MaxAwaitTimeMs,
     NonEmpty,
+    NonNegativeFloat,
     NonNegativeInt,
     PositiveFloat,
     PositiveInt,
@@ -220,8 +221,8 @@ class WireCommands(CommandListener):
         self._lock = threading.Lock()
         self._counts: dict[str, NonNegativeInt] = {}
         self.streams = 0
-        self._event_wall_seconds: list[float] = []
-        self._poll_seconds: list[float] = []
+        self._event_wall_seconds: list[NonNegativeFloat] = []
+        self._poll_seconds: list[NonNegativeFloat] = []
 
     def _record(self, name: str, outcome: str) -> None:
         with self._lock:
@@ -265,18 +266,18 @@ class WireCommands(CommandListener):
         with self._lock:
             return self._counts.copy()
 
-    def event_wall_seconds(self) -> tuple[float, ...]:
+    def event_wall_seconds(self) -> tuple[NonNegativeFloat, ...]:
         with self._lock:
             return tuple(self._event_wall_seconds)
 
-    def poll_completion_seconds(self) -> tuple[float, ...]:
+    def poll_completion_seconds(self) -> tuple[NonNegativeFloat, ...]:
         with self._lock:
             return tuple(self._poll_seconds)
 
 
 def idle_poll_max_gap(
-    completions: tuple[float, ...],
-    start: float,  # Monotonic.
+    completions: tuple[NonNegativeFloat, ...],
+    start: NonNegativeFloat,  # Monotonic.
     end: PositiveFloat,
     limit: PositiveFloat,  # Maximum polling gap.
 ) -> PositiveFloat:
@@ -293,8 +294,8 @@ def idle_poll_max_gap(
 
 def command_delta(
     before: Mapping[str, NonNegativeInt], after: Mapping[str, NonNegativeInt]
-) -> dict[str, int]:
-    deltas: dict[str, int] = {}
+) -> dict[str, NonNegativeInt]:
+    deltas: dict[str, NonNegativeInt] = {}
     for key, count in after.items():
         try:
             previous = before[key]
@@ -318,7 +319,7 @@ def process_reading() -> Payload:
     }
 
 
-def cpu_delta(before: Payload, after: Payload) -> float:
+def cpu_delta(before: Payload, after: Payload) -> NonNegativeFloat:
     seconds = cast("float", after["cpu_seconds"]) - cast("float", before["cpu_seconds"])
     if not math.isfinite(seconds) or seconds < 0:
         raise BenchmarkSetupError("process CPU counter is invalid")
@@ -344,7 +345,9 @@ async def invoke[**P, T](
 
 
 async def wait_until(
-    deadline: float, tolerance: float, phase: Literal["start", "read", "end"]
+    deadline: NonNegativeFloat,
+    tolerance: PositiveFloat,
+    phase: Literal["start", "read", "end"],
 ) -> None:
     while (remaining := deadline - time.monotonic()) > 0:  # noqa: ASYNC110 - Bound timer slack, not a polled condition.
         await asyncio.sleep(min(remaining, 1.0))
@@ -356,7 +359,7 @@ async def wait_until(
         raise BenchmarkSetupError(message)
 
 
-async def consume_stream(stream: Stream, observed: list[float]) -> None:
+async def consume_stream(stream: Stream, observed: list[NonNegativeFloat]) -> None:
     while True:
         if isinstance(stream, DatabaseChangeStream):
             event = await asyncio.to_thread(stream.try_next)
@@ -385,7 +388,7 @@ async def worker_window(
         manager: Manager | None = None
         stream: Stream | None = None
         receiver: asyncio.Task[None] | None = None
-        observed: list[float] = []  # Stream-only event timestamps.
+        observed: list[NonNegativeFloat] = []  # Stream-only event timestamps.
         try:
             await invoke(client.admin.command, "ping")
             if cell.path == "native":
@@ -460,14 +463,14 @@ async def worker_window(
                     "primed": primed,
                 }
             )
-            start = cast("float", await asyncio.to_thread(connection.recv))
+            start = cast("NonNegativeFloat", await asyncio.to_thread(connection.recv))
             await wait_until(start, protocol.schedule_tolerance_seconds, "start")
             boundary = process_reading()  # pytriage: TR11 (metric boundary)
             commands_before = listener.snapshot()
             sent, received = proxy.bytes_sent, proxy.bytes_received
             cache_before = manager.snapshot() if manager is not None else None
-            latencies: list[float] = []
-            offsets: list[float] = []
+            latencies: list[NonNegativeFloat] = []
+            offsets: list[NonNegativeFloat] = []
             if reads_for_path(cell.path, cell.workload):
                 database = (
                     manager[_DATABASE] if manager is not None else client[_DATABASE]
@@ -653,7 +656,7 @@ def worker_main(
         connection.close()
 
 
-def receive(connection: Connection, deadline: float, kind: str) -> Payload:
+def receive(connection: Connection, deadline: NonNegativeFloat, kind: str) -> Payload:
     remaining = deadline - time.monotonic()
     if remaining <= 0 or not connection.poll(remaining):
         message_text = f"worker {kind} deadline exceeded"
@@ -672,7 +675,7 @@ def receive(connection: Connection, deadline: float, kind: str) -> Payload:
 
 
 def reclaim_workers(
-    processes: tuple[BaseProcess, ...], deadline: float, *, graceful: bool
+    processes: tuple[BaseProcess, ...], deadline: NonNegativeFloat, *, graceful: bool
 ) -> bool:
     started = time.monotonic()
     available = max(0.0, deadline - started)
@@ -697,7 +700,7 @@ def reclaim_workers(
     return bool(stalled)
 
 
-def stop_workers(processes: tuple[BaseProcess, ...], timeout: float) -> None:
+def stop_workers(processes: tuple[BaseProcess, ...], timeout: PositiveFloat) -> None:
     if reclaim_workers(processes, time.monotonic() + timeout, graceful=True):
         raise BenchmarkSetupError(
             "worker shutdown exceeded deadline; children terminated"
@@ -738,7 +741,7 @@ def run_cell(replica: IsolatedReplicaSet, cell: Cell, protocol: Protocol) -> Pay
     context = multiprocessing.get_context("spawn")
     processes: list[BaseProcess] = []
     connections: list[Connection] = []  # One private pipe per spawned child.
-    shutdown_deadline: float | None = None
+    shutdown_deadline: NonNegativeFloat | None = None
     with ExitStack() as resources:
         writer_proxy = resources.enter_context(proxy_for_uri(replica.uri))
         observer_proxy = resources.enter_context(proxy_for_uri(replica.uri))
@@ -794,7 +797,7 @@ def run_cell(replica: IsolatedReplicaSet, cell: Cell, protocol: Protocol) -> Pay
             start = time.monotonic()
             for connection in connections:
                 connection.send(start)
-            write_offsets: list[float] = []
+            write_offsets: list[NonNegativeFloat] = []
             if cell.workload == "active":
                 for ordinal in range(protocol.updates):
                     deadline = start + ordinal * protocol.update_interval_seconds

@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from benchmarks.stream_cost.client import WireCompressor
-from client_query_cache._types import NonNegativeInt
+from client_query_cache._types import NonNegativeFloat, NonNegativeInt
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -25,7 +25,7 @@ class CompressionModeEvidence:
     qualifies: bool
     idle_noisy: bool
     failures: tuple[str, ...]
-    median_stream_total_bytes: float | None
+    median_stream_total_bytes: NonNegativeFloat | None
     median_added_cpu_seconds: float | None
 
 
@@ -79,7 +79,7 @@ def _observed_modes(report: Mapping[str, Any]) -> list[str]:
     return sorted(modes)
 
 
-def _total_bytes(sample: Mapping[str, Any]) -> float:
+def _total_bytes(sample: Mapping[str, Any]) -> NonNegativeFloat:
     direct = sample["direct_path_bytes"]
     return float(direct["sent"] + direct["received"])
 
@@ -164,7 +164,7 @@ def _evaluate_mode(
     mode_value = mode.value
     none_value = WireCompressor.NONE.value
     failures: list[str] = []
-    stream_bytes_points: list[float] = []
+    stream_bytes_points: list[NonNegativeFloat] = []
     added_cpu_points: list[float] = []
 
     for block_index in block_indices:

@@ -18,6 +18,7 @@ from benchmarks.stream_cost.generators import (
     generate_seeded_documents,
 )
 from client_query_cache._core.stream_events import route_change_event
+from client_query_cache._types import NonNegativeFloat, NonNegativeInt
 from client_query_cache.asynchronous.manager import CacheManager as AsyncCacheManager
 from client_query_cache.synchronous.manager import CacheManager
 
@@ -44,7 +45,7 @@ def _checked(*, condition: bool, reason: str) -> None:
         raise BenchmarkSetupError(reason)
 
 
-def _delta(before: CacheSnapshot, after: CacheSnapshot, field: str) -> int:
+def _delta(before: CacheSnapshot, after: CacheSnapshot, field: str) -> NonNegativeInt:
     return int(getattr(after, field)) - int(getattr(before, field))
 
 
@@ -64,7 +65,7 @@ def _seeded_collection(
 
 def _sync_hit(
     client: MongoClient[dict[str, Any]], documents: list[dict[str, object]]
-) -> float:
+) -> NonNegativeFloat:
     with CacheManager(client) as manager:
         cached = manager["guard"]["documents"]
         expected = documents[0]
@@ -93,7 +94,7 @@ def _sync_hit(
         return elapsed
 
 
-async def _async_hit(uri: str, documents: list[dict[str, object]]) -> float:
+async def _async_hit(uri: str, documents: list[dict[str, object]]) -> NonNegativeFloat:
     async with (
         AsyncMongoClient[dict[str, Any]](uri) as client,
         AsyncCacheManager(client) as manager,
@@ -152,7 +153,7 @@ def _verify_find_admission(
 
 def _find_admission(
     client: MongoClient[dict[str, Any]], documents: list[dict[str, object]]
-) -> float:
+) -> NonNegativeFloat:
     with CacheManager(client) as manager:
         cached = manager["guard"]["documents"]
         before = manager.cache_core.snapshot()
@@ -196,7 +197,7 @@ def _verify_refresh_after_invalidation(
 
 def _invalidation(
     client: MongoClient[dict[str, Any]], documents: list[dict[str, object]]
-) -> float:
+) -> NonNegativeFloat:
     with CacheManager(client) as manager:
         cached = manager["guard"]["documents"]
         ids = [document["_id"] for document in documents[:_INVALIDATION_ENTRIES]]
@@ -237,7 +238,7 @@ def _invalidation(
         return elapsed
 
 
-def run_case(uri: str, case: str, profile_name: str) -> float:
+def run_case(uri: str, case: str, profile_name: str) -> NonNegativeFloat:
     profile = next((item for item in PROFILES if item.name == profile_name), None)
     if profile is None or case not in CASE_NAMES:
         raise ValueError("unknown guard case or document profile")

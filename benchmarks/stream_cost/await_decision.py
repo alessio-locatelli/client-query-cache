@@ -13,6 +13,7 @@ from client_query_cache._types import (
     ExclusiveProbability,
     MaxAwaitTimeMs,
     NonEmptyStr,
+    NonNegativeFloat,
     NonNegativeInt,
     PositiveFloat,
     PositiveInt,
@@ -59,7 +60,7 @@ class AwaitDecision:
     comparisons: tuple[ComparisonEvidence, ...]
 
 
-def _metric(samples: Sequence[AwaitWindow], metric: AwaitMetric) -> float:
+def _metric(samples: Sequence[AwaitWindow], metric: AwaitMetric) -> NonNegativeFloat:
     if metric == "lag_p95_seconds":
         return nearest_rank_p95(
             [value for sample in samples for value in sample.lag_seconds]
@@ -69,18 +70,28 @@ def _metric(samples: Sequence[AwaitWindow], metric: AwaitMetric) -> float:
             [value for sample in samples for value in sample.shutdown_seconds]
         )
     if metric == "server_cpu_seconds":
-        return sum(cast("float", sample.server_cpu_seconds) for sample in samples)
+        return sum(
+            cast("NonNegativeFloat", sample.server_cpu_seconds) for sample in samples
+        )
     if metric == "client_cpu_seconds":
-        return sum(cast("float", sample.client_cpu_seconds) for sample in samples)
+        return sum(
+            cast("NonNegativeFloat", sample.client_cpu_seconds) for sample in samples
+        )
     elapsed = sum(sample.elapsed_seconds for sample in samples)
     if metric == "server_cpu_rate":
         return (
-            sum(cast("float", sample.server_cpu_seconds) for sample in samples)
+            sum(
+                cast("NonNegativeFloat", sample.server_cpu_seconds)
+                for sample in samples
+            )
             / elapsed
         )
     if metric == "client_cpu_rate":
         return (
-            sum(cast("float", sample.client_cpu_seconds) for sample in samples)
+            sum(
+                cast("NonNegativeFloat", sample.client_cpu_seconds)
+                for sample in samples
+            )
             / elapsed
         )
     return (
@@ -273,7 +284,7 @@ def evaluate_await_decision(
 
 def _resource_order(
     evidence: Sequence[ComparisonEvidence], metric: str, candidate: MaxAwaitTimeMs
-) -> tuple[float, MaxAwaitTimeMs]:
+) -> tuple[PositiveFloat, MaxAwaitTimeMs]:
     estimates = tuple(
         item.estimate
         for item in evidence
@@ -282,4 +293,4 @@ def _resource_order(
         and item.comparison["metric"] == metric
         and item.comparison["workload"] == "idle"
     )
-    return max(cast("float", value) for value in estimates), candidate
+    return max(cast("PositiveFloat", value) for value in estimates), candidate

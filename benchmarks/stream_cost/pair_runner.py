@@ -30,7 +30,7 @@ from benchmarks.stream_cost.errors import (
     BenchmarkConfigurationError,
     BenchmarkSetupError,
 )
-from client_query_cache._types import NonNegativeInt
+from client_query_cache._types import NonNegativeFloat, NonNegativeInt, PositiveFloat
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
@@ -61,8 +61,8 @@ def _send_hello(client: MongoClient[dict[str, Any]]) -> Mapping[str, object]:
 def _await_condition(
     predicate: Callable[[], bool],
     *,
-    timeout_seconds: float,
-    poll_interval_seconds: float,
+    timeout_seconds: PositiveFloat,
+    poll_interval_seconds: PositiveFloat,
     timeout_message: str,
 ) -> None:
     deadline = time.monotonic() + timeout_seconds
@@ -106,7 +106,7 @@ def _activate_consolidated_stream(
 
 
 def _warm_up_server(
-    collection: Collection[dict[str, Any]], *, duration_seconds: float
+    collection: Collection[dict[str, Any]], *, duration_seconds: NonNegativeFloat
 ) -> None:
     deadline = time.monotonic() + duration_seconds
     while time.monotonic() < deadline:
@@ -120,7 +120,7 @@ def _execute_run(
     relevant_collection_names: Sequence[str],
     unrelated_collection_name: str,
     config: ConsolidatedStreamPairConfig,
-    schedule: Sequence[float],
+    schedule: Sequence[NonNegativeFloat],
     variant: PairVariant,
 ) -> RunResult:
     _activate_consolidated_stream(
@@ -220,7 +220,7 @@ def _run_single(
     relevant_collection_names: Sequence[str],
     unrelated_collection_name: str,
     config: ConsolidatedStreamPairConfig,
-    schedule: Sequence[float],
+    schedule: Sequence[NonNegativeFloat],
     variant: PairVariant,
     cache_config: CacheCoreConfig | None,
 ) -> tuple[CacheManager[dict[str, Any]], RunResult]:
@@ -258,7 +258,7 @@ def run_consolidated_stream_pair(
     relevant_collection_names: Sequence[str],
     unrelated_collection_name: str,
     config: ConsolidatedStreamPairConfig,
-    schedule: Sequence[float],
+    schedule: Sequence[NonNegativeFloat],
     order: tuple[PairVariant, PairVariant],
     cache_config: CacheCoreConfig | None = None,
 ) -> PairResult:
@@ -388,7 +388,7 @@ def run_consolidated_stream_pairs(
     relevant_collection_names: Sequence[str],
     unrelated_collection_name: str,
     config: ConsolidatedStreamPairConfig,
-    schedule: Sequence[float],
+    schedule: Sequence[NonNegativeFloat],
     cache_config: CacheCoreConfig | None = None,
 ) -> tuple[PairResult, ...]:
     orders = counterbalanced_pair_order(config.pair_count)

@@ -33,7 +33,7 @@ class BootstrapTest:
     def upper_bound(
         self,
         alpha: ExclusiveProbability,  # Tail probability.
-    ) -> float:
+    ) -> PositiveFloat:
         return self.estimate * math.exp(
             -weighted_quantile(self.centered_samples, alpha)
         )
@@ -122,7 +122,7 @@ def exact_block_bootstrap(
     )
 
 
-def holm_adjusted(p_values: Sequence[float]) -> tuple[float, ...]:
+def holm_adjusted(p_values: Sequence[Probability]) -> tuple[Probability, ...]:
     adjusted = [1.0] * len(p_values)
     previous = 0.0
     for rank, index in enumerate(

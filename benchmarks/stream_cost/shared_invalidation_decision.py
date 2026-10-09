@@ -23,6 +23,7 @@ from benchmarks.stream_cost.multiprocess_run import _CONFIG, Protocol, validate_
 from client_query_cache._types import (
     ExclusiveProbability,
     NonEmptyStr,
+    NonNegativeFloat,
     NonNegativeInt,
     PositiveFloat,
     PositiveInt,
@@ -113,7 +114,7 @@ def describe_native_lag(report: Mapping[str, object]) -> tuple[NativeLag, ...]:
                     key=lambda sample: sample.value,
                 )
             )
-            uncertainty = cast("float", sample["clock_uncertainty_seconds"])
+            uncertainty = cast("NonNegativeFloat", sample["clock_uncertainty_seconds"])
             intervals.append(
                 {
                     "model": cast("Model", sample["model"]),
@@ -136,7 +137,9 @@ def _mean_rates(
     return fmean(values[index] for index in indices)
 
 
-def _sample_rate(sample: Payload, workload: Workload, seconds: float) -> float:
+def _sample_rate(
+    sample: Payload, workload: Workload, seconds: PositiveFloat
+) -> NonNegativeFloat:
     if not sample["healthy"]:
         raise BenchmarkSetupError("failed required stream-only/control cell")
     fields = (
@@ -165,7 +168,7 @@ def _block_rate(
     model: Model,
     workload: Workload,
     block: NonNegativeInt,
-    seconds: float,
+    seconds: PositiveFloat,
 ) -> float:
     rates: dict[tuple[PositiveInt, str], float] = {}
     for workers in (1, 8):
@@ -210,9 +213,9 @@ def _comparison(
     workload: Workload,
     *,
     blocks: PositiveInt,
-    seconds: float,
-    alpha: float,
-    threshold: float,
+    seconds: PositiveFloat,
+    alpha: ExclusiveProbability,
+    threshold: PositiveFloat,
 ) -> Opportunity:
     try:
         block_rates = tuple(

@@ -25,7 +25,7 @@ from benchmarks.stream_cost.workload import (
     verify_primed,
     wait_for_invalidations_to_settle,
 )
-from client_query_cache._types import NonNegativeInt
+from client_query_cache._types import NonNegativeFloat, NonNegativeInt
 from client_query_cache.synchronous.manager import CacheManager
 
 if TYPE_CHECKING:
@@ -57,7 +57,7 @@ class CompressionWindowResult:
     measurement: ControlledMeasurement
     read_latencies: tuple[OperationLatency, ...]
     write_latencies: tuple[OperationLatency, ...]
-    invalidation_latencies_seconds: tuple[float, ...]
+    invalidation_latencies_seconds: tuple[NonNegativeFloat, ...]
     reads_issued: NonNegativeInt
     writes_issued: NonNegativeInt
 
@@ -69,7 +69,7 @@ def _seed_window_dataset(window: CompressionWindowSpec) -> SeededDataset:
     return SeededDataset(documents=tuple(documents))
 
 
-def _write_schedule(window: CompressionWindowSpec) -> tuple[float, ...]:
+def _write_schedule(window: CompressionWindowSpec) -> tuple[NonNegativeFloat, ...]:
     if window.sampling.writes == 0:
         return ()
     return generate_relevant_write_schedule(
@@ -126,7 +126,7 @@ def _issue_scheduled_writes(
     window: CompressionWindowSpec,
     *,
     latencies: list[OperationLatency],
-) -> tuple[tuple[float, ...], float]:
+) -> tuple[tuple[NonNegativeFloat, ...], NonNegativeFloat]:
     schedule = _write_schedule(window)
     if not schedule:
         return (), time.monotonic()
@@ -154,10 +154,10 @@ def _issue_scheduled_writes(
 
 
 def _invalidation_latencies(
-    actual_offsets: tuple[float, ...],
-    start_monotonic: float,
+    actual_offsets: tuple[NonNegativeFloat, ...],
+    start_monotonic: NonNegativeFloat,
     apply_readings: Sequence[InvalidationApplyReading],
-) -> tuple[float, ...]:
+) -> tuple[NonNegativeFloat, ...]:
     if not actual_offsets:
         return ()
     if len(apply_readings) < len(actual_offsets):
@@ -229,7 +229,7 @@ def _run_stream_watching_window(
     ControlledMeasurement,
     list[OperationLatency],
     list[OperationLatency],
-    tuple[float, ...],
+    tuple[NonNegativeFloat, ...],
 ]:
     with CacheManager(client) as manager:
         cache_collection = manager[database_name][_COLLECTION_NAME]
@@ -259,7 +259,7 @@ def _run_stream_watching_window(
 
         read_latencies: list[OperationLatency] = []
         write_latencies: list[OperationLatency] = []
-        invalidation_latencies: tuple[float, ...] = ()
+        invalidation_latencies: tuple[NonNegativeFloat, ...] = ()
 
         def _operation() -> None:
             nonlocal invalidation_latencies
@@ -324,7 +324,7 @@ def run_compression_window(
             replica_set=replica_set,
             proxy=proxy,
         )
-        invalidation_latencies: tuple[float, ...] = ()
+        invalidation_latencies: tuple[NonNegativeFloat, ...] = ()
     else:
         measurement, read_latencies, write_latencies, invalidation_latencies = (
             _run_stream_watching_window(

@@ -14,7 +14,12 @@ from benchmarks.stream_cost.errors import (
     BenchmarkConfigurationError,
     BenchmarkSetupError,
 )
-from client_query_cache._types import NonNegativeInt, PositiveInt
+from client_query_cache._types import (
+    NonNegativeFloat,
+    NonNegativeInt,
+    PositiveFloat,
+    PositiveInt,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -37,10 +42,10 @@ def _bson_datetime_to_epoch_seconds(value: datetime) -> float:
 
 @dataclass(frozen=True, slots=True)
 class ClockSample:
-    wall_t0: float
-    wall_t1: float
-    monotonic_t0: float
-    monotonic_t1: float
+    wall_t0: NonNegativeFloat
+    wall_t1: NonNegativeFloat
+    monotonic_t0: NonNegativeFloat
+    monotonic_t1: NonNegativeFloat
     server_time_seconds: float
     election_id: object | None
 
@@ -50,7 +55,7 @@ class ClockSample:
             raise BenchmarkConfigurationError(message)
 
     @property
-    def round_trip_seconds(self) -> float:
+    def round_trip_seconds(self) -> NonNegativeFloat:
         return self.wall_t1 - self.wall_t0
 
     @property
@@ -58,7 +63,7 @@ class ClockSample:
         return self.server_time_seconds - (self.wall_t0 + self.wall_t1) / 2
 
     @property
-    def uncertainty_seconds(self) -> float:
+    def uncertainty_seconds(self) -> NonNegativeFloat:
         return self.round_trip_seconds / 2 + _QUANTIZATION_ALLOWANCE_SECONDS
 
 
@@ -144,14 +149,16 @@ class CalibrationSeries:
     def _all_rounds(self) -> list[ClockSample]:
         return [sample for point in self.points for sample in point.rounds]
 
-    def drift_seconds(self, sample: ClockSample) -> float:
+    def drift_seconds(self, sample: ClockSample) -> NonNegativeFloat:
         return abs(sample.offset_seconds - self.initial.offset_seconds)
 
-    def combined_drift_uncertainty_seconds(self, sample: ClockSample) -> float:
+    def combined_drift_uncertainty_seconds(
+        self, sample: ClockSample
+    ) -> NonNegativeFloat:
         return self.initial.uncertainty_seconds + sample.uncertainty_seconds
 
     @property
-    def total_uncertainty_seconds(self) -> float:
+    def total_uncertainty_seconds(self) -> NonNegativeFloat:
         selected = [point.selected for point in self.points]
         candidates = [self.initial.uncertainty_seconds]
         candidates.extend(
@@ -160,7 +167,7 @@ class CalibrationSeries:
         )
         return max(candidates)
 
-    def exceeds_drift_tolerance(self, tolerance_seconds: float) -> bool:
+    def exceeds_drift_tolerance(self, tolerance_seconds: NonNegativeFloat) -> bool:
         selected = [point.selected for point in self.points]
         return any(
             self.drift_seconds(sample) > tolerance_seconds for sample in selected[1:]
@@ -171,7 +178,7 @@ class CalibrationSeries:
         election_ids = {sample.election_id for sample in self._all_rounds}
         return len(election_ids) > 1
 
-    def has_host_clock_step(self, *, tolerance_seconds: float) -> bool:
+    def has_host_clock_step(self, *, tolerance_seconds: NonNegativeFloat) -> bool:
         all_rounds = self._all_rounds
         for sample in all_rounds:
             sample_t0 = PairedReading(
@@ -222,12 +229,12 @@ def validate_cadence(
 
 @dataclass(frozen=True, slots=True)
 class PairedReading:
-    wall_seconds: float
-    monotonic_seconds: float
+    wall_seconds: NonNegativeFloat
+    monotonic_seconds: NonNegativeFloat
 
 
 def host_clock_stepped(
-    first: PairedReading, second: PairedReading, *, tolerance_seconds: float
+    first: PairedReading, second: PairedReading, *, tolerance_seconds: NonNegativeFloat
 ) -> bool:
     wall_elapsed = second.wall_seconds - first.wall_seconds
     monotonic_elapsed = second.monotonic_seconds - first.monotonic_seconds
@@ -235,19 +242,23 @@ def host_clock_stepped(
 
 
 def meets_absolute_threshold(
-    value_seconds: float, total_uncertainty_seconds: float, threshold_seconds: float
+    value_seconds: float,
+    total_uncertainty_seconds: NonNegativeFloat,
+    threshold_seconds: PositiveFloat,
 ) -> bool:
     return value_seconds + total_uncertainty_seconds <= threshold_seconds
 
 
-def delta_margin_seconds(total_uncertainty_seconds: float) -> float:
+def delta_margin_seconds(
+    total_uncertainty_seconds: NonNegativeFloat,
+) -> NonNegativeFloat:
     return 2 * total_uncertainty_seconds
 
 
 def drift_adjusted_delta_seconds(
     control_percentile_seconds: float,
     loaded_percentile_seconds: float,
-    total_uncertainty_seconds: float,
+    total_uncertainty_seconds: NonNegativeFloat,
 ) -> float:
     raw_delta = loaded_percentile_seconds - control_percentile_seconds
     return raw_delta + delta_margin_seconds(total_uncertainty_seconds)
@@ -256,8 +267,8 @@ def drift_adjusted_delta_seconds(
 def is_not_meaningfully_worse(
     control_percentile_seconds: float,
     loaded_percentile_seconds: float,
-    total_uncertainty_seconds: float,
-    threshold_seconds: float,
+    total_uncertainty_seconds: NonNegativeFloat,
+    threshold_seconds: NonNegativeFloat,
 ) -> bool:
     adjusted_delta = drift_adjusted_delta_seconds(
         control_percentile_seconds, loaded_percentile_seconds, total_uncertainty_seconds
@@ -329,7 +340,7 @@ class PeriodicCalibrationSampler:
         self,
         send_hello: Callable[[], Mapping[str, object]],
         *,
-        cadence_seconds: float,
+        cadence_seconds: PositiveFloat,
         rounds: PositiveInt,
     ) -> None:
         if cadence_seconds <= 0:

@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 from benchmarks.stream_cost.errors import BenchmarkSetupError
 from benchmarks.stream_cost.guard_decision import BLOCK_PAIRS
-from client_query_cache._types import PositiveInt
+from client_query_cache._types import NonNegativeFloat, PositiveInt
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -150,7 +150,7 @@ def prepare_environment(
 
 def _run_case_subprocess(
     environment: RevisionEnvironment, uri: str, case: str, profile: str
-) -> float:
+) -> NonNegativeFloat:
     try:
         output = _run(
             [
@@ -179,8 +179,8 @@ def _run_case_subprocess(
 class PairedCaseMeasurement:
     case: str
     profile: str
-    base_seconds: tuple[float, ...]
-    head_seconds: tuple[float, ...]
+    base_seconds: tuple[NonNegativeFloat, ...]
+    head_seconds: tuple[NonNegativeFloat, ...]
 
 
 def measure_paired_case(
@@ -203,8 +203,8 @@ def measure_paired_case(
             "base and head environments do not run the same guard workload definition"
         )
         raise BenchmarkSetupError(message)
-    base_seconds: list[float] = []
-    head_seconds: list[float] = []
+    base_seconds: list[NonNegativeFloat] = []
+    head_seconds: list[NonNegativeFloat] = []
     for index in range(block_pairs):
         base_first = index % 2 == 0
         first_environment, second_environment = (
