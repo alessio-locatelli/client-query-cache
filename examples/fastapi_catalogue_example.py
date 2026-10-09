@@ -159,7 +159,7 @@ def authenticated_principal() -> Principal:
 
 
 def catalogue_repository(request: Request) -> CatalogueRepository:
-    return cast("CatalogueRepository", request.app.state.repository)
+    return request.app.state.repository  # type: ignore[no-any-return]
 
 
 router = APIRouter()

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping, Sequence
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from pymongo import ReadPreference
 from pymongo.asynchronous.collection import AsyncCollection
@@ -218,7 +218,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
                 defer_miss=discovers_unique_keys,
             )
             if lookup_result.hit:
-                return cast("DocumentType | None", lookup_result.value)
+                return lookup_result.value  # type: ignore[no-any-return]
             if discovers_unique_keys:
                 unique_key_match = await self._match_unique_key(
                     filter_query, effective_collation
@@ -274,7 +274,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
                 session=session,
                 let=let,
                 comment=comment,
-                **cast("dict[str, Any]", kwargs),
+                **kwargs,
             )
         # Use native local preparation before lookup, including on a warm entry.
         collation = prepare_aggregate(self, pipeline, kwargs)
@@ -298,7 +298,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
                 session=session,
                 let=let,
                 comment=comment,
-                **cast("dict[str, Any]", kwargs),
+                **kwargs,
             )
         namespace = self._namespace()
         cache = self.database.manager.cache_core
@@ -317,7 +317,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
                 session=session,
                 let=let,
                 comment=comment,
-                **cast("dict[str, Any]", kwargs),
+                **kwargs,
             )
         capture = CursorCapture(
             cache,
@@ -362,7 +362,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
             namespace, discriminator, codec_options=codec_options
         )
         if lookup_result.hit:
-            return cast("NonNegativeInt", lookup_result.value)
+            return lookup_result.value  # type: ignore[no-any-return]
         if not cache.is_database_available(namespace.database):
             return await self._collection.count_documents(
                 filter, session=session, **kwargs
@@ -392,7 +392,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
             namespace, discriminator, codec_options=codec_options
         )
         if lookup_result.hit:
-            return cast("NonNegativeInt", lookup_result.value)
+            return lookup_result.value  # type: ignore[no-any-return]
         if not cache.is_database_available(namespace.database):
             return await self._collection.estimated_document_count()
         capture = cache.capture_namespace_generation(namespace)
@@ -421,6 +421,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
                 codec_fingerprint(codec_options),
             )
         )
+        native_options: Mapping[str, Any] = kwargs
         reason = (
             self._request_bypass_reason(session=session, kwargs=kwargs)
             or query_bypass_reason(filter, None, discriminator)
@@ -433,7 +434,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
                 filter,
                 collation=collation,
                 session=session,
-                **cast("dict[str, Any]", kwargs),
+                **native_options,
             )
         namespace = self._namespace()
         cache = self._database.manager.cache_core
@@ -441,14 +442,14 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
             namespace, discriminator, codec_options=codec_options
         )
         if lookup_result.hit:
-            return cast("list[Any]", lookup_result.value)
+            return lookup_result.value  # type: ignore[no-any-return]
         if not cache.is_database_available(namespace.database):
             return await self._collection.distinct(
                 key,
                 filter,
                 collation=collation,
                 session=session,
-                **cast("dict[str, Any]", kwargs),
+                **native_options,
             )
         capture = cache.capture_namespace_generation(namespace)
         values = await self._forced_collection_handle().distinct(
@@ -483,7 +484,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
             namespace, cache_identity, read_shape, codec_options=codec_options
         )
         if lookup_result.hit:
-            return cast("DocumentType | None", lookup_result.value)
+            return lookup_result.value  # type: ignore[no-any-return]
         if not cache.is_database_available(namespace.database):
             return await self._collection.find_one(
                 {"_id": identity}, projection, sort=sort, collation=collation
@@ -536,7 +537,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
                 namespace, resolved_identity, read_shape, codec_options=codec_options
             )
             if lookup_result.hit:
-                return cast("DocumentType | None", lookup_result.value)
+                return lookup_result.value  # type: ignore[no-any-return]
             if not cache.is_database_available(namespace.database):
                 return await self._collection.find_one(
                     original_filter, projection, sort=sort, collation=collation
@@ -556,7 +557,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
             namespace, discriminator, codec_options=codec_options
         )
         if lookup_result.hit:
-            return cast("DocumentType | None", lookup_result.value)
+            return lookup_result.value  # type: ignore[no-any-return]
         if not cache.is_database_available(namespace.database):
             return await self._collection.find_one(
                 original_filter, projection, sort=sort, collation=collation
@@ -601,7 +602,9 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
             return None
         raw_identity = document["_id"]
         if exclude_id:
-            document = cast("DocumentType", without_id(document, codec_options))
+            document = without_id(  # type: ignore[assignment]
+                document, codec_options
+            )
         cache_identity = normalize_identity_for_cache_key(
             raw_identity, codec_options, self._database.manager.client.codec_options
         )
@@ -682,10 +685,10 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
         entry = entries[0] if entries else None
         return interpret_list_collections_entry(entry)
 
-    async def _list_indexes_probe(self) -> list[Mapping[str, Any]] | None:
+    async def _list_indexes_probe(self) -> Sequence[Mapping[str, Any]] | None:
         try:
             cursor = await self._forced_collection_handle().list_indexes()
-            return cast("list[Mapping[str, Any]]", await cursor.to_list())
+            return await cursor.to_list()
         except PyMongoError:
             logger.warning(
                 "index metadata probe failed; unique-key discovery is skipped for "

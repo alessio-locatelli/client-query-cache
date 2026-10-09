@@ -8,7 +8,7 @@
 
 import os
 from time import monotonic, sleep
-from typing import Any, cast
+from typing import Any
 
 from celery import Celery, states  # type: ignore[import-untyped]
 from celery.backends.mongodb import MongoBackend  # type: ignore[import-untyped]
@@ -48,7 +48,7 @@ class CachedMongoBackend(MongoBackend):  # type: ignore[misc]
         if self.app.conf.find_value_for_key("extended", "result"):
             for field in ("name", "args", "queue", "kwargs", "worker", "retries"):
                 metadata[field] = document[field]
-        return cast("dict[str, Any]", self.meta_from_decoded(metadata))
+        return self.meta_from_decoded(metadata)  # type: ignore[no-any-return]
 
 
 def poll_unfinished_task(backend: CachedMongoBackend) -> None:

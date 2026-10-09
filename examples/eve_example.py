@@ -9,7 +9,7 @@
 import os
 from time import monotonic, sleep
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from eve import Eve  # type: ignore[import-untyped]
 from eve.auth import BasicAuth  # type: ignore[import-untyped]
@@ -82,7 +82,7 @@ def checked_json(
     if response.status_code != 200:
         message = f"GET {url} failed with status {response.status_code}"
         raise SystemExit(message)
-    return cast("dict[str, Any]", response.json)
+    return response.json  # type: ignore[return-value]
 
 
 def check_page(http: FlaskClient) -> dict[str, Any]:
@@ -99,7 +99,7 @@ def check_page(http: FlaskClient) -> dict[str, Any]:
         raise SystemExit("pagination response links were not preserved")
     if "_etag" not in items[0] or "_updated" not in items[0]:
         raise SystemExit("item response metadata was not preserved")
-    return cast("dict[str, Any]", items[0])
+    return items[0]  # type: ignore[no-any-return]
 
 
 def patch_consecutively(http: FlaskClient, item_url: str, etag: str) -> None:
@@ -113,7 +113,7 @@ def patch_consecutively(http: FlaskClient, item_url: str, etag: str) -> None:
         if response.status_code != 200:
             message = f"consecutive PATCH failed with status {response.status_code}"
             raise SystemExit(message)
-        mutation = cast("dict[str, Any]", response.json)
+        mutation: dict[str, Any] = response.json  # type: ignore[assignment]
         etag = mutation["_etag"]
 
 

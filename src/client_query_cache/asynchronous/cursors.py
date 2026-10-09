@@ -7,7 +7,7 @@ from collections import deque
 from collections.abc import Mapping, Sequence
 from functools import partial
 from inspect import signature
-from typing import TYPE_CHECKING, Any, Self, cast, override
+from typing import TYPE_CHECKING, Any, Self, override
 
 from pymongo.asynchronous.aggregation import _CollectionAggregationCommand
 from pymongo.asynchronous.command_cursor import AsyncCommandCursor
@@ -40,9 +40,7 @@ class CachedCursor[DocumentType: Mapping[str, Any]](AsyncCursor[DocumentType]):
         self._prepared = False
         self._receiving = False
         self._unsupported = False
-        super().__init__(
-            view.raw, *cast("tuple[Any, ...]", args), **cast("dict[str, Any]", kwargs)
-        )
+        super().__init__(view.raw, *args, **kwargs)  # type: ignore[arg-type]
         supplied = _FIND_SIGNATURE.bind(view.raw, *args, **kwargs).arguments
         self._unsupported = bool(
             supplied.keys() - _SUPPORTED_FIND_OPTIONS - {"collection"}
@@ -97,7 +95,7 @@ class CachedCursor[DocumentType: Mapping[str, Any]](AsyncCursor[DocumentType]):
         namespace = self._view._namespace()
         lookup = cache.lookup_find(namespace, shape, codec_options=self._codec_options)
         if lookup.hit:
-            documents = cast("list[DocumentType]", lookup.value)
+            documents: list[DocumentType] = lookup.value
             self._data = deque(documents)
             self._retrieved = len(documents)
             self._id = 0
@@ -215,9 +213,7 @@ class CachedCommandCursor[DocumentType: Mapping[str, Any]](
     ) -> None:
         self._capture = capture
         self._receiving = False
-        super().__init__(
-            *cast("tuple[Any, ...]", args), **cast("dict[str, Any]", kwargs)
-        )
+        super().__init__(*args, **kwargs)  # type: ignore[arg-type]
 
     def _finish_capture(self) -> None:
         if self._capture is not None and not self.alive:
@@ -290,18 +286,15 @@ async def aggregate_miss[DocumentType: Mapping[str, Any]](
     kwargs: Mapping[str, object],
 ) -> AsyncCommandCursor[DocumentType]:
     # PyMongo annotates a class but only invokes it as a cursor factory.
-    cursor_factory = cast(
-        "type[AsyncCommandCursor[DocumentType]]",
-        partial(CachedCommandCursor, capture=capture),
-    )
+    cursor_factory = partial(CachedCommandCursor, capture=capture)
     collection = view._forced_collection_handle()
     async with collection.database.client._tmp_session(None) as session:
         return await collection._aggregate(
             _CollectionAggregationCommand,
             pipeline,
-            cursor_factory,
+            cursor_factory,  # type: ignore[arg-type]
             session=session,
-            **cast("dict[str, Any]", kwargs),
+            **kwargs,  # type: ignore[arg-type]
         )
 
 
