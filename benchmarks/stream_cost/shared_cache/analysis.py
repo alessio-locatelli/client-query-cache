@@ -19,7 +19,7 @@ type Payload = dict[str, object]
 type Estimand = Literal["ratio", "delta", "absolute"]
 type CellKey = tuple[str, str, str, int]
 
-_CONFIG = Path("reports/shared-worker-cache/v3/config.json")
+_CONFIG = Path("reports/shared-worker-cache/v4/config.json")
 
 
 @dataclass(frozen=True, slots=True)

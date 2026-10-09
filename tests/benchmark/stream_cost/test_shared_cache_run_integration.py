@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 
 pytestmark = pytest.mark.integration
 
-_CONFIG = Path("reports/shared-worker-cache/v3/config.json")
+_CONFIG = Path("reports/shared-worker-cache/v4/config.json")
 _ORIGINAL_WORKLOAD = window._workload
 _ORIGINAL_SEED = seed_catalogue
 
