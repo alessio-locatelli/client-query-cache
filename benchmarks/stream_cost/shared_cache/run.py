@@ -44,7 +44,7 @@ if TYPE_CHECKING:
 
 type Payload = dict[str, object]
 
-_CONFIG = Path("reports/shared-worker-cache/v2/config.json")
+_CONFIG = Path("reports/shared-worker-cache/v3/config.json")
 _PHASES = ("screening", "confirmation", "capacity", "active", "cold", "sensitivity")
 _CAPS: dict[Family, str] = {
     "primary": "primary",
@@ -163,6 +163,19 @@ def resumed_cells(path: Path, phase: str, registration: Registration) -> list[Pa
         message = "resumed report has another phase, revision or registration"
         raise BenchmarkSetupError(message)
     return cast("list[Payload]", report["cells"])
+
+
+def reused_probes(path: Path) -> list[Payload]:
+    report = json.loads(path.read_text(encoding="utf-8"))
+    probes = [
+        record
+        for record in cast("list[Payload]", report["cells"])
+        if record["phase"] == "probe" and record["healthy"]
+    ]
+    if report["phase"] != "calibration" or not probes:
+        message = "reused probes need a calibration report with healthy probes"
+        raise BenchmarkSetupError(message)
+    return probes
 
 
 def throughput(record: Payload) -> float:
@@ -371,8 +384,14 @@ def main(argv: list[str] | None = None) -> None:
     )
     mode.add_argument("--phase", choices=_PHASES)
     parser.add_argument("--baselines-only", action="store_true")
-    parser.add_argument(
+    reuse = parser.add_mutually_exclusive_group()
+    reuse.add_argument(
         "--resume", type=Path, help="Reuse completed windows from an earlier report."
+    )
+    reuse.add_argument(
+        "--reuse-probes",
+        type=Path,
+        help="Reuse healthy closed-loop probes registered as unaffected.",
     )
     arguments = parser.parse_args(argv)
     if arguments.freeze is not None:
@@ -400,6 +419,8 @@ def main(argv: list[str] | None = None) -> None:
         registration,
         resumed_cells(arguments.resume, phase, registration)
         if arguments.resume is not None
+        else reused_probes(arguments.reuse_probes)
+        if arguments.reuse_probes is not None
         else [],
     )
     limits = ResourceLimits(**registration.section("topology"))  # type: ignore[arg-type]

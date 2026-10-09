@@ -571,7 +571,7 @@ class SharedCacheOwner:
 
     def detach(self, connection: _Connection) -> None:
         if connection.closed:
-            return
+            return  # pragma: lax no cover (peer reset timing)
         connection.closed = True
         self._selector.unregister(connection.sock)
         del self._connections[connection.sock.fileno()]
@@ -605,7 +605,7 @@ class SharedCacheOwner:
                 sent = connection.sock.send(view)
             except BlockingIOError:
                 break
-            except OSError:
+            except OSError:  # pragma: lax no cover (peer reset timing)
                 self.detach(connection)
                 return False
             self.counters.ipc_bytes_sent += sent
@@ -631,7 +631,7 @@ class SharedCacheOwner:
             chunk = connection.sock.recv(_RECEIVE_BYTES)
         except BlockingIOError:  # pragma: no cover (selector reported readability)
             return
-        except OSError:
+        except OSError:  # pragma: lax no cover (peer reset timing)
             self.detach(connection)
             return
         if not chunk:
