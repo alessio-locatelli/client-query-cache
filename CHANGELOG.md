@@ -13,6 +13,10 @@ bodies or OpenSpec. An empty Unreleased section is valid.
 
 ## Unreleased
 
+### Features
+
+- **Breaking:** Rename `StreamHealthSnapshot.database_name` to `requested_database_name`. It holds the name you passed to `stream_health_snapshot()`, which is not validated, so an empty or unknown name reports `not_started`.
+
 ## [0.6.0] - 2026-10-09
 
 ### Bug fixes

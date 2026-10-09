@@ -34,6 +34,7 @@
     "Caching requires MongoDB 8.0+ on a replica set or sharded cluster, database change-stream access, and a healthy stream. Reads bypass caching while the stream is unavailable or unhealthy.",
     "Initial startup is independent per database. Competing reads bypass with stream_unavailable while health is connecting. Failed startup reports startup_failed and warns once per attempt.",
     "Later reads retry failed startup after a jittered exponential cooldown capped at 30 seconds; idle databases do not retry. Established streams reconnect automatically. Healthy stream health does not promise event catch-up.",
-    "Async close() defers cancellation until stream cleanup and cache release finish. Concurrent or subsequent calls join the same shutdown."
+    "Async close() defers cancellation until stream cleanup and cache release finish. Concurrent or subsequent calls join the same shutdown.",
+    "stream_health_snapshot(name) is local and never validates the name: StreamHealthSnapshot.requested_database_name echoes it, and an empty, mistyped, or never-activated database reports not_started, not an error."
   ]
 }
