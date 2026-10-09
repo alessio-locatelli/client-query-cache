@@ -4,6 +4,8 @@ Use a long-lived manager alongside each PyMongo client you want cached. The mana
 
 Invalidation is asynchronous. Plan direct PyMongo reads for operations that must immediately observe a preceding write; see [consistency](../usage/consistency.md).
 
+To enable caching through an application-owned deployment flag and roll it back, see the [FastAPI catalogue rollout](../examples/fastapi.md#feature-flagged-rollout).
+
 ## Retry and error handling
 
 - **Initial stream startup**: one read starts a stream for its database. Concurrent reads for that

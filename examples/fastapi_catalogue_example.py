@@ -8,10 +8,11 @@
 
 import os
 from contextlib import asynccontextmanager
+from functools import partial
 from time import monotonic, sleep
 from typing import TYPE_CHECKING, Annotated, Literal, TypedDict, cast
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.testclient import TestClient
 from pydantic import (
     BaseModel,
@@ -21,23 +22,35 @@ from pydantic import (
     PositiveInt,
     TypeAdapter,
 )
-from pymongo import AsyncMongoClient
+from pymongo import AsyncMongoClient, ReadPreference
 from pymongo.errors import InvalidOperation
 from pymongo.read_concern import ReadConcern
 from pymongo.write_concern import WriteConcern
 
-from client_query_cache.asynchronous import CacheManager
+from client_query_cache.asynchronous import (
+    BypassReason,
+    CacheManager,
+    StreamHealthStatus,
+)
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator
+    from collections.abc import AsyncGenerator, Callable
 
     from anyio.from_thread import BlockingPortal
+    from pymongo.asynchronous.collection import AsyncCollection
+
+    from client_query_cache.asynchronous import CachedCollection, CacheSnapshot
 
 DATABASE_NAME = "client_query_cache_example_fastapi_catalogue"
 DEFAULT_MONGODB_URI = "mongodb://localhost:27017/?directConnection=true"
 PAGE_URL = "/products?offset=1&page_size=2"
 NonEmptyStr = Annotated[str, Field(min_length=1)]
 TenantId = Literal["north", "south"]
+DEPLOYMENTS: tuple[tuple[bool, NonEmptyStr], ...] = (
+    (False, "north description revised directly"),
+    (True, "updated north description"),
+    (False, "north description revised after rollback"),
+)
 
 
 class ProductDocument(TypedDict):
@@ -68,17 +81,26 @@ class Principal(BaseModel):
 
 
 class CatalogueRepository:
-    def __init__(self, manager: CacheManager[ProductDocument]) -> None:
+    def __init__(
+        self, manager: CacheManager[ProductDocument], *, content_cache_enabled: bool
+    ) -> None:
         self.manager = manager
         self.raw = manager.client[DATABASE_NAME].get_collection(
             "products",
+            read_preference=ReadPreference.PRIMARY,
             read_concern=ReadConcern("majority"),
             write_concern=WriteConcern(w="majority"),
         )
-        self.cached = manager.get_cached_collection(self.raw)
+        self.content: (
+            AsyncCollection[ProductDocument] | CachedCollection[ProductDocument]
+        ) = (
+            manager.get_cached_collection(self.raw)
+            if content_cache_enabled
+            else self.raw
+        )
 
     async def describe(self, tenant_id: TenantId, product_id: NonEmptyStr) -> Product:
-        document = await self.cached.find_one(
+        document = await self.content.find_one(
             {"tenant_id": tenant_id, "product_id": product_id}
         )
         if document is None:
@@ -89,7 +111,7 @@ class CatalogueRepository:
         self, tenant_id: TenantId, offset: NonNegativeInt, page_size: PositiveInt
     ) -> tuple[Product, ...]:
         documents = await (
-            self.cached.find({"tenant_id": tenant_id})
+            self.content.find({"tenant_id": tenant_id})
             .sort([("rank", 1), ("product_id", 1)])
             .skip(offset)
             .limit(page_size)
@@ -125,7 +147,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         AsyncMongoClient[ProductDocument](mongodb_uri) as client,
         CacheManager(client) as manager,
     ):
-        app.state.repository = CatalogueRepository(manager)
+        app.state.repository = CatalogueRepository(
+            manager,
+            content_cache_enabled=cast("bool", app.state.content_cache_enabled),
+        )
         yield
 
 
@@ -137,19 +162,19 @@ def catalogue_repository(request: Request) -> CatalogueRepository:
     return cast("CatalogueRepository", request.app.state.repository)
 
 
-app = FastAPI(lifespan=lifespan)
+router = APIRouter()
 TrustedPrincipal = Annotated[Principal, Depends(authenticated_principal)]
 Repository = Annotated[CatalogueRepository, Depends(catalogue_repository)]
 
 
-@app.get("/products/{product_id}")
+@router.get("/products/{product_id}")
 async def describe_product(
     product_id: NonEmptyStr, principal: TrustedPrincipal, repository: Repository
 ) -> Product:
     return await repository.describe(principal.tenant_id, product_id)
 
 
-@app.get("/products")
+@router.get("/products")
 async def product_page(
     principal: TrustedPrincipal,
     repository: Repository,
@@ -159,7 +184,7 @@ async def product_page(
     return await repository.page(principal.tenant_id, offset, page_size)
 
 
-@app.patch("/products/{product_id}")
+@router.patch("/products/{product_id}")
 async def update_product(
     product_id: NonEmptyStr,
     update: DescriptionUpdate,
@@ -171,6 +196,13 @@ async def update_product(
             status_code=403, detail="Catalogue write permission required"
         )
     return await repository.update_description(principal.tenant_id, product_id, update)
+
+
+def create_app(*, content_cache_enabled: bool = False) -> FastAPI:
+    app = FastAPI(lifespan=lifespan)
+    app.state.content_cache_enabled = content_cache_enabled
+    app.include_router(router)
+    return app
 
 
 def demonstration_principal(
@@ -206,6 +238,14 @@ async def seed_catalogue(repository: CatalogueRepository) -> None:
     )
 
 
+async def session_bound_read(repository: CatalogueRepository) -> Product:
+    async with repository.manager.client.start_session() as session:
+        document = await repository.content.find_one(
+            {"tenant_id": "north", "product_id": "shared"}, session=session
+        )
+    return Product.model_validate(document)
+
+
 def checked_item(http: TestClient, owner: Literal["alice", "bob"]) -> Product:
     response = http.get("/products/shared", headers={"X-Demo-Principal": owner})
     if response.status_code != 200:
@@ -222,16 +262,87 @@ def checked_page(
     return TypeAdapter(tuple[Product, ...]).validate_json(response.text)
 
 
-def run_scenario(http: TestClient, repository: CatalogueRepository) -> None:
+def recorded_outcome(before: CacheSnapshot, after: CacheSnapshot) -> str:
+    match (
+        after.hits - before.hits,
+        after.misses - before.misses,
+        after.bypasses - before.bypasses,
+    ):
+        case (0, 0, 0):
+            return "direct"
+        case (1, 0, 0):
+            return "hit"
+        case (0, misses, 0) if misses > 0:
+            return "miss"
+        case (0, 0, bypasses) if bypasses > 0:
+            return "bypass"
+        case counts:
+            return f"hit, miss and bypass counts {counts}"
+
+
+def outcome_of[T](
+    manager: CacheManager[ProductDocument], read: Callable[[], T]
+) -> tuple[T, str]:
+    before = manager.snapshot()  # pytriage: TR5 - Sample before the read.
+    return read(), recorded_outcome(before, manager.snapshot())
+
+
+def observed[T](
+    manager: CacheManager[ProductDocument],
+    behavior: str,
+    expected: str,
+    read: Callable[[], T],
+) -> T:
+    content, outcome = outcome_of(manager, read)
+    if outcome != expected:
+        message = f"{behavior} recorded {outcome}, expected {expected}"
+        raise SystemExit(message)
+    return content
+
+
+def session_bypasses(snapshot: CacheSnapshot) -> int:
+    return next(
+        record.count
+        for record in snapshot.bypass_reasons
+        if record.reason is BypassReason.SESSION
+    )
+
+
+def report(label: str, manager: CacheManager[ProductDocument]) -> None:
+    snapshot = manager.snapshot()
+    reasons = ", ".join(
+        f"{record.reason} {record.count}"
+        for record in snapshot.bypass_reasons
+        if record.count
+    )
+    print(
+        f"{label}: hits {snapshot.hits}, misses {snapshot.misses}, "
+        f"bypasses {snapshot.bypasses} ({reasons or 'none'}), "
+        f"entries {snapshot.entry_count}, resident bytes {snapshot.used_bytes} "
+        f"of {snapshot.shared_budget_bytes}, "
+        f"stream {manager.stream_health_snapshot(DATABASE_NAME).status}"
+    )
+
+
+def run_scenario(
+    http: TestClient,
+    repository: CatalogueRepository,
+    portal: BlockingPortal,
+    *,
+    content_cache_enabled: bool,
+    north_description: NonEmptyStr,
+    revision: NonEmptyStr,
+) -> None:
     manager = repository.manager
-    reads_before = manager.snapshot()  # pytriage: TR11 - Capture first.
+    deployment_start = manager.snapshot()  # pytriage: TR11 - Capture first.
+    cold, warm = ("miss", "hit") if content_cache_enabled else ("direct", "direct")
     for method in ("GET", "PATCH"):
         response = http.request(
             method, "/products/shared", json={"description": "unauthenticated"}
         )
         if response.status_code != 401:
             raise SystemExit("missing identity was not rejected")
-    if manager.snapshot() != reads_before:
+    if manager.snapshot() != deployment_start:
         raise SystemExit("unauthenticated request reached cached storage")
 
     identities: tuple[tuple[Literal["alice", "bob"], TenantId], ...] = (
@@ -240,21 +351,26 @@ def run_scenario(http: TestClient, repository: CatalogueRepository) -> None:
     )
     for owner, tenant_id in identities:
         expected = Product(
-            product_id="shared", description=f"{tenant_id} shared", rank=2
+            product_id="shared",
+            description=north_description
+            if tenant_id == "north"
+            else f"{tenant_id} shared",
+            rank=2,
         )
         expected_page = (
             expected,
             Product(product_id="last", description=f"{tenant_id} last", rank=3),
         )
         for read in (checked_item, checked_page):
-            hits_before = manager.snapshot().hits
-            for _ in range(5):
-                content = read(http, owner)
+            for attempt in range(5):
+                content = observed(
+                    manager,
+                    f"{read.__name__} for {owner}",
+                    warm if attempt else cold,
+                    partial(read, http, owner),
+                )
                 if content != (expected if read is checked_item else expected_page):
                     raise SystemExit("item or page tenant isolation failed")
-            if manager.snapshot().hits - hits_before < 4:
-                message = f"no repeated {read.__name__} cache hits for {owner}"
-                raise SystemExit(message)
 
     for page_size in (0, 51):
         if (
@@ -272,10 +388,15 @@ def run_scenario(http: TestClient, repository: CatalogueRepository) -> None:
         raise SystemExit("missing product was not reported")
 
     for url in ("/products/shared?tenant_id=south", f"{PAGE_URL}&tenant_id=south"):
-        response = http.get(url, headers={"X-Demo-Principal": "alice"})
+        response = observed(
+            manager,
+            "tenant selector request",
+            warm,
+            partial(http.get, url, headers={"X-Demo-Principal": "alice"}),
+        )
         if response.status_code != 200 or "south" in response.text:
             raise SystemExit("client tenant selector replaced authenticated identity")
-    reads_before = manager.snapshot()
+    reads_before = manager.snapshot()  # pytriage: TR11 - Capture first.
     for owner, payload, expected_status in (
         ("bob", {"description": "forbidden"}, 403),
         ("alice", {"description": "tampered", "tenant_id": "south"}, 422),
@@ -292,23 +413,16 @@ def run_scenario(http: TestClient, repository: CatalogueRepository) -> None:
 
     response = http.patch(
         "/products/shared?tenant_id=south",
-        json={"description": "updated north description"},
+        json={"description": revision},
         headers={"X-Demo-Principal": "alice"},
     )
-    updated = Product(
-        product_id="shared", description="updated north description", rank=2
-    )
+    updated = Product(product_id="shared", description=revision, rank=2)
     if (
         response.status_code != 200
         or Product.model_validate_json(response.text) != updated
     ):
         raise SystemExit("direct write-response read did not observe the update")
-    reads_after = manager.snapshot()
-    if (reads_after.hits, reads_after.misses, reads_after.bypasses) != (
-        reads_before.hits,
-        reads_before.misses,
-        reads_before.bypasses,
-    ):
+    if recorded_outcome(reads_before, manager.snapshot()) != "direct":
         raise SystemExit("write-response read used the cache")
 
     started = monotonic()
@@ -317,37 +431,48 @@ def run_scenario(http: TestClient, repository: CatalogueRepository) -> None:
         Product(product_id="last", description="north last", rank=3),
     )
     while True:
-        hits_before = manager.snapshot().hits
-        item = checked_item(http, "alice")
-        item_hit = manager.snapshot().hits > hits_before
-        hits_before = manager.snapshot().hits
-        page = checked_page(http, "alice")
-        page_hit = manager.snapshot().hits > hits_before
+        item, item_outcome = outcome_of(manager, partial(checked_item, http, "alice"))
+        page, page_outcome = outcome_of(manager, partial(checked_page, http, "alice"))
         elapsed = monotonic() - started
         if (
             item == updated
             and page == updated_page
-            and item_hit
-            and page_hit
+            and item_outcome == page_outcome == warm
             and elapsed < 5
         ):
             break
         if elapsed >= 5:
-            raise SystemExit(
-                "updated catalogue item and page were not served from cache "
+            message = (
+                f"updated catalogue item and page were not {warm} reads "
                 "within five seconds"
             )
+            raise SystemExit(message)
         sleep(0.05)
     if checked_item(http, "bob").description != "south shared":
         raise SystemExit("mutation changed the other tenant's product")
-    snapshot = manager.snapshot()
-    if snapshot.entry_count == 0:
-        raise SystemExit("no catalogue entries admitted before shutdown")
-    print(f"invalidation observed after: {(monotonic() - started) * 1000:.0f} ms")
-    print(
-        f"cache hits: {snapshot.hits}, misses: {snapshot.misses}, "
-        f"bypasses: {snapshot.bypasses}"
-    )
+    print(f"update observed after: {(monotonic() - started) * 1000:.0f} ms")
+
+    if content_cache_enabled:
+        before = manager.snapshot()  # pytriage: TR11 - Capture first.
+        if portal.call(session_bound_read, repository) != updated:
+            raise SystemExit(
+                "session-bound cached-view read returned unexpected content"
+            )
+        after = manager.snapshot()
+        if (
+            recorded_outcome(before, after) != "bypass"
+            or session_bypasses(after) - session_bypasses(before) != 1
+        ):
+            raise SystemExit("session-bound cached-view read did not bypass")
+        if after.entry_count == 0:
+            raise SystemExit("no catalogue entries admitted before shutdown")
+    elif (
+        manager.snapshot() != deployment_start
+        or manager.stream_health_snapshot(DATABASE_NAME).status
+        is not StreamHealthStatus.NOT_STARTED
+    ):
+        raise SystemExit("direct deployment recorded cache activity")
+    report(f"{'cached' if content_cache_enabled else 'direct'} deployment", manager)
 
 
 @asynccontextmanager
@@ -360,19 +485,23 @@ async def checked_lifespan(app: FastAPI) -> AsyncGenerator[None]:
         snapshot.lifecycle != "closed"
         or snapshot.entry_count != 0
         or snapshot.used_bytes != 0
+        or repository.manager.stream_health_snapshot(DATABASE_NAME).status
+        is not StreamHealthStatus.CLOSED
     ):
         raise SystemExit("lifespan did not complete manager cleanup")
     try:
         await repository.manager.client.admin.command("ping")
     except InvalidOperation:
-        print("lifespan closed manager and client")
+        report("lifespan closed manager and client", repository.manager)
     else:
         raise SystemExit("lifespan did not close the MongoDB client")
 
 
 def main() -> None:
-    app.router.lifespan_context = checked_lifespan
-    try:
+    north_description = "north shared"
+    for phase, (content_cache_enabled, revision) in enumerate(DEPLOYMENTS):
+        app = create_app(content_cache_enabled=content_cache_enabled)
+        app.router.lifespan_context = checked_lifespan
         with TestClient(app) as http:
             if (
                 http.get(
@@ -386,14 +515,23 @@ def main() -> None:
             app.dependency_overrides[authenticated_principal] = demonstration_principal
             repository = cast("CatalogueRepository", app.state.repository)
             portal = cast("BlockingPortal", http.portal)
+            completed = False
             try:
-                portal.call(seed_catalogue, repository)
-                run_scenario(http, repository)
+                if phase == 0:
+                    portal.call(seed_catalogue, repository)
+                run_scenario(
+                    http,
+                    repository,
+                    portal,
+                    content_cache_enabled=content_cache_enabled,
+                    north_description=north_description,
+                    revision=revision,
+                )
+                completed = True
             finally:
-                portal.call(repository.manager.client.drop_database, DATABASE_NAME)
-    finally:
-        app.dependency_overrides.clear()
-        app.router.lifespan_context = lifespan
+                if not completed or phase == len(DEPLOYMENTS) - 1:
+                    portal.call(repository.manager.client.drop_database, DATABASE_NAME)
+        north_description = revision
 
 
 if __name__ == "__main__":
