@@ -37,6 +37,7 @@ from client_query_cache._core.stream_cost import (
     LagCaptureWindowConfig,
     LagCaptureWindows,
 )
+from client_query_cache._types import NonEmptyStr, PositiveFloat
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -416,7 +417,7 @@ def test_command_counts_preserve_inflight_and_failed_outcomes() -> None:
     ],
 )
 def test_idle_polling_covers_the_entire_application_window(
-    completions: tuple[float, ...], expected: float
+    completions: tuple[float, ...], expected: PositiveFloat
 ) -> None:
     assert idle_poll_max_gap(completions, 0, 60, 1.05) == pytest.approx(expected)
 
@@ -434,7 +435,7 @@ def test_idle_polling_covers_the_entire_application_window(
     ],
 )
 def test_idle_polling_rejects_an_uncovered_application_window(
-    completions: tuple[float, ...], message: str
+    completions: tuple[float, ...], message: NonEmptyStr
 ) -> None:
     with pytest.raises(BenchmarkSetupError, match=message):
         idle_poll_max_gap(completions, 0, 60, 1.05)

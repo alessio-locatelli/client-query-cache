@@ -13,8 +13,8 @@ Define each alias from the design's alias table in the same group that first use
 
 ## 2. Tests and scripts
 
-- [ ] 2.1 Replace type prose in `tests/` comments that the listing command finds. Test-value comments required by `test-value-conventions` remain. Verify that `uv run -- mypy` and `just lint` pass, and that the listing shows only meaning clauses and non-type prose in `tests/`.
-- [ ] 2.2 Replace type prose in `scripts/` comments that the listing command finds, without importing library aliases. Verify that `uv run --only-group docs -- python -c 'import scripts.build_versioned_docs'` succeeds without the project installed, and that `just pytest tests/test_build_versioned_docs.py` passes.
+- [x] 2.1 Replace type prose in `tests/` comments that the listing command finds. Test-value comments required by `test-value-conventions` remain. Verify that `uv run -- mypy` and `just lint` pass, and that the listing shows only meaning clauses and non-type prose in `tests/`.
+- [x] 2.2 Replace type prose in `scripts/` comments that the listing command finds, without importing library aliases. Verify that `uv run --only-group docs -- python -c 'import scripts.build_versioned_docs'` succeeds without the project installed, and that `just pytest tests/test_build_versioned_docs.py` passes.
 
 ## 3. Benchmarks
 

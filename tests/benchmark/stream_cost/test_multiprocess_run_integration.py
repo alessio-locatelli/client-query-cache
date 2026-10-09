@@ -76,7 +76,7 @@ async def _close_then_fail(client: multiprocess_run.Client) -> None:
 
 async def _poll_then_stall(
     stream: multiprocess_run.Stream,
-    _observed: list[float],  # Empty in this idle fault case.
+    _observed: list[float],
     *,
     gate: asyncio.Event,
 ) -> None:

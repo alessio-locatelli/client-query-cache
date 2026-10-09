@@ -73,9 +73,9 @@ def populate_sources(
 
 
 class HeapMeasurement(TypedDict):
-    retained_heap_bytes: int  # Zero retention is possible.
-    payload_bytes: int  # Zero means no resident BSON.
-    after_clear_heap_bytes: int  # Zero retention is possible after reclamation.
+    retained_heap_bytes: int
+    payload_bytes: int
+    after_clear_heap_bytes: int
 
 
 def measure_heap(
@@ -145,7 +145,7 @@ def test_find_family_lookup(
         predicate, None, {"_id": 1}, 0, 10, collation=None, codec="codec"
     )
     before = core.snapshot()
-    timings: list[float] = []  # Timing samples populate the initially empty list.
+    timings: list[float] = []
     for _ in range(21):
         started = perf_counter()
         lookup = core.lookup_find(HEAP_NAMESPACE, request)

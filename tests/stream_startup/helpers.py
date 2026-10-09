@@ -40,7 +40,7 @@ class StartupHarness:
     release: threading.Event
     cleanup_entered: threading.Event
     cleanup_release: threading.Event
-    streams: list[ScriptedStream | AsyncStream]  # Can be empty.
+    streams: list[ScriptedStream | AsyncStream]
 
     @property
     def is_async(self) -> bool:

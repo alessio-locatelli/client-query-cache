@@ -14,6 +14,7 @@ from pymongo.errors import ConnectionFailure, OperationFailure
 from pymongo.synchronous.database import Database
 
 from client_query_cache._core.stream_events import route_change_event
+from client_query_cache._types import NonNegativeInt
 from client_query_cache.asynchronous import streams as async_streams
 from client_query_cache.asynchronous.manager import CacheManager as AsyncManager
 from client_query_cache.synchronous import streams as sync_streams
@@ -34,14 +35,14 @@ Mode = Literal["sync", "async"]
 ReadShape = Literal["identity", "namespace"]
 WriteKind = Literal["insert", "update", "replace", "delete"]
 CollectionName = Literal["hot", "cold"]
-Target = tuple[CollectionName, str]  # BSON string identities can be empty.
+Target = tuple[CollectionName, str]
 
 
 class Document(TypedDict):
-    _id: str  # BSON string identities can be empty.
-    slot: str  # BSON string values can be empty.
-    version: int  # Zero denotes the unwritten revision.
-    payload: str  # Incidental payloads can be empty.
+    _id: str
+    slot: str
+    version: NonNegativeInt  # Zero denotes the unwritten revision.
+    payload: str
 
 
 async def wait_until(predicate: Callable[[], bool]) -> None:
@@ -91,12 +92,12 @@ class StressRun:
         self.patches = patches
         self.hot_ids = tuple(faker.uuid4() for _ in range(2))
         self.cold_ids = tuple(faker.uuid4() for _ in range(8))
-        self.issued: dict[Target, int] = {}  # Initially empty; zero means unwritten.
-        self.processed: dict[Target, int] = {}  # Initially empty; zero means unwritten.
-        self.deleted: dict[Target, int] = {}  # Initially empty; zero means unwritten.
-        self.origin_reads: dict[tuple[Target, ReadShape], int] = {}  # Initially empty.
+        self.issued: dict[Target, NonNegativeInt] = {}  # Zero means unwritten.
+        self.processed: dict[Target, NonNegativeInt] = {}  # Zero means unwritten.
+        self.deleted: dict[Target, NonNegativeInt] = {}  # Zero means unwritten.
+        self.origin_reads: dict[tuple[Target, ReadShape], int] = {}
         self.revision = 0
-        self.background_reads = [0] * 4  # Each reader starts with zero completed reads.
+        self.background_reads = [0] * 4
         self.lock = threading.Lock()
         self.disconnect = threading.Event()
         self.recovering = asyncio.Event()
@@ -192,7 +193,7 @@ class StressRun:
 
     async def checkpoint(self, target: Target, expected: Document | None) -> None:
         await wait_until(lambda: self.applied(target))
-        previous_origin_reads: tuple[int, ...] = ()  # Empty before the first batch.
+        previous_origin_reads: tuple[int, ...] = ()
         for _ in range(2):
             documents = await asyncio.gather(
                 *(

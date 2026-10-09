@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     from tests.conftest import CollectionName, DatabaseName, MongoDbUri
 
 pytestmark = pytest.mark.integration
-type Document = dict[str, Any]  # Empty projections are valid.
+type Document = dict[str, Any]
 type View = CachedCollection[Document] | AsyncCachedCollection[Document]
 type CursorFactory = Callable[
     [View], ReadCursor[Document] | Awaitable[AsyncCommandCursor[Document]]
@@ -40,9 +40,7 @@ DOCUMENT_COUNT = 240  # Exceeds MongoDB's default initial find batch.
 class ReadCommands(CommandListener):
     def __init__(self, collection: str) -> None:
         self.collection = collection
-        self.commands: list[
-            Mapping[str, Any]
-        ] = []  # No query runs during find construction.
+        self.commands: list[Mapping[str, Any]] = []
 
     def started(self, event: CommandStartedEvent) -> None:
         command = event.command

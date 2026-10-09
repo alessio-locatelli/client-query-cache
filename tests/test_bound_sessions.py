@@ -29,7 +29,7 @@ COMMITTED_VALUE = 1
 TRANSACTION_VALUE = 2
 INVALID_PROJECTION = 42
 INITIAL_DOCUMENT_COUNT = 1
-Document = dict[str, Any]  # Can be empty for native projections.
+Document = dict[str, Any]
 Client = MongoClient[Document] | AsyncMongoClient[Document]
 View = CachedCollection[Document] | AsyncCachedCollection[Document]
 
@@ -189,7 +189,7 @@ async def test_bound_transaction_bypasses_a_warm_entry(
 ) -> None:
     view = transaction["view"]
     before = view.database.manager.snapshot()
-    options = {"session": None} if explicit_none else {}  # Can be empty.
+    options = {"session": None} if explicit_none else {}
     assert (
         await execute(view.find_one(DOCUMENT_ID, **options))
         == await execute(view.raw.find_one(DOCUMENT_ID, **options))

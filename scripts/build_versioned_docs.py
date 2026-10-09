@@ -16,8 +16,8 @@ from uuid import uuid4
 
 import tomli_w
 
-type Text = str  # Git arguments and TOML strings can be empty.
-type Table = dict[Text, object]  # A TOML table can be empty.
+type Text = str
+type Table = dict[Text, object]
 
 
 def table(value: object) -> Table:

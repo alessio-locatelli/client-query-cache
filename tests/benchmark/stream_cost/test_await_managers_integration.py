@@ -10,6 +10,7 @@ from pymongo import AsyncMongoClient, MongoClient
 from benchmarks.stream_cost.await_commands import AwaitCommandListener
 from benchmarks.stream_cost.await_run import _invoke, _wait_for
 from client_query_cache._core.stream_options import DEFAULT_MAX_AWAIT_TIME_MS
+from client_query_cache._types import MaxAwaitTimeMs, NonEmptyStr
 from client_query_cache.asynchronous.manager import CacheManager as AsyncCacheManager
 from client_query_cache.synchronous.manager import CacheManager
 
@@ -27,8 +28,8 @@ pytestmark = pytest.mark.integration
 class ManagedStream:
     manager: _Manager
     listener: AwaitCommandListener
-    database: str  # Nonempty unique test database name.
-    expected_ms: int  # Positive expected wire option.
+    database: NonEmptyStr  # Unique test database name.
+    expected_ms: MaxAwaitTimeMs  # Expected wire option.
 
 
 @pytest.fixture(params=["sync", "async"], ids=["sync", "async"])

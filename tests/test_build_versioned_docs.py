@@ -13,6 +13,7 @@ from urllib.parse import urlsplit
 import pytest
 import tomli_w
 
+from client_query_cache._types import PositiveInt
 from scripts.build_versioned_docs import (
     Sources,
     Table,
@@ -169,7 +170,7 @@ def restricted_checkout(
     temporary_storage = tmp_path_factory.mktemp("system-temp")
     monkeypatch.setenv("TMPDIR", str(temporary_storage))
     monkeypatch.setattr(tempfile, "tempdir", None)
-    commands: list[Path] = []  # No commands run before assembly starts.
+    commands: list[Path] = []
 
     def record_workspace(cwd: Path, *arguments: Text) -> None:
         commands.append(cwd)
@@ -280,7 +281,7 @@ def failed_swap(
     previous_artifact: Path,
     request: pytest.FixtureRequest,
     monkeypatch: pytest.MonkeyPatch,
-) -> tuple[Text, int]:  # An OS error code is positive.
+) -> tuple[Text, PositiveInt]:
     phase, error = request.param
     rename = Path.rename
 
