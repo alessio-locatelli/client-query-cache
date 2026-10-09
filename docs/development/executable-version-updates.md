@@ -12,6 +12,7 @@ GitHub native auto-merge using rebase; required checks gate merging.
 | CI and container Node.js                                     | Renovate `nodenv`                          | `.node-version`; CI reads it and the container derives its Node.js/npm major track                                                                                            |
 | Python                                                       | Renovate `pyenv`                           | `.python-version`; default development and container selection; CI also retains older supported release lines                                                                 |
 | MongoDB                                                      | Renovate regex                             | `tests/conftest.py` and `benchmarks/stream_cost/topology.py`; one group                                                                                                       |
+| Local MongoDB service                                        | Dependabot `docker-compose`                | `docker-compose.yaml` image tag and digest                                                                                                                                    |
 | Prek                                                         | Renovate Dockerfile/GitHub Actions presets | `test.yml` `PREK_VERSION` and Containerfile ARG; one group; cache derives from the CI selection                                                                               |
 | Zizmor                                                       | Renovate Dockerfile preset                 | Containerfile ARG                                                                                                                                                             |
 | Taplo                                                        | Renovate regex                             | Containerfile ARG, download URL, and SHA256                                                                                                                                   |
@@ -27,7 +28,7 @@ are excluded.
 Renovate uses `config:best-practices` and semantic commits. Weekly lockfile
 maintenance and experimental configuration migration are excluded; Dependabot
 owns lockfiles. The inherited test-directory ignore preset is also excluded so
-both MongoDB occurrences remain in one update group. MongoDB retains the `noble`
+both Renovate-owned MongoDB occurrences remain in one update group. MongoDB retains the `noble`
 variant and uses tags without digest pinning because its regex replacement is
 tag-only ([upstream limitation](https://github.com/renovatebot/renovate/issues/24942)).
 Taplo retains its coupled version, download URL, and checksum replacement; pyenv
