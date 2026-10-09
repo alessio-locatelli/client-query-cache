@@ -9,6 +9,7 @@ from benchmarks.stream_cost.errors import (
     BenchmarkConfigurationError,
     BenchmarkSetupError,
 )
+from client_query_cache._types import NonNegativeInt
 
 if TYPE_CHECKING:
     from benchmarks.stream_cost.client import BenchmarkClientTopologyConfig
@@ -29,7 +30,7 @@ _UPSTREAM_CONNECT_TIMEOUT_SECONDS = 2.0
 class DirectPathProxyConfig:
     client_topology: BenchmarkClientTopologyConfig
     upstream_host: str
-    upstream_port: int
+    upstream_port: NonNegativeInt
 
     def __post_init__(self) -> None:
         topology = self.client_topology
@@ -98,20 +99,20 @@ class DirectPathByteProxy:
             thread.join(timeout=_JOIN_TIMEOUT_SECONDS)
 
     @property
-    def local_port(self) -> int:
+    def local_port(self) -> NonNegativeInt:
         if self._listener is None:
             message = "DirectPathByteProxy has not been started"
             raise BenchmarkSetupError(message)
-        port: int = self._listener.getsockname()[1]
+        port: NonNegativeInt = self._listener.getsockname()[1]
         return port
 
     @property
-    def bytes_sent(self) -> int:
+    def bytes_sent(self) -> NonNegativeInt:
         with self._lock:
             return self._bytes_sent
 
     @property
-    def bytes_received(self) -> int:
+    def bytes_received(self) -> NonNegativeInt:
         with self._lock:
             return self._bytes_received
 

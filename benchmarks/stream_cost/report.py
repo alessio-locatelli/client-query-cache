@@ -8,6 +8,7 @@ import jsonschema
 
 from benchmarks.stream_cost.errors import ReportValidationError
 from benchmarks.stream_cost.measurement import latency_distribution
+from client_query_cache._types import NonNegativeInt
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -27,7 +28,7 @@ _SCHEMA: Mapping[str, Any] = json.loads(_SCHEMA_PATH.read_text())
 
 def _direct_path_bytes_pair(
     measurement: ControlledMeasurement,
-) -> dict[str, int] | None:
+) -> dict[str, NonNegativeInt] | None:
     sent = measurement.direct_path_bytes_sent
     received = measurement.direct_path_bytes_received
     if sent is None or received is None:

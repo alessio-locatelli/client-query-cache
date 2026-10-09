@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from time import monotonic
 from typing import TYPE_CHECKING, cast
 
+from client_query_cache._types import NonNegativeInt
+
 if TYPE_CHECKING:
     from collections.abc import Callable
 
@@ -20,7 +22,7 @@ from pymongo.monitoring import (
 class AwaitCommand:
     started_seconds: float  # Monotonic.
     completed_seconds: float | None  # Monotonic; None means in flight.
-    max_time_ms: int | None  # None means the option was absent.
+    max_time_ms: NonNegativeInt | None  # None means the option was absent.
     failed: bool
 
 
@@ -30,13 +32,15 @@ class AwaitCommandListener(CommandListener):
         self._version = 0
         self._on_next_start: Callable[[], None] | None = None
         self._commands: list[AwaitCommand] = []
-        self._in_flight: dict[int, int] = {}
+        self._in_flight: dict[int, NonNegativeInt] = {}
 
     def started(self, event: CommandStartedEvent) -> None:
         if event.command_name != "getMore":
             return
         try:
-            requested: int | None = cast("int", event.command["maxTimeMS"])
+            requested: NonNegativeInt | None = cast(
+                "NonNegativeInt", event.command["maxTimeMS"]
+            )
         except KeyError:
             requested = None
         with self._lock:
@@ -75,11 +79,11 @@ class AwaitCommandListener(CommandListener):
             return tuple(self._commands)
 
     @property
-    def version(self) -> int:
+    def version(self) -> NonNegativeInt:
         with self._lock:
             return self._version
 
-    def wait_for_change(self, version: int, seconds: float) -> None:
+    def wait_for_change(self, version: NonNegativeInt, seconds: float) -> None:
         with self._lock:
             if not self._lock.wait_for(lambda: self._version != version, seconds):
                 raise TimeoutError("no getMore boundary observed within the window")

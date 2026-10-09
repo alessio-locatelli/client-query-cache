@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from benchmarks.stream_cost.client import WireCompressor
+from client_query_cache._types import NonNegativeInt
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -38,7 +39,7 @@ class CompressionDecision:
 
 def _samples_index(
     report: Mapping[str, Any],
-) -> dict[tuple[int, str, str, str], dict[str, Any]]:
+) -> dict[tuple[NonNegativeInt, str, str, str], dict[str, Any]]:
     return {
         (
             sample["block_index"],
@@ -52,7 +53,7 @@ def _samples_index(
 
 def _stream_minus_control_index(
     report: Mapping[str, Any],
-) -> dict[tuple[int, str, str], dict[str, Any]]:
+) -> dict[tuple[NonNegativeInt, str, str], dict[str, Any]]:
     return {
         (entry["block_index"], entry["mode"], entry["window"]): entry
         for entry in report["stream_minus_control"]
@@ -154,11 +155,11 @@ def _idle_is_noisy(idle_deltas: Sequence[float]) -> bool:
 def _evaluate_mode(
     mode: WireCompressor,
     *,
-    block_indices: Sequence[int],
+    block_indices: Sequence[NonNegativeInt],
     active_windows: Sequence[str],
     idle_window: str,
-    samples: Mapping[tuple[int, str, str, str], Mapping[str, Any]],
-    stream_minus_control: Mapping[tuple[int, str, str], Mapping[str, Any]],
+    samples: Mapping[tuple[NonNegativeInt, str, str, str], Mapping[str, Any]],
+    stream_minus_control: Mapping[tuple[NonNegativeInt, str, str], Mapping[str, Any]],
 ) -> CompressionModeEvidence:
     mode_value = mode.value
     none_value = WireCompressor.NONE.value

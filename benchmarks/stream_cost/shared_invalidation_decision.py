@@ -68,7 +68,7 @@ class NativeLag(TypedDict):
 
 
 def _capture_p95(
-    windows: tuple[tuple[float, ...], ...], indices: tuple[int, ...]
+    windows: tuple[tuple[float, ...], ...], indices: tuple[NonNegativeInt, ...]
 ) -> float:
     ordered = sorted(value for index in indices for value in windows[index])
     return ordered[math.floor(0.95 * len(ordered))]
@@ -92,7 +92,9 @@ def describe_native_lag(report: Mapping[str, object]) -> tuple[NativeLag, ...]:
                 for window in cast("Sequence[Sequence[float]]", metrics["lag_windows"])
             )
             validate_capture(
-                cast("int", metrics["invalidations"]), windows, expected_events
+                cast("NonNegativeInt", metrics["invalidations"]),
+                windows,
+                expected_events,
             )
             corrected = tuple(
                 tuple(
@@ -115,8 +117,8 @@ def describe_native_lag(report: Mapping[str, object]) -> tuple[NativeLag, ...]:
             intervals.append(
                 {
                     "model": cast("Model", sample["model"]),
-                    "block": cast("int", sample["block"]),
-                    "workers": cast("int", sample["workers"]),
+                    "block": cast("NonNegativeInt", sample["block"]),
+                    "workers": cast("PositiveInt", sample["workers"]),
                     "worker": worker,
                     "p95_seconds": statistic(tuple(range(len(corrected)))),
                     "lower_seconds": weighted_quantile(percentiles, 0.025)
@@ -128,7 +130,9 @@ def describe_native_lag(report: Mapping[str, object]) -> tuple[NativeLag, ...]:
     return tuple(intervals)
 
 
-def _mean_rates(values: tuple[float, ...], indices: tuple[int, ...]) -> float:
+def _mean_rates(
+    values: tuple[float, ...], indices: tuple[NonNegativeInt, ...]
+) -> float:
     return fmean(values[index] for index in indices)
 
 
@@ -160,10 +164,10 @@ def _block_rate(
     samples: tuple[Payload, ...],
     model: Model,
     workload: Workload,
-    block: int,
+    block: NonNegativeInt,
     seconds: float,
 ) -> float:
-    rates: dict[tuple[int, str], float] = {}
+    rates: dict[tuple[PositiveInt, str], float] = {}
     for workers in (1, 8):
         for path in ("stream-only", "stream-control"):
             matched = tuple(
@@ -205,7 +209,7 @@ def _comparison(
     model: Model,
     workload: Workload,
     *,
-    blocks: int,
+    blocks: PositiveInt,
     seconds: float,
     alpha: float,
     threshold: float,

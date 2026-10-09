@@ -12,6 +12,7 @@ from benchmarks.stream_cost.guard_decision import (
     evaluate_case,
 )
 from benchmarks.stream_cost.guard_runner import measure_paired_case
+from client_query_cache._types import PositiveInt
 
 if TYPE_CHECKING:
     from benchmarks.stream_cost.guard_runner import RevisionEnvironment
@@ -59,7 +60,7 @@ def measure_and_evaluate_case(
     case: str,
     profile: str,
     *,
-    block_pairs: int = BLOCK_PAIRS,
+    block_pairs: PositiveInt = BLOCK_PAIRS,
 ) -> CaseReport:
     try:
         measurement = measure_paired_case(
@@ -99,11 +100,11 @@ def measure_and_evaluate_case(
 
 @dataclass(frozen=True, slots=True)
 class GuardReport:
-    schema_version: int
+    schema_version: PositiveInt
     base_revision: str
     head_revision: str
     material_slowdown_boundary: float
-    block_pairs: int
+    block_pairs: PositiveInt
     cases: tuple[CaseReport, ...]
     base_python_version: str | None
     head_python_version: str | None

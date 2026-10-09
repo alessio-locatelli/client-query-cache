@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from benchmarks.stream_cost.errors import BenchmarkConfigurationError
 from client_query_cache._core.codec import encode_value
+from client_query_cache._types import NonNegativeInt, PositiveInt
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
@@ -18,24 +19,24 @@ MINIMUM_ENCODER_REPETITIONS = 5
 
 def _encoded_prefix_size(
     documents: Sequence[Mapping[str, object]],
-    prefix_length: int,
+    prefix_length: NonNegativeInt,
     codec_options: CodecOptions[Any] | None,
-) -> int:
+) -> NonNegativeInt:
     return len(encode_value(list(documents[:prefix_length]), codec_options))
 
 
 def _encoded_single_document_size(
     document: Mapping[str, object], codec_options: CodecOptions[Any] | None
-) -> int:
+) -> NonNegativeInt:
     return len(encode_value([document], codec_options))
 
 
 def find_crossover_prefix_length(
     documents: Sequence[Mapping[str, object]],
     *,
-    max_entry_bytes: int,
+    max_entry_bytes: PositiveInt,
     codec_options: CodecOptions[Any] | None = None,
-) -> int:
+) -> NonNegativeInt:
     if max_entry_bytes <= 0:
         message = "max_entry_bytes must be positive"
         raise BenchmarkConfigurationError(message)
@@ -76,7 +77,7 @@ def time_encoder_invocations(
     value: object,
     *,
     codec_options: CodecOptions[Any] | None = None,
-    repetitions: int,
+    repetitions: PositiveInt,
 ) -> tuple[float, ...]:
     if repetitions < MINIMUM_ENCODER_REPETITIONS:
         message = (
@@ -94,7 +95,7 @@ def time_encoder_invocations(
 
 @dataclass(frozen=True, slots=True)
 class OversizedResultSavingsMeasurement:
-    prefix_length: int
+    prefix_length: NonNegativeInt
     prefix_costs_seconds: tuple[float, ...]
     full_costs_seconds: tuple[float, ...]
     acceptable_savings_threshold_seconds: float
@@ -124,9 +125,9 @@ class OversizedResultSavingsMeasurement:
 def measure_oversized_result_savings(
     documents: Sequence[Mapping[str, object]],
     *,
-    max_entry_bytes: int,
+    max_entry_bytes: PositiveInt,
     codec_options: CodecOptions[Any] | None = None,
-    repetitions: int,
+    repetitions: PositiveInt,
     acceptable_savings_threshold_seconds: float,
 ) -> OversizedResultSavingsMeasurement:
     prefix_length = find_crossover_prefix_length(
@@ -161,9 +162,9 @@ class OversizedResultWorkloadMeasurement:
 def measure_oversized_result_workload(
     perform_find: Callable[[], Sequence[Mapping[str, object]]],
     *,
-    max_entry_bytes: int,
+    max_entry_bytes: PositiveInt,
     codec_options: CodecOptions[Any] | None = None,
-    repetitions: int,
+    repetitions: PositiveInt,
     acceptable_savings_threshold_seconds: float,
 ) -> OversizedResultWorkloadMeasurement:
     start = time.monotonic()

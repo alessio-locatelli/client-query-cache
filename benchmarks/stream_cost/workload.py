@@ -18,6 +18,7 @@ from benchmarks.stream_cost.generators import (
     generate_seeded_documents,
 )
 from benchmarks.stream_cost.measurement import OperationLatency
+from client_query_cache._types import NonNegativeInt, PositiveInt
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
@@ -43,8 +44,8 @@ class WorkloadKind(enum.Enum):
 
 @dataclass(frozen=True, slots=True)
 class OperationCounts:
-    reads: int
-    writes: int
+    reads: NonNegativeInt
+    writes: NonNegativeInt
 
     def __post_init__(self) -> None:
         if self.reads < 0:
@@ -75,7 +76,7 @@ _DEFAULT_DOCUMENT_COUNT = 100
 class WorkloadVariant:
     kind: WorkloadKind
     data_size: DocumentSizeProfile
-    document_count: int
+    document_count: NonNegativeInt
     warmup: OperationCounts
     sampling: OperationCounts
     seed: int
@@ -143,7 +144,7 @@ def insert_dataset(
 
 
 def sample_operation_ids(
-    dataset: SeededDataset, count: int, *, seed: int
+    dataset: SeededDataset, count: NonNegativeInt, *, seed: int
 ) -> tuple[object, ...]:
     if count == 0:
         return ()
@@ -153,8 +154,8 @@ def sample_operation_ids(
 
 @dataclass(frozen=True, slots=True)
 class PrimingDelta:
-    admissions: int
-    hits: int
+    admissions: NonNegativeInt
+    hits: NonNegativeInt
 
 
 def priming_delta(before: CacheSnapshot, after: CacheSnapshot) -> PrimingDelta:
@@ -190,7 +191,7 @@ def verify_oversized_primed(
 
 
 def prime_read_variant(
-    read_once: Callable[[], object], *, repeats: int = _WARMUP_READ_REPEATS
+    read_once: Callable[[], object], *, repeats: PositiveInt = _WARMUP_READ_REPEATS
 ) -> None:
     if repeats < _WARMUP_READ_REPEATS:
         message = (
@@ -297,11 +298,11 @@ def perform_cache_only_reads(
 def issue_writes(
     collection: Collection[dict[str, Any]],
     dataset: SeededDataset,
-    count: int,
+    count: NonNegativeInt,
     *,
     seed: int,
     latencies: list[OperationLatency] | None = None,
-) -> int:
+) -> NonNegativeInt:
     ids = sample_operation_ids(dataset, count, seed=seed)
     for document_id in ids:
         started = time.monotonic()
@@ -317,7 +318,7 @@ def issue_writes(
 class WorkloadVariantOutcome:
     variant: WorkloadVariant
     reads: PairedReadOutcome
-    writes_issued: int
+    writes_issued: NonNegativeInt
     warmup_delta: PrimingDelta
     write_latencies: tuple[OperationLatency, ...] = ()
 
@@ -372,7 +373,7 @@ def time_call[T](call: Callable[[], T]) -> tuple[T, float]:
 def wait_for_invalidations_to_settle(
     manager: CacheManager[dict[str, Any]],
     database_name: str,
-    expected_count: int,
+    expected_count: NonNegativeInt,
     *,
     context: str,
 ) -> None:

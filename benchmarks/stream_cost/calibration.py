@@ -14,6 +14,7 @@ from benchmarks.stream_cost.errors import (
     BenchmarkConfigurationError,
     BenchmarkSetupError,
 )
+from client_query_cache._types import NonNegativeInt, PositiveInt
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -97,7 +98,7 @@ def _validated_hello(response: Mapping[str, object]) -> tuple[object, datetime]:
 
 
 def sample_clock_offset(
-    send_hello: Callable[[], Mapping[str, object]], *, rounds: int
+    send_hello: Callable[[], Mapping[str, object]], *, rounds: PositiveInt
 ) -> CalibrationPoint:
     if rounds <= 0:
         message = "rounds must be positive"
@@ -266,7 +267,7 @@ def is_not_meaningfully_worse(
 
 def _writable_primary_address(
     description: TopologyDescription,
-) -> tuple[str, int | None] | None:
+) -> tuple[str, NonNegativeInt | None] | None:
     for address, server in description.server_descriptions().items():
         if server.is_writable:
             return address
@@ -276,7 +277,7 @@ def _writable_primary_address(
 class TopologyChangeListener(TopologyListener):
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._current_primary: tuple[str, int | None] | None = None
+        self._current_primary: tuple[str, NonNegativeInt | None] | None = None
         self._primary_changed = False
 
     @property
@@ -329,7 +330,7 @@ class PeriodicCalibrationSampler:
         send_hello: Callable[[], Mapping[str, object]],
         *,
         cadence_seconds: float,
-        rounds: int,
+        rounds: PositiveInt,
     ) -> None:
         if cadence_seconds <= 0:
             message = "cadence_seconds must be positive"

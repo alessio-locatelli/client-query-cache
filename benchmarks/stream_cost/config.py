@@ -5,6 +5,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 from benchmarks.stream_cost.errors import BenchmarkConfigurationError
+from client_query_cache._types import PositiveInt
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -46,7 +47,7 @@ class BenchmarkIdentity:
 class BenchmarkEnvironment:
     mongodb_version: str
     topology: str
-    member_count: int
+    member_count: PositiveInt
     resource_limits: Mapping[str, str]
 
     def __post_init__(self) -> None:

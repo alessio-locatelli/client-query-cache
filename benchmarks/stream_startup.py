@@ -19,6 +19,7 @@ from unittest.mock import Mock
 from pymongo.errors import ConnectionFailure
 
 from client_query_cache._core.manager import CacheCore
+from client_query_cache._types import NonNegativeInt
 from client_query_cache.asynchronous.streams import (
     ChangeStreamCoordinator as AsyncCoordinator,
 )
@@ -54,8 +55,8 @@ class Measurement:
     source: str
     healthy_seconds: float
     failed_seconds: float
-    failure_attempts: int
-    failure_warnings: int
+    failure_attempts: NonNegativeInt
+    failure_warnings: NonNegativeInt
     b_independent: bool
     b_seconds: float
 
@@ -104,7 +105,7 @@ def measure_sync(profile: Path | None, warnings: Warnings) -> Measurement:
     entered = threading.Event()
     release = threading.Event()
 
-    def pause(_index: int) -> None:
+    def pause(_index: NonNegativeInt) -> None:
         entered.set()
         release.wait()
 
@@ -179,7 +180,7 @@ async def measure_async(profile: Path | None, warnings: Warnings) -> Measurement
     entered = threading.Event()
     release = threading.Event()
 
-    async def pause(_index: int) -> None:
+    async def pause(_index: NonNegativeInt) -> None:
         entered.set()
         await asyncio.to_thread(release.wait)
 

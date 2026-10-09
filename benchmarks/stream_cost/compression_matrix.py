@@ -12,6 +12,7 @@ from benchmarks.stream_cost.generators import (
     DocumentSizeProfile,
 )
 from benchmarks.stream_cost.workload import OperationCounts, WorkloadKind
+from client_query_cache._types import NonNegativeInt
 
 MINIMUM_COMPRESSION_BLOCKS = 4
 WARMUP_READ_REPEATS = 2
@@ -41,7 +42,7 @@ class WirePath(enum.Enum):
 class CompressionWindowSpec:
     kind: WorkloadKind
     data_size: DocumentSizeProfile
-    document_count: int
+    document_count: NonNegativeInt
     duration_seconds: float
     warmup: OperationCounts
     sampling: OperationCounts
@@ -117,13 +118,17 @@ def _require_non_negative_block_index(block_index: int) -> None:
         raise BenchmarkConfigurationError(message)
 
 
-def counterbalanced_mode_order(block_index: int) -> tuple[WireCompressor, ...]:
+def counterbalanced_mode_order(
+    block_index: NonNegativeInt,
+) -> tuple[WireCompressor, ...]:
     _require_non_negative_block_index(block_index)
     rotation = block_index % len(WIRE_COMPRESSION_MODES)
     return WIRE_COMPRESSION_MODES[rotation:] + WIRE_COMPRESSION_MODES[:rotation]
 
 
-def counterbalanced_path_order(block_index: int) -> tuple[WirePath, WirePath]:
+def counterbalanced_path_order(
+    block_index: NonNegativeInt,
+) -> tuple[WirePath, WirePath]:
     _require_non_negative_block_index(block_index)
     if block_index % 2 == 0:
         return (WirePath.NO_STREAM, WirePath.STREAM_WATCHING)

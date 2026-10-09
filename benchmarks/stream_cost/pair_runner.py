@@ -30,6 +30,7 @@ from benchmarks.stream_cost.errors import (
     BenchmarkConfigurationError,
     BenchmarkSetupError,
 )
+from client_query_cache._types import NonNegativeInt
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
@@ -75,8 +76,8 @@ def _await_condition(
 @dataclass(frozen=True, slots=True)
 class RunResult:
     variant: PairVariant
-    relevant_write_count: int
-    unrelated_write_count_during_window: int
+    relevant_write_count: NonNegativeInt
+    unrelated_write_count_during_window: NonNegativeInt
     raw_lag_windows: tuple[tuple[float, ...], ...]
     invalidation_apply_readings: tuple[PairedReading, ...]
 

@@ -39,7 +39,7 @@ from benchmarks.stream_cost.client import BenchmarkClientTopologyConfig, WireCom
 from benchmarks.stream_cost.errors import BenchmarkSetupError
 from benchmarks.stream_cost.proxy import DirectPathByteProxy, DirectPathProxyConfig
 from benchmarks.stream_cost.topology import IsolatedReplicaSet, ResourceLimits
-from client_query_cache._types import NonNegativeInt
+from client_query_cache._types import MaxAwaitTimeMs, NonNegativeInt
 from client_query_cache.asynchronous.manager import CacheManager as AsyncCacheManager
 from client_query_cache.synchronous.manager import CacheManager
 
@@ -76,7 +76,7 @@ async def _wait_for(
 
 
 async def _wait_for_command_count(
-    listener: AwaitCommandListener, count: int, seconds: float
+    listener: AwaitCommandListener, count: NonNegativeInt, seconds: float
 ) -> None:
     await _wait_for(lambda: len(listener.snapshot()) >= count, seconds, listener)
 
@@ -86,7 +86,10 @@ type _Manager = CacheManager[dict[str, object]] | AsyncCacheManager[dict[str, ob
 
 
 def _build_manager(
-    uri: str, model: ExecutionModel, candidate: int, listener: AwaitCommandListener
+    uri: str,
+    model: ExecutionModel,
+    candidate: MaxAwaitTimeMs,
+    listener: AwaitCommandListener,
 ) -> tuple[_Client, _Manager]:
     if model == "sync":
         client = MongoClient[dict[str, object]](
@@ -110,8 +113,8 @@ class WindowStart:
     wall_seconds: float  # Monotonic.
     process_cpu_seconds: float
     server_cpu_seconds: float
-    bytes_sent: int
-    bytes_received: int
+    bytes_sent: NonNegativeInt
+    bytes_received: NonNegativeInt
     command_offset: NonNegativeInt  # Zero-based offset into observed command metadata.
 
 
@@ -135,8 +138,8 @@ class WindowDeltas:
     elapsed: float
     cpu: float
     server: float
-    sent: int
-    received: int
+    sent: NonNegativeInt
+    received: NonNegativeInt
 
 
 def _capture_deltas(
@@ -158,7 +161,7 @@ async def _idle_start(
     replica: IsolatedReplicaSet,
     proxy: DirectPathByteProxy,
     listener: AwaitCommandListener,
-    candidate: int,
+    candidate: MaxAwaitTimeMs,
 ) -> WindowStart:
     captures: list[WindowStart] = []
     failures: list[BenchmarkSetupError] = []
@@ -192,8 +195,8 @@ async def run_window(
     replica: IsolatedReplicaSet,
     configuration: AwaitConfiguration,
     *,
-    block: int,
-    candidate: int,
+    block: NonNegativeInt,
+    candidate: MaxAwaitTimeMs,
     model: ExecutionModel,
     workload: AwaitWorkload,
 ) -> AwaitWindow:
@@ -351,13 +354,13 @@ async def run_shutdown(
     uri: str,
     configuration: AwaitConfiguration,
     *,
-    block: int,
-    candidate: int,
+    block: NonNegativeInt,
+    candidate: MaxAwaitTimeMs,
     model: ExecutionModel,
 ) -> AwaitWindow:
     durations: list[float] = []
     actual_offsets: list[float] = []
-    requested: list[int | None] = []
+    requested: list[NonNegativeInt | None] = []
     started_count = completed_count = failed_count = inflight_count = 0
     for trial, offset in enumerate(configuration["shutdown_trial_offsets_seconds"]):
         listener = AwaitCommandListener()
@@ -454,8 +457,8 @@ def _shutdown_worker(
     uri: str,
     configuration: AwaitConfiguration,
     *,
-    block: int,
-    candidate: int,
+    block: NonNegativeInt,
+    candidate: MaxAwaitTimeMs,
     model: ExecutionModel,
 ) -> None:
     with connection:
@@ -478,8 +481,8 @@ def run_bounded_shutdown(
     uri: str,
     configuration: AwaitConfiguration,
     *,
-    block: int,
-    candidate: int,
+    block: NonNegativeInt,
+    candidate: MaxAwaitTimeMs,
     model: ExecutionModel,
 ) -> AwaitWindow:
     context = multiprocessing.get_context("spawn")

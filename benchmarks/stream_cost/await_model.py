@@ -56,7 +56,7 @@ class AwaitConfiguration(TypedDict):
     schema_version: Literal[1]
     candidates_ms: NonEmpty[list[MaxAwaitTimeMs]]
     models: NonEmpty[list[ExecutionModel]]
-    block_orders: Annotated[list[NonEmpty[list[int]]], Len(6, 6)]
+    block_orders: Annotated[list[NonEmpty[list[MaxAwaitTimeMs]]], Len(6, 6)]
     model_orders: Annotated[list[NonEmpty[list[ExecutionModel]]], Len(6, 6)]
     warmup_seconds: PositiveFloat
     idle_minimum_seconds: PositiveFloat
@@ -84,25 +84,27 @@ class AwaitWindow:
     elapsed_seconds: PositiveFloat
     server_cpu_seconds: float | None  # Not measured during shutdown.
     client_cpu_seconds: float | None  # Not measured during shutdown.
-    bytes_sent: int | None  # Not measured during shutdown.
-    bytes_received: int | None  # Not measured during shutdown.
-    getmore_started: int
-    getmore_completed: int
-    requested_max_time_ms: tuple[int | None, ...]  # None means absent.
-    command_failures: int
-    manager_iteration_calls: int
+    bytes_sent: NonNegativeInt | None  # Not measured during shutdown.
+    bytes_received: NonNegativeInt | None  # Not measured during shutdown.
+    getmore_started: NonNegativeInt
+    getmore_completed: NonNegativeInt
+    requested_max_time_ms: tuple[NonNegativeInt | None, ...]  # None means absent.
+    command_failures: NonNegativeInt
+    manager_iteration_calls: NonNegativeInt
     issue_offsets_seconds: tuple[float, ...]
     lag_seconds: tuple[float, ...]
     shutdown_seconds: tuple[float, ...]
-    invalidations: int
+    invalidations: NonNegativeInt
     healthy: bool
     failure: NonEmptyStr | None  # Error category, or None for a completed window.
     shutdown_start_offsets_seconds: tuple[float, ...] = ()
     shutdown_inflight: tuple[bool, ...] = ()
-    getmore_inflight_at_start: int = 0
+    getmore_inflight_at_start: NonNegativeInt = 0
 
 
-type WindowIdentity = tuple[int, int, ExecutionModel, AwaitWorkload]
+type WindowIdentity = tuple[
+    NonNegativeInt, MaxAwaitTimeMs, ExecutionModel, AwaitWorkload
+]
 
 
 def planned_windows(configuration: AwaitConfiguration) -> tuple[WindowIdentity, ...]:

@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 
 from benchmarks.stream_cost.errors import BenchmarkSetupError
 from benchmarks.stream_cost.guard_decision import BLOCK_PAIRS
+from client_query_cache._types import PositiveInt
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -189,7 +190,7 @@ def measure_paired_case(
     case: str,
     profile: str,
     *,
-    block_pairs: int = BLOCK_PAIRS,
+    block_pairs: PositiveInt = BLOCK_PAIRS,
 ) -> PairedCaseMeasurement:
     if base_environment.python_version != head_environment.python_version:
         message = (

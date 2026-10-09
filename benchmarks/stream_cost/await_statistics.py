@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 from client_query_cache._types import (
     ExclusiveProbability,
+    NonNegativeInt,
     PositiveFloat,
     PositiveInt,
     Probability,
@@ -56,7 +57,7 @@ def weighted_quantile(
 
 def exact_block_draws(
     block_count: PositiveInt,
-) -> Iterator[tuple[tuple[int, ...], int]]:
+) -> Iterator[tuple[tuple[NonNegativeInt, ...], PositiveInt]]:
     for indices in combinations_with_replacement(range(block_count), block_count):
         multiplicities = Counter(indices)
         weight = math.factorial(block_count) // math.prod(
@@ -84,7 +85,7 @@ class BasicBootstrap:
 
 
 def exact_basic_bootstrap(
-    statistic: Callable[[tuple[int, ...]], float],
+    statistic: Callable[[tuple[NonNegativeInt, ...]], float],
     *,
     block_count: PositiveInt,
 ) -> BasicBootstrap:
@@ -99,7 +100,7 @@ def exact_basic_bootstrap(
 
 
 def exact_block_bootstrap(
-    statistic: Callable[[tuple[int, ...]], float],
+    statistic: Callable[[tuple[NonNegativeInt, ...]], float],
     *,
     block_count: PositiveInt,
     limit: PositiveFloat,  # Registered upper limit.

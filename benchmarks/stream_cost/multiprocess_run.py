@@ -179,7 +179,9 @@ def planned_cells() -> tuple[Cell, ...]:
     return tuple(cells)
 
 
-def partition_reads(protocol: Protocol, workers: int, worker: int) -> tuple[int, ...]:
+def partition_reads(
+    protocol: Protocol, workers: PositiveInt, worker: NonNegativeInt
+) -> tuple[NonNegativeInt, ...]:
     return tuple(range(worker, protocol.reads, workers))
 
 
@@ -187,7 +189,7 @@ def reads_for_path(path: PathKind, workload: Workload) -> bool:
     return workload == "active" and path in {"native", "native-control"}
 
 
-def capture_ordinals() -> tuple[tuple[int, ...], ...]:
+def capture_ordinals() -> tuple[tuple[NonNegativeInt, ...], ...]:
     capture = load_registration()["lag_capture"]
     stride = capture["events"] + capture["separation"]
     return tuple(
@@ -197,7 +199,9 @@ def capture_ordinals() -> tuple[tuple[int, ...], ...]:
 
 
 def validate_capture(
-    invalidations: int, windows: tuple[tuple[float, ...], ...], expected: int
+    invalidations: NonNegativeInt,
+    windows: tuple[tuple[float, ...], ...],
+    expected: NonNegativeInt,
 ) -> None:
     if invalidations != expected:
         message = f"received {invalidations}/{expected} invalidations"
@@ -214,7 +218,7 @@ class WireCommands(CommandListener):
     def __init__(self, collections: tuple[str, ...]) -> None:
         self._collections = frozenset(collections)
         self._lock = threading.Lock()
-        self._counts: dict[str, int] = {}
+        self._counts: dict[str, NonNegativeInt] = {}
         self.streams = 0
         self._event_wall_seconds: list[float] = []
         self._poll_seconds: list[float] = []
@@ -257,7 +261,7 @@ class WireCommands(CommandListener):
     def failed(self, event: CommandFailedEvent) -> None:
         self._record(event.command_name, "failed")
 
-    def snapshot(self) -> dict[str, int]:
+    def snapshot(self) -> dict[str, NonNegativeInt]:
         with self._lock:
             return self._counts.copy()
 
@@ -288,7 +292,7 @@ def idle_poll_max_gap(
 
 
 def command_delta(
-    before: Mapping[str, int], after: Mapping[str, int]
+    before: Mapping[str, NonNegativeInt], after: Mapping[str, NonNegativeInt]
 ) -> dict[str, int]:
     deltas: dict[str, int] = {}
     for key, count in after.items():
@@ -363,7 +367,11 @@ async def consume_stream(stream: Stream, observed: list[float]) -> None:
 
 
 async def worker_window(
-    connection: Connection, uri: str, cell: Cell, worker: int, protocol: Protocol
+    connection: Connection,
+    uri: str,
+    cell: Cell,
+    worker: NonNegativeInt,
+    protocol: Protocol,
 ) -> None:
     with proxy_for_uri(uri) as proxy:
         proxied = f"mongodb://127.0.0.1:{proxy.local_port}"
@@ -622,7 +630,11 @@ async def worker_window(
 
 
 def worker_main(
-    connection: Connection, uri: str, cell: Cell, worker: int, protocol: Protocol
+    connection: Connection,
+    uri: str,
+    cell: Cell,
+    worker: NonNegativeInt,
+    protocol: Protocol,
 ) -> None:
     try:
         asyncio.run(worker_window(connection, uri, cell, worker, protocol))
@@ -702,7 +714,7 @@ def seed_documents(
     padding = generator.randbytes(protocol.registration["payload_bytes"]).hex()[
         : protocol.registration["payload_bytes"]
     ]
-    encoded_sizes: list[int] = []
+    encoded_sizes: list[NonNegativeInt] = []
     for name in protocol.registration["collections"]:
         documents = tuple(
             {"_id": index, "value": 0, "padding": padding}
@@ -855,20 +867,24 @@ def run_cell(replica: IsolatedReplicaSet, cell: Cell, protocol: Protocol) -> Pay
                 "workers_measured": samples,
                 "summed_cache_budget_bytes": sum(
                     cast(
-                        "int", cast("Payload", sample["primed"])["shared_budget_bytes"]
+                        "PositiveInt",
+                        cast("Payload", sample["primed"])["shared_budget_bytes"],
                     )
                     for sample in samples
                 ),
                 "summed_primed_cache_bytes": sum(
-                    cast("int", cast("Payload", sample["primed"])["used_bytes"])
+                    cast(
+                        "NonNegativeInt",
+                        cast("Payload", sample["primed"])["used_bytes"],
+                    )
                     for sample in samples
                 ),
                 "summed_worker_uss_bytes": sum(
-                    cast("int", sample["uss_bytes"]) for sample in samples
+                    cast("NonNegativeInt", sample["uss_bytes"]) for sample in samples
                 ),
                 "ready": ready,
                 "actual_streams": sum(
-                    cast("int", sample["streams"]) for sample in samples
+                    cast("NonNegativeInt", sample["streams"]) for sample in samples
                 ),
                 "write_offsets_seconds": write_offsets,
                 "clock_offset_seconds": calibration.initial.offset_seconds,

@@ -19,6 +19,7 @@ from benchmarks.stream_cost.errors import (
     BenchmarkConfigurationError,
     BenchmarkSetupError,
 )
+from client_query_cache._types import NonNegativeInt
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -271,7 +272,7 @@ class IsolatedReplicaSet:
         return usage_nanoseconds / _NANOSECONDS_PER_SECOND
 
     @staticmethod
-    def _parse_cpu_usage_nanoseconds(stats: object) -> int:
+    def _parse_cpu_usage_nanoseconds(stats: object) -> NonNegativeInt:
         if not isinstance(stats, dict):
             message = "stats(stream=False) unexpectedly returned an iterator"
             raise TypeError(message)

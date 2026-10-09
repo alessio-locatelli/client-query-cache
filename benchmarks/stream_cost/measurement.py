@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from benchmarks.stream_cost.errors import BenchmarkSetupError
+from client_query_cache._types import NonNegativeInt
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -27,8 +28,8 @@ class ControlledMeasurement:
     wall_seconds: float
     process_cpu_seconds: float
     container_cpu_seconds: float
-    direct_path_bytes_sent: int | None
-    direct_path_bytes_received: int | None
+    direct_path_bytes_sent: NonNegativeInt | None
+    direct_path_bytes_received: NonNegativeInt | None
 
 
 @dataclass(frozen=True, slots=True)
