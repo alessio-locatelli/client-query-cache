@@ -56,6 +56,11 @@ For cached workers, the report SHALL also include the time until stream health a
 - **WHEN** cached workers record stream-unavailable bypasses after a stepdown
 - **THEN** the report shows those counts by reason and the time until hits resume, without dividing them by requests
 
+#### Scenario: A killed worker never returns
+
+- **WHEN** a worker-restart trial's replacement never becomes ready while the surviving workers serve their own requests normally
+- **THEN** the trial is reported as not recovered, because each bucket completes too few of its scheduled requests
+
 #### Scenario: Recovery comes after the registered deadline
 
 - **WHEN** a trial meets the recovery criterion only after the registered deadline, or never meets it
@@ -104,7 +109,12 @@ A trial SHALL be a failed setup when, before injection, it observes a failed com
 
 ### Requirement: Fault trials record harness write outcomes
 
-Each harness write in a fault trial SHALL be recorded as acknowledged, failed with its error class, or of unknown outcome when it fails after it may have reached the server. Expected invalidations SHALL be bounded by acknowledged writes below and by acknowledged plus unknown-outcome writes above. A failed write SHALL NOT, by itself, make a trial a failed setup.
+Each harness write in a fault trial SHALL be recorded as acknowledged, failed with its error class, or of unknown outcome when it fails after it may have reached the server. A cached worker's expected invalidations SHALL be bounded below by the acknowledged writes committed after its current stream lifetime began. They SHALL be bounded above by adding acknowledged writes whose commit time can't be ordered against the opening, and every unknown-outcome write in the window. A failed write SHALL NOT, by itself, make a trial a failed setup.
+
+#### Scenario: A replacement worker starts after earlier writes
+
+- **WHEN** a replacement worker's stream opens after acknowledged writes were committed
+- **THEN** those earlier writes are excluded from its expected invalidations, and only writes committed after its stream opened are required
 
 #### Scenario: A write fails during failover
 
