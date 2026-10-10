@@ -17,7 +17,7 @@ from client_query_cache._core.codec import decode_value, encode_value
 from client_query_cache._core.cursor_capture import CursorCapture
 from client_query_cache._core.entries import AdmissionOutcome
 from client_query_cache._core.manager import CacheCore, CacheCoreConfig
-from client_query_cache._types import PositiveInt
+from client_query_cache._types import BsonDict, PositiveInt
 from tests.codec_helpers import (
     Decimal128ToDecimalDecoder,
     decode_only_decimal_options,
@@ -233,7 +233,7 @@ def test_capture_keeps_existing_admission_guards(
 def test_finalization_matches_ordinary_cache_codec_round_trip(
     core: CacheCore, namespace: NamespaceId, options: CodecOptions[Mapping[str, Any]]
 ) -> None:
-    document: dict[str, Any] = {"z": Decimal128("1.25"), "a": {"second": 2, "first": 1}}
+    document: BsonDict = {"z": Decimal128("1.25"), "a": {"second": 2, "first": 1}}
     if options.uuid_representation == UuidRepresentation.STANDARD:
         document["uuid"] = UUID("12345678-1234-5678-1234-567812345678")
     decoded = bson.decode(

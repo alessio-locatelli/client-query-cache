@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 import pytest
 
@@ -22,7 +22,12 @@ from benchmarks.stream_cost.errors import BenchmarkSetupError
 from benchmarks.stream_cost.pair_runner import run_consolidated_stream_pair
 from client_query_cache._core.manager import CacheCoreConfig
 from client_query_cache._core.stream_cost import LagCaptureWindowConfig
-from client_query_cache._types import NonNegativeFloat, NonNegativeInt, PositiveFloat
+from client_query_cache._types import (
+    BsonDict,
+    NonNegativeFloat,
+    NonNegativeInt,
+    PositiveFloat,
+)
 from client_query_cache.synchronous.manager import CacheManager
 
 if TYPE_CHECKING:
@@ -45,7 +50,7 @@ _TOPOLOGY_CONFIG = BenchmarkClientTopologyConfig(
 @pytest.fixture
 def dedicated_client_and_listener(
     mongodb_uri: MongoDbUri,
-) -> Iterator[tuple[MongoClient[dict[str, Any]], TopologyChangeListener]]:
+) -> Iterator[tuple[MongoClient[BsonDict], TopologyChangeListener]]:
     listener = TopologyChangeListener()
     client = build_dedicated_client(
         mongodb_uri, _TOPOLOGY_CONFIG, event_listeners=[listener]
@@ -56,9 +61,7 @@ def dedicated_client_and_listener(
 
 @pytest.fixture
 def database(
-    dedicated_client_and_listener: tuple[
-        MongoClient[dict[str, Any]], TopologyChangeListener
-    ],
+    dedicated_client_and_listener: tuple[MongoClient[BsonDict], TopologyChangeListener],
 ) -> Iterator[str]:
     client, _listener = dedicated_client_and_listener
     name = f"test_{uuid.uuid4().hex}"
@@ -68,16 +71,14 @@ def database(
 
 @pytest.fixture
 def cache_manager_factory(
-    dedicated_client_and_listener: tuple[
-        MongoClient[dict[str, Any]], TopologyChangeListener
-    ],
+    dedicated_client_and_listener: tuple[MongoClient[BsonDict], TopologyChangeListener],
     request: pytest.FixtureRequest,
-) -> Callable[[CacheCoreConfig | None], CacheManager[dict[str, Any]]]:
+) -> Callable[[CacheCoreConfig | None], CacheManager[BsonDict]]:
     client, _listener = dedicated_client_and_listener
 
     def create_cache_manager(
         cache_config: CacheCoreConfig | None = None,
-    ) -> CacheManager[dict[str, Any]]:
+    ) -> CacheManager[BsonDict]:
         manager = CacheManager(client, cache_config=cache_config)
         request.addfinalizer(manager.close)
         return manager
@@ -86,9 +87,7 @@ def cache_manager_factory(
 
 
 def test_run_consolidated_stream_pair_produces_a_lag_distribution_per_run(
-    dedicated_client_and_listener: tuple[
-        MongoClient[dict[str, Any]], TopologyChangeListener
-    ],
+    dedicated_client_and_listener: tuple[MongoClient[BsonDict], TopologyChangeListener],
     database: str,
 ) -> None:
     client, listener = dedicated_client_and_listener
@@ -138,9 +137,7 @@ def test_run_consolidated_stream_pair_produces_a_lag_distribution_per_run(
 
 
 def test_run_consolidated_stream_pair_rejects_a_run_with_too_few_lag_samples(
-    dedicated_client_and_listener: tuple[
-        MongoClient[dict[str, Any]], TopologyChangeListener
-    ],
+    dedicated_client_and_listener: tuple[MongoClient[BsonDict], TopologyChangeListener],
     database: str,
 ) -> None:
     client, listener = dedicated_client_and_listener
@@ -174,9 +171,7 @@ def test_run_consolidated_stream_pair_rejects_a_run_with_too_few_lag_samples(
 
 
 def test_run_consolidated_stream_pair_rejects_a_run_with_too_few_windows(
-    dedicated_client_and_listener: tuple[
-        MongoClient[dict[str, Any]], TopologyChangeListener
-    ],
+    dedicated_client_and_listener: tuple[MongoClient[BsonDict], TopologyChangeListener],
     database: str,
 ) -> None:
     client, listener = dedicated_client_and_listener
@@ -218,9 +213,7 @@ def test_run_consolidated_stream_pair_rejects_a_run_with_too_few_windows(
 def test_execute_run_reports_observed_invalidations_not_the_schedule_length(
     monkeypatch: pytest.MonkeyPatch,
     database: str,
-    cache_manager_factory: Callable[
-        [CacheCoreConfig | None], CacheManager[dict[str, Any]]
-    ],
+    cache_manager_factory: Callable[[CacheCoreConfig | None], CacheManager[BsonDict]],
 ) -> None:
     cache_config = CacheCoreConfig(
         lag_capture_window_config=LagCaptureWindowConfig(
@@ -293,9 +286,7 @@ class _RecordingUnrelatedWriteWorkload:
 def test_execute_run_stops_the_unrelated_writer_when_replay_fails(
     monkeypatch: pytest.MonkeyPatch,
     database: str,
-    cache_manager_factory: Callable[
-        [CacheCoreConfig | None], CacheManager[dict[str, Any]]
-    ],
+    cache_manager_factory: Callable[[CacheCoreConfig | None], CacheManager[BsonDict]],
 ) -> None:
     manager = cache_manager_factory(None)
 

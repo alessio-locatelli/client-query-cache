@@ -32,6 +32,7 @@ from client_query_cache._core.find_reads import find_read_shape
 from client_query_cache._core.order_sensitive_keys import (
     order_sensitive_discriminator_key,
 )
+from client_query_cache._types import BsonDict
 from tests.codec_helpers import Decimal128ToDecimalDecoder
 
 if TYPE_CHECKING:
@@ -145,7 +146,7 @@ def test_unportable_keys_are_rejected(value: object) -> None:
         pytest.param({"t": "unknown", "p": 1}, id="node"),
     ],
 )
-def test_malformed_canonical_nodes_are_protocol_errors(node: dict[str, object]) -> None:
+def test_malformed_canonical_nodes_are_protocol_errors(node: BsonDict) -> None:
     with pytest.raises(ProtocolError):
         from_wire(node)
 

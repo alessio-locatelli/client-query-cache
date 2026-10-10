@@ -11,7 +11,7 @@ from pymongo.errors import ConnectionFailure, OperationFailure
 
 from client_query_cache._core.keys import NamespaceId
 from client_query_cache._core.manager import CacheCore, CacheCoreConfig
-from client_query_cache._types import PositiveFloat
+from client_query_cache._types import BsonDict, PositiveFloat
 from client_query_cache.asynchronous.streams import DatabaseStreamSupervisor
 from tests.stream_helpers import (
     SINGLE_EVENT_LAG_WINDOW,
@@ -32,8 +32,8 @@ pytestmark = pytest.mark.integration
 @pytest.fixture
 async def independent_writer(
     mongodb_uri: MongoDbUri,
-) -> AsyncIterator[AsyncMongoClient[dict[str, Any]]]:
-    async with AsyncMongoClient[dict[str, Any]](mongodb_uri) as client:
+) -> AsyncIterator[AsyncMongoClient[BsonDict]]:
+    async with AsyncMongoClient[BsonDict](mongodb_uri) as client:
         yield client
 
 
@@ -47,8 +47,8 @@ async def independent_writer(
 )
 async def wall_time_client(
     mongodb_uri: MongoDbUri, request: pytest.FixtureRequest
-) -> AsyncIterator[AsyncMongoClient[dict[str, Any]]]:
-    async with AsyncMongoClient[dict[str, Any]](mongodb_uri, **request.param) as client:
+) -> AsyncIterator[AsyncMongoClient[BsonDict]]:
+    async with AsyncMongoClient[BsonDict](mongodb_uri, **request.param) as client:
         yield client
 
 
@@ -85,8 +85,8 @@ async def _wait_until(
 
 
 async def test_update_invalidates_the_cached_document(
-    raw_mongo_client: AsyncMongoClient[dict[str, Any]],
-    independent_writer: AsyncMongoClient[dict[str, Any]],
+    raw_mongo_client: AsyncMongoClient[BsonDict],
+    independent_writer: AsyncMongoClient[BsonDict],
     cached_database_name: DatabaseName,
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
     faker: Faker,
@@ -116,8 +116,8 @@ async def test_update_invalidates_the_cached_document(
 
 
 async def test_configured_wall_time_stream_records_invalidation_lag(
-    wall_time_client: AsyncMongoClient[dict[str, Any]],
-    independent_writer: AsyncMongoClient[dict[str, Any]],
+    wall_time_client: AsyncMongoClient[BsonDict],
+    independent_writer: AsyncMongoClient[BsonDict],
     cached_database_name: DatabaseName,
     persistent_collection_name: CollectionName,
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
@@ -156,8 +156,8 @@ async def test_configured_wall_time_stream_records_invalidation_lag(
 
 
 async def test_delete_invalidates_the_cached_document(
-    raw_mongo_client: AsyncMongoClient[dict[str, Any]],
-    independent_writer: AsyncMongoClient[dict[str, Any]],
+    raw_mongo_client: AsyncMongoClient[BsonDict],
+    independent_writer: AsyncMongoClient[BsonDict],
     cached_database_name: DatabaseName,
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
     faker: Faker,
@@ -186,8 +186,8 @@ async def test_delete_invalidates_the_cached_document(
 
 
 async def test_drop_clears_the_namespace(
-    raw_mongo_client: AsyncMongoClient[dict[str, Any]],
-    independent_writer: AsyncMongoClient[dict[str, Any]],
+    raw_mongo_client: AsyncMongoClient[BsonDict],
+    independent_writer: AsyncMongoClient[BsonDict],
     cached_database_name: DatabaseName,
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
     faker: Faker,
@@ -214,8 +214,8 @@ async def test_drop_clears_the_namespace(
 
 
 async def test_rename_clears_source_and_destination_namespaces(
-    raw_mongo_client: AsyncMongoClient[dict[str, Any]],
-    independent_writer: AsyncMongoClient[dict[str, Any]],
+    raw_mongo_client: AsyncMongoClient[BsonDict],
+    independent_writer: AsyncMongoClient[BsonDict],
     cached_database_name: DatabaseName,
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
     faker: Faker,
@@ -244,8 +244,8 @@ async def test_rename_clears_source_and_destination_namespaces(
 
 
 async def test_drop_database_clears_the_cache_and_the_stream_recovers(
-    raw_mongo_client: AsyncMongoClient[dict[str, Any]],
-    independent_writer: AsyncMongoClient[dict[str, Any]],
+    raw_mongo_client: AsyncMongoClient[BsonDict],
+    independent_writer: AsyncMongoClient[BsonDict],
     cached_database_name: DatabaseName,
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
     faker: Faker,
@@ -300,7 +300,7 @@ class _NextFailsOnceStream:
         self._real_stream = real_stream
         self._error = error
 
-    async def next(self) -> dict[str, object]:
+    async def next(self) -> BsonDict:
         raise self._error
 
     async def close(self) -> None:
@@ -308,8 +308,8 @@ class _NextFailsOnceStream:
 
 
 async def test_recovers_from_a_resumable_disconnection(
-    raw_mongo_client: AsyncMongoClient[dict[str, Any]],
-    independent_writer: AsyncMongoClient[dict[str, Any]],
+    raw_mongo_client: AsyncMongoClient[BsonDict],
+    independent_writer: AsyncMongoClient[BsonDict],
     cached_database_name: DatabaseName,
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
     faker: Faker,
@@ -360,8 +360,8 @@ async def test_recovers_from_a_resumable_disconnection(
 
 
 async def test_clears_the_cache_when_resume_history_is_lost(
-    raw_mongo_client: AsyncMongoClient[dict[str, Any]],
-    independent_writer: AsyncMongoClient[dict[str, Any]],
+    raw_mongo_client: AsyncMongoClient[BsonDict],
+    independent_writer: AsyncMongoClient[BsonDict],
     cached_database_name: DatabaseName,
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
     faker: Faker,
@@ -428,8 +428,8 @@ class _PausingStream:
         self._fetched_event = fetched_event
         self._release_event = release_event
 
-    async def next(self) -> dict[str, object]:
-        event: dict[str, object] = await self._real_stream.next()  # type: ignore[attr-defined]
+    async def next(self) -> BsonDict:
+        event: BsonDict = await self._real_stream.next()  # type: ignore[attr-defined]
         self._fetched_event.set()
         await self._release_event.wait()
         return event
@@ -443,8 +443,8 @@ class _PausingStream:
 
 
 async def test_a_cache_hit_concurrent_with_event_delivery_may_be_stale_but_not_after(
-    raw_mongo_client: AsyncMongoClient[dict[str, Any]],
-    independent_writer: AsyncMongoClient[dict[str, Any]],
+    raw_mongo_client: AsyncMongoClient[BsonDict],
+    independent_writer: AsyncMongoClient[BsonDict],
     cached_database_name: DatabaseName,
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
     faker: Faker,

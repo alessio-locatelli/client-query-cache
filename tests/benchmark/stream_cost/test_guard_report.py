@@ -18,7 +18,7 @@ from benchmarks.stream_cost.guard_runner import (
     PairedCaseMeasurement,
     RevisionEnvironment,
 )
-from client_query_cache._types import NonNegativeFloat
+from client_query_cache._types import JsonDict, NonNegativeFloat
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -100,7 +100,7 @@ def test_measure_and_evaluate_case_reports_measurement_error(
     assert report.head_seconds is None
     assert "do not match" in report.reason
     payload = report_to_json(build_guard_report("base-sha", "head-sha", (report,)))
-    cases = cast("list[dict[str, object]]", payload["cases"])
+    cases = cast("list[JsonDict]", payload["cases"])
     assert cases[0]["base_seconds"] is None
     assert cases[0]["head_seconds"] is None
 
@@ -154,7 +154,7 @@ def test_report_to_json_and_summary_omit_documents_and_credentials(
     assert payload["passed"] is True
     assert "mongodb://unused" not in str(payload)
     assert "mongodb://unused" not in summary
-    cases = cast("list[dict[str, object]]", payload["cases"])
+    cases = cast("list[JsonDict]", payload["cases"])
     assert set(cases[0]) == {
         "case",
         "profile",

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 from unittest.mock import patch
 
 import pytest
@@ -21,6 +21,7 @@ from client_query_cache._core.manager import CacheCore, CacheCoreConfig
 from client_query_cache._core.order_sensitive_keys import (
     order_sensitive_discriminator_key,
 )
+from client_query_cache._types import BsonDict
 from client_query_cache.synchronous.manager import CacheManager
 from tests.polling import wait_until as _wait_until
 
@@ -44,15 +45,15 @@ def _available_once_then_unavailable() -> Iterator[bool]:
 @pytest.fixture
 def independent_writer(
     mongodb_uri: MongoDbUri,
-) -> Iterator[MongoClient[dict[str, Any]]]:
-    with MongoClient[dict[str, Any]](mongodb_uri) as client:
+) -> Iterator[MongoClient[BsonDict]]:
+    with MongoClient[BsonDict](mongodb_uri) as client:
         yield client
 
 
 @pytest.fixture
 def tight_budget_cache_manager(
-    raw_mongo_client: MongoClient[dict[str, Any]],
-) -> Iterator[CacheManager[dict[str, Any]]]:
+    raw_mongo_client: MongoClient[BsonDict],
+) -> Iterator[CacheManager[BsonDict]]:
     manager = CacheManager(
         raw_mongo_client,
         cache_config=CacheCoreConfig(shared_budget_bytes=800, max_entry_bytes=200),
@@ -72,14 +73,18 @@ def tight_budget_cache_manager(
     ],
 )
 def test_unique_key_read_is_cached_after_the_first_lookup(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
     seed_document: bool,
     faker: Faker,
 ) -> None:
     email = faker.email()
-    document = {"_id": faker.uuid4(), "email": email, "name": faker.first_name()}
+    document: BsonDict = {
+        "_id": faker.uuid4(),
+        "email": email,
+        "name": faker.first_name(),
+    }
     expected = document if seed_document else None
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
     collection.raw.create_index("email", unique=True)
@@ -105,7 +110,7 @@ def test_unique_key_read_is_cached_after_the_first_lookup(
 
 @pytest.mark.parametrize("unique_index_on_other_field", [False, True])
 def test_cold_read_without_a_unique_key_match_records_one_miss(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
     *,
@@ -113,7 +118,7 @@ def test_cold_read_without_a_unique_key_match_records_one_miss(
     faker: Faker,
 ) -> None:
     name = faker.first_name()
-    document = {"_id": faker.uuid4(), "email": faker.email(), "name": name}
+    document: BsonDict = {"_id": faker.uuid4(), "email": faker.email(), "name": name}
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
     if unique_index_on_other_field:
         collection.raw.create_index("email", unique=True)
@@ -152,17 +157,21 @@ def test_cold_read_without_a_unique_key_match_records_one_miss(
     ],
 )
 def test_partial_sparse_or_hashed_indexes_use_generic_caching(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
-    create_excluded_index: Callable[[Collection[dict[str, Any]]], object],
+    create_excluded_index: Callable[[Collection[BsonDict]], object],
     faker: Faker,
 ) -> None:
     document_id = faker.uuid4()
     email = faker.email()
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
     create_excluded_index(collection.raw)
-    document = {"_id": document_id, "email": email, "name": faker.first_name()}
+    document: BsonDict = {
+        "_id": document_id,
+        "email": email,
+        "name": faker.first_name(),
+    }
     collection.raw.insert_one(document)
 
     with patch.object(
@@ -177,7 +186,7 @@ def test_partial_sparse_or_hashed_indexes_use_generic_caching(
 
 
 def test_a_read_collation_not_matching_the_index_is_not_used(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
     faker: Faker,
@@ -188,7 +197,11 @@ def test_a_read_collation_not_matching_the_index_is_not_used(
     collection.raw.create_index(
         "email", unique=True, collation={"locale": "en", "strength": 2}
     )
-    document = {"_id": document_id, "email": email, "name": faker.first_name()}
+    document: BsonDict = {
+        "_id": document_id,
+        "email": email,
+        "name": faker.first_name(),
+    }
     collection.raw.insert_one(document)
 
     with patch.object(
@@ -214,7 +227,7 @@ def test_a_read_collation_not_matching_the_index_is_not_used(
     ids=["inherited", "full-mapping", "full-object", "short-explicit", "mismatch"],
 )
 def test_unique_key_collation_matching_requires_confirmed_equivalence(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     persistent_collection_name: CollectionName,
     faker: Faker,
@@ -229,7 +242,7 @@ def test_unique_key_collation_matching_requires_confirmed_equivalence(
     collection = database[persistent_collection_name]
     collection.raw.create_index("email", unique=True)
     email = faker.email()
-    document = {"_id": faker.uuid4(), "email": email}
+    document: BsonDict = {"_id": faker.uuid4(), "email": email}
     collection.raw.insert_one(document)
     index_specs = list(collection.raw.list_indexes())
     index_collation = next(
@@ -268,7 +281,7 @@ def test_unique_key_collation_matching_requires_confirmed_equivalence(
 
 
 def test_discovery_is_shared_across_handles_from_the_same_manager(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
     faker: Faker,
@@ -297,15 +310,15 @@ def test_discovery_is_shared_across_handles_from_the_same_manager(
 
 
 def test_an_index_created_on_a_live_collection_is_detected_and_used(
-    cache_manager: CacheManager[dict[str, Any]],
-    independent_writer: MongoClient[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
+    independent_writer: MongoClient[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
     faker: Faker,
 ) -> None:
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
     email = faker.email()
-    document = {"_id": faker.uuid4(), "email": email}
+    document: BsonDict = {"_id": faker.uuid4(), "email": email}
     collection.raw.insert_one(document)
     assert collection.find_one({"email": email}) == document
     writer = independent_writer[cached_database_name][nonpersistent_collection_name]
@@ -334,7 +347,7 @@ def test_an_index_created_on_a_live_collection_is_detected_and_used(
 
 
 def test_an_inclusion_projection_excluding_id_resolves_without_leaking_id(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
     faker: Faker,
@@ -358,7 +371,7 @@ def test_an_inclusion_projection_excluding_id_resolves_without_leaking_id(
 
 
 def test_an_exclusion_projection_excluding_id_avoids_an_invalid_projection(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
     faker: Faker,
@@ -385,8 +398,8 @@ def test_an_exclusion_projection_excluding_id_avoids_an_invalid_projection(
 
 
 def test_an_independent_write_invalidates_a_resolved_unique_key_read(
-    cache_manager: CacheManager[dict[str, Any]],
-    independent_writer: MongoClient[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
+    independent_writer: MongoClient[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
     faker: Faker,
@@ -413,8 +426,8 @@ def test_an_independent_write_invalidates_a_resolved_unique_key_read(
 
 
 def test_an_independent_write_invalidates_an_unresolved_negative_unique_key_read(
-    cache_manager: CacheManager[dict[str, Any]],
-    independent_writer: MongoClient[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
+    independent_writer: MongoClient[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
     faker: Faker,
@@ -433,8 +446,8 @@ def test_an_independent_write_invalidates_an_unresolved_negative_unique_key_read
 
 
 def test_a_key_field_change_is_not_masked_by_a_stale_resolved_identity(
-    cache_manager: CacheManager[dict[str, Any]],
-    independent_writer: MongoClient[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
+    independent_writer: MongoClient[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
     faker: Faker,
@@ -464,8 +477,8 @@ def test_a_key_field_change_is_not_masked_by_a_stale_resolved_identity(
 
 
 def test_a_drop_and_recreate_reusing_the_same_id_does_not_leak_the_old_document(
-    cache_manager: CacheManager[dict[str, Any]],
-    independent_writer: MongoClient[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
+    independent_writer: MongoClient[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
     faker: Faker,
@@ -495,8 +508,8 @@ def test_a_drop_and_recreate_reusing_the_same_id_does_not_leak_the_old_document(
 
 
 def _evict_identity_entry_via_filler_pressure(
-    cache_manager: CacheManager[dict[str, Any]],
-    collection: CachedCollection[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
+    collection: CachedCollection[BsonDict],
     namespace: NamespaceId,
     identity_key: IdentityCacheKey,
 ) -> None:
@@ -528,7 +541,7 @@ def _evict_identity_entry_via_filler_pressure(
 
 
 def test_a_still_accurate_resolved_alias_refreshes_with_a_single_round_trip(
-    tight_budget_cache_manager: CacheManager[dict[str, Any]],
+    tight_budget_cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
     faker: Faker,
@@ -576,7 +589,7 @@ def test_a_still_accurate_resolved_alias_refreshes_with_a_single_round_trip(
 
 
 def test_a_resolved_alias_with_no_remaining_match_discards_the_alias(
-    tight_budget_cache_manager: CacheManager[dict[str, Any]],
+    tight_budget_cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
     faker: Faker,
@@ -633,7 +646,7 @@ def test_a_resolved_alias_with_no_remaining_match_discards_the_alias(
 
 
 def test_a_revalidated_positive_match_overwrites_a_stale_namespace_entry(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
     faker: Faker,
@@ -670,7 +683,7 @@ def test_a_revalidated_positive_match_overwrites_a_stale_namespace_entry(
 
 
 def test_an_uncanonicalizable_revalidated_identity_discards_the_stale_alias(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
     faker: Faker,
@@ -710,7 +723,7 @@ def test_an_uncanonicalizable_revalidated_identity_discards_the_stale_alias(
 
 
 def test_a_resolved_unique_key_read_rechecks_availability_before_forcing_read_options(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
     faker: Faker,
@@ -751,7 +764,7 @@ def test_a_resolved_unique_key_read_rechecks_availability_before_forcing_read_op
     ],
 )
 def test_unique_key_match_skips_admission_for_an_uncacheable_identity(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
     *,
@@ -760,7 +773,11 @@ def test_unique_key_match_skips_admission_for_an_uncacheable_identity(
     faker: Faker,
 ) -> None:
     email = faker.email()
-    document = {"_id": faker.uuid4() if seed_document else None, "email": email, "v": 1}
+    document: BsonDict = {
+        "_id": faker.uuid4() if seed_document else None,
+        "email": email,
+        "v": 1,
+    }
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
     collection.raw.create_index("email", unique=True)
     collection.raw.insert_one(document)
@@ -792,7 +809,7 @@ def test_unique_key_match_skips_admission_for_an_uncacheable_identity(
     ],
 )
 def test_generic_read_caches_when_index_inspection_fails(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
     caplog: pytest.LogCaptureFixture,
@@ -804,7 +821,11 @@ def test_generic_read_caches_when_index_inspection_fails(
     email = faker.email()
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
     collection.raw.create_index("email", unique=True)
-    document = {"_id": document_id, "email": email, "name": faker.first_name()}
+    document: BsonDict = {
+        "_id": document_id,
+        "email": email,
+        "name": faker.first_name(),
+    }
     collection.raw.insert_one(document)
 
     with (
@@ -840,7 +861,7 @@ def test_generic_read_caches_when_index_inspection_fails(
     ],
 )
 def test_index_inspection_failure_is_not_memoized_as_a_permanent_absence(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
     probe_error: Exception,
@@ -850,7 +871,11 @@ def test_index_inspection_failure_is_not_memoized_as_a_permanent_absence(
     email = faker.email()
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
     collection.raw.create_index("email", unique=True)
-    document = {"_id": document_id, "email": email, "name": faker.first_name()}
+    document: BsonDict = {
+        "_id": document_id,
+        "email": email,
+        "name": faker.first_name(),
+    }
     collection.raw.insert_one(document)
 
     with patch.object(Collection, "list_indexes", side_effect=probe_error):

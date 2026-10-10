@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 import pytest
@@ -22,6 +22,7 @@ from benchmarks.stream_cost.generators import SMALL_DOCUMENT_PROFILE
 from benchmarks.stream_cost.proxy import DirectPathByteProxy, DirectPathProxyConfig
 from benchmarks.stream_cost.topology import IsolatedReplicaSet, ResourceLimits
 from benchmarks.stream_cost.workload import OperationCounts, WorkloadKind
+from client_query_cache._types import BsonDict
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -79,7 +80,7 @@ def compression_proxy(
 @pytest.fixture
 def admin_client(
     compression_replica_set: IsolatedReplicaSet,
-) -> Iterator[MongoClient[dict[str, Any]]]:
+) -> Iterator[MongoClient[BsonDict]]:
     topology = BenchmarkClientTopologyConfig(
         tls_enabled=False,
         compressor=WireCompressor.NONE,
@@ -92,7 +93,7 @@ def admin_client(
 
 def _client_for_mode(
     proxy: DirectPathByteProxy, mode: WireCompressor
-) -> MongoClient[dict[str, Any]]:
+) -> MongoClient[BsonDict]:
     uri = f"mongodb://127.0.0.1:{proxy.local_port}/?directConnection=true"
     topology = BenchmarkClientTopologyConfig(
         tls_enabled=False,
@@ -116,7 +117,7 @@ def _client_for_mode(
 def test_run_compression_mode_block_produces_finite_values(
     compression_replica_set: IsolatedReplicaSet,
     compression_proxy: DirectPathByteProxy,
-    admin_client: MongoClient[dict[str, Any]],
+    admin_client: MongoClient[BsonDict],
     mode: WireCompressor,
 ) -> None:
     with _client_for_mode(compression_proxy, mode) as client:

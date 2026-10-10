@@ -13,7 +13,7 @@ from benchmarks.stream_cost.oversized_result import (
     time_encoder_invocations,
 )
 from client_query_cache._core.codec import encode_value
-from client_query_cache._types import NonNegativeInt, PositiveInt
+from client_query_cache._types import BsonDict, NonNegativeInt, PositiveInt
 
 pytestmark = pytest.mark.unit
 
@@ -23,7 +23,7 @@ _MAX_ENTRY_BYTES = 1_000
 
 def _padded_documents(
     count: PositiveInt, *, padding_bytes: NonNegativeInt = _PADDING_BYTES
-) -> list[dict[str, object]]:
+) -> list[BsonDict]:
     return [{"_id": index, "padding": "x" * padding_bytes} for index in range(count)]
 
 
@@ -62,7 +62,7 @@ def test_find_crossover_prefix_length_rejects_a_result_that_already_fits() -> No
     ],
 )
 def test_find_crossover_prefix_length_rejects_an_oversized_document(
-    documents: list[dict[str, object]],
+    documents: list[BsonDict],
 ) -> None:
     with pytest.raises(BenchmarkConfigurationError, match="individually exceed"):
         find_crossover_prefix_length(documents, max_entry_bytes=_MAX_ENTRY_BYTES)

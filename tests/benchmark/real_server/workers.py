@@ -7,7 +7,12 @@ from typing import TYPE_CHECKING, Any
 from pymongo import MongoClient, ReadPreference
 from pymongo.monitoring import CommandListener
 
-from client_query_cache._types import NonNegativeFloat, NonNegativeInt, PositiveFloat
+from client_query_cache._types import (
+    BsonDict,
+    NonNegativeFloat,
+    NonNegativeInt,
+    PositiveFloat,
+)
 from client_query_cache.synchronous.manager import CacheManager
 
 if TYPE_CHECKING:
@@ -35,8 +40,8 @@ class ReadPhaseResult:
 
 def _bounded_mongo_client(
     uri: str, *, event_listeners: Sequence[CommandListener] = ()
-) -> MongoClient[dict[str, Any]]:
-    return MongoClient[dict[str, Any]](
+) -> MongoClient[BsonDict]:
+    return MongoClient[BsonDict](
         uri,
         connectTimeoutMS=_CONNECT_TIMEOUT_MS,
         serverSelectionTimeoutMS=_SERVER_SELECTION_TIMEOUT_MS,
@@ -77,7 +82,7 @@ class _FindCommandCounter(CommandListener):
 
 def write_documents_until_stopped(
     uri: str,
-    seed_documents: Sequence[dict[str, Any]],
+    seed_documents: Sequence[BsonDict],
     document_ids: Sequence[str],
     *,
     update_interval_seconds: PositiveFloat,
@@ -110,12 +115,22 @@ def _read_each_document(collection: Any, document_ids: Sequence[str]) -> int:  #
     return max_counter
 
 
-def _counter_or_default(document: dict[str, Any]) -> int:
+def _counter_or_default(document: BsonDict) -> int:
     try:
-        counter: NonNegativeInt = document["counter"]
+        counter = document["counter"]
     except KeyError:
         return -1
+    assert isinstance(counter, int)
     return counter
+
+
+def seed_document_ids(seed_documents: Sequence[BsonDict]) -> list[str]:
+    document_ids: list[str] = []
+    for document in seed_documents:
+        document_id = document["_id"]
+        assert isinstance(document_id, str)
+        document_ids.append(document_id)
+    return document_ids
 
 
 def _timed_read_cycles(

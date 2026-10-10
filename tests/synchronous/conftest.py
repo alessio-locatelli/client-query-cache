@@ -1,9 +1,10 @@
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import pytest
 from pymongo import MongoClient
 
+from client_query_cache._types import BsonDict
 from client_query_cache.synchronous.manager import CacheManager
 
 if TYPE_CHECKING:
@@ -17,15 +18,15 @@ logger = logging.getLogger(__name__)
 @pytest.fixture
 def raw_mongo_client(
     mongodb_uri: MongoDbUri,
-) -> Iterator[MongoClient[dict[str, Any]]]:
-    with MongoClient[dict[str, Any]](mongodb_uri) as client:
+) -> Iterator[MongoClient[BsonDict]]:
+    with MongoClient[BsonDict](mongodb_uri) as client:
         yield client
 
 
 @pytest.fixture
 def cache_manager(
-    raw_mongo_client: MongoClient[dict[str, Any]],
-) -> Iterator[CacheManager[dict[str, Any]]]:
+    raw_mongo_client: MongoClient[BsonDict],
+) -> Iterator[CacheManager[BsonDict]]:
     logger.debug("[SETUP] %s wrapping %s.", CacheManager.__name__, raw_mongo_client)
     manager = CacheManager(raw_mongo_client)
     yield manager

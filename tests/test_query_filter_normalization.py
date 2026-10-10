@@ -9,6 +9,7 @@ from pymongo.collation import Collation
 from pymongo.errors import OperationFailure
 from pymongo.read_concern import ReadConcern
 
+from client_query_cache._types import BsonDict
 from tests.cursor_helpers import materialize
 from tests.polling import wait_until_async
 
@@ -16,7 +17,7 @@ if TYPE_CHECKING:
     from pymongo.asynchronous.collection import AsyncCollection
     from pymongo.synchronous.collection import Collection
 
-    from tests.cursor_fixtures import Binding, Document
+    from tests.cursor_fixtures import Binding
 
 pytestmark = pytest.mark.integration
 
@@ -58,7 +59,7 @@ async def filter_examples(cursors: Binding) -> Binding:
 @pytest.fixture
 def native_filters(
     filter_examples: Binding,
-) -> Collection[Document] | AsyncCollection[Document]:
+) -> Collection[BsonDict] | AsyncCollection[BsonDict]:
     return filter_examples["view"].raw.with_options(
         read_preference=ReadPreference.PRIMARY, read_concern=ReadConcern("majority")
     )
@@ -79,8 +80,8 @@ def native_filters(
 )
 async def test_scalar_permutations_match_native_and_reuse_one_payload(
     filter_examples: Binding,
-    native_filters: Collection[Document] | AsyncCollection[Document],
-    filter_document: Document,
+    native_filters: Collection[BsonDict] | AsyncCollection[BsonDict],
+    filter_document: BsonDict,
     collation: Collation | None,
 ) -> None:
     view = filter_examples["view"]
@@ -125,8 +126,8 @@ async def test_scalar_permutations_match_native_and_reuse_one_payload(
 )
 async def test_declined_filters_keep_ordered_identity_and_exact_hits(
     filter_examples: Binding,
-    native_filters: Collection[Document] | AsyncCollection[Document],
-    filter_document: Document,
+    native_filters: Collection[BsonDict] | AsyncCollection[BsonDict],
+    filter_document: BsonDict,
 ) -> None:
     view = filter_examples["view"]
     expected = await materialize(native_filters.find(filter_document).sort("_id"))
@@ -159,7 +160,7 @@ async def test_declined_filters_keep_ordered_identity_and_exact_hits(
 )
 async def test_literal_order_matches_native_with_separate_cache_entries(
     filter_examples: Binding,
-    native_filters: Collection[Document] | AsyncCollection[Document],
+    native_filters: Collection[BsonDict] | AsyncCollection[BsonDict],
     *,
     field: str,
     first: object,

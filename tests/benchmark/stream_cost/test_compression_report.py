@@ -28,7 +28,7 @@ from benchmarks.stream_cost.errors import ReportValidationError
 from benchmarks.stream_cost.generators import SMALL_DOCUMENT_PROFILE
 from benchmarks.stream_cost.measurement import ControlledMeasurement, OperationLatency
 from benchmarks.stream_cost.workload import OperationCounts, WorkloadKind
-from client_query_cache._types import NonNegativeFloat, NonNegativeInt
+from client_query_cache._types import JsonDict, NonNegativeFloat, NonNegativeInt
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -95,7 +95,7 @@ def _result(
     )
 
 
-def _full_report() -> dict[str, object]:
+def _full_report() -> JsonDict:
     blocks = [
         CompressionBlockPlan(
             block_index=index,
@@ -169,8 +169,8 @@ def _full_report() -> dict[str, object]:
 
 
 def _first_sample(
-    samples: list[object], predicate: Callable[[dict[str, object]], bool]
-) -> dict[str, object]:
+    samples: list[object], predicate: Callable[[JsonDict], bool]
+) -> JsonDict:
     for sample in samples:
         assert isinstance(sample, dict)
         if predicate(sample):

@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-from typing import Any
-
 import pytest
 
 from benchmarks.stream_cost.client import WireCompressor
 from benchmarks.stream_cost.compression_decision import evaluate_compression_decision
-from client_query_cache._types import NonNegativeFloat, NonNegativeInt
+from client_query_cache._types import JsonDict, NonNegativeFloat, NonNegativeInt
 
 pytestmark = pytest.mark.unit
 
@@ -32,8 +30,8 @@ def _sample(
     p95: NonNegativeFloat | None = None,
     sent: NonNegativeInt | None = None,
     received: NonNegativeInt | None = None,
-) -> dict[str, Any]:
-    sample: dict[str, Any] = {
+) -> JsonDict:
+    sample: JsonDict = {
         "block_index": block_index,
         "mode": mode,
         "window": window,
@@ -53,9 +51,9 @@ def _build_report(
     latency_overhead_fraction: float,
     byte_reduction_fraction: float,
     idle_deltas: list[float],
-) -> dict[str, Any]:
-    samples: list[dict[str, Any]] = []
-    stream_minus_control: list[dict[str, Any]] = []
+) -> JsonDict:
+    samples: list[JsonDict] = []
+    stream_minus_control: list[JsonDict] = []
     for block_index in range(_BLOCK_COUNT):
         samples.extend(
             (

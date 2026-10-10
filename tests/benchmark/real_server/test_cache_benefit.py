@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from client_query_cache._types import NonNegativeFloat
+from client_query_cache._types import BsonDict, NonNegativeFloat
 from tests.benchmark.real_server.atlas_bandwidth import (
     collect_bandwidth_evidence,
     resolve_atlas_project_id,
@@ -17,12 +17,12 @@ from tests.benchmark.real_server.workers import (
     drop_benchmark_collection,
     read_documents_repeatedly_into_queue,
     run_preflight_and_start_clock,
+    seed_document_ids,
     write_documents_until_stopped,
 )
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-    from typing import Any
 
     from faker import Faker
 
@@ -116,12 +116,12 @@ def _run_reader_phase(
 
 def test_cache_provides_at_least_2x_benefit_over_direct_pymongo(
     real_mongodb_uri: RealMongoDbUri,
-    make_fake_document: Callable[..., dict[str, Any]],
+    make_fake_document: Callable[..., BsonDict],
     faker: Faker,
 ) -> None:
     collection_name = f"documents-{faker.uuid4()}"
     seed_documents = [make_fake_document() for _ in range(_DOCUMENT_COUNT)]
-    document_ids = [document["_id"] for document in seed_documents]
+    document_ids = seed_document_ids(seed_documents)
 
     stop_event = multiprocessing.Event()
     ready_event = multiprocessing.Event()

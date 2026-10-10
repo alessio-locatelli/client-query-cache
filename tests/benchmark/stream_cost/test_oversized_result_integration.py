@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -10,6 +10,7 @@ from benchmarks.stream_cost.oversized_result import (
 )
 from benchmarks.stream_cost.workload import verify_oversized_primed
 from client_query_cache._core.manager import CacheCoreConfig
+from client_query_cache._types import BsonDict
 from client_query_cache.synchronous.manager import CacheManager
 
 if TYPE_CHECKING:
@@ -26,7 +27,7 @@ _DOCUMENT_COUNT = 50
 _PADDING_BYTES = 100
 
 
-def _oversized_documents() -> list[dict[str, Any]]:
+def _oversized_documents() -> list[BsonDict]:
     return [
         {"_id": index, "padding": "x" * _PADDING_BYTES}
         for index in range(_DOCUMENT_COUNT)
@@ -35,8 +36,8 @@ def _oversized_documents() -> list[dict[str, Any]]:
 
 @pytest.fixture
 def small_max_entry_cache_manager(
-    raw_mongo_client: MongoClient[dict[str, Any]],
-) -> Iterator[CacheManager[dict[str, Any]]]:
+    raw_mongo_client: MongoClient[BsonDict],
+) -> Iterator[CacheManager[BsonDict]]:
     manager = CacheManager(
         raw_mongo_client,
         cache_config=CacheCoreConfig(
@@ -49,7 +50,7 @@ def small_max_entry_cache_manager(
 
 
 def test_the_oversized_result_workload_measures_both_costs_from_one_run(
-    small_max_entry_cache_manager: CacheManager[dict[str, Any]],
+    small_max_entry_cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     persistent_collection_name: CollectionName,
 ) -> None:

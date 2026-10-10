@@ -10,7 +10,7 @@ from client_query_cache._core.stream_options import (
     MAX_AWAIT_TIME_MS,
     validate_max_await_time_ms,
 )
-from client_query_cache._types import MaxAwaitTimeMs
+from client_query_cache._types import BsonDict, MaxAwaitTimeMs
 from client_query_cache.asynchronous.manager import CacheManager as AsyncCacheManager
 from client_query_cache.synchronous.manager import CacheManager
 
@@ -26,9 +26,7 @@ pytestmark = pytest.mark.unit
     ids=["true", "false", "none", "zero", "negative", "float", "string", "too-large"],
 )
 def test_rejects_invalid_await_time_before_using_client(
-    manager_type: type[
-        CacheManager[dict[str, object]] | AsyncCacheManager[dict[str, object]]
-    ],
+    manager_type: type[CacheManager[BsonDict] | AsyncCacheManager[BsonDict]],
     invalid: object,
 ) -> None:
     client = Mock()

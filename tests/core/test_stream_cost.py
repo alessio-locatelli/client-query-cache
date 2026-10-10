@@ -20,7 +20,7 @@ from client_query_cache._core.stream_cost import (
     LagCaptureWindows,
 )
 from client_query_cache._core.stream_events import route_change_event
-from client_query_cache._types import NonNegativeInt
+from client_query_cache._types import BsonDict, NonNegativeInt
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -42,7 +42,7 @@ def single_sample_core() -> CacheCore:
     )
 
 
-def _insert_event(wall_time: object, document_id: str = "doc-1") -> dict[str, object]:
+def _insert_event(wall_time: object, document_id: str = "doc-1") -> BsonDict:
     return {
         "operationType": "insert",
         "ns": {"db": "db", "coll": "coll"},
@@ -420,7 +420,7 @@ def test_cached_namespace_write_event_records_signed_invalidation_lag(
     ],
 )
 def test_multi_namespace_event_records_one_lag_sample(
-    collections: tuple[str, ...], event: dict[str, object]
+    collections: tuple[str, ...], event: BsonDict
 ) -> None:
     core = CacheCore()
     for collection in collections:

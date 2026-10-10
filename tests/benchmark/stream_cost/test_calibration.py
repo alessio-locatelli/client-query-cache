@@ -27,7 +27,12 @@ from benchmarks.stream_cost.errors import (
     BenchmarkConfigurationError,
     BenchmarkSetupError,
 )
-from client_query_cache._types import NonNegativeFloat, NonNegativeInt, PositiveFloat
+from client_query_cache._types import (
+    BsonDict,
+    NonNegativeFloat,
+    NonNegativeInt,
+    PositiveFloat,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -75,7 +80,7 @@ def test_sample_clock_offset_computes_offset_and_uncertainty(
     )
     server_time = datetime(2024, 1, 1, tzinfo=UTC)
 
-    def send_hello() -> dict[str, object]:
+    def send_hello() -> BsonDict:
         return {
             "localTime": server_time,
             "electionId": "election-1",
@@ -182,7 +187,7 @@ def test_sample_clock_offset_retains_every_round_not_just_the_winner(
 
 
 def test_sample_clock_offset_rejects_a_response_not_from_the_primary() -> None:
-    def send_hello() -> dict[str, object]:
+    def send_hello() -> BsonDict:
         return {
             "localTime": datetime(2024, 1, 1, tzinfo=UTC),
             "electionId": "a",
@@ -213,7 +218,7 @@ def test_sample_clock_offset_rejects_a_response_not_from_the_primary() -> None:
     ],
 )
 def test_sample_clock_offset_rejects_a_response_missing_election_id(
-    response: dict[str, object],
+    response: BsonDict,
 ) -> None:
     with pytest.raises(BenchmarkConfigurationError, match="missing electionId"):
         sample_clock_offset(lambda: response, rounds=1)
@@ -236,7 +241,7 @@ def test_sample_clock_offset_rejects_a_response_missing_election_id(
     ],
 )
 def test_sample_clock_offset_rejects_a_response_with_a_bad_local_time(
-    response: dict[str, object],
+    response: BsonDict,
 ) -> None:
     with pytest.raises(BenchmarkConfigurationError, match="localTime"):
         sample_clock_offset(lambda: response, rounds=1)
@@ -651,7 +656,7 @@ def test_topology_change_listener_reset_preserves_the_primary_baseline() -> None
     assert bool(listener.primary_changed) is True
 
 
-def _stub_send_hello() -> dict[str, object]:
+def _stub_send_hello() -> BsonDict:
     return {
         "localTime": datetime(2024, 1, 1, tzinfo=UTC),
         "electionId": "election-1",
@@ -701,12 +706,12 @@ def test_periodic_calibration_sampler_samples_repeatedly_at_the_cadence() -> Non
     assert len(sampler.stop()) >= minimum_expected_points
 
 
-def _failing_hello() -> dict[str, object]:
+def _failing_hello() -> BsonDict:
     message = "simulated hello failure"
     raise ConnectionFailure(message)
 
 
-def _non_primary_hello() -> dict[str, object]:
+def _non_primary_hello() -> BsonDict:
     return {**_stub_send_hello(), "isWritablePrimary": False}
 
 
@@ -718,11 +723,11 @@ def _non_primary_hello() -> dict[str, object]:
     ],
 )
 def test_periodic_calibration_sampler_propagates_a_background_failure(
-    failing_send_hello: Callable[[], dict[str, object]],
+    failing_send_hello: Callable[[], BsonDict],
 ) -> None:
     call_count = 0
 
-    def flaky_send_hello() -> dict[str, object]:
+    def flaky_send_hello() -> BsonDict:
         nonlocal call_count
         call_count += 1
         if call_count == 1:

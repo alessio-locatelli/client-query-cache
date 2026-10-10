@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from client_query_cache._core.keys import NamespaceId
 from client_query_cache._core.stream_cost import (
     LagCaptureWindowConfig,
     StreamCostSnapshot,
 )
-from client_query_cache._types import NonNegativeFloat, NonNegativeInt
+from client_query_cache._types import BsonDict, NonNegativeFloat, NonNegativeInt
 from tests.polling import wait_until, wait_until_async
 
 if TYPE_CHECKING:
@@ -43,9 +43,7 @@ def _generation(cache: CacheCore, namespace: NamespaceId) -> NonNegativeInt:
     return cache.capture_namespace_generation(namespace).generation
 
 
-def wait_for_stream_barrier(
-    cache: CacheCore, database: Database[dict[str, Any]]
-) -> None:
+def wait_for_stream_barrier(cache: CacheCore, database: Database[BsonDict]) -> None:
     namespace = NamespaceId(database.name, _STREAM_BARRIER_COLLECTION_NAME)
     before = _generation(cache, namespace)
     database[_STREAM_BARRIER_COLLECTION_NAME].insert_one({})
@@ -53,7 +51,7 @@ def wait_for_stream_barrier(
 
 
 async def wait_for_stream_barrier_async(
-    cache: CacheCore, database: AsyncDatabase[dict[str, Any]]
+    cache: CacheCore, database: AsyncDatabase[BsonDict]
 ) -> None:
     namespace = NamespaceId(database.name, _STREAM_BARRIER_COLLECTION_NAME)
     before = _generation(cache, namespace)

@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from bson.codec_options import CodecOptions
 
-from client_query_cache._types import NonNegativeInt
+from client_query_cache._types import BsonDict, NonNegativeInt
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -24,11 +24,11 @@ class ScriptedStream:
     ) -> None:
         self._events = list(events)
         self._close_error = close_error
-        self.resume_token: dict[str, object] | None = None
+        self.resume_token: BsonDict | None = None
         self.closed = False
         self._closed_event = threading.Event()
 
-    def next(self) -> dict[str, object]:
+    def next(self) -> BsonDict:
         if not self._events:
             self._closed_event.wait()
             raise StopIteration
@@ -103,11 +103,11 @@ class AsyncScriptedStream:
     ) -> None:
         self._events = list(events)
         self._close_error = close_error
-        self.resume_token: dict[str, object] | None = None
+        self.resume_token: BsonDict | None = None
         self.closed = False
         self._closed_event = asyncio.Event()
 
-    async def next(self) -> dict[str, object]:
+    async def next(self) -> BsonDict:
         if not self._events:
             await self._closed_event.wait()
         item = self._events.pop(0)
@@ -159,7 +159,7 @@ class AsyncScriptedDatabase:
     def _make_server_info(
         version_array: list[NonNegativeInt],
     ) -> Callable[[], object]:
-        async def server_info() -> dict[str, object]:  # noqa: RUF029
+        async def server_info() -> BsonDict:  # noqa: RUF029
             return {
                 "version": ".".join(str(part) for part in version_array),
                 "versionArray": version_array,

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import Any, cast
+from typing import cast
 from unittest.mock import Mock
 
 import pytest
@@ -14,6 +14,7 @@ from benchmarks.stream_cost.measurement import (
     scalar_latency_distribution,
 )
 from benchmarks.stream_cost.workload import STANDARD_WORKLOAD_VARIANTS, run_paired_reads
+from client_query_cache._types import JsonDict
 
 pytestmark = pytest.mark.unit
 
@@ -60,7 +61,7 @@ def test_latency_distribution_preserves_outcome_groups() -> None:
     )
 
     assert distribution["operation_count"] == 3
-    assert cast("list[dict[str, Any]]", distribution["by_outcome"])[0] == {
+    assert cast("list[JsonDict]", distribution["by_outcome"])[0] == {
         "operation": "read",
         "outcome": "hit",
         "sample_count": 2,

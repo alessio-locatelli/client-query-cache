@@ -20,7 +20,7 @@ from benchmarks.stream_cost.errors import BenchmarkSetupError
 from benchmarks.stream_cost.generators import SMALL_DOCUMENT_PROFILE
 from benchmarks.stream_cost.workload import OperationCounts, WorkloadKind
 from client_query_cache._core.stream_cost import InvalidationApplyReading
-from client_query_cache._types import NonNegativeFloat, NonNegativeInt
+from client_query_cache._types import BsonDict, NonNegativeFloat, NonNegativeInt
 
 pytestmark = pytest.mark.unit
 
@@ -97,7 +97,7 @@ class _RecordingCachedCollection:
     def __init__(self) -> None:
         self.finds: list[object] = []
 
-    def find_one(self, query: dict[str, object]) -> None:
+    def find_one(self, query: BsonDict) -> None:
         self.finds.append(query["_id"])
 
 
@@ -168,7 +168,7 @@ class _FakeCachedCollection:
     __slots__ = ()
 
     @staticmethod
-    def find_one(query: dict[str, object]) -> None:
+    def find_one(query: BsonDict) -> None:
         del query
 
 

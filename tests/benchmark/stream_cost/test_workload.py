@@ -37,7 +37,7 @@ from benchmarks.stream_cost.workload import (
     wait_for_invalidations_to_settle,
 )
 from client_query_cache._core.snapshots import CacheSnapshot
-from client_query_cache._types import NonNegativeInt
+from client_query_cache._types import BsonDict, NonNegativeInt
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -182,7 +182,7 @@ def test_seed_dataset_is_deterministic_for_a_given_seed(profile: object) -> None
 def test_insert_dataset_rejects_an_empty_dataset() -> None:
     empty_dataset = SeededDataset(documents=())
     with pytest.raises(BenchmarkConfigurationError, match="dataset must not be empty"):
-        insert_dataset(cast("Collection[dict[str, Any]]", None), empty_dataset)
+        insert_dataset(cast("Collection[BsonDict]", None), empty_dataset)
 
 
 def test_sample_operation_ids_returns_empty_for_zero_count() -> None:

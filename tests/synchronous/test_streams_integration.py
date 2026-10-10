@@ -11,7 +11,7 @@ from pymongo.errors import ConnectionFailure, OperationFailure
 
 from client_query_cache._core.keys import NamespaceId
 from client_query_cache._core.manager import CacheCore, CacheCoreConfig
-from client_query_cache._types import NonNegativeInt, PositiveFloat
+from client_query_cache._types import BsonDict, NonNegativeInt, PositiveFloat
 from client_query_cache.synchronous import streams as streams_module
 from client_query_cache.synchronous.streams import DatabaseStreamSupervisor
 from tests.stream_helpers import (
@@ -33,8 +33,8 @@ pytestmark = pytest.mark.integration
 @pytest.fixture
 def independent_writer(
     mongodb_uri: MongoDbUri,
-) -> Iterator[MongoClient[dict[str, Any]]]:
-    with MongoClient[dict[str, Any]](mongodb_uri) as client:
+) -> Iterator[MongoClient[BsonDict]]:
+    with MongoClient[BsonDict](mongodb_uri) as client:
         yield client
 
 
@@ -48,8 +48,8 @@ def independent_writer(
 )
 def wall_time_client(
     mongodb_uri: MongoDbUri, request: pytest.FixtureRequest
-) -> Iterator[MongoClient[dict[str, Any]]]:
-    with MongoClient[dict[str, Any]](mongodb_uri, **request.param) as client:
+) -> Iterator[MongoClient[BsonDict]]:
+    with MongoClient[BsonDict](mongodb_uri, **request.param) as client:
         yield client
 
 
@@ -108,12 +108,12 @@ def _wait_until(
     ],
 )
 def test_write_invalidates_the_cached_document(
-    raw_mongo_client: MongoClient[dict[str, Any]],
-    independent_writer: MongoClient[dict[str, Any]],
+    raw_mongo_client: MongoClient[BsonDict],
+    independent_writer: MongoClient[BsonDict],
     cached_database_name: DatabaseName,
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
     invalidate: Callable[
-        [MongoClient[dict[str, Any]], DatabaseName, str, NonNegativeInt], object
+        [MongoClient[BsonDict], DatabaseName, str, NonNegativeInt], object
     ],
     *,
     faker: Faker,
@@ -141,8 +141,8 @@ def test_write_invalidates_the_cached_document(
 
 
 def test_configured_wall_time_stream_records_invalidation_lag(
-    wall_time_client: MongoClient[dict[str, Any]],
-    independent_writer: MongoClient[dict[str, Any]],
+    wall_time_client: MongoClient[BsonDict],
+    independent_writer: MongoClient[BsonDict],
     cached_database_name: DatabaseName,
     persistent_collection_name: CollectionName,
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
@@ -181,8 +181,8 @@ def test_configured_wall_time_stream_records_invalidation_lag(
 
 
 def test_rename_clears_source_and_destination_namespaces(
-    raw_mongo_client: MongoClient[dict[str, Any]],
-    independent_writer: MongoClient[dict[str, Any]],
+    raw_mongo_client: MongoClient[BsonDict],
+    independent_writer: MongoClient[BsonDict],
     cached_database_name: DatabaseName,
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
     faker: Faker,
@@ -211,8 +211,8 @@ def test_rename_clears_source_and_destination_namespaces(
 
 
 def test_drop_database_clears_the_cache_and_the_stream_recovers(
-    raw_mongo_client: MongoClient[dict[str, Any]],
-    independent_writer: MongoClient[dict[str, Any]],
+    raw_mongo_client: MongoClient[BsonDict],
+    independent_writer: MongoClient[BsonDict],
     cached_database_name: DatabaseName,
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
     faker: Faker,
@@ -284,7 +284,7 @@ class _NextFailsOnceStream:
         self._real_stream = real_stream
         self._error = error
 
-    def next(self) -> dict[str, object]:
+    def next(self) -> BsonDict:
         raise self._error
 
     def close(self) -> None:
@@ -292,8 +292,8 @@ class _NextFailsOnceStream:
 
 
 def test_recovers_from_a_resumable_disconnection(
-    raw_mongo_client: MongoClient[dict[str, Any]],
-    independent_writer: MongoClient[dict[str, Any]],
+    raw_mongo_client: MongoClient[BsonDict],
+    independent_writer: MongoClient[BsonDict],
     cached_database_name: DatabaseName,
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
     faker: Faker,
@@ -344,8 +344,8 @@ def test_recovers_from_a_resumable_disconnection(
 
 
 def test_clears_the_cache_when_resume_history_is_lost(
-    raw_mongo_client: MongoClient[dict[str, Any]],
-    independent_writer: MongoClient[dict[str, Any]],
+    raw_mongo_client: MongoClient[BsonDict],
+    independent_writer: MongoClient[BsonDict],
     cached_database_name: DatabaseName,
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
     faker: Faker,
@@ -398,8 +398,8 @@ def test_clears_the_cache_when_resume_history_is_lost(
 
 
 def test_a_cache_hit_concurrent_with_event_delivery_may_be_stale_but_not_after(
-    raw_mongo_client: MongoClient[dict[str, Any]],
-    independent_writer: MongoClient[dict[str, Any]],
+    raw_mongo_client: MongoClient[BsonDict],
+    independent_writer: MongoClient[BsonDict],
     cached_database_name: DatabaseName,
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
     monkeypatch: pytest.MonkeyPatch,

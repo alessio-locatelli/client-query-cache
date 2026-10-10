@@ -16,3 +16,6 @@ type NonEmptyStr = Annotated[str, MinLen(1)]
 type Probability = Annotated[float, Interval(ge=0, le=1)]
 type ExclusiveProbability = Annotated[float, Interval(gt=0, lt=1)]
 type NonEmpty[T: Sized] = Annotated[T, MinLen(1)]
+type BsonValue = object
+type BsonDict = dict[str, BsonValue]
+type JsonDict = dict[str, object]

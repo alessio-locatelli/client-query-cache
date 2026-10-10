@@ -26,7 +26,12 @@ from benchmarks.stream_cost.errors import (
     BenchmarkConfigurationError,
     BenchmarkSetupError,
 )
-from client_query_cache._types import MaxAwaitTimeMs, NonNegativeInt, Probability
+from client_query_cache._types import (
+    JsonDict,
+    MaxAwaitTimeMs,
+    NonNegativeInt,
+    Probability,
+)
 
 if TYPE_CHECKING:
     from benchmarks.stream_cost.await_model import AwaitConfiguration
@@ -123,7 +128,7 @@ def windows(configuration: AwaitConfiguration) -> tuple[AwaitWindow, ...]:
 def report(
     windows: tuple[AwaitWindow, ...],
     configuration: AwaitConfiguration,
-) -> dict[str, object]:
+) -> JsonDict:
     digest = await_report.configuration_hash(_CONFIGURATION_PATH.read_bytes())
     return {
         "schema_version": 1,
@@ -167,7 +172,7 @@ def test_configuration_loader_rejects_an_invalid_definition(content: bytes) -> N
 
 
 def test_report_retains_matched_complete_measurements(
-    report: dict[str, object],
+    report: JsonDict,
     configuration: AwaitConfiguration,
     windows: tuple[AwaitWindow, ...],
 ) -> None:
@@ -180,9 +185,9 @@ def test_report_retains_matched_complete_measurements(
 
 
 def test_accepts_shutdown_cancellation_without_a_completion_notification(
-    report: dict[str, object], configuration: AwaitConfiguration
+    report: JsonDict, configuration: AwaitConfiguration
 ) -> None:
-    samples = cast("list[dict[str, object]]", report["samples"])
+    samples = cast("list[JsonDict]", report["samples"])
     shutdown = next(sample for sample in samples if sample["workload"] == "shutdown")
     shutdown["getmore_completed"] = 0
     validated = await_report.validate_await_report(
@@ -209,9 +214,9 @@ def test_accepts_shutdown_cancellation_without_a_completion_notification(
     ],
 )
 def test_rejects_invalid_measurements(
-    report: dict[str, object], configuration: AwaitConfiguration, defect: str
+    report: JsonDict, configuration: AwaitConfiguration, defect: str
 ) -> None:
-    samples = cast("list[dict[str, object]]", report["samples"])
+    samples = cast("list[JsonDict]", report["samples"])
     if defect == "missing":
         samples[0].pop("server_cpu_seconds")
     elif defect == "schedule":
@@ -230,7 +235,7 @@ def test_rejects_invalid_measurements(
         )
 
 
-def test_rejects_altered_configuration_hash(report: dict[str, object]) -> None:
+def test_rejects_altered_configuration_hash(report: JsonDict) -> None:
     assert report["configuration_sha256"] == await_report.configuration_hash(
         _CONFIGURATION_PATH.read_bytes()
     )
@@ -371,7 +376,7 @@ def test_exact_bootstrap_counts_all_ordered_draws() -> None:
 
 
 def test_rejects_changed_decision_rules_with_unchanged_hash(
-    report: dict[str, object], configuration: AwaitConfiguration
+    report: JsonDict, configuration: AwaitConfiguration
 ) -> None:
     configuration["uncertainty"]["confidence_level"] = 0.5
     with pytest.raises(BenchmarkConfigurationError, match="frozen configuration"):
@@ -384,11 +389,11 @@ def test_rejects_changed_decision_rules_with_unchanged_hash(
     "candidate", [1000, 5000], ids=["failed-baseline", "failed-candidate"]
 )
 def test_retains_failed_windows_without_treating_them_as_savings(
-    report: dict[str, object],
+    report: JsonDict,
     configuration: AwaitConfiguration,
     candidate: MaxAwaitTimeMs,
 ) -> None:
-    samples = cast("list[dict[str, object]]", report["samples"])
+    samples = cast("list[JsonDict]", report["samples"])
     failed = next(sample for sample in samples if sample["candidate_ms"] == candidate)
     samples.remove(failed)
     report["failures"] = [
@@ -439,7 +444,7 @@ def test_unresolved_cpu_ranking_can_still_select_by_bytes(
 
 
 def test_validation_cli_reproduces_decision_from_retained_report(
-    report: dict[str, object], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    report: JsonDict, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     output = tmp_path / "report.json"
     output.write_text(json.dumps(report))
@@ -471,7 +476,7 @@ def test_validation_cli_reproduces_decision_from_retained_report(
     ],
 )
 def test_matrix_retains_complete_report_and_failure_evidence(
-    report: dict[str, object],
+    report: JsonDict,
     windows: tuple[AwaitWindow, ...],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -519,7 +524,7 @@ def test_matrix_retains_complete_report_and_failure_evidence(
 
 
 def test_matrix_requires_revision_tool(
-    report: dict[str, object], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    report: JsonDict, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     assert report["configuration_sha256"] == await_report.CONFIGURATION_SHA256
     monkeypatch.setattr(shutil, "which", lambda _: None)

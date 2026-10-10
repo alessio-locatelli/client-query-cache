@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -15,6 +15,7 @@ from benchmarks.stream_cost.compressor_preflight import (
     verify_compressor_negotiation,
 )
 from benchmarks.stream_cost.errors import BenchmarkSetupError
+from client_query_cache._types import BsonDict
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -36,7 +37,7 @@ def _topology(compressor: WireCompressor) -> BenchmarkClientTopologyConfig:
 
 
 @pytest.fixture
-def admin_client(mongodb_uri: MongoDbUri) -> Iterator[MongoClient[dict[str, Any]]]:
+def admin_client(mongodb_uri: MongoDbUri) -> Iterator[MongoClient[BsonDict]]:
     with build_dedicated_client(mongodb_uri, _topology(WireCompressor.NONE)) as client:
         yield client
 
@@ -47,7 +48,7 @@ def admin_client(mongodb_uri: MongoDbUri) -> Iterator[MongoClient[dict[str, Any]
 )
 def test_verify_compressor_negotiation_accepts_each_negotiated_mode(
     mongodb_uri: MongoDbUri,
-    admin_client: MongoClient[dict[str, Any]],
+    admin_client: MongoClient[BsonDict],
     compressor: WireCompressor,
 ) -> None:
     with build_dedicated_client(mongodb_uri, _topology(compressor)) as measured_client:
@@ -63,7 +64,7 @@ def test_verify_compressor_negotiation_accepts_each_negotiated_mode(
 
 def test_verify_compressor_negotiation_accepts_an_uncompressed_connection(
     mongodb_uri: MongoDbUri,
-    admin_client: MongoClient[dict[str, Any]],
+    admin_client: MongoClient[BsonDict],
 ) -> None:
     with build_dedicated_client(
         mongodb_uri, _topology(WireCompressor.NONE)
@@ -83,7 +84,7 @@ def test_verify_compressor_negotiation_accepts_an_uncompressed_connection(
 
 def test_verify_compressor_negotiation_rejects_an_unnegotiated_mode(
     mongodb_uri: MongoDbUri,
-    admin_client: MongoClient[dict[str, Any]],
+    admin_client: MongoClient[BsonDict],
 ) -> None:
     with (
         build_dedicated_client(

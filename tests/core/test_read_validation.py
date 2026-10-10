@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Any
-
 import pytest
 
 from client_query_cache._core.read_validation import (
@@ -9,6 +7,7 @@ from client_query_cache._core.read_validation import (
     is_pipeline_cacheable,
     is_projection_cacheable,
 )
+from client_query_cache._types import BsonDict
 
 pytestmark = pytest.mark.unit
 
@@ -25,7 +24,7 @@ pytestmark = pytest.mark.unit
         ),
     ],
 )
-def test_safe_pipelines_are_cacheable(pipeline: list[dict[str, Any]]) -> None:
+def test_safe_pipelines_are_cacheable(pipeline: list[BsonDict]) -> None:
     assert is_pipeline_cacheable(pipeline) is True
 
 
@@ -71,7 +70,7 @@ def test_safe_pipelines_are_cacheable(pipeline: list[dict[str, Any]]) -> None:
         ),
     ],
 )
-def test_unsafe_pipelines_are_not_cacheable(pipeline: list[dict[str, Any]]) -> None:
+def test_unsafe_pipelines_are_not_cacheable(pipeline: list[BsonDict]) -> None:
     assert is_pipeline_cacheable(pipeline) is False
 
 
@@ -84,7 +83,7 @@ def test_unsafe_pipelines_are_not_cacheable(pipeline: list[dict[str, Any]]) -> N
         pytest.param({"a": {"$gt": 1}}, id="range-operator"),
     ],
 )
-def test_safe_filters_are_cacheable(filter_query: dict[str, Any] | None) -> None:
+def test_safe_filters_are_cacheable(filter_query: BsonDict | None) -> None:
     assert is_filter_cacheable(filter_query) is True
 
 
@@ -111,7 +110,7 @@ def test_safe_filters_are_cacheable(filter_query: dict[str, Any] | None) -> None
         ),
     ],
 )
-def test_unsafe_filters_are_not_cacheable(filter_query: dict[str, Any]) -> None:
+def test_unsafe_filters_are_not_cacheable(filter_query: BsonDict) -> None:
     assert is_filter_cacheable(filter_query) is False
 
 
@@ -125,7 +124,7 @@ def test_unsafe_filters_are_not_cacheable(filter_query: dict[str, Any]) -> None:
     ],
 )
 def test_safe_projections_are_cacheable(
-    projection: dict[str, Any] | list[str] | None,
+    projection: BsonDict | list[str] | None,
 ) -> None:
     assert is_projection_cacheable(projection) is True
 
