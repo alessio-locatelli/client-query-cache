@@ -423,6 +423,15 @@ async def test_native_streaming_and_complete_admission(
     assert not hit.alive
 
 
+async def test_eligible_miss_reads_majority_when_read_concern_is_unspecified(
+    cursors: Binding, cursor_factory: CursorFactory
+) -> None:
+    view = cursors["view"]
+    assert view.raw.read_concern.level is None
+    assert await materialize(cursor_factory(view)) == cursors["documents"]
+    assert cursors["commands"].commands[0]["readConcern"] == {"level": "majority"}
+
+
 async def test_partial_to_list_and_early_close(
     cursors: Binding, cursor_factory: CursorFactory
 ) -> None:
