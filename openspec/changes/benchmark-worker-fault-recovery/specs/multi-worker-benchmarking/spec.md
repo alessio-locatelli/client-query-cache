@@ -56,6 +56,20 @@ For cached workers, the report SHALL also include the time until stream health a
 - **WHEN** cached workers record stream-unavailable bypasses after a stepdown
 - **THEN** the report shows those counts by reason and the time until hits resume, without dividing them by requests
 
+#### Scenario: Recovery comes after the registered deadline
+
+- **WHEN** a trial meets the recovery criterion only after the registered deadline, or never meets it
+- **THEN** the trial is reported as not recovered, and its after-fault interval is reported as unavailable rather than truncated
+
+### Requirement: Fault trials account for every scheduled request
+
+Each trial SHALL classify every scheduled request as completed, failed, interrupted with an unknown outcome, or undelivered. A trial SHALL be valid only when these counts add up to the offered schedule, and the report SHALL show all four counts for each trial. Measurements that a killed worker delivered before its termination SHALL be retained.
+
+#### Scenario: A worker is killed mid-window
+
+- **WHEN** a worker is killed while requests it owns are in flight or have not yet been reported
+- **THEN** its delivered measurements stay in the trial, its unreported requests are counted as interrupted rather than completed or failed, and the four counts still add up to the offered schedule
+
 ### Requirement: Fault results stay separate from steady-state estimands
 
 Fault trial measurements SHALL be compared only between paths within the same case and topology. They SHALL NOT be pooled into steady-state throughput, latency or resource estimands, or reported in place of them.

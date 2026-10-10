@@ -15,7 +15,9 @@ The shared worker cache harness in `benchmarks/stream_cost/shared_cache/` alread
 It also already implements `direct` and `independent` paths, `active` windows that issue writes from a writer pool, baseline-only calibration and a `--baselines-only` mode. Several values are fixed in code rather than in the registration:
 
 - the default path tuple;
-- the phase list;
+- the phase list, plus a per-phase matrix (`_phase_matrix`) that expands both sync and async models and treats any phase it doesn't recognize as a sensitivity phase (`workers`, `profiles`);
+- the calibration families (`primary`, `cold`, `sensitivity`), which `probe_cells`, `calibrate` and `freeze` always process; `freeze` also writes a fixed `frozen` block and only moves a registration from `pending-calibration` to `frozen`;
+- smoke cells, which are three fixed workload and model pairs over every path, including `shared`;
 - round-robin key partitioning across workers (`Assignment.ordinals`);
 - a fixed `active.updates` count per window that targets the whole catalogue;
 - shared-versus-baseline gate criteria in `analysis.py`.
@@ -39,7 +41,7 @@ The v4 registration in `reports/shared-worker-cache/v4/` is frozen, and its rese
 
 ### Harness reuse
 
-Generalize the shared-cache harness so that the registration declares the paths, phases, key assignment, hot set and write mix. The new registration lives at `reports/concurrent-worker-workload/v1/` and is selected with the existing `--config` option.
+Generalize the shared-cache harness so that the registration declares the paths, phases, key assignment, hot set and write mix. Each phase declares its cells explicitly as `[workload, model, workers]` triples. Calibration families likewise list their own cells, and only the families present in the registration are probed, validated and frozen. Smoke cells come from a `smoke` section that lists cells in the same way, with the registration's paths. When any of these keys is absent, the loader derives v4's current values, so the frozen v4 file stays unchanged. A new registration starts as `pending-calibration`, the state that `freeze` already moves to `frozen`, so no new state is added. The new registration lives at `reports/concurrent-worker-workload/v1/` and is selected with the existing `--config` option.
 
 | Alternative                                             | Pros                                                                                       | Cons                                                                                                         |
 | ------------------------------------------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------ |
@@ -48,11 +50,11 @@ Generalize the shared-cache harness so that the registration declares the paths,
 | Extend `multiprocess_run.py` from the stream-cost study | Already multi-process                                                                      | Measures stream cost, not scheduled request latency, PSS or hit counters                                     |
 | Rename the package to a neutral name                    | Accurate name                                                                              | Breaks the module commands in the shared-cache research report and registration on `main`, for cosmetic gain |
 
-Unknowns: none that need a prototype. The v4 equivalence check in task 1.1 guards against regressions. Conclusion: no further research is needed.
+Unknown: whether any v4-specific assumption remains beyond those listed under Context. Task 1.1 resolves this: it plans, calibrates and smokes a two-path asyncio-only registration end to end, and pins v4's planned cells and frozen block.
 
 ### Workload registration
 
-These are the provisional values that task 2.1 writes into the draft configuration. Only calibration may change the rate and duration before freezing.
+These are the provisional values that task 2.1 writes into the `pending-calibration` configuration. Only calibration may change the rate and duration before freezing.
 
 | Parameter          | Value                                                                               | Reason                                                                                                              |
 | ------------------ | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
@@ -73,7 +75,7 @@ Alternatives:
 - **Eight workers.** v4 showed eight-worker cells close to saturating the 8-CPU host, which confounds results. Excluded.
 - **100 reads per write.** At about 1,300 reads/s, each key would be written roughly every 80 s and nearly every read would hit, so the workload wouldn't exercise simultaneous writes. Rejected.
 
-Unknown: the frozen rate, which depends on how many reads one direct asyncio worker can sustain. Task 2.2 settles it. No other research is needed.
+Unknown: the frozen rate, which depends on how many reads one direct asyncio worker can sustain. Task 2.2 settles it.
 
 ### Shared key assignment
 
