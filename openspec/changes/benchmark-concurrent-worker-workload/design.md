@@ -16,7 +16,7 @@ It also already implements `direct` and `independent` paths, `active` windows th
 
 - the default path tuple;
 - the phase list, plus a per-phase matrix (`_phase_matrix`) that expands both sync and async models and treats any phase it doesn't recognize as a sensitivity phase (`workers`, `profiles`);
-- the calibration families (`primary`, `cold`, `sensitivity`), which `probe_cells`, `calibrate` and `freeze` always process; `freeze` also writes a fixed `frozen` block and only moves a registration from `pending-calibration` to `frozen`;
+- the calibration families (`primary`, `cold`, `sensitivity`), which `probe_cells`, `calibrate` and `freeze` always process; `family_durations` always derives `hot` and `active` windows for the primary family, and `frozen_durations` always reads `hot`, `active` and `sensitivity`; `freeze` also writes a fixed `frozen` block and only moves a registration from `pending-calibration` to `frozen`;
 - smoke cells, which are three fixed workload and model pairs over every path, including `shared`;
 - round-robin key partitioning across workers (`Assignment.ordinals`);
 - a fixed `active.updates` count per window that targets the whole catalogue;
@@ -41,7 +41,7 @@ The v4 registration in `reports/shared-worker-cache/v4/` is frozen, and its rese
 
 ### Harness reuse
 
-Generalize the shared-cache harness so that the registration declares the paths, phases, key assignment, hot set and write mix. Each phase declares its cells explicitly as `[workload, model, workers]` triples. Calibration families likewise list their own cells, and only the families present in the registration are probed, validated and frozen. Smoke cells come from a `smoke` section that lists cells in the same way, with the registration's paths. When any of these keys is absent, the loader derives v4's current values, so the frozen v4 file stays unchanged. A new registration starts as `pending-calibration`, the state that `freeze` already moves to `frozen`, so no new state is added. The new registration lives at `reports/concurrent-worker-workload/v1/` and is selected with the existing `--config` option.
+Generalize the shared-cache harness so that the registration declares the paths, phases, key assignment, hot set and write mix. Each phase declares its cells explicitly as `[workload, model, workers]` triples. Calibration families likewise list their own cells, and only the families present in the registration are probed, validated and frozen. Frozen window durations are derived and read only for the workload kinds that the registration's families and phases use. Smoke cells come from a `smoke` section that lists cells in the same way, with the registration's paths. When any of these keys is absent, the loader derives v4's current values, so the frozen v4 file stays unchanged. A new registration starts as `pending-calibration`, the state that `freeze` already moves to `frozen`, so no new state is added. The new registration lives at `reports/concurrent-worker-workload/v1/` and is selected with the existing `--config` option.
 
 | Alternative                                             | Pros                                                                                       | Cons                                                                                                         |
 | ------------------------------------------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------ |
@@ -85,7 +85,17 @@ Partitioning would leave each of four workers reading only a quarter of the keys
 
 ### Write mix
 
-The registration adds `active.reads_per_write` and `active.write_keys` (`hot`). The window derives `updates = floor(rate × window / reads_per_write)`, with targets drawn from a seeded permutation of the hot set. v4 keeps `active.updates`, and the two are mutually exclusive in configuration validation.
+The registration adds `active.reads_per_write` and `active.write_keys` (`hot`). In open-loop windows, the window derives `updates = floor(rate × window / reads_per_write)`, with targets drawn from a seeded permutation of the hot set. v4 keeps `active.updates`, and the two are mutually exclusive in configuration validation.
+
+Closed-loop calibration probes have no offered rate, so the formula can't apply to them. The new calibration family therefore probes the `hot` workload (reads only) and validates the `active` workload at the selected rate, where the formula applies. A family declares this as `probe_workload: "hot"`; when it is absent, the probes use the family's own cells, as in v4.
+
+| Alternative                                                   | Pros                                                                                      | Cons                                                                                                                     |
+| ------------------------------------------------------------- | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Read-only probes, mixed validation (chosen)                   | No invented rate; validation runs exactly the mixed schedule that the comparison will use | Read-only probes overestimate capacity under writes, so validation may need to lower the rate                            |
+| v4-style fixed write count per probe                          | Probes see some writes                                                                    | The count would have to come from a guessed rate, and the mix would differ from the comparison                           |
+| Workers issue one write per `reads_per_write` completed reads | Keeps the ratio in a closed loop                                                          | Moves writes from the harness into the measured workers, so they add to worker CPU and latency, unlike in the comparison |
+
+The registered rule already lowers the rate when validation shows overload, with at most three attempts. If read-only probes overestimate capacity, the outcome is one or two extra validation rounds, not an invalid rate. Task 2.2 records how many attempts were needed.
 
 At about 1,300 reads/s, this gives about 65 writes/s. The four existing writer threads issued v4's 3.3 writes/s within 3 ms of schedule. Whether they keep within the 250 ms dispatch tolerance at 65 writes/s is unknown. Task 2.2's validation enforces the tolerance. If validation fails, the response is to raise the writer pool size in a new registration version, not to relax the tolerance.
 

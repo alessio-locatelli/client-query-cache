@@ -78,7 +78,7 @@ The replacement worker takes over the killed worker's remaining ordinals as soon
 
 A trial is valid only when completed, failed, interrupted and undelivered requests together equal the offered schedule for every worker share. Interrupted requests are counted neither as completed nor as failed reads, and the report shows their count. That count is bounded by the per-worker rate times the chunk cadence, plus the per-worker concurrency.
 
-The alternative is to drain the worker before stopping it. That would measure a graceful restart, not a crash, so it is rejected. Shortening the chunk cadence bounds the unknown outcomes more tightly but costs pipe traffic. 250 ms matches the snapshot cadence, whose observer overhead v4 measured as negligible. Task 2.1's tests verify the classification.
+The alternative is to drain the worker before stopping it. That would measure a graceful restart, not a crash, so it is rejected. Shortening the chunk cadence bounds the unknown outcomes more tightly but costs pipe traffic. The chunk cadence follows the snapshot cadence, and both are subject to the observer-overhead check in [Timelines and sampling](#timelines-and-sampling). Task 2.1's tests verify the classification.
 
 ### Three-member topology
 
@@ -96,7 +96,11 @@ If task 1.1 shows that host networking drops resource limits, the fallback is a 
 
 Fault windows make each worker record, for every request, the scheduled offset, the completion offset and the error type, using the window's shared monotonic start. Cached workers also sample their manager snapshot every 250 ms, recording hits, misses, bypass reasons, entry count and stream health. Steady-state windows keep their current, smaller record, so steady-state results and run cost stay unchanged.
 
-Recording every request costs about 24 bytes for each of roughly 80,000 requests per worker per window, which is negligible. The 250 ms snapshot follows the measured v4 observer overhead: 200 ms PSS sampling had no measurable effect on request P99.
+Recording every request takes about 24 bytes for each of roughly 80,000 requests per worker per window, so memory isn't a concern. The CPU and event-loop cost is unknown, though. Recording each request, serializing chunks and sending them over the worker's pipe all run on the worker's own event loop, and v4's PSS sampling ran in the harness, so its negligible overhead says nothing about this cost.
+
+Before freezing, the overhead is therefore measured directly. At the calibrated rate on the single-member topology, the check runs three fault-free windows per path, both with and without the fault instrumentation, in alternating order. The instrumentation passes when the instrumented request P99 is within the larger of 10% or 0.2 ms of the uninstrumented P99, and worker CPU per request is within 10%.
+
+If it fails, the chunk and snapshot cadence is lengthened to 1 s and the check repeats. If it fails again, the registration stops as inconclusive and the fault trials don't run. The registration records the outcome, and the fault report states the measured overhead next to latency results.
 
 ## Risks / Trade-offs
 
