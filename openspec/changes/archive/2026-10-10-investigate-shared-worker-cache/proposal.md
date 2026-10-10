@@ -2,7 +2,7 @@
 
 ## Why
 
-Application workers duplicate resident cache values as well as MongoDB change streams. The completed [shared-invalidation study](../../../docs/development/research/shared-invalidation-feasibility.md) did not evaluate shared storage, leaving its memory benefit and access costs unresolved.
+Application workers duplicate resident cache values as well as MongoDB change streams. The completed [shared-invalidation study](../../../../docs/development/research/shared-invalidation-feasibility.md) did not evaluate shared storage, leaving its memory benefit and access costs unresolved.
 
 ## What Changes
 
