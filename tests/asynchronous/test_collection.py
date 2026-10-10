@@ -50,6 +50,10 @@ _CAPPED_COLLECTION_BYTES = 4096
 _TEXT_INDEX = [("text", "text")]
 _GEO_INDEX = [("loc", "2dsphere")]
 _ORIGIN: BsonDict = {"type": "Point", "coordinates": [0, 0]}
+_VIEW_PROBE_ERRORS = [
+    pytest.param(OperationFailure("not authorized", code=13), id="unauthorized"),
+    pytest.param(ConnectionFailure("no primary available"), id="connection_failure"),
+]
 
 
 def _spy_on_driver(patch_target: str) -> AbstractContextManager[Mock]:
@@ -284,12 +288,7 @@ async def test_repeated_cached_views_share_entries_and_one_database_stream(
             autospec=True,
             side_effect=DatabaseStreamSupervisor.start,
         ) as start_spy,
-        patch.object(
-            AsyncCollection,
-            "find_one",
-            autospec=True,
-            side_effect=AsyncCollection.find_one,
-        ) as find_one_spy,
+        _spy_on_driver("find_one") as find_one_spy,
     ):
         admitted = await cache_manager.get_cached_collection(raw_collection).find_one(
             {"_id": document["_id"]}
@@ -362,12 +361,7 @@ async def test_find_one_by_id_bypasses_cache_for_a_session_bound_read(
         query["$and"] = [{"_id": document["_id"]}]
 
     async with raw_mongo_client.start_session() as session:
-        with patch.object(
-            AsyncCollection,
-            "find_one",
-            autospec=True,
-            side_effect=AsyncCollection.find_one,
-        ) as spy:
+        with _spy_on_driver("find_one") as spy:
             returned_document = await collection.find_one(query, session=session)
 
     assert returned_document == document
@@ -416,9 +410,7 @@ async def test_find_one_by_id_bypasses_cache_for_an_incompatible_read_profile(
     if query_kind == "generic":
         query["$and"] = [{"_id": document["_id"]}]
 
-    with patch.object(
-        AsyncCollection, "find_one", autospec=True, side_effect=AsyncCollection.find_one
-    ) as spy:
+    with _spy_on_driver("find_one") as spy:
         returned_document = await collection.find_one(query)
 
     assert returned_document == document
@@ -522,23 +514,32 @@ async def test_find_one_by_compound_ids_with_different_field_order_do_not_collid
     assert second == {"_id": {"b": 2, "a": 1}, "v": 2}
 
 
-async def test_find_one_by_a_compound_id_invalidates_after_an_independent_write(
+@pytest.mark.parametrize(
+    ("stored_id", "query_id"),
+    [
+        pytest.param({"a": 1, "b": 2}, {"a": 1, "b": 2}, id="compound"),
+        pytest.param(1, 1.0, id="int-queried-as-float"),
+    ],
+)
+async def test_find_one_by_a_compound_or_numeric_id_invalidates_after_a_write(
     cache_manager: CacheManager[BsonDict],
     independent_writer: AsyncMongoClient[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
+    *,
+    stored_id: object,
+    query_id: object,
 ) -> None:
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
-    identity = {"a": 1, "b": 2}
-    await collection.raw.insert_one({"_id": identity, "v": 1})
-    assert await collection.find_one({"_id": identity}) == {"_id": identity, "v": 1}
+    await collection.raw.insert_one({"_id": stored_id, "v": 1})
+    assert await collection.find_one({"_id": query_id}) == {"_id": stored_id, "v": 1}
 
     await independent_writer[cached_database_name][
         nonpersistent_collection_name
-    ].update_one({"_id": identity}, {"$set": {"v": 2}})
+    ].update_one({"_id": stored_id}, {"$set": {"v": 2}})
 
     await wait_until_value_async(
-        lambda: collection.find_one({"_id": identity}),
+        lambda: collection.find_one({"_id": query_id}),
         lambda document: document is not None and document["v"] == 2,
     )
 
@@ -578,9 +579,7 @@ async def test_generic_find_one_caches_and_isolates_documents(
         "none": None,
     }
     query = queries[query_kind]
-    with patch.object(
-        AsyncCollection, "find_one", autospec=True, side_effect=AsyncCollection.find_one
-    ) as spy:
+    with _spy_on_driver("find_one") as spy:
         first = await collection.find_one(query)
         assert first == (document if matches else None)
         if first is not None:
@@ -630,12 +629,7 @@ async def test_find_one_by_a_regex_id_uses_generic_caching(
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
     await collection.raw.insert_one({"_id": "doc-1", "v": 1})
 
-    with patch.object(
-        AsyncCollection,
-        "find_one",
-        autospec=True,
-        side_effect=AsyncCollection.find_one,
-    ) as spy:
+    with _spy_on_driver("find_one") as spy:
         first = await collection.find_one({"_id": re.compile(r"^doc-")})
         second = await collection.find_one({"_id": re.compile(r"^doc-")})
 
@@ -654,9 +648,7 @@ async def test_find_one_with_extra_pymongo_options_bypasses_instead_of_raising(
     document = make_fake_document()
     await collection.raw.insert_one(document)
 
-    with patch.object(
-        AsyncCollection, "find_one", autospec=True, side_effect=AsyncCollection.find_one
-    ) as spy:
+    with _spy_on_driver("find_one") as spy:
         returned_document = await collection.find_one(
             {"_id": document["_id"]}, hint="_id_"
         )
@@ -681,9 +673,7 @@ async def test_find_one_by_id_projection_does_not_collide_with_full_document_rea
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
     await collection.raw.insert_one({"_id": "doc-1", "a": 1, "b": 2})
 
-    with patch.object(
-        AsyncCollection, "find_one", autospec=True, side_effect=AsyncCollection.find_one
-    ) as spy:
+    with _spy_on_driver("find_one") as spy:
         full = await collection.find_one({"_id": "doc-1"})
         projected = await collection.find_one({"_id": "doc-1"}, {"a": 1})
         full_again = await collection.find_one({"_id": "doc-1"})
@@ -776,9 +766,7 @@ async def test_find_one_against_a_view_bypasses_cache(
 
     assert await view_collection.find_one({"_id": "doc-1"}) == {"_id": "doc-1", "v": 1}
 
-    with patch.object(
-        AsyncCollection, "find_one", autospec=True, side_effect=AsyncCollection.find_one
-    ) as spy:
+    with _spy_on_driver("find_one") as spy:
         await view_collection.find_one({"_id": "doc-1"})
         await view_collection.find_one({"_id": "doc-1"})
 
@@ -812,9 +800,7 @@ async def test_collection_recreated_as_a_view_loses_eligibility(
         lambda document: document == {"_id": "doc-1", "v": 1},
     )
 
-    with patch.object(
-        AsyncCollection, "find_one", autospec=True, side_effect=AsyncCollection.find_one
-    ) as spy:
+    with _spy_on_driver("find_one") as spy:
         await collection.find_one({"_id": "doc-1"})
         await collection.find_one({"_id": "doc-1"})
 
@@ -841,24 +827,14 @@ async def test_namespace_wrapped_while_absent_and_created_as_a_view_is_detected(
         lambda document: document == {"_id": "doc-1", "v": 1},
     )
 
-    with patch.object(
-        AsyncCollection, "find_one", autospec=True, side_effect=AsyncCollection.find_one
-    ) as spy:
+    with _spy_on_driver("find_one") as spy:
         await collection.find_one({"_id": "doc-1"})
         await collection.find_one({"_id": "doc-1"})
 
     assert spy.call_count == 2
 
 
-@pytest.mark.parametrize(
-    "probe_error",
-    [
-        pytest.param(OperationFailure("not authorized", code=13), id="unauthorized"),
-        pytest.param(
-            ConnectionFailure("no primary available"), id="connection_failure"
-        ),
-    ],
-)
+@pytest.mark.parametrize("probe_error", _VIEW_PROBE_ERRORS)
 async def test_find_one_bypasses_cache_when_view_inspection_fails(
     cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
@@ -875,12 +851,7 @@ async def test_find_one_bypasses_cache_when_view_inspection_fails(
     with (
         caplog.at_level("WARNING", logger="client_query_cache.asynchronous.collection"),
         patch.object(AsyncDatabase, "list_collections", side_effect=probe_error),
-        patch.object(
-            AsyncCollection,
-            "find_one",
-            autospec=True,
-            side_effect=AsyncCollection.find_one,
-        ) as spy,
+        _spy_on_driver("find_one") as spy,
     ):
         first = await collection.find_one({"_id": document["_id"]})
         second = await collection.find_one({"_id": document["_id"]})
@@ -892,15 +863,7 @@ async def test_find_one_bypasses_cache_when_view_inspection_fails(
     assert all(record.levelname == "WARNING" for record in caplog.records)
 
 
-@pytest.mark.parametrize(
-    "probe_error",
-    [
-        pytest.param(OperationFailure("not authorized", code=13), id="unauthorized"),
-        pytest.param(
-            ConnectionFailure("no primary available"), id="connection_failure"
-        ),
-    ],
-)
+@pytest.mark.parametrize("probe_error", _VIEW_PROBE_ERRORS)
 async def test_view_inspection_failure_is_not_memoized_as_a_permanent_view(
     cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
@@ -915,12 +878,7 @@ async def test_view_inspection_failure_is_not_memoized_as_a_permanent_view(
     with patch.object(AsyncDatabase, "list_collections", side_effect=probe_error):
         await collection.find_one({"_id": document["_id"]})
 
-    with patch.object(
-        AsyncCollection,
-        "find_one",
-        autospec=True,
-        side_effect=AsyncCollection.find_one,
-    ) as spy:
+    with _spy_on_driver("find_one") as spy:
         first = await collection.find_one({"_id": document["_id"]})
         second = await collection.find_one({"_id": document["_id"]})
 
@@ -942,9 +900,7 @@ async def test_find_one_bypasses_forced_options_while_the_stream_is_unavailable(
         cached_database_name, available=False
     )
 
-    with patch.object(
-        AsyncCollection, "find_one", autospec=True, side_effect=AsyncCollection.find_one
-    ) as spy:
+    with _spy_on_driver("find_one") as spy:
         returned_document = await collection.find_one({"_id": "b"})
 
     assert returned_document == {"_id": "b", "v": 2}
@@ -1237,12 +1193,7 @@ async def test_find_one_bypasses_when_identity_normalization_yields_an_unhashabl
             "client_query_cache.asynchronous.collection.normalize_identity_for_cache_key",
             return_value={1, 2, 3},
         ),
-        patch.object(
-            AsyncCollection,
-            "find_one",
-            autospec=True,
-            side_effect=AsyncCollection.find_one,
-        ) as spy,
+        _spy_on_driver("find_one") as spy,
     ):
         first = await collection.find_one({"_id": "a"})
         second = await collection.find_one({"_id": "a"})
@@ -1334,26 +1285,6 @@ async def test_aggregate_with_equal_int_and_other_numeric_literals_do_not_collid
 
     assert int_result == [{"_id": "a", "t": "int"}]
     assert other_result == [{"_id": "a", "t": other_type}]
-
-
-async def test_find_one_by_a_numeric_id_invalidates_regardless_of_int_or_float_spelling(
-    cache_manager: CacheManager[BsonDict],
-    independent_writer: AsyncMongoClient[BsonDict],
-    cached_database_name: DatabaseName,
-    nonpersistent_collection_name: CollectionName,
-) -> None:
-    collection = cache_manager[cached_database_name][nonpersistent_collection_name]
-    await collection.raw.insert_one({"_id": 1, "v": 1})
-    assert await collection.find_one({"_id": 1.0}) == {"_id": 1, "v": 1}
-
-    await independent_writer[cached_database_name][
-        nonpersistent_collection_name
-    ].update_one({"_id": 1}, {"$set": {"v": 2}})
-
-    await wait_until_value_async(
-        lambda: collection.find_one({"_id": 1.0}),
-        lambda document: document is not None and document["v"] == 2,
-    )
 
 
 @pytest.mark.parametrize(
@@ -1541,12 +1472,7 @@ async def test_count_documents_reuses_equivalent_skip_entries(
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
     await collection.raw.insert_one({"_id": "counted"})
     other_options: dict[str, Any] = {} if options else {"skip": 0}
-    with patch.object(
-        AsyncCollection,
-        "count_documents",
-        autospec=True,
-        side_effect=AsyncCollection.count_documents,
-    ) as spy:
+    with _spy_on_driver("count_documents") as spy:
         assert await collection.count_documents({}, **other_options) == 1
         assert await collection.count_documents({}, **options) == 1
         assert await collection.count_documents({}, **options) == 1
@@ -1568,12 +1494,7 @@ async def test_count_documents_with_skip_limit_hint_and_collation_object_is_cach
         "collation": Collation(locale="en"),
     }
 
-    with patch.object(
-        AsyncCollection,
-        "count_documents",
-        autospec=True,
-        side_effect=AsyncCollection.count_documents,
-    ) as spy:
+    with _spy_on_driver("count_documents") as spy:
         first = await collection.count_documents({}, **kwargs)
         second = await collection.count_documents({}, **kwargs)
 
@@ -1589,12 +1510,7 @@ async def test_estimated_document_count_bypasses_cache_for_extra_pymongo_options
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
     await collection.raw.insert_one({"_id": "a", "v": 1})
 
-    with patch.object(
-        AsyncCollection,
-        "estimated_document_count",
-        autospec=True,
-        side_effect=AsyncCollection.estimated_document_count,
-    ) as spy:
+    with _spy_on_driver("estimated_document_count") as spy:
         await collection.estimated_document_count(comment="audit")
         await collection.estimated_document_count(comment="audit")
 
@@ -2040,9 +1956,7 @@ async def test_find_one_sort_and_projection_shapes_do_not_collide(
     first_document = {"_id": "first", "rank": 1, "email": "first@example.com"}
     last_document = {"_id": "last", "rank": 2, "email": "last@example.com"}
     await collection.raw.insert_many([first_document, last_document])
-    with patch.object(
-        AsyncCollection, "find_one", autospec=True, side_effect=AsyncCollection.find_one
-    ) as spy:
+    with _spy_on_driver("find_one") as spy:
         ascending = await collection.find_one(filter_query, sort=[("rank", 1)])
         descending = await collection.find_one(filter_query, sort=[("rank", -1)])
         projected = await collection.find_one(
@@ -2085,9 +1999,7 @@ async def test_find_one_inherited_collation_uses_namespace_invalidation(
     document = {"_id": stored_identity, "rank": 1}
     await collection.raw.insert_one(document)
     query = query_identity if scalar_identity else {"_id": query_identity}
-    with patch.object(
-        AsyncCollection, "find_one", autospec=True, side_effect=AsyncCollection.find_one
-    ) as spy:
+    with _spy_on_driver("find_one") as spy:
         assert await collection.find_one(query) == document
         assert await collection.find_one(query) == document
         assert await collection.find_one(query, collation=Collation("simple")) is None
@@ -2158,9 +2070,7 @@ async def test_generic_find_one_invalidates_for_namespace_changes(
     await wait_for_stream_barrier_async(
         cache_manager.cache_core, independent_writer[cached_database_name]
     )
-    with patch.object(
-        AsyncCollection, "find_one", autospec=True, side_effect=AsyncCollection.find_one
-    ) as spy:
+    with _spy_on_driver("find_one") as spy:
         assert await collection.find_one(query) == expected
         assert await collection.find_one(query) == expected
     assert spy.call_count == 1
@@ -2250,9 +2160,7 @@ async def test_find_one_sort_metadata_projections_execute_directly(
     query = {"_id": document["_id"]}
     expected = await collection.raw.find_one(query, projection, sort=sort)
     assert await collection.find_one(query) == document
-    with patch.object(
-        AsyncCollection, "find_one", autospec=True, side_effect=AsyncCollection.find_one
-    ) as spy:
+    with _spy_on_driver("find_one") as spy:
         assert await collection.find_one(query, projection, sort=sort) == expected
         assert await collection.find_one(query, projection, sort=sort) == expected
     assert spy.call_count == 2
@@ -2381,9 +2289,7 @@ async def test_find_one_explicit_collation_changes_matching_without_alias_leaks(
     await collection.raw.insert_one(document)
     query_field = {"identity": "_id", "generic": "group", "unique": "email"}[query_kind]
     query = {query_field: stored_spelling.lower()}
-    with patch.object(
-        AsyncCollection, "find_one", autospec=True, side_effect=AsyncCollection.find_one
-    ) as spy:
+    with _spy_on_driver("find_one") as spy:
         assert await collection.find_one(query) is None
         assert (
             await collection.find_one(query, collation={"locale": "en", "strength": 2})

@@ -20,5 +20,5 @@
 
 ## 4. Code Quality
 
-- [ ] 4.1 Scan the entire file for each edited or added test file, including pre-existing tests, and apply AGENTS.md's Writing Tests guidelines and parametrization; verify the resulting test diff.
-- [ ] 4.2 Confirm no new code prose if applying with Claude Code — inapplicable to OpenAI Codex; another applying agent must reassess its exemption.
+- [x] 4.1 Scan the entire file for each edited or added test file, including pre-existing tests, and apply AGENTS.md's Writing Tests guidelines and parametrization; verify the resulting test diff.
+- [x] 4.2 Confirm no new code prose if applying with Claude Code — inapplicable to OpenAI Codex; another applying agent must reassess its exemption.
