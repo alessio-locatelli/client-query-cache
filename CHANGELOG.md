@@ -15,6 +15,7 @@ bodies or OpenSpec. An empty Unreleased section is valid.
 
 ### Bug fixes
 
+- A cached `find_one()` by `_id` no longer keeps returning an outdated document after writes to a matching document whose stored `_id` is a numerically equal decimal, such as `Decimal128("1")` for a read by `1`, including inside an embedded `_id` document.
 - Cache budgets and lag-window counts reject non-integer values, including NaN, infinities, booleans, and integer subclasses, with `CacheConfigurationError` at configuration construction.
 - MongoDB Search, Vector Search, and `$listSearchIndexes` aggregations through cached views run with the caller's read concern instead of failing.
 - `$near`, `$nearSphere`, and `$geoNear` reads, reads that reference `$$USER_ROLES`, and `find_one()` and `find()` projections that use `$rand`, `$function`, `$$NOW`, or `$$CLUSTER_TIME` bypass the cache, so they no longer return results that index changes, role changes, or the first execution left stale.
