@@ -16,7 +16,7 @@ The collection must come from the manager's own client. See [cached collection v
 
 ## Read methods
 
-The cached view provides `find_one`, `find`, `aggregate`, `count_documents`, `estimated_document_count`, and `distinct`. These methods either reuse a cached result, fetch and admit a result, or execute directly through PyMongo when the request is ineligible.
+The cached view provides `find_one`, `find`, `aggregate`, `count_documents`, `estimated_document_count`, and `distinct`. These methods either reuse a cached result, fetch a result and try to cache it, or execute directly through PyMongo when the request is ineligible. Receiving a result does not mean it was cached; see the cursor consumption rules below and [uncached fallback](#uncached-fallback).
 
 `find()` and `aggregate()` return native cursor subclasses. Iterate them or materialize explicitly:
 
