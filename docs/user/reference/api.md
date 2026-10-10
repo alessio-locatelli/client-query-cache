@@ -145,10 +145,7 @@ malformed arguments preserve the driver's errors.
 A read bypasses the cache — executing as a normal PyMongo call instead of a lookup or admission — whenever caching
 it safely isn't possible:
 
-- The caller supplies a session or uses `session.bind()`, a read preference other than primary, or a read concern other than majority.
-  Leaving read concern unspecified (the common case) is treated as compatible with caching, not as a bypass
-  condition: a cache miss reads at majority concern, which is stronger, and can be slower or less available during a
-  network partition, than the server's own default read concern an uncached call would otherwise use.
+- The caller supplies a session or uses `session.bind()`, a read preference other than primary, or a read concern other than majority. Leaving read concern unspecified (the common case) does not bypass caching: an eligible miss reads from the primary with [`majority` read concern](https://www.mongodb.com/docs/manual/reference/read-concern-majority/), while an uncached read uses the deployment's [default read concern](https://www.mongodb.com/docs/manual/reference/mongodb-defaults/), normally `local`. Majority reads usually perform comparably, but they return only writes acknowledged by a majority of replica set members. While replication lags or no majority commit point is available, a miss can therefore return older data than a `local` read, or fail where a `local` read would succeed. Majority reads keep writes that could later roll back out of the cache; they do not make hits current, because [invalidation](../usage/consistency.md) remains asynchronous.
 - Find cursor-only requests (tailable, exhaust, partial results), explicit find batching, unsupported find options, and aggregation batching supplied at invocation execute natively. `$changeStream` pipelines also execute natively without caching.
 - The collection is a MongoDB view.
 - An aggregation pipeline joins another collection, writes, reports live statistics, or is otherwise

@@ -17,6 +17,8 @@ Caching requires [MongoDB 8.0+ on a replica set or sharded cluster](https://ales
 
 Invalidation is asynchronous: a cached read can return a preceding value until the write's change-stream event is processed. Use PyMongo directly when a read must immediately observe a preceding write; see [consistency](https://alessio-locatelli.github.io/client-query-cache/usage/consistency/).
 
+Eligible cache misses read from the primary with `majority` read concern, even when the collection leaves read concern unspecified, so only majority-committed results enter the cache. Uncached PyMongo reads use the deployment's default read concern, normally `local`. The two usually perform alike, but while replication lags or data-bearing members are unavailable, a miss can return older data or fail where an uncached read would not. Majority admission does not make cache hits current: invalidation remains asynchronous. See [bypass conditions](https://alessio-locatelli.github.io/client-query-cache/reference/api/#bypass-conditions).
+
 ## Quick start
 
 ```bash
