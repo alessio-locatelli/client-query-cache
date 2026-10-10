@@ -611,6 +611,18 @@ def test_owner_shutdown_during_activation_leaves_reads_native(
     manager.close()
 
 
+def test_an_owner_exits_cleanly_when_the_harness_hangs_up_after_close(
+    start_owner: Callable[..., Owner],
+) -> None:
+    owner = start_owner()
+
+    owner.control.send("close")
+    owner.control.close()
+    owner.process.join(10)
+
+    assert owner.process.exitcode == 0
+
+
 def test_cancelled_async_selection_releases_its_capture(
     start_owner: Callable[..., Owner], seeded_database: str, mongodb_uri: MongoDbUri
 ) -> None:

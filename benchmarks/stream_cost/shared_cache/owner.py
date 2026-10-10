@@ -154,5 +154,8 @@ def owner_main(config: OwnerConfig, control: Connection) -> None:
         finally:
             proxy.resume()
             owner.close()
-            control.send({"kind": "closed"})
+            try:
+                control.send({"kind": "closed"})
+            except BrokenPipeError:
+                pass
             control.close()
