@@ -22,4 +22,4 @@ None; [Outcome handling](design.md#outcome-handling) removed the conditional cap
 
 ## Impact
 
-The research adds `benchmarks/stream_cost/shared_cache/`, its tests, the registrations under `reports/shared-worker-cache/`, a launch smoke under `research/shared_cache_launch/` and the development research report. `_core/manager.py` gains an encoded-entry seam that the research owner needs; standalone behaviour and public interfaces are unchanged. No user guide, example, README, Context7 rule or dependency changes.
+The research adds `benchmarks/stream_cost/shared_cache/`, its tests, the registrations under `reports/shared-worker-cache/`, a launch smoke under `research/shared_cache_launch/` and the development research report. `_core/manager.py` gains an encoded-entry seam that the research owner needs; standalone behaviour and public interfaces are unchanged. The deployment guide gains a multi-worker section and two Context7 rules describe per-worker construction and memory; no example, README or dependency changes.
