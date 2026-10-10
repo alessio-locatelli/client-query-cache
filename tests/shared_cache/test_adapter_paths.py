@@ -61,6 +61,9 @@ def test_oversized_find_results_are_not_admitted(
     client[seeded_database]["large"].insert_many(
         {"_id": index, "payload": "x" * 16_384} for index in range(8)
     )
+    client[seeded_database]["large"].insert_one(
+        {"_id": "big", "payload": "x" * 100_000}
+    )
     owner = start_owner(max_entry_bytes=64 * 1024)
     manager = SharedCacheManager(client, SyncEndpoint(owner.attachment()))
     ready(manager, seeded_database)
@@ -69,10 +72,17 @@ def test_oversized_find_results_are_not_admitted(
     documents = cursor.to_list()
     cursor.close()
 
+    big = manager[seeded_database]["large"].find_one({"_id": "big"})
+    after = manager[seeded_database]["large"].find_one({"_id": 0})
+
     assert len(documents) == 8
-    assert manager.observation.bypasses["oversized"] == 1
+    assert big is not None
+    assert after is not None
+    assert manager.observation.bypasses["oversized"] == 2
+    assert owner.counters()["detached"] == 0
     wait_for(lambda: owner.observation()["captures"] == 0)
-    assert owner.observation()["cache"]["entry_count"] == 0
+    wait_for(lambda: owner.counters()["admitted"] == 1)
+    assert owner.observation()["cache"]["entry_count"] == 1
     manager.close()
 
 
