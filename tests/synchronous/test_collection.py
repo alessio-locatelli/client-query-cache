@@ -1479,16 +1479,18 @@ def test_estimated_document_count_bypasses_cache_for_extra_pymongo_options(
 
 
 @pytest.mark.parametrize(
-    ("patch_target", "invoke"),
+    ("patch_target", "invoke", "needs_text_index"),
     [
         pytest.param(
             "find",
             lambda collection: list(collection.find({"$where": "this.v > 0"})),
+            False,
             id="find-where",
         ),
         pytest.param(
             "find",
             lambda collection: list(collection.find({"$expr": {"$rand": {}}})),
+            False,
             id="find-expr-rand",
         ),
         pytest.param(
@@ -1506,26 +1508,31 @@ def test_estimated_document_count_bypasses_cache_for_extra_pymongo_options(
                     }
                 )
             ),
+            False,
             id="find-expr-function",
         ),
         pytest.param(
             "count_documents",
             lambda collection: collection.count_documents({"$expr": {"$rand": {}}}),
+            False,
             id="count_documents-expr-rand",
         ),
         pytest.param(
             "distinct",
             lambda collection: collection.distinct("v", {"$expr": {"$rand": {}}}),
+            False,
             id="distinct-expr-rand",
         ),
         pytest.param(
             "find_one",
             lambda collection: collection.find_one({"$text": {"$search": "hello"}}),
+            True,
             id="find_one-text-search",
         ),
         pytest.param(
             "find",
             lambda collection: list(collection.find({"$text": {"$search": "hello"}})),
+            True,
             id="find-text-search",
         ),
         pytest.param(
@@ -1533,6 +1540,7 @@ def test_estimated_document_count_bypasses_cache_for_extra_pymongo_options(
             lambda collection: collection.count_documents(
                 {"$text": {"$search": "hello"}}
             ),
+            True,
             id="count_documents-text-search",
         ),
         pytest.param(
@@ -1540,6 +1548,7 @@ def test_estimated_document_count_bypasses_cache_for_extra_pymongo_options(
             lambda collection: collection.distinct(
                 "text", {"$text": {"$search": "hello"}}
             ),
+            True,
             id="distinct-text-search",
         ),
     ],
@@ -1548,11 +1557,14 @@ def test_unsafe_filters_are_never_cached(
     cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
+    *,
     patch_target: str,
     invoke: Callable[[CachedCollection[BsonDict]], object],
+    needs_text_index: bool,
 ) -> None:
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
-    collection.raw.create_index([("text", "text")])
+    if needs_text_index:
+        collection.raw.create_index([("text", "text")])
     collection.raw.insert_one({"_id": "a", "v": 1, "text": "hello world"})
 
     with _spy_on_driver(patch_target) as spy:
