@@ -266,7 +266,7 @@ class IsolatedReplicaSet:
         attempts = _STATS_ATTEMPTS
         while True:
             try:
-                return wrapped.stats(stream=False)
+                return wrapped.stats(stream=False, one_shot=True)
             except RequestsConnectionError as error:
                 attempts -= 1
                 if not attempts:
