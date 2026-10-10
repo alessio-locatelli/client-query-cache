@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import multiprocessing
 import secrets
+import select
 import socket
 import struct
 import threading
@@ -11,7 +13,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from benchmarks.stream_cost.shared_cache.attachment import SyncEndpoint
+from benchmarks.stream_cost.shared_cache.attachment import AsyncEndpoint, SyncEndpoint
 from benchmarks.stream_cost.shared_cache.coordinator import (
     OwnerConfig,
     SharedCacheOwner,
@@ -68,6 +70,15 @@ def owner(
     parent.send("close")
     serving.join(10)
     instance.close()
+
+
+@pytest.fixture
+def handshake_listener(socket_directory: Path) -> Iterator[socket.socket]:
+    listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    listener.bind(str(socket_directory / "handshake.sock"))
+    listener.listen()
+    yield listener
+    listener.close()
 
 
 def _metadata(endpoint: SyncEndpoint) -> Message | None:
@@ -262,3 +273,39 @@ def test_a_reply_larger_than_the_send_buffer_is_flushed_in_parts(
     assert reply["r"] == "hit"
     assert reply["value"] == value
     peer.close()
+
+
+def _close_after_hello(listener: socket.socket, *, consume: bool) -> None:
+    peer, _address = listener.accept()
+    if consume:
+        _read_reply(peer)
+    else:
+        select.select([peer], [], [], 5)
+    peer.close()
+
+
+@pytest.mark.parametrize(
+    "consume",
+    [pytest.param(True, id="eof"), pytest.param(False, id="reset")],
+)
+def test_an_owner_lost_during_the_handshake_leaves_requests_native(
+    owner: SharedCacheOwner, handshake_listener: socket.socket, consume: bool
+) -> None:
+    config = replace(
+        attachment_for(owner.config),
+        socket_path=handshake_listener.getsockname(),
+    )
+    server = threading.Thread(
+        target=_close_after_hello,
+        args=(handshake_listener,),
+        kwargs={"consume": consume},
+    )
+    server.start()
+    endpoint = AsyncEndpoint(config)
+
+    reply = asyncio.run(endpoint.request({"op": "observe"}))
+    server.join(5)
+
+    assert reply is None
+    assert endpoint.counters.failures == 1
+    assert endpoint.counters.connects == 0
