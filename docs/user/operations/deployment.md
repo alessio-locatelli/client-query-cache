@@ -21,15 +21,8 @@ To enable caching through an application-owned deployment flag and roll it back,
 - **Unresumable interruptions**: if the stream's resume position is no longer available on the server (for example,
   after an extended outage), the affected database's cache is cleared before the stream reopens, rather than assumed
   safe.
-- **Errors raised to callers** are narrow and mean the caller asked for something the cache genuinely cannot do:
-  `CacheConfigurationError` (invalid `CacheCoreConfig` values), `CacheClosedError` (a cached read attempted after
-  `cache_manager.close()`), and `UnsupportedCacheRequestError` (an explicit low-level cache operation received an
-  unsupported key value). See the [API reference's error table](../reference/api.md#errors) for the complete list.
-- **Cache-ineligible requests bypass.** A tailable, exhaust, or partial-result `find()`, a `$changeStream`
-  aggregation, an incompatible read preference or read concern, a session-bound
-  read, a nondeterministic filter or pipeline, a view, a time-series collection, an oversized result, or a database
-  whose change stream can't be established at all — each of these falls back to a normal, correct PyMongo call
-  rather than raising a cache eligibility error. The underlying PyMongo call can still raise its own errors or wait for the server.
+- **Errors raised to callers**: cache exceptions report invalid configuration, use after `close()`, or explicit low-level misuse. The [API reference's error table](../reference/api.md#errors) is the complete list.
+- **Cache-ineligible requests bypass**: tailable, exhaust, or partial-result `find()`, `$changeStream` aggregation, and the other [bypass conditions](../reference/api.md#bypass-conditions) execute as normal PyMongo calls instead of raising a cache error. The underlying PyMongo call can still raise its own errors or wait for the server.
 
 ## Security
 
