@@ -3,9 +3,7 @@
 This reference covers the complete public surface of `client_query_cache`: construction, configuration, the cached
 read methods, ownership rules, and how to fall back to plain PyMongo. Start with the [synchronous](../getting-started/synchronous.md) or [asyncio](../getting-started/asyncio.md) tutorial for a complete program.
 
-Synchronous names live at the top level (`client_query_cache`) and wrap `pymongo.MongoClient`. The same names are
-available under `client_query_cache.asynchronous` and wrap `pymongo.AsyncMongoClient`, with every read method
-exposed as a coroutine. Everything below applies to both; only the import path and `await` differ.
+Synchronous names live at the top level (`client_query_cache`) and wrap `pymongo.MongoClient`. The same names are available under `client_query_cache.asynchronous` and wrap `pymongo.AsyncMongoClient`. With asyncio, await every cached read except `find()`, which returns its async cursor immediately; await `aggregate()` before consuming its cursor. [Cached read methods](#cached-read-methods) shows both forms. Everything below applies to both APIs unless it names an asyncio difference.
 
 ## Constructing a manager
 
@@ -65,9 +63,18 @@ Cached views expose nothing else. PyMongo methods such as `insert_one`, `create_
 
 ## Cached read methods
 
-`CachedCollection` provides `find_one`, `find`, `aggregate`, `count_documents`, `estimated_document_count`, and `distinct`. Eligible reads can reuse cached results; ineligible reads execute through PyMongo. Cached views remain read-only: writes and other methods belong on the PyMongo collection or `.raw`.
+`CachedCollection` provides six cached reads. Eligible reads can reuse cached results; ineligible reads execute through PyMongo. Cached views remain read-only: writes and other methods belong on the PyMongo collection or `.raw`.
 
-`find()` returns a native `Cursor` subclass synchronously or an `AsyncCursor` subclass immediately with asyncio. Construction validates arguments locally and performs no database read or cache lookup. Consume the cursor to begin execution. `aggregate()` returns a `CommandCursor`; with asyncio, await it to receive an `AsyncCommandCursor`. A miss or bypass executes the initial aggregation command before returning.
+| Method                     | Synchronous result | Asyncio call                                   | Cache lookup and execution                                                  |
+| -------------------------- | ------------------ | ---------------------------------------------- | --------------------------------------------------------------------------- |
+| `find_one`                 | Document or `None` | Awaited                                        | During the call                                                             |
+| `find`                     | `Cursor` subclass  | Not awaited; returns an `AsyncCursor` subclass | When consumption starts                                                     |
+| `aggregate`                | `CommandCursor`    | Awaited; returns an `AsyncCommandCursor`       | During the call; a miss or bypass runs the initial command before returning |
+| `count_documents`          | `int`              | Awaited                                        | During the call                                                             |
+| `estimated_document_count` | `int`              | Awaited                                        | During the call                                                             |
+| `distinct`                 | `list`             | Awaited                                        | During the call                                                             |
+
+`find()` construction validates arguments locally and performs no database read or cache lookup.
 
 ```python
 with cached_collection.find({"status": "active"}).sort("name").limit(10) as cursor:
