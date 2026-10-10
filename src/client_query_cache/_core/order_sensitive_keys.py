@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
+from bson.decimal128 import Decimal128
 from bson.int64 import Int64
 
 from client_query_cache._core.canonical import _OWN_TAGS as _CANONICAL_OWN_TAGS
@@ -58,6 +59,8 @@ def _order_sensitive_key(
             return (_INT64_TAG, value)
         if isinstance(value, float):
             return (_FLOAT_TAG, value)
+    elif isinstance(value, Decimal128):
+        return value.to_decimal()
     return value
 
 

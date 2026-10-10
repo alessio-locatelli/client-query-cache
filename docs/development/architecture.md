@@ -56,7 +56,8 @@ writes and schema changes occur.
 - **Cache granularity**: entries are scoped to a MongoDB namespace (`database.collection`), then further scoped
   within it. A read resolved to one document — by `_id`, or by a value in a field a unique index enforces — is
   cached and invalidated per document, so a write to one document never invalidates another document's cached
-  entry. A read with no such resolved identity (a generic `find_one` query or a bounded `find`/`aggregate`/`count_documents`/`distinct` result) is
+  entry. Document identities compare by value as MongoDB compares them, so a write to a document whose stored
+  `_id` is the decimal `1` invalidates a cached read by the integer `_id` `1`. A read with no such resolved identity (a generic `find_one` query or a bounded `find`/`aggregate`/`count_documents`/`distinct` result) is
   cached and invalidated as a whole namespace: any write to that collection invalidates every such cached result for
   it, regardless of which document the write touched.
 - **Unique-key discovery**: the facade discovers which fields can resolve a single-document lookup from the

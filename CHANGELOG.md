@@ -15,6 +15,7 @@ bodies or OpenSpec. An empty Unreleased section is valid.
 
 ### Bug fixes
 
+- A cached `find_one()` by `_id` no longer keeps returning an outdated document after writes to a matching document whose stored `_id` is a numerically equal decimal, such as `Decimal128("1")` for a read by `1`, including inside an embedded `_id` document.
 - Cache budgets and lag-window counts reject non-integer values, including NaN, infinities, booleans, and integer subclasses, with `CacheConfigurationError` at configuration construction.
 
 ### Features
