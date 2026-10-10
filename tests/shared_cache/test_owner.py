@@ -13,7 +13,11 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from benchmarks.stream_cost.shared_cache.attachment import AsyncEndpoint, SyncEndpoint
+from benchmarks.stream_cost.shared_cache.attachment import (
+    AsyncEndpoint,
+    EndpointCounters,
+    SyncEndpoint,
+)
 from benchmarks.stream_cost.shared_cache.coordinator import (
     OwnerConfig,
     SharedCacheOwner,
@@ -40,6 +44,7 @@ _DATABASE = "unreachable"
 # Linux raises any smaller SO_SNDBUF request to its minimum send buffer.
 _SMALLEST_SEND_BUFFER = 1
 _HIT_BYTES = 48 * 1024
+_RPC_DEADLINE_SECONDS = 0.05
 
 
 @pytest.fixture
@@ -309,3 +314,30 @@ def test_an_owner_lost_during_the_handshake_leaves_requests_native(
     assert reply is None
     assert endpoint.counters.failures == 1
     assert endpoint.counters.connects == 0
+
+
+def test_a_reply_delivered_after_its_deadline_is_counted_as_late(
+    owner: SharedCacheOwner,
+) -> None:
+    config = replace(
+        attachment_for(owner.config), rpc_deadline_seconds=_RPC_DEADLINE_SECONDS
+    )
+
+    async def scenario() -> tuple[Message | None, EndpointCounters]:
+        endpoint = await AsyncEndpoint.attach(config)
+        sent = owner.counters.ipc_bytes_sent
+        expiry = time.monotonic() + _RPC_DEADLINE_SECONDS
+        request = asyncio.create_task(endpoint.request({"op": "observe"}))
+        await asyncio.sleep(0)
+        wait_for(
+            lambda: owner.counters.ipc_bytes_sent > sent and time.monotonic() > expiry
+        )
+        reply = await request
+        await endpoint.close()
+        return reply, endpoint.counters
+
+    reply, counters = asyncio.run(scenario())
+
+    assert reply is None
+    assert counters.timeouts == 1
+    assert counters.late_replies == 1

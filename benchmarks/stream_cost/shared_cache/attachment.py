@@ -384,11 +384,14 @@ class AsyncEndpoint:
         try:
             _writer, future = self._pending.pop(request_id)
         except KeyError:
-            self.counters.late_replies += 1
-            if message["r"] == "miss" and message["handle"] is not None:
-                self.send({"op": "discard", "handle": message["handle"]})
-            return
-        future.set_result(message)
+            pass
+        else:
+            if not future.done():
+                future.set_result(message)
+                return
+        self.counters.late_replies += 1
+        if message["r"] == "miss" and message["handle"] is not None:
+            self.send({"op": "discard", "handle": message["handle"]})
 
     def _abandon(self, writer: asyncio.StreamWriter) -> None:
         if self._writer is writer:
