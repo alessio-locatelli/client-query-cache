@@ -285,6 +285,17 @@ def smoke_protocol() -> Protocol:
     return replace(Protocol.smoke(), schedule_tolerance_seconds=0.5)
 
 
+@pytest.fixture
+def capture_protocol(smoke_protocol: Protocol) -> Protocol:
+    return replace(
+        smoke_protocol,
+        updates=200,
+        update_interval_seconds=0.01,
+        window_seconds=2.2,
+        schedule_tolerance_seconds=smoke_protocol.drain_seconds,
+    )
+
+
 @pytest.mark.parametrize("model", ["sync", "async"], ids=["sync", "asyncio"])
 @pytest.mark.parametrize(
     "path",
@@ -345,14 +356,11 @@ def test_child_owned_clients_and_resource_measurements(
 @pytest.mark.parametrize("model", ["sync", "async"], ids=["sync", "asyncio"])
 def test_real_capture_retains_every_registered_event_and_gap(
     multiprocess_replica: IsolatedReplicaSet,
-    smoke_protocol: Protocol,
+    capture_protocol: Protocol,
     model: Model,
 ) -> None:
-    protocol = replace(
-        smoke_protocol, updates=200, update_interval_seconds=0.01, window_seconds=2.2
-    )
     cell = replace(planned_cells()[0], model=model, path="native", workload="active")
-    sample = run_cell(multiprocess_replica, cell, protocol)
+    sample = run_cell(multiprocess_replica, cell, capture_protocol)
     worker = cast("tuple[Payload, ...]", sample["workers_measured"])[0]
     assert worker["invalidations"] == 200
     assert (
@@ -450,18 +458,15 @@ def test_harness_failures_reclaim_children(
 @pytest.mark.usefixtures("faulty_worker")
 def test_faulty_instrumentation_rejects_measurements(
     multiprocess_replica: IsolatedReplicaSet,
-    smoke_protocol: Protocol,
+    capture_protocol: Protocol,
     path: PathKind,
     message: str,
 ) -> None:
-    protocol = replace(
-        smoke_protocol, updates=200, update_interval_seconds=0.01, window_seconds=2.2
-    )
     with pytest.raises(BenchmarkSetupError, match=message):
         run_cell(
             multiprocess_replica,
             replace(planned_cells()[0], path=path, workload="active"),
-            protocol,
+            capture_protocol,
         )
     assert not multiprocessing.active_children()
 
