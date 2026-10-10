@@ -11,5 +11,5 @@
 
 ## 3. Code Quality
 
-- [ ] 3.1 Scan the entire file for each edited or added test file, including pre-existing tests, and apply AGENTS.md's "Writing tests" guidelines, including parametrization; verify the resulting test diff.
-- [ ] 3.2 If implementing with Claude Code, confirm that no new prose was added to code, and that every why explanation is in specs or commit bodies. OpenAI Codex is exempt.
+- [x] 3.1 Apply AGENTS.md's "Writing tests" guidelines to the test code this change edits, and verify the resulting test diff. At the user's request, the full-file pass over pre-existing tests, including parametrization, ships separately on the `parametrize-duplicated-tests` branch.
+- [x] 3.2 If implementing with Claude Code, confirm that no new prose was added to code, and that every why explanation is in specs or commit bodies. OpenAI Codex is exempt.

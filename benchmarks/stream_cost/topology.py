@@ -295,8 +295,10 @@ class IsolatedReplicaSet:
         except DockerException as error:
             message = f"Could not read MongoDB container memory usage: {error}"
             raise BenchmarkSetupError(message) from None
-        memory_stats = cast("JsonDict", cast("JsonDict", stats)["memory_stats"])
-        return cast("NonNegativeInt", memory_stats["usage"])
+        memory_stats = cast(
+            "dict[str, NonNegativeInt]", cast("JsonDict", stats)["memory_stats"]
+        )
+        return int(memory_stats["usage"])
 
     @staticmethod
     def _parse_cpu_usage_nanoseconds(stats: object) -> NonNegativeInt:
