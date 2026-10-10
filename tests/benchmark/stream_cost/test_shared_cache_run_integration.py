@@ -39,6 +39,7 @@ def replica() -> Iterator[IsolatedReplicaSet]:
 @pytest.fixture
 def config(tmp_path: Path) -> Path:
     raw = json.loads(_CONFIG.read_text(encoding="utf-8"))
+    raw["status"] = "pending-calibration"
     raw["profiles"]["smoke"]["documents"] = 64
     raw["phases"]["smoke"].update(
         {"window_seconds": 1, "warmup_seconds": 0.5, "rate": 100}

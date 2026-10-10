@@ -2,7 +2,7 @@
 
 This registration freezes the decision protocol for the shared worker cache investigation before any shared-candidate timing. The machine-readable values live in [config.json](config.json); this companion explains units, estimands, rules and limits. The [design](../../../openspec/changes/investigate-shared-worker-cache/design.md#measurement-protocol) records the rationale and the promotion thresholds that these values encode.
 
-**Status:** draft pending baseline-only calibration. Versions [1](../v1/registration.md), [2](../v2/registration.md) and [3](../v3/registration.md) ended without a frozen workload; see [registration history](#registration-history). `frozen.rates`, `frozen.window_seconds` and `frozen.calibration_summary` are `null` until a validated calibration is frozen with `--freeze`. Candidate phases refuse to run against an unfrozen registration. Any change to this file or `config.json` after a candidate measurement starts requires a new registration version and fresh affected comparisons; earlier outcomes are retained.
+**Status:** frozen. Versions [1](../v1/registration.md), [2](../v2/registration.md) and [3](../v3/registration.md) ended without a frozen workload; see [registration history](#registration-history). The frozen `config.json` has SHA-256 `43156e75cd664bb4fd97fbb891f21139b1ac0d4cd0a436de8673cfd63b535f78`, which every candidate report must carry. Any change to this file or `config.json` after a candidate measurement starts requires a new registration version and fresh affected comparisons; earlier outcomes are retained.
 
 ## Units and scope
 
@@ -131,6 +131,18 @@ The single-host, single-member replica set may overstate or understate practical
 ```console
 just pytest -- tests/shared_cache tests/benchmark/stream_cost/test_shared_cache_run.py tests/benchmark/stream_cost/test_shared_cache_run_integration.py
 ```
+
+## Calibration result
+
+Version 4's baseline-only calibration ran at revision `fb849f7bc6b1c12a941be45c761510b1e432488c` from the draft configuration with SHA-256 `8397c8f33aca65af19a784040ea98dc35da368529d7b7d1e76477ea2fd44d90c`. All 294 windows were healthy: 114 closed-loop probes and 180 open-loop validations. Throughput is reads/s, and the ranges are the three probe windows of the weakest cell in each family.
+
+| Family      | Weakest probe cell                  | Probe throughput | Rate attempts                                                                                                       | Frozen rate | Frozen window         |
+| ----------- | ----------------------------------- | ---------------: | ------------------------------------------------------------------------------------------------------------------- | ----------: | --------------------- |
+| Primary     | direct, synchronous, one worker     |      3,380–3,626 | 2,534 failed: the one-worker direct cells completed 93–94% (sync) or kept a growing backlog (asyncio); 1,267 passed |       1,267 | hot 30 s, active 60 s |
+| Cold miss   | independent, asyncio, 4 workers     |      8,432–8,910 | 1,000 (cap) passed                                                                                                  |       1,000 | 10 s                  |
+| Sensitivity | direct `find16`, asyncio, 8 workers |          381–422 | 286 passed                                                                                                          |         286 | 36 s                  |
+
+In primary-family probes, independent managers sustained 32,700–157,100 reads/s and direct reads 3,380–20,050 reads/s, so every frozen rate leaves both baselines well below saturation at four and eight workers. Validation windows issued every write within 3 ms of schedule; the slowest write took 0.56 s.
 
 ## Registration history
 
