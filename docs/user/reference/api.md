@@ -219,10 +219,11 @@ your client's timeout settings unchanged.
 
 - A read whose result would exceed `max_entry_bytes` once BSON-encoded is not cached; it still returns the correct
   result, counted as an oversized bypass rather than a hit.
-- Cursor candidates also cap their retained encoded payload at `max_entry_bytes`; exceeding it discards the candidate while native delivery continues. Native batches, decoded hit snapshots, wrappers, and temporary encoding allocations consume additional memory. This is not a process-memory limit.
+- Cursor candidates also cap their retained encoded payload at `max_entry_bytes`; exceeding it discards the candidate while native delivery continues. Native batches, decoded hit snapshots, wrappers, and temporary encoding allocations consume additional memory. This is not a process-memory limit; see [memory beyond the cache budget](../operations/deployment.md#memory-beyond-the-cache-budget).
 - Once the cache's total stored BSON size would exceed `shared_budget_bytes`, admitting a new entry evicts the
   least-recently-used entries to make room. Query keys and Python metadata consume additional memory outside
-  this budget, especially for large predicates with small results.
+  this budget, especially for large predicates with small results; see
+  [memory beyond the cache budget](../operations/deployment.md#memory-beyond-the-cache-budget) for measured examples.
 - A read whose `_id` or result depends on a value that cannot be used as a cache key — for example a `bson.Code`
   value, or a `NaN`, which is never equal to itself — is executed and returned normally without being cached.
 
