@@ -28,17 +28,21 @@ After `benchmark-concurrent-worker-workload`, the harness in `benchmarks/stream_
 
 `reports/worker-fault-recovery/v1/` copies the data, hot set, read and write mix, per-worker concurrency and execution model from `reports/concurrent-worker-workload/v1/config.json`. It cites that file's digest and fixes the following:
 
-| Parameter           | Value                                                                                                                                                                                                 |
-| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Workers             | 4 asyncio                                                                                                                                                                                             |
-| Repetitions         | 5 per case and path; path order alternates by repetition                                                                                                                                              |
-| Window              | 20 s before the fault, injection, then 40 s after it                                                                                                                                                  |
-| Intervals           | Before: the 10 s ending at injection. During: from injection to recovery. After: the 10 s following recovery                                                                                          |
-| Recovery criterion  | First 1 s bucket at or after which every later bucket has no failed reads and a request P99 within 2 × the before-interval P99. Unrecovered by the window end means the trial reports "not recovered" |
-| Post-recovery check | 16 hot probe keys written after recovery; each cached worker must process their invalidations within the drain, then read the new revisions                                                           |
-| Offered rate        | Frozen by the registered baseline calibration rule at four workers on each case's topology                                                                                                            |
+| Parameter           | Value                                                                                                                                                                                                                                               |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Workers             | 4 asyncio                                                                                                                                                                                                                                           |
+| Repetitions         | 5 per case and path; path order alternates by repetition                                                                                                                                                                                            |
+| Window              | 20 s before the fault, injection, then a fixed 120 s after it; recovery deadline at 110 s after injection                                                                                                                                           |
+| Intervals           | Before: the 10 s ending at injection. During: from injection to recovery. After: the 10 s following recovery                                                                                                                                        |
+| Recovery criterion  | First 1 s bucket at or after which every later bucket has no failed reads and a request P99 within 2 × the before-interval P99. Recovery after the deadline, or none, means the trial reports "not recovered" and its after-interval as unavailable |
+| Post-recovery check | 16 hot probe keys written after recovery; each cached worker must process their invalidations within the drain, then read the new revisions                                                                                                         |
+| Offered rate        | Frozen by the registered baseline calibration rule at four workers on each case's topology                                                                                                                                                          |
 
-The 2 × P99 factor and the 1 s buckets are chosen so that ordinary scheduling jitter in the steady-state run doesn't register as unrecovered. A tighter factor would make recovery depend on noise. Task 3.1's smoke run checks this against the before-interval spread. Changing these values requires a new registration version.
+The window has a fixed length because open-loop schedules must be identical across paths and repetitions. A window that ended a set time after recovery would offer each path a different number of requests. The 10 s gap between the deadline and the window end ensures that any recovered trial has a complete after-interval, and the after-interval is never truncated.
+
+The 2 × P99 factor and the 1 s buckets are chosen so that ordinary scheduling jitter doesn't register as unrecovered. A tighter factor would make recovery depend on noise. Before freezing, task 3.1 runs a null-fault check: it applies the recovery detector to the calibration's fault-free validation windows at an arbitrary injection offset, and every one must count as recovered in its first bucket. If any fails, the factor is revised before freezing, because no trial has run yet. After freezing, changing these values requires a new registration version.
+
+The registration's smoke section lists every case at the `smoke` profile, with 5 s before injection, 30 s after it and a 20 s recovery deadline. It is labelled as smoke and is excluded from evidence. It exercises injection, timeline accounting, recovery detection and the post-recovery check for each case.
 
 ### Cases and injection
 
@@ -57,7 +61,24 @@ Alternatives for connection loss and history loss:
 | Server `failCommand` failpoints (`closeConnection`, `errorCode: 286`) | Server-produced errors                                                                                           | Needs `enableTestCommands`, which changes the measured server configuration; filtering stream resumes from reads relies on `appName` and timing | Whether a failpoint can target only the resume `aggregate` without hitting the initial stream open |
 | Real oplog rollover                                                   | Fully real history loss                                                                                          | The minimum oplog size (990 MB) makes rollover slow and dominated by write volume                                                               | Time to roll over on a 2 GiB member                                                                |
 
-No further research is needed. The shared history-loss helper moves to `benchmarks/stream_cost/faults.py`, where the shared-cache owner and the worker processes both call it, so the injection isn't duplicated.
+Unknown: whether the one-shot reopening failure, which so far has run only inside the shared-cache owner, behaves the same when it is armed inside a worker's own manager. Task 1.3 verifies it. The shared history-loss helper moves to `benchmarks/stream_cost/faults.py`, where the shared-cache owner and the worker processes both call it, so the injection isn't duplicated.
+
+### Restart accounting
+
+Fault windows don't rely on a worker surviving to report its results. Every worker streams its timeline to the supervisor in chunks over its control pipe, at the same 250 ms cadence as its snapshot sampling. The supervisor keeps every chunk it receives.
+
+The supervisor also knows every worker's share of the deterministic schedule, so it classifies each scheduled request ordinal as exactly one of the following:
+
+- **completed**: a completion record arrived;
+- **failed**: an error record arrived;
+- **interrupted**: the request belonged to the killed worker and was due before the kill, but no completion or error record arrived, so its outcome is unknown;
+- **undelivered**: the request was due while its owning worker was absent and was never issued.
+
+The replacement worker takes over the killed worker's remaining ordinals as soon as it is ready. It issues any that came due during the absence immediately, with latency measured from the scheduled time, so the backlog counts as queueing. It doesn't drop them. Undelivered therefore counts only ordinals still unissued at the window end.
+
+A trial is valid only when completed, failed, interrupted and undelivered requests together equal the offered schedule for every worker share. Interrupted requests are counted neither as completed nor as failed reads, and the report shows their count. That count is bounded by the per-worker rate times the chunk cadence, plus the per-worker concurrency.
+
+The alternative is to drain the worker before stopping it. That would measure a graceful restart, not a crash, so it is rejected. Shortening the chunk cadence bounds the unknown outcomes more tightly but costs pipe traffic. 250 ms matches the snapshot cadence, whose observer overhead v4 measured as negligible. Task 2.1's tests verify the classification.
 
 ### Three-member topology
 
@@ -73,7 +94,7 @@ If task 1.1 shows that host networking drops resource limits, the fallback is a 
 
 ### Timelines and sampling
 
-Fault windows make each worker keep, for every request, the scheduled offset, the completion offset and the error type, using the window's shared monotonic start. Cached workers also sample their manager snapshot every 250 ms, recording hits, misses, bypass reasons, entry count and stream health. Steady-state windows keep their current, smaller record, so steady-state results and run cost stay unchanged.
+Fault windows make each worker record, for every request, the scheduled offset, the completion offset and the error type, using the window's shared monotonic start. Cached workers also sample their manager snapshot every 250 ms, recording hits, misses, bypass reasons, entry count and stream health. Steady-state windows keep their current, smaller record, so steady-state results and run cost stay unchanged.
 
 Recording every request costs about 24 bytes for each of roughly 80,000 requests per worker per window, which is negligible. The 250 ms snapshot follows the measured v4 observer overhead: 200 ms PSS sampling had no measurable effect on request P99.
 
