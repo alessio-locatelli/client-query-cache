@@ -497,35 +497,60 @@ def test_find_one_by_compound_ids_with_different_field_order_do_not_collide(
 
 
 @pytest.mark.parametrize(
-    ("stored_id", "query_id"),
+    ("stored_id", "read_id"),
     [
-        pytest.param({"a": 1, "b": 2}, {"a": 1, "b": 2}, id="compound"),
+        pytest.param(Decimal128("1"), 1, id="decimal-int"),
+        pytest.param(Decimal128("1E+1"), 10, id="decimal-exponent-int"),
+        pytest.param(Decimal128("0.5"), 0.5, id="decimal-double"),
+        pytest.param({"n": Decimal128("3")}, {"n": 3}, id="embedded-decimal-int"),
+        pytest.param({"a": 1, "b": 2}, {"a": 1, "b": 2}, id="embedded-same-type"),
         pytest.param(1, 1.0, id="int-queried-as-float"),
     ],
 )
-def test_find_one_by_a_compound_or_numeric_id_invalidates_after_a_write(
+def test_find_one_by_id_invalidates_numerically_equal_stored_ids(
     cache_manager: CacheManager[BsonDict],
     independent_writer: MongoClient[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
     *,
     stored_id: object,
-    query_id: object,
+    read_id: object,
+    faker: Faker,
 ) -> None:
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
-    collection.raw.insert_one({"_id": stored_id, "v": 1})
-    assert collection.find_one({"_id": query_id}) == {"_id": stored_id, "v": 1}
+    document = {"_id": stored_id, "v": faker.uuid4()}
+    collection.raw.insert_one(document)
+    with _spy_on_driver("find_one") as spy:
+        assert collection.find_one({"_id": read_id}) == document
+        assert collection.find_one({"_id": read_id}) == document
+    assert spy.call_count == 1
 
+    updated = {"_id": stored_id, "v": faker.uuid4()}
     independent_writer[cached_database_name][nonpersistent_collection_name].update_one(
-        {"_id": stored_id}, {"$set": {"v": 2}}
+        {"_id": stored_id}, {"$set": {"v": updated["v"]}}
+    )
+    wait_for_stream_barrier(
+        cache_manager.cache_core, independent_writer[cached_database_name]
     )
 
-    _wait_until(
-        lambda: (
-            (document := collection.find_one({"_id": query_id})) is not None
-            and document["v"] == 2
-        )
-    )
+    assert collection.find_one({"_id": read_id}) == updated
+
+
+def test_unequal_numeric_ids_do_not_share_entries(
+    cache_manager: CacheManager[BsonDict],
+    cached_database_name: DatabaseName,
+    nonpersistent_collection_name: CollectionName,
+    faker: Faker,
+) -> None:
+    collection = cache_manager[cached_database_name][nonpersistent_collection_name]
+    inexact_double = 19.99
+    double_document = {"_id": inexact_double, "v": faker.uuid4()}
+    decimal_document = {"_id": Decimal128(str(inexact_double)), "v": faker.uuid4()}
+    collection.raw.insert_many([double_document, decimal_document])
+
+    for _ in range(2):
+        assert collection.find_one({"_id": inexact_double}) == double_document
+        assert collection.find_one({"_id": decimal_document["_id"]}) == decimal_document
 
 
 @pytest.mark.parametrize(

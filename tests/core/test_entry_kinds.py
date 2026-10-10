@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
+from bson.decimal128 import Decimal128
 
 from client_query_cache._core.entries import AdmissionOutcome
 from client_query_cache._core.keys import NamespaceId, canonical_alias_key
@@ -28,6 +29,18 @@ def test_write_to_one_document_does_not_invalidate_another_documents_entry(
     result_b = core.lookup_identity(namespace, "doc-b", "full")
     assert result_b.hit
     assert result_b.value == {"v": "b"}
+
+
+def test_a_write_under_another_numeric_type_invalidates_the_identity(
+    core: CacheCore, namespace: NamespaceId
+) -> None:
+    capture = core.begin_identity_admission(namespace, 1)
+    outcome = core.admit_identity(capture, "full", {"v": 1})
+    assert outcome is AdmissionOutcome.ADMITTED
+
+    core.record_write(namespace, Decimal128("1"))
+
+    assert core.lookup_identity(namespace, 1, "full").hit is False
 
 
 def test_write_invalidates_namespace_guarded_entries_regardless_of_document(
