@@ -317,18 +317,27 @@ class AsyncEndpoint:
                     self.config.socket_path, limit=self.config.frame_limit * 2
                 )
             except OSError:
-                self._retry_after = time.monotonic() + _RETRY_SECONDS
-                self.counters.failures += 1
-                return False
+                return self._unreachable()
             frame = encode_frame(self.config.hello())
             writer.write(frame)
             self.counters.bytes_sent += len(frame)
             try:
                 reply = _accepted(await self._read_frame(reader))
-            except AttachmentConfigurationError:
+            except asyncio.IncompleteReadError:
+                writer.close()
+                return self._unreachable()
+            except ConnectionResetError:
+                writer.close()
+                return self._unreachable()
+            except BaseException:
                 writer.close()
                 raise
             return self._install(reader, writer, reply)
+
+    def _unreachable(self) -> bool:
+        self._retry_after = time.monotonic() + _RETRY_SECONDS
+        self.counters.failures += 1
+        return False
 
     def _install(
         self,
