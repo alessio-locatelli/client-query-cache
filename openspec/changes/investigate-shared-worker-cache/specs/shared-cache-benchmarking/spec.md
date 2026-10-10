@@ -83,12 +83,12 @@ Reports SHALL measure aggregate worker, coordinator, helper, harness and MongoDB
 
 ### Requirement: Shared-value scaling evidence retains latency and contention
 
-Reports SHALL retain P50, P95 and P99 with counts for hits, misses, bypasses and application requests in both execution models at multiple worker counts. Reports SHALL distinguish fixed-demand comparisons from capacity experiments and identify queueing, saturation and the supported measured envelope.
+Reports SHALL retain P50, P95 and P99 of the application-request population with counts of hits, misses and bypasses in both execution models at multiple worker counts. Reports SHALL label fixed-demand comparisons and closed-loop capacity windows separately, retaining every capacity window rather than only a maximum.
 
-#### Scenario: Coordinator throughput stops increasing
+#### Scenario: Coordinator work bounds the shared path
 
-- **WHEN** additional concurrency increases queue delay without the registered throughput improvement
-- **THEN** the capacity experiment follows its stopping rule and reports the limiting measured point without extrapolating unlimited worker scaling
+- **WHEN** owner utilization is estimated from fixed-demand windows
+- **THEN** the report labels any capacity extrapolation as unmeasured and does not present it as a measured operating envelope
 
 #### Scenario: Async and synchronous workers share a group
 
@@ -97,7 +97,7 @@ Reports SHALL retain P50, P95 and P99 with counts for hits, misses, bypasses and
 
 ### Requirement: Shared-value recovery evidence exercises real process failures
 
-A shared-value prototype SHALL exercise coordinator loss and stalls, worker recycling, stream interruption, history loss, backpressure and shutdown races. The report SHALL separate detection, safe readiness and rewarming durations and verify that obsolete captures and invalidated selections cannot serve later executions.
+A shared-value prototype SHALL exercise coordinator loss and stalls, worker recycling, stream interruption, history loss, backpressure and shutdown races against real processes, and SHALL verify that obsolete captures and invalidated selections cannot serve later executions. A report SHALL claim recovery durations only from timed fault trials.
 
 #### Scenario: A worker finishes a read across coordinator restart
 
