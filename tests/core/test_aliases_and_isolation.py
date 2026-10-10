@@ -7,11 +7,16 @@ import pytest
 from client_query_cache._core.entries import AdmissionOutcome
 from client_query_cache._core.keys import canonical_alias_key
 from client_query_cache._core.manager import CacheCore, CacheCoreConfig
+from client_query_cache._core.namespace import IdentityState
 from tests.core.conftest import patch_conditional_put_hook
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from client_query_cache._core.entries import CacheEntry
     from client_query_cache._core.keys import CacheKey, NamespaceId
+
+SHARED_ALIAS = canonical_alias_key("email", "shared@example.com", None)
 
 pytestmark = pytest.mark.unit
 
@@ -177,3 +182,61 @@ def test_a_mapping_identity_resolved_via_alias_still_matches_lookup_identity(
     lookup_result = core.lookup_identity(namespace, resolved_identity, "full")
     assert lookup_result.hit
     assert lookup_result.value == {"v": "value"}
+
+
+def test_an_identity_cached_without_an_alias_retains_no_alias_storage(
+    core: CacheCore, namespace: NamespaceId
+) -> None:
+    core.admit_identity(
+        core.begin_identity_admission(namespace, "doc-1"), "full", {"v": 1}
+    )
+
+    identity_state = core._namespace(namespace).identities["doc-1"]
+    assert identity_state.alias_keys is IdentityState().alias_keys
+
+
+def _repoint_shared_alias(core: CacheCore, namespace: NamespaceId) -> None:
+    core.admit_identity(
+        core.begin_identity_admission(namespace, "doc-new"),
+        "full",
+        {"v": "new"},
+        alias=SHARED_ALIAS,
+    )
+
+
+def _write_old_owner(core: CacheCore, namespace: NamespaceId) -> None:
+    core.record_write(namespace, "doc-old")
+
+
+@pytest.mark.parametrize(
+    ("release", "current_owner"),
+    [
+        pytest.param(_repoint_shared_alias, "doc-new", id="repointed"),
+        pytest.param(_write_old_owner, None, id="written"),
+        pytest.param(CacheCore.clear_namespace, None, id="cleared"),
+    ],
+)
+def test_an_identity_left_without_aliases_retains_no_alias_storage(
+    core: CacheCore,
+    namespace: NamespaceId,
+    release: Callable[[CacheCore, NamespaceId], None],
+    current_owner: str | None,
+) -> None:
+    core.admit_identity(
+        core.begin_identity_admission(namespace, "doc-old"),
+        "full",
+        {"v": "old"},
+        alias=SHARED_ALIAS,
+    )
+    pending = core.begin_identity_admission(namespace, "doc-old")
+    identities = core._namespace(namespace).identities
+    assert identities["doc-old"].alias_keys == frozenset({SHARED_ALIAS})
+
+    release(core, namespace)
+
+    assert identities["doc-old"].alias_keys is IdentityState().alias_keys
+    resolved = core.resolve_alias(namespace, "email", "shared@example.com", None)
+    assert resolved == current_owner
+    if current_owner is not None:
+        assert identities[current_owner].alias_keys == frozenset({SHARED_ALIAS})
+    core.discard_identity_admission(pending)

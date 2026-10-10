@@ -108,6 +108,42 @@ def test_identity_state_is_bounded_by_cache_capacity_not_write_history(
     assert len(state.identities) < admission_count
 
 
+def test_resident_entries_share_the_registered_namespace_identifier(
+    core: CacheCore, namespace: NamespaceId
+) -> None:
+    alias = canonical_alias_key(("email",), ("a@example.com",), None)
+    core.admit_identity(
+        core.begin_identity_admission(NamespaceId(*namespace), "doc-1"),
+        "full",
+        {"v": "identity"},
+    )
+    core.admit_namespace(
+        core.capture_namespace_generation(NamespaceId(*namespace)),
+        ("find", "shape"),
+        [{"v": "namespace"}],
+    )
+    core.admit_unique_key_match(
+        core.capture_namespace_generation(NamespaceId(*namespace)),
+        (alias, "full"),
+        "doc-2",
+        "full",
+        {"v": "unique"},
+        alias=alias,
+    )
+
+    registered = core._namespace(NamespaceId(*namespace)).namespace
+    resident = core._lru._order.items()
+    assert len(resident) == 4
+    assert all(
+        key.namespace is registered and entry.namespace is registered
+        for key, entry in resident
+    )
+    assert core.lookup_identity(NamespaceId(*namespace), "doc-1", "full").hit
+    assert core.lookup_namespace(NamespaceId(*namespace), ("find", "shape")).hit
+    assert core.lookup_namespace(NamespaceId(*namespace), (alias, "full")).hit
+    assert core.lookup_identity(NamespaceId(*namespace), "doc-2", "full").hit
+
+
 def test_a_resolved_unique_key_read_shares_the_entry_with_an_id_read(
     core: CacheCore, namespace: NamespaceId
 ) -> None:
