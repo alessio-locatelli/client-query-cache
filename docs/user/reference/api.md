@@ -239,11 +239,7 @@ deployment.
 across more than one `ChangeStreamCoordinator` — or activating the same database from two coordinators over one
 `CacheCore` — is unsupported.
 
-The reason is availability tracking, not locking: a `CacheCore` records whether a database's change stream is
-healthy as a single flag per database, not one flag per coordinator that might be watching it. If two coordinators
-shared a `CacheCore`, one of them stopping (its own shutdown, a fatal reconnect failure) would overwrite that shared
-flag and could silently mark another, still-healthy coordinator's database unavailable — cached reads for that
-database would then bypass with no error or warning pointing at the actual cause.
+Such sharing can make reads for a healthy database bypass the cache without an error or warning. The repository's [architecture notes](https://github.com/alessio-locatelli/client-query-cache/blob/main/docs/development/architecture.md#low-level-design) explain why.
 
 Construct one `CacheManager` per `MongoClient` (or `AsyncMongoClient`) you want cached. Two managers wrapping the
 same underlying deployment — a synchronous and an asyncio manager in the same process, or one manager per process —

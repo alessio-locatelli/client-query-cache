@@ -62,11 +62,8 @@ writes and schema changes occur.
 - **Unique-key discovery**: the facade discovers which fields can resolve a single-document lookup from the
   collection's own index metadata (a plain, non-partial, non-sparse, non-hashed unique index whose collation matches
   the read) — there is nothing to declare, and discovery is re-checked whenever an index is added or removed.
-- **Coherency model**: coherency is bounded and eventual, not synchronous. A cache hit that runs concurrently with
-  an independent write may still return the pre-write value until this library's change-stream worker processes
-  that write's event; once processed, every later read is guaranteed to see the invalidation. This is not a
-  per-write barrier — it does not wait for "catch-up" on every read, only guarantees that a processed write is never
-  silently missed.
+- **Coherency model**: coherency is eventual, not synchronous. A cache hit may still return the pre-write value, even after the write has returned, until this library's change-stream worker processes that write's event; once processed, every later read is guaranteed to see the invalidation. This is not a per-write barrier — it does not wait for "catch-up" on every read, only guarantees that a processed write is never silently missed.
+- **Stream availability ownership**: a `CacheCore` records whether a database's change stream is healthy as one flag per database, not one flag per coordinator that might be watching it. If two coordinators shared a `CacheCore`, one of them starting, losing its stream, or stopping would overwrite that shared flag and could mark another, still-healthy coordinator's database unavailable. Cached reads for that database would then bypass with no error or warning pointing at the actual cause, so the [API reference](../user/reference/api.md#ownership) makes such sharing unsupported.
 
 ## Cursor driver integration
 
