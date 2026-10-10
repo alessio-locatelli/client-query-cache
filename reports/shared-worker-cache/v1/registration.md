@@ -1,6 +1,6 @@
 # Shared worker cache registration, version 1
 
-This registration freezes the decision protocol for the shared worker cache investigation before any shared-candidate timing. The machine-readable values live in [config.json](config.json); this companion explains units, estimands, rules and limits. The [design](../../../openspec/changes/investigate-shared-worker-cache/design.md#measurement-protocol) records the rationale and the promotion thresholds that these values encode.
+This registration freezes the decision protocol for the shared worker cache investigation before any shared-candidate timing. The machine-readable values live in [config.json](config.json); this companion explains units, estimands, rules and limits. The [design](../../../openspec/changes/archive/2026-10-10-investigate-shared-worker-cache/design.md#measurement-protocol) records the rationale and the promotion thresholds that these values encode.
 
 **Status:** draft pending baseline-only calibration. `frozen.rates`, `frozen.window_seconds` and `frozen.calibration_summary` are `null` until a validated calibration is frozen with `--freeze`. Candidate phases refuse to run against an unfrozen registration. Any change to this file or `config.json` after a candidate measurement starts requires registration version 2 and fresh affected comparisons; earlier outcomes are retained.
 

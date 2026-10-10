@@ -8,7 +8,7 @@ Both collection facades currently materialize multi-document reads in `src/clien
 
 The inspected driver is PyMongo 4.18.2; `pyproject.toml` accepts versions from 4.18.1. Find cursors are lazy, whereas aggregation executes its initial command before returning a command cursor. `to_list()` has a batch-draining path separate from `next()`, and server resources can be closed while local batch documents remain unread. Async find rejects indexing and has distinct await conventions for methods including `rewind()` and `add_option()`.
 
-The [adapter evaluation](../../../docs/development/research/read-through-collection-adapter-evaluation.md) separates cursor compatibility from preserving fresh server errors on hits. This design retains the explicit cached-read contract: a hit avoids execution; unsafe queries and operations requiring native server behavior bypass it.
+The [adapter evaluation](../../../../docs/development/research/read-through-collection-adapter-evaluation.md) separates cursor compatibility from preserving fresh server errors on hits. This design retains the explicit cached-read contract: a hit avoids execution; unsafe queries and operations requiring native server behavior bypass it.
 
 ## Goals / Non-Goals
 
