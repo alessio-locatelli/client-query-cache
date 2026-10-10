@@ -385,6 +385,13 @@ def _span(values: list[int], scale: int) -> str:
     return f"{median:.1f} ({min(values) / scale:.1f}-{max(values) / scale:.1f})"
 
 
+def _resident(record: dict[str, Any], field: str) -> int:
+    try:
+        return int(record[field])
+    except KeyError:
+        return 0
+
+
 def summarize(report: dict[str, Any]) -> None:
     records: dict[tuple[str, str, str, str, int], dict[str, Any]] = {
         (
@@ -428,8 +435,8 @@ def summarize(report: dict[str, Any]) -> None:
         rss = statistics.median(
             cached["rss"] - direct["rss"] for direct, cached in pairs
         )
-        used = statistics.median(cached["used_bytes"] for _, cached in pairs)
-        entries = statistics.median(cached["entries"] for _, cached in pairs)
+        used = statistics.median(_resident(cached, "used_bytes") for _, cached in pairs)
+        entries = statistics.median(_resident(cached, "entries") for _, cached in pairs)
         print(
             f"| {scenario} | {api} | {phase} | "
             f"{_span([direct['rss'] for direct, _ in pairs], MIB)} | "
