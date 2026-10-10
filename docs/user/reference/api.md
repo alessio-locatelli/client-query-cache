@@ -278,7 +278,7 @@ The same exception classes apply to synchronous and asyncio managers.
 | `UnsupportedCacheRequestError` | An explicit low-level cache operation receives an unsupported key value.                         | Use a supported key or the native collection.                      |
 | `ValueError`                   | `cache_manager.get_cached_collection(collection)` receives a collection from a different client. | Pass a collection from `cache_manager.client`.                     |
 
-Every other unsupported or ambiguous condition — an incompatible read preference or read concern, a session-bound
+Every other unsupported or ambiguous condition — a tailable, exhaust, or partial-result `find()`, a `$changeStream` aggregation, an incompatible read preference or read concern, a session-bound
 read, a nondeterministic filter or pipeline, a view, a time-series collection, an oversized result, a database whose
 change stream isn't healthy or can't be established — bypasses the cache and returns a normal PyMongo result instead
 of raising. See [deployment guidance](../operations/deployment.md#retry-and-error-handling) for stream-level failures, which

@@ -23,10 +23,10 @@ To enable caching through an application-owned deployment flag and roll it back,
   safe.
 - **Errors raised to callers** are narrow and mean the caller asked for something the cache genuinely cannot do:
   `CacheConfigurationError` (invalid `CacheCoreConfig` values), `CacheClosedError` (a cached read attempted after
-  `cache_manager.close()`), and `UnsupportedCacheRequestError` (`find()` with a tailable/exhaust/partial-result option, or
-  `aggregate()` with a `$changeStream` pipeline — use `.raw` for these). See the
-  [API reference's error table](../reference/api.md#errors) for the complete list.
-- **Other cache-ineligible requests bypass.** An incompatible read preference or read concern, a session-bound
+  `cache_manager.close()`), and `UnsupportedCacheRequestError` (an explicit low-level cache operation received an
+  unsupported key value). See the [API reference's error table](../reference/api.md#errors) for the complete list.
+- **Cache-ineligible requests bypass.** A tailable, exhaust, or partial-result `find()`, a `$changeStream`
+  aggregation, an incompatible read preference or read concern, a session-bound
   read, a nondeterministic filter or pipeline, a view, a time-series collection, an oversized result, or a database
   whose change stream can't be established at all — each of these falls back to a normal, correct PyMongo call
   rather than raising a cache eligibility error. The underlying PyMongo call can still raise its own errors or wait for the server.

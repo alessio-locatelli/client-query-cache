@@ -15,12 +15,14 @@ from bson.int64 import Int64
 from bson.raw_bson import RawBSONDocument
 from pymongo import MongoClient, ReadPreference
 from pymongo.collation import Collation
+from pymongo.command_cursor import CommandCursor
 from pymongo.cursor import Cursor, CursorType
 from pymongo.errors import ConnectionFailure, OperationFailure
 from pymongo.read_concern import ReadConcern
 from pymongo.synchronous.collection import Collection
 from pymongo.synchronous.database import Database
 
+from client_query_cache import BypassReason
 from client_query_cache._core.keys import NamespaceId
 from client_query_cache._core.manager import CacheCore, CacheCoreConfig
 from client_query_cache._types import BsonDict, NonNegativeInt
@@ -40,6 +42,8 @@ if TYPE_CHECKING:
     from tests.conftest import CollectionName, DatabaseName, MongoDbUri
 
 pytestmark = pytest.mark.integration
+
+_CAPPED_COLLECTION_BYTES = 4096
 
 
 def _spy_on_driver(patch_target: str) -> AbstractContextManager[Mock]:
@@ -1305,31 +1309,48 @@ def test_find_one_by_a_numeric_id_invalidates_regardless_of_int_or_float_spellin
         pytest.param({"allow_partial_results": True}, id="allow-partial-results"),
     ],
 )
-def test_find_preserves_native_cursor_shapes(
+def test_find_executes_cursor_only_requests_natively(
     cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
+    faker: Faker,
     kwargs: dict[str, Any],
 ) -> None:
-    collection = cache_manager[cached_database_name][nonpersistent_collection_name]
+    database = cache_manager[cached_database_name]
+    database.raw.create_collection(
+        nonpersistent_collection_name, capped=True, size=_CAPPED_COLLECTION_BYTES
+    )
+    collection = database[nonpersistent_collection_name]
+    document: BsonDict = {"_id": faker.uuid4(), "name": faker.word()}
+    collection.raw.insert_one(document)
 
-    cursor = collection.find({}, **kwargs)
-    assert isinstance(cursor, Cursor)
-    cursor.close()
-    assert cache_manager.snapshot().hits == 0
+    with collection.find({}, **kwargs) as cursor:
+        assert next(cursor) == document
+
+    _assert_only_bypass(cache_manager, BypassReason.UNSUPPORTED_OPTIONS)
 
 
-def test_aggregate_preserves_native_change_stream_cursor(
+def test_aggregate_executes_change_stream_pipeline_natively(
     cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
 ) -> None:
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
 
-    cursor = collection.aggregate([{"$changeStream": {}}])
-    cursor.close()
-    assert cache_manager.snapshot().hits == 0
-    assert cache_manager.snapshot().entry_count == 0
+    with collection.aggregate([{"$changeStream": {}}]) as cursor:
+        assert type(cursor) is CommandCursor
+
+    _assert_only_bypass(cache_manager, BypassReason.UNSAFE_PIPELINE)
+
+
+def _assert_only_bypass(
+    cache_manager: CacheManager[BsonDict], reason: BypassReason
+) -> None:
+    snapshot = cache_manager.snapshot()
+    assert snapshot.hits == snapshot.misses == snapshot.entry_count == 0
+    assert {
+        record.reason: record.count for record in snapshot.bypass_reasons
+    } == dict.fromkeys(BypassReason, 0) | {reason: 1}
 
 
 def test_find_with_an_oversize_result_is_returned_but_never_cached(
