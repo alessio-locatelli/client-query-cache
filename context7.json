@@ -29,6 +29,8 @@
     "Let cache-ineligible reads bypass to PyMongo. Cursor-only requests and $changeStream pipelines execute natively without caching.",
     "Explicit find batching and aggregate batchSize at invocation bypass caching; later command-cursor batch_size() preserves the selected execution and has no remote effect on a local hit.",
     "Reuse one long-lived CacheManager per MongoClient or AsyncMongoClient per process. Each manager has independent cached data, a stored-BSON budget, and change-stream progress.",
+    "In multi-worker servers such as Gunicorn, Uvicorn, or Granian, create the client and CacheManager inside each worker, for example in a FastAPI lifespan handler, never in a parent process before workers start.",
+    "Worker processes share no cached data or change streams, so cache memory and stream cursors grow with the worker count. Size shared_budget_bytes per worker.",
     "Close the manager before closing its caller-owned client, or use with / async with. Await close() for asyncio. The manager does not close the client.",
     "Cache coherence uses MongoDB change streams, not TTL. LRU eviction enforces the configured stored-BSON budget; it is not a freshness mechanism.",
     "Caching requires MongoDB 8.0+ on a replica set or sharded cluster, database change-stream access, and a healthy stream. Reads bypass caching while the stream is unavailable or unhealthy.",
