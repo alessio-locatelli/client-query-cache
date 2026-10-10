@@ -6,7 +6,7 @@
 - [x] 1.2 Apply design.md's canonical-error-table decision to `docs/user/operations/deployment.md`; verify cursor-only find and change-stream aggregation are described as native bypasses, explicit low-level misuse retains its error boundary, and PyMongo errors remain visible.
 - [x] 1.3 Apply the README positioning decision and the cached-read admission pointer from design.md; verify reliability claims against current CI/test sources and ensure neither coverage nor stream health is presented as a production or freshness guarantee.
 - [x] 1.4 Apply the ownership placement decision to the API reference and `docs/development/architecture.md`; verify the public warning and lifecycle instructions survive and the internal explanation has one canonical home and a durable repository link.
-- [ ] 1.5 Apply the integration-caution decision to `examples/README.md` and `docs/user/examples/celery.md`; verify links to the existing py-abac and consistency cautions, and avoid references to a catalogue example unless it has actually been implemented.
+- [x] 1.5 Apply the integration-caution decision to `examples/README.md` and `docs/user/examples/celery.md`; verify links to the existing py-abac and consistency cautions, and avoid references to a catalogue example unless it has actually been implemented.
 - [x] 1.6 Apply design.md's README example seeding decision; run the README snippet twice against a fresh disposable replica set and verify one miss, one hit, and no bypasses each time.
 
 ## 2. Code Quality
