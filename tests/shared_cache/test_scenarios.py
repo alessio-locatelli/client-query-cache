@@ -50,6 +50,8 @@ if TYPE_CHECKING:
 
 pytestmark = pytest.mark.integration
 
+_PAST_RETRY_SECONDS = 0.15
+
 
 @pytest.fixture
 def client(mongodb_uri: MongoDbUri) -> Iterator[MongoClient[dict[str, Any]]]:
@@ -677,6 +679,73 @@ def test_async_reads_fall_back_when_the_owner_disappears(
         18,
         18,
     ]
+
+
+def test_a_replaced_connection_teardown_keeps_current_requests(
+    start_owner: Callable[..., Owner],
+) -> None:
+    owner = start_owner()
+
+    async def scenario() -> tuple[Message | None, int]:
+        endpoint = await AsyncEndpoint.attach(owner.attachment())
+        replaced = endpoint._writer
+        assert replaced is not None
+        endpoint._abandon(replaced)
+        await asyncio.sleep(_PAST_RETRY_SECONDS)
+        assert await endpoint.request({"op": "observe"}) is not None
+        owner.request("pause-server", seconds=0.2)
+        current = asyncio.create_task(endpoint.request({"op": "observe"}))
+        await asyncio.sleep(0.05)
+        endpoint._abandon(replaced)
+        reply = await current
+        await endpoint.close()
+        return reply, endpoint.counters.failures
+
+    reply, failures = asyncio.run(scenario())
+
+    assert reply is not None
+    assert reply["r"] == "ok"
+    assert failures == 0
+
+
+def test_a_closed_async_endpoint_stays_detached(
+    start_owner: Callable[..., Owner],
+) -> None:
+    owner = start_owner()
+
+    async def scenario() -> tuple[Message | None, int]:
+        endpoint = await AsyncEndpoint.attach(owner.attachment())
+        await endpoint.close()
+        await asyncio.sleep(_PAST_RETRY_SECONDS)
+        return await endpoint.request({"op": "observe"}), endpoint.counters.connects
+
+    reply, connects = asyncio.run(scenario())
+
+    assert reply is None
+    assert connects == 1
+
+
+def test_closing_during_a_reconnection_discards_the_new_connection(
+    start_owner: Callable[..., Owner],
+) -> None:
+    owner = start_owner()
+
+    async def scenario() -> tuple[Message | None, AsyncEndpoint]:
+        endpoint = await AsyncEndpoint.attach(owner.attachment())
+        assert endpoint._writer is not None
+        endpoint._abandon(endpoint._writer)
+        await asyncio.sleep(_PAST_RETRY_SECONDS)
+        owner.request("pause-server", seconds=0.2)
+        reconnecting = asyncio.create_task(endpoint.request({"op": "observe"}))
+        await asyncio.sleep(0.05)
+        await endpoint.close()
+        return await reconnecting, endpoint
+
+    reply, endpoint = asyncio.run(scenario())
+
+    assert reply is None
+    assert endpoint._writer is None
+    assert endpoint.counters.connects == 1
 
 
 def test_inherited_attachments_are_rejected_before_use(
