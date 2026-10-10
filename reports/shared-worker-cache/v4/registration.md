@@ -54,6 +54,19 @@ The first and only built candidate is the socket owner described under paths. Th
 
 **Second-candidate trigger.** A payload-store candidate is built only if task 2.2 profiling at a failing four- or eight-worker cell attributes at least half of the shared path's excess over independent managers (hit latency or CPU per completed request) to payload-proportional work: frame encoding and decoding of entry bytes, socket copies and owner sends. The profile compares the `primary` and `large` profiles and the measured owner busy time per request. Owner round-trip overhead that does not scale with payload size cannot trigger it, because both payload-store candidates keep that round trip.
 
+**Exploratory transport diagnostics.** After freezing, `python -m benchmarks.stream_cost.shared_cache.diagnostics --entries 1024 --repetitions 5 --output benchmark-reports/shared-worker-cache/diagnostics.json` timed 5,120 sequential hits of 4 KiB entries per mechanism on the test host. They are excluded from every gate.
+
+| Mechanism                                      | Median |    P99 | Caller CPU per hit |
+| ---------------------------------------------- | -----: | -----: | -----------------: |
+| `multiprocessing` manager proxy, coarse select |  23 µs |  49 µs |              14 µs |
+| Socket owner, blocking worker                  |  39 µs |  81 µs |              12 µs |
+| Socket owner, asyncio event-loop adapter       |  42 µs |  69 µs |              23 µs |
+| Socket owner, asyncio thread-executor adapter  |  66 µs | 105 µs |              41 µs |
+
+The proxy control skips the owner's availability, progress, epoch and key checks, so its lower latency is a best case for a transport that also relies on pickle; it does not displace the socket candidate. The event-loop adapter costs less latency and CPU than an executor wrapper, so the prototype keeps it.
+
+**Launch and recycle smoke.** `research/shared_cache_launch/launch_smoke.py` runs one owner with Gunicorn 26.2.0 (`on_starting` hook in the pre-fork master, two synchronous workers, `max_requests = 5`) and with Uvicorn 0.54.0 (owner started by the launcher, two asyncio workers, `--limit-max-requests 5`). In both, 40 requests reached eight successive worker processes, every response was correct, all workers saw one owner incarnation, recycled workers attached with new clients and hit entries admitted by earlier workers, and the owner removed its socket on shutdown. Starting the owner with `multiprocessing` in Gunicorn's master leaves it registered as a child in every forked worker, so worker exit logs `AssertionError: can only join a child process` from the `multiprocessing` exit handler without affecting requests; a supported launcher would start the owner as an independent process or clear inherited children after fork. Reproduce with `PYTHONPATH=. uv run --with gunicorn --with uvicorn -- python research/shared_cache_launch/launch_smoke.py`.
+
 **Platform and dependencies.** The prototype needs only the standard library (`socket`, `selectors`, `asyncio`, `fcntl`) and BSON from PyMongo. Unix-domain sockets and `fcntl` locks restrict shared mode to POSIX hosts; this registration measures Linux only, and standalone managers keep their existing platform support.
 
 ## Phases and counterbalancing
