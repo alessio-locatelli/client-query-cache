@@ -342,21 +342,19 @@ def freeze(registration_path: Path, calibration_path: Path) -> None:
     if validated["outcome"] != "validated":
         message = "only validated baseline calibration can be frozen"
         raise BenchmarkSetupError(message)
-    configuration = json.loads(registration_path.read_text(encoding="utf-8"))
-    configuration["status"] = "frozen"
-    configuration["frozen"] = {
+    text = registration_path.read_text(encoding="utf-8")
+    frozen = {
         "rates": validated["rates"],
         "window_seconds": validated["window_seconds"],
-        "calibration_summary": {
-            "revision": cast("Payload", calibration["environment"])["revision"],
-            "draft_sha256": cast("Payload", calibration["environment"])[
-                "configuration_sha256"
-            ],
-            "cold_seconds": validated["cold_seconds"],
-        },
+        "calibration_summary": {"cold_seconds": validated["cold_seconds"]},
     }
+    start = text.index('  "frozen": {')
+    end = text.index('\n  "nominal_seconds"', start)
+    block = json.dumps(frozen, indent=2).replace("\n", "\n  ")
+    text = text[:start] + f'  "frozen": {block},' + text[end:]
     registration_path.write_text(
-        json.dumps(configuration, indent=2) + "\n", encoding="utf-8"
+        text.replace('"status": "pending-calibration"', '"status": "frozen"', 1),
+        encoding="utf-8",
     )
 
 

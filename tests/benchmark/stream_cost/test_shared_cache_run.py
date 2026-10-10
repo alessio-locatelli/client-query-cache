@@ -57,7 +57,15 @@ _FROZEN_WINDOWS = {"hot": 30, "active": 60, "sensitivity": 30}
 
 @pytest.fixture
 def registration() -> Registration:
-    return Registration.load(_CONFIG)
+    frozen = Registration.load(_CONFIG)
+    raw = copy.deepcopy(frozen.raw)
+    raw["status"] = "pending-calibration"
+    raw["frozen"] = {
+        "rates": dict.fromkeys(_FROZEN_RATES),
+        "window_seconds": dict.fromkeys(_FROZEN_WINDOWS),
+        "calibration_summary": None,
+    }
+    return replace(frozen, raw=raw)
 
 
 @pytest.fixture

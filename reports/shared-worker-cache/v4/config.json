@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "registration": 4,
-  "status": "pending-calibration",
+  "status": "frozen",
   "seed": 197,
   "topology": { "cpus": 2, "memory": "2g" },
   "client_options": {
@@ -80,9 +80,19 @@
     }
   },
   "frozen": {
-    "rates": { "primary": null, "cold": null, "sensitivity": null },
-    "window_seconds": { "hot": null, "active": null, "sensitivity": null },
-    "calibration_summary": null
+    "rates": {
+      "primary": 1267,
+      "cold": 1000,
+      "sensitivity": 286
+    },
+    "window_seconds": {
+      "hot": 30,
+      "active": 60,
+      "sensitivity": 36
+    },
+    "calibration_summary": {
+      "cold_seconds": 10.0
+    }
   },
   "nominal_seconds": { "hot": 30, "active": 60, "sensitivity": 30 },
   "active": {
