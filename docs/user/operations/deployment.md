@@ -76,7 +76,7 @@ This has two consequences for multi-instance or multi-process deployments:
 - **Each additional process caching the same deployment multiplies the same per-instance cost again.** Ten worker
   processes each running one `CacheManager` against the same three databases open thirty change-stream cursors
   total and reserve ten independent memory budgets — none of it shared, because the cache is intentionally
-  process-local.
+  process-local. See [multi-worker servers](#multi-worker-servers).
 
 This multiplication matters most in two shapes of deployment:
 
@@ -94,3 +94,19 @@ This multiplication matters most in two shapes of deployment:
    place for a manager sized for a handful of databases.
 
 Monitor [cache outcomes and stream health](monitoring.md) alongside your application workload. Use the [benchmark guide](../benchmarks/index.md) to decide what to measure before deployment.
+
+## Multi-worker servers
+
+Application servers such as Gunicorn, Uvicorn, and Granian can run several worker processes. Create the PyMongo client and the `CacheManager` inside each worker, for example in a FastAPI [lifespan handler](https://fastapi.tiangolo.com/advanced/events/), never in a parent process before the workers start. PyMongo [requires a new client](https://www.mongodb.com/docs/languages/python/pymongo-driver/current/connect/mongoclient/#multiple-forks) in each forked process.
+
+Workers then cache independently. Each keeps its own copy of the documents it reads and its own change streams, and warms its cache on its own after it starts or restarts. For example, eight workers that each cache 100 MiB of the same hot documents hold about 800 MiB of cached data on one host and open eight change-stream cursors per cached database. Set `shared_budget_bytes` per worker with that multiplication in mind; a smaller budget lowers memory but evicts more and hits less often. Fewer workers that each serve more concurrent requests, with asyncio or threads, duplicate less.
+
+Duplicate change streams put little load on MongoDB. In the project's measurements, seven extra streams from eight workers on one database cost MongoDB about 0.3% of a CPU core while idle and about 1% at about three writes per second; the cost grows with the write rate.
+
+### Memory versus CPU in the cloud
+
+The library does not share one cache across worker processes, because sharing saves memory but costs more CPU. In a research prototype, eight workers that read through one shared cache process per host used half as much memory. However, every cached read then needed a request to that process, so each read cost about 1.7 times as much CPU and request tail latency rose by a third or more.
+
+Cloud providers often charge as much for one vCPU as for 7–9 GiB of memory. In that prototype, eight workers each caching about 70 MiB saved about 0.5 GiB per host. At about 1,300 cached reads per second, the extra quarter of a vCPU cost three to five times as much as that memory. The saving grows with cache size and worker count, while the extra CPU grows with cached reads per second. For that prototype, sharing would pay off only for a large cache read at a low rate, and busy API hosts were cheaper with per-worker caches. The measurements cover one host and small documents read by `_id`; larger documents or a faster shared design could change the balance.
+
+[Issue #229](https://github.com/alessio-locatelli/client-query-cache/issues/229) tracks reducing the shared-cache CPU overhead, and [issue #87](https://github.com/alessio-locatelli/client-query-cache/issues/87) tracks sharing change streams across processes. Maintainers can read the [shared cache research](https://github.com/alessio-locatelli/client-query-cache/blob/main/docs/development/research/shared-worker-cache-feasibility.md) and the [shared invalidation research](https://github.com/alessio-locatelli/client-query-cache/blob/main/docs/development/research/shared-invalidation-feasibility.md) for the measurements and their limits.
