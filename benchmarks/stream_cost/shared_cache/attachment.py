@@ -15,12 +15,17 @@ from benchmarks.stream_cost.shared_cache.wire import (
     encode_frame,
     frame_length,
 )
-from client_query_cache._types import NonNegativeFloat, NonNegativeInt, PositiveFloat
+from client_query_cache._types import (
+    MaxAwaitTimeMs,
+    NonNegativeFloat,
+    NonNegativeInt,
+    PositiveFloat,
+    PositiveInt,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from client_query_cache._types import MaxAwaitTimeMs, PositiveInt
 
 type Message = dict[str, object]
 

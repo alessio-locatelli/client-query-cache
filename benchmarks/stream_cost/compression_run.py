@@ -7,7 +7,7 @@ import shutil
 import subprocess
 from importlib.metadata import version
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 from benchmarks.stream_cost.client import (
@@ -38,7 +38,7 @@ from benchmarks.stream_cost.config import (
 )
 from benchmarks.stream_cost.proxy import DirectPathByteProxy, DirectPathProxyConfig
 from benchmarks.stream_cost.topology import IsolatedReplicaSet, ResourceLimits
-from client_query_cache._types import NonNegativeInt, PositiveInt
+from client_query_cache._types import BsonDict, JsonDict, NonNegativeInt, PositiveInt
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -72,7 +72,7 @@ def _revision() -> str:
 
 def _client_for_mode(
     proxy: DirectPathByteProxy, mode: WireCompressor
-) -> MongoClient[dict[str, Any]]:
+) -> MongoClient[BsonDict]:
     uri = f"mongodb://127.0.0.1:{proxy.local_port}/?directConnection=true"
     topology = BenchmarkClientTopologyConfig(
         tls_enabled=False,
@@ -104,7 +104,7 @@ def _run_block(
     block: CompressionBlockPlan,
     *,
     windows: Sequence[CompressionWindowSpec],
-    admin_client: MongoClient[dict[str, Any]],
+    admin_client: MongoClient[BsonDict],
     replica_set: IsolatedReplicaSet,
     proxy: DirectPathByteProxy,
 ) -> tuple[
@@ -138,7 +138,7 @@ def run_compression_matrix(
     windows: Sequence[CompressionWindowSpec] = STANDARD_COMPRESSION_WINDOWS,
     block_count: PositiveInt,
     limits: ResourceLimits,
-) -> dict[str, object]:
+) -> JsonDict:
     require_minimum_compression_blocks(block_count)
     blocks = [
         CompressionBlockPlan(

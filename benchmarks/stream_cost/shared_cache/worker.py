@@ -32,6 +32,14 @@ from benchmarks.stream_cost.shared_cache.workload import (
 )
 from client_query_cache._core.manager import CacheCoreConfig
 from client_query_cache._core.stream_cost import LagCaptureWindowConfig
+from client_query_cache._types import (
+    BsonDict,
+    MaxAwaitTimeMs,
+    NonNegativeFloat,
+    NonNegativeInt,
+    PositiveFloat,
+    PositiveInt,
+)
 from client_query_cache.asynchronous.manager import CacheManager as AsyncCacheManager
 from client_query_cache.synchronous.manager import CacheManager
 
@@ -40,16 +48,8 @@ if TYPE_CHECKING:
     from multiprocessing.connection import Connection
 
     from benchmarks.stream_cost.shared_cache.protocol import Cell
-    from client_query_cache._types import (
-        MaxAwaitTimeMs,
-        NonNegativeFloat,
-        NonNegativeInt,
-        PositiveFloat,
-        PositiveInt,
-    )
 
 type Payload = dict[str, object]
-type Document = dict[str, object]
 
 _MAJORITY = ReadConcern("majority")
 _STARTUP_POLL_SECONDS = 0.05
@@ -105,9 +105,7 @@ def _cache_config(spec: WorkerSpec) -> CacheCoreConfig:
     )
 
 
-def _query(
-    spec: WorkerSpec, key: NonNegativeInt
-) -> tuple[dict[str, object], dict[str, object]]:
+def _query(spec: WorkerSpec, key: NonNegativeInt) -> tuple[BsonDict, dict[str, object]]:
     if spec.read == "find_one":
         return {"_id": key}, {}
     return {"attributes.category": key}, {"sort": [("_id", 1)], "limit": spec.limit}
@@ -115,9 +113,9 @@ def _query(
 
 def _verify(spec: WorkerSpec, outcome: object) -> None:
     if spec.read == "find_one":
-        checksum(cast("Document | None", outcome))
+        checksum(cast("BsonDict | None", outcome))
         return
-    documents = cast("list[Document]", outcome)
+    documents = cast("list[BsonDict]", outcome)
     if len(documents) != spec.limit:
         message = "sorted find returned an incomplete result"
         raise LookupError(message)
@@ -268,12 +266,12 @@ def _invalidations(manager: object, spec: WorkerSpec) -> NonNegativeInt:
 def sync_worker(connection: Connection, spec: WorkerSpec) -> None:
     with proxy_for(spec.uri) as proxy:
         listener = WireCommands((spec.collection,))
-        client: MongoClient[Document] = MongoClient(
+        client: MongoClient[BsonDict] = MongoClient(
             f"mongodb://127.0.0.1:{proxy.local_port}",
             event_listeners=[listener],
             **spec.client_options,  # type: ignore[arg-type]
         )
-        manager: CacheManager[Document] | SharedCacheManager[Document] | None = None
+        manager: CacheManager[BsonDict] | SharedCacheManager[BsonDict] | None = None
         try:
             client.admin.command("ping")
             baseline = process_sample()
@@ -404,13 +402,13 @@ async def _run_async(
 async def async_worker(connection: Connection, spec: WorkerSpec) -> None:
     with proxy_for(spec.uri) as proxy:
         listener = WireCommands((spec.collection,))
-        client: AsyncMongoClient[Document] = AsyncMongoClient(
+        client: AsyncMongoClient[BsonDict] = AsyncMongoClient(
             f"mongodb://127.0.0.1:{proxy.local_port}",
             event_listeners=[listener],
             **spec.client_options,  # type: ignore[arg-type]
         )
         manager: (
-            AsyncCacheManager[Document] | AsyncSharedCacheManager[Document] | None
+            AsyncCacheManager[BsonDict] | AsyncSharedCacheManager[BsonDict] | None
         ) = None
         try:
             await client.admin.command("ping")

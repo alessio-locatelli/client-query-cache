@@ -33,7 +33,7 @@ from benchmarks.stream_cost.topology import IsolatedReplicaSet, ResourceLimits
 from benchmarks.stream_cost.workload import verify_oversized_primed
 from client_query_cache._core.manager import CacheCoreConfig
 from client_query_cache._core.stream_cost import LagCaptureWindowConfig
-from client_query_cache._types import NonNegativeInt
+from client_query_cache._types import BsonDict, JsonDict, NonNegativeInt
 from client_query_cache.synchronous.manager import CacheManager
 
 if TYPE_CHECKING:
@@ -54,7 +54,7 @@ _TOPOLOGY = BenchmarkClientTopologyConfig(
 
 def _pair_evidence(
     pair: PairResult, config: Mapping[str, Any], *, pair_index: NonNegativeInt
-) -> dict[str, object]:
+) -> JsonDict:
     offset = pair.calibration.initial.offset_seconds
     uncertainty = pair.calibration.total_uncertainty_seconds
     percentile = config["acceptable_lag_percentile"]
@@ -153,10 +153,10 @@ def _pair_evidence(
 
 
 def _consolidated_evidence(
-    client: MongoClient[dict[str, Any]],
+    client: MongoClient[BsonDict],
     listener: TopologyChangeListener,
     config: Mapping[str, Any],
-) -> dict[str, object]:
+) -> JsonDict:
     pair_config = ConsolidatedStreamPairConfig(
         acceptable_lag_percentile=config["acceptable_lag_percentile"],
         acceptable_lag_threshold_seconds=config["acceptable_lag_threshold_seconds"],
@@ -218,8 +218,8 @@ def _consolidated_evidence(
 
 
 def _oversized_evidence(
-    client: MongoClient[dict[str, Any]], config: Mapping[str, Any]
-) -> dict[str, object]:
+    client: MongoClient[BsonDict], config: Mapping[str, Any]
+) -> JsonDict:
     documents = [
         {"_id": index, "padding": "x" * config["document_padding_bytes"]}
         for index in range(config["document_count"])
@@ -270,7 +270,7 @@ def _oversized_evidence(
     }
 
 
-def run_decision_evidence() -> dict[str, object]:
+def run_decision_evidence() -> JsonDict:
     preregistration = json.loads(_PREREGISTRATION.read_text())
     limits = ResourceLimits(
         cpus=preregistration["topology"]["cpus"],

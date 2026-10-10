@@ -13,6 +13,7 @@ from benchmarks.stream_cost.await_model import (
     planned_windows,
 )
 from benchmarks.stream_cost.errors import BenchmarkConfigurationError
+from client_query_cache._types import JsonDict
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -70,7 +71,7 @@ def _finite_nonnegative(value: object) -> bool:
 
 def _window(raw: object) -> AwaitWindow:
     _require(condition=isinstance(raw, dict), message="window must be an object")
-    mapping = cast("dict[str, object]", raw).copy()
+    mapping = cast("JsonDict", raw).copy()
     _require(
         condition=set(mapping) == {field.name for field in fields(AwaitWindow)},
         message="window has missing or unknown measurements",
@@ -232,7 +233,7 @@ def validate_await_report(
         _require(
             condition=isinstance(raw_failure, dict), message="failure must be an object"
         )
-        failure = cast("dict[str, object]", raw_failure)
+        failure = cast("JsonDict", raw_failure)
         _require(
             condition=set(failure)
             == {"block", "candidate_ms", "model", "workload", "error_type", "reason"},

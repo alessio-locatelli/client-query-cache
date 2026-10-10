@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, cast
 
 from benchmarks.stream_cost.errors import BenchmarkConfigurationError
 from client_query_cache._types import (
+    JsonDict,
     MaxAwaitTimeMs,
     NonNegativeFloat,
     NonNegativeInt,
@@ -22,7 +23,7 @@ if TYPE_CHECKING:
 
 
 def _expand_comparisons(plan: object) -> list[Comparison]:
-    groups = cast("dict[str, dict[str, object]]", plan)
+    groups = cast("dict[str, JsonDict]", plan)
     comparisons: list[Comparison] = []
     baseline = groups["baseline"]
     for candidate in cast("list[MaxAwaitTimeMs]", baseline["candidates_ms"]):
@@ -64,7 +65,7 @@ def _expand_comparisons(plan: object) -> list[Comparison]:
 
 
 def _expand_schedule(pattern: object) -> list[NonNegativeFloat]:
-    schedule = cast("dict[str, object]", pattern)
+    schedule = cast("JsonDict", pattern)
     start = cast("NonNegativeFloat", schedule["start_seconds"])
     interval = cast("PositiveFloat", schedule["interval_seconds"])
     count = cast("NonNegativeInt", schedule["count"])
@@ -77,13 +78,13 @@ def expand_await_configuration(raw: object) -> AwaitConfiguration:
     Returns:
         The full await-time configuration used by benchmark and decision code.
     """
-    configuration = cast("dict[str, object]", raw)
+    configuration = cast("JsonDict", raw)
     if "comparison_plan" not in configuration:
         return cast("AwaitConfiguration", configuration)
 
     expanded = configuration.copy()
-    schedules = cast("dict[str, object]", expanded.pop("write_schedule_patterns"))
-    burst = cast("dict[str, object]", schedules["burst"])
+    schedules = cast("JsonDict", expanded.pop("write_schedule_patterns"))
+    burst = cast("JsonDict", schedules["burst"])
     interval = cast("PositiveFloat", burst["interval_seconds"])
     expanded["write_offsets_seconds"] = {
         "paced": _expand_schedule(schedules["paced"]),

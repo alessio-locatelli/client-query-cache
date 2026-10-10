@@ -6,7 +6,7 @@ import datetime
 import json
 import time
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from pymongo import AsyncMongoClient, MongoClient
 
@@ -18,7 +18,7 @@ from benchmarks.stream_cost.generators import (
     generate_seeded_documents,
 )
 from client_query_cache._core.stream_events import route_change_event
-from client_query_cache._types import NonNegativeFloat, NonNegativeInt
+from client_query_cache._types import BsonDict, NonNegativeFloat, NonNegativeInt
 from client_query_cache.asynchronous.manager import CacheManager as AsyncCacheManager
 from client_query_cache.synchronous.manager import CacheManager
 
@@ -52,9 +52,9 @@ def _delta(before: CacheSnapshot, after: CacheSnapshot, field: str) -> NonNegati
 @contextmanager
 def _seeded_collection(
     uri: str, profile: DocumentSizeProfile
-) -> Generator[tuple[MongoClient[dict[str, Any]], list[dict[str, object]]]]:
+) -> Generator[tuple[MongoClient[BsonDict], list[BsonDict]]]:
     documents = generate_seeded_documents(profile, count=DOCUMENT_COUNT, seed=90210)
-    with MongoClient[dict[str, Any]](uri) as client:
+    with MongoClient[BsonDict](uri) as client:
         client["guard"]["documents"].drop()
         client["guard"]["documents"].insert_many(documents)
         try:
@@ -64,7 +64,7 @@ def _seeded_collection(
 
 
 def _sync_hit(
-    client: MongoClient[dict[str, Any]], documents: list[dict[str, object]]
+    client: MongoClient[BsonDict], documents: list[BsonDict]
 ) -> NonNegativeFloat:
     with CacheManager(client) as manager:
         cached = manager["guard"]["documents"]
@@ -94,9 +94,9 @@ def _sync_hit(
         return elapsed
 
 
-async def _async_hit(uri: str, documents: list[dict[str, object]]) -> NonNegativeFloat:
+async def _async_hit(uri: str, documents: list[BsonDict]) -> NonNegativeFloat:
     async with (
-        AsyncMongoClient[dict[str, Any]](uri) as client,
+        AsyncMongoClient[BsonDict](uri) as client,
         AsyncCacheManager(client) as manager,
     ):
         cached = manager["guard"]["documents"]
@@ -129,8 +129,8 @@ async def _async_hit(uri: str, documents: list[dict[str, object]]) -> NonNegativ
 def _verify_find_admission(
     before: CacheSnapshot,
     after: CacheSnapshot,
-    read_results: list[list[dict[str, Any]]],
-    documents: list[dict[str, object]],
+    read_results: list[list[BsonDict]],
+    documents: list[BsonDict],
 ) -> None:
     for index, result in enumerate(read_results):
         _checked(
@@ -152,7 +152,7 @@ def _verify_find_admission(
 
 
 def _find_admission(
-    client: MongoClient[dict[str, Any]], documents: list[dict[str, object]]
+    client: MongoClient[BsonDict], documents: list[BsonDict]
 ) -> NonNegativeFloat:
     with CacheManager(client) as manager:
         cached = manager["guard"]["documents"]
@@ -170,9 +170,9 @@ def _find_admission(
 
 
 def _verify_refresh_after_invalidation(
-    manager: CacheManager[dict[str, Any]],
-    cached: CachedCollection[dict[str, Any]],
-    documents: list[dict[str, object]],
+    manager: CacheManager[BsonDict],
+    cached: CachedCollection[BsonDict],
+    documents: list[BsonDict],
     ids: list[object],
 ) -> None:
     before_refresh = manager.cache_core.snapshot()
@@ -196,7 +196,7 @@ def _verify_refresh_after_invalidation(
 
 
 def _invalidation(
-    client: MongoClient[dict[str, Any]], documents: list[dict[str, object]]
+    client: MongoClient[BsonDict], documents: list[BsonDict]
 ) -> NonNegativeFloat:
     with CacheManager(client) as manager:
         cached = manager["guard"]["documents"]

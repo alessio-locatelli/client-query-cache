@@ -40,6 +40,8 @@ from benchmarks.stream_cost.errors import BenchmarkSetupError
 from benchmarks.stream_cost.proxy import DirectPathByteProxy, DirectPathProxyConfig
 from benchmarks.stream_cost.topology import IsolatedReplicaSet, ResourceLimits
 from client_query_cache._types import (
+    BsonDict,
+    JsonDict,
     MaxAwaitTimeMs,
     NonNegativeFloat,
     NonNegativeInt,
@@ -88,8 +90,8 @@ async def _wait_for_command_count(
     await _wait_for(lambda: len(listener.snapshot()) >= count, seconds, listener)
 
 
-type _Client = MongoClient[dict[str, object]] | AsyncMongoClient[dict[str, object]]
-type _Manager = CacheManager[dict[str, object]] | AsyncCacheManager[dict[str, object]]
+type _Client = MongoClient[BsonDict] | AsyncMongoClient[BsonDict]
+type _Manager = CacheManager[BsonDict] | AsyncCacheManager[BsonDict]
 
 
 def _build_manager(
@@ -99,14 +101,14 @@ def _build_manager(
     listener: AwaitCommandListener,
 ) -> tuple[_Client, _Manager]:
     if model == "sync":
-        client = MongoClient[dict[str, object]](
+        client = MongoClient[BsonDict](
             uri,
             directConnection=True,
             serverSelectionTimeoutMS=10000,
             event_listeners=[listener],
         )
         return client, CacheManager(client, max_await_time_ms=candidate)
-    async_client = AsyncMongoClient[dict[str, object]](
+    async_client = AsyncMongoClient[BsonDict](
         uri,
         directConnection=True,
         serverSelectionTimeoutMS=10000,
@@ -191,7 +193,7 @@ async def _idle_start(
 
 
 def _issue_write(
-    client: MongoClient[dict[str, object]], database: str, value: int
+    client: MongoClient[BsonDict], database: str, value: int
 ) -> NonNegativeFloat:
     issued = time.monotonic()
     client[database]["measured"].update_one({"_id": 0}, {"$set": {"value": value}})
@@ -214,7 +216,7 @@ async def run_window(
     database_name = f"await_{block}_{candidate}_{model}_{workload}"
     with ExitStack() as resources:
         writer = resources.enter_context(
-            MongoClient[dict[str, object]](replica.uri, serverSelectionTimeoutMS=10000)
+            MongoClient[BsonDict](replica.uri, serverSelectionTimeoutMS=10000)
         )
         writer.drop_database(database_name)
         writer[database_name]["measured"].insert_one(
@@ -542,7 +544,7 @@ def run_matrix(output: Path) -> None:
         "client_query_cache": version("client-query-cache"),
         "platform": platform.platform(),
     }
-    report: dict[str, object] = {
+    report: JsonDict = {
         "schema_version": 1,
         "configuration_sha256": digest,
         "command_count_source": "pymongo_command_listener",
@@ -553,12 +555,12 @@ def run_matrix(output: Path) -> None:
         "topology": configuration["topology"],
         "samples": [],
     }
-    samples: list[dict[str, object]] = []
-    failures: list[dict[str, object]] = []
+    samples: list[JsonDict] = []
+    failures: list[JsonDict] = []
     report["samples"] = samples
     report["failures"] = failures
     with IsolatedReplicaSet(ResourceLimits(cpus=1, memory="512m")) as replica:
-        with MongoClient[dict[str, object]](
+        with MongoClient[BsonDict](
             replica.uri, serverSelectionTimeoutMS=10000
         ) as client:
             environment["mongodb"] = client.server_info()["version"]
@@ -616,7 +618,7 @@ def run_matrix(output: Path) -> None:
 
 
 def write_decision(
-    report: dict[str, object], configuration: AwaitConfiguration, output: Path
+    report: JsonDict, configuration: AwaitConfiguration, output: Path
 ) -> None:
     samples = validate_await_report(
         report, configuration, cast("str", report["configuration_sha256"])

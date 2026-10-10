@@ -4,7 +4,7 @@ import math
 import re
 from dataclasses import dataclass
 from time import monotonic, sleep
-from typing import TYPE_CHECKING, Any, Self, cast
+from typing import TYPE_CHECKING, Self, cast
 
 from docker.errors import DockerException
 from pymongo import MongoClient
@@ -21,6 +21,8 @@ from benchmarks.stream_cost.errors import (
     BenchmarkSetupError,
 )
 from client_query_cache._types import (
+    BsonDict,
+    JsonDict,
     NonEmptyStr,
     NonNegativeFloat,
     NonNegativeInt,
@@ -204,7 +206,7 @@ class IsolatedReplicaSet:
         config: BenchmarkClientTopologyConfig,
         *,
         event_listeners: Sequence[object] = (),
-    ) -> MongoClient[dict[str, object]]:
+    ) -> MongoClient[BsonDict]:
         if config.discovery_enabled:
             message = (
                 "topology discovery is not supported against this single-member, "
@@ -217,7 +219,7 @@ class IsolatedReplicaSet:
         return build_dedicated_client(self.uri, config, event_listeners=event_listeners)
 
     def _await_writable_primary(self) -> None:
-        with MongoClient[dict[str, object]](
+        with MongoClient[BsonDict](
             # serverSelectionTimeoutMS: The default is 30000 ms. We override it because
             # bounded startup polling needs short connection attempts.
             self.uri,
@@ -293,7 +295,8 @@ class IsolatedReplicaSet:
         except DockerException as error:
             message = f"Could not read MongoDB container memory usage: {error}"
             raise BenchmarkSetupError(message) from None
-        return int(cast("dict[str, Any]", stats)["memory_stats"]["usage"])
+        memory_stats = cast("JsonDict", cast("JsonDict", stats)["memory_stats"])
+        return cast("NonNegativeInt", memory_stats["usage"])
 
     @staticmethod
     def _parse_cpu_usage_nanoseconds(stats: object) -> NonNegativeInt:

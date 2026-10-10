@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from benchmarks.stream_cost.compression_matrix import CompressionWindowSpec, WirePath
 from benchmarks.stream_cost.compressor_preflight import verify_compressor_negotiation
@@ -25,7 +25,7 @@ from benchmarks.stream_cost.workload import (
     verify_primed,
     wait_for_invalidations_to_settle,
 )
-from client_query_cache._types import NonNegativeFloat, NonNegativeInt
+from client_query_cache._types import BsonDict, NonNegativeFloat, NonNegativeInt
 from client_query_cache.synchronous.manager import CacheManager
 
 if TYPE_CHECKING:
@@ -80,7 +80,7 @@ def _write_schedule(window: CompressionWindowSpec) -> tuple[NonNegativeFloat, ..
 
 
 def _issue_reads(
-    find_one: Callable[[dict[str, object]], object],
+    find_one: Callable[[BsonDict], object],
     ids: Sequence[object],
     *,
     latencies: list[OperationLatency],
@@ -104,8 +104,8 @@ def _require_cache_hit(
 
 
 def _issue_cache_reads(
-    cache_collection: CachedCollection[dict[str, Any]],
-    manager: CacheManager[dict[str, Any]],
+    cache_collection: CachedCollection[BsonDict],
+    manager: CacheManager[BsonDict],
     ids: Sequence[object],
     *,
     latencies: list[OperationLatency],
@@ -121,7 +121,7 @@ def _issue_cache_reads(
 
 
 def _issue_scheduled_writes(
-    collection: Collection[dict[str, Any]],
+    collection: Collection[BsonDict],
     dataset: SeededDataset,
     window: CompressionWindowSpec,
     *,
@@ -177,7 +177,7 @@ def _run_no_stream_window(
     window: CompressionWindowSpec,
     dataset: SeededDataset,
     *,
-    collection: Collection[dict[str, Any]],
+    collection: Collection[BsonDict],
     replica_set: IsolatedReplicaSet,
     proxy: DirectPathByteProxy | None,
 ) -> tuple[ControlledMeasurement, list[OperationLatency], list[OperationLatency]]:
@@ -200,7 +200,7 @@ def _run_no_stream_window(
 
 
 def _prime_cache_reads(
-    cache_collection: CachedCollection[dict[str, Any]],
+    cache_collection: CachedCollection[BsonDict],
     *,
     dataset: SeededDataset,
     read_ids: Sequence[object],
@@ -221,7 +221,7 @@ def _run_stream_watching_window(
     window: CompressionWindowSpec,
     dataset: SeededDataset,
     *,
-    client: MongoClient[dict[str, Any]],
+    client: MongoClient[BsonDict],
     database_name: str,
     replica_set: IsolatedReplicaSet,
     proxy: DirectPathByteProxy | None,
@@ -306,7 +306,7 @@ def run_compression_window(
     mode: WireCompressor,
     path: WirePath,
     block_index: NonNegativeInt,
-    client: MongoClient[dict[str, Any]],
+    client: MongoClient[BsonDict],
     replica_set: IsolatedReplicaSet,
     proxy: DirectPathByteProxy | None,
     database_name: str,
@@ -357,8 +357,8 @@ def run_compression_mode_block(
     mode: WireCompressor,
     path_order: tuple[WirePath, WirePath],
     block_index: NonNegativeInt,
-    client: MongoClient[dict[str, Any]],
-    admin_client: MongoClient[dict[str, Any]],
+    client: MongoClient[BsonDict],
+    admin_client: MongoClient[BsonDict],
     replica_set: IsolatedReplicaSet,
     proxy: DirectPathByteProxy | None,
     database_prefix: str,

@@ -8,7 +8,7 @@ import shutil
 import subprocess
 from importlib.metadata import version
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 from benchmarks.stream_cost.client import (
@@ -47,6 +47,7 @@ from benchmarks.stream_cost.workload import (
     verify_primed,
     wait_for_invalidations_to_settle,
 )
+from client_query_cache._types import BsonDict
 from client_query_cache.synchronous.manager import CacheManager
 
 if TYPE_CHECKING:
@@ -117,7 +118,7 @@ def run_standard_matrix(
 
 
 def _run_matrix_with_client(
-    client: MongoClient[dict[str, Any]],
+    client: MongoClient[BsonDict],
     *,
     replica_set: IsolatedReplicaSet,
     proxy: DirectPathByteProxy | None,
@@ -144,7 +145,7 @@ def _measure_change_stream_cost_comparison(
     variant: WorkloadVariant,
     dataset: SeededDataset,
     *,
-    client: MongoClient[dict[str, Any]],
+    client: MongoClient[BsonDict],
     replica_set: IsolatedReplicaSet,
     proxy: DirectPathByteProxy | None,
     database_name: str,
@@ -205,7 +206,7 @@ def _measure_change_stream_cost_comparison(
 def _run_variant(
     variant: WorkloadVariant,
     *,
-    client: MongoClient[dict[str, Any]],
+    client: MongoClient[BsonDict],
     replica_set: IsolatedReplicaSet,
     proxy: DirectPathByteProxy | None,
     mongodb_version: str,
@@ -321,9 +322,9 @@ def _run_variant(
 
 
 def _sample_variant(
-    manager: CacheManager[dict[str, Any]],
-    raw_collection: Collection[dict[str, Any]],
-    cache_collection: CachedCollection[dict[str, Any]],
+    manager: CacheManager[BsonDict],
+    raw_collection: Collection[BsonDict],
+    cache_collection: CachedCollection[BsonDict],
     variant: WorkloadVariant,
     dataset: SeededDataset,
     *,

@@ -9,13 +9,12 @@ from typing import TYPE_CHECKING, Literal, cast
 
 from benchmarks.stream_cost.bootstrap import ConfidenceInterval
 from benchmarks.stream_cost.shared_cache.protocol import Registration
+from client_query_cache._types import JsonDict, NonNegativeInt, PositiveInt
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
 
-    from client_query_cache._types import NonNegativeInt, PositiveInt
 
-type Payload = dict[str, object]
 type Estimand = Literal["ratio", "delta", "absolute"]
 type CellKey = tuple[str, str, str, int]
 
@@ -91,10 +90,10 @@ CRITERIA: tuple[Criterion, ...] = (
 )
 
 
-def _number(record: Payload, *keys: str) -> float:
+def _number(record: JsonDict, *keys: str) -> float:
     value: object = record
     for key in keys:
-        value = cast("Payload", value)[key]
+        value = cast("JsonDict", value)[key]
     return cast("float", value)
 
 
@@ -103,34 +102,34 @@ def _percentile(values: Sequence[float], fraction: float) -> float:
     return ordered[min(len(ordered) - 1, int(fraction * len(ordered)))]
 
 
-def _outcome_total(record: Payload, outcome: str) -> int:
+def _outcome_total(record: JsonDict, outcome: str) -> int:
     return sum(
-        cast("int", cast("Payload", worker["outcomes"])[outcome])
-        for worker in cast("list[Payload]", record["workers_measured"])
+        cast("int", cast("JsonDict", worker["outcomes"])[outcome])
+        for worker in cast("list[JsonDict]", record["workers_measured"])
     )
 
 
-def _lag_values(record: Payload) -> list[float]:
+def _lag_values(record: JsonDict) -> list[float]:
     if record["path"] == "shared":
         windows = cast(
-            "list[list[float]]", cast("Payload", record["owner"])["lag_windows"]
+            "list[list[float]]", cast("JsonDict", record["owner"])["lag_windows"]
         )
     else:
         windows = [
             window
-            for worker in cast("list[Payload]", record["workers_measured"])
+            for worker in cast("list[JsonDict]", record["workers_measured"])
             for window in cast(
-                "list[list[float]]", cast("Payload", worker["lag"])["lag_windows"]
+                "list[list[float]]", cast("JsonDict", worker["lag"])["lag_windows"]
             )
         ]
     offset = _number(record, "clock_offset_seconds")
     return [lag + offset for window in windows for lag in window]
 
 
-def block_statistics(record: Payload) -> dict[str, float]:
-    workers = cast("list[Payload]", record["workers_measured"])
+def block_statistics(record: JsonDict) -> dict[str, float]:
+    workers = cast("list[JsonDict]", record["workers_measured"])
     try:
-        owner: Payload | None = cast("Payload", record["owner"])
+        owner: JsonDict | None = cast("JsonDict", record["owner"])
     except KeyError:
         owner = None
     completed = _number(record, "completed")
@@ -189,7 +188,7 @@ def block_statistics(record: Payload) -> dict[str, float]:
     return statistics
 
 
-def cell_key(record: Payload) -> CellKey:
+def cell_key(record: JsonDict) -> CellKey:
     return (
         str(record["workload"]),
         str(record["profile"]),
@@ -199,7 +198,7 @@ def cell_key(record: Payload) -> CellKey:
 
 
 def paired_blocks(
-    records: Iterable[Payload],
+    records: Iterable[JsonDict],
 ) -> dict[CellKey, dict[str, dict[int, dict[str, float] | None]]]:
     cells: dict[CellKey, dict[str, dict[int, dict[str, float] | None]]] = {}
     for record in records:
@@ -298,7 +297,7 @@ class InferenceSettings:
     draws: PositiveInt
     seeds: tuple[int, ...]
     leave_one_out_draws: PositiveInt
-    gate: Payload
+    gate: JsonDict
 
     @classmethod
     def load(
@@ -417,10 +416,10 @@ def _compare(
 
 
 def completion_failures(
-    records: Iterable[Payload], registration: Registration
-) -> list[Payload]:
+    records: Iterable[JsonDict], registration: Registration
+) -> list[JsonDict]:
     minimum = cast("float", registration.section("gate")["completion"])
-    failures: list[Payload] = []
+    failures: list[JsonDict] = []
     for record in records:
         if not record["healthy"]:
             failures.append(
@@ -445,12 +444,12 @@ def completion_failures(
 
 
 def decide(
-    records: list[Payload],
+    records: list[JsonDict],
     registration: Registration,
     *,
     phase: str,
     blocks: NonNegativeInt,
-) -> Payload:
+) -> JsonDict:
     inference = phase != "screening"
     required = [
         record for record in records if cast("int", record["workers"]) in {4, 8}
@@ -474,8 +473,8 @@ def decide(
     }
 
 
-def descriptive(records: Iterable[Payload]) -> list[Payload]:
-    rows: list[Payload] = []
+def descriptive(records: Iterable[JsonDict]) -> list[JsonDict]:
+    rows: list[JsonDict] = []
     for key, paths in sorted(paired_blocks(records).items()):
         for path, blocks in sorted(paths.items()):
             healthy = [
@@ -507,7 +506,7 @@ def descriptive(records: Iterable[Payload]) -> list[Payload]:
     return rows
 
 
-def _summary(values: list[float]) -> Payload:
+def _summary(values: list[float]) -> JsonDict:
     return {"mean": sum(values) / len(values), "min": min(values), "max": max(values)}
 
 
@@ -526,10 +525,10 @@ def main(argv: list[str] | None = None) -> None:
         record
         for path in arguments.reports
         for record in cast(
-            "list[Payload]", json.loads(path.read_text(encoding="utf-8"))["cells"]
+            "list[JsonDict]", json.loads(path.read_text(encoding="utf-8"))["cells"]
         )
     ]
-    output: Payload = (
+    output: JsonDict = (
         {"descriptive": descriptive(records)}
         if arguments.describe
         else decide(

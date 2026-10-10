@@ -8,7 +8,7 @@ import jsonschema
 
 from benchmarks.stream_cost.errors import ReportValidationError
 from benchmarks.stream_cost.measurement import latency_distribution
-from client_query_cache._types import NonNegativeInt
+from client_query_cache._types import JsonDict, NonNegativeInt
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -44,7 +44,7 @@ def _percent_change(baseline: float, delta: float) -> float | None:
 
 def _change_stream_cost_comparison_payload(
     comparison: ChangeStreamCostComparison,
-) -> dict[str, object]:
+) -> JsonDict:
     raw_bytes = _direct_path_bytes_pair(comparison.raw)
     cache_bytes = _direct_path_bytes_pair(comparison.cache)
     available = raw_bytes is not None and cache_bytes is not None
@@ -91,8 +91,8 @@ def build_report(
     logical_metrics: Mapping[str, object],
     *,
     change_stream_cost: ChangeStreamCostComparison | None = None,
-) -> dict[str, object]:
-    report: dict[str, object] = {
+) -> JsonDict:
+    report: JsonDict = {
         "schema_version": SCHEMA_VERSION,
         "identity": {
             "revision": config.identity.revision,

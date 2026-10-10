@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from benchmarks.stream_cost.client import WireCompressor
 from benchmarks.stream_cost.errors import BenchmarkSetupError
-from client_query_cache._types import NonNegativeInt
+from client_query_cache._types import BsonDict, NonNegativeInt
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -37,7 +37,7 @@ class CompressorPreflightResult:
 
 
 def _compression_counters(
-    admin_client: MongoClient[dict[str, Any]],
+    admin_client: MongoClient[BsonDict],
 ) -> Mapping[str, Mapping[str, Mapping[str, NonNegativeInt]]]:
     status = admin_client.admin.command("serverStatus")
     compression = status["network"]["compression"]
@@ -63,8 +63,8 @@ def _counter_deltas(
 
 
 def verify_compressor_negotiation(
-    measured_client: MongoClient[dict[str, Any]],
-    admin_client: MongoClient[dict[str, Any]],
+    measured_client: MongoClient[BsonDict],
+    admin_client: MongoClient[BsonDict],
     *,
     compressor: WireCompressor,
     database_name: str,

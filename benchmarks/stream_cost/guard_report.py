@@ -12,7 +12,12 @@ from benchmarks.stream_cost.guard_decision import (
     evaluate_case,
 )
 from benchmarks.stream_cost.guard_runner import measure_paired_case
-from client_query_cache._types import NonNegativeFloat, PositiveFloat, PositiveInt
+from client_query_cache._types import (
+    JsonDict,
+    NonNegativeFloat,
+    PositiveFloat,
+    PositiveInt,
+)
 
 if TYPE_CHECKING:
     from benchmarks.stream_cost.guard_runner import RevisionEnvironment
@@ -142,7 +147,7 @@ def _json_seconds(
     return tuple(value if math.isfinite(value) else None for value in seconds)
 
 
-def report_to_json(report: GuardReport) -> dict[str, object]:
+def report_to_json(report: GuardReport) -> JsonDict:
     return {
         "schema_version": report.schema_version,
         "base_revision": report.base_revision,

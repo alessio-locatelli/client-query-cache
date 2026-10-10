@@ -36,6 +36,7 @@ from client_query_cache._core.codec import codec_fingerprint, decode_value, enco
 from client_query_cache._core.find_one_reads import find_one_read_shape
 from client_query_cache._core.keys import NamespaceId
 from client_query_cache._core.manager import CacheCore, CacheCoreConfig
+from client_query_cache._types import BsonDict, PositiveInt
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -43,7 +44,6 @@ if TYPE_CHECKING:
 
     from benchmarks.stream_cost.shared_cache.attachment import Message
     from benchmarks.stream_cost.shared_cache.protocol import Cell
-    from client_query_cache._types import PositiveInt
 
 type Payload = dict[str, object]
 
@@ -163,7 +163,7 @@ def socket_diagnostics(
     collection = cast("str", registration.raw["collection"])
     profile = {"documents": entries, "payload_bytes": 4096, "read": "find_one"}
     with IsolatedReplicaSet(ResourceLimits(cpus=2, memory="2g")) as replica:
-        with MongoClient[dict[str, object]](replica.uri) as client:
+        with MongoClient[BsonDict](replica.uri) as client:
             seed_catalogue(
                 client,
                 database=database,

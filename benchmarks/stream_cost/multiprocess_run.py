@@ -43,6 +43,7 @@ from client_query_cache._core.stream_events import (
     build_change_stream_pipeline,
 )
 from client_query_cache._types import (
+    BsonDict,
     MaxAwaitTimeMs,
     NonEmpty,
     NonNegativeFloat,
@@ -75,12 +76,9 @@ _TOPOLOGY = BenchmarkClientTopologyConfig(
 type Model = Literal["sync", "async"]
 type Workload = Literal["idle", "active"]
 type PathKind = Literal["native-control", "native", "stream-control", "stream-only"]
-type Client = MongoClient[dict[str, object]] | AsyncMongoClient[dict[str, object]]
-type Manager = CacheManager[dict[str, object]] | AsyncCacheManager[dict[str, object]]
-type Stream = (
-    DatabaseChangeStream[dict[str, object]]
-    | AsyncDatabaseChangeStream[dict[str, object]]
-)
+type Client = MongoClient[BsonDict] | AsyncMongoClient[BsonDict]
+type Manager = CacheManager[BsonDict] | AsyncCacheManager[BsonDict]
+type Stream = DatabaseChangeStream[BsonDict] | AsyncDatabaseChangeStream[BsonDict]
 type Payload = dict[str, object]
 
 
@@ -709,9 +707,7 @@ def stop_workers(processes: tuple[BaseProcess, ...], timeout: PositiveFloat) -> 
         raise BenchmarkSetupError("worker exited unsuccessfully")
 
 
-def seed_documents(
-    client: MongoClient[dict[str, object]], protocol: Protocol
-) -> Payload:
+def seed_documents(client: MongoClient[BsonDict], protocol: Protocol) -> Payload:
     client.drop_database(_DATABASE)
     generator = random.Random(protocol.registration["seed"])
     padding = generator.randbytes(protocol.registration["payload_bytes"]).hex()[
@@ -749,14 +745,14 @@ def run_cell(replica: IsolatedReplicaSet, cell: Cell, protocol: Protocol) -> Pay
             WireCommands(tuple(protocol.registration["collections"])) for _ in range(2)
         )
         writer = resources.enter_context(
-            MongoClient[dict[str, object]](
+            MongoClient[BsonDict](
                 f"mongodb://127.0.0.1:{writer_proxy.local_port}",
                 **protocol.registration["client_options"],
                 event_listeners=[harness_listeners[0]],
             )
         )
         observer = resources.enter_context(
-            MongoClient[dict[str, object]](
+            MongoClient[BsonDict](
                 f"mongodb://127.0.0.1:{observer_proxy.local_port}",
                 **protocol.registration["client_options"],
                 event_listeners=[harness_listeners[1]],

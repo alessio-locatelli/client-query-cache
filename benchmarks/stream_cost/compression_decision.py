@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from benchmarks.stream_cost.client import WireCompressor
-from client_query_cache._types import NonNegativeFloat, NonNegativeInt
+from client_query_cache._types import JsonDict, NonNegativeFloat, NonNegativeInt
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -39,7 +39,7 @@ class CompressionDecision:
 
 def _samples_index(
     report: Mapping[str, Any],
-) -> dict[tuple[NonNegativeInt, str, str, str], dict[str, Any]]:
+) -> dict[tuple[NonNegativeInt, str, str, str], JsonDict]:
     return {
         (
             sample["block_index"],
@@ -53,7 +53,7 @@ def _samples_index(
 
 def _stream_minus_control_index(
     report: Mapping[str, Any],
-) -> dict[tuple[NonNegativeInt, str, str], dict[str, Any]]:
+) -> dict[tuple[NonNegativeInt, str, str], JsonDict]:
     return {
         (entry["block_index"], entry["mode"], entry["window"]): entry
         for entry in report["stream_minus_control"]

@@ -43,6 +43,7 @@ from client_query_cache._core.manager import (
 )
 from client_query_cache._core.stream_cost import LagCaptureWindowConfig
 from client_query_cache._types import (
+    BsonDict,
     MaxAwaitTimeMs,
     NonNegativeFloat,
     NonNegativeInt,
@@ -215,7 +216,7 @@ class SharedCacheOwner:
         self.config = config
         self.incarnation = Int64(secrets.randbits(63))
         self.progress = UpstreamProgress()
-        self.client: MongoClient[dict[str, object]] = MongoClient(
+        self.client: MongoClient[BsonDict] = MongoClient(
             config.mongodb_uri,
             event_listeners=[self.progress],
             **config.client_options,  # type: ignore[arg-type]

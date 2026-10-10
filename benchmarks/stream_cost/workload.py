@@ -18,11 +18,15 @@ from benchmarks.stream_cost.generators import (
     generate_seeded_documents,
 )
 from benchmarks.stream_cost.measurement import OperationLatency
-from client_query_cache._types import NonNegativeFloat, NonNegativeInt, PositiveInt
+from client_query_cache._types import (
+    BsonDict,
+    NonNegativeFloat,
+    NonNegativeInt,
+    PositiveInt,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
-    from typing import Any
 
     from pymongo.synchronous.collection import Collection
 
@@ -120,7 +124,7 @@ STANDARD_WORKLOAD_VARIANTS: tuple[WorkloadVariant, ...] = tuple(
 
 @dataclass(frozen=True, slots=True)
 class SeededDataset:
-    documents: tuple[dict[str, object], ...]
+    documents: tuple[BsonDict, ...]
 
     @property
     def ids(self) -> tuple[object, ...]:
@@ -134,9 +138,7 @@ def seed_dataset(variant: WorkloadVariant) -> SeededDataset:
     return SeededDataset(documents=tuple(documents))
 
 
-def insert_dataset(
-    collection: Collection[dict[str, Any]], dataset: SeededDataset
-) -> None:
+def insert_dataset(collection: Collection[BsonDict], dataset: SeededDataset) -> None:
     if not dataset.documents:
         message = "dataset must not be empty"
         raise BenchmarkConfigurationError(message)
@@ -238,8 +240,8 @@ class PairedReadOutcome:
 
 
 def run_paired_reads(
-    raw_collection: Collection[dict[str, Any]],
-    cache_collection: CachedCollection[dict[str, Any]],
+    raw_collection: Collection[BsonDict],
+    cache_collection: CachedCollection[BsonDict],
     variant: WorkloadVariant,
     ids: Sequence[object],
 ) -> PairedReadOutcome:
@@ -282,21 +284,21 @@ def run_paired_reads(
 
 
 def perform_raw_only_reads(
-    raw_collection: Collection[dict[str, Any]], ids: Sequence[object]
+    raw_collection: Collection[BsonDict], ids: Sequence[object]
 ) -> None:
     for document_id in ids:
         raw_collection.find_one({"_id": document_id})
 
 
 def perform_cache_only_reads(
-    cache_collection: CachedCollection[dict[str, Any]], ids: Sequence[object]
+    cache_collection: CachedCollection[BsonDict], ids: Sequence[object]
 ) -> None:
     for document_id in ids:
         cache_collection.find_one({"_id": document_id})
 
 
 def issue_writes(
-    collection: Collection[dict[str, Any]],
+    collection: Collection[BsonDict],
     dataset: SeededDataset,
     count: NonNegativeInt,
     *,
@@ -324,9 +326,9 @@ class WorkloadVariantOutcome:
 
 
 def run_workload_variant(
-    manager: CacheManager[dict[str, Any]],
-    raw_collection: Collection[dict[str, Any]],
-    cache_collection: CachedCollection[dict[str, Any]],
+    manager: CacheManager[BsonDict],
+    raw_collection: Collection[BsonDict],
+    cache_collection: CachedCollection[BsonDict],
     variant: WorkloadVariant,
     dataset: SeededDataset,
 ) -> WorkloadVariantOutcome:
@@ -371,7 +373,7 @@ def time_call[T](call: Callable[[], T]) -> tuple[T, NonNegativeFloat]:
 
 
 def wait_for_invalidations_to_settle(
-    manager: CacheManager[dict[str, Any]],
+    manager: CacheManager[BsonDict],
     database_name: str,
     expected_count: NonNegativeInt,
     *,

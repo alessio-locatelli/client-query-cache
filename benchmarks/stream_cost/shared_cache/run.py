@@ -35,14 +35,12 @@ from benchmarks.stream_cost.topology import (
     IsolatedReplicaSet,
     ResourceLimits,
 )
+from client_query_cache._types import JsonDict, PositiveFloat
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
     from benchmarks.stream_cost.shared_cache.protocol import Cell, Family, PathKind
-    from client_query_cache._types import PositiveFloat
-
-type Payload = dict[str, object]
 
 _CONFIG = Path("reports/shared-worker-cache/v4/config.json")
 _PHASES = ("screening", "confirmation", "capacity", "active", "cold", "sensitivity")
@@ -53,7 +51,7 @@ _CAPS: dict[Family, str] = {
 }
 
 
-def environment(registration: Registration) -> Payload:
+def environment(registration: Registration) -> JsonDict:
     git = shutil.which("git")
     if git is None:
         raise BenchmarkSetupError("git is required to record the benchmark revision")
@@ -101,11 +99,11 @@ class Recorder:
         output: Path,
         phase: str,
         registration: Registration,
-        resumed: list[Payload],
+        resumed: list[JsonDict],
     ) -> None:
         self.output = output
         self._resumed = resumed
-        self.report: Payload = {
+        self.report: JsonDict = {
             "phase": phase,
             "environment": environment(registration),
             "cells": [],
@@ -123,8 +121,8 @@ class Recorder:
         replica: IsolatedReplicaSet,
         registration: Registration,
         cells: Iterable[Cell],
-    ) -> list[Payload]:
-        records: list[Payload] = []
+    ) -> list[JsonDict]:
+        records: list[JsonDict] = []
         planned = tuple(cells)
         for ordinal, cell in enumerate(planned, 1):
             print(
@@ -135,13 +133,13 @@ class Recorder:
             )
             record = self._measure(replica, registration, cell)
             records.append(record)
-            cast("list[Payload]", self.report["cells"]).append(record)
+            cast("list[JsonDict]", self.report["cells"]).append(record)
             self.flush()
         return records
 
     def _measure(
         self, replica: IsolatedReplicaSet, registration: Registration, cell: Cell
-    ) -> Payload:
+    ) -> JsonDict:
         if self._resumed and all(
             self._resumed[0][key] == value for key, value in asdict(cell).items()
         ):
@@ -152,24 +150,24 @@ class Recorder:
             return {**asdict(cell), "healthy": False, "failure": str(error)}
 
 
-def resumed_cells(path: Path, phase: str, registration: Registration) -> list[Payload]:
+def resumed_cells(path: Path, phase: str, registration: Registration) -> list[JsonDict]:
     report = json.loads(path.read_text(encoding="utf-8"))
     current = environment(registration)
-    previous = cast("Payload", report["environment"])
+    previous = cast("JsonDict", report["environment"])
     if report["phase"] != phase or any(
         previous[key] != current[key]
         for key in ("revision", "dirty_tree", "configuration_sha256")
     ):
         message = "resumed report has another phase, revision or registration"
         raise BenchmarkSetupError(message)
-    return cast("list[Payload]", report["cells"])
+    return cast("list[JsonDict]", report["cells"])
 
 
-def reused_probes(path: Path) -> list[Payload]:
+def reused_probes(path: Path) -> list[JsonDict]:
     report = json.loads(path.read_text(encoding="utf-8"))
     probes = [
         record
-        for record in cast("list[Payload]", report["cells"])
+        for record in cast("list[JsonDict]", report["cells"])
         if record["phase"] == "probe" and record["healthy"]
     ]
     if report["phase"] != "calibration" or not probes:
@@ -178,21 +176,21 @@ def reused_probes(path: Path) -> list[Payload]:
     return probes
 
 
-def throughput(record: Payload) -> float:
-    workers = cast("list[Payload]", record["workers_measured"])
+def throughput(record: JsonDict) -> float:
+    workers = cast("list[JsonDict]", record["workers_measured"])
     elapsed = max(
-        cast("float", cast("Payload", worker["loop"])["elapsed"]) for worker in workers
+        cast("float", cast("JsonDict", worker["loop"])["elapsed"]) for worker in workers
     )
     return cast("int", record["completed"]) / elapsed
 
 
-def validation_failure(record: Payload, registration: Registration) -> str | None:
+def validation_failure(record: JsonDict, registration: Registration) -> str | None:
     offered = cast("int", record["offered"])
     in_window = cast("int", record["completed_in_window"])
     if in_window < registration.number("calibration", "minimum_completion") * offered:
         return "completed less than the registered fraction inside the window"
-    workers = cast("list[Payload]", record["workers_measured"])
-    loops = [cast("Payload", worker["loop"]) for worker in workers]
+    workers = cast("list[JsonDict]", record["workers_measured"])
+    loops = [cast("JsonDict", worker["loop"]) for worker in workers]
     if any(
         cast("int", loop["errors"]) or cast("int", loop["overflow"]) for loop in loops
     ):
@@ -205,10 +203,10 @@ def validation_failure(record: Payload, registration: Registration) -> str | Non
             return "cold window did not complete every identity"
         return None
     floor = cast("int", registration.number("calibration", "sample_floor"))
-    populations = cast("Payload", record["populations"])
+    populations = cast("JsonDict", record["populations"])
     names = ("sync", "async") if record["model"] == "mixed" else ("request",)
     if any(
-        cast("int", cast("Payload", populations[name])["sample_count"]) < floor
+        cast("int", cast("JsonDict", populations[name])["sample_count"]) < floor
         for name in names
     ):
         return "percentile population below the registered sample floor"
@@ -218,7 +216,7 @@ def validation_failure(record: Payload, registration: Registration) -> str | Non
 def select_rate(
     registration: Registration,
     family: Family,
-    probes: list[Payload],
+    probes: list[JsonDict],
     ceiling: float | None,
 ) -> int:
     rates = [throughput(record) for record in probes]
@@ -246,12 +244,12 @@ def family_durations(
 
 def calibrate(
     replica: IsolatedReplicaSet, registration: Registration, recorder: Recorder
-) -> Payload:
+) -> JsonDict:
     probes = recorder.run(replica, registration, probe_cells(registration))
     failed = [record for record in probes if not record["healthy"]]
     if failed:
         return {"outcome": "inconclusive", "reason": "probe window failed"}
-    selections: Payload = {}
+    selections: JsonDict = {}
     rates: dict[str, int] = {}
     durations: dict[str, PositiveFloat] = {}
     for family in ("primary", "cold", "sensitivity"):
@@ -275,7 +273,7 @@ def calibrate(
             family_probes,
             rates["primary"] if family != "primary" else None,
         )
-        attempts: list[Payload] = []
+        attempts: list[JsonDict] = []
         for _attempt in range(int(registration.number("calibration", "rate_attempts"))):
             proposed = family_durations(registration, family, rate)
             cap = registration.number("calibration", "window_cap_seconds")
@@ -338,7 +336,7 @@ def _placeholders(proposed: dict[str, PositiveFloat]) -> dict[str, PositiveFloat
 
 def freeze(registration_path: Path, calibration_path: Path) -> None:
     calibration = json.loads(calibration_path.read_text(encoding="utf-8"))
-    validated = cast("Payload", calibration["calibration"])
+    validated = cast("JsonDict", calibration["calibration"])
     if validated["outcome"] != "validated":
         message = "only validated baseline calibration can be frozen"
         raise BenchmarkSetupError(message)
