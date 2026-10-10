@@ -13,6 +13,10 @@ bodies or OpenSpec. An empty Unreleased section is valid.
 
 ## Unreleased
 
+### Bug fixes
+
+- Cache budgets and lag-window counts reject non-integer values, including NaN, infinities, booleans, and integer subclasses, with `CacheConfigurationError` at configuration construction.
+
 ### Features
 
 - **Breaking:** Rename `StreamHealthSnapshot.database_name` to `requested_database_name`. It holds the name you passed to `stream_health_snapshot()`, which is not validated, so while the manager is open an empty or unknown name reports `not_started`.

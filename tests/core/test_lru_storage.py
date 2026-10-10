@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, get_type_hints
+from typing import TYPE_CHECKING, Literal, get_type_hints
 
 import pytest
 from hypothesis import given
@@ -9,7 +9,7 @@ from hypothesis import strategies as st
 from client_query_cache import CacheConfigurationError
 from client_query_cache._core.entries import AdmissionOutcome
 from client_query_cache._core.manager import CacheCore, CacheCoreConfig
-from client_query_cache._types import PositiveInt
+from client_query_cache._types import NonEmptyStr, NonNegativeInt, PositiveInt
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -28,20 +28,56 @@ def test_default_budget_and_max_entry_size() -> None:
 
 
 @pytest.mark.parametrize(
-    ("shared_budget_bytes", "max_entry_bytes"),
+    ("shared_budget_bytes", "max_entry_bytes", "message"),
     [
-        pytest.param(0, 1, id="non_positive_shared_budget"),
-        pytest.param(100, 0, id="non_positive_max_entry_size"),
-        pytest.param(100, 200, id="max_entry_size_exceeds_shared_budget"),
+        pytest.param(0, 1, "shared_budget_bytes must be positive", id="zero_budget"),
+        pytest.param(
+            -1, 1, "shared_budget_bytes must be positive", id="negative_budget"
+        ),
+        pytest.param(1, 0, "max_entry_bytes must be positive", id="zero_entry"),
+        pytest.param(1, -1, "max_entry_bytes must be positive", id="negative_entry"),
+        pytest.param(
+            1,
+            2,
+            "max_entry_bytes must not exceed shared_budget_bytes",
+            id="entry_exceeds_budget",
+        ),
     ],
 )
 def test_config_rejects_invalid_budgets(
-    shared_budget_bytes: int, max_entry_bytes: int
+    shared_budget_bytes: int, max_entry_bytes: int, message: NonEmptyStr
 ) -> None:
-    with pytest.raises(CacheConfigurationError):
+    with pytest.raises(CacheConfigurationError, match=message):
         CacheCoreConfig(
             shared_budget_bytes=shared_budget_bytes, max_entry_bytes=max_entry_bytes
         )
+
+
+@pytest.mark.parametrize("field", ["shared_budget_bytes", "max_entry_bytes"])
+@pytest.mark.parametrize("peer_value", [1, 0], ids=("valid_peer", "invalid_peer_range"))
+def test_config_rejects_non_builtin_integers_before_ranges(
+    field: Literal["shared_budget_bytes", "max_entry_bytes"],
+    peer_value: NonNegativeInt,
+    invalid_config_integer: object,
+) -> None:
+    budgets: dict[Literal["shared_budget_bytes", "max_entry_bytes"], object] = {
+        "shared_budget_bytes": peer_value,
+        "max_entry_bytes": peer_value,
+    }
+    budgets[field] = invalid_config_integer
+
+    with pytest.raises(CacheConfigurationError, match=field):
+        CacheCoreConfig(**budgets)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    "budget", [1, 64 * 1024 * 1024], ids=("minimum", "default_budget")
+)
+def test_config_accepts_equal_budgets(budget: PositiveInt) -> None:
+    config = CacheCoreConfig(shared_budget_bytes=budget, max_entry_bytes=budget)
+
+    assert config.shared_budget_bytes == budget
+    assert config.max_entry_bytes == budget
 
 
 @given(

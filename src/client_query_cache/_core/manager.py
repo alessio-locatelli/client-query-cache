@@ -70,6 +70,12 @@ class CacheCoreConfig:
     )
 
     def __post_init__(self) -> None:
+        if type(self.shared_budget_bytes) is not int:
+            message = "shared_budget_bytes must be a built-in integer"
+            raise CacheConfigurationError(message)
+        if type(self.max_entry_bytes) is not int:
+            message = "max_entry_bytes must be a built-in integer"
+            raise CacheConfigurationError(message)
         if self.shared_budget_bytes <= 0:
             message = "shared_budget_bytes must be positive"
             raise CacheConfigurationError(message)

@@ -26,6 +26,15 @@ class LagCaptureWindowConfig:
     min_separation_events: NonNegativeInt
 
     def __post_init__(self) -> None:
+        if type(self.window_count) is not int:
+            message = "window_count must be a built-in integer"
+            raise CacheConfigurationError(message)
+        if type(self.events_per_window) is not int:
+            message = "events_per_window must be a built-in integer"
+            raise CacheConfigurationError(message)
+        if type(self.min_separation_events) is not int:
+            message = "min_separation_events must be a built-in integer"
+            raise CacheConfigurationError(message)
         if self.window_count <= 0:
             message = "window_count must be positive"
             raise CacheConfigurationError(message)

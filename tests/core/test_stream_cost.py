@@ -4,7 +4,7 @@ import dataclasses
 import datetime
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from typing import TYPE_CHECKING, get_type_hints
+from typing import TYPE_CHECKING, Literal, get_type_hints
 
 import pytest
 from bson.datetime_ms import DatetimeMS
@@ -20,7 +20,7 @@ from client_query_cache._core.stream_cost import (
     LagCaptureWindows,
 )
 from client_query_cache._core.stream_events import route_change_event
-from client_query_cache._types import BsonDict, NonNegativeInt
+from client_query_cache._types import BsonDict, NonEmptyStr, NonNegativeInt
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -52,27 +52,85 @@ def _insert_event(wall_time: object, document_id: str = "doc-1") -> BsonDict:
 
 
 @pytest.mark.parametrize(
-    "kwargs",
+    ("field", "invalid_value", "message"),
     [
         pytest.param(
-            {"window_count": 0, "events_per_window": 1, "min_separation_events": 0},
+            "window_count",
+            0,
+            "window_count must be positive",
             id="zero_window_count",
         ),
         pytest.param(
-            {"window_count": 1, "events_per_window": 0, "min_separation_events": 0},
+            "window_count",
+            -1,
+            "window_count must be positive",
+            id="negative_window_count",
+        ),
+        pytest.param(
+            "events_per_window",
+            0,
+            "events_per_window must be positive",
             id="zero_events_per_window",
         ),
         pytest.param(
-            {"window_count": 1, "events_per_window": 1, "min_separation_events": -1},
+            "events_per_window",
+            -1,
+            "events_per_window must be positive",
+            id="negative_events_per_window",
+        ),
+        pytest.param(
+            "min_separation_events",
+            -1,
+            "min_separation_events must not be negative",
             id="negative_separation",
         ),
     ],
 )
 def test_lag_capture_window_config_rejects_invalid_values(
-    kwargs: dict[str, int],
+    field: Literal["window_count", "events_per_window", "min_separation_events"],
+    invalid_value: int,
+    message: NonEmptyStr,
 ) -> None:
-    with pytest.raises(CacheConfigurationError):
+    kwargs = {"window_count": 1, "events_per_window": 1, "min_separation_events": 0}
+    kwargs[field] = invalid_value
+    with pytest.raises(CacheConfigurationError, match=message):
         LagCaptureWindowConfig(**kwargs)
+
+
+@pytest.mark.parametrize(
+    "field", ["window_count", "events_per_window", "min_separation_events"]
+)
+@pytest.mark.parametrize(
+    "peer_value", [1, 0], ids=("valid_peers", "invalid_peer_ranges")
+)
+def test_lag_capture_window_config_rejects_non_builtin_integers_before_ranges(
+    field: Literal["window_count", "events_per_window", "min_separation_events"],
+    peer_value: NonNegativeInt,
+    invalid_config_integer: object,
+) -> None:
+    kwargs: dict[
+        Literal["window_count", "events_per_window", "min_separation_events"], object
+    ] = {
+        "window_count": peer_value,
+        "events_per_window": peer_value,
+        "min_separation_events": peer_value,
+    }
+    kwargs[field] = invalid_config_integer
+
+    with pytest.raises(CacheConfigurationError, match=field):
+        LagCaptureWindowConfig(**kwargs)  # type: ignore[arg-type]
+
+
+def test_lag_capture_window_config_accepts_minimum_counts_and_zero_separation() -> None:
+    config = LagCaptureWindowConfig(
+        window_count=1, events_per_window=1, min_separation_events=0
+    )
+
+    assert dataclasses.asdict(config) == {
+        "window_count": 1,
+        "events_per_window": 1,
+        "min_separation_events": 0,
+    }
 
 
 @given(
@@ -268,18 +326,15 @@ def test_stream_cost_is_scoped_per_database_stream() -> None:
     assert set(core.active_stream_cost_databases()) == {"db_one", "db_two"}
 
 
-def test_stream_cost_snapshot_does_not_register_an_untouched_database() -> None:
+@pytest.mark.parametrize(
+    "operation", ["stream_cost_snapshot", "reset_stream_cost_statistics"]
+)
+def test_stream_cost_operation_does_not_register_an_untouched_database(
+    operation: Literal["stream_cost_snapshot", "reset_stream_cost_statistics"],
+) -> None:
     core = CacheCore()
 
-    core.stream_cost_snapshot("db")
-
-    assert core.active_stream_cost_databases() == []
-
-
-def test_reset_stream_cost_statistics_on_an_untouched_database_is_a_no_op() -> None:
-    core = CacheCore()
-
-    core.reset_stream_cost_statistics("db")
+    getattr(core, operation)("db")
 
     assert core.active_stream_cost_databases() == []
     assert core.stream_cost_snapshot("db").stream_polls == 0
