@@ -2,7 +2,7 @@ import re
 import uuid
 from operator import itemgetter
 from typing import TYPE_CHECKING, Any
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 from bson import Binary
@@ -33,12 +33,30 @@ from tests.stream_helpers import wait_for_stream_barrier
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
+    from contextlib import AbstractContextManager
 
     from faker import Faker
 
     from tests.conftest import CollectionName, DatabaseName, MongoDbUri
 
 pytestmark = pytest.mark.integration
+
+
+def _spy_on_driver(patch_target: str) -> AbstractContextManager[Mock]:
+    if patch_target == "find":
+        return patch.object(
+            Cursor, "_send_message", autospec=True, side_effect=Cursor._send_message
+        )
+    if patch_target == "aggregate":
+        return patch.object(
+            Collection, "_aggregate", autospec=True, side_effect=Collection._aggregate
+        )
+    return patch.object(
+        Collection,
+        patch_target,
+        autospec=True,
+        side_effect=getattr(Collection, patch_target),
+    )
 
 
 @pytest.fixture
@@ -952,20 +970,7 @@ def test_reads_recheck_availability_before_forcing_read_options(
 
     with (
         patch.object(CacheCore, "is_database_available", side_effect=[True, False]),
-        patch.object(
-            Cursor if patch_target == "find" else Collection,
-            "_send_message"
-            if patch_target == "find"
-            else "_aggregate"
-            if patch_target == "aggregate"
-            else patch_target,
-            autospec=True,
-            side_effect=Cursor._send_message
-            if patch_target == "find"
-            else Collection._aggregate
-            if patch_target == "aggregate"
-            else getattr(Collection, patch_target),
-        ) as spy,
+        _spy_on_driver(patch_target) as spy,
     ):
         returned = invoke(collection)
 
@@ -1051,20 +1056,7 @@ def test_repeated_reads_are_served_from_cache(
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
     collection.raw.insert_many([{"_id": "a", "v": 1}, {"_id": "b", "v": 2}])
 
-    with patch.object(
-        Cursor if patch_target == "find" else Collection,
-        "_send_message"
-        if patch_target == "find"
-        else "_aggregate"
-        if patch_target == "aggregate"
-        else patch_target,
-        autospec=True,
-        side_effect=Cursor._send_message
-        if patch_target == "find"
-        else Collection._aggregate
-        if patch_target == "aggregate"
-        else getattr(Collection, patch_target),
-    ) as spy:
+    with _spy_on_driver(patch_target) as spy:
         first = invoke(collection)
         second = invoke(collection)
 
@@ -1133,9 +1125,7 @@ def test_find_shapes_do_not_collide(
         [{"_id": "a", "v": 1, "extra": "x"}, {"_id": "b", "v": 2, "extra": "y"}]
     )
 
-    with patch.object(
-        Cursor, "_send_message", autospec=True, side_effect=Cursor._send_message
-    ) as spy:
+    with _spy_on_driver("find") as spy:
         full = list(collection.find({}))
         projected = list(collection.find({}, {"v": 1}))
         limited = list(collection.find({}, limit=1))
@@ -1342,24 +1332,6 @@ def test_aggregate_preserves_native_change_stream_cursor(
     assert cache_manager.snapshot().entry_count == 0
 
 
-def test_aggregate_with_a_now_variable_executes_without_raising_but_is_not_cached(
-    cache_manager: CacheManager[BsonDict],
-    cached_database_name: DatabaseName,
-    nonpersistent_collection_name: CollectionName,
-) -> None:
-    collection = cache_manager[cached_database_name][nonpersistent_collection_name]
-    collection.raw.insert_one({"_id": "a", "start": "2020-01-01T00:00:00Z"})
-    pipeline: list[BsonDict] = [{"$project": {"now": "$$NOW"}}]
-
-    with patch.object(
-        Collection, "_aggregate", autospec=True, side_effect=Collection._aggregate
-    ) as spy:
-        list(collection.aggregate(pipeline))
-        list(collection.aggregate(pipeline))
-
-    assert spy.call_count == 2
-
-
 def test_find_with_an_oversize_result_is_returned_but_never_cached(
     tight_budget_cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
@@ -1372,9 +1344,7 @@ def test_find_with_an_oversize_result_is_returned_but_never_cached(
         [{"_id": f"doc-{i}", "padding": "x" * 100} for i in range(5)]
     )
 
-    with patch.object(
-        Cursor, "_send_message", autospec=True, side_effect=Cursor._send_message
-    ) as spy:
+    with _spy_on_driver("find") as spy:
         first = list(collection.find({}))
         second = list(collection.find({}))
 
@@ -1391,9 +1361,7 @@ def test_find_with_a_plain_dict_collation_is_cached(
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
     collection.raw.insert_one({"_id": "a", "v": 1})
 
-    with patch.object(
-        Cursor, "_send_message", autospec=True, side_effect=Cursor._send_message
-    ) as spy:
+    with _spy_on_driver("find") as spy:
         first = list(collection.find({}, collation={"locale": "en"}))
         second = list(collection.find({}, collation={"locale": "en"}))
 
@@ -1550,67 +1518,6 @@ def test_estimated_document_count_bypasses_cache_for_extra_pymongo_options(
             lambda collection: collection.distinct("v", {"$expr": {"$rand": {}}}),
             id="distinct-expr-rand",
         ),
-    ],
-)
-def test_unsafe_filters_are_never_cached(
-    cache_manager: CacheManager[BsonDict],
-    cached_database_name: DatabaseName,
-    nonpersistent_collection_name: CollectionName,
-    patch_target: str,
-    invoke: Callable[[CachedCollection[BsonDict]], object],
-) -> None:
-    collection = cache_manager[cached_database_name][nonpersistent_collection_name]
-    collection.raw.insert_one({"_id": "a", "v": 1})
-
-    with patch.object(
-        Cursor if patch_target == "find" else Collection,
-        "_send_message"
-        if patch_target == "find"
-        else "_aggregate"
-        if patch_target == "aggregate"
-        else patch_target,
-        autospec=True,
-        side_effect=Cursor._send_message
-        if patch_target == "find"
-        else Collection._aggregate
-        if patch_target == "aggregate"
-        else getattr(Collection, patch_target),
-    ) as spy:
-        invoke(collection)
-        invoke(collection)
-
-    assert spy.call_count == 2
-
-
-def test_find_with_a_meta_projection_is_never_cached(
-    cache_manager: CacheManager[BsonDict],
-    cached_database_name: DatabaseName,
-    nonpersistent_collection_name: CollectionName,
-) -> None:
-    collection = cache_manager[cached_database_name][nonpersistent_collection_name]
-    collection.raw.create_index([("text", "text")])
-    collection.raw.insert_one({"_id": "a", "text": "hello world"})
-
-    with patch.object(
-        Cursor, "_send_message", autospec=True, side_effect=Cursor._send_message
-    ) as spy:
-        list(
-            collection.find(
-                {"$text": {"$search": "hello"}}, {"score": {"$meta": "textScore"}}
-            )
-        )
-        list(
-            collection.find(
-                {"$text": {"$search": "hello"}}, {"score": {"$meta": "textScore"}}
-            )
-        )
-
-    assert spy.call_count == 2
-
-
-@pytest.mark.parametrize(
-    ("patch_target", "invoke"),
-    [
         pytest.param(
             "find_one",
             lambda collection: collection.find_one({"$text": {"$search": "hello"}}),
@@ -1637,7 +1544,7 @@ def test_find_with_a_meta_projection_is_never_cached(
         ),
     ],
 )
-def test_text_search_filters_are_never_cached(
+def test_unsafe_filters_are_never_cached(
     cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
@@ -1646,24 +1553,35 @@ def test_text_search_filters_are_never_cached(
 ) -> None:
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
     collection.raw.create_index([("text", "text")])
+    collection.raw.insert_one({"_id": "a", "v": 1, "text": "hello world"})
+
+    with _spy_on_driver(patch_target) as spy:
+        invoke(collection)
+        invoke(collection)
+
+    assert spy.call_count == 2
+
+
+def test_find_with_a_meta_projection_is_never_cached(
+    cache_manager: CacheManager[BsonDict],
+    cached_database_name: DatabaseName,
+    nonpersistent_collection_name: CollectionName,
+) -> None:
+    collection = cache_manager[cached_database_name][nonpersistent_collection_name]
+    collection.raw.create_index([("text", "text")])
     collection.raw.insert_one({"_id": "a", "text": "hello world"})
 
-    with patch.object(
-        Cursor if patch_target == "find" else Collection,
-        "_send_message"
-        if patch_target == "find"
-        else "_aggregate"
-        if patch_target == "aggregate"
-        else patch_target,
-        autospec=True,
-        side_effect=Cursor._send_message
-        if patch_target == "find"
-        else Collection._aggregate
-        if patch_target == "aggregate"
-        else getattr(Collection, patch_target),
-    ) as spy:
-        invoke(collection)
-        invoke(collection)
+    with _spy_on_driver("find") as spy:
+        list(
+            collection.find(
+                {"$text": {"$search": "hello"}}, {"score": {"$meta": "textScore"}}
+            )
+        )
+        list(
+            collection.find(
+                {"$text": {"$search": "hello"}}, {"score": {"$meta": "textScore"}}
+            )
+        )
 
     assert spy.call_count == 2
 
@@ -1724,20 +1642,7 @@ def test_reads_with_an_unhashable_value_bypass_instead_of_raising(
     collection.raw.create_index("tag", unique=True)
     collection.raw.insert_one(insert_doc)
 
-    with patch.object(
-        Cursor if patch_target == "find" else Collection,
-        "_send_message"
-        if patch_target == "find"
-        else "_aggregate"
-        if patch_target == "aggregate"
-        else patch_target,
-        autospec=True,
-        side_effect=Cursor._send_message
-        if patch_target == "find"
-        else Collection._aggregate
-        if patch_target == "aggregate"
-        else getattr(Collection, patch_target),
-    ) as spy:
+    with _spy_on_driver(patch_target) as spy:
         first = invoke(collection)
         second = invoke(collection)
 
@@ -1782,6 +1687,7 @@ def test_reads_with_an_unhashable_value_bypass_instead_of_raising(
         pytest.param([{"$collStats": {"count": {}}}], id="coll-stats"),
         pytest.param([{"$indexStats": {}}], id="index-stats"),
         pytest.param([{"$planCacheStats": {}}], id="plan-cache-stats"),
+        pytest.param([{"$project": {"now": "$$NOW"}}], id="now-variable"),
     ],
 )
 def test_aggregate_with_an_unsafe_pipeline_is_never_cached(
@@ -1793,9 +1699,7 @@ def test_aggregate_with_an_unsafe_pipeline_is_never_cached(
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
     collection.raw.insert_one({"_id": "a", "v": 1})
 
-    with patch.object(
-        Collection, "_aggregate", autospec=True, side_effect=Collection._aggregate
-    ) as spy:
+    with _spy_on_driver("aggregate") as spy:
         list(collection.aggregate(pipeline))
         list(collection.aggregate(pipeline))
 
@@ -1812,9 +1716,7 @@ def test_aggregate_with_an_out_stage_still_executes_its_write_but_is_not_cached(
     collection.raw.insert_one({"_id": "a", "v": 1})
     pipeline: list[BsonDict] = [{"$out": persistent_collection_name}]
 
-    with patch.object(
-        Collection, "_aggregate", autospec=True, side_effect=Collection._aggregate
-    ) as spy:
+    with _spy_on_driver("aggregate") as spy:
         list(collection.aggregate(pipeline))
         list(collection.aggregate(pipeline))
 

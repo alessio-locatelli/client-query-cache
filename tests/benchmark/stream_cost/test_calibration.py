@@ -35,7 +35,7 @@ from client_query_cache._types import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterator
 
     from pymongo.monitoring import (
         TopologyClosedEvent,
@@ -201,11 +201,12 @@ def test_sample_clock_offset_rejects_a_response_not_from_the_primary() -> None:
 
 
 @pytest.mark.parametrize(
-    "response",
+    ("response", "match"),
     [
         pytest.param(
             {"localTime": datetime(2024, 1, 1, tzinfo=UTC), "isWritablePrimary": True},
-            id="absent",
+            "missing electionId",
+            id="absent_election_id",
         ),
         pytest.param(
             {
@@ -213,22 +214,13 @@ def test_sample_clock_offset_rejects_a_response_not_from_the_primary() -> None:
                 "electionId": None,
                 "isWritablePrimary": True,
             },
-            id="null",
+            "missing electionId",
+            id="null_election_id",
         ),
-    ],
-)
-def test_sample_clock_offset_rejects_a_response_missing_election_id(
-    response: BsonDict,
-) -> None:
-    with pytest.raises(BenchmarkConfigurationError, match="missing electionId"):
-        sample_clock_offset(lambda: response, rounds=1)
-
-
-@pytest.mark.parametrize(
-    "response",
-    [
         pytest.param(
-            {"electionId": "a", "isWritablePrimary": True}, id="missing_local_time"
+            {"electionId": "a", "isWritablePrimary": True},
+            "localTime",
+            id="missing_local_time",
         ),
         pytest.param(
             {
@@ -236,14 +228,15 @@ def test_sample_clock_offset_rejects_a_response_missing_election_id(
                 "electionId": "a",
                 "isWritablePrimary": True,
             },
+            "localTime",
             id="malformed_local_time",
         ),
     ],
 )
-def test_sample_clock_offset_rejects_a_response_with_a_bad_local_time(
-    response: BsonDict,
+def test_sample_clock_offset_rejects_a_malformed_response(
+    response: BsonDict, match: str
 ) -> None:
-    with pytest.raises(BenchmarkConfigurationError, match="localTime"):
+    with pytest.raises(BenchmarkConfigurationError, match=match):
         sample_clock_offset(lambda: response, rounds=1)
 
 
@@ -676,16 +669,21 @@ def test_periodic_calibration_sampler_stop_without_start_returns_no_points() -> 
     assert sampler.stop() == ()
 
 
-def test_periodic_calibration_sampler_rejects_a_second_start() -> None:
+@pytest.fixture
+def started_sampler() -> Iterator[PeriodicCalibrationSampler]:
     sampler = PeriodicCalibrationSampler(
         _stub_send_hello, cadence_seconds=10.0, rounds=1
     )
     sampler.start()
-    try:
-        with pytest.raises(BenchmarkConfigurationError, match="already been started"):
-            sampler.start()
-    finally:
-        sampler.stop()
+    yield sampler
+    sampler.stop()
+
+
+def test_periodic_calibration_sampler_rejects_a_second_start(
+    started_sampler: PeriodicCalibrationSampler,
+) -> None:
+    with pytest.raises(BenchmarkConfigurationError, match="already been started"):
+        started_sampler.start()
 
 
 def test_periodic_calibration_sampler_sample_now_appends_a_point() -> None:

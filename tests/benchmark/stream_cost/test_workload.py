@@ -82,25 +82,22 @@ def test_operation_counts_rejects_negative_values(
         OperationCounts(reads=reads, writes=writes)
 
 
-def test_workload_variant_rejects_non_positive_document_count() -> None:
-    with pytest.raises(BenchmarkConfigurationError, match="document_count"):
+@pytest.mark.parametrize(
+    ("document_count", "warmup_reads", "match"),
+    [
+        pytest.param(0, 2, "document_count", id="non_positive_document_count"),
+        pytest.param(10, 1, r"warmup\.reads", id="warmup_cannot_prime_a_hit"),
+    ],
+)
+def test_workload_variant_rejects_invalid_sizes(
+    document_count: NonNegativeInt, warmup_reads: NonNegativeInt, match: str
+) -> None:
+    with pytest.raises(BenchmarkConfigurationError, match=match):
         WorkloadVariant(
             kind=WorkloadKind.IDLE,
             data_size=SMALL_DOCUMENT_PROFILE,
-            document_count=0,
-            warmup=OperationCounts(reads=2, writes=0),
-            sampling=OperationCounts(reads=0, writes=0),
-            seed=1,
-        )
-
-
-def test_workload_variant_rejects_a_warmup_that_cannot_prime_a_hit() -> None:
-    with pytest.raises(BenchmarkConfigurationError, match=r"warmup\.reads"):
-        WorkloadVariant(
-            kind=WorkloadKind.IDLE,
-            data_size=SMALL_DOCUMENT_PROFILE,
-            document_count=10,
-            warmup=OperationCounts(reads=1, writes=0),
+            document_count=document_count,
+            warmup=OperationCounts(reads=warmup_reads, writes=0),
             sampling=OperationCounts(reads=0, writes=0),
             seed=1,
         )

@@ -21,7 +21,8 @@ from tests.benchmark.real_server.workers import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterator
+    from multiprocessing.synchronize import Event as EventClass
 
     from faker import Faker
 
@@ -50,11 +51,12 @@ def test_preflight_ping_succeeds_against_a_reachable_deployment(
     preflight_ping(mongodb_uri)
 
 
-def test_writer_seeds_and_repeatedly_updates_documents(
+@pytest.fixture
+def writer_stop_event(
     mongodb_uri: MongoDbUri,
     seed_documents: list[BsonDict],
     document_ids: list[str],
-) -> None:
+) -> Iterator[EventClass]:
     stop_event = multiprocessing.Event()
     ready_event = multiprocessing.Event()
     writer = threading.Thread(
@@ -68,18 +70,26 @@ def test_writer_seeds_and_repeatedly_updates_documents(
         },
     )
     writer.start()
-    try:
-        with MongoClient[CounterDocument](mongodb_uri) as client:
-            collection = client[DATABASE_NAME][COLLECTION_NAME]
+    yield stop_event
+    stop_event.set()
+    writer.join()
 
-            def _has_been_updated() -> bool:
-                document = collection.find_one({"_id": document_ids[0]})
-                return document is not None and _counter_or_default(document) >= 0
 
-            assert any(_has_been_updated() or stop_event.wait(0.05) for _ in range(100))
-    finally:
-        stop_event.set()
-        writer.join()
+def test_writer_seeds_and_repeatedly_updates_documents(
+    mongodb_uri: MongoDbUri,
+    document_ids: list[str],
+    writer_stop_event: EventClass,
+) -> None:
+    with MongoClient[CounterDocument](mongodb_uri) as client:
+        collection = client[DATABASE_NAME][COLLECTION_NAME]
+
+        def _has_been_updated() -> bool:
+            document = collection.find_one({"_id": document_ids[0]})
+            return document is not None and _counter_or_default(document) >= 0
+
+        assert any(
+            _has_been_updated() or writer_stop_event.wait(0.05) for _ in range(100)
+        )
 
 
 _MEASURED_CYCLES = 3

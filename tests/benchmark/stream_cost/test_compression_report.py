@@ -168,47 +168,81 @@ def _full_report() -> JsonDict:
     )
 
 
-def _first_sample(
-    samples: list[object], predicate: Callable[[JsonDict], bool]
-) -> JsonDict:
-    for sample in samples:
+@pytest.fixture
+def report() -> JsonDict:
+    return _full_report()
+
+
+def _entries(report: JsonDict, section: str) -> list[object]:
+    entries = report[section]
+    assert isinstance(entries, list)
+    return entries
+
+
+def _first_sample(report: JsonDict, predicate: Callable[[JsonDict], bool]) -> JsonDict:
+    for sample in _entries(report, "samples"):
         assert isinstance(sample, dict)
         if predicate(sample):
             return sample
     pytest.fail("no matching sample")  # pragma: no cover - always matches
 
 
-def test_a_complete_four_mode_matrix_report_is_accepted() -> None:
-    validate_compression_report(_full_report())
+def test_a_complete_four_mode_matrix_report_is_accepted(report: JsonDict) -> None:
+    validate_compression_report(report)
 
 
-def test_report_rejects_a_missing_sample() -> None:
-    report = copy.deepcopy(_full_report())
-    samples = report["samples"]
-    assert isinstance(samples, list)
-    assert samples
-    samples.pop()
-    with pytest.raises(ReportValidationError, match="missing sample"):
+@pytest.mark.parametrize(
+    ("section", "match"),
+    [
+        pytest.param("samples", "missing sample", id="sample"),
+        pytest.param("negotiations", "negotiation", id="negotiation"),
+        pytest.param(
+            "stream_minus_control",
+            "missing stream-minus-control",
+            id="stream_minus_control",
+        ),
+    ],
+)
+def test_report_rejects_a_missing_entry(
+    report: JsonDict, section: str, match: str
+) -> None:
+    _entries(report, section).pop()
+    with pytest.raises(ReportValidationError, match=match):
         validate_compression_report(report)
 
 
-def test_report_rejects_fewer_writes_than_scheduled() -> None:
-    report = copy.deepcopy(_full_report())
-    samples = report["samples"]
-    assert isinstance(samples, list)
-    assert samples
-    sample = _first_sample(samples, lambda item: item["writes_issued"] == 2)
-    sample["writes_issued"] = 1
+@pytest.mark.parametrize(
+    ("section", "match"),
+    [
+        pytest.param("samples", "duplicate sample", id="sample"),
+        pytest.param(
+            "stream_minus_control",
+            "duplicate stream-minus-control",
+            id="stream_minus_control",
+        ),
+    ],
+)
+def test_report_rejects_a_duplicate_entry(
+    report: JsonDict, section: str, match: str
+) -> None:
+    entries = _entries(report, section)
+    entries.append(copy.deepcopy(entries[0]))
+    with pytest.raises(ReportValidationError, match=match):
+        validate_compression_report(report)
+
+
+@pytest.mark.parametrize("field", ["writes_issued", "reads_issued"])
+def test_report_rejects_fewer_operations_than_scheduled(
+    report: JsonDict, field: str
+) -> None:
+    sample = _first_sample(report, lambda item: item[field] == 2)
+    sample[field] = 1
     with pytest.raises(ReportValidationError, match="expected"):
         validate_compression_report(report)
 
 
-def test_report_rejects_idle_samples_with_latency_data() -> None:
-    report = copy.deepcopy(_full_report())
-    samples = report["samples"]
-    assert isinstance(samples, list)
-    assert samples
-    idle_sample = _first_sample(samples, lambda item: item["window_kind"] == "idle")
+def test_report_rejects_idle_samples_with_latency_data(report: JsonDict) -> None:
+    idle_sample = _first_sample(report, lambda item: item["window_kind"] == "idle")
     idle_sample["read_latency"] = {
         "operation_count": 1,
         "no_latency_samples": False,
@@ -227,124 +261,60 @@ def test_report_rejects_idle_samples_with_latency_data() -> None:
         validate_compression_report(report)
 
 
-def test_report_rejects_a_missing_negotiation() -> None:
-    report = copy.deepcopy(_full_report())
-    negotiations = report["negotiations"]
-    assert isinstance(negotiations, list)
-    assert negotiations
-    negotiations.pop()
-    with pytest.raises(ReportValidationError, match="negotiation"):
-        validate_compression_report(report)
-
-
-def test_report_rejects_a_duplicate_sample() -> None:
-    report = copy.deepcopy(_full_report())
-    samples = report["samples"]
-    assert isinstance(samples, list)
-    assert samples
-    samples.append(copy.deepcopy(samples[0]))
-    with pytest.raises(ReportValidationError, match="duplicate sample"):
-        validate_compression_report(report)
-
-
-def test_report_rejects_fewer_reads_than_scheduled() -> None:
-    report = copy.deepcopy(_full_report())
-    samples = report["samples"]
-    assert isinstance(samples, list)
-    assert samples
-    sample = _first_sample(samples, lambda item: item["reads_issued"] == 2)
-    sample["reads_issued"] = 1
-    with pytest.raises(ReportValidationError, match="expected"):
-        validate_compression_report(report)
-
-
-def test_report_rejects_a_sample_referencing_an_undeclared_window() -> None:
-    report = copy.deepcopy(_full_report())
-    samples = report["samples"]
-    assert isinstance(samples, list)
-    assert samples
-    first_sample = samples[0]
+@pytest.mark.parametrize(
+    ("field", "value", "match"),
+    [
+        pytest.param(
+            "window", "unknown_window", "undeclared window", id="undeclared_window"
+        ),
+        pytest.param(
+            "wall_seconds",
+            float("nan"),
+            "not JSON-serializable",
+            id="non_finite_number",
+        ),
+        pytest.param(
+            "wall_seconds", {1}, "not JSON-serializable", id="non_serializable_type"
+        ),
+    ],
+)
+def test_report_rejects_an_invalid_first_sample_value(
+    report: JsonDict, field: str, value: object, match: str
+) -> None:
+    first_sample = _entries(report, "samples")[0]
     assert isinstance(first_sample, dict)
-    first_sample["window"] = "unknown_window"
-    with pytest.raises(ReportValidationError, match="undeclared window"):
-        validate_compression_report(report)
-
-
-def test_report_rejects_a_no_stream_sample_with_invalidation_latency_data() -> None:
-    report = copy.deepcopy(_full_report())
-    samples = report["samples"]
-    assert isinstance(samples, list)
-    assert samples
-    sample = _first_sample(
-        samples,
-        lambda item: item["path"] == "no_stream" and item["window_kind"] != "idle",
-    )
-    sample["invalidation_latency"] = {
-        "sample_count": 1,
-        "no_latency_samples": False,
-        "p50_seconds": 0.01,
-        "p95_seconds": 0.01,
-        "p99_seconds": 0.01,
-    }
-    with pytest.raises(ReportValidationError, match="invalidation_latency"):
-        validate_compression_report(report)
-
-
-def test_report_rejects_a_duplicate_stream_minus_control_entry() -> None:
-    report = copy.deepcopy(_full_report())
-    stream_minus_control = report["stream_minus_control"]
-    assert isinstance(stream_minus_control, list)
-    assert stream_minus_control
-    stream_minus_control.append(copy.deepcopy(stream_minus_control[0]))
-    with pytest.raises(ReportValidationError, match="duplicate stream-minus-control"):
-        validate_compression_report(report)
-
-
-def test_report_rejects_a_missing_stream_minus_control_entry() -> None:
-    report = copy.deepcopy(_full_report())
-    stream_minus_control = report["stream_minus_control"]
-    assert isinstance(stream_minus_control, list)
-    assert stream_minus_control
-    stream_minus_control.pop()
-    with pytest.raises(ReportValidationError, match="missing stream-minus-control"):
+    first_sample[field] = value
+    with pytest.raises(ReportValidationError, match=match):
         validate_compression_report(report)
 
 
 @pytest.mark.parametrize(
-    "value",
+    ("path", "invalidation_latency"),
     [
-        pytest.param(float("nan"), id="non_finite_number"),
-        pytest.param({1}, id="non_serializable_type"),
+        pytest.param(
+            "no_stream",
+            {
+                "sample_count": 1,
+                "no_latency_samples": False,
+                "p50_seconds": 0.01,
+                "p95_seconds": 0.01,
+                "p99_seconds": 0.01,
+            },
+            id="no_stream_with_data",
+        ),
+        pytest.param(
+            "stream_watching",
+            {"sample_count": 0, "no_latency_samples": True},
+            id="stream_watching_without_data",
+        ),
     ],
 )
-def test_report_rejects_a_report_containing_a_non_json_serializable_value(
-    value: object,
+def test_report_rejects_inconsistent_invalidation_latency(
+    report: JsonDict, path: str, invalidation_latency: JsonDict
 ) -> None:
-    report = copy.deepcopy(_full_report())
-    samples = report["samples"]
-    assert isinstance(samples, list)
-    assert samples
-    first_sample = samples[0]
-    assert isinstance(first_sample, dict)
-    first_sample["wall_seconds"] = value
-    with pytest.raises(ReportValidationError, match="not JSON-serializable"):
-        validate_compression_report(report)
-
-
-def test_report_rejects_a_stream_watching_sample_missing_invalidation_latency() -> None:
-    report = copy.deepcopy(_full_report())
-    samples = report["samples"]
-    assert isinstance(samples, list)
-    assert samples
     sample = _first_sample(
-        samples,
-        lambda item: (
-            item["path"] == "stream_watching" and item["window_kind"] != "idle"
-        ),
+        report, lambda item: item["path"] == path and item["window_kind"] != "idle"
     )
-    sample["invalidation_latency"] = {
-        "sample_count": 0,
-        "no_latency_samples": True,
-    }
+    sample["invalidation_latency"] = invalidation_latency
     with pytest.raises(ReportValidationError, match="invalidation_latency"):
         validate_compression_report(report)
