@@ -71,11 +71,11 @@ Reports SHALL show hit, miss and bypass recordings as counts per window, with by
 
 ### Requirement: Reports verify change-stream ownership
 
-Reports SHALL count change-stream openings from observed commands. Each window SHALL have one stream per worker on the cached path and none on the direct path.
+Reports SHALL count change-stream openings from observed commands. Each steady-state window SHALL have one stream per worker on the cached path and none on the direct path.
 
 #### Scenario: A worker opens an unexpected stream
 
-- **WHEN** observed stream openings differ from the registered count
+- **WHEN** a steady-state window's observed stream openings differ from the registered count
 - **THEN** the window is reported as unhealthy and excluded from comparison
 
 ### Requirement: Invalidation lag is labelled with its clocks

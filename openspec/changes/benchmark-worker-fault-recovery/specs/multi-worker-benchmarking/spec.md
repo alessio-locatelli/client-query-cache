@@ -88,6 +88,38 @@ After each recovered trial, every cached worker SHALL process the invalidation f
 - **WHEN** a cached worker returns an older revision of a probe key after it has processed that key's post-recovery invalidation
 - **THEN** the trial fails as incorrect, and the report retains the failure
 
+### Requirement: Fault trials separate induced failures from setup failures
+
+A trial SHALL be a failed setup when, before injection, it observes a failed command, an election, clock drift or a host clock step. It SHALL also be a failed setup when, after injection, it observes clock drift, a host clock step, an election outside the stepdown case, or a command error outside the case's registered error classes. Induced command errors and the stepdown election SHALL be recorded as fault evidence.
+
+#### Scenario: Reads fail with network errors after a connection loss
+
+- **WHEN** reads fail with network errors after a `connection-loss` injection
+- **THEN** the trial records the failures by command and error class as evidence, instead of rejecting the window
+
+#### Scenario: An election occurs during a connection-loss trial
+
+- **WHEN** a primary election is observed in a case other than stepdown
+- **THEN** the trial is recorded as a failed setup
+
+### Requirement: Fault trials record harness write outcomes
+
+Each harness write in a fault trial SHALL be recorded as acknowledged, failed with its error class, or of unknown outcome when it fails after it may have reached the server. Expected invalidations SHALL be bounded by acknowledged writes below and by acknowledged plus unknown-outcome writes above. A failed write SHALL NOT, by itself, make a trial a failed setup.
+
+#### Scenario: A write fails during failover
+
+- **WHEN** a harness write fails with an election error during a stepdown trial
+- **THEN** the trial records the write's outcome and excludes it from the lower bound on expected invalidations
+
+### Requirement: Fault windows verify initial stream ownership
+
+Before injection, every fault window SHALL observe exactly one stream opening for each cached worker and none for direct workers. After injection, the report SHALL show stream reopenings as recovery evidence and SHALL NOT reject a trial for them.
+
+#### Scenario: Streams reopen after history loss
+
+- **WHEN** cached workers reopen their streams after a `history-loss` injection
+- **THEN** the trial keeps the reopenings as evidence, having verified one initial opening per cached worker
+
 ### Requirement: Multi-member topology is declared and observed
 
 Failover trials SHALL use a replica set with at least three members, each with declared CPU and memory limits. Each trial SHALL record the primary's identity before and after the fault.

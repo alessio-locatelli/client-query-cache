@@ -80,6 +80,31 @@ A trial is valid only when completed, failed, interrupted and undelivered reques
 
 The alternative is to drain the worker before stopping it. That would measure a graceful restart, not a crash, so it is rejected. Shortening the chunk cadence bounds the unknown outcomes more tightly but costs pipe traffic. The chunk cadence follows the snapshot cadence, and both are subject to the observer-overhead check in [Timelines and sampling](#timelines-and-sampling). Task 2.1's tests verify the classification.
 
+### Fault-aware window validation
+
+Steady-state windows reject any failed wire command (`reject_failed_commands`) and any election, clock drift or host clock step (`_check_clock`), and they turn a failed harness write into `BenchmarkSetupError`. Fault windows keep these checks before injection. After injection, they apply them as follows:
+
+| Check                          | After injection                                                                                                                            |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Failed wire commands           | Errors in the case's registered classes become evidence, counted by command name and class. Any other class makes the trial a failed setup |
+| Election                       | Evidence only in `stepdown`; anywhere else it is a failed setup                                                                            |
+| Clock drift or host clock step | Always a failed setup, because lag and latency rely on the host clock                                                                      |
+| Harness writes                 | Recorded per write as acknowledged, failed (error class) or unknown outcome. They never raise a setup error by themselves                  |
+| Write dispatch lateness        | Still enforced, because it measures the harness, not the fault                                                                             |
+
+The registration lists each case's error classes:
+
+- `connection-loss`, `history-loss` and `worker-restart`: network errors, plus `CursorNotFound` for streams;
+- `stepdown`: network errors plus `NotWritablePrimary`, `InterruptedDueToReplStateChange` and `PrimarySteppedDown`.
+
+Classes are taken from PyMongo's error labels and server codes, so a misconfiguration such as an authentication error stays detectable.
+
+PyMongo retries a retryable write once. A write that still fails with a network error may already have been applied, so its outcome is unknown. The drain therefore waits until each cached worker has processed at least the acknowledged writes. The report gives the number of unknown-outcome writes.
+
+In the stepdown case, the clock offset is recalibrated against the new primary after the election, using the same `hello` sampler. Lag is reported only for writes committed by one primary, so that no lag sample mixes two server clocks.
+
+The alternative of turning off these checks for fault windows was rejected, because it would hide unrelated failures (authentication, a crashed member, host clock steps) inside the fault evidence. Task 2.2's tests cover each row.
+
 ### Three-member topology
 
 Add a `ReplicaSetTopology` that starts three `mongo:8.0.4-noble` members with `network_mode="host"` on three distinct loopback ports. Each member gets 1 CPU and 1 GiB. Members advertise `127.0.0.1:<port>`, which resolves the same way inside the containers and in the Toolbx harness, so clients can use replica-set discovery without `directConnection`. Byte proxies are not used on this topology, and the stepdown case reports no MongoDB wire bytes.
