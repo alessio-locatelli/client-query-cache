@@ -26,6 +26,7 @@
     "Document/array values, operators, regexes, BSON-specific values, and custom forms retain ordered cache matching and existing eligibility; native misses receive the original filter.",
     "A started hit cursor keeps one isolated snapshot through later invalidation or manager closure. Hits skip server query execution and cannot reproduce fresh server errors or query effects; use .raw when execution itself matters.",
     "Invalidation is asynchronous. For read-after-write, authorization, or other freshness-critical reads, use direct PyMongo reads with appropriate sessions and read/write concerns.",
+    "Eligible cache misses read from the primary at majority read concern even when unspecified; uncached reads use the deployment default, normally local. Secondary or non-majority read profiles bypass caching. Hits still depend on asynchronous invalidation.",
     "Let cache-ineligible reads bypass to PyMongo. Cursor-only requests and $changeStream pipelines execute natively without caching.",
     "Explicit find batching and aggregate batchSize at invocation bypass caching; later command-cursor batch_size() preserves the selected execution and has no remote effect on a local hit.",
     "Reuse one long-lived CacheManager per MongoClient or AsyncMongoClient per process. Each manager has independent cached data, a stored-BSON budget, and change-stream progress.",

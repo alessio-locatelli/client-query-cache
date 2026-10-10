@@ -33,4 +33,4 @@ Keep the PyMongo `collection` for writes and administration. The cached view exp
 
 The context managers close the cache manager before the client. A manager never closes your client, and closing only the client leaves the manager's background task running. Reuse a long-lived manager across application requests; see [deployment](../operations/deployment.md#capacity-estimation).
 
-A cached read after a write can still see an earlier value until invalidation arrives. Use a direct PyMongo read where freshness is required, with the appropriate session and concerns; see [consistency](../usage/consistency.md).
+A cached read after a write can still see an earlier value until invalidation arrives. Use a direct PyMongo read where freshness is required, with the appropriate session and concerns; see [consistency](../usage/consistency.md). Eligible cache misses read from the primary with `majority` read concern even though this program leaves read concern unspecified, so they can differ from a direct read that uses the deployment's default, normally `local`; see [bypass conditions](../reference/api.md#bypass-conditions).

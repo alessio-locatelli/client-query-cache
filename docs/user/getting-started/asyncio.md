@@ -40,4 +40,4 @@ Use the PyMongo collection for writes. `find()` returns an async cursor immediat
 
 The `async with` block closes the manager before the client. Outside a context manager, call `await cache_manager.close()` before `await client.close()`. The manager owns its background streams and cached data, and you own the client. Keep both alive across application requests; see [deployment](../operations/deployment.md).
 
-Awaiting a cached read does not wait for a preceding write's invalidation. Use a direct PyMongo read with suitable session and concerns for freshness requirements; see [consistency](../usage/consistency.md).
+Awaiting a cached read does not wait for a preceding write's invalidation. Use a direct PyMongo read with suitable session and concerns for freshness requirements; see [consistency](../usage/consistency.md). Eligible cache misses read from the primary with `majority` read concern even though this program leaves read concern unspecified, so they can differ from a direct read that uses the deployment's default, normally `local`; see [bypass conditions](../reference/api.md#bypass-conditions).
