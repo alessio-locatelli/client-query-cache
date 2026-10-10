@@ -382,6 +382,11 @@ def main(argv: list[str] | None = None) -> None:
     )
     mode.add_argument("--phase", choices=_PHASES)
     parser.add_argument("--baselines-only", action="store_true")
+    parser.add_argument(
+        "--only",
+        metavar="MODEL:WORKERS",
+        help="Exploratory rerun of one model and worker count; not decision evidence.",
+    )
     reuse = parser.add_mutually_exclusive_group()
     reuse.add_argument(
         "--resume", type=Path, help="Reuse completed windows from an earlier report."
@@ -434,11 +439,18 @@ def main(argv: list[str] | None = None) -> None:
             recorder.flush()
             return
         paths = BASELINES if arguments.baselines_only else None
-        recorder.run(
-            replica,
-            registration,
-            planned(registration, phase, paths or ("direct", "independent", "shared")),
+        cells = planned(
+            registration, phase, paths or ("direct", "independent", "shared")
         )
+        if arguments.only is not None:
+            model, workers = arguments.only.split(":")
+            recorder.report["exploratory"] = f"cells limited to {arguments.only}"
+            cells = tuple(
+                cell
+                for cell in cells
+                if cell.model == model and cell.workers == int(workers)
+            )
+        recorder.run(replica, registration, cells)
 
 
 if __name__ == "__main__":

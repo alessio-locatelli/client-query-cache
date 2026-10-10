@@ -368,3 +368,20 @@ def test_async_requests_survive_owner_pauses_and_loss(
     assert lost is None
     assert retried is None
     assert cast("int", failures) >= 1
+
+
+def test_connections_of_finished_threads_are_released(
+    start_owner: Callable[..., Owner],
+) -> None:
+    owner = start_owner(connections=4)
+    endpoint = SyncEndpoint(owner.attachment())
+
+    for _ in range(6):
+        worker = threading.Thread(target=endpoint.request, args=({"op": "observe"},))
+        worker.start()
+        worker.join()
+
+    wait_for(lambda: owner.observation()["connections"] == 1)
+    assert endpoint.counters.connects == 7
+    assert endpoint.counters.failures == 0
+    endpoint.close()

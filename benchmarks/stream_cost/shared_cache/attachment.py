@@ -18,6 +18,8 @@ from benchmarks.stream_cost.shared_cache.wire import (
 from client_query_cache._types import NonNegativeFloat, NonNegativeInt, PositiveFloat
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from client_query_cache._types import MaxAwaitTimeMs, PositiveInt
 
 type Message = dict[str, object]
@@ -107,6 +109,19 @@ class _SyncConnection:
             self.inbox += chunk
 
 
+class _Lease:
+    __slots__ = ("connection", "release")
+
+    def __init__(
+        self, connection: _SyncConnection, release: Callable[[_SyncConnection], None]
+    ) -> None:
+        self.connection = connection
+        self.release = release
+
+    def __del__(self) -> None:
+        self.release(self.connection)
+
+
 class SyncEndpoint:
     __slots__ = (
         "_closed",
@@ -125,7 +140,7 @@ class SyncEndpoint:
         self._pid = os.getpid()
         self._local = threading.local()
         self._lock = threading.Lock()
-        self._connections: list[_SyncConnection] = []
+        self._connections: set[_SyncConnection] = set()
         self._retry_after = 0.0
         self._closed = False
         self.counters = EndpointCounters()
@@ -156,10 +171,22 @@ class SyncEndpoint:
             raise
         self.counters.connects += 1
         self.incarnation = reply["incarnation"]
-        self._local.connection = connection
         with self._lock:
-            self._connections.append(connection)
+            self._connections.add(connection)
+        self._local.lease = _Lease(connection, self._release)
         return connection
+
+    def _release(self, connection: _SyncConnection) -> None:
+        connection.sock.close()
+        with self._lock:
+            self._connections.discard(connection)
+
+    def _leased(self) -> _SyncConnection | None:
+        try:
+            lease: _Lease | None = self._local.lease
+        except AttributeError:
+            return None
+        return None if lease is None else lease.connection
 
     def _handshake(
         self, connection: _SyncConnection, deadline: NonNegativeFloat
@@ -172,22 +199,16 @@ class SyncEndpoint:
         return connection.receive(deadline, self.config.frame_limit, self.counters)
 
     def _current(self, deadline: NonNegativeFloat) -> _SyncConnection | None:
-        try:
-            connection: _SyncConnection | None = self._local.connection
-        except AttributeError:
-            connection = None
+        connection = self._leased()
         if connection is not None:
             return connection
         if self._closed or time.monotonic() < self._retry_after:
             return None
         return self._connect(deadline)
 
-    def _drop(self, connection: _SyncConnection) -> None:
-        self._local.connection = None
+    def _drop(self) -> None:
+        self._local.lease = None
         self._retry_after = time.monotonic() + _RETRY_SECONDS
-        connection.sock.close()
-        with self._lock:
-            self._connections.remove(connection)
 
     def request(self, message: Message) -> Message | None:
         self._check_owner()
@@ -209,15 +230,12 @@ class SyncEndpoint:
             self.counters.timeouts += 1
         except OSError:
             self.counters.failures += 1
-        self._drop(connection)
+        self._drop()
         return None
 
     def send(self, message: Message) -> None:
         self._check_owner()
-        try:
-            connection: _SyncConnection | None = self._local.connection
-        except AttributeError:
-            connection = None
+        connection = self._leased()
         if connection is None:
             self.counters.dropped_one_way += 1
             return
@@ -229,7 +247,7 @@ class SyncEndpoint:
             connection.sock.sendall(frame)
         except OSError:
             self.counters.dropped_one_way += 1
-            self._drop(connection)
+            self._drop()
             return
         self.counters.one_way += 1
         self.counters.bytes_sent += len(frame)
