@@ -15,6 +15,7 @@ from benchmarks.stream_cost.shared_cache import diagnostics, run, window
 from benchmarks.stream_cost.shared_cache.dataset import seed_catalogue
 from benchmarks.stream_cost.shared_cache.protocol import Registration, smoke_cells
 from benchmarks.stream_cost.topology import IsolatedReplicaSet, ResourceLimits
+from client_query_cache._types import BsonDict
 
 if TYPE_CHECKING:
     from collections.abc import Generator, Iterator
@@ -117,9 +118,7 @@ def test_smoke_windows_identify_every_owner(
     assert _no_children()
 
 
-def _delete_first_document(
-    client: MongoClient[dict[str, object]], **kwargs: object
-) -> object:
+def _delete_first_document(client: MongoClient[BsonDict], **kwargs: object) -> object:
     summary = _ORIGINAL_SEED(client, **kwargs)  # type: ignore[arg-type]
     database = cast("str", kwargs["database"])
     client[database][cast("str", kwargs["collection"])].delete_one({"_id": 0})

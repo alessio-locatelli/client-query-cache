@@ -3,7 +3,6 @@ from __future__ import annotations
 import copy
 import datetime
 from dataclasses import replace
-from typing import Any, cast
 
 import pytest
 
@@ -27,7 +26,7 @@ from benchmarks.stream_cost.workload import (
     PrimingDelta,
     WorkloadVariantOutcome,
 )
-from client_query_cache._types import NonNegativeInt
+from client_query_cache._types import JsonDict, NonNegativeInt
 
 pytestmark = pytest.mark.unit
 
@@ -53,7 +52,7 @@ def _valid_config() -> BenchmarkConfig:
     )
 
 
-def _valid_report() -> dict[str, Any]:
+def _valid_report() -> JsonDict:
     variant = STANDARD_WORKLOAD_VARIANTS[0]
     outcome = WorkloadVariantOutcome(
         variant=variant,
@@ -69,7 +68,31 @@ def _valid_report() -> dict[str, Any]:
     )
 
 
-def _logical_metrics() -> dict[str, object]:
+def _member(report: JsonDict, *path: str | NonNegativeInt) -> object:
+    node: object = report
+    for key in path:
+        if isinstance(key, str):
+            assert isinstance(node, dict)
+            node = node[key]
+        else:
+            assert isinstance(node, list)
+            node = node[key]
+    return node
+
+
+def _object(report: JsonDict, *path: str | NonNegativeInt) -> JsonDict:
+    node = _member(report, *path)
+    assert isinstance(node, dict)
+    return node
+
+
+def _array(report: JsonDict, *path: str | NonNegativeInt) -> list[object]:
+    node = _member(report, *path)
+    assert isinstance(node, list)
+    return node
+
+
+def _logical_metrics() -> JsonDict:
     return {
         "cache": {
             "hits": 1,
@@ -141,7 +164,7 @@ def test_validate_report_rejects_an_incomplete_section(
     section: str, missing_field: str
 ) -> None:
     report = _valid_report()
-    del report[section][missing_field]
+    del _object(report, section)[missing_field]
 
     with pytest.raises(ReportValidationError):
         validate_report(report)
@@ -149,7 +172,7 @@ def test_validate_report_rejects_an_incomplete_section(
 
 def test_validate_report_rejects_a_non_string_resource_limit_value() -> None:
     report = _valid_report()
-    report["environment"]["resource_limits"]["cpu"] = []
+    _object(report, "environment", "resource_limits")["cpu"] = []
 
     with pytest.raises(ReportValidationError):
         validate_report(report)
@@ -157,7 +180,7 @@ def test_validate_report_rejects_a_non_string_resource_limit_value() -> None:
 
 def test_validate_report_rejects_a_non_scalar_workload_parameter_value() -> None:
     report = _valid_report()
-    report["workload"]["parameters"]["nested"] = {"a": 1}
+    _object(report, "workload", "parameters")["nested"] = {"a": 1}
 
     with pytest.raises(ReportValidationError):
         validate_report(report)
@@ -166,8 +189,8 @@ def test_validate_report_rejects_a_non_scalar_workload_parameter_value() -> None
 @pytest.mark.parametrize("missing_field", ["label", "description"])
 def test_validate_report_rejects_incomplete_limitations(missing_field: str) -> None:
     report = _valid_report()
-    report["limitations"] = [copy.deepcopy(report["limitations"][0])]
-    del report["limitations"][0][missing_field]
+    report["limitations"] = [copy.deepcopy(_object(report, "limitations", 0))]
+    del _object(report, "limitations", 0)[missing_field]
 
     with pytest.raises(ReportValidationError):
         validate_report(report)
@@ -204,7 +227,7 @@ def test_validate_report_rejects_a_non_json_serializable_value(
     key: str, value: object
 ) -> None:
     report = _valid_report()
-    report["workload"]["parameters"][key] = value
+    _object(report, "workload", "parameters")[key] = value
 
     with pytest.raises(ReportValidationError, match="JSON-serializable"):
         validate_report(report)
@@ -212,7 +235,7 @@ def test_validate_report_rejects_a_non_json_serializable_value(
 
 def test_validate_report_rejects_a_circular_reference() -> None:
     report = _valid_report()
-    report["workload"]["parameters"]["self"] = report
+    _object(report, "workload", "parameters")["self"] = report
 
     with pytest.raises(ReportValidationError, match="JSON-serializable"):
         validate_report(report)
@@ -223,7 +246,7 @@ def test_validate_report_rejects_a_circular_reference() -> None:
 )
 def test_validate_report_requires_each_controlled_measurement(field: str) -> None:
     report = _valid_report()
-    del report["measurement"][field]
+    del _object(report, "measurement")[field]
 
     with pytest.raises(ReportValidationError):
         validate_report(report)
@@ -231,7 +254,7 @@ def test_validate_report_requires_each_controlled_measurement(field: str) -> Non
 
 def test_validate_report_rejects_idle_latency_samples() -> None:
     report = _valid_report()
-    report["measurement"]["variants"][0]["by_outcome"] = [
+    _object(report, "measurement", "variants", 0)["by_outcome"] = [
         {
             "operation": "read",
             "outcome": "raw",
@@ -251,8 +274,8 @@ def test_validate_report_rejects_missing_operation_latency_samples(
     variant_index: NonNegativeInt,
 ) -> None:
     report = _valid_report()
-    report["workload"]["parameters"]["sample_reads"] = 1
-    report["measurement"]["variants"][1 - variant_index] = {
+    _object(report, "workload", "parameters")["sample_reads"] = 1
+    _array(report, "measurement", "variants")[1 - variant_index] = {
         "name": "cache" if variant_index == 0 else "raw",
         "operation_count": 1,
         "no_latency_samples": False,
@@ -274,8 +297,9 @@ def test_validate_report_rejects_missing_operation_latency_samples(
 
 def test_validate_report_rejects_distribution_count_mismatch() -> None:
     report = _valid_report()
-    report["workload"]["parameters"]["sample_reads"] = 2
-    for variant in report["measurement"]["variants"]:
+    _object(report, "workload", "parameters")["sample_reads"] = 2
+    for variant in _array(report, "measurement", "variants"):
+        assert isinstance(variant, dict)
         variant["operation_count"] = 2
         variant["no_latency_samples"] = False
         variant["by_outcome"] = [
@@ -298,7 +322,7 @@ def test_validate_report_rejects_non_integer_sample_count(
     invalid_count: object,
 ) -> None:
     report = _valid_report()
-    report["workload"]["parameters"]["sample_reads"] = invalid_count
+    _object(report, "workload", "parameters")["sample_reads"] = invalid_count
 
     with pytest.raises(ReportValidationError):
         validate_report(report)
@@ -306,7 +330,7 @@ def test_validate_report_rejects_non_integer_sample_count(
 
 def test_validate_report_rejects_universal_wire_byte_label() -> None:
     report = _valid_report()
-    report["measurement"]["logical_metrics"]["cache"]["wire_bytes"] = 10
+    _object(report, "measurement", "logical_metrics", "cache")["wire_bytes"] = 10
 
     with pytest.raises(ReportValidationError):
         validate_report(report)
@@ -314,7 +338,7 @@ def test_validate_report_rejects_universal_wire_byte_label() -> None:
 
 def test_validate_report_rejects_proxy_bytes_without_direct_path_scope() -> None:
     report = _valid_report()
-    report["measurement"]["direct_path_bytes"] = {
+    _object(report, "measurement")["direct_path_bytes"] = {
         "sent": 10,
         "received": 10,
         "scope": "all wire traffic",
@@ -325,7 +349,9 @@ def test_validate_report_rejects_proxy_bytes_without_direct_path_scope() -> None
 
 
 def test_build_report_omits_change_stream_cost_comparison_by_default() -> None:
-    assert "change_stream_cost_comparison" not in _valid_report()["measurement"]
+    assert "change_stream_cost_comparison" not in _object(
+        _valid_report(), "measurement"
+    )
 
 
 @pytest.mark.parametrize(
@@ -372,7 +398,7 @@ def test_build_report_omits_change_stream_cost_comparison_by_default() -> None:
 def test_build_report_change_stream_cost_comparison_direct_path_bytes(
     raw_measurement: ControlledMeasurement,
     cache_measurement: ControlledMeasurement,
-    expected_direct_path_bytes: dict[str, object],
+    expected_direct_path_bytes: JsonDict,
 ) -> None:
     variant = STANDARD_WORKLOAD_VARIANTS[0]
     outcome = WorkloadVariantOutcome(
@@ -381,21 +407,18 @@ def test_build_report_change_stream_cost_comparison_direct_path_bytes(
         writes_issued=0,
         warmup_delta=PrimingDelta(admissions=1, hits=1),
     )
-    report = cast(
-        "dict[str, Any]",
-        build_report(
-            _valid_config(),
-            ControlledMeasurement(1.0, 0.1, 0.2, None, None),
-            outcome,
-            _logical_metrics(),
-            change_stream_cost=ChangeStreamCostComparison(
-                raw=raw_measurement, cache=cache_measurement
-            ),
+    report = build_report(
+        _valid_config(),
+        ControlledMeasurement(1.0, 0.1, 0.2, None, None),
+        outcome,
+        _logical_metrics(),
+        change_stream_cost=ChangeStreamCostComparison(
+            raw=raw_measurement, cache=cache_measurement
         ),
     )
 
     validate_report(report)
-    comparison = report["measurement"]["change_stream_cost_comparison"]
+    comparison = _object(report, "measurement")["change_stream_cost_comparison"]
     delta_seconds = (
         cache_measurement.container_cpu_seconds - raw_measurement.container_cpu_seconds
     )
@@ -417,7 +440,7 @@ def test_build_report_change_stream_cost_comparison_direct_path_bytes(
 
 def test_validate_report_rejects_an_incomplete_change_stream_cost_comparison() -> None:
     report = _valid_report()
-    report["measurement"]["change_stream_cost_comparison"] = {
+    _object(report, "measurement")["change_stream_cost_comparison"] = {
         "container_cpu_seconds": {"raw": 0.1},
         "direct_path_bytes": {"available": False, "raw": None, "cache": None},
     }
@@ -446,24 +469,21 @@ def test_build_report_preserves_cache_outcome_distributions() -> None:
         writes_issued=0,
         warmup_delta=PrimingDelta(admissions=1, hits=1),
     )
-    report = cast(
-        "dict[str, Any]",
-        build_report(
-            replace(
-                _valid_config(),
-                workload=WorkloadParameters(
-                    name=variant.name,
-                    parameters={"sample_reads": 2, "sample_writes": 0},
-                ),
+    report = build_report(
+        replace(
+            _valid_config(),
+            workload=WorkloadParameters(
+                name=variant.name,
+                parameters={"sample_reads": 2, "sample_writes": 0},
             ),
-            ControlledMeasurement(1.0, 0.1, 0.2, None, None),
-            outcome,
-            _logical_metrics(),
         ),
+        ControlledMeasurement(1.0, 0.1, 0.2, None, None),
+        outcome,
+        _logical_metrics(),
     )
 
     validate_report(report)
-    assert report["measurement"]["variants"][1]["by_outcome"] == [
+    assert _object(report, "measurement", "variants", 1)["by_outcome"] == [
         {
             "operation": "read",
             "outcome": "hit",

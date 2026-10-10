@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 from pymongo import MongoClient
 
-from client_query_cache._types import NonNegativeInt
+from client_query_cache._types import BsonDict, NonNegativeInt
 from tests.benchmark.real_server.workers import (
     COLLECTION_NAME,
     DATABASE_NAME,
@@ -15,6 +15,7 @@ from tests.benchmark.real_server.workers import (
     preflight_ping,
     read_documents_repeatedly,
     read_documents_repeatedly_into_queue,
+    seed_document_ids,
     write_documents_until_stopped,
 )
 
@@ -32,14 +33,14 @@ _WRITER_UPDATE_INTERVAL_SECONDS = 0.01
 
 @pytest.fixture
 def seed_documents(
-    make_fake_document: Callable[..., dict[str, Any]],
-) -> list[dict[str, Any]]:
+    make_fake_document: Callable[..., BsonDict],
+) -> list[BsonDict]:
     return [make_fake_document() for _ in range(3)]
 
 
 @pytest.fixture
-def document_ids(seed_documents: list[dict[str, Any]]) -> list[str]:
-    return [document["_id"] for document in seed_documents]
+def document_ids(seed_documents: list[BsonDict]) -> list[str]:
+    return seed_document_ids(seed_documents)
 
 
 def test_preflight_ping_succeeds_against_a_reachable_deployment(
@@ -50,7 +51,7 @@ def test_preflight_ping_succeeds_against_a_reachable_deployment(
 
 def test_writer_seeds_and_repeatedly_updates_documents(
     mongodb_uri: MongoDbUri,
-    seed_documents: list[dict[str, Any]],
+    seed_documents: list[BsonDict],
     document_ids: list[str],
 ) -> None:
     stop_event = multiprocessing.Event()
@@ -67,7 +68,7 @@ def test_writer_seeds_and_repeatedly_updates_documents(
     )
     writer.start()
     try:
-        with MongoClient[dict[str, Any]](mongodb_uri) as client:
+        with MongoClient[BsonDict](mongodb_uri) as client:
             collection = client[DATABASE_NAME][COLLECTION_NAME]
 
             def _has_been_updated() -> bool:
@@ -92,12 +93,12 @@ _MEASURED_CYCLES = 3
 )
 def test_reader_find_command_count(
     mongodb_uri: MongoDbUri,
-    seed_documents: list[dict[str, Any]],
+    seed_documents: list[BsonDict],
     document_ids: list[str],
     use_cache: bool,
     warmup_cycles: NonNegativeInt,
 ) -> None:
-    with MongoClient[dict[str, Any]](mongodb_uri) as client:
+    with MongoClient[BsonDict](mongodb_uri) as client:
         client[DATABASE_NAME][COLLECTION_NAME].insert_many(seed_documents)
 
     read_result = read_documents_repeatedly(
@@ -117,12 +118,12 @@ def test_reader_find_command_count(
 
 def test_reader_tracks_the_max_observed_counter_and_handles_missing_documents(
     mongodb_uri: MongoDbUri,
-    seed_documents: list[dict[str, Any]],
+    seed_documents: list[BsonDict],
     document_ids: list[str],
     faker: Faker,
 ) -> None:
     updated_counter = 7
-    with MongoClient[dict[str, Any]](mongodb_uri) as client:
+    with MongoClient[BsonDict](mongodb_uri) as client:
         collection = client[DATABASE_NAME][COLLECTION_NAME]
         collection.insert_many(seed_documents)
         collection.update_one(
@@ -144,10 +145,10 @@ def test_reader_tracks_the_max_observed_counter_and_handles_missing_documents(
 
 def test_read_documents_repeatedly_into_queue_puts_the_result(
     mongodb_uri: MongoDbUri,
-    seed_documents: list[dict[str, Any]],
+    seed_documents: list[BsonDict],
     document_ids: list[str],
 ) -> None:
-    with MongoClient[dict[str, Any]](mongodb_uri) as client:
+    with MongoClient[BsonDict](mongodb_uri) as client:
         client[DATABASE_NAME][COLLECTION_NAME].insert_many(seed_documents)
 
     result_queue: multiprocessing.Queue[Any] = multiprocessing.Queue()

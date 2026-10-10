@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import pytest
 import yaml
@@ -9,6 +9,7 @@ from pymongo import MongoClient
 
 from benchmarks.stream_cost import topology
 from benchmarks.stream_cost.topology import IsolatedReplicaSet, ResourceLimits
+from client_query_cache._types import BsonDict
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -32,15 +33,15 @@ def replica_set(
 @pytest.fixture
 def mongo_client(
     replica_set: IsolatedReplicaSet,
-) -> Iterator[MongoClient[dict[str, Any]]]:
-    with MongoClient[dict[str, Any]](
+) -> Iterator[MongoClient[BsonDict]]:
+    with MongoClient[BsonDict](
         replica_set.uri, serverSelectionTimeoutMS=2_000
     ) as client:
         yield client
 
 
 def test_isolated_replica_set_starts_and_reports_cpu_usage(
-    replica_set: IsolatedReplicaSet, mongo_client: MongoClient[dict[str, Any]]
+    replica_set: IsolatedReplicaSet, mongo_client: MongoClient[BsonDict]
 ) -> None:
     hello = mongo_client.admin.command("hello")
     assert hello["isWritablePrimary"] is True

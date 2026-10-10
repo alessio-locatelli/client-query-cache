@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 from contextlib import closing
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -11,7 +11,7 @@ from benchmarks.stream_cost.consolidated_stream import (
     verify_single_consolidated_stream,
 )
 from benchmarks.stream_cost.errors import BenchmarkSetupError
-from client_query_cache._types import PositiveFloat
+from client_query_cache._types import BsonDict, PositiveFloat
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -38,7 +38,7 @@ def _wait_until(
 
 
 def test_verify_single_consolidated_stream_rejects_an_inactive_database(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
 ) -> None:
     with pytest.raises(BenchmarkSetupError, match="exactly one consolidated stream"):
@@ -46,7 +46,7 @@ def test_verify_single_consolidated_stream_rejects_an_inactive_database(
 
 
 def test_verify_single_consolidated_stream_passes_for_two_cached_collections(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     persistent_collection_name: CollectionName,
     nonpersistent_collection_name: CollectionName,
@@ -70,8 +70,8 @@ def test_verify_single_consolidated_stream_passes_for_two_cached_collections(
 
 
 def test_reset_run_state_drops_the_database_and_returns_an_empty_cache(
-    raw_mongo_client: MongoClient[dict[str, Any]],
-    cache_manager: CacheManager[dict[str, Any]],
+    raw_mongo_client: MongoClient[BsonDict],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     persistent_collection_name: CollectionName,
 ) -> None:

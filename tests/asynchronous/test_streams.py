@@ -20,7 +20,12 @@ from client_query_cache._core.errors import StreamLifecycleError, StreamStartupE
 from client_query_cache._core.keys import NamespaceId
 from client_query_cache._core.manager import CacheCore
 from client_query_cache._core.stream_health import RetryBackoff, StreamHealth
-from client_query_cache._types import NonNegativeFloat, NonNegativeInt, PositiveFloat
+from client_query_cache._types import (
+    BsonDict,
+    NonNegativeFloat,
+    NonNegativeInt,
+    PositiveFloat,
+)
 from client_query_cache.asynchronous.streams import (
     ChangeStreamCoordinator,
     DatabaseStreamSupervisor,
@@ -94,9 +99,9 @@ class _StreamStopsThenFails:
     def __init__(self, stop_event: asyncio.Event, error: Exception) -> None:
         self._stop_event = stop_event
         self._error = error
-        self.resume_token: dict[str, object] | None = None
+        self.resume_token: BsonDict | None = None
 
-    async def next(self) -> dict[str, object]:
+    async def next(self) -> BsonDict:
         self._stop_event.set()
         raise self._error
 
@@ -114,7 +119,7 @@ def _is_healthy(supervisor: DatabaseStreamSupervisor) -> bool:
     return supervisor.healthy
 
 
-def _insert_event(marker: str = "tok-1") -> dict[str, object]:
+def _insert_event(marker: str = "tok-1") -> BsonDict:
     return {
         "_id": {"tok": marker},
         "operationType": "insert",
@@ -209,7 +214,7 @@ async def test_start_fails_closed_when_server_info_itself_fails(
 ) -> None:
     database = ScriptedDatabase("db", [])
 
-    async def failing_server_info() -> dict[str, object]:  # noqa: RUF029
+    async def failing_server_info() -> BsonDict:  # noqa: RUF029
         raise ConnectionFailure("no primary available")
 
     database.client = SimpleNamespace(server_info=failing_server_info)
@@ -666,7 +671,7 @@ async def test_clears_known_namespaces_when_resume_history_is_lost(
 )
 async def test_reopens_with_start_after_following_a_database_invalidation_event(
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
-    invalidate_event: dict[str, object],
+    invalidate_event: BsonDict,
 ) -> None:
     cache = _mock_cache()
     cache.namespaces_for_database.return_value = [NamespaceId("db", "coll")]
@@ -883,7 +888,7 @@ async def test_start_closes_and_fails_when_cancelled_while_connecting(
     entered_server_info = asyncio.Event()
     block = asyncio.Event()
 
-    async def hanging_server_info() -> dict[str, object]:
+    async def hanging_server_info() -> BsonDict:
         entered_server_info.set()
         await block.wait()
         raise AssertionError(  # pragma: no cover (unreachable after cancellation)

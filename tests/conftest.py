@@ -9,7 +9,7 @@ from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 from time import monotonic, sleep
-from typing import TYPE_CHECKING, Any, NewType
+from typing import TYPE_CHECKING, NewType
 
 import pytest
 from bson import Decimal128
@@ -18,7 +18,7 @@ from pymongo import MongoClient
 from pymongo.errors import AutoReconnect
 from testcontainers.core.container import DockerContainer
 
-from client_query_cache._types import NonNegativeInt
+from client_query_cache._types import BsonDict, NonNegativeInt
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -59,7 +59,7 @@ def pytest_configure(config: pytest.Config) -> None:
     )
 
 
-def _wait_for_mongodb_ping(client: MongoClient[dict[str, Any]]) -> None:
+def _wait_for_mongodb_ping(client: MongoClient[BsonDict]) -> None:
     deadline = monotonic() + _MONGODB_STARTUP_TIMEOUT_SECONDS
     while monotonic() < deadline:
         try:
@@ -126,7 +126,7 @@ def mongodb_uri() -> Iterator[MongoDbUri]:
 
         # serverSelectionTimeoutMS: The default is 30000 ms. We override it because
         # bounded startup polling needs short connection attempts.
-        with MongoClient[dict[str, Any]](uri, serverSelectionTimeoutMS=1_000) as client:
+        with MongoClient[BsonDict](uri, serverSelectionTimeoutMS=1_000) as client:
             _wait_for_mongodb_ping(client)
 
             client.admin.command(
@@ -152,13 +152,13 @@ def mongodb_uri() -> Iterator[MongoDbUri]:
 
 
 @pytest.fixture
-def make_fake_document(faker: Faker) -> Callable[..., dict[str, Any]]:
-    def _make_fake_document() -> dict[str, Any]:
+def make_fake_document(faker: Faker) -> Callable[..., BsonDict]:
+    def _make_fake_document() -> BsonDict:
         document = faker.pydict()
         # Benchmark collections outlive tests, so IDs must survive Faker reseeding.
         document["_id"] = str(uuid.uuid4())
 
-        mongo_compatible_document: dict[str, Any] = {}
+        mongo_compatible_document: BsonDict = {}
         for k, v in document.items():
             if isinstance(v, datetime):
                 mongo_compatible_document[k] = copy(v).replace(microsecond=0)

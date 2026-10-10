@@ -11,6 +11,7 @@ from client_query_cache._core.unique_keys import (
     discover_unique_keys,
     match_unique_key,
 )
+from client_query_cache._types import BsonDict
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -39,7 +40,7 @@ def _unique_key_definitions(draw: st.DrawFn) -> UniqueKeyDefinition:
 @st.composite
 def _filters_and_expected_matches(
     draw: st.DrawFn,
-) -> tuple[UniqueKeyDefinition, dict[str, object], Mapping[str, Any] | None, bool]:
+) -> tuple[UniqueKeyDefinition, BsonDict, Mapping[str, Any] | None, bool]:
     definition = draw(_unique_key_definitions())
     shape = draw(st.sampled_from(("exact", "extra", "missing")))
     field_is_equality = {field: draw(st.booleans()) for field in definition.fields}
@@ -138,13 +139,13 @@ def _filters_and_expected_matches(
     ],
 )
 def test_discover_unique_keys_filters_by_index_shape(
-    index_spec: dict[str, object], expected: tuple[UniqueKeyDefinition, ...]
+    index_spec: BsonDict, expected: tuple[UniqueKeyDefinition, ...]
 ) -> None:
     assert discover_unique_keys([index_spec]) == expected
 
 
 def test_discover_unique_keys_returns_every_eligible_index() -> None:
-    index_specs: list[dict[str, Any]] = [
+    index_specs: list[BsonDict] = [
         {"key": {"email": 1}, "name": "email_1", "unique": True},
         {"key": {"username": 1}, "name": "username_1", "unique": True},
         {"key": {"tag": 1}, "name": "tag_1"},
@@ -233,7 +234,7 @@ def test_match_unique_key_matches_simple_collation_index_against_default() -> No
 @given(_filters_and_expected_matches())
 @example((UniqueKeyDefinition(fields=("a",), collation=None), {"a": 1}, None, True))
 def test_match_unique_key_matches_iff_field_set_collation_and_equality_align(
-    case: tuple[UniqueKeyDefinition, dict[str, object], Mapping[str, Any] | None, bool],
+    case: tuple[UniqueKeyDefinition, BsonDict, Mapping[str, Any] | None, bool],
 ) -> None:
     definition, filter_query, filter_collation, expected_match = case
 
@@ -249,14 +250,14 @@ _INDEX_FIELD_NAMES = ("a", "b", "c")
 
 
 @st.composite
-def _index_specs(draw: st.DrawFn) -> dict[str, Any]:
+def _index_specs(draw: st.DrawFn) -> BsonDict:
     fields = draw(
         st.lists(
             st.sampled_from(_INDEX_FIELD_NAMES), min_size=1, max_size=3, unique=True
         )
     )
     key = {field: draw(st.sampled_from((1, -1, "hashed"))) for field in fields}
-    spec: dict[str, Any] = {"key": key, "name": "idx"}
+    spec: BsonDict = {"key": key, "name": "idx"}
     if draw(st.booleans()):
         spec["unique"] = True
     if draw(st.booleans()):
@@ -268,9 +269,11 @@ def _index_specs(draw: st.DrawFn) -> dict[str, Any]:
 
 @given(_index_specs())
 def test_discover_unique_keys_includes_an_index_iff_eligible(
-    index_spec: dict[str, Any],
+    index_spec: BsonDict,
 ) -> None:
-    is_hashed = any(value == "hashed" for value in index_spec["key"].values())
+    key = index_spec["key"]
+    assert isinstance(key, dict)
+    is_hashed = any(value == "hashed" for value in key.values())
     try:
         is_unique = index_spec["unique"] is True
     except KeyError:
@@ -290,6 +293,4 @@ def test_discover_unique_keys_includes_an_index_iff_eligible(
 
     assert bool(discovered) is expected_included
     if expected_included:
-        assert discovered == (
-            UniqueKeyDefinition(fields=tuple(index_spec["key"]), collation=None),
-        )
+        assert discovered == (UniqueKeyDefinition(fields=tuple(key), collation=None),)

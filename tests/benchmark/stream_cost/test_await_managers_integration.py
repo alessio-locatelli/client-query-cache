@@ -10,7 +10,7 @@ from pymongo import AsyncMongoClient, MongoClient
 from benchmarks.stream_cost.await_commands import AwaitCommandListener
 from benchmarks.stream_cost.await_run import _invoke, _wait_for
 from client_query_cache._core.stream_options import DEFAULT_MAX_AWAIT_TIME_MS
-from client_query_cache._types import MaxAwaitTimeMs, NonEmptyStr
+from client_query_cache._types import BsonDict, MaxAwaitTimeMs, NonEmptyStr
 from client_query_cache.asynchronous.manager import CacheManager as AsyncCacheManager
 from client_query_cache.synchronous.manager import CacheManager
 
@@ -48,9 +48,7 @@ async def managed_streams(
             manager: _Manager
             if model == "sync":
                 client = resources.enter_context(
-                    MongoClient[dict[str, object]](
-                        mongodb_uri, event_listeners=[listener]
-                    )
+                    MongoClient[BsonDict](mongodb_uri, event_listeners=[listener])
                 )
                 manager = (
                     CacheManager(client)
@@ -59,9 +57,7 @@ async def managed_streams(
                 )
             else:
                 async_client = await resources.enter_async_context(
-                    AsyncMongoClient[dict[str, object]](
-                        mongodb_uri, event_listeners=[listener]
-                    )
+                    AsyncMongoClient[BsonDict](mongodb_uri, event_listeners=[listener])
                 )
                 manager = (
                     AsyncCacheManager(async_client)
@@ -73,7 +69,7 @@ async def managed_streams(
             resources.push_async_callback(
                 _invoke, manager.client.drop_database, database
             )
-            seed: dict[str, object] = {"_id": 0, "value": 0}
+            seed: BsonDict = {"_id": 0, "value": 0}
             await _invoke(manager.client[database]["measured"].insert_one, seed)
             await _invoke(manager[database]["measured"].find_one, {"_id": 0})
             observed.append(

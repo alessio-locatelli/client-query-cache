@@ -14,6 +14,7 @@ from pymongo.asynchronous.client_session import AsyncClientSession
 from pymongo.errors import InvalidOperation, OperationFailure
 from pymongo.synchronous.client_session import ClientSession
 
+from client_query_cache._types import BsonDict
 from client_query_cache.asynchronous import CachedCollection as AsyncCachedCollection
 from client_query_cache.asynchronous import CacheManager as AsyncCacheManager
 from client_query_cache.synchronous import CachedCollection, CacheManager
@@ -29,9 +30,8 @@ COMMITTED_VALUE = 1
 TRANSACTION_VALUE = 2
 INVALID_PROJECTION = 42
 INITIAL_DOCUMENT_COUNT = 1
-Document = dict[str, Any]
-Client = MongoClient[Document] | AsyncMongoClient[Document]
-View = CachedCollection[Document] | AsyncCachedCollection[Document]
+Client = MongoClient[BsonDict] | AsyncMongoClient[BsonDict]
+View = CachedCollection[BsonDict] | AsyncCachedCollection[BsonDict]
 
 
 class Binding(TypedDict):
@@ -77,7 +77,7 @@ async def binding(
 ) -> AsyncIterator[Binding]:
     async with AsyncExitStack() as stack:
         if api == "sync":
-            sync_client = stack.enter_context(MongoClient[Document](mongodb_uri))
+            sync_client = stack.enter_context(MongoClient[BsonDict](mongodb_uri))
             sync_manager = stack.enter_context(CacheManager(sync_client))
             handles: Binding = {
                 "client": sync_client,
@@ -87,7 +87,7 @@ async def binding(
             }
         else:
             async_client = await stack.enter_async_context(
-                AsyncMongoClient[Document](mongodb_uri)
+                AsyncMongoClient[BsonDict](mongodb_uri)
             )
             async_manager = await stack.enter_async_context(
                 AsyncCacheManager(async_client)
@@ -225,10 +225,10 @@ async def foreign_context(
     async with AsyncExitStack() as stack:
         client: Client
         if isinstance(warm_binding["client"], MongoClient):
-            client = stack.enter_context(MongoClient[Document](mongodb_uri))
+            client = stack.enter_context(MongoClient[BsonDict](mongodb_uri))
         else:
             client = await stack.enter_async_context(
-                AsyncMongoClient[Document](mongodb_uri)
+                AsyncMongoClient[BsonDict](mongodb_uri)
             )
         session = await session_context(stack, client)
         await enter(stack, session.bind(end_session=False))
@@ -351,9 +351,9 @@ async def explicit_cursor_session(
         if request.param == "foreign":
             client = await enter(
                 stack,
-                MongoClient[Document](mongodb_uri)
+                MongoClient[BsonDict](mongodb_uri)
                 if isinstance(client, MongoClient)
-                else AsyncMongoClient[Document](mongodb_uri),
+                else AsyncMongoClient[BsonDict](mongodb_uri),
             )
         session = await session_context(stack, client)
         if request.param == "ended":
@@ -378,7 +378,7 @@ async def test_explicit_cursor_sessions_preserve_native_behavior(
     native_error_type: type[InvalidOperation] | None,
 ) -> None:
     view = warm_binding["view"]
-    argument: Document | list[Document] = {} if method == "find" else []
+    argument: BsonDict | list[BsonDict] = {} if method == "find" else []
     expected = [{"_id": DOCUMENT_ID, "v": COMMITTED_VALUE}]
     assert await materialize(getattr(view, method)(argument)) == expected
     before = view.database.manager.snapshot()

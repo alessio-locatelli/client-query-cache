@@ -27,7 +27,12 @@ from client_query_cache._core.stream_health import (
     StreamHealthSnapshot,
     StreamHealthStatus,
 )
-from client_query_cache._types import NonNegativeFloat, NonNegativeInt, PositiveFloat
+from client_query_cache._types import (
+    BsonDict,
+    NonNegativeFloat,
+    NonNegativeInt,
+    PositiveFloat,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -98,7 +103,7 @@ def _faulty_commands(
     listener: multiprocess_run.WireCommands, *, fault: str, uri: str
 ) -> dict[str, NonNegativeInt]:
     if fault == "document":
-        with MongoClient[dict[str, object]](uri) as client:
+        with MongoClient[BsonDict](uri) as client:
             client[multiprocess_run._DATABASE][
                 Protocol.load().registration["collections"][0]
             ].delete_one({"_id": 0})

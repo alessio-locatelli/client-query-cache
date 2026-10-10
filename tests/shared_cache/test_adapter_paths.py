@@ -4,7 +4,7 @@ import asyncio
 import os
 import signal
 import threading
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, cast
 
 import pytest
 from bson.codec_options import CodecOptions, TypeRegistry
@@ -22,6 +22,7 @@ from benchmarks.stream_cost.shared_cache.attachment import (
     SyncEndpoint,
 )
 from benchmarks.stream_cost.shared_cache.wire import encode_key
+from client_query_cache._types import BsonDict
 from tests.codec_helpers import Decimal128ToDecimalDecoder
 from tests.shared_cache.conftest import (
     COLLECTION,
@@ -45,17 +46,17 @@ _SORTED = {"sort": [("_id", 1)]}
 
 
 @pytest.fixture
-def client(mongodb_uri: MongoDbUri) -> Iterator[MongoClient[dict[str, Any]]]:
-    with MongoClient[dict[str, Any]](mongodb_uri) as raw:
+def client(mongodb_uri: MongoDbUri) -> Iterator[MongoClient[BsonDict]]:
+    with MongoClient[BsonDict](mongodb_uri) as raw:
         yield raw
 
 
-def _custom_codec() -> CodecOptions[dict[str, Any]]:
+def _custom_codec() -> CodecOptions[BsonDict]:
     return CodecOptions(type_registry=TypeRegistry([Decimal128ToDecimalDecoder()]))
 
 
 def test_oversized_find_results_are_not_admitted(
-    client: MongoClient[dict[str, Any]],
+    client: MongoClient[BsonDict],
     start_owner: Callable[..., Owner],
     seeded_database: str,
 ) -> None:
@@ -88,7 +89,7 @@ def test_oversized_find_results_are_not_admitted(
 
 
 def test_unportable_and_bypassed_finds_execute_natively(
-    client: MongoClient[dict[str, Any]],
+    client: MongoClient[BsonDict],
     start_owner: Callable[..., Owner],
     seeded_database: str,
     mongodb_uri: MongoDbUri,
@@ -103,7 +104,7 @@ def test_unportable_and_bypassed_finds_execute_natively(
     unportable = manager.get_cached_collection(custom).find({}).to_list()
     subcollection = manager[seeded_database][COLLECTION]["sub"]
 
-    async def asynchronous() -> AsyncSharedCacheManager[dict[str, Any]]:
+    async def asynchronous() -> AsyncSharedCacheManager[BsonDict]:
         async with async_shared_manager(owner, mongodb_uri) as async_manager:
             view = async_manager.get_cached_collection(
                 async_manager.client[seeded_database].get_collection(
@@ -127,7 +128,7 @@ def test_unportable_and_bypassed_finds_execute_natively(
     assert async_manager.observation.bypasses[UNPORTABLE_KEY] == 1
     assert sum(async_manager.observation.bypasses.values()) == 2
     with (
-        MongoClient[dict[str, Any]](mongodb_uri) as other,
+        MongoClient[BsonDict](mongodb_uri) as other,
         pytest.raises(ValueError, match="different client"),
     ):
         manager.get_cached_collection(other[seeded_database][COLLECTION])
@@ -135,7 +136,7 @@ def test_unportable_and_bypassed_finds_execute_natively(
 
 
 def test_unlimited_find_hits_return_the_complete_result(
-    client: MongoClient[dict[str, Any]],
+    client: MongoClient[BsonDict],
     start_owner: Callable[..., Owner],
     seeded_database: str,
 ) -> None:
@@ -154,7 +155,7 @@ def test_unlimited_find_hits_return_the_complete_result(
 
 
 def test_owner_bypasses_reach_find_one_and_find(
-    client: MongoClient[dict[str, Any]],
+    client: MongoClient[BsonDict],
     start_owner: Callable[..., Owner],
     seeded_database: str,
 ) -> None:
@@ -179,7 +180,7 @@ def test_owner_bypasses_reach_find_one_and_find(
 
 
 def test_exhausted_captures_leave_reads_native(
-    client: MongoClient[dict[str, Any]],
+    client: MongoClient[BsonDict],
     start_owner: Callable[..., Owner],
     seeded_database: str,
     mongodb_uri: MongoDbUri,
@@ -210,7 +211,7 @@ def test_exhausted_captures_leave_reads_native(
 
 
 def test_failed_native_reads_release_their_captures(
-    client: MongoClient[dict[str, Any]],
+    client: MongoClient[BsonDict],
     start_owner: Callable[..., Owner],
     seeded_database: str,
     mongodb_uri: MongoDbUri,
@@ -237,7 +238,7 @@ def test_failed_native_reads_release_their_captures(
 
 
 def test_large_hits_are_reassembled_from_partial_reads(
-    client: MongoClient[dict[str, Any]],
+    client: MongoClient[BsonDict],
     start_owner: Callable[..., Owner],
     seeded_database: str,
 ) -> None:
@@ -253,8 +254,7 @@ def test_large_hits_are_reassembled_from_partial_reads(
     wait_for(lambda: owner.counters()["admitted"] == 1)
     document = collection.find_one({"_id": "large"})
 
-    assert document is not None
-    assert len(document["payload"]) == 600_000
+    assert document == {"_id": "large", "payload": "x" * 600_000, "revision": 0}
     assert manager.observation.hits == 1
     manager.close()
 

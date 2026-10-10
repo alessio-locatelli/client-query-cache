@@ -18,7 +18,7 @@ from client_query_cache._core.codec import encode_value
 from client_query_cache._core.cursor_capture import CursorCapture
 from client_query_cache._core.find_reads import find_read_shape
 from client_query_cache._core.keys import NamespaceId
-from client_query_cache._types import NonNegativeFloat, NonNegativeInt
+from client_query_cache._types import BsonDict, NonNegativeFloat, NonNegativeInt
 from client_query_cache.asynchronous.cursors import (
     CachedCommandCursor as AsyncCachedCommandCursor,
 )
@@ -42,7 +42,7 @@ if TYPE_CHECKING:
     from client_query_cache._core.entries import LookupResult
     from client_query_cache._core.find_reads import FindReadShape
     from client_query_cache._core.manager import CacheCore
-    from tests.cursor_fixtures import Binding, Document, ReadCommands, View
+    from tests.cursor_fixtures import Binding, ReadCommands, View
 
 pytestmark = [pytest.mark.benchmark, pytest.mark.timeout(180)]
 CACHED_CURSORS = (
@@ -85,6 +85,12 @@ def counts(commands: ReadCommands) -> dict[str, NonNegativeInt]:
     }
 
 
+def payload_length(documents: list[BsonDict]) -> NonNegativeInt:
+    payload = documents[0]["payload"]
+    assert isinstance(payload, str)
+    return len(payload)
+
+
 @pytest.mark.parametrize(
     "cursors",
     [
@@ -111,7 +117,7 @@ async def test_cursor_measurements(
 
     def construct(
         phase: str,
-    ) -> ReadCursor[Document] | Awaitable[AsyncCommandCursor[Document]]:
+    ) -> ReadCursor[BsonDict] | Awaitable[AsyncCommandCursor[BsonDict]]:
         collection = view.raw if phase == "native" else view
         if method == "find":
             if phase == "batch-bypass":
@@ -189,7 +195,7 @@ async def test_cursor_measurements(
                     "api": api_name(view),
                     "method": method,
                     "count": len(documents),
-                    "payload": len(documents[0]["payload"]),
+                    "payload": payload_length(documents),
                     "limit": limit,
                     "phase": phase,
                     "first_us": round(statistics.median(first_document) * 1e6, 1),
@@ -240,7 +246,7 @@ async def test_cursor_measurements(
                 "heap_peak": peak,
                 "heap_after_close": current,
                 "count": len(documents),
-                "payload": len(documents[0]["payload"]),
+                "payload": payload_length(documents),
             }
         )
     )
@@ -354,7 +360,7 @@ async def measure_find_limit_phase(
             {
                 "limit_workload": True,
                 "api": api_name(view),
-                "payload": len(cursors["documents"][0]["payload"]),
+                "payload": payload_length(cursors["documents"]),
                 "phase": phase,
                 "source_limit": min(source_limits),
                 "admission_order": "descending" if descending else "ascending",

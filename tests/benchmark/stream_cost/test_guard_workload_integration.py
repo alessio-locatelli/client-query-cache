@@ -8,7 +8,7 @@ from benchmarks.stream_cost import guard_workload
 from benchmarks.stream_cost.errors import BenchmarkSetupError
 from benchmarks.stream_cost.guard_workload import CASE_NAMES, PROFILES, run_case
 from client_query_cache._core.stream_events import route_change_event
-from client_query_cache._types import NonNegativeInt
+from client_query_cache._types import BsonDict, NonNegativeInt
 from client_query_cache.synchronous.collection import CachedCollection
 
 if TYPE_CHECKING:
@@ -22,14 +22,14 @@ pytestmark = pytest.mark.integration
 
 
 def _uncached_find_one(
-    collection: CachedCollection[dict[str, Any]], query: Mapping[str, Any]
-) -> dict[str, Any] | None:
+    collection: CachedCollection[BsonDict], query: Mapping[str, Any]
+) -> BsonDict | None:
     return collection.raw.find_one(query)
 
 
 def _wrong_find_one(
-    collection: CachedCollection[dict[str, Any]], query: Mapping[str, Any]
-) -> dict[str, Any]:
+    collection: CachedCollection[BsonDict], query: Mapping[str, Any]
+) -> BsonDict:
     document = collection.raw.find_one(query)
     assert document is not None
     document["padding"] = "wrong"
@@ -37,16 +37,16 @@ def _wrong_find_one(
 
 
 def _uncached_find(
-    collection: CachedCollection[dict[str, Any]],
+    collection: CachedCollection[BsonDict],
     query: Mapping[str, Any],
     *,
     sort: Sequence[tuple[str, int]],
     limit: NonNegativeInt,
-) -> list[dict[str, Any]]:
+) -> list[BsonDict]:
     return list(collection.raw.find(query, sort=sort, limit=limit))
 
 
-def _ignore_event(_cache: CacheCore, _database: str, _event: dict[str, object]) -> bool:
+def _ignore_event(_cache: CacheCore, _database: str, _event: BsonDict) -> bool:
     return False
 
 
@@ -88,7 +88,7 @@ def test_invalidation_rejects_partial_eviction(
     first_id: object | None = None
 
     def route_only_first_entry(
-        cache: CacheCore, database: str, event: dict[str, object]
+        cache: CacheCore, database: str, event: BsonDict
     ) -> bool:
         nonlocal first_id
         key = event["documentKey"]

@@ -24,7 +24,7 @@ from pymongo.read_concern import ReadConcern
 
 from client_query_cache._core.keys import NamespaceId
 from client_query_cache._core.manager import CacheCore, CacheCoreConfig
-from client_query_cache._types import NonNegativeInt
+from client_query_cache._types import BsonDict, NonNegativeInt
 from client_query_cache.asynchronous.collection import CachedCollection
 from client_query_cache.asynchronous.manager import CacheManager
 from client_query_cache.asynchronous.streams import DatabaseStreamSupervisor
@@ -47,30 +47,30 @@ pytestmark = pytest.mark.integration
 @pytest.fixture
 async def independent_writer(
     mongodb_uri: MongoDbUri,
-) -> AsyncIterator[AsyncMongoClient[dict[str, Any]]]:
-    async with AsyncMongoClient[dict[str, Any]](mongodb_uri) as client:
+) -> AsyncIterator[AsyncMongoClient[BsonDict]]:
+    async with AsyncMongoClient[BsonDict](mongodb_uri) as client:
         yield client
 
 
 async def _find_first(
-    collection: CachedCollection[dict[str, Any]],
-) -> dict[str, Any] | None:
+    collection: CachedCollection[BsonDict],
+) -> BsonDict | None:
     return (await materialize(collection.find({})))[0]
 
 
-async def _sorted_distinct(collection: CachedCollection[dict[str, Any]]) -> list[Any]:
+async def _sorted_distinct(collection: CachedCollection[BsonDict]) -> list[Any]:
     return sorted(await collection.distinct("v"))
 
 
 @pytest.fixture
-def client() -> AsyncMongoClient[dict[str, Any]]:
+def client() -> AsyncMongoClient[BsonDict]:
     return AsyncMongoClient("mongodb://localhost:27017", connect=False)
 
 
 @pytest.fixture
 async def decoded_price_case(
     mongodb_uri: MongoDbUri,
-    independent_writer: AsyncMongoClient[dict[str, Any]],
+    independent_writer: AsyncMongoClient[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
     faker: Faker,
@@ -100,17 +100,17 @@ async def decoded_price_case(
 
 @pytest.fixture
 def make_uuid_collection(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
-) -> Callable[[NonNegativeInt], CachedCollection[dict[str, Any]]]:
+) -> Callable[[NonNegativeInt], CachedCollection[BsonDict]]:
     raw_collection = cache_manager.client[cached_database_name][
         nonpersistent_collection_name
     ]
 
     def _make_uuid_collection(
         uuid_representation: NonNegativeInt,
-    ) -> CachedCollection[dict[str, Any]]:
+    ) -> CachedCollection[BsonDict]:
         return cache_manager.get_cached_collection(
             raw_collection.with_options(
                 codec_options=CodecOptions(uuid_representation=uuid_representation)
@@ -122,8 +122,8 @@ def make_uuid_collection(
 
 @pytest.fixture
 async def tight_budget_cache_manager(
-    raw_mongo_client: AsyncMongoClient[dict[str, Any]],
-) -> AsyncIterator[CacheManager[dict[str, Any]]]:
+    raw_mongo_client: AsyncMongoClient[BsonDict],
+) -> AsyncIterator[CacheManager[BsonDict]]:
     # Five padded fake documents exceed the 200-byte budget; each exceeds
     # the 50-byte entry limit, so neither individual nor combined reads cache.
     manager = CacheManager(
@@ -147,9 +147,9 @@ async def tight_budget_cache_manager(
     ],
 )
 def test_collection_sub_collection_access_returns_a_cached_facade(
-    client: AsyncMongoClient[dict[str, Any]],
+    client: AsyncMongoClient[BsonDict],
     get_sub_collection: Callable[
-        [CachedCollection[dict[str, Any]]], CachedCollection[dict[str, Any]]
+        [CachedCollection[BsonDict]], CachedCollection[BsonDict]
     ],
     expected_name: str,
 ) -> None:
@@ -168,7 +168,7 @@ def test_collection_sub_collection_access_returns_a_cached_facade(
     ["insert_one", "create_index", "drop", "with_options", "codec_options", "_private"],
 )
 def test_collection_does_not_expose_undeclared_pymongo_attributes(
-    client: AsyncMongoClient[dict[str, Any]], name: str
+    client: AsyncMongoClient[BsonDict], name: str
 ) -> None:
     collection = CacheManager(client).get_cached_collection(client["example"]["items"])
 
@@ -177,10 +177,10 @@ def test_collection_does_not_expose_undeclared_pymongo_attributes(
 
 
 async def test_raw_collection_is_a_fully_functional_pymongo_escape_hatch(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
-    make_fake_document: Callable[..., dict[str, Any]],
+    make_fake_document: Callable[..., BsonDict],
 ) -> None:
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
     document = make_fake_document()
@@ -198,7 +198,7 @@ async def test_raw_collection_is_a_fully_functional_pymongo_escape_hatch(
 
 
 def test_optioned_raw_collection_keeps_its_options_through_the_cached_view(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
 ) -> None:
@@ -213,7 +213,7 @@ def test_optioned_raw_collection_keeps_its_options_through_the_cached_view(
 
 
 async def test_created_raw_collection_is_readable_through_the_cached_view(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
 ) -> None:
@@ -228,10 +228,10 @@ async def test_created_raw_collection_is_readable_through_the_cached_view(
 
 
 async def test_repeated_cached_views_share_entries_and_one_database_stream(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
-    make_fake_document: Callable[..., dict[str, Any]],
+    make_fake_document: Callable[..., BsonDict],
 ) -> None:
     raw_collection = cache_manager.client[cached_database_name][
         nonpersistent_collection_name
@@ -266,11 +266,11 @@ async def test_repeated_cached_views_share_entries_and_one_database_stream(
 
 
 async def test_composed_facade_and_direct_client_access_can_mix(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     persistent_collection_name: CollectionName,
     nonpersistent_collection_name: CollectionName,
-    make_fake_document: Callable[..., dict[str, Any]],
+    make_fake_document: Callable[..., BsonDict],
 ) -> None:
     cached_collection = cache_manager[cached_database_name][
         nonpersistent_collection_name
@@ -289,10 +289,10 @@ async def test_composed_facade_and_direct_client_access_can_mix(
 
 
 async def test_manager_never_takes_ownership_of_the_caller_client_lifecycle(
-    raw_mongo_client: AsyncMongoClient[dict[str, Any]],
+    raw_mongo_client: AsyncMongoClient[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
-    make_fake_document: Callable[..., dict[str, Any]],
+    make_fake_document: Callable[..., BsonDict],
 ) -> None:
     client = raw_mongo_client
     manager = CacheManager(client)
@@ -308,12 +308,12 @@ async def test_manager_never_takes_ownership_of_the_caller_client_lifecycle(
 )
 async def test_find_one_by_id_bypasses_cache_for_a_session_bound_read(
     query_kind: str,
-    cache_manager: CacheManager[dict[str, Any]],
-    raw_mongo_client: AsyncMongoClient[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
+    raw_mongo_client: AsyncMongoClient[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
     *,
-    make_fake_document: Callable[..., dict[str, Any]],
+    make_fake_document: Callable[..., BsonDict],
 ) -> None:
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
     document = make_fake_document()
@@ -360,11 +360,11 @@ async def test_find_one_by_id_bypasses_cache_for_a_session_bound_read(
 )
 async def test_find_one_by_id_bypasses_cache_for_an_incompatible_read_profile(
     query_kind: str,
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
     *,
-    make_fake_document: Callable[..., dict[str, Any]],
+    make_fake_document: Callable[..., BsonDict],
     with_options_kwargs: dict[str, Any],
 ) -> None:
     raw_collection = cache_manager.client[cached_database_name][
@@ -395,7 +395,7 @@ async def test_find_one_by_id_bypasses_cache_for_an_incompatible_read_profile(
 
 
 async def test_find_one_by_id_preserves_a_non_default_uuid_representation(
-    make_uuid_collection: Callable[[NonNegativeInt], CachedCollection[dict[str, Any]]],
+    make_uuid_collection: Callable[[NonNegativeInt], CachedCollection[BsonDict]],
 ) -> None:
     collection = make_uuid_collection(UuidRepresentation.STANDARD)
     identifier = uuid.uuid4()
@@ -409,10 +409,10 @@ async def test_find_one_by_id_preserves_a_non_default_uuid_representation(
 
 
 async def test_find_one_by_a_uuid_id_invalidates_after_an_independent_write(
-    independent_writer: AsyncMongoClient[dict[str, Any]],
+    independent_writer: AsyncMongoClient[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
-    make_uuid_collection: Callable[[NonNegativeInt], CachedCollection[dict[str, Any]]],
+    make_uuid_collection: Callable[[NonNegativeInt], CachedCollection[BsonDict]],
 ) -> None:
     collection = make_uuid_collection(UuidRepresentation.STANDARD)
     identifier = uuid.uuid4()
@@ -438,7 +438,7 @@ async def test_find_one_by_a_uuid_id_invalidates_after_an_independent_write(
 )
 async def test_reads_with_different_uuid_codecs_do_not_share_a_cache_entry(
     method: str,
-    make_uuid_collection: Callable[[NonNegativeInt], CachedCollection[dict[str, Any]]],
+    make_uuid_collection: Callable[[NonNegativeInt], CachedCollection[BsonDict]],
 ) -> None:
     standard_collection = make_uuid_collection(UuidRepresentation.STANDARD)
     legacy_collection = make_uuid_collection(UuidRepresentation.JAVA_LEGACY)
@@ -465,7 +465,7 @@ async def test_reads_with_different_uuid_codecs_do_not_share_a_cache_entry(
 
 
 async def test_find_one_by_compound_ids_with_different_field_order_do_not_collide(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
 ) -> None:
@@ -485,8 +485,8 @@ async def test_find_one_by_compound_ids_with_different_field_order_do_not_collid
 
 
 async def test_find_one_by_a_compound_id_invalidates_after_an_independent_write(
-    cache_manager: CacheManager[dict[str, Any]],
-    independent_writer: AsyncMongoClient[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
+    independent_writer: AsyncMongoClient[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
 ) -> None:
@@ -518,7 +518,7 @@ async def test_find_one_by_a_compound_id_invalidates_after_an_independent_write(
     ids=["compound-match", "compound-negative", "field", "operator", "empty", "none"],
 )
 async def test_generic_find_one_caches_and_isolates_documents(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
     faker: Faker,
@@ -569,10 +569,10 @@ async def test_generic_find_one_caches_and_isolates_documents(
     ],
 )
 async def test_facade_bypasses_are_recorded_in_cache_statistics(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
-    invoke: Callable[[CachedCollection[dict[str, Any]]], Coroutine[Any, Any, object]],
+    invoke: Callable[[CachedCollection[BsonDict]], Coroutine[Any, Any, object]],
 ) -> None:
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
     await collection.raw.insert_one({"_id": "a", "v": 1})
@@ -585,7 +585,7 @@ async def test_facade_bypasses_are_recorded_in_cache_statistics(
 
 
 async def test_find_one_by_a_regex_id_uses_generic_caching(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
 ) -> None:
@@ -607,10 +607,10 @@ async def test_find_one_by_a_regex_id_uses_generic_caching(
 
 
 async def test_find_one_with_extra_pymongo_options_bypasses_instead_of_raising(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
-    make_fake_document: Callable[..., dict[str, Any]],
+    make_fake_document: Callable[..., BsonDict],
 ) -> None:
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
     document = make_fake_document()
@@ -636,7 +636,7 @@ async def test_find_one_with_extra_pymongo_options_bypasses_instead_of_raising(
 
 
 async def test_find_one_by_id_projection_does_not_collide_with_full_document_read(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
 ) -> None:
@@ -678,19 +678,19 @@ async def test_unique_key_projection_with_decode_only_codec_strips_id(
     ],
 )
 async def test_cache_hit_is_isolated_from_caller_mutation(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
-    read_document: Callable[
-        [CachedCollection[dict[str, Any]]], Awaitable[dict[str, Any] | None]
-    ],
+    read_document: Callable[[CachedCollection[BsonDict]], Awaitable[BsonDict | None]],
 ) -> None:
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
     await collection.raw.insert_one({"_id": "doc-1", "tags": ["a", "b"]})
 
     first = await read_document(collection)
     assert first is not None
-    first["tags"].append("mutated")
+    tags = first["tags"]
+    assert isinstance(tags, list)
+    tags.append("mutated")
 
     second = await read_document(collection)
 
@@ -698,11 +698,11 @@ async def test_cache_hit_is_isolated_from_caller_mutation(
 
 
 async def test_find_one_by_id_invalidates_after_an_independent_write(
-    cache_manager: CacheManager[dict[str, Any]],
-    independent_writer: AsyncMongoClient[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
+    independent_writer: AsyncMongoClient[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
-    make_fake_document: Callable[..., dict[str, Any]],
+    make_fake_document: Callable[..., BsonDict],
 ) -> None:
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
     document = make_fake_document()
@@ -724,7 +724,7 @@ async def test_find_one_by_id_invalidates_after_an_independent_write(
 
 
 async def test_find_one_against_a_view_bypasses_cache(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     persistent_collection_name: CollectionName,
 ) -> None:
@@ -748,7 +748,7 @@ async def test_find_one_against_a_view_bypasses_cache(
 
 
 async def test_collection_recreated_as_a_view_loses_eligibility(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     persistent_collection_name: CollectionName,
 ) -> None:
@@ -784,7 +784,7 @@ async def test_collection_recreated_as_a_view_loses_eligibility(
 
 
 async def test_namespace_wrapped_while_absent_and_created_as_a_view_is_detected(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     persistent_collection_name: CollectionName,
 ) -> None:
@@ -822,10 +822,10 @@ async def test_namespace_wrapped_while_absent_and_created_as_a_view_is_detected(
     ],
 )
 async def test_find_one_bypasses_cache_when_view_inspection_fails(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
-    make_fake_document: Callable[..., dict[str, Any]],
+    make_fake_document: Callable[..., BsonDict],
     caplog: pytest.LogCaptureFixture,
     *,
     probe_error: Exception,
@@ -864,10 +864,10 @@ async def test_find_one_bypasses_cache_when_view_inspection_fails(
     ],
 )
 async def test_view_inspection_failure_is_not_memoized_as_a_permanent_view(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
-    make_fake_document: Callable[..., dict[str, Any]],
+    make_fake_document: Callable[..., BsonDict],
     probe_error: Exception,
 ) -> None:
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
@@ -892,7 +892,7 @@ async def test_view_inspection_failure_is_not_memoized_as_a_permanent_view(
 
 
 async def test_find_one_bypasses_forced_options_while_the_stream_is_unavailable(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
 ) -> None:
@@ -975,12 +975,12 @@ async def test_find_one_bypasses_forced_options_while_the_stream_is_unavailable(
     ],
 )
 async def test_reads_recheck_availability_before_forcing_read_options(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
     *,
     patch_target: str,
-    invoke: Callable[[CachedCollection[dict[str, Any]]], Coroutine[Any, Any, object]],
+    invoke: Callable[[CachedCollection[BsonDict]], Coroutine[Any, Any, object]],
     expected: object,
 ) -> None:
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
@@ -1015,10 +1015,10 @@ async def test_reads_recheck_availability_before_forcing_read_options(
 
 
 async def test_find_one_by_id_discards_admission_when_the_query_fails(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
-    make_fake_document: Callable[..., dict[str, Any]],
+    make_fake_document: Callable[..., BsonDict],
 ) -> None:
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
     document = make_fake_document()
@@ -1079,12 +1079,12 @@ async def test_find_one_by_id_discards_admission_when_the_query_fails(
     ],
 )
 async def test_repeated_reads_are_served_from_cache(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
     *,
     patch_target: str,
-    invoke: Callable[[CachedCollection[dict[str, Any]]], Coroutine[Any, Any, object]],
+    invoke: Callable[[CachedCollection[BsonDict]], Coroutine[Any, Any, object]],
     expected: object,
 ) -> None:
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
@@ -1143,12 +1143,12 @@ async def test_repeated_reads_are_served_from_cache(
     ],
 )
 async def test_namespace_guarded_reads_invalidate_after_an_independent_write(
-    cache_manager: CacheManager[dict[str, Any]],
-    independent_writer: AsyncMongoClient[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
+    independent_writer: AsyncMongoClient[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
     *,
-    invoke: Callable[[CachedCollection[dict[str, Any]]], Coroutine[Any, Any, object]],
+    invoke: Callable[[CachedCollection[BsonDict]], Coroutine[Any, Any, object]],
     settled: Callable[[object], bool],
 ) -> None:
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
@@ -1163,7 +1163,7 @@ async def test_namespace_guarded_reads_invalidate_after_an_independent_write(
 
 
 async def test_find_shapes_do_not_collide(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
 ) -> None:
@@ -1199,7 +1199,7 @@ async def test_find_shapes_do_not_collide(
     ],
 )
 async def test_find_filters_on_distinct_equivalent_looking_values_do_not_collide(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
     first_value: object,
@@ -1218,7 +1218,7 @@ async def test_find_filters_on_distinct_equivalent_looking_values_do_not_collide
 
 
 async def test_find_one_bypasses_when_identity_normalization_yields_an_unhashable_value(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
 ) -> None:
@@ -1246,7 +1246,7 @@ async def test_find_one_bypasses_when_identity_normalization_yields_an_unhashabl
 
 
 async def test_find_one_with_a_nested_elem_match_projection_is_order_sensitive(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
 ) -> None:
@@ -1268,14 +1268,18 @@ async def test_find_one_with_a_nested_elem_match_projection_is_order_sensitive(
         {"_id": "doc-1"}, {"items": {"$elemMatch": {"sub": {"b": 2, "a": 1}}}}
     )
 
-    assert first is not None
-    assert second is not None
-    assert first["items"][0]["tag"] == "first"
-    assert second["items"][0]["tag"] == "second"
+    assert first == {
+        "_id": "doc-1",
+        "items": [{"sub": {"a": 1, "b": 2}, "tag": "first"}],
+    }
+    assert second == {
+        "_id": "doc-1",
+        "items": [{"sub": {"b": 2, "a": 1}, "tag": "second"}],
+    }
 
 
 async def test_aggregate_with_a_multi_field_sort_is_order_sensitive(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
 ) -> None:
@@ -1303,7 +1307,7 @@ async def test_aggregate_with_a_multi_field_sort_is_order_sensitive(
     ],
 )
 async def test_aggregate_with_equal_int_and_other_numeric_literals_do_not_collide(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
     other_literal: object,
@@ -1326,8 +1330,8 @@ async def test_aggregate_with_equal_int_and_other_numeric_literals_do_not_collid
 
 
 async def test_find_one_by_a_numeric_id_invalidates_regardless_of_int_or_float_spelling(
-    cache_manager: CacheManager[dict[str, Any]],
-    independent_writer: AsyncMongoClient[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
+    independent_writer: AsyncMongoClient[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
 ) -> None:
@@ -1355,7 +1359,7 @@ async def test_find_one_by_a_numeric_id_invalidates_regardless_of_int_or_float_s
     ],
 )
 async def test_find_preserves_native_cursor_shapes(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
     kwargs: dict[str, Any],
@@ -1369,7 +1373,7 @@ async def test_find_preserves_native_cursor_shapes(
 
 
 async def test_aggregate_preserves_native_change_stream_cursor(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
 ) -> None:
@@ -1382,13 +1386,13 @@ async def test_aggregate_preserves_native_change_stream_cursor(
 
 
 async def test_aggregate_with_a_now_variable_executes_without_raising_but_is_not_cached(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
 ) -> None:
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
     await collection.raw.insert_one({"_id": "a", "start": "2020-01-01T00:00:00Z"})
-    pipeline: list[dict[str, Any]] = [{"$project": {"now": "$$NOW"}}]
+    pipeline: list[BsonDict] = [{"$project": {"now": "$$NOW"}}]
 
     with patch.object(
         AsyncCollection,
@@ -1403,7 +1407,7 @@ async def test_aggregate_with_a_now_variable_executes_without_raising_but_is_not
 
 
 async def test_find_with_an_oversize_result_is_returned_but_never_cached(
-    tight_budget_cache_manager: CacheManager[dict[str, Any]],
+    tight_budget_cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
 ) -> None:
@@ -1429,7 +1433,7 @@ async def test_find_with_an_oversize_result_is_returned_but_never_cached(
 
 
 async def test_find_with_a_plain_dict_collation_is_cached(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
 ) -> None:
@@ -1461,7 +1465,7 @@ async def test_find_with_a_plain_dict_collation_is_cached(
     ids=("zero-limit", "null-limit", "null-skip", "null-hint"),
 )
 async def test_count_documents_preserves_explicit_invalid_options(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
     *,
@@ -1490,7 +1494,7 @@ async def test_count_documents_preserves_explicit_invalid_options(
 
 @pytest.mark.parametrize("options", [{}, {"skip": 0}], ids=("omitted", "zero-skip"))
 async def test_count_documents_reuses_equivalent_skip_entries(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
     options: dict[str, Any],
@@ -1512,7 +1516,7 @@ async def test_count_documents_reuses_equivalent_skip_entries(
 
 
 async def test_count_documents_with_skip_limit_hint_and_collation_object_is_cached(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
 ) -> None:
@@ -1539,7 +1543,7 @@ async def test_count_documents_with_skip_limit_hint_and_collation_object_is_cach
 
 
 async def test_estimated_document_count_bypasses_cache_for_extra_pymongo_options(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
 ) -> None:
@@ -1601,11 +1605,11 @@ async def test_estimated_document_count_bypasses_cache_for_extra_pymongo_options
     ],
 )
 async def test_unsafe_filters_are_never_cached(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
     patch_target: str,
-    invoke: Callable[[CachedCollection[dict[str, Any]]], Coroutine[Any, Any, object]],
+    invoke: Callable[[CachedCollection[BsonDict]], Coroutine[Any, Any, object]],
 ) -> None:
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
     await collection.raw.insert_one({"_id": "a", "v": 1})
@@ -1631,7 +1635,7 @@ async def test_unsafe_filters_are_never_cached(
 
 
 async def test_find_with_a_meta_projection_is_never_cached(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
 ) -> None:
@@ -1691,11 +1695,11 @@ async def test_find_with_a_meta_projection_is_never_cached(
     ],
 )
 async def test_text_search_filters_are_never_cached(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
     patch_target: str,
-    invoke: Callable[[CachedCollection[dict[str, Any]]], Coroutine[Any, Any, object]],
+    invoke: Callable[[CachedCollection[BsonDict]], Coroutine[Any, Any, object]],
 ) -> None:
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
     await collection.raw.create_index([("text", "text")])
@@ -1764,13 +1768,13 @@ async def test_text_search_filters_are_never_cached(
     ],
 )
 async def test_reads_with_an_unhashable_value_bypass_instead_of_raising(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
     *,
     patch_target: str,
-    insert_doc: dict[str, Any],
-    invoke: Callable[[CachedCollection[dict[str, Any]]], Coroutine[Any, Any, object]],
+    insert_doc: BsonDict,
+    invoke: Callable[[CachedCollection[BsonDict]], Coroutine[Any, Any, object]],
     expected: object,
 ) -> None:
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
@@ -1838,10 +1842,10 @@ async def test_reads_with_an_unhashable_value_bypass_instead_of_raising(
     ],
 )
 async def test_aggregate_with_an_unsafe_pipeline_is_never_cached(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
-    pipeline: list[dict[str, Any]],
+    pipeline: list[BsonDict],
 ) -> None:
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
     await collection.raw.insert_one({"_id": "a", "v": 1})
@@ -1859,14 +1863,14 @@ async def test_aggregate_with_an_unsafe_pipeline_is_never_cached(
 
 
 async def test_aggregate_with_an_out_stage_still_executes_its_write_but_is_not_cached(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
     persistent_collection_name: CollectionName,
 ) -> None:
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
     await collection.raw.insert_one({"_id": "a", "v": 1})
-    pipeline: list[dict[str, Any]] = [{"$out": persistent_collection_name}]
+    pipeline: list[BsonDict] = [{"$out": persistent_collection_name}]
 
     with patch.object(
         AsyncCollection,
@@ -1888,10 +1892,10 @@ async def test_aggregate_with_an_out_stage_still_executes_its_write_but_is_not_c
     ids=["generic", "identity", "unique"],
 )
 async def test_find_one_sort_and_projection_shapes_do_not_collide(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
-    filter_query: dict[str, Any],
+    filter_query: BsonDict,
 ) -> None:
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
     await collection.raw.create_index("email", unique=True)
@@ -1925,8 +1929,8 @@ async def test_find_one_sort_and_projection_shapes_do_not_collide(
 
 @pytest.mark.parametrize("scalar_identity", [False, True], ids=["mapping", "scalar"])
 async def test_find_one_inherited_collation_uses_namespace_invalidation(
-    cache_manager: CacheManager[dict[str, Any]],
-    independent_writer: AsyncMongoClient[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
+    independent_writer: AsyncMongoClient[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
     *,
@@ -1981,8 +1985,8 @@ async def test_find_one_inherited_collation_uses_namespace_invalidation(
     ids=["matching-write", "nonmatching-write", "negative-insert", "drop-recreate"],
 )
 async def test_generic_find_one_invalidates_for_namespace_changes(
-    cache_manager: CacheManager[dict[str, Any]],
-    independent_writer: AsyncMongoClient[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
+    independent_writer: AsyncMongoClient[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
     *,
@@ -2066,7 +2070,7 @@ async def test_generic_find_one_invalidates_for_namespace_changes(
     ],
 )
 async def test_find_one_invalid_options_preserve_driver_behavior_after_warming(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
     options: dict[str, Any],
@@ -2095,7 +2099,7 @@ async def test_find_one_invalid_options_preserve_driver_behavior_after_warming(
     "sort", [[("rank", 1)], [("priority", -1)]], ids=["rank", "priority"]
 )
 async def test_find_one_sort_metadata_projections_execute_directly(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
     sort: list[tuple[str, int]],
@@ -2118,15 +2122,15 @@ async def test_find_one_sort_metadata_projections_execute_directly(
 
 @pytest.fixture
 async def interrupted_generic_collection(
-    cache_manager: CacheManager[dict[str, Any]],
-    independent_writer: AsyncMongoClient[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
+    independent_writer: AsyncMongoClient[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
     *,
     monkeypatch: pytest.MonkeyPatch,
     request: pytest.FixtureRequest,
     faker: Faker,
-) -> CachedCollection[dict[str, Any]]:
+) -> CachedCollection[BsonDict]:
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
     document = {"_id": faker.uuid4(), "rank": 1}
     await collection.raw.insert_one(document)
@@ -2136,8 +2140,8 @@ async def interrupted_generic_collection(
     interrupted = False
 
     async def read_then_interrupt(
-        raw: AsyncCollection[dict[str, Any]], *args: object, **kwargs: object
-    ) -> dict[str, Any] | None:
+        raw: AsyncCollection[BsonDict], *args: object, **kwargs: object
+    ) -> BsonDict | None:
         nonlocal interrupted
         document = await original_find_one(raw, *args, **kwargs)
         if not interrupted:
@@ -2178,7 +2182,7 @@ async def interrupted_generic_collection(
     ids=["write-during-read", "recovery-during-read"],
 )
 async def test_generic_find_one_does_not_admit_a_read_spanning_invalidation(
-    interrupted_generic_collection: CachedCollection[dict[str, Any]],
+    interrupted_generic_collection: CachedCollection[BsonDict],
 ) -> None:
     collection = interrupted_generic_collection
     query = {"rank": {"$gte": 1}}
@@ -2200,7 +2204,7 @@ async def test_generic_find_one_does_not_admit_a_read_spanning_invalidation(
     ids=["nonstring-key", "nonstring-embedded-id-key", "invalid-operator-argument"],
 )
 async def test_find_one_malformed_filters_preserve_driver_errors(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
     filter_query: dict[Any, Any],
@@ -2222,7 +2226,7 @@ async def test_find_one_malformed_filters_preserve_driver_errors(
     ids=["identity", "generic", "unique"],
 )
 async def test_find_one_explicit_collation_changes_matching_without_alias_leaks(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
     query_kind: str,
@@ -2230,7 +2234,7 @@ async def test_find_one_explicit_collation_changes_matching_without_alias_leaks(
 ) -> None:
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
     stored_spelling = faker.lexify("????????").upper()
-    document = {
+    document: BsonDict = {
         "_id": stored_spelling,
         "group": stored_spelling,
         "email": stored_spelling,

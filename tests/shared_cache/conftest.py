@@ -20,6 +20,7 @@ from benchmarks.stream_cost.shared_cache.coordinator import OwnerConfig, Transpo
 from benchmarks.stream_cost.shared_cache.owner import owner_main
 from benchmarks.stream_cost.shared_cache.window import attachment_for
 from benchmarks.stream_cost.shared_cache.wire import encode_key
+from client_query_cache._types import BsonDict
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Callable, Iterator
@@ -89,14 +90,14 @@ def wait_for(predicate: Callable[[], bool], timeout: float = 10.0) -> None:
         time.sleep(0.02)
 
 
-def ready(manager: SharedCacheManager[dict[str, Any]], database: str) -> None:
+def ready(manager: SharedCacheManager[BsonDict], database: str) -> None:
     collection = manager[database][COLLECTION]
     wait_for(lambda: collection._cache_ineligibility_reason() is None)
 
 
 def select_identity(
     endpoint: SyncEndpoint,
-    manager: SharedCacheManager[dict[str, Any]],
+    manager: SharedCacheManager[BsonDict],
     database: str,
     key: int,
 ) -> Message | None:
@@ -115,8 +116,8 @@ def select_identity(
 @asynccontextmanager
 async def async_shared_manager(
     owner: Owner, uri: str
-) -> AsyncGenerator[AsyncSharedCacheManager[dict[str, Any]]]:
-    client = AsyncMongoClient[dict[str, Any]](uri)
+) -> AsyncGenerator[AsyncSharedCacheManager[BsonDict]]:
+    client = AsyncMongoClient[BsonDict](uri)
     manager = AsyncSharedCacheManager(
         client, await AsyncEndpoint.attach(owner.attachment())
     )
@@ -131,7 +132,7 @@ async def async_shared_manager(
 def seeded_database(
     mongodb_uri: MongoDbUri, cached_database_name: DatabaseName
 ) -> Iterator[str]:
-    with MongoClient[dict[str, Any]](mongodb_uri) as client:
+    with MongoClient[BsonDict](mongodb_uri) as client:
         client[cached_database_name][COLLECTION].insert_many(
             {"_id": index, "payload": f"value-{index}", "revision": 0}
             for index in range(DOCUMENTS)

@@ -9,6 +9,7 @@ from pymongo import AsyncMongoClient, MongoClient
 
 from client_query_cache import CacheManager
 from client_query_cache._core.keys import NamespaceId
+from client_query_cache._types import BsonDict
 from client_query_cache.asynchronous import CacheManager as AsyncCacheManager
 from client_query_cache.otel import register_cache_metrics
 
@@ -23,18 +24,16 @@ pytestmark = pytest.mark.integration
 @pytest.fixture(params=[False, True], ids=["sync", "async"])
 async def documented_manager(
     request: pytest.FixtureRequest,
-) -> AsyncIterator[
-    CacheManager[dict[str, object]] | AsyncCacheManager[dict[str, object]]
-]:
+) -> AsyncIterator[CacheManager[BsonDict] | AsyncCacheManager[BsonDict]]:
     if request.param:
         async with (
-            AsyncMongoClient[dict[str, object]](connect=False) as client,
+            AsyncMongoClient[BsonDict](connect=False) as client,
             AsyncCacheManager(client) as manager,
         ):
             yield manager
     else:
         with (
-            MongoClient[dict[str, object]](connect=False) as sync_client,
+            MongoClient[BsonDict](connect=False) as sync_client,
             CacheManager(sync_client) as sync_manager,
         ):
             yield sync_manager
@@ -42,8 +41,7 @@ async def documented_manager(
 
 def test_documented_otel_usage_snippet_runs_against_a_real_meter_provider(
     faker: Faker,
-    documented_manager: CacheManager[dict[str, object]]
-    | AsyncCacheManager[dict[str, object]],
+    documented_manager: CacheManager[BsonDict] | AsyncCacheManager[BsonDict],
 ) -> None:
     reader = InMemoryMetricReader()
 

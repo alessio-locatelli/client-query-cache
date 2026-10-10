@@ -23,7 +23,7 @@ from benchmarks.stream_cost.oversized_result import (
     OversizedResultWorkloadMeasurement,
 )
 from benchmarks.stream_cost.pair_runner import PairResult, RunResult
-from client_query_cache._types import NonNegativeFloat
+from client_query_cache._types import JsonDict, NonNegativeFloat
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -91,9 +91,9 @@ def test_consolidated_decision_requires_every_pair_to_pass(
     )
     assert evidence["healthy"] is healthy
     assert evidence["decision"] == decision
-    assert [
-        pair["healthy"] for pair in cast("list[dict[str, object]]", evidence["pairs"])
-    ] == [lag < 0.5 for lag in loaded_lags]
+    assert [pair["healthy"] for pair in cast("list[JsonDict]", evidence["pairs"])] == [
+        lag < 0.5 for lag in loaded_lags
+    ]
 
 
 @pytest.mark.parametrize(

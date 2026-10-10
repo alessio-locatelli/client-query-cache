@@ -13,6 +13,7 @@ from client_query_cache._core.codec import encode_value
 from client_query_cache._core.entries import AdmissionOutcome, CacheEntry
 from client_query_cache._core.keys import NamespaceCacheKey
 from client_query_cache._core.manager import CacheCore, CacheCoreConfig
+from client_query_cache._types import BsonDict
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator
@@ -62,7 +63,7 @@ def test_snapshot_tracks_hits_and_misses(
     assert snapshot.hits == 1
 
 
-_DISCRIMINATOR: tuple[str, dict[str, object]] = ("find", {})
+_DISCRIMINATOR: tuple[str, BsonDict] = ("find", {})
 
 
 def _seed_valid_entry(core: CacheCore, namespace: NamespaceId) -> None:

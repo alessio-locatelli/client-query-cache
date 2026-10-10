@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING, NewType
 import pytest
 from pymongo import MongoClient
 
+from client_query_cache._types import BsonDict
+
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
@@ -155,7 +157,7 @@ def documented_program(
             )
             script += textwrap.indent(blocks[2], "        ")
             script += "asyncio.run(main())\n"
-        with MongoClient[dict[str, object]](mongodb_uri) as client:
+        with MongoClient[BsonDict](mongodb_uri) as client:
             client[database]["products"].insert_many(
                 [
                     {"_id": number, "status": "active", "name": str(number)}
@@ -166,7 +168,7 @@ def documented_program(
     script = script.replace('"client_query_cache_tutorial"', repr(database))
     script = script.replace('"shop"', repr(database))
     yield script
-    with MongoClient[dict[str, object]](mongodb_uri) as client:
+    with MongoClient[BsonDict](mongodb_uri) as client:
         client.drop_database(database)
 
 

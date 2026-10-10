@@ -42,7 +42,7 @@ from benchmarks.stream_cost.shared_cache.workload import (
     open_loop_async,
     open_loop_sync,
 )
-from client_query_cache._types import NonNegativeInt
+from client_query_cache._types import BsonDict, JsonDict, NonNegativeInt
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -260,7 +260,7 @@ def test_rate_uses_the_weakest_baseline_probe(
     ],
 )
 def test_validation_rejects_overloaded_or_short_windows(
-    registration: Registration, change: dict[str, object], reason: str
+    registration: Registration, change: JsonDict, reason: str
 ) -> None:
     cell = validation_cells(
         registration, "primary", 100.0, {"hot": 30.0, "active": 60.0}
@@ -660,7 +660,7 @@ def test_closed_loop_stops_at_its_identity_quota(model: str) -> None:
     ],
 )
 def test_checksum_requires_the_document(
-    document: dict[str, object] | None, error: type[Exception] | None
+    document: BsonDict | None, error: type[Exception] | None
 ) -> None:
     if error is None:
         assert checksum(document) == checksum({"payload": "abc", "revision": 2})
@@ -992,7 +992,7 @@ class _RecordingCollection:
     def __init__(self) -> None:
         self.batches: list[int] = []
 
-    def insert_many(self, documents: list[dict[str, object]]) -> None:
+    def insert_many(self, documents: list[BsonDict]) -> None:
         self.batches.append(len(documents))
 
 

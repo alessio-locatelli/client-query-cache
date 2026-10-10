@@ -18,6 +18,7 @@ from client_query_cache._core.stream_events import (
     is_unresumable_change_stream_error,
     route_change_event,
 )
+from client_query_cache._types import BsonDict
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -49,8 +50,8 @@ def test_pipeline_projects_every_routing_and_resume_field() -> None:
     }
 
 
-def _projected_event_for(operation_type: str) -> dict[str, object]:
-    event: dict[str, object] = {"operationType": operation_type, "wallTime": _WALL_TIME}
+def _projected_event_for(operation_type: str) -> BsonDict:
+    event: BsonDict = {"operationType": operation_type, "wallTime": _WALL_TIME}
     if operation_type in WRITE_OPERATION_TYPES:
         event["ns"] = {"db": "db", "coll": "coll"}
         event["documentKey"] = {"_id": "doc-1"}

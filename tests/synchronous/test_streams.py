@@ -21,7 +21,12 @@ from client_query_cache._core.errors import StreamLifecycleError, StreamStartupE
 from client_query_cache._core.keys import NamespaceId
 from client_query_cache._core.manager import CacheCore
 from client_query_cache._core.stream_health import RetryBackoff, StreamHealth
-from client_query_cache._types import NonNegativeFloat, NonNegativeInt, PositiveFloat
+from client_query_cache._types import (
+    BsonDict,
+    NonNegativeFloat,
+    NonNegativeInt,
+    PositiveFloat,
+)
 from client_query_cache.synchronous.streams import (
     ChangeStreamCoordinator,
     DatabaseStreamSupervisor,
@@ -84,9 +89,9 @@ class _CloseRaisesStream:
     def __init__(self) -> None:
         self.close_started = threading.Event()
         self.release_next = threading.Event()
-        self.resume_token: dict[str, object] | None = None
+        self.resume_token: BsonDict | None = None
 
-    def next(self) -> dict[str, object]:
+    def next(self) -> BsonDict:
         self.release_next.wait(timeout=2)
         raise StopIteration
 
@@ -101,9 +106,9 @@ class _StreamStopsThenFails:
     def __init__(self, stop_event: threading.Event, error: Exception) -> None:
         self._stop_event = stop_event
         self._error = error
-        self.resume_token: dict[str, object] | None = None
+        self.resume_token: BsonDict | None = None
 
-    def next(self) -> dict[str, object]:
+    def next(self) -> BsonDict:
         self._stop_event.set()
         raise self._error
 
@@ -121,7 +126,7 @@ def _is_healthy(supervisor: DatabaseStreamSupervisor) -> bool:
     return supervisor.healthy
 
 
-def _insert_event(marker: str = "tok-1") -> dict[str, object]:
+def _insert_event(marker: str = "tok-1") -> BsonDict:
     return {
         "_id": {"tok": marker},
         "operationType": "insert",
@@ -213,7 +218,7 @@ def test_start_fails_closed_when_server_info_itself_fails(
 ) -> None:
     database = ScriptedDatabase("db", [])
 
-    def failing_server_info() -> dict[str, object]:
+    def failing_server_info() -> BsonDict:
         raise ConnectionFailure("no primary available")
 
     database.client = SimpleNamespace(server_info=failing_server_info)
@@ -703,7 +708,7 @@ def test_clears_known_namespaces_when_resume_history_is_lost(
 )
 def test_reopens_with_start_after_following_a_database_invalidation_event(
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
-    invalidate_event: dict[str, object],
+    invalidate_event: BsonDict,
 ) -> None:
     cache = _mock_cache()
     cache.namespaces_for_database.return_value = [NamespaceId("db", "coll")]

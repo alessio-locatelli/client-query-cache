@@ -11,6 +11,7 @@ from pymongo.synchronous.cursor import Cursor
 
 from client_query_cache import BypassReason
 from client_query_cache._core.keys import NamespaceId
+from client_query_cache._types import BsonDict
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -44,11 +45,11 @@ CollectionKind = Literal["collection", "timeseries", "absent"]
 
 @pytest.fixture
 def collection(
-    cache_manager: CacheManager[dict[str, object]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     faker: Faker,
     request: pytest.FixtureRequest,
-) -> Iterator[CachedCollection[dict[str, object]]]:
+) -> Iterator[CachedCollection[BsonDict]]:
     database = cache_manager[cached_database_name]
     name = faker.pystr()
     kind: CollectionKind = request.param if hasattr(request, "param") else "timeseries"
@@ -61,13 +62,13 @@ def collection(
 @pytest.fixture
 def independent_writer(
     mongodb_uri: MongoDbUri,
-) -> Iterator[MongoClient[dict[str, object]]]:
-    with MongoClient[dict[str, object]](mongodb_uri) as client:
+) -> Iterator[MongoClient[BsonDict]]:
+    with MongoClient[BsonDict](mongodb_uri) as client:
         yield client
 
 
 def create_collection(
-    collection: CachedCollection[dict[str, object]], kind: CollectionKind
+    collection: CachedCollection[BsonDict], kind: CollectionKind
 ) -> None:
     if kind == "timeseries":
         collection.database.raw.create_collection(
@@ -85,7 +86,7 @@ def wait_until(predicate: Callable[[], bool]) -> None:
 
 
 @pytest.fixture
-def measurement(faker: Faker) -> dict[str, object]:
+def measurement(faker: Faker) -> BsonDict:
     return {
         "_id": faker.pystr(),
         "timestamp": faker.date_time().replace(microsecond=0),
@@ -94,7 +95,7 @@ def measurement(faker: Faker) -> dict[str, object]:
 
 
 def read(
-    collection: CachedCollection[dict[str, object]],
+    collection: CachedCollection[BsonDict],
     method: ReadMethod,
     identity: object,
 ) -> object:
@@ -115,10 +116,10 @@ def read(
 
 @pytest.mark.parametrize("method", READ_METHODS, ids=READ_METHODS)
 def test_timeseries_reads_bypass_with_healthy_stream(
-    collection: CachedCollection[dict[str, object]],
-    measurement: dict[str, object],
+    collection: CachedCollection[BsonDict],
+    measurement: BsonDict,
     method: ReadMethod,
-    independent_writer: MongoClient[dict[str, object]],
+    independent_writer: MongoClient[BsonDict],
 ) -> None:
     cache = collection.database.manager.cache_core
     before = cache.snapshot()
@@ -150,7 +151,7 @@ def test_timeseries_reads_bypass_with_healthy_stream(
 )
 @pytest.mark.parametrize("method", READ_METHODS, ids=READ_METHODS)
 def test_timeseries_delegation_preserves_options_and_errors(
-    collection: CachedCollection[dict[str, object]],
+    collection: CachedCollection[BsonDict],
     method: ReadMethod,
     faker: Faker,
     with_options: bool,
@@ -202,8 +203,8 @@ def test_timeseries_delegation_preserves_options_and_errors(
     ids=["ordinary", "timeseries", "absent"],
 )
 def test_collection_metadata_probe_counts(
-    collection: CachedCollection[dict[str, object]],
-    measurement: dict[str, object],
+    collection: CachedCollection[BsonDict],
+    measurement: BsonDict,
     request: pytest.FixtureRequest,
 ) -> None:
     database_type = type(collection.database.raw)
@@ -242,8 +243,8 @@ def test_collection_metadata_probe_counts(
     "replacement", ["timeseries", "collection"], ids=["to-timeseries", "to-ordinary"]
 )
 def test_collection_type_is_rechecked_after_absence(
-    collection: CachedCollection[dict[str, object]],
-    measurement: dict[str, object],
+    collection: CachedCollection[BsonDict],
+    measurement: BsonDict,
     replacement: CollectionKind,
     request: pytest.FixtureRequest,
 ) -> None:

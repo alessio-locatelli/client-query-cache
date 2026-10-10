@@ -11,7 +11,7 @@ from benchmarks.stream_cost.compressor_preflight import (
     verify_compressor_negotiation,
 )
 from benchmarks.stream_cost.errors import BenchmarkSetupError
-from client_query_cache._types import NonNegativeInt
+from client_query_cache._types import BsonDict, NonNegativeInt
 
 pytestmark = pytest.mark.unit
 
@@ -48,11 +48,11 @@ class _FakeCollection:
         self.dropped += 1
 
     @staticmethod
-    def insert_many(documents: list[dict[str, object]]) -> None:
+    def insert_many(documents: list[BsonDict]) -> None:
         del documents
 
     @staticmethod
-    def find(query: dict[str, object]) -> list[object]:
+    def find(query: BsonDict) -> list[object]:
         del query
         return []
 
@@ -80,10 +80,10 @@ class _FakeMeasuredClient:
 class _FakeAdmin:
     __slots__ = ("_responses",)
 
-    def __init__(self, responses: list[dict[str, object]]) -> None:
+    def __init__(self, responses: list[BsonDict]) -> None:
         self._responses = iter(responses)
 
-    def command(self, name: str) -> dict[str, object]:
+    def command(self, name: str) -> BsonDict:
         assert name == "serverStatus"
         return next(self._responses)
 

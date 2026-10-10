@@ -1,9 +1,10 @@
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import pytest
 from pymongo import MongoClient, ReadPreference
 from pymongo.synchronous.collection import Collection
 
+from client_query_cache._types import BsonDict
 from client_query_cache.synchronous.collection import CachedCollection
 from client_query_cache.synchronous.database import CachedDatabase
 from client_query_cache.synchronous.manager import CacheManager
@@ -17,17 +18,17 @@ pytestmark = pytest.mark.unit
 
 
 @pytest.fixture
-def client() -> MongoClient[dict[str, Any]]:
+def client() -> MongoClient[BsonDict]:
     return MongoClient("mongodb://localhost:27017", connect=False)
 
 
 @pytest.fixture
-def manager(client: MongoClient[dict[str, Any]]) -> CacheManager[dict[str, Any]]:
+def manager(client: MongoClient[BsonDict]) -> CacheManager[BsonDict]:
     return CacheManager(client)
 
 
 def test_database_retains_access_to_the_caller_owned_raw_database(
-    manager: CacheManager[dict[str, Any]], client: MongoClient[dict[str, Any]]
+    manager: CacheManager[BsonDict], client: MongoClient[BsonDict]
 ) -> None:
     raw_database = client["example"]
 
@@ -38,7 +39,7 @@ def test_database_retains_access_to_the_caller_owned_raw_database(
 
 
 def test_database_attribute_access_returns_a_cached_collection_facade(
-    manager: CacheManager[dict[str, Any]],
+    manager: CacheManager[BsonDict],
 ) -> None:
     collection = manager["example"].items
 
@@ -58,7 +59,7 @@ def test_database_attribute_access_returns_a_cached_collection_facade(
     ],
 )
 def test_database_does_not_expose_undeclared_pymongo_attributes(
-    manager: CacheManager[dict[str, Any]], name: str
+    manager: CacheManager[BsonDict], name: str
 ) -> None:
     database = manager["example"]
 
@@ -67,7 +68,7 @@ def test_database_does_not_expose_undeclared_pymongo_attributes(
 
 
 def test_database_index_access_names_a_collection_colliding_with_a_pymongo_method(
-    manager: CacheManager[dict[str, Any]],
+    manager: CacheManager[BsonDict],
 ) -> None:
     collection = manager["example"]["create_collection"]
 
@@ -93,10 +94,8 @@ def test_database_index_access_names_a_collection_colliding_with_a_pymongo_metho
     ],
 )
 def test_optioned_raw_database_collection_keeps_its_options_through_the_cached_view(
-    manager: CacheManager[dict[str, Any]],
-    get_raw_collection: Callable[
-        [Database[dict[str, Any]]], Collection[dict[str, Any]]
-    ],
+    manager: CacheManager[BsonDict],
+    get_raw_collection: Callable[[Database[BsonDict]], Collection[BsonDict]],
 ) -> None:
     raw_collection = get_raw_collection(manager["example"].raw)
 
@@ -108,7 +107,7 @@ def test_optioned_raw_database_collection_keeps_its_options_through_the_cached_v
 
 
 def test_database_builds_a_collection_facade_around_its_raw_database(
-    manager: CacheManager[dict[str, Any]],
+    manager: CacheManager[BsonDict],
 ) -> None:
     collection = manager["example"]["items"]
 

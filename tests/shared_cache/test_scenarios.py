@@ -8,7 +8,7 @@ import signal
 import socket
 import struct
 import time
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, cast
 
 import bson
 import pytest
@@ -30,6 +30,7 @@ from benchmarks.stream_cost.shared_cache.attachment import (
     SyncEndpoint,
 )
 from benchmarks.stream_cost.shared_cache.wire import encode_frame, encode_key
+from client_query_cache._types import BsonDict
 from tests.codec_helpers import Decimal128ToDecimalDecoder
 from tests.shared_cache.conftest import (
     COLLECTION,
@@ -54,15 +55,15 @@ _PAST_RETRY_SECONDS = 0.15
 
 
 @pytest.fixture
-def client(mongodb_uri: MongoDbUri) -> Iterator[MongoClient[dict[str, Any]]]:
-    with MongoClient[dict[str, Any]](mongodb_uri) as raw:
+def client(mongodb_uri: MongoDbUri) -> Iterator[MongoClient[BsonDict]]:
+    with MongoClient[BsonDict](mongodb_uri) as raw:
         yield raw
 
 
 @pytest.fixture
 def sync_manager(
-    client: MongoClient[dict[str, Any]], start_owner: Callable[..., Owner]
-) -> Iterator[tuple[SharedCacheManager[dict[str, Any]], Owner]]:
+    client: MongoClient[BsonDict], start_owner: Callable[..., Owner]
+) -> Iterator[tuple[SharedCacheManager[BsonDict], Owner]]:
     owner = start_owner()
     manager = SharedCacheManager(client, SyncEndpoint(owner.attachment()))
     yield manager, owner
@@ -72,7 +73,7 @@ def sync_manager(
 def _reader_main(
     connection: Connection, uri: str, config: AttachmentConfig, database: str, mode: str
 ) -> None:
-    with MongoClient[dict[str, Any]](uri) as raw:
+    with MongoClient[BsonDict](uri) as raw:
         manager = SharedCacheManager(raw, SyncEndpoint(config))
         collection = manager[database][COLLECTION]
         ready(manager, database)
@@ -106,7 +107,7 @@ def _spawn_reader(
 
 
 def test_sync_and_async_workers_reuse_one_admitted_payload_across_processes(
-    sync_manager: tuple[SharedCacheManager[dict[str, Any]], Owner],
+    sync_manager: tuple[SharedCacheManager[BsonDict], Owner],
     seeded_database: str,
     mongodb_uri: MongoDbUri,
 ) -> None:
@@ -137,7 +138,7 @@ def test_sync_and_async_workers_reuse_one_admitted_payload_across_processes(
 
 
 def test_mutating_a_shared_hit_leaves_the_group_entry_unchanged(
-    sync_manager: tuple[SharedCacheManager[dict[str, Any]], Owner], seeded_database: str
+    sync_manager: tuple[SharedCacheManager[BsonDict], Owner], seeded_database: str
 ) -> None:
     manager, _owner = sync_manager
     collection = manager[seeded_database][COLLECTION]
@@ -156,9 +157,9 @@ def test_mutating_a_shared_hit_leaves_the_group_entry_unchanged(
 
 
 def test_processed_invalidation_prevents_a_stale_selection(
-    sync_manager: tuple[SharedCacheManager[dict[str, Any]], Owner],
+    sync_manager: tuple[SharedCacheManager[BsonDict], Owner],
     seeded_database: str,
-    client: MongoClient[dict[str, Any]],
+    client: MongoClient[BsonDict],
 ) -> None:
     manager, owner = sync_manager
     collection = manager[seeded_database][COLLECTION]
@@ -171,11 +172,11 @@ def test_processed_invalidation_prevents_a_stale_selection(
     )
     wait_for(lambda: owner.request("sample")["invalidations"] > before)
 
-    assert cast("dict[str, Any]", collection.find_one({"_id": 2}))["revision"] == 1
+    assert cast("BsonDict", collection.find_one({"_id": 2}))["revision"] == 1
 
 
 def test_owner_restart_fences_old_sessions_and_handles(
-    client: MongoClient[dict[str, Any]],
+    client: MongoClient[BsonDict],
     start_owner: Callable[..., Owner],
     seeded_database: str,
 ) -> None:
@@ -218,7 +219,7 @@ def test_a_second_live_owner_cannot_take_the_endpoint(
 
 
 def test_a_paused_owner_times_out_and_the_read_stays_native(
-    sync_manager: tuple[SharedCacheManager[dict[str, Any]], Owner], seeded_database: str
+    sync_manager: tuple[SharedCacheManager[BsonDict], Owner], seeded_database: str
 ) -> None:
     manager, owner = sync_manager
     collection = manager[seeded_database][COLLECTION]
@@ -239,7 +240,7 @@ def test_a_paused_owner_times_out_and_the_read_stays_native(
 
 
 def test_a_stalled_watch_disables_selection_and_fences_captures(
-    sync_manager: tuple[SharedCacheManager[dict[str, Any]], Owner], seeded_database: str
+    sync_manager: tuple[SharedCacheManager[BsonDict], Owner], seeded_database: str
 ) -> None:
     manager, owner = sync_manager
     ready(manager, seeded_database)
@@ -277,7 +278,7 @@ def test_a_stalled_watch_disables_selection_and_fences_captures(
 
 
 def _after_stream_reopen(
-    manager: SharedCacheManager[dict[str, Any]], owner: Owner, database: str, fault: str
+    manager: SharedCacheManager[BsonDict], owner: Owner, database: str, fault: str
 ) -> Message:
     collection = manager[database][COLLECTION]
     ready(manager, database)
@@ -303,7 +304,7 @@ def _after_stream_reopen(
 
 
 def test_a_resumed_stream_keeps_entries_and_captures_valid(
-    sync_manager: tuple[SharedCacheManager[dict[str, Any]], Owner],
+    sync_manager: tuple[SharedCacheManager[BsonDict], Owner],
     seeded_database: str,
 ) -> None:
     manager, owner = sync_manager
@@ -316,7 +317,7 @@ def test_a_resumed_stream_keeps_entries_and_captures_valid(
 
 
 def test_lost_stream_history_clears_entries_and_fences_captures(
-    sync_manager: tuple[SharedCacheManager[dict[str, Any]], Owner],
+    sync_manager: tuple[SharedCacheManager[BsonDict], Owner],
     seeded_database: str,
 ) -> None:
     manager, owner = sync_manager
@@ -378,7 +379,7 @@ def _closed(sock: socket.socket) -> bool:
 
 
 def test_a_slow_reader_is_detached_without_blocking_peers(
-    client: MongoClient[dict[str, Any]],
+    client: MongoClient[BsonDict],
     start_owner: Callable[..., Owner],
     seeded_database: str,
 ) -> None:
@@ -505,7 +506,7 @@ def test_a_slow_reader_is_detached_without_blocking_peers(
     ],
 )
 def test_malformed_peers_are_rejected_while_others_continue(
-    sync_manager: tuple[SharedCacheManager[dict[str, Any]], Owner],
+    sync_manager: tuple[SharedCacheManager[BsonDict], Owner],
     seeded_database: str,
     frames: Callable[[str], list[bytes]],
     authenticate: bool,
@@ -553,7 +554,7 @@ def test_the_connection_limit_rejects_extra_attachments(
 
 
 def test_capture_limits_and_expiry_bound_owner_state(
-    client: MongoClient[dict[str, Any]],
+    client: MongoClient[BsonDict],
     start_owner: Callable[..., Owner],
     seeded_database: str,
 ) -> None:
@@ -581,7 +582,7 @@ def test_capture_limits_and_expiry_bound_owner_state(
 
 
 def test_unauthorized_databases_bypass(
-    sync_manager: tuple[SharedCacheManager[dict[str, Any]], Owner],
+    sync_manager: tuple[SharedCacheManager[BsonDict], Owner],
 ) -> None:
     manager, _owner = sync_manager
 
@@ -592,7 +593,7 @@ def test_unauthorized_databases_bypass(
 
 
 def test_owner_shutdown_during_activation_leaves_reads_native(
-    client: MongoClient[dict[str, Any]],
+    client: MongoClient[BsonDict],
     start_owner: Callable[..., Owner],
     seeded_database: str,
 ) -> None:
@@ -661,7 +662,7 @@ def test_async_reads_fall_back_when_the_owner_disappears(
 ) -> None:
     owner = start_owner()
 
-    async def scenario() -> list[dict[str, Any] | None]:
+    async def scenario() -> list[BsonDict | None]:
         async with async_shared_manager(owner, mongodb_uri) as manager:
             collection = manager[seeded_database][COLLECTION]
             while manager.observation.hits + manager.observation.misses == 0:
@@ -680,7 +681,7 @@ def test_async_reads_fall_back_when_the_owner_disappears(
 
     documents = asyncio.run(scenario())
 
-    assert [cast("dict[str, Any]", document)["_id"] for document in documents] == [
+    assert [cast("BsonDict", document)["_id"] for document in documents] == [
         17,
         18,
         18,
@@ -755,7 +756,7 @@ def test_closing_during_a_reconnection_discards_the_new_connection(
 
 
 def test_inherited_attachments_are_rejected_before_use(
-    sync_manager: tuple[SharedCacheManager[dict[str, Any]], Owner],
+    sync_manager: tuple[SharedCacheManager[BsonDict], Owner],
 ) -> None:
     manager, owner = sync_manager
     endpoint = asyncio.run(AsyncEndpoint.attach(owner.attachment()))
@@ -774,9 +775,9 @@ def test_inherited_attachments_are_rejected_before_use(
 
 
 def test_unportable_and_out_of_scope_reads_execute_natively(
-    sync_manager: tuple[SharedCacheManager[dict[str, Any]], Owner],
+    sync_manager: tuple[SharedCacheManager[BsonDict], Owner],
     seeded_database: str,
-    client: MongoClient[dict[str, Any]],
+    client: MongoClient[BsonDict],
 ) -> None:
     manager, _owner = sync_manager
     ready(manager, seeded_database)
@@ -801,7 +802,7 @@ def test_unportable_and_out_of_scope_reads_execute_natively(
 
 
 def test_collection_metadata_failures_bypass_shared_selection(
-    sync_manager: tuple[SharedCacheManager[dict[str, Any]], Owner],
+    sync_manager: tuple[SharedCacheManager[BsonDict], Owner],
     seeded_database: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -820,7 +821,7 @@ def test_collection_metadata_failures_bypass_shared_selection(
 
 
 def test_shared_find_cursors_admit_complete_results_only(
-    sync_manager: tuple[SharedCacheManager[dict[str, Any]], Owner], seeded_database: str
+    sync_manager: tuple[SharedCacheManager[BsonDict], Owner], seeded_database: str
 ) -> None:
     manager, owner = sync_manager
     collection = manager[seeded_database][COLLECTION]
@@ -845,13 +846,11 @@ def test_async_find_cursors_and_metadata_refresh(
     start_owner: Callable[..., Owner],
     seeded_database: str,
     mongodb_uri: MongoDbUri,
-    client: MongoClient[dict[str, Any]],
+    client: MongoClient[BsonDict],
 ) -> None:
     owner = start_owner()
 
-    async def scenario() -> tuple[
-        list[dict[str, Any]], AsyncSharedCacheManager[dict[str, Any]]
-    ]:
+    async def scenario() -> tuple[list[BsonDict], AsyncSharedCacheManager[BsonDict]]:
         async with async_shared_manager(owner, mongodb_uri) as manager:
             collection = manager[seeded_database][COLLECTION]
             while manager.observation.hits + manager.observation.misses == 0:

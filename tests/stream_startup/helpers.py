@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, TypedDict
 
 from client_query_cache import CacheManager
-from client_query_cache._types import NonNegativeInt
+from client_query_cache._types import BsonDict, NonNegativeInt
 from client_query_cache.asynchronous import CacheManager as AsyncCacheManager
 from client_query_cache.asynchronous.streams import (
     ChangeStreamCoordinator as AsyncCoordinator,
@@ -24,8 +24,8 @@ if TYPE_CHECKING:
     from client_query_cache._core.manager import CacheCore
 
 type ShutdownOwner = (
-    CacheManager[dict[str, object]]
-    | AsyncCacheManager[dict[str, object]]
+    CacheManager[BsonDict]
+    | AsyncCacheManager[BsonDict]
     | ChangeStreamCoordinator
     | AsyncCoordinator
 )

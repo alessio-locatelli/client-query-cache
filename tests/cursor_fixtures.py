@@ -10,6 +10,7 @@ from pymongo.asynchronous.command_cursor import AsyncCommandCursor
 from pymongo.monitoring import CommandListener
 
 from client_query_cache._core.manager import CacheCoreConfig
+from client_query_cache._types import BsonDict
 from client_query_cache.asynchronous import CachedCollection as AsyncCachedCollection
 from client_query_cache.asynchronous import CacheManager as AsyncCacheManager
 from client_query_cache.synchronous import CachedCollection, CacheManager
@@ -29,10 +30,9 @@ if TYPE_CHECKING:
     from tests.conftest import CollectionName, DatabaseName, MongoDbUri
 
 pytestmark = pytest.mark.integration
-type Document = dict[str, Any]
-type View = CachedCollection[Document] | AsyncCachedCollection[Document]
+type View = CachedCollection[BsonDict] | AsyncCachedCollection[BsonDict]
 type CursorFactory = Callable[
-    [View], ReadCursor[Document] | Awaitable[AsyncCommandCursor[Document]]
+    [View], ReadCursor[BsonDict] | Awaitable[AsyncCommandCursor[BsonDict]]
 ]
 DOCUMENT_COUNT = 240  # Exceeds MongoDB's default initial find batch.
 
@@ -60,7 +60,7 @@ class ReadCommands(CommandListener):
 class Binding(TypedDict):
     view: View
     commands: ReadCommands
-    documents: list[Document]
+    documents: list[BsonDict]
 
 
 @pytest.fixture(params=("sync", "async"))
@@ -80,13 +80,13 @@ async def cursors(
     async with AsyncExitStack() as stack:
         if api == "sync":
             client = stack.enter_context(
-                MongoClient[Document](mongodb_uri, event_listeners=[commands])
+                MongoClient[BsonDict](mongodb_uri, event_listeners=[commands])
             )
             manager = stack.enter_context(CacheManager(client, cache_config=config))
             view: View = manager[cached_database_name][nonpersistent_collection_name]
         else:
             async_client = await stack.enter_async_context(
-                AsyncMongoClient[Document](mongodb_uri, event_listeners=[commands])
+                AsyncMongoClient[BsonDict](mongodb_uri, event_listeners=[commands])
             )
             async_manager = await stack.enter_async_context(
                 AsyncCacheManager(async_client, cache_config=config)

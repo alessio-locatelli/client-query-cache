@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -19,6 +19,7 @@ from benchmarks.stream_cost.workload import (
     seed_dataset,
     verify_primed,
 )
+from client_query_cache._types import BsonDict
 
 if TYPE_CHECKING:
     from client_query_cache.synchronous.manager import CacheManager
@@ -52,7 +53,7 @@ def _idle_small_variant() -> WorkloadVariant:
 
 
 def test_priming_yields_positive_admission_and_hit_deltas(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     persistent_collection_name: CollectionName,
 ) -> None:
@@ -71,7 +72,7 @@ def test_priming_yields_positive_admission_and_hit_deltas(
 
 
 def test_run_paired_reads_returns_identical_data_for_raw_and_cache(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     persistent_collection_name: CollectionName,
 ) -> None:
@@ -89,7 +90,7 @@ def test_run_paired_reads_returns_identical_data_for_raw_and_cache(
 
 
 def test_issue_writes_updates_the_requested_number_of_seeded_documents(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     persistent_collection_name: CollectionName,
 ) -> None:
@@ -107,7 +108,7 @@ def test_issue_writes_updates_the_requested_number_of_seeded_documents(
 
 
 def test_run_workload_variant_composes_the_configured_read_write_mix(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     persistent_collection_name: CollectionName,
 ) -> None:
@@ -134,7 +135,7 @@ def test_run_workload_variant_composes_the_configured_read_write_mix(
 
 
 def test_run_workload_variant_still_primes_the_idle_variant(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     persistent_collection_name: CollectionName,
 ) -> None:
@@ -158,7 +159,7 @@ def test_run_workload_variant_still_primes_the_idle_variant(
 
 
 def test_run_workload_variant_executes_configured_warmup_writes(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     persistent_collection_name: CollectionName,
 ) -> None:
@@ -183,7 +184,7 @@ def test_run_workload_variant_executes_configured_warmup_writes(
 
 
 def test_run_paired_reads_rejects_mismatched_raw_and_cache_data(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     persistent_collection_name: CollectionName,
     nonpersistent_collection_name: CollectionName,

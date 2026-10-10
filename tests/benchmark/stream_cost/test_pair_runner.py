@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, cast
 
 import pytest
 
@@ -29,7 +29,12 @@ from benchmarks.stream_cost.pair_runner import (
     run_consolidated_stream_pair,
     run_consolidated_stream_pairs,
 )
-from client_query_cache._types import NonNegativeFloat, NonNegativeInt, PositiveFloat
+from client_query_cache._types import (
+    BsonDict,
+    NonNegativeFloat,
+    NonNegativeInt,
+    PositiveFloat,
+)
 
 if TYPE_CHECKING:
     from pymongo import MongoClient
@@ -131,8 +136,8 @@ def _patch_healthy_runs(monkeypatch: pytest.MonkeyPatch) -> _StubManager:
     return manager
 
 
-def _dummy_client() -> MongoClient[dict[str, Any]]:
-    return cast("MongoClient[dict[str, Any]]", None)
+def _dummy_client() -> MongoClient[BsonDict]:
+    return cast("MongoClient[BsonDict]", None)
 
 
 @pytest.mark.parametrize(
@@ -567,14 +572,14 @@ def test_send_hello_uses_the_primary_read_preference() -> None:
 
     class _StubAdmin:
         @staticmethod
-        def command(name: str, **kwargs: object) -> dict[str, object]:
+        def command(name: str, **kwargs: object) -> BsonDict:
             calls.append({"name": name, **kwargs})
             return {"ok": 1.0}
 
     class _StubClient:
         admin = _StubAdmin()
 
-    pair_runner._send_hello(cast("MongoClient[dict[str, Any]]", _StubClient()))
+    pair_runner._send_hello(cast("MongoClient[BsonDict]", _StubClient()))
 
     assert calls[0]["name"] == "hello"
 

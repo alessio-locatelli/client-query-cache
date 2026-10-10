@@ -17,6 +17,7 @@ from pymongo.errors import ConnectionFailure
 from pymongo.synchronous.cursor import Cursor
 
 from client_query_cache import BypassReason, CacheManager
+from client_query_cache._types import BsonDict
 from client_query_cache.asynchronous import CacheManager as AsyncCacheManager
 from client_query_cache.otel import register_cache_metrics
 from tests.cursor_helpers import materialize
@@ -29,10 +30,8 @@ if TYPE_CHECKING:
         CachedCollection as AsyncCachedCollection,
     )
 
-type Manager = CacheManager[dict[str, Any]] | AsyncCacheManager[dict[str, Any]]
-type Collection = (
-    CachedCollection[dict[str, Any]] | AsyncCachedCollection[dict[str, Any]]
-)
+type Manager = CacheManager[BsonDict] | AsyncCacheManager[BsonDict]
+type Collection = CachedCollection[BsonDict] | AsyncCachedCollection[BsonDict]
 
 pytestmark = pytest.mark.unit
 
@@ -40,14 +39,14 @@ pytestmark = pytest.mark.unit
 @pytest.fixture(params=[False, True], ids=["sync", "async"])
 async def manager(request: pytest.FixtureRequest) -> AsyncIterator[Manager]:
     if request.param:
-        async_client = AsyncMongoClient[dict[str, Any]](connect=False)
+        async_client = AsyncMongoClient[BsonDict](connect=False)
         async_manager = AsyncCacheManager(async_client)
         yield async_manager
         await async_manager.close()
         await async_client.close()
     else:
         with (
-            MongoClient[dict[str, Any]](connect=False) as client,
+            MongoClient[BsonDict](connect=False) as client,
             CacheManager(client) as instance,
         ):
             yield instance
@@ -134,8 +133,8 @@ def cached_collection(manager: Manager, monkeypatch: pytest.MonkeyPatch) -> Coll
 async def test_public_find_one_records_the_first_request_reason(
     cached_collection: Collection,
     options: dict[str, Any],
-    query: dict[str, Any],
-    projection: dict[str, Any] | None,
+    query: BsonDict,
+    projection: BsonDict | None,
     *,
     secondary: bool,
     reason: BypassReason,
@@ -189,7 +188,7 @@ async def test_public_find_one_records_the_first_request_reason(
 async def test_public_metadata_reasons_preserve_probe_lifetimes(
     cached_collection: Collection,
     monkeypatch: pytest.MonkeyPatch,
-    entry: dict[str, Any] | ConnectionFailure | None,
+    entry: BsonDict | ConnectionFailure | None,
     reason: BypassReason,
 ) -> None:
     manager = cached_collection.database.manager
@@ -415,7 +414,7 @@ async def test_unhashable_timezone_constructs_and_bypasses(
     timestamp = datetime.now(_UnhashableTimezone())
     assert timestamp.utcoffset() == timestamp.dst() == timedelta(0)
     assert timestamp.tzname() == "UTC"
-    options: CodecOptions[dict[str, Any]] = CodecOptions(
+    options: CodecOptions[BsonDict] = CodecOptions(
         tz_aware=True, tzinfo=_UnhashableTimezone()
     )
     collection: Collection

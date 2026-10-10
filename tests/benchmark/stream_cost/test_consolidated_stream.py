@@ -4,7 +4,7 @@ import math
 import time
 from contextlib import closing
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, cast
 
 import pytest
 from pymongo.errors import ConnectionFailure
@@ -27,7 +27,12 @@ from benchmarks.stream_cost.errors import (
     BenchmarkConfigurationError,
     BenchmarkSetupError,
 )
-from client_query_cache._types import NonNegativeFloat, NonNegativeInt, PositiveInt
+from client_query_cache._types import (
+    BsonDict,
+    NonNegativeFloat,
+    NonNegativeInt,
+    PositiveInt,
+)
 from client_query_cache.synchronous.manager import CacheManager
 
 if TYPE_CHECKING:
@@ -271,14 +276,14 @@ def test_verify_relevant_write_counts_match(
 
 @dataclass(slots=True)
 class _FakeInsertCollection:
-    inserted: list[dict[str, Any]] = field(default_factory=list)
+    inserted: list[BsonDict] = field(default_factory=list)
 
-    def insert_one(self, document: dict[str, Any]) -> None:
+    def insert_one(self, document: BsonDict) -> None:
         self.inserted.append(document)
 
 
 def test_unrelated_write_workload_rejects_non_positive_interval() -> None:
-    fake_collection = cast("Collection[dict[str, Any]]", _FakeInsertCollection())
+    fake_collection = cast("Collection[BsonDict]", _FakeInsertCollection())
     with pytest.raises(BenchmarkConfigurationError, match="interval_seconds"):
         UnrelatedWriteWorkload(fake_collection, interval_seconds=0.0)
 
@@ -286,7 +291,7 @@ def test_unrelated_write_workload_rejects_non_positive_interval() -> None:
 def test_unrelated_write_workload_counts_writes_while_running() -> None:
     fake = _FakeInsertCollection()
     workload = UnrelatedWriteWorkload(
-        cast("Collection[dict[str, Any]]", fake), interval_seconds=0.01
+        cast("Collection[BsonDict]", fake), interval_seconds=0.01
     )
     before = time.monotonic()
     workload.start()
@@ -303,7 +308,7 @@ def test_unrelated_write_workload_fails_when_timestamp_capacity_is_exhausted(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(consolidated_stream, "_MAX_UNRELATED_WRITE_TIMESTAMPS", 1)
-    fake_collection = cast("Collection[dict[str, Any]]", _FakeInsertCollection())
+    fake_collection = cast("Collection[BsonDict]", _FakeInsertCollection())
     workload = UnrelatedWriteWorkload(fake_collection, interval_seconds=0.001)
     workload.start()
     time.sleep(0.02)
@@ -314,14 +319,14 @@ def test_unrelated_write_workload_fails_when_timestamp_capacity_is_exhausted(
 @dataclass(slots=True)
 class _FailingInsertCollection:
     @staticmethod
-    def insert_one(document: dict[str, Any]) -> None:
+    def insert_one(document: BsonDict) -> None:
         del document
         message = "simulated insert failure"
         raise ConnectionFailure(message)
 
 
 def test_unrelated_write_workload_propagates_a_background_failure() -> None:
-    fake_collection = cast("Collection[dict[str, Any]]", _FailingInsertCollection())
+    fake_collection = cast("Collection[BsonDict]", _FailingInsertCollection())
     workload = UnrelatedWriteWorkload(fake_collection, interval_seconds=0.01)
     workload.start()
     time.sleep(0.1)
@@ -330,13 +335,13 @@ def test_unrelated_write_workload_propagates_a_background_failure() -> None:
 
 
 def test_unrelated_write_workload_stop_without_start_is_a_noop() -> None:
-    fake_collection = cast("Collection[dict[str, Any]]", _FakeInsertCollection())
+    fake_collection = cast("Collection[BsonDict]", _FakeInsertCollection())
     workload = UnrelatedWriteWorkload(fake_collection, interval_seconds=1.0)
     assert workload.stop() == 0
 
 
 def test_unrelated_write_workload_rejects_a_second_start() -> None:
-    fake_collection = cast("Collection[dict[str, Any]]", _FakeInsertCollection())
+    fake_collection = cast("Collection[BsonDict]", _FakeInsertCollection())
     workload = UnrelatedWriteWorkload(fake_collection, interval_seconds=1.0)
     workload.start()
     try:
@@ -388,14 +393,14 @@ def test_verify_single_consolidated_stream_rejects_anything_but_exactly_one(
     fake_manager = _FakeManagerWithCacheCore(_FakeCacheCore(active_databases))
     with pytest.raises(BenchmarkSetupError, match="exactly one consolidated stream"):
         verify_single_consolidated_stream(
-            cast("CacheManager[dict[str, Any]]", fake_manager), database="db"
+            cast("CacheManager[BsonDict]", fake_manager), database="db"
         )
 
 
 def test_verify_single_consolidated_stream_accepts_a_single_matching_stream() -> None:
     fake_manager = _FakeManagerWithCacheCore(_FakeCacheCore(["db"]))
     verify_single_consolidated_stream(
-        cast("CacheManager[dict[str, Any]]", fake_manager), database="db"
+        cast("CacheManager[BsonDict]", fake_manager), database="db"
     )
 
 
@@ -424,8 +429,8 @@ def test_reset_run_state_closes_the_previous_manager_and_drops_the_database() ->
     fake_previous_manager = _FakeClosableManager()
     with closing(
         reset_run_state(
-            cast("MongoClient[dict[str, Any]]", fake_client),
-            cast("CacheManager[dict[str, Any]]", fake_previous_manager),
+            cast("MongoClient[BsonDict]", fake_client),
+            cast("CacheManager[BsonDict]", fake_previous_manager),
             database="benchmark_db",
         )
     ) as new_manager:
@@ -438,7 +443,7 @@ def test_reset_run_state_accepts_no_previous_manager() -> None:
     fake_client = _FakeDropDatabaseClient()
     with closing(
         reset_run_state(
-            cast("MongoClient[dict[str, Any]]", fake_client),
+            cast("MongoClient[BsonDict]", fake_client),
             None,
             database="benchmark_db",
         )

@@ -1,8 +1,10 @@
-from typing import TYPE_CHECKING, Any, assert_type
+from typing import TYPE_CHECKING, assert_type
 
 import pytest
 from pymongo.asynchronous.command_cursor import AsyncCommandCursor
 from pymongo.asynchronous.cursor import AsyncCursor
+
+from client_query_cache._types import BsonDict
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -14,10 +16,10 @@ pytestmark = pytest.mark.integration
 
 
 async def test_consumer_keeps_pymongo_typing_beside_its_cached_view(
-    cache_manager: CacheManager[dict[str, Any]],
+    cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
-    make_fake_document: Callable[..., dict[str, Any]],
+    make_fake_document: Callable[..., BsonDict],
 ) -> None:
     collection = cache_manager.client[cached_database_name][
         nonpersistent_collection_name
@@ -28,10 +30,10 @@ async def test_consumer_keeps_pymongo_typing_beside_its_cached_view(
     await collection.insert_one(document)
 
     assert await cached_collection.find_one({"_id": document["_id"]}) == document
-    cursor = assert_type(cached_collection.find({}), AsyncCursor[dict[str, Any]])
-    assert assert_type(await cursor.to_list(), list[dict[str, Any]]) == [document]
+    cursor = assert_type(cached_collection.find({}), AsyncCursor[BsonDict])
+    assert assert_type(await cursor.to_list(), list[BsonDict]) == [document]
     aggregation = assert_type(
-        await cached_collection.aggregate([]), AsyncCommandCursor[dict[str, Any]]
+        await cached_collection.aggregate([]), AsyncCommandCursor[BsonDict]
     )
     assert [row async for row in aggregation] == [document]
     assert await cached_collection.raw.find({"_id": document["_id"]}).to_list() == [

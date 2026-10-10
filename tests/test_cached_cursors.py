@@ -17,7 +17,7 @@ from pymongo.errors import ConnectionFailure, InvalidOperation
 from pymongo.synchronous.command_cursor import CommandCursor
 from pymongo.synchronous.cursor import Cursor
 
-from client_query_cache._types import NonNegativeInt
+from client_query_cache._types import BsonDict, NonNegativeInt
 from client_query_cache.asynchronous.cursors import (
     CachedCommandCursor as AsyncCachedCommandCursor,
 )
@@ -37,7 +37,7 @@ if TYPE_CHECKING:
     from pymongo.message import _GetMore, _Query
     from pymongo.synchronous.client_session import ClientSession
 
-    from tests.cursor_fixtures import Binding, CursorFactory, Document, View
+    from tests.cursor_fixtures import Binding, CursorFactory, View
 
 from tests.codec_helpers import Decimal128ToDecimalDecoder, fail_decimal_encoding
 from tests.cursor_fixtures import DOCUMENT_COUNT
@@ -72,7 +72,9 @@ async def test_covering_find_returns_an_isolated_prefix(
     assert isinstance(cursor, CachedCursor | AsyncCachedCursor)
     assert cursor._capture is None
     if prefix:
-        prefix[0]["nested"]["original"] = False
+        nested = prefix[0]["nested"]
+        assert isinstance(nested, dict)
+        nested["original"] = False
     assert await materialize(view.find(query).sort("_id").limit(10)) == expected
     assert await materialize(view.find(query).sort("_id").limit(source_limit)) == (
         complete[:source_limit] if source_limit else complete
@@ -403,7 +405,9 @@ async def test_native_streaming_and_complete_admission(
     cursor = await resolve_cursor(cursor_factory(view))
     assert isinstance(cursor, Cursor | AsyncCursor | CommandCursor | AsyncCommandCursor)
     first = await advance(cursor)
-    first["nested"]["original"] = False
+    nested = first["nested"]
+    assert isinstance(nested, dict)
+    nested["original"] = False
     assert view.database.manager.snapshot().entry_count == 0
     assert not any("getMore" in command for command in cursors["commands"].commands)
     rest = await materialize(cursor)
@@ -537,7 +541,7 @@ def failed_batch(monkeypatch: pytest.MonkeyPatch) -> None:
         original = cursor_type._send_message
 
         def fail_sync(
-            cursor: Cursor[Document] | CommandCursor[Document],
+            cursor: Cursor[BsonDict] | CommandCursor[BsonDict],
             operation: _Query | _GetMore,
             send: Callable[..., None] = original,
         ) -> None:
@@ -550,7 +554,7 @@ def failed_batch(monkeypatch: pytest.MonkeyPatch) -> None:
         async_original = async_cursor_type._send_message
 
         async def fail_async(
-            cursor: AsyncCursor[Document] | AsyncCommandCursor[Document],
+            cursor: AsyncCursor[BsonDict] | AsyncCommandCursor[BsonDict],
             operation: _Query | _GetMore,
             send: Callable[..., Awaitable[None]] = async_original,
         ) -> None:
@@ -746,7 +750,7 @@ async def test_positional_aggregate_let_and_comment_execute_natively(
     cursors: Binding,
 ) -> None:
     view = cursors["view"]
-    pipeline: list[Document] = [
+    pipeline: list[BsonDict] = [
         {"$match": {"$expr": {"$gt": ["$value", "$$minimum"]}}},
         {"$sort": {"_id": 1}},
     ]
@@ -780,7 +784,7 @@ async def failing_encoder_view(cursors: Binding) -> View:
     )
     if isinstance(inserted, Awaitable):
         await inserted
-    options: CodecOptions[Document] = CodecOptions(
+    options: CodecOptions[BsonDict] = CodecOptions(
         type_registry=TypeRegistry(
             [Decimal128ToDecimalDecoder()], fallback_encoder=fail_decimal_encoding
         )
@@ -793,8 +797,8 @@ async def test_encoding_failure_keeps_native_cursor_delivery(
     failing_encoder_view: View, method: str
 ) -> None:
     view = failing_encoder_view
-    query = {"_id": "decoded-price"}
-    argument: Document | list[Document] = (
+    query: BsonDict = {"_id": "decoded-price"}
+    argument: BsonDict | list[BsonDict] = (
         query if method == "find" else [{"$match": query}]
     )
     before = view.database.manager.snapshot().entry_count
@@ -812,7 +816,7 @@ def paused_batch(monkeypatch: pytest.MonkeyPatch) -> asyncio.Event:
         original = cursor_type._send_message
 
         async def paused(
-            cursor: AsyncCursor[Document] | AsyncCommandCursor[Document],
+            cursor: AsyncCursor[BsonDict] | AsyncCommandCursor[BsonDict],
             operation: _Query | _GetMore,
             send: Callable[..., Awaitable[None]] = original,
         ) -> None:

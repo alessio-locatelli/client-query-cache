@@ -16,6 +16,7 @@ from client_query_cache._core.order_sensitive_keys import (
     order_sensitive_discriminator_key,
 )
 from client_query_cache._core.query_filters import find_filter_key
+from client_query_cache._types import BsonDict
 
 pytestmark = pytest.mark.unit
 
@@ -35,7 +36,7 @@ class CustomField(str):  # noqa: FURB189 (exercise a BSON-compatible field subty
 
 
 @pytest.fixture
-def custom_fields(monkeypatch: pytest.MonkeyPatch) -> dict[str, object]:
+def custom_fields(monkeypatch: pytest.MonkeyPatch) -> BsonDict:
     monkeypatch.setattr(
         CustomField, "__lt__", Mock(side_effect=RuntimeError("custom field ordering"))
     )
@@ -43,7 +44,7 @@ def custom_fields(monkeypatch: pytest.MonkeyPatch) -> dict[str, object]:
 
 
 def test_native_custom_fields_keep_ordered_fallback(
-    custom_fields: dict[str, object],
+    custom_fields: BsonDict,
 ) -> None:
     assert BSON.encode(custom_fields) == BSON.encode({"b": 2, "a": 1})
     assert find_filter_key(custom_fields) == order_sensitive_discriminator_key(
@@ -67,7 +68,7 @@ def test_native_custom_fields_keep_ordered_fallback(
     ordering=st.data(),
 )
 def test_scalar_permutations_share_the_complete_key(
-    predicates: dict[str, object], ordering: st.DataObject
+    predicates: BsonDict, ordering: st.DataObject
 ) -> None:
     shuffled = dict(ordering.draw(st.permutations(tuple(predicates.items()))))
     assert physical_key(predicates) == physical_key(shuffled)

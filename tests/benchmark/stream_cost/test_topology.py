@@ -14,7 +14,7 @@ from benchmarks.stream_cost.errors import (
     BenchmarkSetupError,
 )
 from benchmarks.stream_cost.topology import IsolatedReplicaSet, ResourceLimits
-from client_query_cache._types import NonNegativeInt
+from client_query_cache._types import BsonDict, NonNegativeInt
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -77,7 +77,7 @@ class _StubHelloClient(_FakeMongoClient):
     __slots__ = ()
 
     @staticmethod
-    def command(name: str, *_args: object, **_kwargs: object) -> dict[str, object]:
+    def command(name: str, *_args: object, **_kwargs: object) -> BsonDict:
         if name == "hello":
             return {"isWritablePrimary": False}
         return {}
@@ -405,7 +405,7 @@ class _CapturingHelloClient(_FakeMongoClient):
     __slots__ = ()
     captured: ClassVar[dict[str, Any]] = {}
 
-    def command(self, name: str, *args: object, **_kwargs: object) -> dict[str, object]:
+    def command(self, name: str, *args: object, **_kwargs: object) -> BsonDict:
         if name == "replSetInitiate":
             type(self).captured["replSetInitiate"] = args[0]
             return {}
@@ -432,9 +432,7 @@ class _FlakyPingClient(_FakeMongoClient):
     __slots__ = ()
     ping_attempts: ClassVar[NonNegativeInt] = 0
 
-    def command(
-        self, name: str, *_args: object, **_kwargs: object
-    ) -> dict[str, object]:
+    def command(self, name: str, *_args: object, **_kwargs: object) -> BsonDict:
         if name == "ping":
             type(self).ping_attempts += 1
             if type(self).ping_attempts < 3:
@@ -463,9 +461,7 @@ class _FlakyElectionClient(_FakeMongoClient):
     __slots__ = ()
     hello_attempts: ClassVar[NonNegativeInt] = 0
 
-    def command(
-        self, name: str, *_args: object, **_kwargs: object
-    ) -> dict[str, object]:
+    def command(self, name: str, *_args: object, **_kwargs: object) -> BsonDict:
         if name == "hello":
             type(self).hello_attempts += 1
             if type(self).hello_attempts < 3:
@@ -494,7 +490,7 @@ class _UnreachablePingClient(_FakeMongoClient):
     __slots__ = ()
 
     @staticmethod
-    def command(_name: str, *_args: object, **_kwargs: object) -> dict[str, object]:
+    def command(_name: str, *_args: object, **_kwargs: object) -> BsonDict:
         raise PyMongoError("unreachable")
 
 

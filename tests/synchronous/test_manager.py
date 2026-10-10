@@ -1,5 +1,5 @@
 from operator import itemgetter
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import pytest
 from bson.codec_options import CodecOptions
@@ -8,6 +8,7 @@ from pymongo.synchronous.database import Database
 
 from client_query_cache._core.keys import NamespaceId
 from client_query_cache._core.lifecycle import CacheLifecycleState
+from client_query_cache._types import BsonDict
 from client_query_cache.synchronous import (
     CacheManager,
     CacheSnapshot,
@@ -27,22 +28,20 @@ pytestmark = pytest.mark.unit
 
 
 @pytest.fixture
-def client() -> Iterator[MongoClient[dict[str, Any]]]:
-    with MongoClient[dict[str, Any]](
-        "mongodb://localhost:27017", connect=False
-    ) as instance:
+def client() -> Iterator[MongoClient[BsonDict]]:
+    with MongoClient[BsonDict]("mongodb://localhost:27017", connect=False) as instance:
         yield instance
 
 
 def test_manager_does_not_subclass_or_replace_the_caller_client(
-    client: MongoClient[dict[str, Any]],
+    client: MongoClient[BsonDict],
 ) -> None:
     assert not issubclass(CacheManager, MongoClient)
     assert CacheManager(client).client is client
 
 
 def test_manager_builds_a_database_facade_around_the_caller_client(
-    client: MongoClient[dict[str, Any]],
+    client: MongoClient[BsonDict],
 ) -> None:
     database = CacheManager(client)["example"]
 
@@ -54,7 +53,7 @@ def test_manager_builds_a_database_facade_around_the_caller_client(
 
 
 def test_manager_used_as_a_context_manager_closes_its_own_cache(
-    client: MongoClient[dict[str, Any]],
+    client: MongoClient[BsonDict],
 ) -> None:
     with CacheManager(client) as manager:
         core = manager.cache_core
@@ -63,7 +62,7 @@ def test_manager_used_as_a_context_manager_closes_its_own_cache(
 
 
 def test_manager_close_does_not_close_the_caller_owned_client(
-    client: MongoClient[dict[str, Any]],
+    client: MongoClient[BsonDict],
 ) -> None:
     CacheManager(client).close()
 
@@ -71,12 +70,12 @@ def test_manager_close_does_not_close_the_caller_owned_client(
 
 
 def test_unique_keys_for_rejects_a_probe_racing_a_concurrent_index_change(
-    client: MongoClient[dict[str, Any]],
+    client: MongoClient[BsonDict],
 ) -> None:
     manager = CacheManager(client)
     namespace = NamespaceId("example", "widgets")
 
-    def racing_list_indexes() -> list[dict[str, Any]]:
+    def racing_list_indexes() -> list[BsonDict]:
         manager.cache_core.record_index_change(namespace)
         return [{"key": {"email": 1}, "name": "email_1", "unique": True}]
 
@@ -102,10 +101,8 @@ def test_unique_keys_for_rejects_a_probe_racing_a_concurrent_index_change(
     ],
 )
 def test_cached_view_retains_the_exact_supplied_collection(
-    client: MongoClient[dict[str, Any]],
-    get_raw_collection: Callable[
-        [Database[dict[str, Any]]], Collection[dict[str, Any]]
-    ],
+    client: MongoClient[BsonDict],
+    get_raw_collection: Callable[[Database[BsonDict]], Collection[BsonDict]],
 ) -> None:
     manager = CacheManager(client)
     raw_collection = get_raw_collection(client["example"])
@@ -119,19 +116,17 @@ def test_cached_view_retains_the_exact_supplied_collection(
 
 
 def test_cached_rejects_a_collection_owned_by_another_client(
-    client: MongoClient[dict[str, Any]],
+    client: MongoClient[BsonDict],
 ) -> None:
     manager = CacheManager(client)
-    foreign_client = MongoClient[dict[str, Any]](
-        "mongodb://localhost:27017", connect=False
-    )
+    foreign_client = MongoClient[BsonDict]("mongodb://localhost:27017", connect=False)
 
     with pytest.raises(ValueError, match="different client"):
         manager.get_cached_collection(foreign_client["example"]["items"])
 
 
 def test_repeated_cached_views_share_the_manager_and_raw_collection(
-    client: MongoClient[dict[str, Any]],
+    client: MongoClient[BsonDict],
 ) -> None:
     manager = CacheManager(client)
     raw_collection = client["example"]["items"]
@@ -145,7 +140,7 @@ def test_repeated_cached_views_share_the_manager_and_raw_collection(
 
 @pytest.mark.parametrize("requested", ["", "never-activated"], ids=["empty", "unknown"])
 def test_stream_health_echoes_the_requested_name_without_validation(
-    client: MongoClient[dict[str, Any]], requested: str
+    client: MongoClient[BsonDict], requested: str
 ) -> None:
     manager = CacheManager(client)
     health = manager.stream_health_snapshot(requested)
@@ -158,7 +153,7 @@ def test_stream_health_echoes_the_requested_name_without_validation(
 
 
 def test_manager_inspection_delegates_without_activation(
-    client: MongoClient[dict[str, Any]],
+    client: MongoClient[BsonDict],
 ) -> None:
     manager = CacheManager(client)
     manager.cache_core.record_bypass()

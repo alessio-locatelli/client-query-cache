@@ -14,6 +14,7 @@ from client_query_cache._core.projection import (
     ensure_id_present_for_resolution,
     without_id,
 )
+from client_query_cache._types import BsonDict
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -27,10 +28,10 @@ _FIELD_NAMES = st.text(min_size=1, max_size=8).filter(lambda name: name != "_id"
 
 
 @st.composite
-def _projection_dicts(draw: st.DrawFn) -> dict[str, object]:
+def _projection_dicts(draw: st.DrawFn) -> BsonDict:
     other_values = draw(st.sampled_from((_INCLUSION_VALUES, _EXCLUSION_VALUES)))
     fields = draw(st.dictionaries(_FIELD_NAMES, other_values, max_size=5))
-    projection: dict[str, object] = dict(fields)
+    projection: BsonDict = dict(fields)
     if draw(st.booleans()):
         projection["_id"] = draw(_PROJECTION_VALUES)
     return projection
@@ -106,7 +107,7 @@ def test_never_produces_a_mixed_inclusion_exclusion_projection() -> None:
 
 @given(_projection_dicts())
 def test_ensure_id_present_for_resolution_never_mixes_inclusion_and_exclusion(
-    projection: dict[str, object],
+    projection: BsonDict,
 ) -> None:
     server_projection, _exclude_id = ensure_id_present_for_resolution(projection)
 
