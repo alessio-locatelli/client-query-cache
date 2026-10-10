@@ -1,4 +1,3 @@
-# Research prototype owner process and fault hooks.
 from __future__ import annotations
 
 import os

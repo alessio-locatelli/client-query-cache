@@ -1,4 +1,3 @@
-# Research prototype: the owner reuses private supervisor seams for fault injection.
 # ruff: noqa: SLF001
 from __future__ import annotations
 

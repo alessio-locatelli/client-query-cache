@@ -1,4 +1,3 @@
-# Research prototype: canonical tags are private core objects.
 # ruff: noqa: SLF001
 
 import datetime

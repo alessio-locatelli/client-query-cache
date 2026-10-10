@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any, cast
 import bson
 import pytest
 from bson.codec_options import CodecOptions, TypeRegistry
-from pymongo import AsyncMongoClient, MongoClient
+from pymongo import MongoClient
 
 from benchmarks.stream_cost.shared_cache.adapters import (
     METADATA_REFRESH,
@@ -33,6 +33,7 @@ from tests.codec_helpers import Decimal128ToDecimalDecoder
 from tests.shared_cache.conftest import (
     COLLECTION,
     DOCUMENTS,
+    async_shared_manager,
     ready,
     select_identity,
     wait_for,
@@ -113,15 +114,11 @@ def test_sync_and_async_workers_reuse_one_admitted_payload_across_processes(
     wait_for(lambda: owner.observation()["cache"]["entry_count"] == DOCUMENTS)
 
     async def read_async() -> tuple[int, int]:
-        async_client = AsyncMongoClient[dict[str, Any]](mongodb_uri)
-        endpoint = await AsyncEndpoint.attach(owner.attachment())
-        async_manager = AsyncSharedCacheManager(async_client, endpoint)
-        collection = async_manager[seeded_database][COLLECTION]
-        documents = [
-            await collection.find_one({"_id": index}) for index in range(DOCUMENTS)
-        ]
-        await async_manager.close()
-        await async_client.close()
+        async with async_shared_manager(owner, mongodb_uri) as async_manager:
+            collection = async_manager[seeded_database][COLLECTION]
+            documents = [
+                await collection.find_one({"_id": index}) for index in range(DOCUMENTS)
+            ]
         assert all(documents)
         return async_manager.observation.hits, async_manager.observation.misses
 
@@ -371,8 +368,7 @@ def _raw_connection(config: AttachmentConfig, *, authenticate: bool) -> socket.s
 
 def _closed(sock: socket.socket) -> bool:
     try:
-        while sock.recv(65_536):
-            pass
+        b"".join(iter(lambda: sock.recv(65_536), b""))
     except ConnectionResetError:  # pragma: lax no cover (peer reset timing)
         pass
     return True
@@ -589,45 +585,41 @@ def test_cancelled_async_selection_releases_its_capture(
 ) -> None:
     owner = start_owner()
 
-    async def scenario() -> tuple[int, int, AsyncEndpoint]:
-        async_client = AsyncMongoClient[dict[str, Any]](mongodb_uri)
-        endpoint = await AsyncEndpoint.attach(owner.attachment())
-        manager = AsyncSharedCacheManager(async_client, endpoint)
-        collection = manager[seeded_database][COLLECTION]
-        while manager.observation.hits + manager.observation.misses == 0:
-            await collection.find_one({"_id": 15})
-            await asyncio.sleep(0.02)
-        ticks = 0
+    async def scenario() -> tuple[int, int]:
+        async with async_shared_manager(owner, mongodb_uri) as manager:
+            collection = manager[seeded_database][COLLECTION]
+            while manager.observation.hits + manager.observation.misses == 0:
+                await collection.find_one({"_id": 15})
+                await asyncio.sleep(0.02)
+            ticks = 0
 
-        async def tick() -> None:
-            nonlocal ticks
-            while True:
-                ticks += 1
-                await asyncio.sleep(0.01)
+            async def tick() -> None:
+                nonlocal ticks
+                while True:
+                    ticks += 1
+                    await asyncio.sleep(0.01)
 
-        ticker = asyncio.create_task(tick())
-        owner.request("pause-server", seconds=0.3)
-        namespace = next(iter(manager._metadata))
-        selection = asyncio.create_task(
-            endpoint.request(
-                {
-                    "op": "select-identity",
-                    "ns": [seeded_database, COLLECTION],
-                    "epoch": manager._metadata[namespace].checked_epoch,
-                    "identity": encode_key(16),
-                    "shape": encode_key(collection._find_one_default_shape),
-                }
+            ticker = asyncio.create_task(tick())
+            owner.request("pause-server", seconds=0.3)
+            namespace = next(iter(manager._metadata))
+            selection = asyncio.create_task(
+                manager.endpoint.request(
+                    {
+                        "op": "select-identity",
+                        "ns": [seeded_database, COLLECTION],
+                        "epoch": manager._metadata[namespace].checked_epoch,
+                        "identity": encode_key(16),
+                        "shape": encode_key(collection._find_one_default_shape),
+                    }
+                )
             )
-        )
-        await asyncio.sleep(0.05)
-        selection.cancel()
-        await asyncio.sleep(0.6)
-        ticker.cancel()
-        await manager.close()
-        await async_client.close()
-        return ticks, endpoint.counters.late_replies, endpoint
+            await asyncio.sleep(0.05)
+            selection.cancel()
+            await asyncio.sleep(0.6)
+            ticker.cancel()
+        return ticks, manager.endpoint.counters.late_replies
 
-    ticks, late, _endpoint = asyncio.run(scenario())
+    ticks, late = asyncio.run(scenario())
 
     assert ticks >= 20
     assert late == 1
@@ -640,24 +632,20 @@ def test_async_reads_fall_back_when_the_owner_disappears(
     owner = start_owner()
 
     async def scenario() -> list[dict[str, Any] | None]:
-        async_client = AsyncMongoClient[dict[str, Any]](mongodb_uri)
-        endpoint = await AsyncEndpoint.attach(owner.attachment())
-        manager = AsyncSharedCacheManager(async_client, endpoint)
-        collection = manager[seeded_database][COLLECTION]
-        while manager.observation.hits + manager.observation.misses == 0:
-            await collection.find_one({"_id": 17})
-        owner.request("pause-server", seconds=1.0)
-        paused = await collection.find_one({"_id": 17})
-        await asyncio.sleep(1.0)
-        os.kill(owner.pid, signal.SIGKILL)
-        owner.process.join(10)
-        gone = await collection.find_one({"_id": 18})
-        await asyncio.sleep(0.2)
-        retried = await collection.find_one({"_id": 18})
-        assert endpoint.counters.timeouts == 1
-        assert endpoint.counters.failures >= 1
-        await manager.close()
-        await async_client.close()
+        async with async_shared_manager(owner, mongodb_uri) as manager:
+            collection = manager[seeded_database][COLLECTION]
+            while manager.observation.hits + manager.observation.misses == 0:
+                await collection.find_one({"_id": 17})
+            owner.request("pause-server", seconds=1.0)
+            paused = await collection.find_one({"_id": 17})
+            await asyncio.sleep(1.0)
+            os.kill(owner.pid, signal.SIGKILL)
+            owner.process.join(10)
+            gone = await collection.find_one({"_id": 18})
+            await asyncio.sleep(0.2)
+            retried = await collection.find_one({"_id": 18})
+            assert manager.endpoint.counters.timeouts == 1
+            assert manager.endpoint.counters.failures >= 1
         return [paused, gone, retried]
 
     documents = asyncio.run(scenario())
@@ -767,34 +755,29 @@ def test_async_find_cursors_and_metadata_refresh(
     async def scenario() -> tuple[
         list[dict[str, Any]], AsyncSharedCacheManager[dict[str, Any]]
     ]:
-        async_client = AsyncMongoClient[dict[str, Any]](mongodb_uri)
-        manager = AsyncSharedCacheManager(
-            async_client, await AsyncEndpoint.attach(owner.attachment())
-        )
-        collection = manager[seeded_database][COLLECTION]
-        while manager.observation.hits + manager.observation.misses == 0:
+        async with async_shared_manager(owner, mongodb_uri) as manager:
+            collection = manager[seeded_database][COLLECTION]
+            while manager.observation.hits + manager.observation.misses == 0:
+                await collection.find_one({"_id": 19})
+            client[seeded_database][COLLECTION].rename("renamed")
+            client[seeded_database]["renamed"].rename(COLLECTION)
+            await asyncio.sleep(0.5)
             await collection.find_one({"_id": 19})
-        client[seeded_database][COLLECTION].rename("renamed")
-        client[seeded_database]["renamed"].rename(COLLECTION)
-        await asyncio.sleep(0.5)
-        await collection.find_one({"_id": 19})
-        await collection.find_one({"_id": 19})
-        documents = await collection.find(
-            {"revision": 0}, sort=[("_id", 1)], limit=4
-        ).to_list()
-        await (
-            collection.find({"revision": 0}, sort=[("_id", 1)], limit=4)
-            .clone()
-            .to_list()
-        )
-        assert await collection.count_documents({}) == DOCUMENTS
-        assert await collection.estimated_document_count() == DOCUMENTS
-        assert len(await collection.distinct("_id")) == DOCUMENTS
-        assert len(await (await collection.aggregate([])).to_list()) == DOCUMENTS
-        assert await collection.find_one({"payload": "value-1"}) is not None
-        assert collection["sub"].name == f"{COLLECTION}.sub"
-        await manager.close()
-        await async_client.close()
+            await collection.find_one({"_id": 19})
+            documents = await collection.find(
+                {"revision": 0}, sort=[("_id", 1)], limit=4
+            ).to_list()
+            await (
+                collection.find({"revision": 0}, sort=[("_id", 1)], limit=4)
+                .clone()
+                .to_list()
+            )
+            assert await collection.count_documents({}) == DOCUMENTS
+            assert await collection.estimated_document_count() == DOCUMENTS
+            assert len(await collection.distinct("_id")) == DOCUMENTS
+            assert len(await (await collection.aggregate([])).to_list()) == DOCUMENTS
+            assert await collection.find_one({"payload": "value-1"}) is not None
+            assert collection["sub"].name == f"{COLLECTION}.sub"
         return documents, manager
 
     documents, manager = asyncio.run(scenario())

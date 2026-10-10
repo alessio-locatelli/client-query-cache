@@ -1,4 +1,3 @@
-# Research prototype adapters around the supported facades; not a public API.
 # ruff: noqa: SLF001
 from __future__ import annotations
 
