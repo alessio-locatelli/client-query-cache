@@ -22,6 +22,24 @@ pytestmark = pytest.mark.unit
             [{"$project": {"value": {"$literal": {"$changeStream": 1}}}}],
             id="change-stream-literal",
         ),
+        pytest.param(
+            [
+                {
+                    "$rankFusion": {
+                        "input": {
+                            "pipelines": {
+                                "recent": [
+                                    {"$match": {"a": 1}},
+                                    {"$sort": {"createdAt": -1}},
+                                ],
+                                "popular": [{"$sort": {"views": -1}}],
+                            }
+                        }
+                    }
+                }
+            ],
+            id="rank-fusion-of-match-and-sort",
+        ),
     ],
 )
 def test_safe_pipelines_are_cacheable(pipeline: list[BsonDict]) -> None:
@@ -68,6 +86,67 @@ def test_safe_pipelines_are_cacheable(pipeline: list[BsonDict]) -> None:
         pytest.param(
             [{"$match": {"$text": {"$search": "coffee"}}}], id="text-search-match"
         ),
+        pytest.param(
+            [{"$search": {"text": {"query": "coffee", "path": "a"}}}], id="search"
+        ),
+        pytest.param(
+            [{"$searchMeta": {"text": {"query": "coffee", "path": "a"}}}],
+            id="search-meta",
+        ),
+        pytest.param(
+            [
+                {
+                    "$vectorSearch": {
+                        "index": "embedding",
+                        "path": "embedding",
+                        "queryVector": [0.5, 0.5],
+                        "numCandidates": 1,
+                        "limit": 1,
+                    }
+                }
+            ],
+            id="vector-search",
+        ),
+        pytest.param([{"$listSearchIndexes": {}}], id="list-search-indexes"),
+        pytest.param(
+            [
+                {
+                    "$rankFusion": {
+                        "input": {
+                            "pipelines": {
+                                "searched": [
+                                    {
+                                        "$search": {
+                                            "text": {"query": "coffee", "path": "a"}
+                                        }
+                                    }
+                                ],
+                                "sorted": [{"$sort": {"a": 1}}],
+                            }
+                        }
+                    }
+                }
+            ],
+            id="search-nested-inside-rank-fusion",
+        ),
+        pytest.param(
+            [
+                {
+                    "$geoNear": {
+                        "near": {"type": "Point", "coordinates": [0, 0]},
+                        "distanceField": "distance",
+                    }
+                }
+            ],
+            id="geo-near",
+        ),
+        pytest.param(
+            [{"$project": {"roles": "$$USER_ROLES"}}], id="user-roles-variable"
+        ),
+        pytest.param(
+            [{"$project": {"roles": "$$USER_ROLES.role"}}],
+            id="user-roles-field-path",
+        ),
     ],
 )
 def test_unsafe_pipelines_are_not_cacheable(pipeline: list[BsonDict]) -> None:
@@ -108,6 +187,26 @@ def test_safe_filters_are_cacheable(filter_query: BsonDict | None) -> None:
         pytest.param(
             {"$and": [{"$text": {"$search": "coffee"}}]}, id="nested-text-search"
         ),
+        pytest.param(
+            {"loc": {"$near": {"$geometry": {"type": "Point", "coordinates": [0, 0]}}}},
+            id="near",
+        ),
+        pytest.param(
+            {
+                "loc": {
+                    "$nearSphere": {
+                        "$geometry": {"type": "Point", "coordinates": [0, 0]}
+                    }
+                }
+            },
+            id="near-sphere",
+        ),
+        pytest.param(
+            {"$and": [{"loc": {"$near": [0, 0]}}, {"a": 1}]}, id="nested-near"
+        ),
+        pytest.param(
+            {"$expr": {"$in": ["admin", "$$USER_ROLES.role"]}}, id="expr-user-roles"
+        ),
     ],
 )
 def test_unsafe_filters_are_not_cacheable(filter_query: BsonDict) -> None:
@@ -121,6 +220,7 @@ def test_unsafe_filters_are_not_cacheable(filter_query: BsonDict) -> None:
         pytest.param({"a": 1}, id="plain-inclusion"),
         pytest.param({"a": 0}, id="plain-exclusion"),
         pytest.param(["a", "b"], id="field-name-list"),
+        pytest.param({"a": 1, "b": {"$concat": ["$c", "$d"]}}, id="concat-of-fields"),
     ],
 )
 def test_safe_projections_are_cacheable(
@@ -129,5 +229,17 @@ def test_safe_projections_are_cacheable(
     assert is_projection_cacheable(projection) is True
 
 
-def test_a_meta_projection_is_not_cacheable() -> None:
-    assert is_projection_cacheable({"score": {"$meta": "textScore"}}) is False
+@pytest.mark.parametrize(
+    "projection",
+    [
+        pytest.param({"score": {"$meta": "textScore"}}, id="meta"),
+        pytest.param({"r": {"$rand": {}}}, id="rand"),
+        pytest.param({"r": {"$function": {}}}, id="function"),
+        pytest.param({"now": "$$NOW"}, id="now-variable"),
+        pytest.param({"time": "$$CLUSTER_TIME"}, id="cluster-time-variable"),
+        pytest.param({"time": "$$CLUSTER_TIME.t"}, id="cluster-time-field-path"),
+        pytest.param({"roles": "$$USER_ROLES"}, id="user-roles-variable"),
+    ],
+)
+def test_unsafe_projections_are_not_cacheable(projection: BsonDict) -> None:
+    assert is_projection_cacheable(projection) is False

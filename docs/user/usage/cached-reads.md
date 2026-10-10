@@ -94,6 +94,6 @@ Writes always go to MongoDB through PyMongo. Once the manager processes a write'
 
 ## Uncached fallback
 
-Sessions, incompatible read options, views, time-series collections, unsafe queries and unavailable streams can bypass caching. Oversized results are returned without being cached. Cursor-only requests, including tailable/exhaust/partial-result find and `$changeStream` aggregation, execute natively. Hits skip query execution and cannot reproduce a fresh server error; use `.raw` when execution itself matters. The underlying driver retains its normal errors. See [bypass conditions](../reference/api.md#bypass-conditions), [limits](../reference/api.md#limits), and [errors](../reference/api.md#errors).
+Sessions, incompatible read options, views, time-series collections, unsafe queries (nondeterministic, index-dependent, or role-dependent) and unavailable streams can bypass caching. Oversized results are returned without being cached. Cursor-only requests, including tailable/exhaust/partial-result find and `$changeStream` aggregation, execute natively, as do MongoDB Search and Vector Search pipelines. Hits skip query execution and cannot reproduce a fresh server error; use `.raw` when execution itself matters. The underlying driver retains its normal errors. See [bypass conditions](../reference/api.md#bypass-conditions), [limits](../reference/api.md#limits), and [errors](../reference/api.md#errors).
 
 Choose cached reads according to the application's [consistency requirements](consistency.md), then measure your [workload](../benchmarks/index.md).
