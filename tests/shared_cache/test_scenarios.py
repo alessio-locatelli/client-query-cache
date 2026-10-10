@@ -432,6 +432,12 @@ def test_a_slow_reader_is_detached_without_blocking_peers(
             id="unknown-op",
         ),
         pytest.param(
+            lambda _database: [encode_frame({"v": 1, "op": "observe"})],
+            True,
+            "protocol_errors",
+            id="missing-id",
+        ),
+        pytest.param(
             lambda _database: [
                 encode_frame({"v": 1, "id": 1, "op": "select-identity"})
             ],

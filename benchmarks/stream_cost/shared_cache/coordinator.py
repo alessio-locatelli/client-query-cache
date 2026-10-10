@@ -681,6 +681,7 @@ class SharedCacheOwner:
         self, connection: _Connection, message: Message, now: NonNegativeFloat
     ) -> Message | None:
         try:
+            request_id = message["id"]
             reply = self._handle_request(connection, message, now)
         except KeyError as error:
             raise ProtocolError("frame is missing a required field") from error
@@ -688,7 +689,7 @@ class SharedCacheOwner:
             raise ProtocolError("frame carries an unsupported cache key") from error
         if reply is not None:
             reply["v"] = PROTOCOL_VERSION
-            reply["id"] = message["id"]
+            reply["id"] = request_id
         return reply
 
     def _reject(self, connection: _Connection) -> None:
