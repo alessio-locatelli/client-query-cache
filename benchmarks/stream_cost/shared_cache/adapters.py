@@ -113,7 +113,15 @@ class _RemoteCaptureCore:
         codec_options: CodecOptions[Any],
         find_source: FindSource | None,  # noqa: ARG002 - The owner derives it.
     ) -> None:
-        self._send(_admission(capture, documents, codec_options))
+        self._send(
+            _admission(
+                capture,
+                documents,
+                codec_options,
+                self.max_entry_bytes,
+                self.observation,
+            )
+        )
 
 
 class RemoteCursorCapture(CursorCapture):
@@ -144,13 +152,17 @@ class RemoteCursorCapture(CursorCapture):
 
 
 def _admission(
-    handle: object, value: object, codec_options: CodecOptions[Any]
+    handle: object,
+    value: object,
+    codec_options: CodecOptions[Any],
+    max_entry_bytes: NonNegativeInt,
+    observation: LocalObservation,
 ) -> Message:
-    return {
-        "op": "admit",
-        "handle": handle,
-        "value": encode_value(value, codec_options),
-    }
+    encoded = encode_value(value, codec_options)
+    if len(encoded) > max_entry_bytes:
+        observation.record_oversized_bypass()
+        return {"op": "discard", "handle": handle}
+    return {"op": "admit", "handle": handle, "value": encoded}
 
 
 def _metadata(
@@ -481,7 +493,15 @@ class SharedCachedCollection[DocumentType: Mapping[str, Any]](
                 endpoint.send({"op": "discard", "handle": value})
             raise
         if value is not None:
-            endpoint.send(_admission(value, document, self._collection.codec_options))
+            endpoint.send(
+                _admission(
+                    value,
+                    document,
+                    self._collection.codec_options,
+                    self._shared.max_entry_bytes,
+                    self._shared.observation,
+                )
+            )
         return document
 
     @override
@@ -570,7 +590,15 @@ class AsyncSharedCachedCollection[DocumentType: Mapping[str, Any]](
                 endpoint.send({"op": "discard", "handle": value})
             raise
         if value is not None:
-            endpoint.send(_admission(value, document, self._collection.codec_options))
+            endpoint.send(
+                _admission(
+                    value,
+                    document,
+                    self._collection.codec_options,
+                    self._shared.max_entry_bytes,
+                    self._shared.observation,
+                )
+            )
         return document
 
     @override
