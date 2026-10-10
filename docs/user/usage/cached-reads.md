@@ -10,6 +10,8 @@ collection.update_one({"_id": "book"}, {"$set": {"price": 12}}, upsert=True)
 product = cached_products.find_one({"_id": "book"})
 ```
 
+The cached read does not wait for the write's invalidation. If an earlier read cached the book, `find_one()` can still return the previous price until the manager processes the write's change-stream event. When a read must observe a preceding write, read through `collection`; see [read after write](consistency.md#read-after-write).
+
 The collection must come from the manager's own client. See [cached collection views](../reference/api.md#cached-collection-views) for access shortcuts and ownership details. With asyncio, await writes and single-result reads; `find()` returns its async cursor immediately, and `aggregate()` returns its cursor when awaited.
 
 ## Read methods

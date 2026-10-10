@@ -1,6 +1,6 @@
 # Consistency
 
-Invalidation is asynchronous. A cached read running concurrently with a write can return the preceding value until the manager processes the corresponding change-stream event. After processing that event, affected results are invalidated; a later read fetches a fresh result or uses a subsequently admitted one. The cache provides no per-write catch-up barrier.
+Invalidation is asynchronous. A cached read can return the value from before a write, even after the write has returned, until the manager processes the corresponding change-stream event. After processing that event, affected results are invalidated; a later read fetches a fresh result or uses a subsequently admitted one. The cache provides no per-write catch-up barrier.
 
 A hit cursor retains one result snapshot after consumption starts. A later write or stream interruption does not replace its remaining documents; a new execution checks current invalidation and stream health. Misses are admitted only after complete consumption and only if their invalidation guards remain valid. Hits skip query execution and therefore cannot reproduce fresh server/network errors or query effects.
 

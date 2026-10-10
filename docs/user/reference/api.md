@@ -48,6 +48,8 @@ await collection.insert_one({"_id": "example", "value": 42})
 await cached_collection.find_one({"_id": "example"})
 ```
 
+The cached read does not wait for the insert's invalidation: if an earlier read cached the lookup, including a missing result, `find_one()` can still return that result until the manager processes the write's change-stream event. See [read after write](../usage/consistency.md#read-after-write).
+
 `cache_manager.get_cached_collection(collection)` returns a `CachedCollection` whose `.raw` is exactly the collection you passed, including options you chose with `get_collection(...)` or `with_options(...)` — those options decide whether a read can use the cache (see [Bypass conditions](#bypass-conditions)). The collection must come from the manager's own client; a collection from any other client raises `ValueError`.
 
 Calling `get_cached_collection(collection)` more than once is safe and cheap: every view from one manager shares that manager's cache and its single change stream per database, so a result cached through one view is a hit through another. Each call may return a new view object, so don't rely on two views being the same object; keep one around when convenient.
