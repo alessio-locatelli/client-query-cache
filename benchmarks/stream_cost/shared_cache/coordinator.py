@@ -29,7 +29,10 @@ from benchmarks.stream_cost.shared_cache.wire import (
     frame_length,
 )
 from client_query_cache._core.entries import AdmissionOutcome
-from client_query_cache._core.errors import StreamLifecycleError
+from client_query_cache._core.errors import (
+    StreamLifecycleError,
+    UnsupportedCacheRequestError,
+)
 from client_query_cache._core.find_reads import FindReadShape
 from client_query_cache._core.keys import NamespaceId
 from client_query_cache._core.manager import (
@@ -681,6 +684,8 @@ class SharedCacheOwner:
             reply = self._handle_request(connection, message, now)
         except KeyError as error:
             raise ProtocolError("frame is missing a required field") from error
+        except UnsupportedCacheRequestError as error:
+            raise ProtocolError("frame carries an unsupported cache key") from error
         if reply is not None:
             reply["v"] = PROTOCOL_VERSION
             reply["id"] = message["id"]
