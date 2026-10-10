@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypedDict
 
 from pymongo import MongoClient, ReadPreference
 from pymongo.monitoring import CommandListener
@@ -115,12 +115,15 @@ def _read_each_document(collection: Any, document_ids: Sequence[str]) -> int:  #
     return max_counter
 
 
-def _counter_or_default(document: BsonDict) -> int:
+class CounterDocument(TypedDict, total=False):
+    counter: NonNegativeInt
+
+
+def _counter_or_default(document: CounterDocument) -> int:
     try:
         counter = document["counter"]
     except KeyError:
         return -1
-    assert isinstance(counter, int)
     return counter
 
 

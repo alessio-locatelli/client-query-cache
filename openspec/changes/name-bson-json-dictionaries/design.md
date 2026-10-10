@@ -37,7 +37,7 @@ The test-local `Document = dict[str, Any]` aliases in `tests/cursor_fixtures.py`
 
 ### Narrowing
 
-Annotating a literal with `BsonDict` resolves the invariance errors. Value access is narrowed with `assert isinstance(...)` in tests. In benchmarks, narrowing happens outside timed regions, and `cast(...)` follows the `AGENTS.md` rule.
+Annotating a literal with `BsonDict` resolves the invariance errors. Value access is narrowed with `assert isinstance(...)` in tests. Benchmarks and benchmark tests narrow nothing inside a timed region: a document read there is annotated with a `TypedDict` that states the fields the region reads, which costs no runtime work. Outside timed regions, `cast(...)` follows the `AGENTS.md` rule, and conversions the code already performed, such as `int()`, stay.
 
 ## Risks / Trade-offs
 

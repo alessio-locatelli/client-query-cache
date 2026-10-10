@@ -11,6 +11,7 @@ from client_query_cache._types import BsonDict, NonNegativeInt
 from tests.benchmark.real_server.workers import (
     COLLECTION_NAME,
     DATABASE_NAME,
+    CounterDocument,
     _counter_or_default,
     preflight_ping,
     read_documents_repeatedly,
@@ -68,7 +69,7 @@ def test_writer_seeds_and_repeatedly_updates_documents(
     )
     writer.start()
     try:
-        with MongoClient[BsonDict](mongodb_uri) as client:
+        with MongoClient[CounterDocument](mongodb_uri) as client:
             collection = client[DATABASE_NAME][COLLECTION_NAME]
 
             def _has_been_updated() -> bool:
