@@ -8,7 +8,7 @@ Application workers duplicate resident cache values as well as MongoDB change st
 
 - Investigate one optional cache for a group of application processes on one host, following the full development workflow.
 - Build a representative research prototype and compare it with independent managers and direct MongoDB reads under the preregistered protocol in [design.md](design.md#measurement-protocol).
-- Use the [decision gate](design.md#decision-gate) to choose production integration or an evidence-backed deferral. The gate stopped the candidate at screening, so this change delivers the research tooling, its registration and the [research report](../../../docs/development/research/shared-worker-cache-feasibility.md) without a supported shared-cache mode.
+- Use the [decision gate](design.md#decision-gate) to choose production integration or an evidence-backed deferral; the [decision record](design.md#decision-record) holds the outcome.
 
 ## Capabilities
 
@@ -18,7 +18,7 @@ Application workers duplicate resident cache values as well as MongoDB change st
 
 ### Modified Capabilities
 
-None. The conditional `shared-worker-cache` capability and the `cache-core`, `change-stream-coherency` and `cached-read-api` deltas were removed after the gate deferred integration, as [Outcome handling](design.md#outcome-handling) requires.
+None; [Outcome handling](design.md#outcome-handling) removed the conditional capability and deltas.
 
 ## Impact
 
