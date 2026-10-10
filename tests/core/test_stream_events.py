@@ -191,6 +191,16 @@ def test_index_events_record_an_index_change_against_the_namespace(
             "record_index_change",
             id="dropIndexes",
         ),
+        pytest.param(
+            {
+                "operationType": "rename",
+                "ns": {"db": "db", "coll": "old_coll"},
+                "to": {"db": "db", "coll": "new_coll"},
+                "wallTime": _WALL_TIME,
+            },
+            "clear_namespace",
+            id="rename",
+        ),
     ],
 )
 def test_event_for_an_untracked_namespace_does_not_touch_the_cache(
@@ -203,22 +213,6 @@ def test_event_for_an_untracked_namespace_does_not_touch_the_cache(
 
     assert must_reopen is False
     getattr(cache, unused_method).assert_not_called()
-
-
-def test_rename_event_skips_an_untracked_source_and_destination() -> None:
-    cache = Mock()
-    cache.has_namespace.return_value = False
-    event = {
-        "operationType": "rename",
-        "ns": {"db": "db", "coll": "old_coll"},
-        "to": {"db": "db", "coll": "new_coll"},
-        "wallTime": _WALL_TIME,
-    }
-
-    must_reopen = route_change_event(cache, "db", event)
-
-    assert must_reopen is False
-    cache.clear_namespace.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -281,16 +275,29 @@ def test_rename_event_does_not_clear_a_destination_in_another_database() -> None
     cache.clear_namespace.assert_called_once_with(source)
 
 
-def test_drop_database_clears_every_cache_namespace_immediately() -> None:
+@pytest.mark.parametrize(
+    "event",
+    [
+        pytest.param(
+            {
+                "operationType": "dropDatabase",
+                "ns": {"db": "db"},
+                "wallTime": _WALL_TIME,
+            },
+            id="drop-database",
+        ),
+        pytest.param(
+            {"operationType": "invalidate", "wallTime": _WALL_TIME}, id="invalidate"
+        ),
+    ],
+)
+def test_database_wide_events_clear_every_tracked_namespace_immediately(
+    event: BsonDict,
+) -> None:
     cache = Mock()
     first = NamespaceId("db", "first")
     second = NamespaceId("db", "second")
     cache.namespaces_for_database.return_value = [first, second]
-    event = {
-        "operationType": "dropDatabase",
-        "ns": {"db": "db"},
-        "wallTime": _WALL_TIME,
-    }
 
     must_reopen = route_change_event(cache, "db", event)
 
@@ -313,25 +320,6 @@ def test_invalidate_with_no_cached_namespaces_records_no_lag_sample() -> None:
 
     assert must_reopen is True
     cache.record_invalidation_applied.assert_not_called()
-
-
-def test_invalidate_clears_every_namespace_cache_core_tracks_for_the_database() -> None:
-    cache = Mock()
-    first = NamespaceId("db", "first")
-    second = NamespaceId("db", "second")
-    cache.namespaces_for_database.return_value = [first, second]
-    event = {"operationType": "invalidate", "wallTime": _WALL_TIME}
-
-    must_reopen = route_change_event(cache, "db", event)
-
-    assert must_reopen is True
-    assert cache.mock_calls == [
-        call.set_database_available("db", available=False),
-        call.namespaces_for_database("db"),
-        call.clear_namespace(first),
-        call.clear_namespace(second),
-        call.record_invalidation_applied("db", ANY, ANY, ANY),
-    ]
 
 
 @pytest.mark.parametrize(
@@ -404,20 +392,36 @@ def test_index_event_advances_index_generation_without_touching_document_cache(
     assert cache.lookup_namespace(namespace, "query-shape").hit is True
 
 
-def test_index_event_for_an_untracked_namespace_does_not_grow_cache_core_state() -> (
-    None
-):
+@pytest.mark.parametrize(
+    "event",
+    [
+        pytest.param(
+            {
+                "operationType": "createIndexes",
+                "ns": {"db": "db", "coll": "coll"},
+                "wallTime": _WALL_TIME,
+            },
+            id="index",
+        ),
+        pytest.param(
+            {
+                "operationType": "insert",
+                "ns": {"db": "db", "coll": "coll"},
+                "documentKey": {"_id": "doc-1"},
+                "wallTime": _WALL_TIME,
+            },
+            id="write",
+        ),
+    ],
+)
+def test_event_for_an_untracked_namespace_does_not_grow_cache_core_state(
+    event: BsonDict,
+) -> None:
     cache = CacheCore()
-    namespace = NamespaceId("db", "coll")
-    event = {
-        "operationType": "createIndexes",
-        "ns": {"db": "db", "coll": "coll"},
-        "wallTime": _WALL_TIME,
-    }
 
     route_change_event(cache, "db", event)
 
-    assert cache.has_namespace(namespace) is False
+    assert cache.has_namespace(NamespaceId("db", "coll")) is False
 
 
 def test_drop_event_invalidates_identity_guarded_entries_via_epoch() -> None:
@@ -457,21 +461,6 @@ def test_create_event_reclaims_entries_cached_before_the_namespace_existed() -> 
     used_after, count_after = cache._lru.snapshot_usage()
     assert count_after == 0
     assert used_after == 0
-
-
-def test_write_to_an_uncached_namespace_does_not_grow_cache_core_state() -> None:
-    cache = CacheCore()
-    namespace = NamespaceId("db", "coll")
-    event = {
-        "operationType": "insert",
-        "ns": {"db": "db", "coll": "coll"},
-        "documentKey": {"_id": "doc-1"},
-        "wallTime": _WALL_TIME,
-    }
-
-    route_change_event(cache, "db", event)
-
-    assert cache.has_namespace(namespace) is False
 
 
 def test_invalidate_clears_a_namespace_that_never_produced_an_event() -> None:

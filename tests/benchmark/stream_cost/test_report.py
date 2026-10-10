@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import copy
 import datetime
 from dataclasses import replace
 
@@ -113,84 +112,129 @@ def test_build_report_produces_a_report_that_validates() -> None:
 
 
 @pytest.mark.parametrize(
-    "top_level_key",
+    ("path", "key"),
     [
-        "schema_version",
-        "identity",
-        "environment",
-        "workload",
-        "limitations",
-        "measurement",
+        *(
+            pytest.param((), key, id=key)
+            for key in (
+                "schema_version",
+                "identity",
+                "environment",
+                "workload",
+                "limitations",
+                "measurement",
+            )
+        ),
+        *(
+            pytest.param(("identity",), key, id=f"identity_{key}")
+            for key in (
+                "revision",
+                "library_version",
+                "python_version",
+                "pymongo_version",
+            )
+        ),
+        *(
+            pytest.param(("environment",), key, id=f"environment_{key}")
+            for key in (
+                "mongodb_version",
+                "topology",
+                "member_count",
+                "resource_limits",
+            )
+        ),
+        *(
+            pytest.param(("workload",), key, id=f"workload_{key}")
+            for key in ("name", "parameters")
+        ),
+        *(
+            pytest.param(("limitations", 0), key, id=f"limitation_{key}")
+            for key in ("label", "description")
+        ),
+        *(
+            pytest.param(("measurement",), key, id=f"measurement_{key}")
+            for key in ("wall_seconds", "process_cpu_seconds", "container_cpu_seconds")
+        ),
     ],
 )
-def test_validate_report_rejects_a_missing_top_level_section(
-    top_level_key: str,
+def test_validate_report_rejects_a_missing_member(
+    path: tuple[str | NonNegativeInt, ...], key: str
 ) -> None:
     report = _valid_report()
-    del report[top_level_key]
-
-    with pytest.raises(ReportValidationError):
-        validate_report(report)
-
-
-def test_validate_report_rejects_an_unsupported_schema_version() -> None:
-    report = _valid_report()
-    report["schema_version"] = "999"
+    del _object(report, *path)[key]
 
     with pytest.raises(ReportValidationError):
         validate_report(report)
 
 
 @pytest.mark.parametrize(
-    ("section", "missing_field"),
+    ("path", "key", "value"),
     [
-        pytest.param("identity", "revision", id="identity_revision"),
-        pytest.param("identity", "library_version", id="identity_library_version"),
-        pytest.param("identity", "python_version", id="identity_python_version"),
-        pytest.param("identity", "pymongo_version", id="identity_pymongo_version"),
+        pytest.param((), "schema_version", "999", id="unsupported_schema_version"),
         pytest.param(
-            "environment", "mongodb_version", id="environment_mongodb_version"
+            ("environment", "resource_limits"),
+            "cpu",
+            [],
+            id="non_string_resource_limit_value",
         ),
-        pytest.param("environment", "topology", id="environment_topology"),
-        pytest.param("environment", "member_count", id="environment_member_count"),
         pytest.param(
-            "environment", "resource_limits", id="environment_resource_limits"
+            ("workload", "parameters"),
+            "nested",
+            {"a": 1},
+            id="non_scalar_workload_parameter_value",
         ),
-        pytest.param("workload", "name", id="workload_name"),
-        pytest.param("workload", "parameters", id="workload_parameters"),
+        *(
+            pytest.param(
+                ("workload", "parameters"),
+                "sample_reads",
+                invalid_count,
+                id=f"non_integer_sample_count_{invalid_count!r}",
+            )
+            for invalid_count in (None, "1", 1.5)
+        ),
+        pytest.param(
+            ("measurement", "variants", 0),
+            "by_outcome",
+            [
+                {
+                    "operation": "read",
+                    "outcome": "raw",
+                    "sample_count": 1,
+                    "p50_seconds": 0.1,
+                    "p95_seconds": 0.1,
+                    "p99_seconds": 0.1,
+                }
+            ],
+            id="idle_latency_samples",
+        ),
+        pytest.param(
+            ("measurement", "logical_metrics", "cache"),
+            "wire_bytes",
+            10,
+            id="universal_wire_byte_label",
+        ),
+        pytest.param(
+            ("measurement",),
+            "direct_path_bytes",
+            {"sent": 10, "received": 10, "scope": "all wire traffic"},
+            id="proxy_bytes_without_direct_path_scope",
+        ),
+        pytest.param(
+            ("measurement",),
+            "change_stream_cost_comparison",
+            {
+                "container_cpu_seconds": {"raw": 0.1},
+                "direct_path_bytes": {"available": False, "raw": None, "cache": None},
+            },
+            id="incomplete_change_stream_cost_comparison",
+        ),
     ],
 )
-def test_validate_report_rejects_an_incomplete_section(
-    section: str, missing_field: str
+def test_validate_report_rejects_an_invalid_member(
+    path: tuple[str | NonNegativeInt, ...], key: str, value: object
 ) -> None:
     report = _valid_report()
-    del _object(report, section)[missing_field]
-
-    with pytest.raises(ReportValidationError):
-        validate_report(report)
-
-
-def test_validate_report_rejects_a_non_string_resource_limit_value() -> None:
-    report = _valid_report()
-    _object(report, "environment", "resource_limits")["cpu"] = []
-
-    with pytest.raises(ReportValidationError):
-        validate_report(report)
-
-
-def test_validate_report_rejects_a_non_scalar_workload_parameter_value() -> None:
-    report = _valid_report()
-    _object(report, "workload", "parameters")["nested"] = {"a": 1}
-
-    with pytest.raises(ReportValidationError):
-        validate_report(report)
-
-
-@pytest.mark.parametrize("missing_field", ["label", "description"])
-def test_validate_report_rejects_incomplete_limitations(missing_field: str) -> None:
-    report = _valid_report()
-    report["limitations"] = [copy.deepcopy(_object(report, "limitations", 0))]
-    del _object(report, "limitations", 0)[missing_field]
+    _object(report, *path)[key] = value
 
     with pytest.raises(ReportValidationError):
         validate_report(report)
@@ -241,34 +285,6 @@ def test_validate_report_rejects_a_circular_reference() -> None:
         validate_report(report)
 
 
-@pytest.mark.parametrize(
-    "field", ["wall_seconds", "process_cpu_seconds", "container_cpu_seconds"]
-)
-def test_validate_report_requires_each_controlled_measurement(field: str) -> None:
-    report = _valid_report()
-    del _object(report, "measurement")[field]
-
-    with pytest.raises(ReportValidationError):
-        validate_report(report)
-
-
-def test_validate_report_rejects_idle_latency_samples() -> None:
-    report = _valid_report()
-    _object(report, "measurement", "variants", 0)["by_outcome"] = [
-        {
-            "operation": "read",
-            "outcome": "raw",
-            "sample_count": 1,
-            "p50_seconds": 0.1,
-            "p95_seconds": 0.1,
-            "p99_seconds": 0.1,
-        }
-    ]
-
-    with pytest.raises(ReportValidationError):
-        validate_report(report)
-
-
 @pytest.mark.parametrize("variant_index", [0, 1])
 def test_validate_report_rejects_missing_operation_latency_samples(
     variant_index: NonNegativeInt,
@@ -314,37 +330,6 @@ def test_validate_report_rejects_distribution_count_mismatch() -> None:
         ]
 
     with pytest.raises(ReportValidationError, match="outcome distributions"):
-        validate_report(report)
-
-
-@pytest.mark.parametrize("invalid_count", [None, "1", 1.5])
-def test_validate_report_rejects_non_integer_sample_count(
-    invalid_count: object,
-) -> None:
-    report = _valid_report()
-    _object(report, "workload", "parameters")["sample_reads"] = invalid_count
-
-    with pytest.raises(ReportValidationError):
-        validate_report(report)
-
-
-def test_validate_report_rejects_universal_wire_byte_label() -> None:
-    report = _valid_report()
-    _object(report, "measurement", "logical_metrics", "cache")["wire_bytes"] = 10
-
-    with pytest.raises(ReportValidationError):
-        validate_report(report)
-
-
-def test_validate_report_rejects_proxy_bytes_without_direct_path_scope() -> None:
-    report = _valid_report()
-    _object(report, "measurement")["direct_path_bytes"] = {
-        "sent": 10,
-        "received": 10,
-        "scope": "all wire traffic",
-    }
-
-    with pytest.raises(ReportValidationError):
         validate_report(report)
 
 
@@ -436,17 +421,6 @@ def test_build_report_change_stream_cost_comparison_direct_path_bytes(
         },
         "direct_path_bytes": expected_direct_path_bytes,
     }
-
-
-def test_validate_report_rejects_an_incomplete_change_stream_cost_comparison() -> None:
-    report = _valid_report()
-    _object(report, "measurement")["change_stream_cost_comparison"] = {
-        "container_cpu_seconds": {"raw": 0.1},
-        "direct_path_bytes": {"available": False, "raw": None, "cache": None},
-    }
-
-    with pytest.raises(ReportValidationError):
-        validate_report(report)
 
 
 def test_build_report_preserves_cache_outcome_distributions() -> None:

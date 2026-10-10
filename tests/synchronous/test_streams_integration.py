@@ -11,7 +11,12 @@ from pymongo.errors import ConnectionFailure, OperationFailure
 
 from client_query_cache._core.keys import NamespaceId
 from client_query_cache._core.manager import CacheCore, CacheCoreConfig
-from client_query_cache._types import BsonDict, NonNegativeInt, PositiveFloat
+from client_query_cache._types import (
+    BsonDict,
+    NonNegativeInt,
+    PositiveFloat,
+    PositiveInt,
+)
 from client_query_cache.synchronous import streams as streams_module
 from client_query_cache.synchronous.streams import DatabaseStreamSupervisor
 from tests.stream_helpers import (
@@ -291,11 +296,21 @@ class _NextFailsOnceStream:
         self._real_stream.close()  # type: ignore[attr-defined]
 
 
-def test_recovers_from_a_resumable_disconnection(
+@pytest.mark.parametrize(
+    ("lost_history_watch_call", "watch_calls_after_recovery"),
+    [
+        pytest.param(None, 2, id="resumable-disconnection"),
+        pytest.param(2, 3, id="lost-resume-history"),
+    ],
+)
+def test_recovers_from_a_stream_failure(
     raw_mongo_client: MongoClient[BsonDict],
     independent_writer: MongoClient[BsonDict],
     cached_database_name: DatabaseName,
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
+    *,
+    lost_history_watch_call: PositiveInt | None,
+    watch_calls_after_recovery: PositiveInt,
     faker: Faker,
 ) -> None:
     other_document_id = faker.uuid4()
@@ -308,69 +323,15 @@ def test_recovers_from_a_resumable_disconnection(
     def patched_watch(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
         nonlocal call_count
         call_count += 1
+        if call_count == lost_history_watch_call:
+            message = "resume point is not in the oplog anymore"
+            raise OperationFailure(message, code=286)
         real_stream = original_watch(*args, **kwargs)
         if call_count == 1:
             return _NextFailsOnceStream(
                 real_stream, ConnectionFailure("simulated transient disconnect")
             )
         return real_stream
-
-    database.watch = patched_watch  # type: ignore[method-assign]
-
-    cache = CacheCore()
-    supervisor = make_supervisor(database, cache)
-    watch_calls_after_reconnect = 2
-    supervisor.start()
-
-    _wait_until(
-        lambda: call_count == watch_calls_after_reconnect and supervisor.healthy
-    )
-
-    independent_writer[cached_database_name]["items"].insert_one(
-        {"_id": other_document_id, "v": before_value}
-    )
-    capture = cache.begin_identity_admission(namespace, other_document_id)
-    cache.admit_identity(capture, "full", {"v": before_value})
-    assert cache.lookup_identity(namespace, other_document_id, "full").hit is True
-
-    after_value = before_value + 1
-    independent_writer[cached_database_name]["items"].update_one(
-        {"_id": other_document_id}, {"$set": {"v": after_value}}
-    )
-
-    _wait_until(
-        lambda: cache.lookup_identity(namespace, other_document_id, "full").hit is False
-    )
-
-
-def test_clears_the_cache_when_resume_history_is_lost(
-    raw_mongo_client: MongoClient[BsonDict],
-    independent_writer: MongoClient[BsonDict],
-    cached_database_name: DatabaseName,
-    make_supervisor: Callable[..., DatabaseStreamSupervisor],
-    faker: Faker,
-) -> None:
-    other_document_id = faker.uuid4()
-    before_value = faker.random_int()
-    namespace = NamespaceId(cached_database_name, "items")
-    database = raw_mongo_client[cached_database_name]
-    original_watch: Any = database.watch
-    call_count = 0
-    unresumable_watch_call = 2
-    watch_calls_after_recovery = 3
-
-    def patched_watch(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
-        nonlocal call_count
-        call_count += 1
-        if call_count == 1:
-            real_stream = original_watch(*args, **kwargs)
-            return _NextFailsOnceStream(
-                real_stream, ConnectionFailure("simulated transient disconnect")
-            )
-        if call_count == unresumable_watch_call:
-            message = "resume point is not in the oplog anymore"
-            raise OperationFailure(message, code=286)
-        return original_watch(*args, **kwargs)
 
     database.watch = patched_watch  # type: ignore[method-assign]
 

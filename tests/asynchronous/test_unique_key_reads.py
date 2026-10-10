@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 from unittest.mock import patch
 
@@ -155,9 +156,15 @@ async def test_cold_read_without_a_unique_key_match_records_one_miss(
             lambda raw: raw.create_index([("email", "hashed")]),
             id="hashed",
         ),
+        pytest.param(
+            lambda raw: raw.create_index(
+                "email", unique=True, collation={"locale": "en", "strength": 2}
+            ),
+            id="collation-not-matching-the-read",
+        ),
     ],
 )
-async def test_partial_sparse_or_hashed_indexes_use_generic_caching(
+async def test_ineligible_unique_indexes_use_generic_caching(
     cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
@@ -170,36 +177,6 @@ async def test_partial_sparse_or_hashed_indexes_use_generic_caching(
     email = faker.email()
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
     await create_excluded_index(collection.raw)
-    document: BsonDict = {
-        "_id": document_id,
-        "email": email,
-        "name": faker.first_name(),
-    }
-    await collection.raw.insert_one(document)
-
-    with patch.object(
-        AsyncCollection, "find_one", autospec=True, side_effect=AsyncCollection.find_one
-    ) as spy:
-        first = await collection.find_one({"email": email})
-        second = await collection.find_one({"email": email})
-
-    assert first == document
-    assert second == document
-    assert spy.call_count == 1
-
-
-async def test_a_read_collation_not_matching_the_index_is_not_used(
-    cache_manager: CacheManager[BsonDict],
-    cached_database_name: DatabaseName,
-    nonpersistent_collection_name: CollectionName,
-    faker: Faker,
-) -> None:
-    document_id = faker.uuid4()
-    email = faker.email()
-    collection = cache_manager[cached_database_name][nonpersistent_collection_name]
-    await collection.raw.create_index(
-        "email", unique=True, collation={"locale": "en", "strength": 2}
-    )
     document: BsonDict = {
         "_id": document_id,
         "email": email,
@@ -551,19 +528,28 @@ async def _evict_identity_entry_via_filler_pressure(
     )
 
 
-async def test_a_still_accurate_resolved_alias_refreshes_with_a_single_round_trip(
+@dataclass(frozen=True, slots=True)
+class _EvictedAlias:
+    collection: CachedCollection[BsonDict]
+    namespace: NamespaceId
+    email: str
+    target: BsonDict
+    read_shape: object
+
+
+@pytest.fixture
+async def evicted_alias(
     tight_budget_cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
     faker: Faker,
-) -> None:
-    document_id = faker.uuid4()
+) -> _EvictedAlias:
     email = faker.email()
     collection = tight_budget_cache_manager[cached_database_name][
         nonpersistent_collection_name
     ]
     await collection.raw.create_index("email", unique=True)
-    target = {"_id": document_id, "email": email, "v": 1}
+    target: BsonDict = {"_id": faker.uuid4(), "email": email, "v": 1}
     await collection.raw.insert_one(target)
     assert await collection.find_one({"email": email}) == target
     await collection.find_one({"email": email}, {"v": 1})
@@ -589,65 +575,45 @@ async def test_a_still_accurate_resolved_alias_refreshes_with_a_single_round_tri
         )
         is not None
     )
+    return _EvictedAlias(collection, namespace, email, target, read_shape)
 
+
+async def test_a_still_accurate_resolved_alias_refreshes_with_a_single_round_trip(
+    evicted_alias: _EvictedAlias,
+) -> None:
     with patch.object(
         AsyncCollection, "find_one", autospec=True, side_effect=AsyncCollection.find_one
     ) as spy:
-        refreshed_document = await collection.find_one({"email": email})
+        refreshed_document = await evicted_alias.collection.find_one(
+            {"email": evicted_alias.email}
+        )
 
-    assert refreshed_document == target
+    assert refreshed_document == evicted_alias.target
     assert spy.call_count == 1
 
 
 async def test_a_resolved_alias_with_no_remaining_match_discards_the_alias(
     tight_budget_cache_manager: CacheManager[BsonDict],
-    cached_database_name: DatabaseName,
-    nonpersistent_collection_name: CollectionName,
-    faker: Faker,
+    evicted_alias: _EvictedAlias,
 ) -> None:
-    document_id = faker.uuid4()
-    email = faker.email()
-    collection = tight_budget_cache_manager[cached_database_name][
-        nonpersistent_collection_name
-    ]
-    await collection.raw.create_index("email", unique=True)
-    target = {"_id": document_id, "email": email, "v": 1}
-    await collection.raw.insert_one(target)
-    assert await collection.find_one({"email": email}) == target
-    await collection.find_one({"email": email}, {"v": 1})
-
-    namespace = NamespaceId(cached_database_name, nonpersistent_collection_name)
-    read_shape = order_sensitive_discriminator_key(
-        ("find_one", None, None, None, codec_fingerprint(collection.raw.codec_options))
-    )
-    resolved_identity = tight_budget_cache_manager.cache_core.resolve_alias(
-        namespace, ("email",), (email,), None
-    )
-    assert resolved_identity is not None
-    identity_key = IdentityCacheKey(
-        namespace, resolved_identity, canonicalize(read_shape)
-    )
-
-    await _evict_identity_entry_via_filler_pressure(
-        tight_budget_cache_manager, collection, namespace, identity_key
-    )
-    assert (
-        tight_budget_cache_manager.cache_core.resolve_alias(
-            namespace, ("email",), (email,), None
-        )
-        is not None
-    )
-
     with patch.object(AsyncCollection, "find_one", autospec=True, return_value=None):
-        reverified_document = await collection.find_one({"email": email})
+        reverified_document = await evicted_alias.collection.find_one(
+            {"email": evicted_alias.email}
+        )
 
     assert reverified_document is None
     assert (
         tight_budget_cache_manager.cache_core.resolve_alias(
-            namespace, ("email",), (email,), None
+            evicted_alias.namespace, ("email",), (evicted_alias.email,), None
         )
         is None
     )
+    alias = canonical_alias_key(("email",), (evicted_alias.email,), None)
+    namespace_lookup = tight_budget_cache_manager.cache_core.lookup_namespace(
+        evicted_alias.namespace, (alias, evicted_alias.read_shape)
+    )
+    assert namespace_lookup.hit
+    assert namespace_lookup.value is None
 
 
 async def test_a_revalidated_positive_match_overwrites_a_stale_namespace_entry(

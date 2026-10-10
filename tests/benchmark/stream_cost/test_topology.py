@@ -331,74 +331,57 @@ def test_exit_without_start_is_a_noop() -> None:
     replica_set.__exit__()
 
 
-def test_exit_stops_the_container() -> None:
+def _started_replica_set(
+    *, fail_stop: bool
+) -> tuple[IsolatedReplicaSet, _FakeContainer]:
     replica_set = IsolatedReplicaSet(ResourceLimits(cpus=1.0, memory="512m"))
-    fake_container = _FakeContainer({"cpu_stats": {"cpu_usage": {"total_usage": 0}}})
+    fake_container = _FakeContainer(
+        {"cpu_stats": {"cpu_usage": {"total_usage": 0}}}, fail_stop=fail_stop
+    )
     replica_set._container = fake_container  # type: ignore[assignment]
     replica_set._uri = "mongodb://stub/"
-    replica_set.__exit__()
+    return replica_set, fake_container
+
+
+def _assert_stopped(
+    replica_set: IsolatedReplicaSet, fake_container: _FakeContainer
+) -> None:
     assert fake_container.stopped is True
     with pytest.raises(BenchmarkSetupError, match="has not been started"):
         _ = replica_set.uri
+
+
+@pytest.mark.parametrize(
+    ("fail_stop", "exc_type"),
+    [
+        pytest.param(False, None, id="clean-stop"),
+        pytest.param(True, RuntimeError, id="failed-stop-without-exception-instance"),
+    ],
+)
+def test_exit_stops_the_container_without_raising(
+    *, fail_stop: bool, exc_type: type[BaseException] | None
+) -> None:
+    replica_set, fake_container = _started_replica_set(fail_stop=fail_stop)
+    replica_set.__exit__(exc_type, None, None)
+    _assert_stopped(replica_set, fake_container)
 
 
 def test_exit_surfaces_stop_failure_when_no_exception_is_active() -> None:
-    replica_set = IsolatedReplicaSet(ResourceLimits(cpus=1.0, memory="512m"))
-    fake_container = _FakeContainer(
-        {"cpu_stats": {"cpu_usage": {"total_usage": 0}}}, fail_stop=True
-    )
-    replica_set._container = fake_container  # type: ignore[assignment]
-    replica_set._uri = "mongodb://stub/"
+    replica_set, fake_container = _started_replica_set(fail_stop=True)
     with pytest.raises(DockerException, match="stop failed"):
         replica_set.__exit__()
-    assert fake_container.stopped is True
-    with pytest.raises(BenchmarkSetupError, match="has not been started"):
-        _ = replica_set.uri
+    _assert_stopped(replica_set, fake_container)
 
 
 def test_exit_suppresses_stop_failure_when_an_exception_is_already_active() -> None:
-    replica_set = IsolatedReplicaSet(ResourceLimits(cpus=1.0, memory="512m"))
-    fake_container = _FakeContainer(
-        {"cpu_stats": {"cpu_usage": {"total_usage": 0}}}, fail_stop=True
-    )
-    replica_set._container = fake_container  # type: ignore[assignment]
-    replica_set._uri = "mongodb://stub/"
+    replica_set, fake_container = _started_replica_set(fail_stop=True)
     body_error = RuntimeError("benchmark body failed")
     replica_set.__exit__(RuntimeError, body_error, None)
-    assert fake_container.stopped is True
     assert any(
         "container cleanup failed" in note
         for note in getattr(body_error, "__notes__", [])
     )
-    with pytest.raises(BenchmarkSetupError, match="has not been started"):
-        _ = replica_set.uri
-
-
-def test_exit_tolerates_a_missing_exception_instance() -> None:
-    replica_set = IsolatedReplicaSet(ResourceLimits(cpus=1.0, memory="512m"))
-    fake_container = _FakeContainer(
-        {"cpu_stats": {"cpu_usage": {"total_usage": 0}}}, fail_stop=True
-    )
-    replica_set._container = fake_container  # type: ignore[assignment]
-    replica_set._uri = "mongodb://stub/"
-    replica_set.__exit__(RuntimeError, None, None)
-    assert fake_container.stopped is True
-    with pytest.raises(BenchmarkSetupError, match="has not been started"):
-        _ = replica_set.uri
-
-
-def test_await_writable_primary_times_out(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        "benchmarks.stream_cost.topology._ELECTION_TIMEOUT_SECONDS", 0.02
-    )
-    monkeypatch.setattr(
-        "benchmarks.stream_cost.topology._ELECTION_POLL_INTERVAL_SECONDS", 0.001
-    )
-    monkeypatch.setattr("benchmarks.stream_cost.topology.MongoClient", _StubHelloClient)
-    replica_set = IsolatedReplicaSet(ResourceLimits(cpus=1.0, memory="512m"))
-    replica_set._uri = "mongodb://stub/"
-    with pytest.raises(BenchmarkSetupError, match="did not elect a writable primary"):
-        replica_set._await_writable_primary()
+    _assert_stopped(replica_set, fake_container)
 
 
 class _CapturingHelloClient(_FakeMongoClient):
@@ -494,8 +477,21 @@ class _UnreachablePingClient(_FakeMongoClient):
         raise PyMongoError("unreachable")
 
 
-def test_await_writable_primary_times_out_waiting_for_reachability(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize(
+    ("client_class", "match"),
+    [
+        pytest.param(
+            _StubHelloClient,
+            "did not elect a writable primary",
+            id="no-writable-primary",
+        ),
+        pytest.param(
+            _UnreachablePingClient, "did not become reachable", id="unreachable"
+        ),
+    ],
+)
+def test_await_writable_primary_times_out(
+    monkeypatch: pytest.MonkeyPatch, client_class: type[_FakeMongoClient], match: str
 ) -> None:
     monkeypatch.setattr(
         "benchmarks.stream_cost.topology._ELECTION_TIMEOUT_SECONDS", 0.02
@@ -503,12 +499,10 @@ def test_await_writable_primary_times_out_waiting_for_reachability(
     monkeypatch.setattr(
         "benchmarks.stream_cost.topology._ELECTION_POLL_INTERVAL_SECONDS", 0.001
     )
-    monkeypatch.setattr(
-        "benchmarks.stream_cost.topology.MongoClient", _UnreachablePingClient
-    )
+    monkeypatch.setattr("benchmarks.stream_cost.topology.MongoClient", client_class)
     replica_set = IsolatedReplicaSet(ResourceLimits(cpus=1.0, memory="512m"))
     replica_set._uri = "mongodb://stub/"
-    with pytest.raises(BenchmarkSetupError, match="did not become reachable"):
+    with pytest.raises(BenchmarkSetupError, match=match):
         replica_set._await_writable_primary()
 
 

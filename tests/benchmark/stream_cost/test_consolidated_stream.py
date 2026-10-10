@@ -36,6 +36,8 @@ from client_query_cache._types import (
 from client_query_cache.synchronous.manager import CacheManager
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from pymongo import MongoClient
     from pymongo.synchronous.collection import Collection
 
@@ -340,15 +342,20 @@ def test_unrelated_write_workload_stop_without_start_is_a_noop() -> None:
     assert workload.stop() == 0
 
 
-def test_unrelated_write_workload_rejects_a_second_start() -> None:
+@pytest.fixture
+def started_workload() -> Iterator[UnrelatedWriteWorkload]:
     fake_collection = cast("Collection[BsonDict]", _FakeInsertCollection())
     workload = UnrelatedWriteWorkload(fake_collection, interval_seconds=1.0)
     workload.start()
-    try:
-        with pytest.raises(BenchmarkSetupError, match="already been started"):
-            workload.start()
-    finally:
-        workload.stop()
+    yield workload
+    workload.stop()
+
+
+def test_unrelated_write_workload_rejects_a_second_start(
+    started_workload: UnrelatedWriteWorkload,
+) -> None:
+    with pytest.raises(BenchmarkSetupError, match="already been started"):
+        started_workload.start()
 
 
 def test_verify_unrelated_write_minimum_rejects_non_positive_minimum() -> None:
