@@ -32,11 +32,15 @@ from client_query_cache import CacheManager
 
 with (
     MongoClient("mongodb://localhost:27017") as client,
-    CacheManager(client) as cache,
+    CacheManager(client) as cache_manager,
 ):
-    users = cache.get_cached_collection(client["my_database"]["users"])
-    users.find_one({"_id": "alice"})  # Reads from MongoDB.
-    users.find_one({"_id": "alice"})  # Repeated reads can use the cache.
+    collection = client["client_query_cache_tutorial"]["items"]
+    cached_collection = cache_manager.get_cached_collection(collection)
+    collection.replace_one(
+        {"_id": "example"}, {"_id": "example", "value": 42}, upsert=True
+    )
+    cached_collection.find_one({"_id": "example"})  # Reads from MongoDB.
+    cached_collection.find_one({"_id": "example"})  # Repeated reads can use the cache.
 ```
 
 ## References
