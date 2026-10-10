@@ -31,16 +31,28 @@ def test_write_to_one_document_does_not_invalidate_another_documents_entry(
     assert result_b.value == {"v": "b"}
 
 
-def test_a_write_under_another_numeric_type_invalidates_the_identity(
-    core: CacheCore, namespace: NamespaceId
+@pytest.mark.parametrize(
+    ("cached_id", "written_id", "invalidated"),
+    [
+        pytest.param(1, Decimal128("1"), True, id="equal-value"),
+        pytest.param(19.99, Decimal128("19.99"), False, id="inexact-double"),
+    ],
+)
+def test_a_write_under_another_numeric_type_invalidates_only_an_equal_identity(
+    core: CacheCore,
+    namespace: NamespaceId,
+    *,
+    cached_id: float,
+    written_id: Decimal128,
+    invalidated: bool,
 ) -> None:
-    capture = core.begin_identity_admission(namespace, 1)
-    outcome = core.admit_identity(capture, "full", {"v": 1})
+    capture = core.begin_identity_admission(namespace, cached_id)
+    outcome = core.admit_identity(capture, "full", {"_id": cached_id})
     assert outcome is AdmissionOutcome.ADMITTED
 
-    core.record_write(namespace, Decimal128("1"))
+    core.record_write(namespace, written_id)
 
-    assert core.lookup_identity(namespace, 1, "full").hit is False
+    assert core.lookup_identity(namespace, cached_id, "full").hit is not invalidated
 
 
 def test_write_invalidates_namespace_guarded_entries_regardless_of_document(

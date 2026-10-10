@@ -21,7 +21,7 @@
   - In `tests/core/test_order_sensitive_keys.py`, merge `test_order_sensitive_key_treats_float_and_int_as_the_same_identity` and `test_order_sensitive_key_treats_int64_and_int_as_the_same_identity` into one parametrized test over `1.0`, `Int64(1)`, `Decimal128("1")` and `Decimal128("1.0")`, plus `{"n": Decimal128("1")}` against `{"n": 1}`. It asserts equal canonical keys and hashes.
   - In `test_order_sensitive_discriminator_key_distinguishes_equal_valued_numeric_subtypes`, include `Decimal128(str(value))`. The identity key must equal the `int` key, and the discriminator key must remain uncanonicalizable.
   - A parametrized test asserting that `Decimal128("NaN")` and `Decimal128("sNaN")` identities are not canonicalizable.
-  - In `tests/core/test_entry_kinds.py`, a test that admits an identity entry for `1` and calls `record_write` with `Decimal128("1")`; the lookup then misses.
+  - In `tests/core/test_entry_kinds.py`, a test parametrized over the cached identity and the written decimal. It admits an identity entry, then calls `record_write` with the decimal. For `1` and `Decimal128("1")` the lookup misses; for the double `19.99` and `Decimal128("19.99")` it still hits.
 
   Verify with `just pytest tests/core/test_order_sensitive_keys.py tests/core/test_entry_kinds.py` and the task 1.2 command.
 
