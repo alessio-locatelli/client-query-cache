@@ -2,7 +2,7 @@
 
 ## 1. Correct and focus public guidance
 
-- [ ] 1.1 Apply design.md's method-table decision in `docs/user/reference/api.md`, replacing its contradictory async introduction; verify all six table rows against both collection implementations and cursor tests, and cross-check the existing asyncio tutorial and Context7 wording.
+- [x] 1.1 Apply design.md's method-table decision in `docs/user/reference/api.md`, replacing its contradictory async introduction; verify all six table rows against both collection implementations and cursor tests, and cross-check the existing asyncio tutorial and Context7 wording.
 - [ ] 1.2 Apply design.md's canonical-error-table decision to `docs/user/operations/deployment.md`; verify cursor-only find and change-stream aggregation are described as native bypasses, explicit low-level misuse retains its error boundary, and PyMongo errors remain visible.
 - [ ] 1.3 Apply the README positioning decision and the cached-read admission pointer from design.md; verify reliability claims against current CI/test sources and ensure neither coverage nor stream health is presented as a production or freshness guarantee.
 - [ ] 1.4 Apply the ownership placement decision to the API reference and `docs/development/architecture.md`; verify the public warning and lifecycle instructions survive and the internal explanation has one canonical home and a durable repository link.
