@@ -9,6 +9,7 @@ import secrets
 import statistics
 import tempfile
 import time
+from dataclasses import replace
 from multiprocessing.managers import BaseManager
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
@@ -17,6 +18,7 @@ import psutil
 from bson.codec_options import CodecOptions
 from pymongo import MongoClient
 
+from benchmarks.stream_cost.shared_cache.analysis import block_statistics
 from benchmarks.stream_cost.shared_cache.attachment import AsyncEndpoint, SyncEndpoint
 from benchmarks.stream_cost.shared_cache.dataset import seed_catalogue
 from benchmarks.stream_cost.shared_cache.owner import owner_main
@@ -47,6 +49,7 @@ type Payload = dict[str, object]
 
 _CONFIG = Path("reports/shared-worker-cache/v4/config.json")
 _LABEL = "exploratory diagnostic; excluded from promotion inference"
+_SAMPLING_SECONDS = (0.2, 5.0)
 
 
 class _CoarseCache:
@@ -305,6 +308,36 @@ def profile_windows(
     return payloads
 
 
+def observer_overhead(registration: Registration) -> list[Payload]:
+    cells = tuple(
+        cell
+        for cell in profile_cells(registration, "screening", 4, "async")
+        if cell.path != "direct"
+    )
+    rows: list[Payload] = []
+    with IsolatedReplicaSet(
+        ResourceLimits(**registration.section("topology"))  # type: ignore[arg-type]
+    ) as replica:
+        for seconds in _SAMPLING_SECONDS:
+            raw = {**registration.raw, "memory_sample_seconds": seconds}
+            sampled = replace(registration, raw=raw)
+            for cell in cells:
+                record = run_window(replica, sampled, cell)
+                statistics = block_statistics(record)
+                rows.append(
+                    {
+                        "memory_sample_seconds": seconds,
+                        "path": cell.path,
+                        "harness_cpu_seconds": record["harness_cpu_seconds"],
+                        "memory_samples": cast("Payload", record["memory"])["samples"],
+                        "request_p99_seconds": statistics["request_p99"],
+                        "cpu_per_request_seconds": statistics["cpu_per_request"],
+                        "steady_group_pss_bytes": statistics["steady_pss"],
+                    }
+                )
+    return rows
+
+
 def _owner_busy(record: Payload) -> object:
     try:
         owner = cast("Payload", record["owner"])
@@ -320,12 +353,16 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--config", type=Path, default=_CONFIG)
     parser.add_argument("--entries", type=int, default=1024)
     parser.add_argument("--repetitions", type=int, default=5)
-    parser.add_argument("--profile", nargs=3, metavar=("PHASE", "WORKERS", "MODEL"))
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--profile", nargs=3, metavar=("PHASE", "WORKERS", "MODEL"))
+    mode.add_argument("--observer-overhead", action="store_true")
     parser.add_argument("--output", type=Path, required=True)
     arguments = parser.parse_args(argv)
     registration = Registration.load(arguments.config)
     report: Payload = {"label": _LABEL, "configuration_sha256": registration.digest}
-    if arguments.profile is not None:
+    if arguments.observer_overhead:
+        report["observer_overhead"] = observer_overhead(registration)
+    elif arguments.profile is not None:
         phase, workers, model = arguments.profile
         report["windows"] = profile_windows(
             registration, profile_cells(registration, phase, int(workers), model)

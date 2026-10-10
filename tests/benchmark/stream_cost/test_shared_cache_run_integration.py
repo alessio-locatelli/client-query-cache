@@ -447,10 +447,7 @@ def test_exploratory_transport_diagnostics_are_labelled(tmp_path: Path) -> None:
     )
 
 
-@pytest.mark.timeout(180)
-def test_profiled_windows_summarize_owner_and_worker_hot_paths(
-    config: Path, tmp_path: Path
-) -> None:
+def _tiny_frozen(config: Path) -> None:
     raw = json.loads(config.read_text(encoding="utf-8"))
     raw["profiles"]["primary"]["documents"] = 64
     raw["warmup_seconds"] = 0.5
@@ -461,6 +458,13 @@ def test_profiled_windows_summarize_owner_and_worker_hot_paths(
         "calibration_summary": {},
     }
     config.write_text(json.dumps(raw), encoding="utf-8")
+
+
+@pytest.mark.timeout(180)
+def test_profiled_windows_summarize_owner_and_worker_hot_paths(
+    config: Path, tmp_path: Path
+) -> None:
+    _tiny_frozen(config)
     output = tmp_path / "profile.json"
 
     diagnostics.main(
@@ -527,3 +531,20 @@ def test_sensitivity_cold_and_closed_loop_windows_complete(
 
     assert record["healthy"] is True
     assert cast("int", record["completed"]) > 0
+
+
+@pytest.mark.timeout(180)
+def test_observer_overhead_compares_matched_sampling_rates(
+    config: Path, tmp_path: Path
+) -> None:
+    _tiny_frozen(config)
+    output = tmp_path / "observer.json"
+
+    diagnostics.main(
+        ["--config", str(config), "--observer-overhead", "--output", str(output)]
+    )
+
+    rows = json.loads(output.read_text(encoding="utf-8"))["observer_overhead"]
+    assert {(row["memory_sample_seconds"], row["path"]) for row in rows} == {
+        (seconds, path) for seconds in (0.2, 5.0) for path in ("independent", "shared")
+    }
