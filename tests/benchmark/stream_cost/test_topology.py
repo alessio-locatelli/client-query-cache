@@ -28,8 +28,9 @@ class _FakeStats:
     def __init__(self, stats_result: object) -> None:
         self._stats_result = stats_result
 
-    def stats(self, *, stream: bool) -> object:
+    def stats(self, *, stream: bool, one_shot: bool) -> object:
         assert stream is False
+        assert one_shot is True
         if self._stats_result is None:
             raise DockerException("stats unavailable")
         return self._stats_result
@@ -260,8 +261,9 @@ class _DisconnectingStats:
         self._failures = failures
         self.calls = 0
 
-    def stats(self, *, stream: bool) -> object:
+    def stats(self, *, stream: bool, one_shot: bool) -> object:
         assert stream is False
+        assert one_shot is True
         self.calls += 1
         if self.calls <= self._failures:
             raise RequestsConnectionError("Remote end closed connection")
