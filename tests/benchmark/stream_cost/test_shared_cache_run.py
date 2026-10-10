@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import json
+import shutil
 import time
 from dataclasses import asdict, replace
 from pathlib import Path
@@ -917,7 +918,7 @@ def test_processor_name_falls_back_without_a_model_line() -> None:
 def test_environment_requires_git(
     registration: Registration, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(run.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(shutil, "which", lambda _name: None)
 
     with pytest.raises(BenchmarkSetupError, match="git is required"):
         run.environment(registration)

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import TYPE_CHECKING, override
+from typing import TYPE_CHECKING, Any, override
 
 import pytest
 from bson.codec_options import CodecOptions, TypeEncoder, TypeRegistry
@@ -15,7 +15,7 @@ from client_query_cache._core.manager import CacheCore
 from tests.codec_helpers import decode_only_decimal_options
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping
 
     from client_query_cache._core.find_reads import FindReadShape
     from client_query_cache._core.keys import NamespaceId
@@ -42,7 +42,7 @@ class _FailingEncoder(TypeEncoder):
         raise RuntimeError(message)
 
 
-def _codec() -> CodecOptions[dict[str, object]]:
+def _codec() -> CodecOptions[Mapping[str, Any]]:
     return CodecOptions(type_registry=TypeRegistry([_DecimalEncoder()]))
 
 
@@ -239,7 +239,9 @@ def test_identity_admission_releases_its_capture_when_an_encoder_raises(
     core: CacheCore, namespace: NamespaceId
 ) -> None:
     capture = core.begin_identity_admission(namespace, "doc-1")
-    codec = CodecOptions(type_registry=TypeRegistry([_FailingEncoder()]))
+    codec: CodecOptions[Mapping[str, Any]] = CodecOptions(
+        type_registry=TypeRegistry([_FailingEncoder()])
+    )
 
     with pytest.raises(RuntimeError, match="application encoder rejected"):
         core.admit_identity(capture, "full", {"price": _PRICE}, codec_options=codec)

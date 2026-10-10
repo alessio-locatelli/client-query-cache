@@ -5,21 +5,24 @@ import secrets
 import shutil
 import tempfile
 import time
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
-from pymongo import MongoClient
+from pymongo import AsyncMongoClient, MongoClient
 
 from benchmarks.stream_cost.multiprocess_run import reclaim_workers
+from benchmarks.stream_cost.shared_cache.adapters import AsyncSharedCacheManager
+from benchmarks.stream_cost.shared_cache.attachment import AsyncEndpoint
 from benchmarks.stream_cost.shared_cache.coordinator import OwnerConfig, TransportLimits
 from benchmarks.stream_cost.shared_cache.owner import owner_main
 from benchmarks.stream_cost.shared_cache.window import attachment_for
 from benchmarks.stream_cost.shared_cache.wire import encode_key
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
+    from collections.abc import AsyncGenerator, Callable, Iterator
     from multiprocessing.connection import Connection
     from multiprocessing.process import BaseProcess
 
@@ -107,6 +110,21 @@ def select_identity(
             "shape": encode_key(manager[database][COLLECTION]._find_one_default_shape),
         }
     )
+
+
+@asynccontextmanager
+async def async_shared_manager(
+    owner: Owner, uri: str
+) -> AsyncGenerator[AsyncSharedCacheManager[dict[str, Any]]]:
+    client = AsyncMongoClient[dict[str, Any]](uri)
+    manager = AsyncSharedCacheManager(
+        client, await AsyncEndpoint.attach(owner.attachment())
+    )
+    try:
+        yield manager
+    finally:
+        await manager.close()
+        await client.close()
 
 
 @pytest.fixture

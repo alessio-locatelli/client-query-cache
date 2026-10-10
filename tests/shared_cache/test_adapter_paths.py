@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 from bson.codec_options import CodecOptions, TypeRegistry
-from pymongo import AsyncMongoClient, MongoClient
+from pymongo import MongoClient
 from pymongo.errors import OperationFailure
 
 from benchmarks.stream_cost.shared_cache.adapters import (
@@ -26,6 +26,7 @@ from tests.codec_helpers import Decimal128ToDecimalDecoder
 from tests.shared_cache.conftest import (
     COLLECTION,
     DOCUMENTS,
+    async_shared_manager,
     ready,
     select_identity,
     wait_for,
@@ -103,22 +104,19 @@ def test_unportable_and_bypassed_finds_execute_natively(
     subcollection = manager[seeded_database][COLLECTION]["sub"]
 
     async def asynchronous() -> AsyncSharedCacheManager[dict[str, Any]]:
-        async_client = AsyncMongoClient[dict[str, Any]](mongodb_uri)
-        async_manager = AsyncSharedCacheManager(
-            async_client, await AsyncEndpoint.attach(owner.attachment())
-        )
-        view = async_manager.get_cached_collection(
-            async_client[seeded_database].get_collection(
-                COLLECTION, codec_options=_custom_codec()
+        async with async_shared_manager(owner, mongodb_uri) as async_manager:
+            view = async_manager.get_cached_collection(
+                async_manager.client[seeded_database].get_collection(
+                    COLLECTION, codec_options=_custom_codec()
+                )
             )
-        )
-        assert len(await view.find({}).to_list()) == DOCUMENTS
-        hinted = async_manager[seeded_database][COLLECTION].find({}, hint=[("_id", 1)])
-        assert len(await hinted.to_list()) == DOCUMENTS
-        with pytest.raises(ValueError, match="different client"):
-            async_manager.get_cached_collection(client[seeded_database][COLLECTION])  # type: ignore[arg-type]
-        await async_manager.close()
-        await async_client.close()
+            assert len(await view.find({}).to_list()) == DOCUMENTS
+            hinted = async_manager[seeded_database][COLLECTION].find(
+                {}, hint=[("_id", 1)]
+            )
+            assert len(await hinted.to_list()) == DOCUMENTS
+            with pytest.raises(ValueError, match="different client"):
+                async_manager.get_cached_collection(client[seeded_database][COLLECTION])  # type: ignore[arg-type]
         return async_manager
 
     async_manager = asyncio.run(asynchronous())
@@ -196,14 +194,10 @@ def test_exhausted_captures_leave_reads_native(
     documents = collection.find({}, **_SORTED, limit=3).to_list()
 
     async def asynchronous() -> object:
-        async_client = AsyncMongoClient[dict[str, Any]](mongodb_uri)
-        async_manager = AsyncSharedCacheManager(
-            async_client, await AsyncEndpoint.attach(owner.attachment())
-        )
-        read = await async_manager[seeded_database][COLLECTION].find_one({"_id": 23})
-        await async_manager.close()
-        await async_client.close()
-        return read
+        async with async_shared_manager(owner, mongodb_uri) as async_manager:
+            return await async_manager[seeded_database][COLLECTION].find_one(
+                {"_id": 23}
+            )
 
     assert held is not None
     assert held["handle"] is not None
@@ -229,18 +223,11 @@ def test_failed_native_reads_release_their_captures(
         manager[seeded_database][COLLECTION].find_one({"_id": 24}, _INVALID_PROJECTION)
 
     async def asynchronous() -> None:
-        async_client = AsyncMongoClient[dict[str, Any]](mongodb_uri)
-        async_manager = AsyncSharedCacheManager(
-            async_client, await AsyncEndpoint.attach(owner.attachment())
-        )
-        try:
+        async with async_shared_manager(owner, mongodb_uri) as async_manager:
             with pytest.raises(OperationFailure):
                 await async_manager[seeded_database][COLLECTION].find_one(
                     {"_id": 24}, _INVALID_PROJECTION
                 )
-        finally:
-            await async_manager.close()
-            await async_client.close()
 
     asyncio.run(asynchronous())
 
@@ -321,42 +308,37 @@ def test_async_requests_survive_owner_pauses_and_loss(
     owner = start_owner()
 
     async def scenario() -> tuple[object, ...]:
-        async_client = AsyncMongoClient[dict[str, Any]](mongodb_uri)
-        manager = AsyncSharedCacheManager(
-            async_client, await AsyncEndpoint.attach(owner.attachment())
-        )
-        collection = manager[seeded_database][COLLECTION]
-        while await collection._cache_ineligibility_reason() is not None:  # noqa: ASYNC110
-            await asyncio.sleep(0.02)
-        await collection.find_one({"_id": 25})
-        endpoint = manager.endpoint
-        shape = encode_key(collection._find_one_default_shape)
-        namespace = next(iter(manager._metadata))
-        hit_request = {
-            "op": "select-identity",
-            "ns": [seeded_database, COLLECTION],
-            "epoch": manager._metadata[namespace].checked_epoch,
-            "identity": encode_key(25),
-            "shape": shape,
-        }
-        owner.request("pause-server", seconds=0.3)
-        late_hit = asyncio.create_task(endpoint.request(dict(hit_request)))
-        await asyncio.sleep(0.05)
-        late_hit.cancel()
-        await asyncio.sleep(0.5)
-        fresh = AsyncEndpoint(owner.attachment())
-        owner.request("pause-server", seconds=1.0)
-        connecting = await fresh.request({"op": "observe"})
-        await asyncio.sleep(1.0)
-        owner.request("pause-server", seconds=0.3)
-        in_flight = asyncio.create_task(endpoint.request(dict(hit_request)))
-        await asyncio.sleep(0.05)
-        os.kill(owner.pid, signal.SIGKILL)
-        lost = await in_flight
-        retried = await endpoint.request(dict(hit_request))
-        counters = endpoint.counters
-        await manager.close()
-        await async_client.close()
+        async with async_shared_manager(owner, mongodb_uri) as manager:
+            collection = manager[seeded_database][COLLECTION]
+            while await collection._cache_ineligibility_reason() is not None:  # noqa: ASYNC110
+                await asyncio.sleep(0.02)
+            await collection.find_one({"_id": 25})
+            endpoint = manager.endpoint
+            shape = encode_key(collection._find_one_default_shape)
+            namespace = next(iter(manager._metadata))
+            hit_request = {
+                "op": "select-identity",
+                "ns": [seeded_database, COLLECTION],
+                "epoch": manager._metadata[namespace].checked_epoch,
+                "identity": encode_key(25),
+                "shape": shape,
+            }
+            owner.request("pause-server", seconds=0.3)
+            late_hit = asyncio.create_task(endpoint.request(dict(hit_request)))
+            await asyncio.sleep(0.05)
+            late_hit.cancel()
+            await asyncio.sleep(0.5)
+            fresh = AsyncEndpoint(owner.attachment())
+            owner.request("pause-server", seconds=1.0)
+            connecting = await fresh.request({"op": "observe"})
+            await asyncio.sleep(1.0)
+            owner.request("pause-server", seconds=0.3)
+            in_flight = asyncio.create_task(endpoint.request(dict(hit_request)))
+            await asyncio.sleep(0.05)
+            os.kill(owner.pid, signal.SIGKILL)
+            lost = await in_flight
+            retried = await endpoint.request(dict(hit_request))
+            counters = endpoint.counters
         await fresh.close()
         return counters.late_replies, connecting, lost, retried, counters.failures
 
