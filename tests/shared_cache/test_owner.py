@@ -17,18 +17,27 @@ from benchmarks.stream_cost.shared_cache.coordinator import (
     SharedCacheOwner,
 )
 from benchmarks.stream_cost.shared_cache.window import attachment_for
-from benchmarks.stream_cost.shared_cache.wire import encode_frame, encode_key
+from benchmarks.stream_cost.shared_cache.wire import (
+    decode_frame,
+    encode_frame,
+    encode_key,
+)
 from tests.shared_cache.conftest import LIMITS, wait_for
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
     from pathlib import Path
 
+    from faker import Faker
+
     from benchmarks.stream_cost.shared_cache.attachment import Message
 
 pytestmark = pytest.mark.unit
 
 _DATABASE = "unreachable"
+# Linux raises any smaller SO_SNDBUF request to its minimum send buffer.
+_SMALLEST_SEND_BUFFER = 1
+_HIT_BYTES = 48 * 1024
 
 
 @pytest.fixture
@@ -228,3 +237,28 @@ def test_capture_expiry_releases_handles_of_each_session(
     assert not owner._handles
     for endpoint in endpoints:
         endpoint.close()
+
+
+def test_a_reply_larger_than_the_send_buffer_is_flushed_in_parts(
+    owner: SharedCacheOwner, faker: Faker
+) -> None:
+    _activate(owner)
+    peer = _authenticated(owner)
+    (connection,) = owner._connections.values()
+    connection.sock.setsockopt(
+        socket.SOL_SOCKET, socket.SO_SNDBUF, _SMALLEST_SEND_BUFFER
+    )
+    value = faker.binary(length=_HIT_BYTES)
+    peer.sendall(encode_frame({"v": 1, "id": 1, **_select_find()}))
+    handle = decode_frame(_read_reply(peer))["handle"]
+    peer.sendall(
+        encode_frame({"v": 1, "id": 0, "op": "admit", "handle": handle, "value": value})
+    )
+
+    peer.sendall(encode_frame({"v": 1, "id": 2, **_select_find()}))
+    wait_for(lambda: connection.writable)
+    reply = decode_frame(_read_reply(peer))
+
+    assert reply["r"] == "hit"
+    assert reply["value"] == value
+    peer.close()
