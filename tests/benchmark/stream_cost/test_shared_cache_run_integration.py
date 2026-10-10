@@ -381,6 +381,8 @@ def test_phase_command_runs_the_planned_baseline_cells(
         [
             "--phase",
             "capacity",
+            "--only",
+            "sync:8",
             "--config",
             str(config),
             "--output",
@@ -393,6 +395,11 @@ def test_phase_command_runs_the_planned_baseline_cells(
         "independent",
     }
     assert {cell.phase for cell in measured} == {"cold", "capacity"}
+    assert {
+        (cell.model, cell.workers) for cell in measured if cell.phase == "capacity"
+    } == {("sync", 8)}
+    report = json.loads((tmp_path / "b.json").read_text(encoding="utf-8"))
+    assert report["exploratory"] == "cells limited to sync:8"
 
 
 def test_calibration_and_freeze_commands(
