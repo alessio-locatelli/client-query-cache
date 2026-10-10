@@ -398,7 +398,7 @@ class _CacheCoreNamespaceLifecycle(_CacheCoreBase):
             identity_state.generation += 1
             for alias_key in identity_state.alias_keys:
                 state.aliases.pop(alias_key, None)
-            identity_state.alias_keys.clear()
+            identity_state.clear_aliases()
 
     def clear_namespace(self, namespace: NamespaceId) -> None:
         self._ensure_active()
@@ -422,7 +422,7 @@ class _CacheCoreNamespaceLifecycle(_CacheCoreBase):
                 if entry.identity is not None:
                     state.identities[entry.identity].cached_ref_count -= 1
             for identity_state in state.identities.values():
-                identity_state.alias_keys.clear()
+                identity_state.clear_aliases()
             for identity, identity_state in list(state.identities.items()):
                 if not identity_state.is_referenced:
                     del state.identities[identity]
@@ -481,7 +481,7 @@ class _CacheCoreIdentityAdmission(_CacheCoreBase):
             identity_state.inflight_ref_count += 1
             generation_key = (state.epoch, identity_state.generation)
         return IdentityCapture(
-            namespace=namespace,
+            namespace=state.namespace,
             identity=canonical_identity,
             generation_key=generation_key,
             availability_generation=availability_generation,
@@ -610,9 +610,9 @@ def _publish_alias_locked(
     except KeyError:
         previous_identity = None
     if previous_identity is not None and previous_identity != identity:
-        state.identities[previous_identity].alias_keys.discard(alias)
+        state.identities[previous_identity].discard_alias(alias)
     state.aliases[alias] = identity
-    state.identities[identity].alias_keys.add(alias)
+    state.identities[identity].add_alias(alias)
 
 
 def _discard_alias_locked(
@@ -626,7 +626,7 @@ def _discard_alias_locked(
         return
     del state.aliases[alias]
     identity_state = state.identities[expected_identity]
-    identity_state.alias_keys.discard(alias)
+    identity_state.discard_alias(alias)
     _maybe_prune_identity_locked(state, expected_identity, identity_state)
 
 
@@ -641,7 +641,7 @@ class _CacheCoreNamespaceAdmission(_CacheCoreBase):
         state = self._namespace(namespace)
         with self._namespace_section(state):
             return NamespaceCapture(
-                namespace=namespace,
+                namespace=state.namespace,
                 generation=state.generation,
                 availability_generation=availability_generation,
             )

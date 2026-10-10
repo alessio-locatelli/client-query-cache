@@ -17,16 +17,29 @@ if TYPE_CHECKING:
     )
 
 
+_NO_ALIASES: frozenset[AliasKey] = frozenset()
+
+
 @dataclass(slots=True)
 class IdentityState:
     generation: NonNegativeInt = 0
     cached_ref_count: NonNegativeInt = 0
     inflight_ref_count: NonNegativeInt = 0
-    alias_keys: set[AliasKey] = field(default_factory=set)
+    alias_keys: frozenset[AliasKey] = _NO_ALIASES
 
     @property
     def is_referenced(self) -> bool:
         return self.cached_ref_count > 0 or self.inflight_ref_count > 0
+
+    def add_alias(self, alias: AliasKey) -> None:
+        if alias not in self.alias_keys:
+            self.alias_keys |= {alias}
+
+    def discard_alias(self, alias: AliasKey) -> None:
+        self.alias_keys = (self.alias_keys - {alias}) or _NO_ALIASES
+
+    def clear_aliases(self) -> None:
+        self.alias_keys = _NO_ALIASES
 
 
 @dataclass(slots=True)

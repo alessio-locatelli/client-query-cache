@@ -20,6 +20,10 @@ bodies or OpenSpec. An empty Unreleased section is valid.
 - MongoDB Search, Vector Search, and `$listSearchIndexes` aggregations through cached views run with the caller's read concern instead of failing.
 - `$near`, `$nearSphere`, and `$geoNear` reads, reads that reference `$$USER_ROLES`, and `find_one()` and `find()` projections that use `$rand`, `$function`, `$$NOW`, or `$$CLUSTER_TIME` bypass the cache, so they no longer return results that index changes, role changes, or the first execution left stale.
 
+### Performance
+
+- Cached results use less process memory: about 210 fewer bytes for each document cached by `_id`, and about 70 fewer for every other cached result.
+
 ### Features
 
 - **Breaking:** Rename `StreamHealthSnapshot.database_name` to `requested_database_name`. It holds the name you passed to `stream_health_snapshot()`, which is not validated, so while the manager is open an empty or unknown name reports `not_started`.
