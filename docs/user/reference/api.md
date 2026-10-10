@@ -174,8 +174,16 @@ cache_manager = CacheManager(
 | `max_entry_bytes`           | 1 MiB                    | The largest single cached value (one document, or one `find`/`aggregate`/`distinct` result) the cache accepts.                                                                                                                                                                                            |
 | `lag_capture_window_config` | 10 windows of 100 events | Sizes the invalidation-lag sample windows used by the stream-cost telemetry described in [Observability](../operations/monitoring.md#observability). Most applications never need to change this; it exists for the benchmark suite documented in [stream cost benchmarks](../benchmarks/stream-cost.md). |
 
-`CacheCoreConfig` raises `CacheConfigurationError` if `shared_budget_bytes` or `max_entry_bytes` is not positive, or
-if `max_entry_bytes` exceeds `shared_budget_bytes`.
+`shared_budget_bytes` and `max_entry_bytes` must be positive, and `max_entry_bytes` must not exceed
+`shared_budget_bytes`. Equal budgets are allowed.
+
+The `lag_capture_window_config` has three numeric fields: `window_count` and `events_per_window` must be
+positive; `min_separation_events` must be nonnegative. The default separation is zero, allowing adjacent windows.
+
+All five numeric fields require exact built-in integers. Booleans, integer subclasses, floats (including NaN and
+infinities), strings, `None`, and other types raise `CacheConfigurationError` at configuration construction,
+naming the invalid field. Values are not converted. Invalid ranges or budget relationships also raise
+`CacheConfigurationError` at construction.
 
 ### Change-stream await time
 
@@ -265,7 +273,7 @@ The same exception classes apply to synchronous and asyncio managers.
 
 | Exception                      | Raised when                                                                                      | What to do                                                         |
 | ------------------------------ | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------ |
-| `CacheConfigurationError`      | A `CacheCoreConfig` value or the manager's `max_await_time_ms` is invalid.                       | Fix the configuration value.                                       |
+| `CacheConfigurationError`      | A cache budget, lag-window field, or the manager's `max_await_time_ms` is invalid.               | Fix the configuration value.                                       |
 | `CacheClosedError`             | A cached read is attempted after `cache_manager.close()`.                                        | Don't use a manager (or a view obtained from it) after closing it. |
 | `UnsupportedCacheRequestError` | An explicit low-level cache operation receives an unsupported key value.                         | Use a supported key or the native collection.                      |
 | `ValueError`                   | `cache_manager.get_cached_collection(collection)` receives a collection from a different client. | Pass a collection from `cache_manager.client`.                     |

@@ -15,6 +15,29 @@ if TYPE_CHECKING:
     from client_query_cache._core.lru import WeightedLru
 
 
+class _IntegerSubclass(int):
+    __slots__ = ()
+
+
+@pytest.fixture(
+    params=[
+        pytest.param(True, id="true"),
+        pytest.param(False, id="false"),
+        pytest.param(_IntegerSubclass(1), id="integer_subclass"),
+        pytest.param(1.0, id="integral_float"),
+        pytest.param(1.5, id="fractional_float"),
+        pytest.param(float("nan"), id="nan"),
+        pytest.param(float("inf"), id="positive_infinity"),
+        pytest.param(float("-inf"), id="negative_infinity"),
+        pytest.param("1", id="string"),
+        pytest.param(None, id="null"),
+        pytest.param(object(), id="unrelated_object"),
+    ]
+)
+def invalid_config_integer(request: pytest.FixtureRequest) -> object:
+    return request.param
+
+
 @pytest.fixture
 def namespace() -> NamespaceId:
     return NamespaceId("test_db", "test_collection")
