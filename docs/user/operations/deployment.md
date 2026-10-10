@@ -86,6 +86,31 @@ This multiplication matters most in two shapes of deployment:
    the databases and collections you actually expect concurrent hot data from, rather than leaving the default in
    place for a manager sized for a handful of databases.
 
+### Memory beyond the cache budget
+
+`shared_budget_bytes` and `max_entry_bytes` count stored BSON, not process memory. Each cached result also keeps its query and some bookkeeping: from about 0.6 KB for a document read by `_id` to about 1.2 KB for a result found by a short filter, plus the filter values your application passed. Large results barely notice this; many small results multiply it. In the project's measurements, a full budget added this much process memory beyond the same reads without the cache:
+
+| Cached results                                    | Added memory per cached result | Added memory per 1 MiB of cached BSON |
+| ------------------------------------------------- | -----------------------------: | ------------------------------------: |
+| `find()` results of about 0.9 MiB                 |                    about 1 MiB |                        about 1.05 MiB |
+| 4.4 KB documents read by `_id`                    |                   about 4.9 KB |                        about 1.15 MiB |
+| 60-byte results read with a one-field filter      |                   about 1.2 KB |                          about 21 MiB |
+| 60-byte results read with a 48-value `$in` filter |                   about 5.4 KB |                          about 92 MiB |
+
+For example, the default 64 MiB budget filled with 4.4 KB documents added about 74 MiB, while a 4 MiB budget filled with 60-byte results from the larger filter added about 370 MiB. If most cached results are small, or filters carry long lists of values, lower `shared_budget_bytes` and compare `entry_count` from [`snapshot()`](monitoring.md#observability) with your process memory.
+
+Other memory comes on top of the budget:
+
+- A cursor that is still reading a miss keeps a copy of what it has read so far, up to `max_entry_bytes`, until it finishes or closes. Thirty-two open cursors that had each read about 0.9 MiB added 31–34 MiB. Close cursors you stop reading.
+- Results your application keeps take the same memory as without the cache.
+- Importing the library and running one manager added about 2 MiB to a process before any result was cached.
+
+Process memory usually stays near its peak after the cache frees memory. After eviction, closing cursors, or closing the manager, Python and the C library keep freed memory for reuse instead of returning it to the operating system. Closing a manager that had filled its budget typically left 0–20 MiB above the starting level after large results or documents, and 23–57 MiB after many small results, the most with large filters. Five fill-and-close cycles in one process reused that memory: their peaks barely grew after the first cycle. Size memory limits for the observed peak, not for the current budget usage.
+
+Container memory limits apply to the container's own memory counter, not to process RSS, which also counts shared library pages. In the measurements, the container counter followed the process's private memory and stayed about 17 MiB below RSS.
+
+The figures come from Python 3.14, PyMongo 4.18, and glibc on Linux, and depend on document shape. Measure your own workload before relying on them.
+
 Monitor [cache outcomes and stream health](monitoring.md) alongside your application workload. Use the [benchmark guide](../benchmarks/index.md) to decide what to measure before deployment.
 
 ## Multi-worker servers

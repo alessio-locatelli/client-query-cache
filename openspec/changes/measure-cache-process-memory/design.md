@@ -65,7 +65,7 @@ Smaller budgets keep the small-entry scenarios to about a minute per cell while 
 
 ### 5. Removing the duplications
 
-`IdentityState.alias_keys` becomes an immutable `frozenset` defaulting to the shared empty `frozenset()`. Publication, displacement, write invalidation, and reclamation replace it instead of mutating it. An identity has at most one alias per qualifying unique index, so copy-on-write costs are negligible.
+`IdentityState.alias_keys` becomes an immutable `frozenset` defaulting to one module-level empty `frozenset`; CPython 3.14 has no empty-`frozenset` singleton, so an identity left without aliases returns to that constant instead of allocating a new empty set. `IdentityState` methods for adding, discarding, and clearing aliases replace the set instead of mutating it during publication, displacement, write invalidation, and reclamation. An identity has at most one alias per qualifying unique index, so copy-on-write costs are negligible.
 
 | Alternative                                     | Pros                          | Cons                                                         |
 | ----------------------------------------------- | ----------------------------- | ------------------------------------------------------------ |

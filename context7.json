@@ -35,6 +35,8 @@
     "Worker processes share no cached data or change streams, so cache memory and stream cursors grow with the worker count. Size shared_budget_bytes per worker.",
     "Budget and lag-window numeric fields require exact built-in integers. Booleans, integer subclasses, floats (including NaN and infinities), strings, None, and other types raise CacheConfigurationError naming the field at construction; no coercion.",
     "shared_budget_bytes and max_entry_bytes must be positive, with max_entry_bytes no larger than shared_budget_bytes. Invalid ranges or relationships raise CacheConfigurationError naming the field at construction.",
+    "shared_budget_bytes and max_entry_bytes bound stored and captured BSON, not process memory. Each cached result also keeps its query and about 1 KB of bookkeeping; lower the budget when most results are small or filters carry long value lists.",
+    "Size memory limits for observed peaks: memory freed by eviction, cursor closure, or manager closure is reused by the process rather than returned to the operating system.",
     "Lag-window window_count and events_per_window must be positive; min_separation_events must be nonnegative, with zero allowing adjacent windows. Invalid ranges raise CacheConfigurationError naming the field at construction.",
     "Close the manager before closing its caller-owned client, or use with / async with. Await close() for asyncio. The manager does not close the client.",
     "Cache coherence uses MongoDB change streams, not TTL. LRU eviction enforces the configured stored-BSON budget; it is not a freshness mechanism.",
