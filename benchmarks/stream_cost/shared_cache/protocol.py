@@ -9,18 +9,18 @@ from typing import TYPE_CHECKING, Literal, cast
 
 from benchmarks.stream_cost.errors import BenchmarkConfigurationError
 from benchmarks.stream_cost.shared_cache.coordinator import TransportLimits
+from client_query_cache._types import (
+    JsonDict,
+    NonNegativeFloat,
+    NonNegativeInt,
+    PositiveFloat,
+    PositiveInt,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from client_query_cache._types import (
-        NonNegativeFloat,
-        NonNegativeInt,
-        PositiveFloat,
-        PositiveInt,
-    )
 
-type Payload = dict[str, object]
 type PathKind = Literal["direct", "independent", "shared"]
 type Model = Literal["sync", "async", "mixed"]
 type Workload = Literal["hot", "active", "cold"]
@@ -40,7 +40,7 @@ _FAMILY_WORKLOADS: dict[str, Workload] = {
 
 @dataclass(frozen=True, slots=True)
 class Registration:
-    raw: Payload
+    raw: JsonDict
     digest: str
 
     @classmethod
@@ -48,13 +48,13 @@ class Registration:
         content = path.read_bytes()
         return cls(json.loads(content), sha256(content).hexdigest())
 
-    def section(self, name: str) -> Payload:
-        return cast("Payload", self.raw[name])
+    def section(self, name: str) -> JsonDict:
+        return cast("JsonDict", self.raw[name])
 
     def number(self, *keys: str) -> float:
         value: object = self.raw
         for key in keys:
-            value = cast("Payload", value)[key]
+            value = cast("JsonDict", value)[key]
         assert isinstance(value, (int, float))
         return value
 
@@ -62,14 +62,14 @@ class Registration:
     def frozen(self) -> bool:
         return self.raw["status"] == "frozen"
 
-    def profile(self, name: str) -> Payload:
-        return cast("Payload", self.section("profiles")[name])
+    def profile(self, name: str) -> JsonDict:
+        return cast("JsonDict", self.section("profiles")[name])
 
     def limits(self) -> TransportLimits:
         return TransportLimits(**cast("dict[str, float]", self.section("transport")))  # type: ignore[arg-type]
 
     def rate(self, family: Family) -> PositiveFloat:
-        rates = cast("Payload", self.section("frozen")["rates"])
+        rates = cast("JsonDict", self.section("frozen")["rates"])
         value = rates[family]
         if value is None:
             message = f"registration has no frozen {family} rate"
@@ -78,7 +78,7 @@ class Registration:
         return value
 
     def window(self, kind: str) -> PositiveFloat:
-        windows = cast("Payload", self.section("frozen")["window_seconds"])
+        windows = cast("JsonDict", self.section("frozen")["window_seconds"])
         value = windows[kind]
         if value is None:
             message = f"registration has no frozen {kind} window"
@@ -268,7 +268,7 @@ def comparison_cells(
     registration: Registration, phase: str, paths: tuple[PathKind, ...] = PATHS
 ) -> tuple[Cell, ...]:
     phases = registration.section("phases")
-    settings = cast("Payload", phases[phase])
+    settings = cast("JsonDict", phases[phase])
     durations = frozen_durations(registration)
     cells: list[Cell] = []
     blocks = cast("int", settings["blocks"])
@@ -299,7 +299,7 @@ def comparison_cells(
 
 
 def _phase_matrix(
-    phase: str, settings: Payload
+    phase: str, settings: JsonDict
 ) -> tuple[tuple[str, Model, PositiveInt], ...]:
     models: tuple[Model, ...] = ("sync", "async")
     if phase in {"screening", "confirmation", "cold"}:
@@ -319,7 +319,7 @@ def _phase_matrix(
 
 
 def capacity_cells(registration: Registration) -> tuple[Cell, ...]:
-    settings = cast("Payload", registration.section("phases")["capacity"])
+    settings = cast("JsonDict", registration.section("phases")["capacity"])
     models: tuple[Model, ...] = ("sync", "async")
     return tuple(
         Cell(
@@ -344,7 +344,7 @@ def capacity_cells(registration: Registration) -> tuple[Cell, ...]:
 
 
 def smoke_cells(registration: Registration) -> tuple[Cell, ...]:
-    settings = cast("Payload", registration.section("phases")["smoke"])
+    settings = cast("JsonDict", registration.section("phases")["smoke"])
     combinations: tuple[tuple[Workload, Model], ...] = (
         ("hot", "sync"),
         ("active", "mixed"),

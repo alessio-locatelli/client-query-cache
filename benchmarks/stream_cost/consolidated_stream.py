@@ -17,6 +17,7 @@ from benchmarks.stream_cost.errors import (
     BenchmarkSetupError,
 )
 from client_query_cache._types import (
+    BsonDict,
     ExclusiveProbability,
     NonNegativeFloat,
     NonNegativeInt,
@@ -27,7 +28,6 @@ from client_query_cache.synchronous.manager import CacheManager
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
-    from typing import Any
 
     from pymongo import MongoClient
     from pymongo.synchronous.collection import Collection
@@ -201,7 +201,7 @@ class UnrelatedWriteWorkload:
     )
 
     def __init__(
-        self, collection: Collection[dict[str, Any]], *, interval_seconds: PositiveFloat
+        self, collection: Collection[BsonDict], *, interval_seconds: PositiveFloat
     ) -> None:
         if interval_seconds <= 0:
             message = "interval_seconds must be positive"
@@ -282,7 +282,7 @@ def verify_unrelated_write_minimum(
 
 
 def verify_single_consolidated_stream(
-    manager: CacheManager[dict[str, Any]], *, database: str
+    manager: CacheManager[BsonDict], *, database: str
 ) -> None:
     active = manager.cache_core.active_stream_cost_databases()
     if active != [database]:
@@ -294,12 +294,12 @@ def verify_single_consolidated_stream(
 
 
 def reset_run_state(
-    client: MongoClient[dict[str, Any]],
-    previous_manager: CacheManager[dict[str, Any]] | None,
+    client: MongoClient[BsonDict],
+    previous_manager: CacheManager[BsonDict] | None,
     *,
     database: str,
     cache_config: CacheCoreConfig | None = None,
-) -> CacheManager[dict[str, Any]]:
+) -> CacheManager[BsonDict]:
     if previous_manager is not None:
         previous_manager.close()
     client.drop_database(database)

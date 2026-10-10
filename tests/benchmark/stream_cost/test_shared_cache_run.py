@@ -47,7 +47,7 @@ from client_query_cache._types import BsonDict, JsonDict, NonNegativeInt
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from benchmarks.stream_cost.shared_cache.protocol import Cell, Family, Payload
+    from benchmarks.stream_cost.shared_cache.protocol import Cell, Family
 
 pytestmark = pytest.mark.unit
 
@@ -91,7 +91,7 @@ def _record(
     pss: float = 100.0,
     cpu: float = 1.0,
     healthy: bool = True,
-) -> Payload:
+) -> JsonDict:
     sample_count = 20_000
     loop = {
         "offered": completed,
@@ -102,7 +102,7 @@ def _record(
         "outstanding_at_end": 0,
         "elapsed": 10.0,
     }
-    worker: Payload = {
+    worker: JsonDict = {
         "model": "sync",
         "cpu_seconds": cpu,
         "drain_cpu_seconds": 0.0,
@@ -121,7 +121,7 @@ def _record(
         "p95_seconds": p99 / 2,
         "p99_seconds": p99,
     }
-    record: Payload = {
+    record: JsonDict = {
         **asdict(cell),
         "healthy": healthy,
         "offered": completed,
@@ -266,11 +266,13 @@ def test_validation_rejects_overloaded_or_short_windows(
         registration, "primary", 100.0, {"hot": 30.0, "active": 60.0}
     )[0]
     record = _record(cell)
-    workers = cast("list[Payload]", record["workers_measured"])
+    workers = cast("list[JsonDict]", record["workers_measured"])
     if "loop" in change:
-        cast("Payload", workers[0]["loop"]).update(cast("Payload", change["loop"]))
+        cast("JsonDict", workers[0]["loop"]).update(cast("JsonDict", change["loop"]))
     elif "sample_count" in change:
-        population = cast("Payload", cast("Payload", record["populations"])["request"])
+        population = cast(
+            "JsonDict", cast("JsonDict", record["populations"])["request"]
+        )
         record["populations"] = {"request": {**population, "sample_count": 9_999}}
     else:
         record.update(change)
@@ -340,7 +342,7 @@ class _FakeRecorder:
 
     def run(
         self, _replica: object, _registration: Registration, cells: tuple[Cell, ...]
-    ) -> list[Payload]:
+    ) -> list[JsonDict]:
         records = []
         for cell in cells:
             self.calls.append((cell.phase, cell.rate))
@@ -373,8 +375,10 @@ def test_calibration_halves_an_overloaded_family_and_freezes_the_rest(
 
     assert outcome["outcome"] == "validated"
     assert outcome["rates"] == {"primary": 1500, "cold": 1000, "sensitivity": 500}
-    selections = cast("Payload", outcome["selections"])
-    attempts = cast("list[Payload]", cast("Payload", selections["primary"])["attempts"])
+    selections = cast("JsonDict", outcome["selections"])
+    attempts = cast(
+        "list[JsonDict]", cast("JsonDict", selections["primary"])["attempts"]
+    )
     assert [attempt["rate"] for attempt in attempts] == [3000, 1500]
 
 
@@ -403,8 +407,10 @@ def test_calibration_stops_when_the_window_cap_cannot_hold_the_floor(
 
     assert outcome["outcome"] == "inconclusive"
     attempts = cast(
-        "list[Payload]",
-        cast("Payload", cast("Payload", outcome["selections"])["primary"])["attempts"],
+        "list[JsonDict]",
+        cast("JsonDict", cast("JsonDict", outcome["selections"])["primary"])[
+            "attempts"
+        ],
     )
     assert attempts == [
         {"rate": 75, "durations": {"hot": 135, "active": 270}, "failure": "window cap"}
@@ -420,7 +426,7 @@ class _UnhealthyRecorder(_FakeRecorder):
 
     def run(
         self, replica: object, registration: Registration, cells: tuple[Cell, ...]
-    ) -> list[Payload]:
+    ) -> list[JsonDict]:
         records = super().run(replica, registration, cells)
         if cells[0].phase == self.unhealthy_phase:
             records[0]["healthy"] = False
@@ -500,7 +506,7 @@ def test_resume_reuses_matching_windows_in_order(
     reused = _record(cells[0])
     measured: list[Cell] = []
 
-    def measure(_replica: object, _registration: Registration, cell: Cell) -> Payload:
+    def measure(_replica: object, _registration: Registration, cell: Cell) -> JsonDict:
         measured.append(cell)
         raise BenchmarkSetupError("deliberate setup failure")
 
@@ -596,7 +602,7 @@ def test_open_loop_records_errors_and_completions(model: str) -> None:
     assert (loop.offered, loop.completed, loop.errors) == (20, 19, 1)
     assert loop.error_types == {"LookupError": 1}
     assert len(loop.latencies) == 19
-    assert cast("Payload", loop.summary()["latency"])["sample_count"] == 19
+    assert cast("JsonDict", loop.summary()["latency"])["sample_count"] == 19
 
 
 @pytest.mark.parametrize("model", ["sync", "async"])
@@ -683,7 +689,7 @@ def _comparison_records(
     *,
     shared_pss: float,
     blocks: int,
-) -> list[Payload]:
+) -> list[JsonDict]:
     cells = [
         cell
         for cell in comparison_cells(frozen, "confirmation")
@@ -747,7 +753,7 @@ def test_unstable_bounds_are_inconclusive(frozen: Registration) -> None:
     for index, record in enumerate(
         item for item in records if item["path"] == "shared"
     ):
-        cast("Payload", record["memory"])["steady_group_pss_bytes"] = (
+        cast("JsonDict", record["memory"])["steady_group_pss_bytes"] = (
             60.0 if index % 2 else 85.0
         )
 
@@ -766,7 +772,7 @@ def test_screening_stops_on_an_observed_failed_condition(frozen: Registration) -
 
     assert decision["verdict"] == "stop"
     assert "group-memory" in {
-        item["criterion"] for item in cast("list[Payload]", decision["failed"])
+        item["criterion"] for item in cast("list[JsonDict]", decision["failed"])
     }
 
 
@@ -876,7 +882,7 @@ def test_incomplete_pairs_are_missing(frozen: Registration, remove: str) -> None
         records = [record for record in records if record["block"] == 0]
     else:
         shared = next(record for record in records if record["path"] == "shared")
-        cast("list[Payload]", shared["workers_measured"])[0]["outcomes"] = {
+        cast("list[JsonDict]", shared["workers_measured"])[0]["outcomes"] = {
             "hits": 0,
             "misses": 0,
             "bypasses": 0,
@@ -901,7 +907,7 @@ def test_confirmation_decisions_require_every_bound(
     frozen: Registration, shared_pss: float, verdict: str
 ) -> None:
     raw = copy.deepcopy(frozen.raw)
-    cast("Payload", raw["inference"]).update({"draws": 200, "leave_one_out_draws": 50})
+    cast("JsonDict", raw["inference"]).update({"draws": 200, "leave_one_out_draws": 50})
     small = replace(frozen, raw=raw)
     records = _comparison_records(small, shared_pss=shared_pss, blocks=4)
 

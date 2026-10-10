@@ -9,7 +9,7 @@ from bson import ObjectId
 from faker import Faker
 
 from benchmarks.stream_cost.errors import BenchmarkConfigurationError
-from client_query_cache._types import NonEmptyStr, NonNegativeInt, PositiveInt
+from client_query_cache._types import BsonDict, NonEmptyStr, NonNegativeInt, PositiveInt
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,15 +45,15 @@ def _millisecond_precision(value: datetime.datetime) -> datetime.datetime:
 
 def generate_seeded_documents(
     profile: DocumentSizeProfile, *, count: PositiveInt, seed: int
-) -> list[dict[str, object]]:
+) -> list[BsonDict]:
     if count <= 0:
         message = "count must be positive"
         raise BenchmarkConfigurationError(message)
     faker = Faker()
     faker.seed_instance(seed)
-    documents: list[dict[str, object]] = []
+    documents: list[BsonDict] = []
     for index in range(count):
-        document: dict[str, object] = {
+        document: BsonDict = {
             "_id": _deterministic_object_id(seed, index),
             "index": index,
             "name": faker.name(),

@@ -15,7 +15,7 @@ from benchmarks.stream_cost.measurement import (
     scalar_latency_distribution,
 )
 from benchmarks.stream_cost.workload import WorkloadKind
-from client_query_cache._types import NonNegativeInt
+from client_query_cache._types import JsonDict, NonNegativeInt
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -45,7 +45,7 @@ class CompressionBlockPlan:
     path_order: tuple[WirePath, WirePath]
 
 
-def _window_payload(window: CompressionWindowSpec) -> dict[str, object]:
+def _window_payload(window: CompressionWindowSpec) -> JsonDict:
     is_idle = window.kind is WorkloadKind.IDLE
     return {
         "name": window.name,
@@ -59,7 +59,7 @@ def _window_payload(window: CompressionWindowSpec) -> dict[str, object]:
     }
 
 
-def _sample_payload(window_result: CompressionWindowResult) -> dict[str, object]:
+def _sample_payload(window_result: CompressionWindowResult) -> JsonDict:
     window = window_result.window
     measurement = window_result.measurement
     is_idle = window.kind is WorkloadKind.IDLE
@@ -120,7 +120,7 @@ def _direct_path_bytes_delta(
 
 def _stream_minus_control_payload(
     stream_result: CompressionWindowResult, control_result: CompressionWindowResult
-) -> dict[str, object]:
+) -> JsonDict:
     stream_measurement = stream_result.measurement
     control_measurement = control_result.measurement
     return {
@@ -141,7 +141,7 @@ def _negotiation_payload(
     block_index: NonNegativeInt,
     mode: WireCompressor,
     preflight_result: CompressorPreflightResult,
-) -> dict[str, object]:
+) -> JsonDict:
     return {
         "block_index": block_index,
         "mode": mode.value,
@@ -161,12 +161,12 @@ def build_compression_report(
     ],
     window_results: Sequence[CompressionWindowResult],
     limitations: Sequence[Limitation],
-) -> dict[str, object]:
+) -> JsonDict:
     results_by_key = {
         (result.block_index, result.mode, result.window.name, result.path): result
         for result in window_results
     }
-    stream_minus_control: list[dict[str, object]] = []
+    stream_minus_control: list[JsonDict] = []
     for block in blocks:
         for mode in block.mode_order:
             for window in windows:
@@ -224,14 +224,14 @@ def build_compression_report(
     }
 
 
-def _as_dicts(values: object) -> list[dict[str, object]]:
+def _as_dicts(values: object) -> list[JsonDict]:
     assert isinstance(values, list)
     for value in values:
         assert isinstance(value, dict)
     return values
 
 
-def _mode_order(block: dict[str, object]) -> list[object]:
+def _mode_order(block: JsonDict) -> list[object]:
     mode_order = block["mode_order"]
     assert isinstance(mode_order, list)
     return mode_order

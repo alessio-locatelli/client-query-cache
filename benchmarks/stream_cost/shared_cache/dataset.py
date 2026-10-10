@@ -8,13 +8,13 @@ from typing import TYPE_CHECKING, TypedDict
 from bson.decimal128 import Decimal128
 
 from client_query_cache._core.codec import encode_value
+from client_query_cache._types import BsonDict, NonNegativeInt, PositiveInt
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Mapping
 
     from pymongo import MongoClient
 
-    from client_query_cache._types import NonNegativeInt, PositiveInt
 
 _EPOCH = datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC)
 _TAG_VALUES = 512
@@ -37,7 +37,7 @@ class DatasetSummary(TypedDict):
 
 def catalogue(
     seed: int, profile: Profile, categories: PositiveInt
-) -> Iterator[dict[str, object]]:
+) -> Iterator[BsonDict]:
     generator = random.Random(seed)
     for index in range(profile["documents"]):
         yield {
@@ -63,7 +63,7 @@ def catalogue(
 
 
 def seed_catalogue(
-    client: MongoClient[dict[str, object]],
+    client: MongoClient[BsonDict],
     *,
     database: str,
     collection: str,
@@ -74,7 +74,7 @@ def seed_catalogue(
     client.drop_database(database)
     target = client[database][collection]
     sizes: list[NonNegativeInt] = []
-    batch: list[dict[str, object]] = []
+    batch: list[BsonDict] = []
     for document in catalogue(seed, profile, categories):
         sizes.append(len(encode_value(document)))
         batch.append(document)

@@ -13,9 +13,9 @@ from benchmarks.stream_cost.errors import BenchmarkSetupError
 from benchmarks.stream_cost.shared_cache import window
 from benchmarks.stream_cost.shared_cache.protocol import Registration, smoke_cells
 from benchmarks.stream_cost.shared_cache.worker import _query, _verify
+from client_query_cache._types import JsonDict
 
 if TYPE_CHECKING:
-    from benchmarks.stream_cost.shared_cache.protocol import Payload
     from benchmarks.stream_cost.shared_cache.worker import WorkerSpec
 
 pytestmark = pytest.mark.unit
@@ -136,7 +136,7 @@ def test_ready_checks_reject_unexpected_stream_ownership(
 ) -> None:
     cell = next(cell for cell in smoke_cells(registration) if cell.path == "direct")
     workload = window._workload(registration, cell)
-    ready: list[Payload] = [
+    ready: list[JsonDict] = [
         {"entries": None, "streams": 1},
         {"entries": None, "streams": 0},
     ]
@@ -161,7 +161,7 @@ def test_active_windows_reject_clock_changes(registration: Registration) -> None
 
 
 def test_failed_worker_commands_reject_the_window() -> None:
-    samples: list[Payload] = [{"commands": {"find:completed": 3, "find:failed": 1}}]
+    samples: list[JsonDict] = [{"commands": {"find:completed": 3, "find:failed": 1}}]
 
     with pytest.raises(BenchmarkSetupError, match="failed wire command"):
         window.reject_failed_commands(samples)

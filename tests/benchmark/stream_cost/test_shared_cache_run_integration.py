@@ -15,14 +15,14 @@ from benchmarks.stream_cost.shared_cache import diagnostics, run, window
 from benchmarks.stream_cost.shared_cache.dataset import seed_catalogue
 from benchmarks.stream_cost.shared_cache.protocol import Registration, smoke_cells
 from benchmarks.stream_cost.topology import IsolatedReplicaSet, ResourceLimits
-from client_query_cache._types import BsonDict
+from client_query_cache._types import BsonDict, JsonDict
 
 if TYPE_CHECKING:
     from collections.abc import Generator, Iterator
 
     from pymongo import MongoClient
 
-    from benchmarks.stream_cost.shared_cache.protocol import Cell, Payload
+    from benchmarks.stream_cost.shared_cache.protocol import Cell
 
 pytestmark = pytest.mark.integration
 
@@ -92,21 +92,21 @@ def test_smoke_windows_identify_every_owner(
 
     record = window.run_window(replica, registration, cell)
 
-    workers = cast("list[Payload]", record["workers_measured"])
+    workers = cast("list[JsonDict]", record["workers_measured"])
     assert record["healthy"] is True
     assert record["completed"] == record["offered"]
     assert len(workers) == cell.workers
     assert record["harness_includes"] == window.HARNESS_INCLUDES
     assert cast("int", record["server_memory_bytes"]) > 0
-    memory = cast("Payload", record["memory"])
+    memory = cast("JsonDict", record["memory"])
     assert cast("int", memory["samples"]) > 0
     streams = sum(
         cast("int", ready["streams"])
-        for ready in cast("list[Payload]", record["ready"])
+        for ready in cast("list[JsonDict]", record["ready"])
     )
     assert streams == (cell.workers if path == "independent" else 0)
     if path == "shared":
-        owner = cast("Payload", record["owner"])
+        owner = cast("JsonDict", record["owner"])
         assert cast("float", owner["cpu_seconds"]) >= 0
         assert cast("float", memory["steady_owner_pss_bytes"]) > 0
         assert owner["health"] == "healthy"
@@ -114,7 +114,7 @@ def test_smoke_windows_identify_every_owner(
         assert "owner" not in record
     if workload == "active" and path != "direct":
         lag_owner = owner if path == "shared" else workers[0]["lag"]
-        assert cast("Payload", lag_owner)["invalidations"] == 200
+        assert cast("JsonDict", lag_owner)["invalidations"] == 200
     assert _no_children()
 
 
@@ -290,7 +290,7 @@ def test_smoke_command_records_every_cell(
 def test_smoke_command_rejects_a_failed_window(
     config: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def fail(*_args: object) -> Payload:
+    def fail(*_args: object) -> JsonDict:
         raise BenchmarkSetupError("deliberate collection failure")
 
     monkeypatch.setattr(
@@ -354,7 +354,7 @@ def test_phase_command_runs_the_planned_baseline_cells(
     config.write_text(json.dumps(raw), encoding="utf-8")
     measured: list[Cell] = []
 
-    def measure(_replica: object, _registration: Registration, cell: Cell) -> Payload:
+    def measure(_replica: object, _registration: Registration, cell: Cell) -> JsonDict:
         measured.append(cell)
         return {"healthy": True}
 

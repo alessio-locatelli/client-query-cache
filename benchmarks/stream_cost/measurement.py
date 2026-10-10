@@ -9,6 +9,8 @@ from annotated_types import Interval
 
 from benchmarks.stream_cost.errors import BenchmarkSetupError
 from client_query_cache._types import (
+    BsonDict,
+    JsonDict,
     NonNegativeFloat,
     NonNegativeInt,
 )
@@ -99,13 +101,13 @@ def measure_controlled[T](
     )
 
 
-def latency_distribution(samples: Sequence[OperationLatency]) -> dict[str, object]:
+def latency_distribution(samples: Sequence[OperationLatency]) -> JsonDict:
     if not samples:
         return {"operation_count": 0, "no_latency_samples": True, "by_outcome": []}
     groups: dict[tuple[str, str], list[NonNegativeFloat]] = {}
     for sample in samples:
         groups.setdefault((sample.operation, sample.outcome), []).append(sample.seconds)
-    distributions: list[dict[str, object]] = []
+    distributions: list[JsonDict] = []
     for (operation, outcome), values in sorted(groups.items()):
         values.sort()
 
@@ -128,7 +130,7 @@ def latency_distribution(samples: Sequence[OperationLatency]) -> dict[str, objec
 
 def scalar_latency_distribution(
     samples: Sequence[NonNegativeFloat],
-) -> dict[str, object]:
+) -> JsonDict:
     if not samples:
         return {"sample_count": 0, "no_latency_samples": True}
     values = sorted(samples)
@@ -142,10 +144,10 @@ def scalar_latency_distribution(
 
 
 def snapshot_logical_metrics(
-    manager: CacheManager[dict[str, object]],
-) -> dict[str, object]:
+    manager: CacheManager[BsonDict],
+) -> JsonDict:
     cache = manager.cache_core.snapshot()
-    streams: list[dict[str, object]] = []
+    streams: list[JsonDict] = []
     for database in manager.cache_core.active_stream_cost_databases():
         stream = manager.cache_core.stream_cost_snapshot(database)
         lag_limitation = stream.invalidation_lag_clock_skew_limitation

@@ -29,11 +29,11 @@ No research is needed.
 
 ### Classification
 
-- BSON: document type arguments of clients, collections, cached collections, managers, cursors, and change streams; documents that are inserted, read, or expected; and change events.
+- BSON: document type arguments of clients, collections, cached collections, managers, cursors, codec options, and change streams; documents that are inserted, read, or expected; query filters, projections, and pipeline stages; server command replies and index specifications; and change events.
 - JSON: objects that are passed to `json.dumps` or decoded by `json.loads`, including benchmark reports and registered configurations.
-- Unchanged: keyword-argument bundles and their `cast(...)` targets, `**`-unpacked dictionaries, option dictionaries, read-only `Mapping` parameters such as decoded JSON schemas, and `Payload` in `benchmarks/stream_cost/multiprocess_run.py`, which also types pickled pipe messages.
+- Unchanged: keyword-argument bundles and their `cast(...)` targets, `**`-unpacked dictionaries, captured call arguments, option dictionaries including collations and registered client options, read-only `Mapping` parameters such as decoded JSON schemas, OpenTelemetry attribute dictionaries, and inter-process messages. Inter-process messages include the shared-cache `Message` aliases, BSON frames and canonical wire nodes, the wire-tag registry, and the `Payload` aliases that also type pipe messages: in `benchmarks/stream_cost/multiprocess_run.py`, in the shared-cache window, worker, and diagnostics modules, and in `tests/shared_cache/conftest.py`.
 
-The test-local `Document = dict[str, Any]` aliases in `tests/cursor_fixtures.py` and `tests/test_bound_sessions.py` are replaced by `BsonDict`, so one document alias remains.
+The test-local `Document = dict[str, Any]` aliases in `tests/cursor_fixtures.py` and `tests/test_bound_sessions.py` and the `Document` alias in the shared-cache worker are replaced by `BsonDict`, so one document alias remains. Local `Payload` aliases that type only JSON objects are replaced by `JsonDict`.
 
 ### Narrowing
 

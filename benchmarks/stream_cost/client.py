@@ -11,6 +11,7 @@ from benchmarks.stream_cost.errors import (
     BenchmarkConfigurationError,
     BenchmarkSetupError,
 )
+from client_query_cache._types import BsonDict
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -45,7 +46,7 @@ def build_dedicated_client(
     config: BenchmarkClientTopologyConfig,
     *,
     event_listeners: Sequence[object] = (),
-) -> MongoClient[dict[str, Any]]:
+) -> MongoClient[BsonDict]:
     if config.shared_connections:
         message = (
             "build_dedicated_client only builds a client not shared with other "
@@ -64,7 +65,7 @@ def build_dedicated_client(
     with warnings.catch_warnings():
         warnings.simplefilter("error", UserWarning)
         try:
-            return MongoClient[dict[str, Any]](uri, **kwargs)
+            return MongoClient[BsonDict](uri, **kwargs)
         except UserWarning as error:
             message = (
                 f"the {config.compressor.value!r} wire compressor was requested "

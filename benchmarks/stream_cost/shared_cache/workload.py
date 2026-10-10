@@ -9,18 +9,17 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Final
 
 from benchmarks.stream_cost.measurement import scalar_latency_distribution
+from client_query_cache._types import (
+    JsonDict,
+    NonNegativeFloat,
+    NonNegativeInt,
+    PositiveFloat,
+    PositiveInt,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
-    from client_query_cache._types import (
-        NonNegativeFloat,
-        NonNegativeInt,
-        PositiveFloat,
-        PositiveInt,
-    )
-
-type Payload = dict[str, object]
 
 _SLEEP_SLICE_SECONDS: Final = 1.0
 _STOP: Final = -1
@@ -73,7 +72,7 @@ class LoopResult:
         except KeyError:
             self.error_types[name] = 1
 
-    def summary(self) -> Payload:
+    def summary(self) -> JsonDict:
         return {
             "offered": self.offered,
             "completed": self.completed,

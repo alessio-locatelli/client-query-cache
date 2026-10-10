@@ -7,10 +7,10 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from client_query_cache._types import JsonDict
+
 if TYPE_CHECKING:
     from collections.abc import Generator
-
-type Payload = dict[str, object]
 
 PROFILE_DIRECTORY = "SHARED_CACHE_PROFILE_DIRECTORY"
 _TOP_FUNCTIONS = 25
@@ -56,7 +56,7 @@ def profiling(name: str) -> Generator[None]:
         profiler.dump_stats(Path(directory) / f"{name}-{os.getpid()}.prof")
 
 
-def summarize(path: Path) -> Payload:
+def summarize(path: Path) -> JsonDict:
     statistics = pstats.Stats(str(path))
     rows = sorted(
         statistics.stats.items(),  # type: ignore[attr-defined]

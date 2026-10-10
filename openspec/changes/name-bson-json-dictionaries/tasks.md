@@ -7,7 +7,7 @@
 
 ## 2. Benchmarks
 
-- [ ] 2.1 Apply task 1.2 to `benchmarks/`, using `rg -n 'dict\[str, (Any|object)\]' --type py benchmarks`. Keep narrowing outside timed regions. Verify that `uv run -- mypy` and `just lint` pass, and that every remaining candidate is in the design's unchanged category.
+- [x] 2.1 Apply task 1.2 to `benchmarks/`, using `rg -n 'dict\[str, (Any|object)\]' --type py benchmarks`. Keep narrowing outside timed regions. Verify that `uv run -- mypy` and `just lint` pass, and that every remaining candidate is in the design's unchanged category.
 
 ## 3. Code Quality
 

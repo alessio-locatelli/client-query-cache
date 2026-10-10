@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from pymongo import ReadPreference
 
@@ -30,7 +30,12 @@ from benchmarks.stream_cost.errors import (
     BenchmarkConfigurationError,
     BenchmarkSetupError,
 )
-from client_query_cache._types import NonNegativeFloat, NonNegativeInt, PositiveFloat
+from client_query_cache._types import (
+    BsonDict,
+    NonNegativeFloat,
+    NonNegativeInt,
+    PositiveFloat,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
@@ -54,7 +59,7 @@ _INVALIDATION_SETTLE_POLL_INTERVAL_SECONDS = 0.05
 _RELEVANT_WRITE_DOCUMENT_ID = "relevant"
 
 
-def _send_hello(client: MongoClient[dict[str, Any]]) -> Mapping[str, object]:
+def _send_hello(client: MongoClient[BsonDict]) -> Mapping[str, object]:
     return client.admin.command("hello", read_preference=ReadPreference.PRIMARY)
 
 
@@ -83,7 +88,7 @@ class RunResult:
 
 
 def _activate_consolidated_stream(
-    manager: CacheManager[dict[str, Any]],
+    manager: CacheManager[BsonDict],
     *,
     database: str,
     relevant_collection_names: Sequence[str],
@@ -106,7 +111,7 @@ def _activate_consolidated_stream(
 
 
 def _warm_up_server(
-    collection: Collection[dict[str, Any]], *, duration_seconds: NonNegativeFloat
+    collection: Collection[BsonDict], *, duration_seconds: NonNegativeFloat
 ) -> None:
     deadline = time.monotonic() + duration_seconds
     while time.monotonic() < deadline:
@@ -114,7 +119,7 @@ def _warm_up_server(
 
 
 def _execute_run(
-    manager: CacheManager[dict[str, Any]],
+    manager: CacheManager[BsonDict],
     *,
     database: str,
     relevant_collection_names: Sequence[str],
@@ -213,8 +218,8 @@ def _execute_run(
 
 
 def _run_single(
-    client: MongoClient[dict[str, Any]],
-    previous_manager: CacheManager[dict[str, Any]] | None,
+    client: MongoClient[BsonDict],
+    previous_manager: CacheManager[BsonDict] | None,
     *,
     database: str,
     relevant_collection_names: Sequence[str],
@@ -223,7 +228,7 @@ def _run_single(
     schedule: Sequence[NonNegativeFloat],
     variant: PairVariant,
     cache_config: CacheCoreConfig | None,
-) -> tuple[CacheManager[dict[str, Any]], RunResult]:
+) -> tuple[CacheManager[BsonDict], RunResult]:
     manager = reset_run_state(
         client, previous_manager, database=database, cache_config=cache_config
     )
@@ -251,7 +256,7 @@ class PairResult:
 
 
 def run_consolidated_stream_pair(
-    client: MongoClient[dict[str, Any]],
+    client: MongoClient[BsonDict],
     listener: TopologyChangeListener,
     *,
     database: str,
@@ -299,7 +304,7 @@ def run_consolidated_stream_pair(
         rounds=_CALIBRATION_ROUNDS,
     )
     sampler.start()
-    manager: CacheManager[dict[str, Any]] | None = None
+    manager: CacheManager[BsonDict] | None = None
     run_results_by_variant: dict[PairVariant, RunResult] = {}
     try:
         for variant in order:
@@ -381,7 +386,7 @@ def run_consolidated_stream_pair(
 
 
 def run_consolidated_stream_pairs(
-    client: MongoClient[dict[str, Any]],
+    client: MongoClient[BsonDict],
     listener: TopologyChangeListener,
     *,
     database: str,

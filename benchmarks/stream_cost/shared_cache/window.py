@@ -36,6 +36,12 @@ from benchmarks.stream_cost.shared_cache.owner import owner_main, proxy_for
 from benchmarks.stream_cost.shared_cache.profiling import enabled as profiling_enabled
 from benchmarks.stream_cost.shared_cache.worker import WorkerSpec, worker_main
 from benchmarks.stream_cost.shared_cache.workload import key_order
+from client_query_cache._types import (
+    BsonDict,
+    NonNegativeFloat,
+    NonNegativeInt,
+    PositiveFloat,
+)
 
 if TYPE_CHECKING:
     from multiprocessing.connection import Connection
@@ -46,11 +52,6 @@ if TYPE_CHECKING:
 
     from benchmarks.stream_cost.shared_cache.protocol import Cell, Registration
     from benchmarks.stream_cost.topology import IsolatedReplicaSet
-    from client_query_cache._types import (
-        NonNegativeFloat,
-        NonNegativeInt,
-        PositiveFloat,
-    )
 
 type Payload = dict[str, object]
 
@@ -425,7 +426,7 @@ def _check_clock(
         raise BenchmarkSetupError("clock or primary changed during window")
 
 
-def _timed_write(collection: Collection[dict[str, object]], target: int) -> float:
+def _timed_write(collection: Collection[BsonDict], target: int) -> float:
     started = time.monotonic()
     collection.update_one({"_id": target}, {"$inc": {"revision": 1}})
     return time.monotonic() - started
@@ -448,14 +449,14 @@ def run_window(
         observer_proxy = resources.enter_context(proxy_for(replica.uri))
         writer_listener = WireCommands((collection,))
         writer = resources.enter_context(
-            MongoClient[dict[str, object]](
+            MongoClient[BsonDict](
                 f"mongodb://127.0.0.1:{writer_proxy.local_port}",
                 event_listeners=[writer_listener],
                 **client_options,  # type: ignore[arg-type]
             )
         )
         observer = resources.enter_context(
-            MongoClient[dict[str, object]](
+            MongoClient[BsonDict](
                 f"mongodb://127.0.0.1:{observer_proxy.local_port}",
                 **client_options,  # type: ignore[arg-type]
             )
