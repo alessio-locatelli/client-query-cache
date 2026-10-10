@@ -2,7 +2,7 @@
 
 ## 1. Measurement harness
 
-- [ ] 1.1 Add `research/process_memory/measure.py` as described in [design decisions 1–3](design.md#decisions), with `run`, `child`, and `summarize` subcommands. Verify that `source scripts/testcontainers-bridge.sh && uv run -- python -m research.process_memory.measure run --runs 1 --scenarios partial-cursors --output benchmark-reports/process-memory/smoke.json` prints one table row per API and phase, and that `uv run -- prek run --files research/process_memory/measure.py` passes.
+- [x] 1.1 Add `research/process_memory/measure.py` as described in [design decisions 1–3](design.md#decisions), with `run`, `child`, and `summarize` subcommands. Verify that `source scripts/testcontainers-bridge.sh && uv run -- python -m research.process_memory.measure run --runs 1 --scenarios partial-cursors --output benchmark-reports/process-memory/smoke.json` prints one table row per API and phase, and that `uv run -- prek run --files research/process_memory/measure.py` passes.
 - [ ] 1.2 Record the pre-fix baseline from a disposable worktree of the parent commit (`git worktree add --detach <dir> HEAD`, copy the harness, `uv sync`), running `run --runs 5 --scenarios documents result-sets small-entries large-keys partial-cursors --output <path>/baseline.json`. Verify that every cell has five runs, then remove the worktree with `git worktree remove`.
 
 ## 2. Per-entry metadata
