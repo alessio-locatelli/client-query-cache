@@ -147,10 +147,13 @@ it safely isn't possible:
 
 - The caller supplies a session or uses `session.bind()`, a read preference other than primary, or a read concern other than majority. Leaving read concern unspecified (the common case) does not bypass caching: an eligible miss reads from the primary with [`majority` read concern](https://www.mongodb.com/docs/manual/reference/read-concern-majority/), while an uncached read uses the deployment's [default read concern](https://www.mongodb.com/docs/manual/reference/mongodb-defaults/), normally `local`. Majority reads usually perform comparably, but they return only writes acknowledged by a majority of replica set members. While replication lags or no majority commit point is available, a miss can therefore return older data than a `local` read, or fail where a `local` read would succeed. Majority reads keep writes that could later roll back out of the cache; they do not make hits current, because [invalidation](../usage/consistency.md) remains asynchronous.
 - Find cursor-only requests (tailable, exhaust, partial results), explicit find batching, unsupported find options, and aggregation batching supplied at invocation execute natively. `$changeStream` pipelines also execute natively without caching.
+- Pipelines that use MongoDB Search or Vector Search, or list search indexes (`$search`, `$searchMeta`, `$vectorSearch`, `$listSearchIndexes`), run through PyMongo with the caller's read concern and are never cached.
 - The collection is a MongoDB view.
 - An aggregation pipeline joins another collection, writes, reports live statistics, or is otherwise
   nondeterministic (for example a `$sample` stage or a `$rand` expression).
 - A `find_one`, `find`, `count_documents`, or `distinct` filter is nondeterministic.
+- A read depends on indexes or on the caller's roles: `$text` and geospatial proximity (`$near`, `$nearSphere`, `$geoNear`) queries, and filters, projections, or pipelines that reference `$$USER_ROLES`. Creating, dropping, hiding, or redefining an index, or changing a user's roles, does not invalidate cached results.
+- A `find_one` or `find` projection uses `$meta`, or computes a changing value with `$rand`, `$function`, `$$NOW`, or `$$CLUSTER_TIME`.
 - The collection is a time-series collection — MongoDB does not provide change streams for time-series collections,
   so caching bypasses unconditionally for them. If a time-series collection is later replaced with an ordinary
   collection, reads may keep bypassing until a new manager is created, since MongoDB supplies no notification that

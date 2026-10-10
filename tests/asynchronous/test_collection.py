@@ -47,6 +47,9 @@ if TYPE_CHECKING:
 pytestmark = pytest.mark.integration
 
 _CAPPED_COLLECTION_BYTES = 4096
+_TEXT_INDEX = [("text", "text")]
+_GEO_INDEX = [("loc", "2dsphere")]
+_ORIGIN: BsonDict = {"type": "Point", "coordinates": [0, 0]}
 
 
 def _spy_on_driver(patch_target: str) -> AbstractContextManager[Mock]:
@@ -70,6 +73,13 @@ def _spy_on_driver(patch_target: str) -> AbstractContextManager[Mock]:
         autospec=True,
         side_effect=getattr(AsyncCollection, patch_target),
     )
+
+
+def _fake_point(faker: Faker) -> BsonDict:
+    return {
+        "type": "Point",
+        "coordinates": [float(faker.longitude()), float(faker.latitude())],
+    }
 
 
 @pytest.fixture
@@ -1389,6 +1399,52 @@ async def test_aggregate_executes_change_stream_pipeline_natively(
     _assert_only_bypass(cache_manager, BypassReason.UNSAFE_PIPELINE)
 
 
+@pytest.mark.parametrize(
+    "pipeline",
+    [
+        pytest.param(
+            [{"$search": {"text": {"query": "coffee", "path": "text"}}}], id="search"
+        ),
+        pytest.param(
+            [{"$searchMeta": {"text": {"query": "coffee", "path": "text"}}}],
+            id="search-meta",
+        ),
+        pytest.param(
+            [
+                {
+                    "$vectorSearch": {
+                        "index": "embedding",
+                        "path": "embedding",
+                        "queryVector": [0.5, 0.5],
+                        "numCandidates": 1,
+                        "limit": 1,
+                    }
+                }
+            ],
+            id="vector-search",
+        ),
+        pytest.param([{"$listSearchIndexes": {}}], id="list-search-indexes"),
+    ],
+)
+async def test_aggregate_executes_search_pipelines_natively(
+    cache_manager: CacheManager[BsonDict],
+    cached_database_name: DatabaseName,
+    nonpersistent_collection_name: CollectionName,
+    faker: Faker,
+    pipeline: list[BsonDict],
+) -> None:
+    collection = cache_manager[cached_database_name][nonpersistent_collection_name]
+    await collection.raw.insert_one({"_id": faker.uuid4(), "text": faker.sentence()})
+
+    with pytest.raises(OperationFailure) as cached_error:
+        await materialize(collection.aggregate(pipeline))
+    with pytest.raises(OperationFailure) as native_error:
+        await materialize(collection.raw.aggregate(pipeline))
+
+    assert cached_error.value.code == native_error.value.code
+    _assert_only_bypass(cache_manager, BypassReason.UNSAFE_PIPELINE)
+
+
 def _assert_only_bypass(
     cache_manager: CacheManager[BsonDict], reason: BypassReason
 ) -> None:
@@ -1546,18 +1602,18 @@ async def test_estimated_document_count_bypasses_cache_for_extra_pymongo_options
 
 
 @pytest.mark.parametrize(
-    ("patch_target", "invoke", "needs_text_index"),
+    ("patch_target", "invoke", "index_keys"),
     [
         pytest.param(
             "find",
             lambda collection: materialize(collection.find({"$where": "this.v > 0"})),
-            False,
+            None,
             id="find-where",
         ),
         pytest.param(
             "find",
             lambda collection: materialize(collection.find({"$expr": {"$rand": {}}})),
-            False,
+            None,
             id="find-expr-rand",
         ),
         pytest.param(
@@ -1575,25 +1631,25 @@ async def test_estimated_document_count_bypasses_cache_for_extra_pymongo_options
                     }
                 )
             ),
-            False,
+            None,
             id="find-expr-function",
         ),
         pytest.param(
             "count_documents",
             lambda collection: collection.count_documents({"$expr": {"$rand": {}}}),
-            False,
+            None,
             id="count_documents-expr-rand",
         ),
         pytest.param(
             "distinct",
             lambda collection: collection.distinct("v", {"$expr": {"$rand": {}}}),
-            False,
+            None,
             id="distinct-expr-rand",
         ),
         pytest.param(
             "find_one",
             lambda collection: collection.find_one({"$text": {"$search": "hello"}}),
-            True,
+            _TEXT_INDEX,
             id="find_one-text-search",
         ),
         pytest.param(
@@ -1601,7 +1657,7 @@ async def test_estimated_document_count_bypasses_cache_for_extra_pymongo_options
             lambda collection: materialize(
                 collection.find({"$text": {"$search": "hello"}})
             ),
-            True,
+            _TEXT_INDEX,
             id="find-text-search",
         ),
         pytest.param(
@@ -1609,7 +1665,7 @@ async def test_estimated_document_count_bypasses_cache_for_extra_pymongo_options
             lambda collection: collection.count_documents(
                 {"$text": {"$search": "hello"}}
             ),
-            True,
+            _TEXT_INDEX,
             id="count_documents-text-search",
         ),
         pytest.param(
@@ -1617,8 +1673,64 @@ async def test_estimated_document_count_bypasses_cache_for_extra_pymongo_options
             lambda collection: collection.distinct(
                 "text", {"$text": {"$search": "hello"}}
             ),
-            True,
+            _TEXT_INDEX,
             id="distinct-text-search",
+        ),
+        pytest.param(
+            "find",
+            lambda collection: materialize(
+                collection.find({"$expr": {"$in": ["admin", "$$USER_ROLES.role"]}})
+            ),
+            None,
+            id="find-expr-user-roles",
+        ),
+        pytest.param(
+            "find_one",
+            lambda collection: collection.find_one(
+                {"loc": {"$near": {"$geometry": _ORIGIN}}}
+            ),
+            _GEO_INDEX,
+            id="find_one-near",
+        ),
+        pytest.param(
+            "find",
+            lambda collection: materialize(
+                collection.find({"loc": {"$near": {"$geometry": _ORIGIN}}})
+            ),
+            _GEO_INDEX,
+            id="find-near",
+        ),
+        pytest.param(
+            "distinct",
+            lambda collection: collection.distinct(
+                "v", {"loc": {"$near": {"$geometry": _ORIGIN}}}
+            ),
+            _GEO_INDEX,
+            id="distinct-near",
+        ),
+        pytest.param(
+            "find_one",
+            lambda collection: collection.find_one(
+                {"loc": {"$nearSphere": {"$geometry": _ORIGIN}}}
+            ),
+            _GEO_INDEX,
+            id="find_one-near-sphere",
+        ),
+        pytest.param(
+            "find",
+            lambda collection: materialize(
+                collection.find({"loc": {"$nearSphere": {"$geometry": _ORIGIN}}})
+            ),
+            _GEO_INDEX,
+            id="find-near-sphere",
+        ),
+        pytest.param(
+            "distinct",
+            lambda collection: collection.distinct(
+                "v", {"loc": {"$nearSphere": {"$geometry": _ORIGIN}}}
+            ),
+            _GEO_INDEX,
+            id="distinct-near-sphere",
         ),
     ],
 )
@@ -1626,19 +1738,81 @@ async def test_unsafe_filters_are_never_cached(
     cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
+    faker: Faker,
     *,
     patch_target: str,
     invoke: Callable[[CachedCollection[BsonDict]], Coroutine[Any, Any, object]],
-    needs_text_index: bool,
+    index_keys: list[tuple[str, str]] | None,
 ) -> None:
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
-    if needs_text_index:
-        await collection.raw.create_index([("text", "text")])
-    await collection.raw.insert_one({"_id": "a", "v": 1, "text": "hello world"})
+    if index_keys is not None:
+        await collection.raw.create_index(index_keys)
+    await collection.raw.insert_one(
+        {"_id": "a", "v": 1, "text": "hello world", "loc": _fake_point(faker)}
+    )
 
     with _spy_on_driver(patch_target) as spy:
         await invoke(collection)
         await invoke(collection)
+
+    assert spy.call_count == 2
+
+
+@pytest.mark.parametrize(
+    "projection",
+    [
+        pytest.param({"r": {"$rand": {}}}, id="rand"),
+        pytest.param(
+            {
+                "r": {
+                    "$function": {
+                        "body": "function() { return 1; }",
+                        "args": [],
+                        "lang": "js",
+                    }
+                }
+            },
+            id="function",
+        ),
+        pytest.param({"now": "$$NOW"}, id="now-variable"),
+        pytest.param({"time": "$$CLUSTER_TIME"}, id="cluster-time-variable"),
+        pytest.param({"roles": "$$USER_ROLES"}, id="user-roles-variable"),
+    ],
+)
+@pytest.mark.parametrize(
+    ("patch_target", "invoke"),
+    [
+        pytest.param(
+            "find_one",
+            lambda collection, projection: collection.find_one(
+                {"_id": "a"}, projection
+            ),
+            id="find_one",
+        ),
+        pytest.param(
+            "find",
+            lambda collection, projection: materialize(collection.find({}, projection)),
+            id="find",
+        ),
+    ],
+)
+async def test_unsafe_projections_are_never_cached(
+    cache_manager: CacheManager[BsonDict],
+    cached_database_name: DatabaseName,
+    nonpersistent_collection_name: CollectionName,
+    *,
+    patch_target: str,
+    invoke: Callable[
+        [CachedCollection[BsonDict], BsonDict], Coroutine[Any, Any, object]
+    ],
+    projection: BsonDict,
+) -> None:
+    collection = cache_manager[cached_database_name][nonpersistent_collection_name]
+    await collection.raw.insert_one({"_id": "a", "v": 1})
+
+    with _spy_on_driver(patch_target) as spy:
+        await invoke(collection, projection)
+        await invoke(collection, projection)
 
     assert spy.call_count == 2
 
@@ -1769,6 +1943,9 @@ async def test_reads_with_an_unhashable_value_bypass_instead_of_raising(
         pytest.param([{"$indexStats": {}}], id="index-stats"),
         pytest.param([{"$planCacheStats": {}}], id="plan-cache-stats"),
         pytest.param([{"$project": {"now": "$$NOW"}}], id="now-variable"),
+        pytest.param(
+            [{"$project": {"roles": "$$USER_ROLES"}}], id="user-roles-variable"
+        ),
     ],
 )
 async def test_aggregate_with_an_unsafe_pipeline_is_never_cached(
@@ -1779,6 +1956,47 @@ async def test_aggregate_with_an_unsafe_pipeline_is_never_cached(
 ) -> None:
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
     await collection.raw.insert_one({"_id": "a", "v": 1})
+
+    with _spy_on_driver("aggregate") as spy:
+        await materialize(collection.aggregate(pipeline))
+        await materialize(collection.aggregate(pipeline))
+
+    assert spy.call_count == 2
+
+
+@pytest.mark.parametrize(
+    ("index_keys", "pipeline"),
+    [
+        pytest.param(
+            _GEO_INDEX,
+            [{"$geoNear": {"near": _ORIGIN, "distanceField": "distance"}}],
+            id="geo-near",
+        ),
+        pytest.param(
+            _TEXT_INDEX,
+            [{"$match": {"$text": {"$search": "hello"}}}],
+            id="text-search",
+        ),
+    ],
+)
+async def test_aggregate_with_an_index_dependent_pipeline_is_never_cached(
+    cache_manager: CacheManager[BsonDict],
+    cached_database_name: DatabaseName,
+    nonpersistent_collection_name: CollectionName,
+    faker: Faker,
+    *,
+    index_keys: list[tuple[str, str]],
+    pipeline: list[BsonDict],
+) -> None:
+    collection = cache_manager[cached_database_name][nonpersistent_collection_name]
+    await collection.raw.create_index(index_keys)
+    await collection.raw.insert_one(
+        {
+            "_id": faker.uuid4(),
+            "loc": _fake_point(faker),
+            "text": f"hello {faker.word()}",
+        }
+    )
 
     with _spy_on_driver("aggregate") as spy:
         await materialize(collection.aggregate(pipeline))
