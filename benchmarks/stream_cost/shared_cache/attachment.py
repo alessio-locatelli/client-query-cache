@@ -263,6 +263,7 @@ class SyncEndpoint:
 
 class AsyncEndpoint:
     __slots__ = (
+        "_closed",
         "_connect_lock",
         "_pending",
         "_pid",
@@ -279,7 +280,10 @@ class AsyncEndpoint:
         self.config = config
         self._pid = os.getpid()
         self._connect_lock = asyncio.Lock()
-        self._pending: dict[NonNegativeInt, asyncio.Future[Message]] = {}
+        self._closed = False
+        self._pending: dict[
+            NonNegativeInt, tuple[asyncio.StreamWriter, asyncio.Future[Message]]
+        ] = {}
         self._writer: asyncio.StreamWriter | None = None
         self._reader_task: asyncio.Task[None] | None = None
         self._retry_after = 0.0
@@ -306,7 +310,7 @@ class AsyncEndpoint:
         async with self._connect_lock:
             if self._writer is not None:
                 return True
-            if time.monotonic() < self._retry_after:
+            if self._closed or time.monotonic() < self._retry_after:
                 return False
             try:
                 reader, writer = await asyncio.open_unix_connection(
@@ -324,11 +328,22 @@ class AsyncEndpoint:
             except AttachmentConfigurationError:
                 writer.close()
                 raise
-            self.counters.connects += 1
-            self.incarnation = reply["incarnation"]
-            self._writer = writer
-            self._reader_task = asyncio.create_task(self._read_loop(reader, writer))
-            return True
+            return self._install(reader, writer, reply)
+
+    def _install(
+        self,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+        reply: Message,
+    ) -> bool:
+        if self._closed:
+            writer.close()
+            return False
+        self.counters.connects += 1
+        self.incarnation = reply["incarnation"]
+        self._writer = writer
+        self._reader_task = asyncio.create_task(self._read_loop(reader, writer))
+        return True
 
     async def _read_frame(self, reader: asyncio.StreamReader) -> Message:
         header = await reader.readexactly(LENGTH_BYTES)
@@ -353,7 +368,7 @@ class AsyncEndpoint:
         request_id = message["id"]
         assert isinstance(request_id, int)
         try:
-            future = self._pending.pop(request_id)
+            _writer, future = self._pending.pop(request_id)
         except KeyError:
             self.counters.late_replies += 1
             if message["r"] == "miss" and message["handle"] is not None:
@@ -366,9 +381,13 @@ class AsyncEndpoint:
             self._writer = None
             self._retry_after = time.monotonic() + _RETRY_SECONDS
         writer.close()
-        pending = tuple(self._pending.values())
-        self._pending.clear()
-        for future in pending:
+        lost = [
+            request_id
+            for request_id, (sent_on, _future) in self._pending.items()
+            if sent_on is writer
+        ]
+        for request_id in lost:
+            _writer, future = self._pending.pop(request_id)
             if not future.done():
                 future.set_result(_LOST)
 
@@ -409,7 +428,7 @@ class AsyncEndpoint:
         message["v"] = PROTOCOL_VERSION
         message["id"] = request_id
         frame = encode_frame(message)
-        self._pending[request_id] = future
+        self._pending[request_id] = (writer, future)
         writer.write(frame)
         self.counters.bytes_sent += len(frame)
         return await future
@@ -428,6 +447,7 @@ class AsyncEndpoint:
         self.counters.bytes_sent += len(frame)
 
     async def close(self) -> None:
+        self._closed = True
         writer = self._writer
         if writer is not None:
             self._abandon(writer)
