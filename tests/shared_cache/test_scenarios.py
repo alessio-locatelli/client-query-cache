@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import multiprocessing
 import os
 import signal
@@ -471,6 +472,27 @@ def test_a_slow_reader_is_detached_without_blocking_peers(
             True,
             "protocol_errors",
             id="canonical-tag",
+        ),
+        *(
+            pytest.param(
+                lambda database, identity=identity: [
+                    encode_frame(
+                        {
+                            "v": 1,
+                            "id": 1,
+                            "op": "select-identity",
+                            "ns": [database, COLLECTION],
+                            "epoch": 0,
+                            "identity": encode_key(identity),
+                            "shape": encode_key("shape"),
+                        }
+                    )
+                ],
+                True,
+                "protocol_errors",
+                id=name,
+            )
+            for name, identity in (("null-identity", None), ("nan-identity", math.nan))
         ),
     ],
 )
