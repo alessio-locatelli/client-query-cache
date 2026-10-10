@@ -3,7 +3,7 @@ FROM registry.fedoraproject.org/fedora-toolbox:44@sha256:b3a0088e7a72ea2c7cb496c
 # renovate: datasource=pypi depName=prek versioning=pep440
 ARG PREK_TOOL_VERSION=0.5.4
 # renovate: datasource=pypi depName=zizmor versioning=pep440
-ARG ZIZMOR_TOOL_VERSION=1.30.0
+ARG ZIZMOR_TOOL_VERSION=1.30.1
 
 # renovate-taplo: datasource=github-release-attachments depName=tamasfe/taplo
 ARG TAPLO_TOOL_VERSION=0.10.0
