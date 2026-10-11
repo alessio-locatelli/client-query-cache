@@ -3,27 +3,45 @@ from __future__ import annotations
 import asyncio
 import os
 import signal
+import socket
 import threading
+import time
 from contextlib import AsyncExitStack
+from dataclasses import replace
+from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 import pytest
 from bson.codec_options import CodecOptions, TypeRegistry
-from pymongo import MongoClient
+from bson.int64 import Int64
+from client_query_cache_shared_index import OwnerIndex
+from pymongo import AsyncMongoClient, MongoClient
 from pymongo.errors import OperationFailure
 
 from benchmarks.stream_cost.shared_cache import adapters
 from benchmarks.stream_cost.shared_cache.adapters import (
+    METADATA_REFRESH,
+    OWNER_UNAVAILABLE,
     UNPORTABLE_KEY,
     AsyncSharedCacheManager,
     SharedCacheManager,
 )
 from benchmarks.stream_cost.shared_cache.attachment import (
     AsyncEndpoint,
+    AsyncLocalIndex,
+    AttachmentConfig,
     AttachmentConfigurationError,
+    LocalIndex,
     SyncEndpoint,
 )
-from benchmarks.stream_cost.shared_cache.wire import encode_key
+from benchmarks.stream_cost.shared_cache.shared_index import SharedIndexLimits
+from benchmarks.stream_cost.shared_cache.wire import (
+    LENGTH_BYTES,
+    ProtocolError,
+    encode_frame,
+    encode_key,
+    frame_length,
+)
 from client_query_cache._core import canonical
 from client_query_cache._types import BsonDict, NonNegativeInt
 from tests.codec_helpers import Decimal128ToDecimalDecoder
@@ -39,7 +57,7 @@ from tests.shared_cache.conftest import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Callable, Iterator
+    from collections.abc import AsyncIterator, Callable, Coroutine, Iterator
 
     from benchmarks.stream_cost.shared_cache.adapters import (
         AsyncSharedCachedCollection,
@@ -52,6 +70,17 @@ pytestmark = pytest.mark.integration
 
 _INVALID_PROJECTION = {"payload": 1, "revision": 0}
 _SORTED = {"sort": [("_id", 1)]}
+_SHARED_INDEX = SharedIndexLimits(
+    slots=256, arena_bytes=4 * 1024 * 1024, namespaces=4, ring_tokens=1024
+)
+_TINY_ARENA = SharedIndexLimits(
+    slots=256, arena_bytes=64, namespaces=4, ring_tokens=1024
+)
+_INCARNATION = 0x5EED
+_SPLIT_AT = 3
+_SPLIT_PAUSE_SECONDS = 0.05
+_LOOP_TURN_SECONDS = 0.01
+_OTHER = "other"
 
 
 @pytest.fixture
@@ -441,3 +470,283 @@ async def test_shared_find_reuses_prepared_family(
     assert [document["_id"] for document in complete] == list(range(8))
     assert [document["_id"] for document in hit] == list(range(hit_limit))
     assert raw_key_traversals == [1, 1]
+
+
+class _SharedReads:
+    __slots__ = ("_async_client", "_client", "_database", "_runner", "manager")
+
+    def __init__(self, model: str, owner: Owner, uri: str, database: str) -> None:
+        self._database = database
+        config = owner.attachment()
+        self._client: MongoClient[BsonDict] | None = None
+        self._async_client: AsyncMongoClient[BsonDict] | None = None
+        self._runner: asyncio.Runner | None = None
+        self.manager: SharedCacheManager[BsonDict] | AsyncSharedCacheManager[BsonDict]
+        if model == "sync":
+            self._client = MongoClient[BsonDict](uri)
+            self.manager = SharedCacheManager(
+                self._client, SyncEndpoint(config), LocalIndex.attach(config)
+            )
+        else:
+            self._runner = asyncio.Runner()
+            self._async_client = AsyncMongoClient[BsonDict](uri)
+            self.manager = AsyncSharedCacheManager(
+                self._async_client,
+                self._run(AsyncEndpoint.attach(config)),
+                self._run(AsyncLocalIndex.attach(config)),
+            )
+        self.ready()
+
+    def _run[T](self, coroutine: Coroutine[object, object, T]) -> T:
+        assert self._runner is not None
+        return self._runner.run(coroutine)
+
+    def ready(self) -> None:
+        manager = self.manager
+        if isinstance(manager, SharedCacheManager):
+            ready(manager, self._database)
+            return
+        collection = manager[self._database][COLLECTION]
+        wait_for(lambda: self._run(collection._cache_ineligibility_reason()) is None)
+
+    def find_one(self, key: object, collection: str = COLLECTION) -> BsonDict | None:
+        manager = self.manager
+        if isinstance(manager, SharedCacheManager):
+            return manager[self._database][collection].find_one({"_id": key})
+        return self._run(manager[self._database][collection].find_one({"_id": key}))
+
+    @property
+    def detached(self) -> bool:
+        if self._runner is not None:
+            self._run(asyncio.sleep(_LOOP_TURN_SECONDS))
+        assert self.manager.local is not None
+        return self.manager.local.reader.detached
+
+    def close(self) -> None:
+        manager = self.manager
+        if isinstance(manager, SharedCacheManager):
+            manager.close()
+            assert self._client is not None
+            self._client.close()
+            return
+        self._run(manager.close())
+        assert self._async_client is not None
+        self._run(self._async_client.close())
+        assert self._runner is not None
+        self._runner.close()
+
+
+@pytest.fixture(params=["sync", "async"])
+def open_reads(
+    request: pytest.FixtureRequest,
+    start_owner: Callable[..., Owner],
+    mongodb_uri: MongoDbUri,
+    seeded_database: str,
+) -> Iterator[Callable[[SharedIndexLimits], tuple[Owner, _SharedReads]]]:
+    opened: list[_SharedReads] = []
+
+    def open_reads(limits: SharedIndexLimits) -> tuple[Owner, _SharedReads]:
+        owner = start_owner(shared_index=limits)
+        reads = _SharedReads(request.param, owner, mongodb_uri, seeded_database)
+        opened.append(reads)
+        return owner, reads
+
+    yield open_reads
+    for reads in opened:
+        reads.close()
+
+
+def _admitted(owner: Owner, count: int) -> None:
+    wait_for(lambda: owner.counters()["admitted"] == count)
+
+
+def test_admitted_identity_hits_are_served_locally(
+    open_reads: Callable[[SharedIndexLimits], tuple[Owner, _SharedReads]],
+) -> None:
+    owner, reads = open_reads(_SHARED_INDEX)
+    first = [reads.find_one(key) for key in range(DOCUMENTS)]
+    _admitted(owner, DOCUMENTS)
+    requests = reads.manager.endpoint.counters.requests
+
+    second = [reads.find_one(key) for key in range(DOCUMENTS)]
+
+    assert second == first
+    assert [document["_id"] for document in first if document] == list(range(DOCUMENTS))
+    assert reads.manager.endpoint.counters.requests == requests
+    assert reads.manager.observation.hits == DOCUMENTS
+    assert reads.manager.observation.misses == DOCUMENTS
+    counters = reads.manager.endpoint.counters
+    assert (counters.failures, counters.timeouts) == (0, 0)
+    assert not reads.detached
+
+
+def test_unpublished_entries_fall_back_to_owner_hits(
+    open_reads: Callable[[SharedIndexLimits], tuple[Owner, _SharedReads]],
+) -> None:
+    owner, reads = open_reads(_TINY_ARENA)
+    first = reads.find_one(1)
+    _admitted(owner, 1)
+    requests = reads.manager.endpoint.counters.requests
+
+    second = reads.find_one(1)
+
+    assert second == first
+    assert reads.manager.endpoint.counters.requests == requests + 1
+    assert reads.manager.observation.hits == 1
+    assert owner.observation()["shared_index"]["published"] == 0
+
+
+def test_namespaces_without_a_slot_read_through_the_owner(
+    open_reads: Callable[[SharedIndexLimits], tuple[Owner, _SharedReads]],
+    client: MongoClient[BsonDict],
+    seeded_database: str,
+) -> None:
+    client[seeded_database][_OTHER].insert_one({"_id": 1, "payload": "other"})
+    owner, reads = open_reads(replace(_SHARED_INDEX, namespaces=1))
+    first = reads.find_one(1, _OTHER)
+    _admitted(owner, 1)
+    requests = reads.manager.endpoint.counters.requests
+
+    second = reads.find_one(1, _OTHER)
+
+    assert second == first == {"_id": 1, "payload": "other"}
+    assert reads.manager.endpoint.counters.requests == requests + 1
+    assert reads.manager.observation.hits == 1
+
+
+def test_a_namespace_reset_makes_local_reads_refresh_metadata(
+    open_reads: Callable[[SharedIndexLimits], tuple[Owner, _SharedReads]],
+    client: MongoClient[BsonDict],
+    seeded_database: str,
+) -> None:
+    owner, reads = open_reads(_SHARED_INDEX)
+    reads.find_one(1)
+    _admitted(owner, 1)
+    assert reads.find_one(1) is not None
+
+    client[seeded_database].drop_collection(COLLECTION)
+    wait_for(lambda: reads.find_one(1) is None)
+
+    assert reads.manager.observation.bypasses[METADATA_REFRESH] >= 1
+
+
+def test_owner_exit_detaches_local_reads(
+    open_reads: Callable[[SharedIndexLimits], tuple[Owner, _SharedReads]],
+) -> None:
+    owner, reads = open_reads(_SHARED_INDEX)
+    document = reads.find_one(1)
+    _admitted(owner, 1)
+
+    owner.stop()
+    wait_for(lambda: reads.detached)
+
+    assert reads.find_one(1) == document
+    assert reads.manager.observation.bypasses[OWNER_UNAVAILABLE] == 1
+
+
+def _descriptors() -> set[str]:
+    return {entry.name for entry in Path("/proc/self/fd").iterdir()}
+
+
+def _serve_handshake(
+    listener: socket.socket, reply: bytes, descriptors: list[int], *, split: bool
+) -> None:
+    peer, _address = listener.accept()
+    with peer:
+        header = peer.recv(LENGTH_BYTES)
+        hello = b""
+        while len(hello) < frame_length(header, 1 << 20):
+            hello += peer.recv(65_536)
+        if not reply:
+            return
+        first = reply[:_SPLIT_AT] if split else reply
+        socket.send_fds(peer, [first], descriptors)
+        if split:
+            time.sleep(_SPLIT_PAUSE_SECONDS)
+            peer.sendall(reply[_SPLIT_AT:])
+        peer.recv(1)
+
+
+def _attach(model: str, config: AttachmentConfig) -> LocalIndex | AsyncLocalIndex:
+    if model == "sync":
+        return LocalIndex.attach(config)
+
+    async def attach() -> AsyncLocalIndex:
+        local = await AsyncLocalIndex.attach(config)
+        await local.close()
+        return local
+
+    return asyncio.run(attach())
+
+
+def _reply(incarnation: int) -> bytes:
+    return encode_frame({"v": 1, "id": 0, "r": "ok", "incarnation": Int64(incarnation)})
+
+
+@pytest.mark.parametrize("model", ["sync", "async"])
+@pytest.mark.parametrize(
+    ("count", "reply", "split", "rejection"),
+    [
+        pytest.param(2, _reply(_INCARNATION), True, None, id="split-reply"),
+        pytest.param(1, _reply(_INCARNATION), False, ProtocolError, id="missing"),
+        pytest.param(3, _reply(_INCARNATION), False, ProtocolError, id="extra"),
+        pytest.param(5, _reply(_INCARNATION), False, ProtocolError, id="truncated"),
+        pytest.param(
+            2, _reply(_INCARNATION) + b"x", False, ProtocolError, id="trailing-bytes"
+        ),
+        pytest.param(
+            2, _reply(_INCARNATION + 1), False, ProtocolError, id="other-incarnation"
+        ),
+        pytest.param(0, b"", False, ConnectionResetError, id="no-reply"),
+    ],
+)
+def test_handshakes_accept_two_descriptors_from_one_reply(
+    owner_endpoint: tuple[socket.socket, AttachmentConfig],
+    model: str,
+    *,
+    count: int,
+    reply: bytes,
+    split: bool,
+    rejection: type[Exception] | None,
+) -> None:
+    listener, config = owner_endpoint
+    index = OwnerIndex(64, 4096, 1, 1, _INCARNATION, 10**9)
+    ring = index.session_ring(4)
+    reader = index.reader_descriptor()
+    sent = [reader, ring.descriptor()] * 3
+    before = _descriptors()  # pytriage: TR5, TR11
+    server = threading.Thread(
+        target=_serve_handshake,
+        args=(listener, reply, sent[:count]),
+        kwargs={"split": split},
+    )
+    server.start()
+
+    if rejection is None:
+        local = _attach(model, config)
+        assert local.reader.incarnation == _INCARNATION
+        if isinstance(local, LocalIndex):
+            local.close()
+    else:
+        with pytest.raises(rejection):
+            _attach(model, config)
+    server.join(5)
+
+    assert _descriptors() <= before
+    os.close(reader)
+    ring.close_descriptor()
+
+
+@pytest.fixture
+def owner_endpoint(
+    socket_directory: Path,
+) -> Iterator[tuple[socket.socket, AttachmentConfig]]:
+    listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    path = socket_directory / "fake-owner.sock"
+    listener.bind(str(path))
+    listener.listen()
+    yield (
+        listener,
+        AttachmentConfig(str(path), bytes(32), 1024, 1024, 100, 0.5, 1 << 20),
+    )
+    listener.close()

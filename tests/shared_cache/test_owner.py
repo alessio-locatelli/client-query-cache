@@ -9,6 +9,7 @@ import struct
 import threading
 import time
 from dataclasses import dataclass, replace
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
@@ -16,8 +17,10 @@ from client_query_cache_shared_index import Payload
 
 from benchmarks.stream_cost.shared_cache.attachment import (
     AsyncEndpoint,
+    AttachmentConfigurationError,
     ControlAttachment,
     EndpointCounters,
+    LocalIndex,
     SyncEndpoint,
     control_handshake,
 )
@@ -41,7 +44,6 @@ from tests.shared_cache.conftest import LIMITS, wait_for
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
-    from pathlib import Path
 
     from faker import Faker
 
@@ -69,6 +71,8 @@ _PARTIAL_SEND_BYTES = 5
 _SMALL_RING = 4
 _OVERFLOWING_HITS = 32
 _ADDRESS_MASK = 0xFFFF_FFFF
+_PAUSE_SECONDS = 1.0
+_SWEEP_GAP_SECONDS = 0.2
 
 
 def _config(socket_directory: Path, **changes: object) -> OwnerConfig:
@@ -573,11 +577,10 @@ def test_an_rpc_hit_never_returns_a_reused_block(
     touch = WeightedLru.touch
 
     def evict_and_reuse(lru: WeightedLru, touched: object) -> None:
-        if not reused and touched == key:
-            for filler in range(2, 2 + _FILLERS):
-                capture = core.begin_identity_admission(_NAMESPACE, filler)
-                core.admit_identity_encoded(capture, _SHAPE, b"x" * _FILLER_BYTES)
-            reused.append(index.store(faker.binary(length=len(value))))
+        for filler in range(2, 2 + _FILLERS):
+            capture = core.begin_identity_admission(_NAMESPACE, filler)
+            core.admit_identity_encoded(capture, _SHAPE, b"x" * _FILLER_BYTES)
+        reused.append(index.store(faker.binary(length=len(value))))
         touch(lru, touched)  # type: ignore[arg-type]
 
     monkeypatch.setattr(WeightedLru, "touch", evict_and_reuse)
@@ -588,3 +591,158 @@ def test_an_rpc_hit_never_returns_a_reused_block(
     assert reused[0] is not None
     assert reused[0].token & _ADDRESS_MASK == original.token & _ADDRESS_MASK
     assert reply["r"] == "miss" or reply["value"] == value
+
+
+def test_control_attachments_need_a_shared_index(owner: SharedCacheOwner) -> None:
+    with pytest.raises(AttachmentConfigurationError, match="shared-index-disabled"):
+        control_handshake(attachment_for(owner.config))
+
+
+def test_control_connections_carry_no_requests(session: _Session) -> None:
+    session.control.sock.sendall(encode_frame({"v": 1, "id": 1, "op": "observe"}))
+
+    assert session.control.sock.recv(1) == b""
+    assert session.owner.counters.protocol_errors == 1
+
+
+def test_a_peer_lost_before_its_descriptors_are_sent_closes_them(
+    shared_owner: SharedCacheOwner, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def blocked(*_arguments: object) -> int:
+        raise BlockingIOError
+
+    monkeypatch.setattr(socket, "send_fds", blocked)
+    before = _open_descriptors()  # pytriage: TR5, TR11
+    peer = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    peer.connect(shared_owner.config.socket_path)
+    peer.sendall(encode_frame(attachment_for(shared_owner.config).hello("control")))
+    wait_for(lambda: _pending_handover(shared_owner))
+    peer.close()
+
+    wait_for(lambda: not shared_owner._connections)
+    assert _open_descriptors() <= before
+    assert _index_stats(shared_owner)["sessions"] == 0
+
+
+def _open_descriptors() -> set[str]:
+    return {entry.name for entry in Path("/proc/self/fd").iterdir()}
+
+
+def _pending_handover(owner: SharedCacheOwner) -> bool:
+    return any(
+        connection.handover is not None for connection in owner._connections.values()
+    )
+
+
+@pytest.mark.parametrize("shared_owner", [{"namespaces": 1}], indirect=True)
+def test_namespaces_beyond_the_slot_capacity_stay_unpublished(
+    session: _Session, faker: Faker
+) -> None:
+    other = NamespaceId(_DATABASE, "other")
+    metadata = session.endpoint.request({"op": "metadata", "ns": list(other)})
+    assert metadata is not None
+    reply = session.endpoint.request(
+        {
+            "op": "select-identity",
+            "ns": list(other),
+            "epoch": metadata["epoch"],
+            "identity": _identity(1),
+            "shape": encode_key(_SHAPE),
+        }
+    )
+    assert reply is not None
+    session.endpoint.send(
+        {
+            "op": "admit",
+            "handle": reply["handle"],
+            "value": encode_frame({"name": faker.name()}),
+        }
+    )
+    wait_for(lambda: session.owner.counters.admitted == 1)
+    session.owner.core.clear_namespace(other)
+
+    assert "slot" not in metadata
+    assert _index_stats(session.owner)["published"] == 0
+
+
+def test_find_admissions_are_not_published(session: _Session, faker: Faker) -> None:
+    reply = session.endpoint.request(_select_find())
+    assert reply is not None
+    session.endpoint.send(
+        {"op": "admit", "handle": reply["handle"], "value": faker.binary(length=64)}
+    )
+
+    wait_for(lambda: session.owner.counters.admitted == 1)
+    assert _index_stats(session.owner)["published"] == 0
+
+
+@pytest.mark.parametrize(
+    ("write", "most_recent"),
+    [pytest.param(False, 1, id="published"), pytest.param(True, 2, id="written")],
+)
+def test_drained_tokens_touch_only_published_entries(
+    session: _Session, faker: Faker, *, write: bool, most_recent: int
+) -> None:
+    for key in (1, 2):
+        session.admit(key, encode_frame({"name": faker.name()}))
+    publisher = session.owner._publisher
+    assert publisher is not None
+    session.owner.pause(_PAUSE_SECONDS)
+    time.sleep(_SWEEP_GAP_SECONDS)
+    assert session.local(1) is not None
+    if write:
+        session.owner.core.record_write(_NAMESPACE, 1)
+
+    session.owner._drain_rings(publisher)
+
+    newest = list(session.owner.core._lru._order)[-1]
+    assert isinstance(newest, IdentityCacheKey)
+    assert newest.identity == canonicalize(order_sensitive_key(most_recent))
+
+
+@pytest.mark.parametrize("shared_owner", [{"slots": 4}], indirect=True)
+def test_publication_stops_at_the_slot_capacity(
+    session: _Session, faker: Faker
+) -> None:
+    for key in range(1, 5):
+        session.admit(key, encode_frame({"name": faker.name()}))
+
+    assert _index_stats(session.owner)["published"] == 3
+    assert session.local(4) is None
+
+
+def test_every_shape_of_an_identity_is_unpublished(
+    session: _Session, faker: Faker
+) -> None:
+    for shape in (_SHAPE, "summary"):
+        capture = session.owner.core.begin_identity_admission(_NAMESPACE, 1)
+        session.owner.core.admit_identity_encoded(
+            capture, shape, encode_frame({"name": faker.name()})
+        )
+    published = _index_stats(session.owner)["published"]
+
+    session.owner.core.clear_namespace(_NAMESPACE)
+
+    assert published == 2
+    assert _index_stats(session.owner)["published"] == 0
+
+
+def _exit_unless_detached(local: LocalIndex) -> None:
+    raise SystemExit(int(not local.reader.detached))
+
+
+@pytest.mark.filterwarnings("ignore:This process .* is multi-threaded")
+def test_forked_children_never_read_an_inherited_index(
+    shared_owner: SharedCacheOwner,
+) -> None:
+    local = LocalIndex.attach(attachment_for(shared_owner.config))
+    child = multiprocessing.get_context("fork").Process(
+        target=_exit_unless_detached, args=(local,)
+    )
+
+    child.start()
+    child.join(10)
+
+    assert child.exitcode == 0
+    assert not local.reader.detached
+    local.close()

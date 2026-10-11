@@ -33,6 +33,7 @@ if TYPE_CHECKING:
         Message,
         SyncEndpoint,
     )
+    from benchmarks.stream_cost.shared_cache.shared_index import SharedIndexLimits
     from tests.conftest import DatabaseName, MongoDbUri
 
 type Payload = dict[str, Any]
@@ -155,7 +156,12 @@ def start_owner(
     owners: list[Owner] = []
     capability = secrets.token_bytes(32)
 
-    def start(*, max_entry_bytes: int = 1024 * 1024, **limits: object) -> Owner:
+    def start(
+        *,
+        max_entry_bytes: int = 1024 * 1024,
+        shared_index: SharedIndexLimits | None = None,
+        **limits: object,
+    ) -> Owner:
         config = OwnerConfig(
             socket_path=str(socket_directory / "owner.sock"),
             capability=capability,
@@ -170,6 +176,7 @@ def start_owner(
             max_await_time_ms=AWAIT_MS,
             limits=replace(LIMITS, **limits),  # type: ignore[arg-type]
             lag_capture=(1, 1, 0),
+            shared_index=shared_index,
         )
         context = multiprocessing.get_context("spawn")
         parent, child = context.Pipe()

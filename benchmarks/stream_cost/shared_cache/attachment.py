@@ -5,6 +5,7 @@ import os
 import socket
 import threading
 import time
+import weakref
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final
 
@@ -149,6 +150,86 @@ def control_handshake(config: AttachmentConfig) -> ControlAttachment:
         for descriptor in received:
             os.close(descriptor)
     return ControlAttachment(sock, reader)
+
+
+_LOCAL_INDEXES: Final[weakref.WeakSet[LocalIndex | AsyncLocalIndex]] = weakref.WeakSet()
+
+
+def _detach_inherited() -> None:  # pragma: no cover (forked child, pre-coverage)
+    for local in tuple(_LOCAL_INDEXES):
+        local.reader.detach()
+
+
+os.register_at_fork(after_in_child=_detach_inherited)
+
+
+class LocalIndex:
+    __slots__ = ("__weakref__", "_sock", "_watcher", "reader")
+
+    def __init__(self, control: ControlAttachment) -> None:
+        self.reader = control.reader
+        self._sock = control.sock
+        self._sock.settimeout(None)
+        self._watcher = threading.Thread(target=self._watch, daemon=True)
+        _LOCAL_INDEXES.add(self)
+        self._watcher.start()
+
+    @classmethod
+    def attach(cls, config: AttachmentConfig) -> LocalIndex:
+        return cls(control_handshake(config))
+
+    def _watch(self) -> None:
+        try:
+            self._sock.recv(1)
+        except OSError:  # pragma: lax no cover (peer reset timing)
+            pass
+        finally:
+            self.reader.detach()
+
+    def close(self) -> None:
+        try:
+            self._sock.shutdown(socket.SHUT_RDWR)
+        except OSError:  # pragma: lax no cover (owner exit timing)
+            pass
+        self._watcher.join()
+        self._sock.close()
+
+
+class AsyncLocalIndex:
+    __slots__ = ("__weakref__", "_watcher", "_writer", "reader")
+
+    def __init__(
+        self,
+        reader: ReaderIndex,
+        stream: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+    ) -> None:
+        self.reader = reader
+        self._writer = writer
+        self._watcher = asyncio.create_task(self._watch(stream))
+        _LOCAL_INDEXES.add(self)
+
+    @classmethod
+    async def attach(cls, config: AttachmentConfig) -> AsyncLocalIndex:
+        control = await asyncio.to_thread(control_handshake, config)
+        stream, writer = await asyncio.open_unix_connection(sock=control.sock)
+        return cls(control.reader, stream, writer)
+
+    async def _watch(self, stream: asyncio.StreamReader) -> None:
+        try:
+            await stream.read(1)
+        except OSError:  # pragma: lax no cover (owner exit timing)
+            pass
+        finally:
+            self.reader.detach()
+
+    async def close(self) -> None:
+        self._writer.close()
+        self._watcher.cancel()
+        try:
+            await self._watcher
+        except asyncio.CancelledError:
+            pass
 
 
 class _SyncConnection:
