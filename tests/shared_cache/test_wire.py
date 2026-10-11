@@ -15,6 +15,7 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from benchmarks.stream_cost.shared_cache.wire import (
+    _EMPTY_IDENTITY,
     KeyCache,
     ProtocolError,
     UnportableKeyError,
@@ -28,7 +29,11 @@ from benchmarks.stream_cost.shared_cache.wire import (
 )
 from client_query_cache._core.canonical import canonicalize
 from client_query_cache._core.codec import codec_fingerprint
-from client_query_cache._core.find_reads import find_read_shape
+from client_query_cache._core.find_reads import (
+    FindReadShape,
+    find_discriminator,
+    find_read_shape,
+)
 from client_query_cache._core.order_sensitive_keys import (
     order_sensitive_discriminator_key,
 )
@@ -70,12 +75,20 @@ def test_canonical_keys_round_trip_through_bson(value: object) -> None:
     assert _roundtrip(canonical) == canonical
 
 
-def test_find_shapes_and_codec_profiles_round_trip(faker: Faker) -> None:
+@pytest.mark.parametrize(
+    "scalar_predicates", [False, True], ids=["operators", "scalar-predicates"]
+)
+def test_find_shapes_and_codec_profiles_round_trip(
+    faker: Faker, *, scalar_predicates: bool
+) -> None:
     codec: CodecOptions[Mapping[str, Any]] = CodecOptions(
-        tz_aware=True, tzinfo=datetime.UTC
+        tz_aware=True, tzinfo=datetime.UTC, type_registry=_EMPTY_IDENTITY._registry
     )
+    sku, price = faker.pystr(), faker.pyfloat()
     shape = find_read_shape(
-        {"sku": faker.pystr(), "price": {"$gt": 1.5}, "count": Int64(3)},
+        {"sku": sku, "price": price}
+        if scalar_predicates
+        else {"sku": sku, "price": {"$gt": price}, "count": Int64(faker.pyint())},
         {"payload": 0},
         {"_id": -1},
         2,
@@ -84,8 +97,11 @@ def test_find_shapes_and_codec_profiles_round_trip(faker: Faker) -> None:
         codec=codec_fingerprint(codec),
     )
     canonical = canonicalize(shape.family)
+    decoded = _roundtrip(canonical)
 
-    assert to_wire(_roundtrip(canonical)) == to_wire(canonical)
+    assert to_wire(decoded) == to_wire(canonical)
+    assert FindReadShape(decoded, shape.limit).source == shape.source
+    assert find_discriminator(decoded, shape.limit) == canonicalize(shape.discriminator)
     assert (
         _roundtrip(DatetimeConversion.DATETIME_AUTO) is DatetimeConversion.DATETIME_AUTO
     )

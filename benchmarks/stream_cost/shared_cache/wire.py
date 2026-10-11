@@ -30,11 +30,11 @@ _TAGS: Final[dict[str, object]] = {
     "canonical-map": canonical_tags._MAPPING_TAG,
     "canonical-seq": canonical_tags._SEQUENCE_TAG,
     "canonical-bool": canonical_tags._BOOL_TAG,
-    "order-map": order_tags._MAPPING_TAG,
-    "order-seq": order_tags._SEQUENCE_TAG,
-    "order-float": order_tags._FLOAT_TAG,
-    "order-int64": order_tags._INT64_TAG,
-    "filter-scalar-predicates": filter_tags._SCALAR_PREDICATES,
+    "order-map": order_tags._MAPPING_TAG.canonical,
+    "order-seq": order_tags._SEQUENCE_TAG.canonical,
+    "order-float": order_tags._FLOAT_TAG.canonical,
+    "order-int64": order_tags._INT64_TAG.canonical,
+    "filter-scalar-predicates": filter_tags._SCALAR_PREDICATES.canonical,
 }
 _TAG_NAMES: Final = {id(tag): name for name, tag in _TAGS.items()}
 _CLASSES: Final[dict[str, type]] = {"dict": dict}

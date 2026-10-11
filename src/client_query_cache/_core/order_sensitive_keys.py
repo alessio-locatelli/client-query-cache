@@ -5,18 +5,13 @@ from collections.abc import Mapping, Sequence
 from bson.decimal128 import Decimal128
 from bson.int64 import Int64
 
-from client_query_cache._core.canonical import _OWN_TAGS as _CANONICAL_OWN_TAGS
+from client_query_cache._core.canonical import _CanonicalTag, _PendingTag
 
-
-class _OrderTag:
-    __slots__ = ()
-
-
-_MAPPING_TAG = _OrderTag()
-_SEQUENCE_TAG = _OrderTag()
-_FLOAT_TAG = _OrderTag()
-_INT64_TAG = _OrderTag()
-_OWN_TAGS = (_MAPPING_TAG, _SEQUENCE_TAG, _FLOAT_TAG, _INT64_TAG, *_CANONICAL_OWN_TAGS)
+_MAPPING_TAG = _PendingTag("ordered-map", items=True)
+_SEQUENCE_TAG = _PendingTag("ordered-seq", items=True)
+_FLOAT_TAG = _PendingTag("float", items=False)
+_INT64_TAG = _PendingTag("int64", items=False)
+_TAG_TYPES = (_CanonicalTag, _PendingTag)
 _TAGGED_TUPLE_SIZE = 2
 
 
@@ -26,32 +21,32 @@ def _order_sensitive_key(
     if (
         isinstance(value, tuple)
         and len(value) == _TAGGED_TUPLE_SIZE
-        and any(value[0] is tag for tag in _OWN_TAGS)
+        and type(value[0]) in _TAG_TYPES
     ):
         return value
     if isinstance(value, Mapping):
         return (
             _MAPPING_TAG,
             tuple(
-                (
+                [
                     _order_sensitive_key(
-                        key, distinguish_numeric_subtypes=distinguish_numeric_subtypes
-                    ),
-                    _order_sensitive_key(
-                        item, distinguish_numeric_subtypes=distinguish_numeric_subtypes
-                    ),
-                )
-                for key, item in value.items()
+                        part, distinguish_numeric_subtypes=distinguish_numeric_subtypes
+                    )
+                    for pair in value.items()
+                    for part in pair
+                ]
             ),
         )
     if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
         return (
             _SEQUENCE_TAG,
             tuple(
-                _order_sensitive_key(
-                    item, distinguish_numeric_subtypes=distinguish_numeric_subtypes
-                )
-                for item in value
+                [
+                    _order_sensitive_key(
+                        item, distinguish_numeric_subtypes=distinguish_numeric_subtypes
+                    )
+                    for item in value
+                ]
             ),
         )
     if distinguish_numeric_subtypes:
