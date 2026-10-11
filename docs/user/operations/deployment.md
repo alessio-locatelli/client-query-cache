@@ -24,6 +24,8 @@ To enable caching through an application-owned deployment flag and roll it back,
 - **Errors raised to callers**: cache exceptions report invalid configuration, use after `close()`, or explicit low-level misuse. The [API reference's error table](../reference/api.md#errors) is the complete list.
 - **Cache-ineligible requests bypass**: tailable, exhaust, or partial-result `find()`, `$changeStream` aggregation, and the other [bypass conditions](../reference/api.md#bypass-conditions) execute as normal PyMongo calls instead of raising a cache error. The underlying PyMongo call can still raise its own errors or wait for the server.
 
+Use the [permission recovery exercise](permission-recovery.md) to observe startup failure, bypass counters, and read-triggered recovery on a disposable authenticated replica set.
+
 ## Security
 
 - The cache introduces no new network exposure or authentication mechanism of its own. Every connection,
@@ -112,6 +114,14 @@ Container memory limits apply to the container's own memory counter, not to proc
 The figures come from Python 3.14, PyMongo 4.18, and glibc on Linux, and depend on document shape. Measure your own workload before relying on them.
 
 Monitor [cache outcomes and stream health](monitoring.md) alongside your application workload. Use the [benchmark guide](../benchmarks/index.md) to decide what to measure before deployment.
+
+### Worked worker estimate
+
+Suppose four workers each use one manager, actively cache two databases, and have a 32 MiB `shared_budget_bytes` setting. Together they can store up to 128 MiB of BSON and open eight database change streams. The budget is shared by the two databases within each worker; it is not 32 MiB per database. Size each client's pool for two concurrent stream polls alongside that worker's ordinary database traffic.
+
+For the measured 4.4 KB `_id` document shape above, 128 MiB of stored BSON corresponds to about 147 MiB of added process memory across the four workers when all budgets are full. Application baseline memory, retained responses, concurrent miss captures, and other services come on top. Use observed per-worker peaks to set limits; small results or large filters can multiply the cache's memory cost much more.
+
+For an economic comparison, measure the application's change in CPU, memory, and database usage at the same request rate, then apply your provider's prices. Read/write ratio and document size alone cannot predict the hit rate or savings.
 
 ## Multi-worker servers
 

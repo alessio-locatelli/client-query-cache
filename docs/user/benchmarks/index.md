@@ -1,5 +1,7 @@
 # Benchmarks
 
+For an adoption checklist and comparison of caching layers, start with [Should you use this?](../getting-started/should-you-use-this.md).
+
 ## Is caching a good fit for your workload?
 
 Before enabling the cache for a workload, weigh these factors — each is covered by the [retained reports](stream-cost.md#reports) or by

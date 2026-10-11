@@ -1,5 +1,7 @@
 # FastAPI catalogue
 
+For a smaller starting point, use the [compact FastAPI application](fastapi-minimal.md).
+
 This application caches product descriptions and ordered product pages for two tenants. FastAPI's [application lifespan](https://fastapi.tiangolo.com/advanced/events/) owns one asyncio MongoDB client and cache manager, and request dependencies supply a catalogue repository and an authenticated principal.
 
 The application's authentication dependency rejects requests by default. The self-check installs [demonstration dependency overrides](https://fastapi.tiangolo.com/advanced/testing-dependencies/) for Alice, who can edit the north tenant's products, and Bob, who can only read the south tenant's products. These identities are for demonstration only. Supply your application's [trusted authentication dependency](https://fastapi.tiangolo.com/tutorial/security/get-current-user/) when adopting the example. Tenant selectors in requests cannot replace the principal's tenant, and cached documents do not grant write permission.

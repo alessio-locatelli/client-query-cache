@@ -7,12 +7,14 @@ docs_dir = "docs/user"
 nav = [
   { "Home" = "index.md" },
   { "Getting started" = [
+    { "Should you use this?" = "getting-started/should-you-use-this.md" },
     { "Installation" = "getting-started/installation.md" },
     { "Synchronous" = "getting-started/synchronous.md" },
     { "Asyncio" = "getting-started/asyncio.md" },
   ] },
   { "Usage" = [
     { "Cached reads" = "usage/cached-reads.md" },
+    { "Eligibility exercise" = "usage/eligibility.md" },
     { "Consistency" = "usage/consistency.md" },
   ] },
   { "Benchmarks" = [
@@ -21,6 +23,7 @@ nav = [
   ] },
   { "Examples" = [
     { "Run the examples" = "examples/index.md" },
+    { "Compact FastAPI" = "examples/fastapi-minimal.md" },
     { "requests-cache" = "examples/requests-cache.md" },
     { "FastAPI catalogue" = "examples/fastapi.md" },
     { "Celery" = "examples/celery.md" },
@@ -35,6 +38,7 @@ nav = [
     { "Overview" = "operations/index.md" },
     { "Deployment" = "operations/deployment.md" },
     { "Monitoring" = "operations/monitoring.md" },
+    { "Permission recovery exercise" = "operations/permission-recovery.md" },
   ] },
 ]
 
