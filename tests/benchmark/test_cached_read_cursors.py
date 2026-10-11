@@ -4,11 +4,13 @@ from __future__ import annotations
 import cProfile
 import io
 import json
+import os
 import pstats
 import statistics
 import tracemalloc
+from collections.abc import Awaitable
 from time import perf_counter, process_time
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import pytest
 from pymongo import AsyncMongoClient
@@ -18,7 +20,12 @@ from client_query_cache._core.codec import encode_value
 from client_query_cache._core.cursor_capture import CursorCapture
 from client_query_cache._core.find_reads import find_read_shape
 from client_query_cache._core.keys import NamespaceId
-from client_query_cache._types import BsonDict, NonNegativeFloat, NonNegativeInt
+from client_query_cache._types import (
+    BsonDict,
+    NonNegativeFloat,
+    NonNegativeInt,
+    PositiveInt,
+)
 from client_query_cache.asynchronous.cursors import (
     CachedCommandCursor as AsyncCachedCommandCursor,
 )
@@ -34,7 +41,7 @@ from tests.cursor_helpers import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Generator, Mapping
+    from collections.abc import Generator, Mapping
 
     from bson.codec_options import CodecOptions
     from pymongo.asynchronous.command_cursor import AsyncCommandCursor
@@ -43,6 +50,9 @@ if TYPE_CHECKING:
     from client_query_cache._core.find_reads import FindReadShape
     from client_query_cache._core.manager import CacheCore
     from tests.cursor_fixtures import Binding, ReadCommands, View
+
+from tests.conftest import MongoDbUri
+from tests.stream_helpers import wait_for_stream_barrier, wait_for_stream_barrier_async
 
 pytestmark = [pytest.mark.benchmark, pytest.mark.timeout(180)]
 CACHED_CURSORS = (
@@ -482,3 +492,130 @@ def test_scalar_filter_key_cost(predicates: Literal[2, 32]) -> None:
                 }
             )
         )
+
+
+@pytest.fixture(scope="session")
+def mongodb_uri(request: pytest.FixtureRequest) -> MongoDbUri:
+    try:
+        return MongoDbUri(os.environ["READ_DISCRIMINATOR_MONGODB_URI"])
+    except KeyError:
+        return cast("MongoDbUri", request.getfixturevalue("mongodb_uri"))
+
+
+DISCRIMINATOR_QUERY = {"code": "C0000001", "state": {"$in": ["a", "b", "c"]}}
+DISCRIMINATOR_HIT_REPETITIONS = 5000
+DISCRIMINATOR_COLD_REPETITIONS = 100
+DISCRIMINATOR_PROFILE_REPETITIONS = 500
+
+
+@pytest.fixture
+async def discriminator_documents(cursors: Binding) -> list[BsonDict]:
+    view = cursors["view"]
+    updated = view.raw.update_many({}, {"$set": {"code": "C0000001", "state": "a"}})
+    if isinstance(updated, Awaitable):
+        await updated
+    core = view.database.manager.cache_core
+    if isinstance(view.raw.database.client, AsyncMongoClient):
+        await wait_for_stream_barrier_async(core, view.raw.database)
+    else:
+        wait_for_stream_barrier(core, view.raw.database)
+    for document in cursors["documents"]:
+        document.update(code="C0000001", state="a")
+    core.clear_namespace(view._namespace())
+    return cursors["documents"][:20]
+
+
+def discriminator_cursor(
+    view: View, method: Literal["find", "aggregate"], limit: PositiveInt = 20
+) -> ReadCursor[BsonDict] | Awaitable[AsyncCommandCursor[BsonDict]]:
+    if method == "find":
+        return view.find(DISCRIMINATOR_QUERY, sort=[("_id", 1)], limit=limit)
+    return view.aggregate(
+        [{"$match": DISCRIMINATOR_QUERY}, {"$sort": {"_id": 1}}, {"$limit": limit}]
+    )
+
+
+@pytest.mark.parametrize(
+    "cursors",
+    [pytest.param((api, 40, 0, 1024 * 1024), id=api) for api in ("sync", "async")],
+    indirect=True,
+)
+@pytest.mark.parametrize("method", ["find", "aggregate"], ids=["find", "aggregate"])
+async def test_discriminator_measurements(
+    cursors: Binding,
+    discriminator_documents: list[BsonDict],
+    method: Literal["find", "aggregate"],
+) -> None:
+    view = cursors["view"]
+    core = view.database.manager.cache_core
+    namespace = view._namespace()
+    assert not tracemalloc.is_tracing()
+    for phase in (
+        ("exact", "cold", "compatible") if method == "find" else ("exact", "cold")
+    ):
+        core.clear_namespace(namespace)
+        await materialize(
+            discriminator_cursor(view, method, 100 if phase == "compatible" else 20)
+        )
+        repetitions = (
+            DISCRIMINATOR_COLD_REPETITIONS
+            if phase == "cold"
+            else DISCRIMINATOR_HIT_REPETITIONS
+        )
+        cpu_seconds = 0.0
+        wall_seconds = 0.0
+        cursors["commands"].commands.clear()
+        before = core.snapshot()
+        for _ in range(repetitions):
+            if phase == "cold":
+                core.clear_namespace(namespace)
+            cpu_started = process_time()
+            wall_started = perf_counter()
+            documents = await materialize(discriminator_cursor(view, method))
+            wall_seconds += perf_counter() - wall_started
+            cpu_seconds += process_time() - cpu_started
+            assert documents == discriminator_documents
+        after = core.snapshot()
+        command_counts = counts(cursors["commands"])
+        assert command_counts[method] == (repetitions if phase == "cold" else 0)
+        assert command_counts["getMore"] == command_counts["killCursors"] == 0
+        assert after.hits - before.hits == (0 if phase == "cold" else repetitions)
+        assert after.misses - before.misses == (repetitions if phase == "cold" else 0)
+        print(
+            "DISCRIMINATOR "
+            + json.dumps(
+                {
+                    "api": api_name(view),
+                    "method": method,
+                    "phase": phase,
+                    "repetitions": repetitions,
+                    "cpu_us": cpu_seconds / repetitions * 1e6,
+                    "wall_us": wall_seconds / repetitions * 1e6,
+                    "commands": command_counts,
+                },
+                sort_keys=True,
+            )
+        )
+    core.clear_namespace(namespace)
+    assert (
+        await materialize(discriminator_cursor(view, method)) == discriminator_documents
+    )
+    profiler = cProfile.Profile()
+    profiler.enable()
+    for _ in range(DISCRIMINATOR_PROFILE_REPETITIONS):
+        assert (
+            await materialize(discriminator_cursor(view, method))
+            == discriminator_documents
+        )
+    profiler.disable()
+    profile_output = io.StringIO()
+    profile_stats = (
+        pstats.Stats(profiler, stream=profile_output)
+        .strip_dirs()
+        .sort_stats("cumulative")
+    )
+    profile_stats.print_stats(18)
+    profile_stats.print_stats("canonicalize|_order_sensitive_key|decode_value|_prepare")
+    print(
+        f"DISCRIMINATOR_PROFILE {api_name(view)} {method}\n{profile_output.getvalue()}"
+    )

@@ -9,8 +9,12 @@ from pymongo import AsyncMongoClient, MongoClient
 from pymongo.asynchronous.command_cursor import AsyncCommandCursor
 from pymongo.monitoring import CommandListener
 
+from client_query_cache._core import canonical
 from client_query_cache._core.manager import CacheCoreConfig
-from client_query_cache._types import BsonDict
+from client_query_cache._core.order_sensitive_keys import (
+    order_sensitive_discriminator_key,
+)
+from client_query_cache._types import BsonDict, NonNegativeInt
 from client_query_cache.asynchronous import CachedCollection as AsyncCachedCollection
 from client_query_cache.asynchronous import CacheManager as AsyncCacheManager
 from client_query_cache.synchronous import CachedCollection, CacheManager
@@ -27,6 +31,7 @@ if TYPE_CHECKING:
         CommandSucceededEvent,
     )
 
+    from client_query_cache._core.canonical import Canonical
     from tests.conftest import CollectionName, DatabaseName, MongoDbUri
 
 pytestmark = pytest.mark.integration
@@ -124,3 +129,46 @@ def cursor_factory(request: pytest.FixtureRequest) -> CursorFactory:
     if request.param == "find":
         return lambda view: view.find({}).sort("_id")
     return lambda view: view.aggregate([{"$sort": {"_id": 1}}])
+
+
+@pytest.fixture
+def raw_key_traversals(monkeypatch: pytest.MonkeyPatch) -> list[NonNegativeInt]:
+    roots: list[object] = []
+    visits: list[NonNegativeInt] = []
+    original_canonicalize = canonical.canonicalize
+    original_builder = order_sensitive_discriminator_key
+
+    def designate(raw_input: object) -> object:
+        root = original_builder(raw_input)
+        if not visits:
+            roots.clear()
+        roots.append(root)
+        visits.append(0)
+        return root
+
+    def observe(value: object) -> Canonical:
+        for index, root in enumerate(roots):
+            if value is root:
+                visits[index] += 1
+                break
+        return original_canonicalize(value)
+
+    for module in (
+        "_core.canonical",
+        "_core.read_classification",
+        "_core.find_reads",
+        "_core.keys",
+        "_core.manager",
+        "synchronous.collection",
+        "asynchronous.collection",
+    ):
+        monkeypatch.setattr(f"client_query_cache.{module}.canonicalize", observe)
+    for module in (
+        "_core.find_reads",
+        "synchronous.collection",
+        "asynchronous.collection",
+    ):
+        monkeypatch.setattr(
+            f"client_query_cache.{module}.order_sensitive_discriminator_key", designate
+        )
+    return visits

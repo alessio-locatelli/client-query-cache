@@ -1788,6 +1788,38 @@ def test_find_with_a_meta_projection_is_never_cached(
             {"_id": "a", "tag": Code("function() { return true; }")},
             id="find_one-unhashable-unique-key-value",
         ),
+        pytest.param(
+            "count_documents",
+            {"_id": "a", "script": Code("function() { return true; }"), "v": 1},
+            lambda collection: collection.count_documents(
+                {"script": Code("function() { return true; }")}
+            ),
+            1,
+            id="count_documents-code-fallback",
+        ),
+        pytest.param(
+            "distinct",
+            {"_id": "a", "script": Code("function() { return true; }"), "v": 1},
+            lambda collection: collection.distinct(
+                "v", {"script": Code("function() { return true; }")}
+            ),
+            [1],
+            id="distinct-code-fallback",
+        ),
+        pytest.param(
+            "count_documents",
+            {"_id": "a", "script": float("nan"), "v": 1},
+            lambda collection: collection.count_documents({"script": float("nan")}),
+            1,
+            id="count_documents-nan-fallback",
+        ),
+        pytest.param(
+            "distinct",
+            {"_id": "a", "script": float("nan"), "v": 1},
+            lambda collection: collection.distinct("v", {"script": float("nan")}),
+            [1],
+            id="distinct-nan-fallback",
+        ),
     ],
 )
 def test_reads_with_an_unhashable_value_bypass_instead_of_raising(
@@ -2297,3 +2329,64 @@ def test_find_one_explicit_collation_changes_matching_without_alias_leaks(
         )
         is None
     )
+
+
+@pytest.mark.parametrize(
+    "method", ["count_documents", "distinct"], ids=["count", "distinct"]
+)
+def test_scalar_read_reuses_one_raw_discriminator(
+    cache_manager: CacheManager[BsonDict],
+    cached_database_name: DatabaseName,
+    nonpersistent_collection_name: CollectionName,
+    raw_key_traversals: list[NonNegativeInt],
+    method: str,
+) -> None:
+    collection = cache_manager[cached_database_name][nonpersistent_collection_name]
+    collection.raw.insert_one({"_id": "prepared", "v": 1})
+    arguments = ({"v": 1},) if method == "count_documents" else ("v", {"v": 1})
+    expected = 1 if method == "count_documents" else [1]
+    raw_key_traversals.clear()
+    before = cache_manager.snapshot()
+    with _spy_on_driver(method) as spy:
+        assert getattr(collection, method)(*arguments) == expected
+        assert getattr(collection, method)(*arguments) == expected
+    assert raw_key_traversals == [1, 1]
+    assert spy.call_count == 1
+    after = cache_manager.snapshot()
+    assert after.hits == before.hits + 1
+    assert after.misses == before.misses + 1
+    assert after.entry_count == before.entry_count + 1
+
+
+@pytest.mark.parametrize(
+    "method", ["count_documents", "distinct"], ids=["count", "distinct"]
+)
+def test_scalar_key_failure_preserves_native_arguments_and_error(
+    cache_manager: CacheManager[BsonDict],
+    cached_database_name: DatabaseName,
+    nonpersistent_collection_name: CollectionName,
+    method: str,
+) -> None:
+    collection = cache_manager[cached_database_name][nonpersistent_collection_name]
+    query: BsonDict = {"v": set()}
+    arguments = (query,) if method == "count_documents" else ("v", query)
+    before = cache_manager.snapshot()
+    with (
+        patch.object(
+            Collection,
+            method,
+            autospec=True,
+            side_effect=InvalidDocument("native unsupported value"),
+        ) as native,
+        pytest.raises(InvalidDocument, match="native unsupported value"),
+    ):
+        getattr(collection, method)(*arguments)
+    assert native.call_args.args[0] is collection.raw
+    assert native.call_args.args[-1] is query
+    after = cache_manager.snapshot()
+    assert (after.hits, after.misses, after.entry_count) == (
+        before.hits,
+        before.misses,
+        before.entry_count,
+    )
+    assert after.bypasses == before.bypasses + 1

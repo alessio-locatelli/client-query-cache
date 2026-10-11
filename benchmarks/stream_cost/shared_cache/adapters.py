@@ -22,7 +22,7 @@ from client_query_cache._core.identity_reads import (
     normalize_identity_for_cache_key,
 )
 from client_query_cache._core.order_sensitive_keys import order_sensitive_key
-from client_query_cache._core.read_classification import query_bypass_reason
+from client_query_cache._core.read_classification import prepare_query_key
 from client_query_cache._core.snapshots import BypassReason
 from client_query_cache._types import NonNegativeInt
 from client_query_cache.asynchronous import collection as async_collection
@@ -257,10 +257,13 @@ def _find_reason(cursor: Cursor, shape: FindReadShape) -> BypassReason | None:
             )
         )
     )
-    return cursor._view._request_bypass_reason(
+    reason = cursor._view._request_bypass_reason(
         session=cursor._session,  # type: ignore[arg-type]
         kwargs={"cursor_options": True} if unsupported else {},
-    ) or query_bypass_reason(cursor._spec, cursor._projection, shape.discriminator)
+    )
+    if reason is not None:
+        return reason
+    return prepare_query_key(cursor._spec, cursor._projection, shape.discriminator)[1]
 
 
 def _shape(cursor: Cursor) -> FindReadShape:

@@ -862,3 +862,64 @@ async def test_cancelled_batch_await_discards_and_closes(
     assert any("killCursors" in command for command in cursors["commands"].commands)
     assert isinstance(cursor, AsyncCachedCursor | AsyncCachedCommandCursor)
     assert cursor._capture is None
+
+
+@pytest.mark.parametrize("warm", [False, True], ids=["complete-miss", "exact-hit"])
+async def test_cursor_reuses_one_raw_discriminator(
+    cursors: Binding,
+    cursor_factory: CursorFactory,
+    raw_key_traversals: list[NonNegativeInt],
+    *,
+    warm: bool,
+) -> None:
+    view = cursors["view"]
+    if warm:
+        assert await materialize(cursor_factory(view)) == cursors["documents"]
+    raw_key_traversals.clear()
+    before = view.database.manager.snapshot()
+    cursors["commands"].commands.clear()
+    assert await materialize(cursor_factory(view)) == cursors["documents"]
+    after = view.database.manager.snapshot()
+    assert raw_key_traversals == [1]
+    assert after.hits - before.hits == int(warm)
+    assert after.misses - before.misses == int(not warm)
+    assert after.entry_count - before.entry_count == int(not warm)
+    assert bool(cursors["commands"].commands) is (not warm)
+
+
+@pytest.mark.parametrize(
+    "restart", ["covering", "rewind", "clone"], ids=["covering", "rewind", "clone"]
+)
+async def test_find_execution_prepares_changed_final_options(
+    cursors: Binding,
+    raw_key_traversals: list[NonNegativeInt],
+    restart: str,
+) -> None:
+    view = cursors["view"]
+    cursor = view.find({}).sort("_id").limit(100)
+    assert await materialize(cursor) == cursors["documents"][:100]
+    if restart == "covering":
+        cursor = view.find({}).sort("_id").limit(20)
+        expected = cursors["documents"][:20]
+    else:
+        if restart == "clone":
+            cursor = cursor.clone()
+        else:
+            rewound = cursor.rewind()
+            if isinstance(rewound, Awaitable):
+                await rewound
+        cursor = cursor.sort("_id", -1).skip(1).limit(20)
+        expected = list(reversed(cursors["documents"]))[1:21]
+    raw_key_traversals.clear()
+    cursors["commands"].commands.clear()
+    before = view.database.manager.snapshot()
+    assert await materialize(cursor) == expected
+    after = view.database.manager.snapshot()
+    assert raw_key_traversals == [1]
+    assert after.hits - before.hits == int(restart == "covering")
+    assert after.misses - before.misses == int(restart != "covering")
+    assert after.entry_count - before.entry_count == int(restart != "covering")
+    assert bool(cursors["commands"].commands) is (restart != "covering")
+    assert await materialize(cursor.clone()) == expected
+    assert raw_key_traversals == [1, 1]
+    assert view.database.manager.snapshot().hits == after.hits + 1

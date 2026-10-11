@@ -4,7 +4,11 @@ from typing import TYPE_CHECKING, Any
 
 from pymongo import ReadPreference
 
-from client_query_cache._core.canonical import is_canonicalizable
+from client_query_cache._core.canonical import (
+    Canonical,
+    canonicalize,
+)
+from client_query_cache._core.errors import UnsupportedCacheRequestError
 from client_query_cache._core.find_one_reads import (
     CollationInput,
     find_one_options_cacheable,
@@ -46,28 +50,31 @@ def request_bypass_reason(
     return None
 
 
-def query_bypass_reason(
+def _prepare_key(raw_key: object) -> tuple[Canonical, BypassReason | None]:
+    try:
+        return canonicalize(raw_key), None
+    except UnsupportedCacheRequestError:
+        return None, BypassReason.UNCANONICALIZABLE_KEY
+
+
+def prepare_query_key(
     filter_query: Mapping[str, Any] | None,
     projection: Mapping[str, Any] | Sequence[str] | None,
-    discriminator: object,
-) -> BypassReason | None:
+    raw_key: object,
+) -> tuple[Canonical, BypassReason | None]:
     if not is_filter_cacheable(filter_query):
-        return BypassReason.UNSAFE_FILTER
+        return None, BypassReason.UNSAFE_FILTER
     if not is_projection_cacheable(projection):
-        return BypassReason.UNSAFE_PROJECTION
-    if not is_canonicalizable(discriminator):
-        return BypassReason.UNCANONICALIZABLE_KEY
-    return None
+        return None, BypassReason.UNSAFE_PROJECTION
+    return _prepare_key(raw_key)
 
 
-def pipeline_bypass_reason(
-    pipeline: Sequence[Mapping[str, Any]], discriminator: object
-) -> BypassReason | None:
+def prepare_pipeline_key(
+    pipeline: Sequence[Mapping[str, Any]], raw_key: object
+) -> tuple[Canonical, BypassReason | None]:
     if not is_pipeline_cacheable(pipeline):
-        return BypassReason.UNSAFE_PIPELINE
-    if not is_canonicalizable(discriminator):
-        return BypassReason.UNCANONICALIZABLE_KEY
-    return None
+        return None, BypassReason.UNSAFE_PIPELINE
+    return _prepare_key(raw_key)
 
 
 def find_one_bypass_reason(

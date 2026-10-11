@@ -3,12 +3,15 @@ from __future__ import annotations
 import dataclasses
 import importlib
 import inspect
+from contextlib import nullcontext
 from datetime import datetime, timedelta, tzinfo
 from typing import TYPE_CHECKING, Any, override
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+from bson.code import Code
 from bson.codec_options import CodecOptions
+from bson.errors import InvalidDocument
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import InMemoryMetricReader
 from pymongo import AsyncMongoClient, MongoClient, ReadPreference
@@ -17,7 +20,7 @@ from pymongo.errors import ConnectionFailure
 from pymongo.synchronous.cursor import Cursor
 
 from client_query_cache import BypassReason, CacheManager
-from client_query_cache._types import BsonDict
+from client_query_cache._types import BsonDict, NonNegativeInt
 from client_query_cache.asynchronous import CacheManager as AsyncCacheManager
 from client_query_cache.otel import register_cache_metrics
 from tests.cursor_helpers import materialize
@@ -324,6 +327,18 @@ def raw_method(
     monkeypatch.setattr(type(cached_collection.raw), method, operation)
 
 
+@pytest.fixture
+def eligibility_probe(
+    cached_collection: Collection, monkeypatch: pytest.MonkeyPatch
+) -> Mock:
+    is_async = isinstance(cached_collection.database.manager, AsyncCacheManager)
+    probe = (AsyncMock if is_async else Mock)(
+        side_effect=AssertionError("failed preparation must skip eligibility")
+    )
+    monkeypatch.setattr(type(cached_collection), "_cache_ineligibility_reason", probe)
+    return probe
+
+
 @pytest.mark.usefixtures("raw_method")
 @pytest.mark.parametrize(
     ("method", "arguments", "reason"),
@@ -367,10 +382,17 @@ def raw_method(
             BypassReason.UNCANONICALIZABLE_KEY,
             id="pipeline-key",
         ),
+        pytest.param(
+            "find",
+            ({"score": float("nan")}, {"score": {"$meta": "textScore"}}),
+            BypassReason.UNSAFE_PROJECTION,
+            id="projection-before-key",
+        ),
     ],
 )
 async def test_public_materialized_reads_classify_unsafe_shapes(
     cached_collection: Collection,
+    eligibility_probe: Mock,
     method: str,
     arguments: tuple[object, ...],
     reason: BypassReason,
@@ -380,6 +402,7 @@ async def test_public_materialized_reads_classify_unsafe_shapes(
         await materialize(returned)
     elif inspect.isawaitable(returned):
         await returned
+    eligibility_probe.assert_not_called()
     snapshot = cached_collection.database.manager.snapshot()
     assert snapshot.bypasses == 1
     assert (
@@ -442,4 +465,108 @@ async def test_unhashable_timezone_constructs_and_bypasses(
             if record.reason is BypassReason.UNCANONICALIZABLE_KEY
         )
         == 1
+    )
+
+
+@pytest.mark.usefixtures("raw_method")
+@pytest.mark.parametrize("method", ["find", "aggregate", "count_documents", "distinct"])
+@pytest.mark.parametrize(
+    ("condition", "reason"),
+    [
+        pytest.param("session", BypassReason.SESSION, id="session-first"),
+        pytest.param("profile", BypassReason.READ_PROFILE, id="profile-first"),
+        pytest.param("options", BypassReason.UNSUPPORTED_OPTIONS, id="options-first"),
+        pytest.param("unsafe", None, id="unsafe-before-key"),
+        pytest.param(
+            "key", BypassReason.UNCANONICALIZABLE_KEY, id="key-before-metadata"
+        ),
+        pytest.param("code", BypassReason.UNCANONICALIZABLE_KEY, id="code-key"),
+        pytest.param(
+            "native-error", BypassReason.UNCANONICALIZABLE_KEY, id="native-error"
+        ),
+    ],
+)
+async def test_read_preparation_preserves_combined_bypass_precedence(
+    cached_collection: Collection,
+    eligibility_probe: Mock,
+    raw_key_traversals: list[NonNegativeInt],
+    *,
+    method: str,
+    condition: str,
+    reason: BypassReason | None,
+) -> None:
+    manager = cached_collection.database.manager
+    if condition == "profile":
+        if isinstance(manager, AsyncCacheManager):
+            cached_collection = manager.get_cached_collection(
+                manager.client["observations"]["widgets"].with_options(
+                    read_preference=ReadPreference.SECONDARY
+                )
+            )
+        else:
+            cached_collection = manager.get_cached_collection(
+                manager.client["observations"]["widgets"].with_options(
+                    read_preference=ReadPreference.SECONDARY
+                )
+            )
+    query: BsonDict = {"score": set() if condition == "native-error" else float("nan")}
+    if condition == "code":
+        query["score"] = Code("function() { return true; }")
+    unsafe = condition not in {"key", "code", "native-error"}
+    if unsafe:
+        query["$expr"] = {"$rand": {}}
+    pipeline = [{"$match": query}]
+    if unsafe:
+        pipeline.append({"$sample": {"size": 1}})
+    options: dict[str, Any] = {}
+    if condition == "session":
+        options["session"] = Mock()
+    elif condition == "options":
+        options["comment"] = "native request"
+    arguments: tuple[object, ...]
+    if method == "find":
+        arguments = (query, {"score": {"$meta": "textScore"}} if unsafe else None)
+    elif method == "aggregate":
+        arguments = (pipeline,)
+    elif method == "distinct":
+        arguments = ("score", query)
+    else:
+        arguments = (query,)
+    if reason is None:
+        reason = (
+            BypassReason.UNSAFE_PIPELINE
+            if method == "aggregate"
+            else BypassReason.UNSAFE_FILTER
+        )
+    is_async = isinstance(manager, AsyncCacheManager)
+    operation = (
+        (AsyncCursor if is_async else Cursor)._refresh
+        if method == "find"
+        else getattr(type(cached_collection.raw), method)
+    )
+    assert isinstance(operation, Mock)
+    if condition == "native-error":
+        operation.side_effect = InvalidDocument("native unsupported value")
+    raw_key_traversals.clear()
+    with (
+        pytest.raises(InvalidDocument, match="native unsupported value")
+        if condition == "native-error"
+        else nullcontext()
+    ):
+        returned = getattr(cached_collection, method)(*arguments, **options)
+        if method == "find":
+            assert returned._spec is query
+            await materialize(returned)
+        elif inspect.isawaitable(returned):
+            await returned
+    if method != "find":
+        assert operation.call_args.args[-1] is arguments[-1]
+    operation.assert_called_once()
+    eligibility_probe.assert_not_called()
+    assert raw_key_traversals in ([], [0]) if unsafe else raw_key_traversals == [1]
+    snapshot = manager.snapshot()
+    assert snapshot.bypasses == 1
+    assert snapshot.hits == snapshot.misses == snapshot.entry_count == 0
+    assert {record.reason: record.count for record in snapshot.bypass_reasons} == (
+        dict.fromkeys(BypassReason, 0) | {reason: 1}
     )

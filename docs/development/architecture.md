@@ -66,6 +66,23 @@ writes and schema changes occur.
 - **Coherency model**: coherency is eventual, not synchronous. A cache hit may still return the pre-write value, even after the write has returned, until this library's change-stream worker processes that write's event; once processed, every later read is guaranteed to see the invalidation. This is not a per-write barrier — it does not wait for "catch-up" on every read, only guarantees that a processed write is never silently missed.
 - **Stream availability ownership**: a `CacheCore` records whether a database's change stream is healthy as one flag per database, not one flag per coordinator that might be watching it. If two coordinators shared a `CacheCore`, one of them starting, losing its stream, or stopping would overwrite that shared flag and could mark another, still-healthy coordinator's database unavailable. Cached reads for that database would then bypass with no error or warning pointing at the actual cause, so the [API reference](../user/reference/api.md#ownership) makes such sharing unsupported.
 
+## Read key preparation
+
+The sync and asyncio facades use `_core.read_classification.prepare_query_key()`
+for count, distinct, and find, and `prepare_pipeline_key()` for aggregation.
+Request-level bypass checks precede these helpers; filter safety precedes
+projection safety, and pipeline safety precedes pipeline key preparation.
+The helpers return a canonical key and a bypass reason. Callers branch on the
+reason because `None` can also be a successful key. A preparation failure
+records one facade bypass and delegates with the native arguments before any
+collection eligibility probe.
+
+Count and distinct retain the prepared discriminator through lookup and
+admission. Aggregation retains it in `CursorCapture` until complete consumption
+allows `finish()` to attempt admission. Core entry points continue to accept
+raw keys; canonical tagged inputs pass through by identity without rebuilding
+their trees.
+
 ## Cursor driver integration
 
 Both find cursor paths build exact and limit-independent identities through
@@ -89,8 +106,14 @@ Each namespace's `find_families` maps compact family hashes to actual resident
 entry tokens and their physical keys. Source descriptors retain only the hash
 and limit; the complete canonical query belongs to the exact physical key.
 Lookup compares that key against the requested family and candidate limit before
-probing, so hash collisions cannot reuse a different query. Shape construction
-shares one query tree between the raw family and exact discriminator. Payload
+probing, so hash collisions cannot reuse a different query. Each find execution
+prepares the final native shape's family once and places the canonical family
+in a local `FindReadShape`. `find_discriminator()` wraps this same family for
+capture admission. `lookup_find()` reuses it for exact and candidate keys, and
+`shape.source` hashes it for source metadata. Canonical passthrough takes
+constant time; wrappers do not rebuild the raw family. Hashing and equality can
+still inspect the canonical tree. Rewind and clone prepare their final native
+options again on the next execution. Payload
 bytes belong solely to the LRU entries; the BSON budget excludes query keys and
 Python index overhead.
 Admission publishes tokens alongside `entry_index` through `_finalize_put()`;
