@@ -76,8 +76,16 @@ class Registration:
             raise BenchmarkConfigurationError(message)
 
     def _validate_plan(self) -> None:
-        if not families(self):
+        declared = families(self)
+        if not declared:
             message = "calibration lists no families"
+            raise BenchmarkConfigurationError(message)
+        if "reads_per_write" in self.section("active") and any(
+            (family.probe_workload or _FAMILY_WORKLOADS[kind]) == "active"
+            for family in declared
+            for kind, _, _ in family.cells
+        ):
+            message = "reads_per_write needs read-only probes for active families"
             raise BenchmarkConfigurationError(message)
         calibration = self.section("calibration")
         for name in ("probe_windows", "validation_repetitions", "rate_attempts"):

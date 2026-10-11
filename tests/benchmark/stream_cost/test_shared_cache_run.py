@@ -1568,6 +1568,18 @@ def test_closed_loop_windows_cannot_derive_a_write_count(
             id="empty-family",
         ),
         pytest.param(
+            ("calibration", "families", "steady"),
+            [["active", "async", 1]],
+            "read-only probes",
+            id="active-probes",
+        ),
+        pytest.param(
+            ("calibration", "families", "steady", "probe_workload"),
+            "active",
+            "read-only probes",
+            id="active-probe-workload",
+        ),
+        pytest.param(
             ("calibration", "probe_windows"), 0, "probe_windows", id="no-probes"
         ),
         pytest.param(
