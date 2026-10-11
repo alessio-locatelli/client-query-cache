@@ -25,7 +25,7 @@ Both paths use asyncio workers with four concurrent requests each, issue `find_o
 | Writes      | `floor(rate × window / 20)` `$inc revision` updates per window, evenly spaced and cycling through a seed-198 permutation of the hot set; a pool of four harness writer threads issues each one at its scheduled time |
 | Workers     | 1 and 4 asyncio worker processes                                                                                                                                                                                     |
 | Priming     | Before each window every worker reads the whole hot set, on both paths, then runs a 10 s untimed warmup at the frozen rate; priming time, CPU and memory are retained and excluded from window measures              |
-| Smoke check | The 256-document `smoke` profile at 200 reads/s for 3 s after a 1 s warmup, at 1 and 4 workers; it checks the instrumentation only and is never reported as evidence                                                 |
+| Smoke check | The 256-document `smoke` profile, whose documents all form its hot set, at 200 reads/s for 3 s after a 1 s warmup, at 1 and 4 workers; it checks the instrumentation only and is never reported as evidence          |
 
 ## Calibration
 
