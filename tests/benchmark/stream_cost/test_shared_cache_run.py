@@ -588,25 +588,38 @@ def test_freeze_writes_validated_values_and_rejects_others(
         run.freeze(config, report)
 
 
-def test_resume_rejects_another_revision(
-    tmp_path: Path, registration: Registration
+_ONLY_SYNC_8 = "cells limited to sync:8"
+
+
+@pytest.mark.parametrize(
+    ("environment", "fields", "exploratory"),
+    [
+        pytest.param({"revision": "0" * 40}, {}, None, id="revision"),
+        pytest.param({}, {"exploratory": _ONLY_SYNC_8}, None, id="limited-report"),
+        pytest.param({}, {}, _ONLY_SYNC_8, id="limited-run"),
+    ],
+)
+def test_resume_rejects_another_revision_or_cell_limit(
+    tmp_path: Path,
+    registration: Registration,
+    environment: JsonDict,
+    fields: JsonDict,
+    exploratory: str | None,
 ) -> None:
     report = tmp_path / "report.json"
     report.write_text(
         json.dumps(
             {
-                "phase": "calibration",
-                "environment": {
-                    **run.environment(registration),
-                    "revision": "0" * 40,
-                },
+                "phase": "capacity",
+                "environment": {**run.environment(registration), **environment},
                 "cells": [],
+                **fields,
             }
         )
     )
 
-    with pytest.raises(BenchmarkSetupError, match="another phase, revision"):
-        run.resumed_cells(report, "calibration", registration)
+    with pytest.raises(BenchmarkSetupError, match="another phase, cell limit"):
+        run.resumed_cells(report, "capacity", registration, exploratory)
 
 
 def test_resume_reuses_matching_windows_in_order(
@@ -1076,22 +1089,33 @@ def test_environment_requires_git(
         run.environment(registration)
 
 
-def test_resume_accepts_the_same_revision(
-    tmp_path: Path, registration: Registration
+@pytest.mark.parametrize(
+    ("fields", "exploratory"),
+    [
+        pytest.param({}, None, id="registered"),
+        pytest.param({"exploratory": _ONLY_SYNC_8}, _ONLY_SYNC_8, id="same-limit"),
+    ],
+)
+def test_resume_accepts_the_same_revision_and_cell_limit(
+    tmp_path: Path,
+    registration: Registration,
+    fields: JsonDict,
+    exploratory: str | None,
 ) -> None:
     report = tmp_path / "report.json"
     cells = [_record(smoke_cells(registration)[0])]
     report.write_text(
         json.dumps(
             {
-                "phase": "smoke",
+                "phase": "capacity",
                 "environment": run.environment(registration),
                 "cells": cells,
+                **fields,
             }
         )
     )
 
-    assert run.resumed_cells(report, "smoke", registration) == cells
+    assert run.resumed_cells(report, "capacity", registration, exploratory) == cells
 
 
 def test_freeze_command_updates_the_registration(
@@ -1959,6 +1983,10 @@ def _failed_window_rerun(first: JsonDict, second: JsonDict) -> None:
     )
 
 
+def _exploratory_report(_first: JsonDict, second: JsonDict) -> None:
+    second["exploratory"] = _ONLY_SYNC_8
+
+
 @pytest.mark.parametrize(
     ("alter", "message"),
     [
@@ -1968,6 +1996,7 @@ def _failed_window_rerun(first: JsonDict, second: JsonDict) -> None:
         pytest.param(_foreign_window, "outside the steady phase", id="window"),
         pytest.param(_repeated_windows, "duplicate", id="duplicate"),
         pytest.param(_failed_window_rerun, "duplicate", id="failed-rerun"),
+        pytest.param(_exploratory_report, "is exploratory", id="exploratory"),
     ],
 )
 def test_analysis_rejects_mismatched_or_repeated_evidence(
