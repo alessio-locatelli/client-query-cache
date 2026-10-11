@@ -55,6 +55,25 @@ class Registration:
     def __post_init__(self) -> None:
         self._validate_workload()
         self._validate_plan()
+        self._validate_cold_routing()
+
+    def _validate_cold_routing(self) -> None:
+        if self.key_assignment != "shared" or "shared" not in self.paths:
+            return
+        phases = cast("dict[str, JsonDict]", self.section("phases"))
+        kinds = {kind for family in families(self) for kind, _, _ in family.cells}
+        kinds.update(
+            kind
+            for phase, settings in phases.items()
+            if "cells" in settings or phase in _V4_PHASE_CELLS
+            for kind, _, _ in phase_cells(self, phase)
+        )
+        if "cold" in kinds:
+            message = (
+                "shared key assignment lets workers repeat cold keys, "
+                "so the shared path cannot measure all-miss cold windows"
+            )
+            raise BenchmarkConfigurationError(message)
 
     def _validate_plan(self) -> None:
         if not families(self):
