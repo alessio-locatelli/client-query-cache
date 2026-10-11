@@ -4,6 +4,7 @@ import shutil
 import signal
 import socket
 import subprocess
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -28,6 +29,11 @@ def _uv() -> str:
     uv = shutil.which("uv")
     assert uv is not None
     return uv
+
+
+def _refused(port: int) -> bool:
+    with socket.socket() as probe:
+        return probe.connect_ex(("127.0.0.1", port)) != 0
 
 
 @pytest.fixture
@@ -105,13 +111,15 @@ def test_catalogue_serves_from_independent_workers(
     process, port = served_catalogue
     assert process.stdout is not None
     startup = "".join(process.stdout.readline() for _ in range(SERVED_WORKERS))
-    started = set(STARTED.findall(startup))
+    while _refused(port):
+        time.sleep(0.05)  # pragma: lax no cover (workers listen after lifespan startup)
 
     with pytest.raises(urllib.error.HTTPError) as rejected:
         urllib.request.urlopen(f"http://127.0.0.1:{port}/products/shared")
     process.send_signal(signal.SIGINT)
     remaining, _ = process.communicate(timeout=60)
 
+    started = set(STARTED.findall(startup))
     assert len(started) == SERVED_WORKERS
     assert rejected.value.code == 401
     assert process.returncode == 0
