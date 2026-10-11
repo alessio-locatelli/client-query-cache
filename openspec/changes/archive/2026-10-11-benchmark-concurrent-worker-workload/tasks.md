@@ -37,3 +37,4 @@
 - [x] 6.4 Reject duplicate windows across every loaded and described record, before excluding failed or overloaded windows, so a failed window cannot be replaced by a rerun. Add tests for a failed window and its rerun.
 - [x] 6.5 Group capacity windows by concurrency as well, without changing the grouping of other phases. Add a test that the version 4 capacity staircase describes each concurrency level.
 - [x] 6.6 Reject a registration that uses shared key assignment with cold windows on the `shared` path, because workers' independent cold sequences can share keys through one owner cache. Add tests for the rejection and for a shared path without cold windows.
+- [x] 6.7 Report the pooled request P99 for mixed-model windows in descriptive analysis, alongside the per-model P99, so every registered latency measure has a value. Add a test for a mixed window.

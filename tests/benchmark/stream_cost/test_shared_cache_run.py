@@ -1965,3 +1965,21 @@ def test_shared_key_assignment_allows_the_shared_path_without_cold_windows(
     raw["paths"] = ["direct", "independent", "shared"]
 
     assert "shared" in Registration(raw, concurrent.digest).paths
+
+
+def test_mixed_windows_describe_pooled_request_percentiles(
+    frozen: Registration,
+) -> None:
+    cell = next(
+        cell for cell in comparison_cells(frozen, "active") if cell.model == "mixed"
+    )
+
+    statistics = analysis.window_statistics(_record(cell), lag_floor=1)
+
+    assert {
+        "request_p50",
+        "request_p95",
+        "request_p99",
+        "request_p99_sync",
+        "request_p99_async",
+    } <= statistics.keys()
