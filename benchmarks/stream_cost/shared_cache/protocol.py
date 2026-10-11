@@ -88,8 +88,12 @@ class Registration:
         if self.key_assignment not in _KEY_ASSIGNMENTS:
             message = "key_assignment must be partitioned or shared"
             raise BenchmarkConfigurationError(message)
-        if not self.paths or not set(self.paths) <= set(_V4_PATHS):
+        paths = self.paths
+        if not paths or not set(paths) <= set(_V4_PATHS):
             message = "paths must list direct, independent or shared"
+            raise BenchmarkConfigurationError(message)
+        if len(set(paths)) != len(paths):
+            message = "paths must not repeat a path"
             raise BenchmarkConfigurationError(message)
 
     @classmethod
@@ -222,6 +226,9 @@ def _cell_specs(entries: object, owner: str) -> tuple[CellSpec, ...]:
             case _:
                 message = f"{owner} has a malformed cell {entry!r}"
                 raise BenchmarkConfigurationError(message)
+    if len(set(specs)) != len(specs):
+        message = f"{owner} repeats a cell"
+        raise BenchmarkConfigurationError(message)
     return tuple(specs)
 
 

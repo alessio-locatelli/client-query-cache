@@ -1386,6 +1386,13 @@ def _assign(raw: JsonDict, keys: tuple[str, ...], value: object) -> None:
             "no calibration family covers hot cells",
             id="uncalibrated",
         ),
+        pytest.param(
+            ("phases", "steady", "cells"),
+            [["active", "async", 4], ["active", "async", 4]],
+            "steady",
+            "steady phase repeats a cell",
+            id="repeated-cell",
+        ),
     ],
 )
 def test_unregistered_phases_and_malformed_cells_are_configuration_errors(
@@ -1506,6 +1513,15 @@ def test_closed_loop_windows_cannot_derive_a_write_count(
         ),
         pytest.param(("paths",), ["direct", "redis"], "paths", id="unknown-path"),
         pytest.param(("paths",), [], "paths", id="no-paths"),
+        pytest.param(
+            ("paths",), ["direct", "direct"], "repeat a path", id="repeated-path"
+        ),
+        pytest.param(
+            ("calibration", "families", "steady", "cells"),
+            [["active", "async", 1], ["active", "async", 1]],
+            "steady family repeats a cell",
+            id="repeated-family-cell",
+        ),
         pytest.param(("calibration", "families"), {}, "no families", id="no-families"),
         pytest.param(
             ("calibration", "families", "steady"),
