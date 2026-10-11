@@ -58,6 +58,7 @@ dev = [
   "pytest-cov>=7.1.0",
   "pyyaml>=6.0.3",
   "types-pyyaml>=6.0.12.20260906",
+  "filelock>=4.1.0",
 ]
 docs = ["mike", "tomli-w>=1.2.0", "zensical>=0.0.68"]
 memory = ["pytest-memray>=1.11.0"]
