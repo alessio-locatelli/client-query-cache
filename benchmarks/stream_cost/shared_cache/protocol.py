@@ -104,6 +104,9 @@ class Registration:
         if self.hot_keys is not None and not _positive(self.hot_keys):
             message = "hot_keys must be a positive integer"
             raise BenchmarkConfigurationError(message)
+        if self.hot_keys is not None and "write_keys" not in active:
+            message = "hot_keys needs active write_keys so writes target the hot set"
+            raise BenchmarkConfigurationError(message)
         if self.key_assignment not in _KEY_ASSIGNMENTS:
             message = "key_assignment must be partitioned or shared"
             raise BenchmarkConfigurationError(message)

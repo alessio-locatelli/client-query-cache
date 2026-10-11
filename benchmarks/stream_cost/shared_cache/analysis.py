@@ -588,9 +588,9 @@ def _summary(values: list[float]) -> JsonDict:
 def exclusion_reason(record: JsonDict, registration: Registration) -> str | None:
     if not record["healthy"]:
         return str(record["failure"])
-    expected = record["workers"] if record["path"] == "independent" else 0
+    per_worker = 1 if record["path"] == "independent" else 0
     workers = cast("list[JsonDict]", record["workers_measured"])
-    if sum(cast("int", worker["streams"]) for worker in workers) != expected:
+    if any(cast("int", worker["streams"]) != per_worker for worker in workers):
         return "observed stream openings differ from the registered count"
     if record["path"] == "shared":
         owner = cast("JsonDict", record["owner"])
