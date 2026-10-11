@@ -305,33 +305,51 @@ def test_rate_uses_the_weakest_baseline_probe(
     assert run.select_rate(registration, family, probes, ceiling) == expected
 
 
+def _late(record: JsonDict) -> None:
+    record["completed_in_window"] = 900
+
+
+def _first_loop(record: JsonDict) -> JsonDict:
+    return cast(
+        "JsonDict", cast("list[JsonDict]", record["workers_measured"])[0]["loop"]
+    )
+
+
+def _failed_read(record: JsonDict) -> None:
+    _first_loop(record)["errors"] = 1
+
+
+def _overflowed(record: JsonDict) -> None:
+    _first_loop(record)["overflow"] = 1
+
+
+def _backlogged(record: JsonDict) -> None:
+    _first_loop(record)["outstanding_at_end"] = 9
+
+
+def _undersampled(record: JsonDict) -> None:
+    populations = cast("JsonDict", record["populations"])
+    cast("JsonDict", populations["request"])["sample_count"] = 9_999
+
+
 @pytest.mark.parametrize(
-    ("change", "reason"),
+    ("alter", "reason"),
     [
-        pytest.param({"completed_in_window": 900}, "registered fraction", id="late"),
-        pytest.param({"loop": {"errors": 1}}, "overflow", id="errors"),
-        pytest.param({"loop": {"overflow": 1}}, "overflow", id="overflow"),
-        pytest.param({"loop": {"outstanding_at_end": 9}}, "backlog", id="backlog"),
-        pytest.param({"sample_count": 9_999}, "sample floor", id="samples"),
+        pytest.param(_late, "registered fraction", id="late"),
+        pytest.param(_failed_read, "overflow", id="errors"),
+        pytest.param(_overflowed, "overflow", id="overflow"),
+        pytest.param(_backlogged, "backlog", id="backlog"),
+        pytest.param(_undersampled, "sample floor", id="samples"),
     ],
 )
 def test_validation_rejects_overloaded_or_short_windows(
-    registration: Registration, change: JsonDict, reason: str
+    registration: Registration, alter: Callable[[JsonDict], None], reason: str
 ) -> None:
     cell = validation_cells(
         registration, "primary", 100.0, {"hot": 30.0, "active": 60.0}
     )[0]
     record = _record(cell)
-    workers = cast("list[JsonDict]", record["workers_measured"])
-    if "loop" in change:
-        cast("JsonDict", workers[0]["loop"]).update(cast("JsonDict", change["loop"]))
-    elif "sample_count" in change:
-        population = cast(
-            "JsonDict", cast("JsonDict", record["populations"])["request"]
-        )
-        record["populations"] = {"request": {**population, "sample_count": 9_999}}
-    else:
-        record.update(change)
+    alter(record)
 
     failure = validation_failure(record, registration)
 
@@ -625,34 +643,73 @@ def _async_reader(
     return read
 
 
+def _open_loop(
+    model: str,
+    assignment: Assignment,
+    *,
+    failing: set[int],
+    delay: float,
+    concurrency: int,
+    outstanding_limit: int,
+    drain_seconds: float,
+    record: bool,
+) -> LoopResult:
+    start = time.monotonic() + 0.01
+    if model == "sync":
+        return open_loop_sync(
+            assignment,
+            start,
+            _reader(failing, delay),
+            concurrency=concurrency,
+            outstanding_limit=outstanding_limit,
+            drain_seconds=drain_seconds,
+            record=record,
+        )
+    return asyncio.run(
+        open_loop_async(
+            assignment,
+            start,
+            _async_reader(failing, delay),  # type: ignore[arg-type]
+            concurrency=concurrency,
+            outstanding_limit=outstanding_limit,
+            drain_seconds=drain_seconds,
+            record=record,
+        )
+    )
+
+
+def _closed_loop(
+    model: str, assignment: Assignment, seconds: float, failing: set[int]
+) -> LoopResult:
+    start = time.monotonic()
+    if model == "sync":
+        return closed_loop_sync(assignment, start, seconds, _reader(failing, 0.001), 2)
+    return asyncio.run(
+        closed_loop_async(
+            assignment,
+            start,
+            seconds,
+            _async_reader(failing, 0.001),  # type: ignore[arg-type]
+            2,
+        )
+    )
+
+
 @pytest.mark.parametrize("model", ["sync", "async"])
 def test_open_loop_records_errors_and_completions(model: str) -> None:
     assignment = Assignment(
         worker=0, workers=1, rate=200.0, requests=20, keys=tuple(range(20))
     )
-    start = time.monotonic() + 0.01
-    loop: LoopResult = (
-        open_loop_sync(
-            assignment,
-            start,
-            _reader({3}, 0.0),
-            concurrency=2,
-            outstanding_limit=8,
-            drain_seconds=1.0,
-            record=True,
-        )
-        if model == "sync"
-        else asyncio.run(
-            open_loop_async(
-                assignment,
-                start,
-                _async_reader({3}, 0.0),  # type: ignore[arg-type]
-                concurrency=2,
-                outstanding_limit=8,
-                drain_seconds=1.0,
-                record=True,
-            )
-        )
+
+    loop = _open_loop(
+        model,
+        assignment,
+        failing={3},
+        delay=0.0,
+        concurrency=2,
+        outstanding_limit=8,
+        drain_seconds=1.0,
+        record=True,
     )
 
     assert (loop.offered, loop.completed, loop.errors) == (20, 19, 1)
@@ -666,29 +723,16 @@ def test_open_loop_bounds_outstanding_requests(model: str) -> None:
     assignment = Assignment(
         worker=0, workers=1, rate=2_000.0, requests=40, keys=tuple(range(40))
     )
-    start = time.monotonic() + 0.01
-    loop: LoopResult = (
-        open_loop_sync(
-            assignment,
-            start,
-            _reader(set(), 0.05),
-            concurrency=1,
-            outstanding_limit=2,
-            drain_seconds=0.01,
-            record=False,
-        )
-        if model == "sync"
-        else asyncio.run(
-            open_loop_async(
-                assignment,
-                start,
-                _async_reader(set(), 0.05),  # type: ignore[arg-type]
-                concurrency=1,
-                outstanding_limit=2,
-                drain_seconds=0.01,
-                record=False,
-            )
-        )
+
+    loop = _open_loop(
+        model,
+        assignment,
+        failing=set(),
+        delay=0.05,
+        concurrency=1,
+        outstanding_limit=2,
+        drain_seconds=0.01,
+        record=False,
     )
 
     assert loop.overflow > 0
@@ -701,34 +745,20 @@ def test_closed_loop_stops_at_its_identity_quota(model: str) -> None:
     assignment = Assignment(
         worker=0, workers=2, rate=None, requests=10, keys=tuple(range(10))
     )
-    start = time.monotonic()
-    loop: LoopResult = (
-        closed_loop_sync(assignment, start, 5.0, _reader({4}, 0.001), 2)
-        if model == "sync"
-        else asyncio.run(
-            closed_loop_async(assignment, start, 5.0, _async_reader({4}, 0.001), 2)  # type: ignore[arg-type]
-        )
-    )
+
+    loop = _closed_loop(model, assignment, 5.0, {4})
 
     assert (loop.offered, loop.completed, loop.errors) == (5, 4, 1)
     assert loop.elapsed < 5.0
 
 
-@pytest.mark.parametrize(
-    ("document", "error"),
-    [
-        pytest.param(None, LookupError, id="missing"),
-        pytest.param({"payload": "abc", "revision": 2}, None, id="present"),
-    ],
-)
-def test_checksum_requires_the_document(
-    document: BsonDict | None, error: type[Exception] | None
-) -> None:
-    if error is None:
-        assert checksum(document) == checksum({"payload": "abc", "revision": 2})
-        return
-    with pytest.raises(error):
-        checksum(document)
+def test_checksum_combines_payload_and_revision() -> None:
+    assert checksum({"payload": "abc", "revision": 2}) == zlib.crc32(b"abc") ^ 2
+
+
+def test_checksum_requires_the_document() -> None:
+    with pytest.raises(LookupError, match="disappeared"):
+        checksum(None)
 
 
 def test_catalogue_is_deterministic_and_sized(registration: Registration) -> None:
@@ -922,27 +952,37 @@ def test_analysis_command_describes_and_decides(
     assert any(row["blocks"] == 0 for row in description["descriptive"])
 
 
+def _without_shared(records: list[JsonDict]) -> list[JsonDict]:
+    return [record for record in records if record["path"] != "shared"]
+
+
+def _first_block(records: list[JsonDict]) -> list[JsonDict]:
+    return [record for record in records if record["block"] == 0]
+
+
+def _without_hits(records: list[JsonDict]) -> list[JsonDict]:
+    shared = next(record for record in records if record["path"] == "shared")
+    cast("list[JsonDict]", shared["workers_measured"])[0]["outcomes"] = {
+        "hits": 0,
+        "misses": 0,
+        "bypasses": 0,
+    }
+    return records
+
+
 @pytest.mark.parametrize(
-    "remove",
+    "incomplete",
     [
-        pytest.param("path", id="missing-path"),
-        pytest.param("block", id="missing-block"),
-        pytest.param("metric", id="missing-metric"),
+        pytest.param(_without_shared, id="missing-path"),
+        pytest.param(_first_block, id="missing-block"),
+        pytest.param(_without_hits, id="missing-metric"),
     ],
 )
-def test_incomplete_pairs_are_missing(frozen: Registration, remove: str) -> None:
-    records = _comparison_records(frozen, shared_pss=50.0, blocks=2)
-    if remove == "path":
-        records = [record for record in records if record["path"] != "shared"]
-    elif remove == "block":
-        records = [record for record in records if record["block"] == 0]
-    else:
-        shared = next(record for record in records if record["path"] == "shared")
-        cast("list[JsonDict]", shared["workers_measured"])[0]["outcomes"] = {
-            "hits": 0,
-            "misses": 0,
-            "bypasses": 0,
-        }
+def test_incomplete_pairs_are_missing(
+    frozen: Registration,
+    incomplete: Callable[[list[JsonDict]], list[JsonDict]],
+) -> None:
+    records = incomplete(_comparison_records(frozen, shared_pss=50.0, blocks=2))
 
     comparisons = analysis.compare(
         analysis.paired_blocks(records), _settings(frozen, 2, inference=False)
@@ -1035,14 +1075,8 @@ def test_closed_loop_ends_at_its_window(model: str) -> None:
     assignment = Assignment(
         worker=0, workers=1, rate=None, requests=10**6, keys=tuple(range(10))
     )
-    start = time.monotonic()
-    loop: LoopResult = (
-        closed_loop_sync(assignment, start, 0.05, _reader(set(), 0.001), 2)
-        if model == "sync"
-        else asyncio.run(
-            closed_loop_async(assignment, start, 0.05, _async_reader(set(), 0.001), 2)  # type: ignore[arg-type]
-        )
-    )
+
+    loop = _closed_loop(model, assignment, 0.05, set())
 
     assert loop.completed > 0
     assert loop.elapsed == pytest.approx(0.05, abs=0.05)
@@ -1444,17 +1478,30 @@ def test_closed_loop_windows_cannot_derive_a_write_count(
 
 
 @pytest.mark.parametrize(
-    ("change", "message"),
+    ("keys", "value", "message"),
     [
-        pytest.param({"updates": 200}, "both updates and reads_per_write", id="both"),
-        pytest.param({"write_keys": "catalogue"}, "only the hot set", id="targets"),
+        pytest.param(
+            ("active", "updates"), 200, "both updates and reads_per_write", id="both"
+        ),
+        pytest.param(
+            ("active", "write_keys"), "catalogue", "only the hot set", id="targets"
+        ),
+        pytest.param(
+            ("active", "reads_per_write"), 0, "reads_per_write", id="read-share"
+        ),
+        pytest.param(("hot_keys",), True, "hot_keys", id="hot-keys"),
+        pytest.param(
+            ("key_assignment",), "random", "partitioned or shared", id="assignment"
+        ),
+        pytest.param(("paths",), ["direct", "redis"], "paths", id="unknown-path"),
+        pytest.param(("paths",), [], "paths", id="no-paths"),
     ],
 )
-def test_write_mix_conflicts_are_rejected(
-    concurrent: Registration, change: JsonDict, message: str
+def test_unsupported_workload_settings_are_rejected(
+    concurrent: Registration, keys: tuple[str, ...], value: object, message: str
 ) -> None:
     raw = copy.deepcopy(concurrent.raw)
-    cast("JsonDict", raw["active"]).update(change)
+    _assign(raw, keys, value)
 
     with pytest.raises(BenchmarkConfigurationError, match=message):
         Registration(raw, concurrent.digest)

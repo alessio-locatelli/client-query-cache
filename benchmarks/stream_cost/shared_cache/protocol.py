@@ -33,6 +33,7 @@ BASELINES: tuple[PathKind, ...] = ("direct", "independent")
 _V4_PATHS: tuple[PathKind, ...] = ("direct", "independent", "shared")
 _V4_MODELS: tuple[Model, ...] = ("sync", "async")
 _MODELS: frozenset[str] = frozenset(("sync", "async", "mixed"))
+_KEY_ASSIGNMENTS: frozenset[str] = frozenset(("partitioned", "shared"))
 _FAMILY_WORKLOADS: dict[str, Workload] = {
     "hot": "hot",
     "active": "active",
@@ -40,6 +41,10 @@ _FAMILY_WORKLOADS: dict[str, Workload] = {
     "large": "hot",
     "find16": "hot",
 }
+
+
+def _positive(value: object) -> bool:
+    return type(value) is int and value > 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,6 +59,18 @@ class Registration:
             raise BenchmarkConfigurationError(message)
         if "write_keys" in active and active["write_keys"] != "hot":
             message = "active write_keys supports only the hot set"
+            raise BenchmarkConfigurationError(message)
+        if "reads_per_write" in active and not _positive(active["reads_per_write"]):
+            message = "active reads_per_write must be a positive integer"
+            raise BenchmarkConfigurationError(message)
+        if self.hot_keys is not None and not _positive(self.hot_keys):
+            message = "hot_keys must be a positive integer"
+            raise BenchmarkConfigurationError(message)
+        if self.key_assignment not in _KEY_ASSIGNMENTS:
+            message = "key_assignment must be partitioned or shared"
+            raise BenchmarkConfigurationError(message)
+        if not self.paths or not set(self.paths) <= set(_V4_PATHS):
+            message = "paths must list direct, independent or shared"
             raise BenchmarkConfigurationError(message)
 
     @classmethod
