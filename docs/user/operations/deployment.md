@@ -129,7 +129,7 @@ Application servers such as Gunicorn, Uvicorn, and Granian can run several worke
 
 Workers then cache independently. Each keeps its own copy of the documents it reads and its own change streams, and warms its cache on its own after it starts or restarts. For example, eight workers that each cache 100 MiB of the same hot documents hold about 800 MiB of cached data on one host and open eight change-stream cursors per cached database. Set `shared_budget_bytes` per worker with that multiplication in mind; a smaller budget lowers memory but evicts more and hits less often. Fewer workers that each serve more concurrent requests, with asyncio or threads, duplicate less.
 
-Duplicate change streams put little load on MongoDB. In the project's measurements, seven extra streams from eight workers on one database cost MongoDB about 0.3% of a CPU core while idle and about 1% at about three writes per second; the cost grows with the write rate.
+Duplicate change streams put little load on MongoDB. In the project's measurements, seven extra streams from eight workers on one database cost MongoDB about 0.3% of a CPU core while idle and about 1% at about three writes per second; the cost grows with the write rate. With frequent writes, a cache in every worker may not reduce MongoDB load at all. In a [single-host benchmark](../benchmarks/index.md#multiple-workers-with-concurrent-writes) where four asyncio workers read 1,831 documents per second by `_id` and one update followed every 20 reads, caching cut median latency by about 40%, but MongoDB used about 10% more CPU than with direct reads. Each update reaches every worker's change stream and causes a miss in each worker that reads the document again.
 
 ### Memory versus CPU in the cloud
 
