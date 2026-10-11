@@ -85,10 +85,7 @@ class IndexPublisher:
     def assign(
         self, namespace: NamespaceId, epoch: NonNegativeInt
     ) -> NamespaceSlot | None:
-        try:
-            database = self._databases[namespace.database]
-        except KeyError:
-            return None
+        database = self._databases[namespace.database]
         with self._lock:
             try:
                 slot = self._namespaces[namespace]
@@ -109,11 +106,7 @@ class IndexPublisher:
         self._epochs[namespace] = max(current, epoch)
 
     def progress(self, database: str) -> None:
-        try:
-            slot = self._databases[database]
-        except KeyError:
-            return
-        self._index.set_progress(slot, time.monotonic_ns())
+        self._index.set_progress(self._databases[database], time.monotonic_ns())
 
     def key(self, token: int) -> CacheKey | None:
         with self._lock:

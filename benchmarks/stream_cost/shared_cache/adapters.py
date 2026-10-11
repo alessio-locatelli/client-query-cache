@@ -44,6 +44,8 @@ if TYPE_CHECKING:
 
     from benchmarks.stream_cost.shared_cache.attachment import (
         AsyncEndpoint,
+        AsyncLocalIndex,
+        LocalIndex,
         Message,
         SyncEndpoint,
     )
@@ -61,6 +63,7 @@ _UNCANONICALIZABLE = BypassReason.UNCANONICALIZABLE_KEY.value
 PROTOTYPE_SCOPE = "prototype-scope"
 METADATA_REFRESH = "metadata-refresh"
 OWNER_UNAVAILABLE = "owner-unavailable"
+NO_LOCAL_HIT = object()
 _KEY_CACHE_ENTRIES = 256
 
 
@@ -198,19 +201,27 @@ def _select(
     }
 
 
-def _identity_message(
+def _identity_keys(
     view: View, identity: object, read_shape: object
-) -> Message | str:
+) -> tuple[bytes, bytes] | str:
     cache_identity = normalize_identity_for_cache_key(
         identity, view._collection.codec_options, view._shared.client.codec_options
     )
     if not is_canonicalizable(cache_identity):
         return _UNCANONICALIZABLE  # pragma: no cover (portable round trips)
     try:
-        identity_key = encode_key(canonicalize(order_sensitive_key(cache_identity)))
-        shape_key = view._shared.keys.encode(read_shape)
+        return (
+            encode_key(canonicalize(order_sensitive_key(cache_identity))),
+            view._shared.keys.encode(read_shape),
+        )
     except UnportableKeyError:
         return UNPORTABLE_KEY
+
+
+def _identity_message(view: View, keys: tuple[bytes, bytes] | str) -> Message | str:
+    if isinstance(keys, str):
+        return keys
+    identity_key, shape_key = keys
     return _select(
         view._shared,
         "select-identity",
@@ -218,6 +229,39 @@ def _identity_message(
         identity=identity_key,
         shape=shape_key,
     )
+
+
+def _local_hit(view: View, keys: tuple[bytes, bytes] | str) -> object:
+    shared = view._shared
+    local = shared.local
+    if local is None or isinstance(keys, str):
+        return NO_LOCAL_HIT
+    namespace = view._namespace()
+    try:
+        database, slot = shared._slots[namespace]
+    except KeyError:
+        return NO_LOCAL_HIT
+    identity_key, shape_key = keys
+    payload = local.reader.lookup(
+        database,
+        slot,
+        shared._metadata[namespace].checked_epoch,
+        identity_key,
+        shape_key,
+    )
+    if payload is None:
+        return NO_LOCAL_HIT
+    shared.observation.hits += 1
+    return decode_value(payload, view._collection.codec_options)
+
+
+def _remember_slot(shared: Shared, namespace: NamespaceId, reply: Message) -> None:
+    try:
+        slot = reply["slot"]
+    except KeyError:
+        return
+    assert isinstance(slot, list)
+    shared._slots[namespace] = (slot[0], slot[1])
 
 
 def _find_message(cursor: Cursor, shape: FindReadShape) -> Message | str:
@@ -483,7 +527,11 @@ class SharedCachedCollection[DocumentType: Mapping[str, Any]](
         sort: Sequence[tuple[str, int]] | None,
         collation: Any,
     ) -> DocumentType | None:
-        message = _identity_message(self, identity, read_shape)
+        keys = _identity_keys(self, identity, read_shape)
+        document = _local_hit(self, keys)
+        if document is not NO_LOCAL_HIT:
+            return document  # type: ignore[return-value]
+        message = _identity_message(self, keys)
         endpoint = self._shared.endpoint
         reply = endpoint.request(message) if isinstance(message, dict) else None
         outcome, value = _identity_outcome(self, message, reply)
@@ -581,7 +629,11 @@ class AsyncSharedCachedCollection[DocumentType: Mapping[str, Any]](
         sort: Sequence[tuple[str, int]] | None,
         collation: Any,
     ) -> DocumentType | None:
-        message = _identity_message(self, identity, read_shape)
+        keys = _identity_keys(self, identity, read_shape)
+        document = _local_hit(self, keys)
+        if document is not NO_LOCAL_HIT:
+            return document  # type: ignore[return-value]
+        message = _identity_message(self, keys)
         endpoint = self._shared.endpoint
         reply = await endpoint.request(message) if isinstance(message, dict) else None
         outcome, value = _identity_outcome(self, message, reply)
@@ -672,21 +724,28 @@ class SharedCacheManager[DocumentType: Mapping[str, Any]]:
     __slots__ = (
         "_client",
         "_metadata",
+        "_slots",
         "endpoint",
         "keys",
+        "local",
         "max_entry_bytes",
         "observation",
     )
 
     def __init__(
-        self, client: MongoClient[DocumentType], endpoint: SyncEndpoint
+        self,
+        client: MongoClient[DocumentType],
+        endpoint: SyncEndpoint,
+        local: LocalIndex | None = None,
     ) -> None:
         self._client = client
         self.endpoint = endpoint
+        self.local = local
         self.max_entry_bytes = endpoint.config.max_entry_bytes
         self.observation = LocalObservation()
         self.keys = KeyCache(_KEY_CACHE_ENTRIES)
         self._metadata: dict[NamespaceId, CollectionMetadata] = {}
+        self._slots: dict[NamespaceId, tuple[NonNegativeInt, NonNegativeInt]] = {}
 
     @property
     def client(self) -> MongoClient[DocumentType]:
@@ -715,6 +774,8 @@ class SharedCacheManager[DocumentType: Mapping[str, Any]]:
         )
         if not isinstance(metadata, CollectionMetadata):
             return metadata
+        assert reply is not None
+        _remember_slot(self, namespace, reply)
         self._metadata[namespace] = metadata
         return metadata.bypass_reason
 
@@ -740,6 +801,8 @@ class SharedCacheManager[DocumentType: Mapping[str, Any]]:
         )
 
     def close(self) -> None:
+        if self.local is not None:
+            self.local.close()
         self.endpoint.close()
 
 
@@ -747,21 +810,28 @@ class AsyncSharedCacheManager[DocumentType: Mapping[str, Any]]:
     __slots__ = (
         "_client",
         "_metadata",
+        "_slots",
         "endpoint",
         "keys",
+        "local",
         "max_entry_bytes",
         "observation",
     )
 
     def __init__(
-        self, client: AsyncMongoClient[DocumentType], endpoint: AsyncEndpoint
+        self,
+        client: AsyncMongoClient[DocumentType],
+        endpoint: AsyncEndpoint,
+        local: AsyncLocalIndex | None = None,
     ) -> None:
         self._client = client
         self.endpoint = endpoint
+        self.local = local
         self.max_entry_bytes = endpoint.config.max_entry_bytes
         self.observation = LocalObservation()
         self.keys = KeyCache(_KEY_CACHE_ENTRIES)
         self._metadata: dict[NamespaceId, CollectionMetadata] = {}
+        self._slots: dict[NamespaceId, tuple[NonNegativeInt, NonNegativeInt]] = {}
 
     @property
     def client(self) -> AsyncMongoClient[DocumentType]:
@@ -790,6 +860,8 @@ class AsyncSharedCacheManager[DocumentType: Mapping[str, Any]]:
         )
         if not isinstance(metadata, CollectionMetadata):
             return metadata
+        assert reply is not None
+        _remember_slot(self, namespace, reply)
         self._metadata[namespace] = metadata
         return metadata.bypass_reason
 
@@ -815,4 +887,6 @@ class AsyncSharedCacheManager[DocumentType: Mapping[str, Any]]:
         )
 
     async def close(self) -> None:
+        if self.local is not None:
+            await self.local.close()
         await self.endpoint.close()
