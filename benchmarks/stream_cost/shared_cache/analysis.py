@@ -724,6 +724,9 @@ def load_records(
         if "exploratory" in report:
             message = f"{path} is exploratory: {report['exploratory']}"
             raise BenchmarkSetupError(message)
+        if environment["dirty_tree"]:
+            message = f"{path} was measured on a tree with uncommitted changes"
+            raise BenchmarkSetupError(message)
         environments.add(
             json.dumps(measurement_environment(environment), sort_keys=True)
         )
