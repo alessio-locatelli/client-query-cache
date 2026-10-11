@@ -5,6 +5,7 @@ import argparse
 import asyncio
 import json
 import multiprocessing
+import os
 import platform
 import random
 import resource
@@ -119,12 +120,18 @@ def identity_frame(request_id: int, identities: Sequence[bytes], shape: bytes) -
 
 
 def owner_main(
-    index: native.FloorIndex, entries: Entries, socket_path: str, control: Connection
+    index: native.OwnerIndex,
+    ring: native.SessionRing,
+    entries: Entries,
+    socket_path: str,
+    control: Connection,
 ) -> None:
-    for token, (identity, payload) in enumerate(
-        zip(entries.identities, entries.payloads, strict=True)
-    ):
-        if not index.publish(NAMESPACE, EPOCH, identity, entries.shape, payload, token):
+    for identity, encoded in zip(entries.identities, entries.payloads, strict=True):
+        payload = index.store(encoded)
+        if payload is None or (
+            index.publish(DATABASE, NAMESPACE, EPOCH, identity, entries.shape, payload)
+            is None
+        ):
             control.send("capacity")
             return
     index.set_epoch(NAMESPACE, EPOCH)
@@ -145,7 +152,7 @@ def owner_main(
                 control.send(cpu_seconds())
             if time.monotonic() >= next_sweep:
                 index.set_progress(DATABASE, time.monotonic_ns())
-                index.drain()
+                ring.drain()
                 next_sweep += SWEEP_SECONDS
     finally:
         echo.close()
@@ -272,6 +279,7 @@ class Floors:
         "misses",
         "namespace",
         "reader",
+        "ring",
         "socket_path",
     )
 
@@ -295,16 +303,16 @@ class Floors:
             capture = self.core.begin_identity_admission(self.namespace, key)
             self.core.admit_identity_encoded(capture, entries.read_shape, payload)
         self.expiry_ns = int(config["transport"]["progress_expiry_seconds"] * 1e9)
-        self.index = native.FloorIndex(
-            SLOTS,
-            ARENA_BYTES,
-            1,
-            1,
-            RING_TOKENS,
-            random.getrandbits(63),
-            self.expiry_ns,
+        self.index = native.OwnerIndex(
+            SLOTS, ARENA_BYTES, 1, 1, random.getrandbits(63), self.expiry_ns
         )
-        self.reader = self.index.reader()
+        self.ring = self.index.session_ring(RING_TOKENS)
+        descriptor = self.index.reader_descriptor()
+        try:
+            self.reader = native.ReaderIndex(descriptor, self.ring.descriptor())
+        finally:
+            os.close(descriptor)
+        self.ring.close_descriptor()
         self.keys = KeyCache(KEY_CACHE_ENTRIES)
         self.socket_path = socket_path
 
@@ -554,7 +562,7 @@ def report() -> Payload:
     context = multiprocessing.get_context("fork")
     control, child = context.Pipe()
     owner = context.Process(
-        target=owner_main, args=(floors.index, entries, socket_path, child)
+        target=owner_main, args=(floors.index, floors.ring, entries, socket_path, child)
     )
     owner.start()
     child.close()
@@ -594,7 +602,7 @@ def report() -> Payload:
             "sweep_seconds": SWEEP_SECONDS,
             "expiry_ns": floors.expiry_ns,
         },
-        "ring_dropped": floors.index.dropped(),
+        "ring_dropped": floors.ring.dropped(),
         "cells": cells,
         "selection": selection(cells, MARGIN_US),
     }

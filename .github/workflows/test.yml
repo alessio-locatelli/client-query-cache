@@ -224,6 +224,13 @@ jobs:
 
       - run: cargo test --manifest-path native/shared-index/Cargo.toml
 
+      # Cargo 1.99 cargo test: https://doc.rust-lang.org/cargo/commands/cargo-test.html
+      # --release: The default is the unoptimized test profile. We override it because the
+      # loom models explore every bounded interleaving and must finish within the job budget.
+      - env:
+          RUSTFLAGS: --cfg loom
+        run: cargo test --release --manifest-path native/shared-index/Cargo.toml
+
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .mypy_cache

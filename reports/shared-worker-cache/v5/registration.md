@@ -72,4 +72,4 @@ A local hit cost less CPU than a `CacheCore` hit in every cell. B qualifies by 0
 
 **Choice.** A is eligible, so A is built. B is built only if A stops for a failed safety scenario or the memory criterion.
 
-Reproduce from the repository root with `PYTHONPATH=. uv run --with ./native/shared-index -- python research/shared_index_floors/floors.py --output benchmark-reports/shared-worker-cache/v5-floors.json`; the raw report stays untracked.
+Reproduce at that revision from the repository root with `PYTHONPATH=. uv run --with ./native/shared-index -- python research/shared_index_floors/floors.py --output benchmark-reports/shared-worker-cache/v5-floors.json`; the raw report stays untracked.
