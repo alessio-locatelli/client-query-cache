@@ -93,12 +93,18 @@ def assignment_for(
     )
 
 
-def warm_key(assignment: Assignment) -> NonNegativeInt:
+def measured_keys(assignment: Assignment) -> frozenset[NonNegativeInt]:
     ordinals = assignment.ordinals()
-    measured = {assignment.key(ordinal) for ordinal in ordinals}
+    measured = frozenset(assignment.key(ordinal) for ordinal in ordinals)
     if len(measured) != len(ordinals):
         message = "cold identities repeat a worker's keys"
         raise BenchmarkConfigurationError(message)
+    return measured
+
+
+def warm_key(
+    assignment: Assignment, measured: frozenset[NonNegativeInt]
+) -> NonNegativeInt:
     reverse = assignment.keys[::-1]
     for key in (*reverse[assignment.worker :], *reverse[: assignment.worker]):
         if key not in measured:

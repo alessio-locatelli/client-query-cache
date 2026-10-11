@@ -39,6 +39,7 @@ from benchmarks.stream_cost.shared_cache.worker import WorkerSpec, worker_main
 from benchmarks.stream_cost.shared_cache.workload import (
     assignment_for,
     key_order,
+    measured_keys,
     warm_key,
     worker_keys,
 )
@@ -311,6 +312,34 @@ class ProcessGroup:
             shutil.rmtree(self._directory, ignore_errors=True)
 
 
+def _assigned_keys(
+    registration: Registration, workload: _Workload, index: NonNegativeInt
+) -> tuple[NonNegativeInt, ...]:
+    if registration.key_assignment == "shared":
+        return worker_keys(cast("int", registration.raw["seed"]), index, workload.keys)
+    return workload.keys
+
+
+def _warm_key(
+    registration: Registration,
+    cell: Cell,
+    workload: _Workload,
+    index: NonNegativeInt,
+) -> NonNegativeInt:
+    assignments = [
+        assignment_for(
+            cell,
+            worker,
+            _assigned_keys(registration, workload, worker),
+            registration.key_assignment,
+            warmup=False,
+        )
+        for worker in range(cell.workers)
+    ]
+    measured = frozenset().union(*map(measured_keys, assignments))
+    return warm_key(assignments[index], measured)
+
+
 def _spec(
     registration: Registration,
     cell: Cell,
@@ -320,11 +349,7 @@ def _spec(
     index: NonNegativeInt,
     attachment: AttachmentConfig | None,
 ) -> WorkerSpec:
-    keys = (
-        worker_keys(cast("int", registration.raw["seed"]), index, workload.keys)
-        if registration.key_assignment == "shared"
-        else workload.keys
-    )
+    keys = _assigned_keys(registration, workload, index)
     return WorkerSpec(
         cell=cell,
         index=index,
@@ -337,9 +362,7 @@ def _spec(
         limit=workload.limit,
         keys=keys,
         key_assignment=registration.key_assignment,
-        warm_key=warm_key(
-            assignment_for(cell, index, keys, registration.key_assignment, warmup=False)
-        )
+        warm_key=_warm_key(registration, cell, workload, index)
         if cell.workload == "cold"
         else None,
         budget_bytes=cast("int", registration.raw["budget_bytes"]),
