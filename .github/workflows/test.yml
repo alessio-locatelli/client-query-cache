@@ -37,6 +37,9 @@ env:
 # benchmark-startup:
 # The default is project default groups (dev). We override it because these validation
 # environments need documentation tools too.
+# Every uv sync above, including uv sync --group memory in memory, installs the dev group, which
+# builds native/shared-index with the Cargo preinstalled in the ubuntu-24.04 image
+# (Rust Tools in image 20261004.327.1: Cargo 1.99.0, https://github.com/actions/runner-images/blob/bdac7c6000c3501174076ad6d6a06ce46871fa71/images/ubuntu/Ubuntu2404-Readme.md#rust-tools).
 # cache v6.1.0:
 # https://github.com/actions/cache/blob/55cc8345863c7cc4c66a329aec7e433d2d1c52a9/action.yml
 # restore-keys for prek-results (prek), prettier (prettier), mypy (package) and
@@ -218,6 +221,8 @@ jobs:
           python-version: ${{ matrix.python }}
 
       - run: uv sync --locked --all-groups
+
+      - run: cargo test --manifest-path native/shared-index/Cargo.toml
 
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:

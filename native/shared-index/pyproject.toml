@@ -10,3 +10,13 @@ dynamic = ["version"]
 
 [tool.maturin]
 features = ["python"]
+
+[tool.uv]
+# uv 0.12.18: https://docs.astral.sh/uv/reference/settings/#cache-keys
+# The default is pyproject.toml, setup.py and setup.cfg. We override it because Rust sources and the crate lockfile must also rebuild the extension.
+cache-keys = [
+  { file = "pyproject.toml" },
+  { file = "Cargo.toml" },
+  { file = "Cargo.lock" },
+  { file = "src/**/*.rs" },
+]

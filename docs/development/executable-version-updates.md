@@ -17,6 +17,9 @@ GitHub native auto-merge using rebase; required checks gate merging.
 | Zizmor                                                       | Renovate Dockerfile preset                 | Containerfile ARG                                                                                                                                                             |
 | Taplo                                                        | Renovate regex                             | Containerfile ARG, download URL, and SHA256                                                                                                                                   |
 | DNF tools                                                    | Fedora repositories                        | Unpinned Fedora 44 RPMs; Node.js track comes from `.node-version`; [rationale](https://github.com/alessio-locatelli/client-query-cache/blob/main/CONTRIBUTING.md#environment) |
+| Rust crates                                                  | Dependabot `cargo`                               | `native/shared-index/Cargo.toml` and `Cargo.lock`                                                                                                                             |
+| maturin build backend                                        | None; each build resolves the newest 1.x release | `native/shared-index/pyproject.toml` build requirement                                                                                                                        |
+| CI Rust and Cargo                                            | GitHub runner image                              | Preinstalled in `ubuntu-24.04`; unpinned, with `rust-version` in `native/shared-index/Cargo.toml` as the compatibility floor                                                  |
 
 In this repository, Renovate's Actions manager updates only `uses-with` inputs.
 Its other dependency types are disabled to preserve Dependabot ownership. Reports,

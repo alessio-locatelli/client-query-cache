@@ -27,6 +27,15 @@ pytestmark = pytest.mark.unit
             False,
             id="python-source",
         ),
+        pytest.param(
+            ("native/shared-index/src/index.rs",),
+            True,
+            False,
+            False,
+            False,
+            False,
+            id="native-extension",
+        ),
         pytest.param(("README.md",), False, True, False, False, False, id="readme"),
         pytest.param(
             (".prettierrc",), False, True, False, False, False, id="prettier-config"
