@@ -43,6 +43,7 @@ if TYPE_CHECKING:
     from benchmarks.stream_cost.shared_cache.protocol import Cell, PathKind
 
 _CONFIG = Path("reports/shared-worker-cache/v4/config.json")
+_CEILING_FAMILY = "primary"
 
 
 def environment(registration: Registration) -> JsonDict:
@@ -217,7 +218,10 @@ def calibrate(
     selections: JsonDict = {}
     rates: dict[str, int] = {}
     durations: dict[str, PositiveFloat] = {}
-    for family in families(registration):
+    ordered = sorted(
+        families(registration), key=lambda family: family.name != _CEILING_FAMILY
+    )
+    for family in ordered:
         members = {
             (cell.workload, cell.profile, cell.model, cell.workers)
             for cell in family_probe_cells(registration, family)
@@ -233,12 +237,11 @@ def calibrate(
             )
             in members
         ]
-        rate = select_rate(
-            registration,
-            family.name,
-            family_probes,
-            next(iter(rates.values()), None),
-        )
+        try:
+            ceiling: int | None = rates[_CEILING_FAMILY]
+        except KeyError:
+            ceiling = None
+        rate = select_rate(registration, family.name, family_probes, ceiling)
         attempts: list[JsonDict] = []
         for _attempt in range(int(registration.number("calibration", "rate_attempts"))):
             proposed = family_durations(registration, family.name, rate)
