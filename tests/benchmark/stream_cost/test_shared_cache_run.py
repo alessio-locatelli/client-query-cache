@@ -1571,6 +1571,12 @@ def test_closed_loop_windows_cannot_derive_a_write_count(
         ),
         pytest.param(("hot_keys",), True, "hot_keys", id="hot-keys"),
         pytest.param(
+            ("hot_keys",),
+            16_385,
+            "hot_keys exceeds the keys of the primary profile",
+            id="hot-set-beyond-profile",
+        ),
+        pytest.param(
             ("key_assignment",), "random", "partitioned or shared", id="assignment"
         ),
         pytest.param(("paths",), ["direct", "redis"], "paths", id="unknown-path"),
@@ -1884,6 +1890,7 @@ def _cold_specs(
 ) -> tuple[WorkerSpec, ...]:
     raw = copy.deepcopy(registration.raw)
     cast("JsonDict", cast("JsonDict", raw["profiles"])["primary"])["documents"] = 256
+    raw["hot_keys"] = 256
     resized = replace(registration, raw=raw)
     cell = replace(
         comparison_cells(resized, "steady")[0],

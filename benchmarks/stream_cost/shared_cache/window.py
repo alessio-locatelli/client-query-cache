@@ -34,7 +34,7 @@ from benchmarks.stream_cost.shared_cache.coordinator import OwnerConfig
 from benchmarks.stream_cost.shared_cache.dataset import seed_catalogue
 from benchmarks.stream_cost.shared_cache.owner import owner_main, proxy_for
 from benchmarks.stream_cost.shared_cache.profiling import enabled as profiling_enabled
-from benchmarks.stream_cost.shared_cache.protocol import write_count
+from benchmarks.stream_cost.shared_cache.protocol import profile_keys, write_count
 from benchmarks.stream_cost.shared_cache.worker import WorkerSpec, worker_main
 from benchmarks.stream_cost.shared_cache.workload import (
     assignment_for,
@@ -154,12 +154,12 @@ class _Workload:
 def _workload(registration: Registration, cell: Cell) -> _Workload:
     profile = registration.profile(cell.profile)
     seed = cast("int", registration.raw["seed"])
-    if profile["read"] == "find":
-        keys = key_order(seed, cast("int", profile["categories"]))
-        read, limit = "find", cast("int", profile["limit"])
-    else:
-        keys = key_order(seed, cast("int", profile["documents"]))
-        read, limit = "find_one", 1
+    keys = key_order(seed, profile_keys(profile))
+    read, limit = (
+        ("find", cast("int", profile["limit"]))
+        if profile["read"] == "find"
+        else ("find_one", 1)
+    )
     if cell.workload != "cold":
         keys = keys[: registration.hot_keys]
     updates = write_count(registration, cell) if cell.workload == "active" else 0

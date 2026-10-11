@@ -56,24 +56,41 @@ class Registration:
         self._validate_workload()
         self._validate_plan()
         self._validate_cold_routing()
+        self._validate_hot_set()
 
-    def _validate_cold_routing(self) -> None:
-        if self.key_assignment != "shared" or "shared" not in self.paths:
-            return
+    def _cell_kinds(self, *, smoke: bool) -> set[str]:
         phases = cast("dict[str, JsonDict]", self.section("phases"))
         kinds = {kind for family in families(self) for kind, _, _ in family.cells}
         kinds.update(
             kind
             for phase, settings in phases.items()
-            if "cells" in settings or phase in _V4_PHASE_CELLS
+            if (smoke or phase != "smoke")
+            and ("cells" in settings or phase in _V4_PHASE_CELLS)
             for kind, _, _ in phase_cells(self, phase)
         )
-        if "cold" in kinds:
+        return kinds
+
+    def _validate_cold_routing(self) -> None:
+        if self.key_assignment != "shared" or "shared" not in self.paths:
+            return
+        if "cold" in self._cell_kinds(smoke=True):
             message = (
                 "shared key assignment lets workers repeat cold keys, "
                 "so the shared path cannot measure all-miss cold windows"
             )
             raise BenchmarkConfigurationError(message)
+
+    def _validate_hot_set(self) -> None:
+        hot_keys = self.hot_keys
+        if hot_keys is None:
+            return
+        for kind in self._cell_kinds(smoke=False):
+            name = _profile_for(kind)
+            if _FAMILY_WORKLOADS[kind] != "cold" and hot_keys > profile_keys(
+                self.profile(name)
+            ):
+                message = f"hot_keys exceeds the keys of the {name} profile"
+                raise BenchmarkConfigurationError(message)
 
     def _validate_plan(self) -> None:
         declared = families(self)
@@ -372,6 +389,12 @@ def window_kind(kind: str) -> str:
 
 def _profile_for(kind: str) -> str:
     return kind if kind in {"large", "find16"} else "primary"
+
+
+def profile_keys(profile: JsonDict) -> PositiveInt:
+    return cast(
+        "int", profile["categories" if profile["read"] == "find" else "documents"]
+    )
 
 
 def required_samples(registration: Registration) -> PositiveInt:
