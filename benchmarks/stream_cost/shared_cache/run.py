@@ -21,14 +21,17 @@ from benchmarks.stream_cost.shared_cache.protocol import (
     BASELINES,
     Registration,
     capacity_cells,
-    cell_kind,
     comparison_cells,
+    families,
     family_cells,
+    family_probe_cells,
     probe_cells,
     required_samples,
     smoke_cells,
     validation_cells,
+    validation_failure,
     window_for,
+    window_kind,
 )
 from benchmarks.stream_cost.shared_cache.window import run_window
 from benchmarks.stream_cost.topology import IsolatedReplicaSet, ResourceLimits
@@ -37,15 +40,9 @@ from client_query_cache._types import JsonDict, PositiveFloat
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-    from benchmarks.stream_cost.shared_cache.protocol import Cell, Family, PathKind
+    from benchmarks.stream_cost.shared_cache.protocol import Cell, PathKind
 
 _CONFIG = Path("reports/shared-worker-cache/v4/config.json")
-_PHASES = ("screening", "confirmation", "capacity", "active", "cold", "sensitivity")
-_CAPS: dict[Family, str] = {
-    "primary": "primary",
-    "cold": "cold",
-    "sensitivity": "sensitivity",
-}
 
 
 def environment(registration: Registration) -> JsonDict:
@@ -181,43 +178,14 @@ def throughput(record: JsonDict) -> float:
     return cast("int", record["completed"]) / elapsed
 
 
-def validation_failure(record: JsonDict, registration: Registration) -> str | None:
-    offered = cast("int", record["offered"])
-    in_window = cast("int", record["completed_in_window"])
-    if in_window < registration.number("calibration", "minimum_completion") * offered:
-        return "completed less than the registered fraction inside the window"
-    workers = cast("list[JsonDict]", record["workers_measured"])
-    loops = [cast("JsonDict", worker["loop"]) for worker in workers]
-    if any(
-        cast("int", loop["errors"]) or cast("int", loop["overflow"]) for loop in loops
-    ):
-        return "errors or request-queue overflow"
-    backlog = 2 * cast("int", registration.raw["concurrency_per_worker"])
-    if any(cast("int", loop["outstanding_at_end"]) > backlog for loop in loops):
-        return "growing backlog at the end of the application window"
-    if record["workload"] == "cold":
-        if record["completed"] != record["identities"]:
-            return "cold window did not complete every identity"
-        return None
-    floor = cast("int", registration.number("calibration", "sample_floor"))
-    populations = cast("JsonDict", record["populations"])
-    names = ("sync", "async") if record["model"] == "mixed" else ("request",)
-    if any(
-        cast("int", cast("JsonDict", populations[name])["sample_count"]) < floor
-        for name in names
-    ):
-        return "percentile population below the registered sample floor"
-    return None
-
-
 def select_rate(
     registration: Registration,
-    family: Family,
+    family: str,
     probes: list[JsonDict],
     ceiling: float | None,
 ) -> int:
     rates = [throughput(record) for record in probes]
-    cap = registration.number("calibration", "caps", _CAPS[family])
+    cap = registration.number("calibration", "caps", family)
     if ceiling is not None:
         cap = min(cap, ceiling)
     return math.floor(
@@ -226,17 +194,17 @@ def select_rate(
 
 
 def family_durations(
-    registration: Registration, family: Family, rate: PositiveFloat
+    registration: Registration, family: str, rate: PositiveFloat
 ) -> dict[str, PositiveFloat]:
-    if family == "primary":
-        return {
-            "hot": window_for(registration, "hot", rate, "sync"),
-            "active": window_for(registration, "active", rate, "mixed"),
-        }
-    if family == "sensitivity":
-        return {"sensitivity": window_for(registration, "sensitivity", rate, "sync")}
-    identities = registration.number("calibration", "cold_probe_identities")
-    return {"cold": identities / rate}
+    models: dict[str, set[str]] = {}
+    for kind, model, _workers in family_cells(registration, family):
+        models.setdefault(window_kind(kind), set()).add(model)
+    return {
+        kind: registration.number("calibration", "cold_probe_identities") / rate
+        if kind == "cold"
+        else window_for(registration, kind, rate, 2 if "mixed" in kind_models else 1)
+        for kind, kind_models in models.items()
+    }
 
 
 def calibrate(
@@ -249,16 +217,17 @@ def calibrate(
     selections: JsonDict = {}
     rates: dict[str, int] = {}
     durations: dict[str, PositiveFloat] = {}
-    for family in ("primary", "cold", "sensitivity"):
+    for family in families(registration):
         members = {
-            (kind, model, workers)
-            for kind, model, workers in family_cells(registration, family)
+            (cell.workload, cell.profile, cell.model, cell.workers)
+            for cell in family_probe_cells(registration, family)
         }
         family_probes = [
             record
             for record in probes
             if (
-                cell_kind(str(record["workload"]), str(record["profile"])),
+                record["workload"],
+                record["profile"],
                 record["model"],
                 record["workers"],
             )
@@ -266,28 +235,26 @@ def calibrate(
         ]
         rate = select_rate(
             registration,
-            family,
+            family.name,
             family_probes,
-            rates["primary"] if family != "primary" else None,
+            next(iter(rates.values()), None),
         )
         attempts: list[JsonDict] = []
         for _attempt in range(int(registration.number("calibration", "rate_attempts"))):
-            proposed = family_durations(registration, family, rate)
+            proposed = family_durations(registration, family.name, rate)
             cap = registration.number("calibration", "window_cap_seconds")
             if any(seconds > cap for seconds in proposed.values()):
                 attempts.append(
                     {"rate": rate, "durations": proposed, "failure": "window cap"}
                 )
                 break
-            cells = validation_cells(
-                registration, family, rate, {**_placeholders(proposed), **proposed}
-            )
+            cells = validation_cells(registration, family.name, rate, proposed)
             records = recorder.run(replica, registration, cells)
             if any(not record["healthy"] for record in records):
-                selections[family] = {"attempts": attempts}
+                selections[family.name] = {"attempts": attempts}
                 return {
                     "outcome": "inconclusive",
-                    "reason": f"{family} validation window failed setup",
+                    "reason": f"{family.name} validation window failed setup",
                     "selections": selections,
                 }
             failures = [
@@ -297,37 +264,35 @@ def calibrate(
             ]
             attempts.append({"rate": rate, "durations": proposed, "failures": failures})
             if not failures:
-                rates[family] = rate
+                rates[family.name] = rate
                 durations.update(proposed)
                 break
             rate //= 2
-        selections[family] = {
+        selections[family.name] = {
             "probe_throughputs": [throughput(record) for record in family_probes],
             "attempts": attempts,
         }
-        if family not in rates:
+        if family.name not in rates:
             return {
                 "outcome": "inconclusive",
-                "reason": f"no sustainable {family} rate",
+                "reason": f"no sustainable {family.name} rate",
                 "selections": selections,
             }
-    return {
+    validated: JsonDict = {
         "outcome": "validated",
         "rates": rates,
         "window_seconds": {
-            "hot": durations["hot"],
-            "active": durations["active"],
-            "sensitivity": durations["sensitivity"],
+            kind: seconds for kind, seconds in durations.items() if kind != "cold"
         },
-        "cold_seconds": durations["cold"],
+    }
+    try:
+        validated["cold_seconds"] = durations["cold"]
+    except KeyError:
+        pass
+    return {
+        **validated,
         "required_samples": required_samples(registration),
         "selections": selections,
-    }
-
-
-def _placeholders(proposed: dict[str, PositiveFloat]) -> dict[str, PositiveFloat]:
-    return {
-        kind: 1.0 for kind in ("hot", "active", "sensitivity") if kind not in proposed
     }
 
 
@@ -338,10 +303,15 @@ def freeze(registration_path: Path, calibration_path: Path) -> None:
         message = "only validated baseline calibration can be frozen"
         raise BenchmarkSetupError(message)
     text = registration_path.read_text(encoding="utf-8")
+    summary: JsonDict = {}
+    try:
+        summary["cold_seconds"] = validated["cold_seconds"]
+    except KeyError:
+        pass
     frozen = {
         "rates": validated["rates"],
         "window_seconds": validated["window_seconds"],
-        "calibration_summary": {"cold_seconds": validated["cold_seconds"]},
+        "calibration_summary": summary,
     }
     start = text.index('  "frozen": {')
     end = text.index('\n  "nominal_seconds"', start)
@@ -357,13 +327,13 @@ def planned(
     registration: Registration, phase: str, paths: tuple[PathKind, ...]
 ) -> tuple[Cell, ...]:
     if phase == "capacity":
-        return capacity_cells(registration)
+        return capacity_cells(registration, paths)
     return comparison_cells(registration, phase, paths)
 
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
-        description="Measure shared worker cache feasibility."
+        description="Measure a registered multi-worker cache benchmark."
     )
     parser.add_argument("--config", type=Path, default=_CONFIG)
     parser.add_argument("--output", type=Path)
@@ -375,7 +345,7 @@ def main(argv: list[str] | None = None) -> None:
     mode.add_argument(
         "--freeze", type=Path, help="Freeze a validated calibration report."
     )
-    mode.add_argument("--phase", choices=_PHASES)
+    mode.add_argument("--phase", help="A comparison phase listed in the registration.")
     parser.add_argument("--baselines-only", action="store_true")
     parser.add_argument(
         "--only",
@@ -409,8 +379,24 @@ def main(argv: list[str] | None = None) -> None:
     )
     if phase is None:
         parser.error("choose --smoke, --calibrate-baselines, --freeze or --phase")
-    if phase not in {"smoke", "calibration"} and not registration.frozen:
-        parser.error("candidate phases require a frozen registration")
+    cells: tuple[Cell, ...] = ()
+    exploratory: str | None = None
+    if phase not in {"smoke", "calibration"}:
+        if not registration.frozen:
+            parser.error("candidate phases require a frozen registration")
+        cells = planned(
+            registration,
+            phase,
+            BASELINES if arguments.baselines_only else registration.paths,
+        )
+        if arguments.only is not None:
+            model, workers = arguments.only.split(":")
+            exploratory = f"cells limited to {arguments.only}"
+            cells = tuple(
+                cell
+                for cell in cells
+                if cell.model == model and cell.workers == int(workers)
+            )
     recorder = Recorder(
         arguments.output,
         phase,
@@ -421,6 +407,8 @@ def main(argv: list[str] | None = None) -> None:
         if arguments.reuse_probes is not None
         else [],
     )
+    if exploratory is not None:
+        recorder.report["exploratory"] = exploratory
     limits = ResourceLimits(**registration.section("topology"))  # type: ignore[arg-type]
     with IsolatedReplicaSet(limits) as replica:
         if phase == "smoke":
@@ -433,18 +421,6 @@ def main(argv: list[str] | None = None) -> None:
             recorder.report["calibration"] = calibrate(replica, registration, recorder)
             recorder.flush()
             return
-        paths = BASELINES if arguments.baselines_only else None
-        cells = planned(
-            registration, phase, paths or ("direct", "independent", "shared")
-        )
-        if arguments.only is not None:
-            model, workers = arguments.only.split(":")
-            recorder.report["exploratory"] = f"cells limited to {arguments.only}"
-            cells = tuple(
-                cell
-                for cell in cells
-                if cell.model == model and cell.workers == int(workers)
-            )
         recorder.run(replica, registration, cells)
 
 
