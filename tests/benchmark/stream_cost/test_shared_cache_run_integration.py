@@ -14,7 +14,11 @@ from pymongo.synchronous.collection import Collection
 from benchmarks.stream_cost.errors import BenchmarkSetupError
 from benchmarks.stream_cost.shared_cache import diagnostics, run, window
 from benchmarks.stream_cost.shared_cache.dataset import seed_catalogue
-from benchmarks.stream_cost.shared_cache.protocol import Registration, smoke_cells
+from benchmarks.stream_cost.shared_cache.protocol import (
+    Registration,
+    smoke_cells,
+    validation_failure,
+)
 from benchmarks.stream_cost.topology import IsolatedReplicaSet, ResourceLimits
 from client_query_cache._types import BsonDict, JsonDict
 
@@ -45,7 +49,7 @@ def config(tmp_path: Path) -> Path:
     raw["status"] = "pending-calibration"
     raw["profiles"]["smoke"]["documents"] = 64
     raw["phases"]["smoke"].update(
-        {"window_seconds": 1, "warmup_seconds": 0.5, "rate": 100}
+        {"window_seconds": 1, "warmup_seconds": 0.5, "rate": 100, "identities": 40}
     )
     raw["drain_seconds"] = 2
     raw["schedule_tolerance_seconds"] = 1.0
@@ -142,6 +146,8 @@ def test_smoke_windows_identify_every_owner(
     if workload == "active" and path != "direct":
         lag_owner = owner if path == "shared" else workers[0]["lag"]
         assert cast("JsonDict", lag_owner)["invalidations"] == 200
+    if workload == "cold" and path != "direct":
+        assert validation_failure(record, registration) is None
     assert _no_children()
 
 

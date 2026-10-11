@@ -41,3 +41,4 @@
 - [x] 6.8 Exclude `shared` windows from descriptive comparison when the owner's stream was unhealthy at the window end or reopened during the window. Add unit tests and assert the owner's stream-opening count in the shared smoke windows.
 - [x] 6.9 Reject a descriptive analysis whose block count differs from the phase's registered blocks. Add a test for the mismatch.
 - [x] 6.10 Check stream openings per worker, both when a group becomes ready and in descriptive exclusion, so uneven openings cannot sum to the expected total, and reject `hot_keys` without hot write targets. Add tests for uneven openings and the rejected configuration.
+- [x] 6.11 Require every completed read of a cached cold window to record a miss, with no hits or bypasses, and reject cold identities that repeat a worker's keys. Add regression tests for bypassed and repeated cold reads, and validate the real cold smoke windows against the rule.

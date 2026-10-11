@@ -381,8 +381,12 @@ def validation_failure(record: JsonDict, registration: Registration) -> str | No
     if record["workload"] == "cold":
         if record["completed"] != record["identities"]:
             return "cold window did not complete every identity"
-        if any(cast("JsonDict", worker["outcomes"])["hits"] for worker in workers):
-            return "cold window recorded cache hits"
+        outcomes = [cast("dict[str, int]", worker["outcomes"]) for worker in workers]
+        if record["path"] != "direct" and (
+            sum(outcome["misses"] for outcome in outcomes) != record["completed"]
+            or any(outcome["hits"] or outcome["bypasses"] for outcome in outcomes)
+        ):
+            return "cold window recorded hits or bypasses instead of misses"
         return None
     floor = cast("int", registration.number("calibration", "sample_floor"))
     populations = cast("JsonDict", record["populations"])

@@ -135,7 +135,7 @@ def _record(
     *,
     completed: int = 1_000,
     hits: int | None = None,
-    misses: int = 0,
+    misses: int | None = None,
     p99: float = 0.001,
     pss: float = 100.0,
     cpu: float = 1.0,
@@ -161,7 +161,11 @@ def _record(
             "hits": (0 if cell.workload == "cold" else completed)
             if hits is None
             else hits,
-            "misses": misses,
+            "misses": (
+                completed if cell.workload == "cold" and cell.path != "direct" else 0
+            )
+            if misses is None
+            else misses,
             "bypasses": 0,
             "bypass_reasons": {},
         },
@@ -362,22 +366,48 @@ def test_validation_rejects_overloaded_or_short_windows(
     assert reason in failure
 
 
+_NOT_MISSES = "cold window recorded hits or bypasses instead of misses"
+
+
 @pytest.mark.parametrize(
-    ("completed", "hits", "expected"),
+    ("path", "completed", "outcomes", "expected"),
     [
-        pytest.param(10_000, 0, None, id="complete"),
+        pytest.param("independent", 10_000, {}, None, id="all-miss"),
+        pytest.param("direct", 10_000, {}, None, id="direct"),
         pytest.param(
-            9_999, 0, "cold window did not complete every identity", id="short"
+            "independent",
+            9_999,
+            {},
+            "cold window did not complete every identity",
+            id="short",
         ),
-        pytest.param(10_000, 1, "cold window recorded cache hits", id="hit"),
+        pytest.param(
+            "independent", 10_000, {"hits": 1, "misses": 9_999}, _NOT_MISSES, id="hit"
+        ),
+        pytest.param(
+            "independent",
+            10_000,
+            {"misses": 0, "bypasses": 10_000},
+            _NOT_MISSES,
+            id="bypassed",
+        ),
     ],
 )
-def test_cold_validation_requires_every_identity_to_miss(
-    registration: Registration, completed: int, hits: int, expected: str | None
+def test_cold_validation_requires_every_cached_read_to_miss(
+    registration: Registration,
+    path: str,
+    completed: int,
+    outcomes: JsonDict,
+    expected: str | None,
 ) -> None:
-    cell = validation_cells(registration, "cold", 1000.0, {})[0]
-    record = _record(cell, hits=hits)
-    record["completed"] = completed
+    cell = next(
+        cell
+        for cell in validation_cells(registration, "cold", 1000.0, {})
+        if cell.path == path
+    )
+    record = _record(cell, completed=completed)
+    worker = cast("list[JsonDict]", record["workers_measured"])[0]
+    cast("JsonDict", worker["outcomes"]).update(outcomes)
 
     assert validation_failure(record, registration) == expected
 
@@ -1843,11 +1873,18 @@ def test_cold_workers_warm_a_key_outside_their_measured_identities(
         }
 
 
-def test_cold_identities_must_leave_a_key_to_warm(
-    concurrent_frozen: Registration,
+@pytest.mark.parametrize(
+    ("identities", "message"),
+    [
+        pytest.param(512, "no unread key", id="every-key-read"),
+        pytest.param(600, "repeat a worker's keys", id="keys-repeat"),
+    ],
+)
+def test_cold_identities_must_stay_distinct_and_leave_a_key_to_warm(
+    concurrent_frozen: Registration, identities: int, message: str
 ) -> None:
-    with pytest.raises(BenchmarkConfigurationError, match="no unread key"):
-        _cold_specs(concurrent_frozen, identities=512)
+    with pytest.raises(BenchmarkConfigurationError, match=message):
+        _cold_specs(concurrent_frozen, identities=identities)
 
 
 def _foreign_registration(first: JsonDict, _second: JsonDict) -> None:
