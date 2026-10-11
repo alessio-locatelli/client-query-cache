@@ -30,7 +30,7 @@ Batching several selections per frame is a variant of B, measured by floor F3.
 - **Owner process.** F1–F3 share one owner process. It publishes the entries, then every 50 ms (version 4's owner sweep interval) advances the database's progress word and discards the hit-ring tokens, so no append is dropped. Its native echo thread serves F2 and F3 from one `epoll` loop and reads entries through the same read path. F0 has no owner.
 - **Callers.** A synchronous caller runs one thread (sequential) or four threads (four in flight); in F2 each thread has its own connection. An asyncio caller runs one task (sequential) or four tasks (four in flight) on one event loop; in F2 and F3 the tasks share one connection and match replies by request id. F3 runs only at four in flight, because a sequential caller has nothing to batch without delaying or prefetching requests.
 - **Repetitions.** For each floor, caller and mode: one untimed warm-up of 5,120 hits, then five timed repetitions of 5,120 hits. Repetition `r` draws its keys from the seeded permutation `r` of all 16,384 keys. Repetitions are interleaved: every floor, caller and mode completes repetition `r` before any starts repetition `r + 1`.
-- **CPU.** User plus system time from `os.times()` of the caller process and of the owner process, taken around each repetition and divided by its completed hits.
+- **CPU.** User plus system time from `getrusage(RUSAGE_SELF)` of the caller process and of the owner process, taken around each repetition and divided by its completed hits. `getrusage` reports microseconds, whereas `os.times()` reports whole clock ticks of 10 ms on the test host.
 
 ### Rule
 
