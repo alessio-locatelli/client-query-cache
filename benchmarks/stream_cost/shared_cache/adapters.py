@@ -15,7 +15,7 @@ from client_query_cache._core.canonical import canonicalize, is_canonicalizable
 from client_query_cache._core.codec import codec_fingerprint, decode_value, encode_value
 from client_query_cache._core.collection_metadata import CollectionMetadata
 from client_query_cache._core.cursor_capture import CursorCapture
-from client_query_cache._core.find_reads import find_read_shape
+from client_query_cache._core.find_reads import FindReadShape, find_read_shape
 from client_query_cache._core.identity_reads import (
     NO_IDENTITY,
     extract_id_identity,
@@ -48,7 +48,7 @@ if TYPE_CHECKING:
         SyncEndpoint,
     )
     from client_query_cache._core.collection_metadata import CollectionProbeResult
-    from client_query_cache._core.find_reads import FindReadShape, FindSource
+    from client_query_cache._core.find_reads import FindSource
     from client_query_cache._core.keys import NamespaceId
 
     type Shared = SharedCacheManager[Any] | AsyncSharedCacheManager[Any]
@@ -234,7 +234,9 @@ def _find_message(cursor: Cursor, shape: FindReadShape) -> Message | str:
     )
 
 
-def _find_reason(cursor: Cursor, shape: FindReadShape) -> BypassReason | None:
+def _prepare_find_shape(
+    cursor: Cursor, shape: FindReadShape
+) -> tuple[FindReadShape, BypassReason | None]:
     unsupported = (
         cursor._unsupported
         or cursor._query_flags
@@ -262,8 +264,9 @@ def _find_reason(cursor: Cursor, shape: FindReadShape) -> BypassReason | None:
         kwargs={"cursor_options": True} if unsupported else {},
     )
     if reason is not None:
-        return reason
-    return prepare_query_key(cursor._spec, cursor._projection, shape.discriminator)[1]
+        return shape, reason
+    family, reason = prepare_query_key(cursor._spec, cursor._projection, shape.family)
+    return FindReadShape(family, shape.limit), reason
 
 
 def _shape(cursor: Cursor) -> FindReadShape:
@@ -323,7 +326,7 @@ def _apply_find_reply(
             shared.endpoint.send, shared.max_entry_bytes, shared.observation
         ),
         reply["handle"],
-        shape.discriminator,
+        canonicalize(shape.discriminator),
         cursor._codec_options,
         find_source=shape.source,
     )
@@ -375,8 +378,9 @@ class SharedCachedCursor[DocumentType: Mapping[str, Any]](
     @override
     def _prepare(self) -> None:
         self._prepared = True
-        shape = _shape(self)
-        reason = _find_reason(self, shape) or self._view._cache_ineligibility_reason()
+        shape, reason = _prepare_find_shape(self, _shape(self))
+        if reason is None:
+            reason = self._view._cache_ineligibility_reason()
         if reason is not None:
             self._shared.observation.record_bypass(reason)
             return
@@ -410,10 +414,9 @@ class AsyncSharedCachedCursor[DocumentType: Mapping[str, Any]](
     @override
     async def _prepare(self) -> None:
         self._prepared = True
-        shape = _shape(self)
-        reason = (
-            _find_reason(self, shape) or await self._view._cache_ineligibility_reason()
-        )
+        shape, reason = _prepare_find_shape(self, _shape(self))
+        if reason is None:
+            reason = await self._view._cache_ineligibility_reason()
         if reason is not None:
             self._shared.observation.record_bypass(reason)
             return
