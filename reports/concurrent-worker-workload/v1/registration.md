@@ -1,6 +1,6 @@
 # Concurrent worker workload registration, version 1
 
-This registration freezes the protocol for comparing direct MongoDB reads with independent per-worker cache managers while reads and writes run together. The machine-readable values live in [config.json](config.json); this companion explains units, measures, rules and limits. The [design](../../../openspec/changes/benchmark-concurrent-worker-workload/design.md#workload-registration) records why each value was chosen.
+This registration freezes the protocol for comparing direct MongoDB reads with independent per-worker cache managers while reads and writes run together. The machine-readable values live in [config.json](config.json); this companion explains units, measures, rules and limits. The [design](../../../openspec/changes/archive/2026-10-11-benchmark-concurrent-worker-workload/design.md#workload-registration) records why each value was chosen.
 
 **Status:** frozen. The frozen `config.json` has SHA-256 `2057af0088101622b441f977fbc9bd78397f2e023fafd8b092cc1e74d1b6d0bc`, which every comparison report must carry. Any change to this file or `config.json` after a comparison window runs requires a new registration version and fresh comparisons; earlier outcomes are retained.
 
@@ -81,7 +81,7 @@ Each manager keeps the latency of its last 1,000 invalidations (ten windows of 1
 
 ## Excluded comparison
 
-The registration has no shared Redis path: a Redis cache matches this library's freshness only with an invalidator that this project would have to build, so the comparison would not measure a deployment choice available to users. The [design](../../../openspec/changes/benchmark-concurrent-worker-workload/design.md#no-shared-redis-comparison) records the alternatives, and shared invalidation stays under [#87](https://github.com/alessio-locatelli/client-query-cache/issues/87).
+The registration has no shared Redis path: a Redis cache matches this library's freshness only with an invalidator that this project would have to build, so the comparison would not measure a deployment choice available to users. The [design](../../../openspec/changes/archive/2026-10-11-benchmark-concurrent-worker-workload/design.md#no-shared-redis-comparison) records the alternatives, and shared invalidation stays under [#87](https://github.com/alessio-locatelli/client-query-cache/issues/87).
 
 ## Limits
 

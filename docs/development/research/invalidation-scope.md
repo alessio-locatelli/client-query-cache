@@ -105,4 +105,4 @@ Overall hit shares, averaged across the three sequences:
 
 [Find miss overhead (#258)](https://github.com/alessio-locatelli/client-query-cache/issues/258) tracks repeated key canonicalization and capture encoding separately. Namespace-guarded reads remain cold under churn, so narrowing `own` does not eliminate their miss cost.
 
-These are single-process, closed-loop, local-container observations. They do not measure open-loop capacity, production latency or multi-worker scaling. Multi-worker evidence belongs to the `benchmark-concurrent-worker-workload` change, tracked by [#197](https://github.com/alessio-locatelli/client-query-cache/issues/197).
+These are single-process, closed-loop, local-container observations. They do not measure open-loop capacity, production latency or multi-worker scaling. The [concurrent worker workload study](concurrent-worker-workload.md) holds the open-loop multi-worker evidence, tracked by [#197](https://github.com/alessio-locatelli/client-query-cache/issues/197).
