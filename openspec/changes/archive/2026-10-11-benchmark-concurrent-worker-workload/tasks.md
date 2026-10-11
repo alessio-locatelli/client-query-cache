@@ -46,3 +46,4 @@
 - [x] 6.13 Make the served-catalogue test wait until a worker listens before it sends its request, because Uvicorn's supervisor binds the socket without listening.
 - [x] 6.14 Calibrate the `primary` family first and cap every other family at its rate, as version 4 registered, so the declared family order cannot change frozen rates. Add a test with the families declared in another order.
 - [x] 6.15 Warm every cold worker with a key that no worker of the window measures, so a shared owner cannot turn one worker's priming read into another worker's hit. Add a regression test for partitioned keys on the `shared` path with 256 keys, two workers and 255 identities.
+- [x] 6.16 Require a positive `inference.lag_event_floor` in registrations without a `gate`, so descriptive analysis never computes a lag percentile from zero events. Add tests for a zero and a missing floor.
