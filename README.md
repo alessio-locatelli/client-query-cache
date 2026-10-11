@@ -1,13 +1,23 @@
-# Coherent client-side caching for PyMongo
+# Client-side query caching for PyMongo
 
 [![PyPI](https://img.shields.io/pypi/v/client-query-cache?color=lightgrey)](https://pypi.org/project/client-query-cache/)
 [![Python](https://img.shields.io/pypi/pyversions/client-query-cache)](https://alessio-locatelli.github.io/client-query-cache/getting-started/installation/)
 [![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen)](https://github.com/alessio-locatelli/client-query-cache/actions/workflows/test.yml)
 [![Typing](https://img.shields.io/pypi/types/client-query-cache)](https://pypi.org/project/client-query-cache/)
 
-`client-query-cache` uses MongoDB change streams to keep cached reads coherent. It supports synchronous and asyncio applications without requiring a separate cache server.
+`client-query-cache` uses MongoDB change streams to asynchronously invalidate cached query results. It supports synchronous and asyncio applications without requiring a separate cache server.
 
-Cache hits are served from process memory, reducing read latency and database load in read-heavy applications. The library is tested against real MongoDB replica sets, including concurrency stress tests, and automated checks guard its performance and memory use against regressions.
+```mermaid
+%%{init: {"flowchart": {"diagramPadding": 75}}}%%
+flowchart LR
+    App["Python<br/>application"] -->|"Reads"| Cache["Client-side<br/>caching"]
+    Cache -->|"Miss / bypass"| DB[("MongoDB")]
+    DB -.->|"Change streams<br/>Async invalidation"| Cache
+```
+
+Cache hits are served from client-side memory, reducing read latency and database load in read-heavy applications.
+
+The library is tested against real MongoDB replica sets, including concurrency stress tests, and automated checks guard its performance and memory use against regressions.
 
 ![Illustrative read latency on a logarithmic scale: direct local MongoDB read, 120 microseconds; direct Atlas M0 read, 79.4 milliseconds; cached read in either deployment, about 61 microseconds.](docs/user/assets/benchmark-latency-light.svg)
 
