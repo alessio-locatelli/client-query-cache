@@ -42,3 +42,5 @@
 - [x] 6.9 Reject a descriptive analysis whose block count differs from the phase's registered blocks. Add a test for the mismatch.
 - [x] 6.10 Check stream openings per worker, both when a group becomes ready and in descriptive exclusion, so uneven openings cannot sum to the expected total, and reject `hot_keys` without hot write targets. Add tests for uneven openings and the rejected configuration.
 - [x] 6.11 Require every completed read of a cached cold window to record a miss, with no hits or bypasses, and reject cold identities that repeat a worker's keys. Add regression tests for bypassed and repeated cold reads, and validate the real cold smoke windows against the rule.
+- [x] 6.12 Reject a registration that derives writes from `reads_per_write` while a calibration family would probe the `active` workload, because closed-loop probes have no offered rate. Add tests for an omitted and an active `probe_workload`.
+- [x] 6.13 Make the served-catalogue test wait until a worker listens before it sends its request, because Uvicorn's supervisor binds the socket without listening.
