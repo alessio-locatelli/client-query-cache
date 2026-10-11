@@ -2,7 +2,7 @@
 
 ## Why
 
-[Issue #245](https://github.com/alessio-locatelli/client-query-cache/issues/245): `canonicalize()` does not recognize the tagged tuples that `order_sensitive_keys.py` builds, so it wraps every order-sensitive node in two generic-sequence layers. Half of the tuples in every filter-derived cache key carry no information, yet they stay resident for each entry outside the BSON budget and are rebuilt on every lookup. In the [process-memory report](../../../reports/process-memory/summary.md#per-entry-attribution), key tuples are the largest bookkeeping cost of small namespace entries.
+[Issue #245](https://github.com/alessio-locatelli/client-query-cache/issues/245): `canonicalize()` does not recognize the tagged tuples that `order_sensitive_keys.py` builds, so it wraps every order-sensitive node in two generic-sequence layers. Half of the tuples in every filter-derived cache key carry no information, yet they stay resident for each entry outside the BSON budget and are rebuilt on every lookup. In the [process-memory report](../../../../reports/process-memory/summary.md#per-entry-attribution), key tuples are the largest bookkeeping cost of small namespace entries.
 
 ## What Changes
 
