@@ -36,7 +36,12 @@ from benchmarks.stream_cost.shared_cache.owner import owner_main, proxy_for
 from benchmarks.stream_cost.shared_cache.profiling import enabled as profiling_enabled
 from benchmarks.stream_cost.shared_cache.protocol import write_count
 from benchmarks.stream_cost.shared_cache.worker import WorkerSpec, worker_main
-from benchmarks.stream_cost.shared_cache.workload import key_order, worker_keys
+from benchmarks.stream_cost.shared_cache.workload import (
+    assignment_for,
+    key_order,
+    warm_key,
+    worker_keys,
+)
 from client_query_cache._types import (
     BsonDict,
     NonNegativeFloat,
@@ -315,6 +320,11 @@ def _spec(
     index: NonNegativeInt,
     attachment: AttachmentConfig | None,
 ) -> WorkerSpec:
+    keys = (
+        worker_keys(cast("int", registration.raw["seed"]), index, workload.keys)
+        if registration.key_assignment == "shared"
+        else workload.keys
+    )
     return WorkerSpec(
         cell=cell,
         index=index,
@@ -325,11 +335,13 @@ def _spec(
         client_options=registration.section("client_options"),
         read=workload.read,  # type: ignore[arg-type]
         limit=workload.limit,
-        keys=worker_keys(cast("int", registration.raw["seed"]), index, workload.keys)
-        if registration.key_assignment == "shared"
-        else workload.keys,
+        keys=keys,
         key_assignment=registration.key_assignment,
-        warm_key=workload.keys[(-1 - index) % len(workload.keys)],
+        warm_key=warm_key(
+            assignment_for(cell, index, keys, registration.key_assignment, warmup=False)
+        )
+        if cell.workload == "cold"
+        else None,
         budget_bytes=cast("int", registration.raw["budget_bytes"]),
         max_entry_bytes=cast("int", registration.raw["max_entry_bytes"]),
         max_await_time_ms=cast("int", registration.raw["max_await_time_ms"]),

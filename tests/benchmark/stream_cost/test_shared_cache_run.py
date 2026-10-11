@@ -53,6 +53,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from benchmarks.stream_cost.shared_cache.protocol import Cell
+    from benchmarks.stream_cost.shared_cache.worker import WorkerSpec
 
 pytestmark = pytest.mark.unit
 
@@ -157,7 +158,9 @@ def _record(
         "wire_sent": 10,
         "wire_received": 10,
         "outcomes": {
-            "hits": completed if hits is None else hits,
+            "hits": (0 if cell.workload == "cold" else completed)
+            if hits is None
+            else hits,
             "misses": misses,
             "bypasses": 0,
             "bypass_reasons": {},
@@ -358,17 +361,20 @@ def test_validation_rejects_overloaded_or_short_windows(
 
 
 @pytest.mark.parametrize(
-    ("completed", "expected"),
+    ("completed", "hits", "expected"),
     [
-        pytest.param(10_000, None, id="complete"),
-        pytest.param(9_999, "cold window did not complete every identity", id="short"),
+        pytest.param(10_000, 0, None, id="complete"),
+        pytest.param(
+            9_999, 0, "cold window did not complete every identity", id="short"
+        ),
+        pytest.param(10_000, 1, "cold window recorded cache hits", id="hit"),
     ],
 )
-def test_cold_validation_requires_every_identity(
-    registration: Registration, completed: int, expected: str | None
+def test_cold_validation_requires_every_identity_to_miss(
+    registration: Registration, completed: int, hits: int, expected: str | None
 ) -> None:
     cell = validation_cells(registration, "cold", 1000.0, {})[0]
-    record = _record(cell)
+    record = _record(cell, hits=hits)
     record["completed"] = completed
 
     assert validation_failure(record, registration) == expected
@@ -773,10 +779,11 @@ def _comparison_records(
     *,
     shared_pss: float,
     blocks: int,
+    phase: str = "confirmation",
 ) -> list[JsonDict]:
     cells = [
         cell
-        for cell in comparison_cells(frozen, "confirmation")
+        for cell in comparison_cells(frozen, phase)
         if cell.block < blocks and cell.workers == 4 and cell.model == "sync"
     ]
     return [
@@ -788,6 +795,19 @@ def _comparison_records(
         )
         for cell in cells
     ]
+
+
+def _report(
+    config: Path, phase: str, records: list[JsonDict], revision: str = "a" * 40
+) -> JsonDict:
+    return {
+        "phase": phase,
+        "environment": {
+            "configuration_sha256": Registration.load(config).digest,
+            "revision": revision,
+        },
+        "cells": records,
+    }
 
 
 def _settings(
@@ -924,9 +944,9 @@ def test_analysis_command_describes_and_decides(
     config = tmp_path / "config.json"
     config.write_text(json.dumps(frozen.raw))
     report = tmp_path / "report.json"
-    records = _comparison_records(frozen, shared_pss=50.0, blocks=2)
+    records = _comparison_records(frozen, shared_pss=50.0, blocks=2, phase="screening")
     records.append(_record(comparison_cells(frozen, "screening")[0], healthy=False))
-    report.write_text(json.dumps({"cells": records}))
+    report.write_text(json.dumps(_report(config, "screening", records)))
 
     analysis.main(
         [str(report), "--config", str(config), "--phase", "screening", "--blocks", "2"]
@@ -1366,13 +1386,6 @@ def _assign(raw: JsonDict, keys: tuple[str, ...], value: object) -> None:
             "no calibration family covers hot cells",
             id="uncalibrated",
         ),
-        pytest.param(
-            ("calibration", "families", "steady"),
-            {"cells": [["active", "async", 1]]},
-            "steady",
-            "steady family is malformed",
-            id="family",
-        ),
     ],
 )
 def test_unregistered_phases_and_malformed_cells_are_configuration_errors(
@@ -1493,9 +1506,37 @@ def test_closed_loop_windows_cannot_derive_a_write_count(
         ),
         pytest.param(("paths",), ["direct", "redis"], "paths", id="unknown-path"),
         pytest.param(("paths",), [], "paths", id="no-paths"),
+        pytest.param(("calibration", "families"), {}, "no families", id="no-families"),
+        pytest.param(
+            ("calibration", "families", "steady"),
+            {"cells": [["active", "async", 1]]},
+            "steady family is malformed",
+            id="malformed-family",
+        ),
+        pytest.param(
+            ("calibration", "families", "steady", "cells"),
+            [],
+            "steady family lists no cells",
+            id="empty-family",
+        ),
+        pytest.param(
+            ("calibration", "probe_windows"), 0, "probe_windows", id="no-probes"
+        ),
+        pytest.param(
+            ("calibration", "validation_repetitions"),
+            0,
+            "validation_repetitions",
+            id="no-validation",
+        ),
+        pytest.param(
+            ("calibration", "rate_attempts"), 0, "rate_attempts", id="no-attempts"
+        ),
+        pytest.param(
+            ("phases", "steady", "blocks"), 0, "steady phase blocks", id="no-blocks"
+        ),
     ],
 )
-def test_unsupported_workload_settings_are_rejected(
+def test_unsupported_registration_settings_are_rejected(
     concurrent: Registration, keys: tuple[str, ...], value: object, message: str
 ) -> None:
     raw = copy.deepcopy(concurrent.raw)
@@ -1690,7 +1731,7 @@ def test_analysis_command_describes_an_ungated_registration(
     config.write_text(json.dumps(described.raw))
     report = tmp_path / "report.json"
     records = _describable(described, blocks=2, lag_events=250, bypasses=0)
-    report.write_text(json.dumps({"cells": records}))
+    report.write_text(json.dumps(_report(config, "steady", records)))
 
     analysis.main(
         [str(report), "--config", str(config), "--phase", "steady", "--blocks", "2"]
@@ -1746,14 +1787,118 @@ def test_gated_decisions_are_unchanged(
 def test_hot_set_limits_only_warm_workloads(concurrent_frozen: Registration) -> None:
     steady = comparison_cells(concurrent_frozen, "steady")[0]
     cold = replace(steady, workload="cold", identities=100)
-    raw = copy.deepcopy(concurrent_frozen.raw)
-    raw["hot_keys"] = 2
-    tiny = replace(concurrent_frozen, raw=raw)
-    workload = window._workload(tiny, steady)
-
-    spec = window._spec(
-        tiny, steady, workload, "mongodb://unused", index=5, attachment=None
-    )
 
     assert len(window._workload(concurrent_frozen, cold).keys) == 16_384
-    assert spec.warm_key in workload.keys
+    assert len(window._workload(concurrent_frozen, steady).keys) == 1_024
+
+
+def _cold_specs(registration: Registration, identities: int) -> tuple[WorkerSpec, ...]:
+    raw = copy.deepcopy(registration.raw)
+    cast("JsonDict", cast("JsonDict", raw["profiles"])["primary"])["documents"] = 256
+    resized = replace(registration, raw=raw)
+    cell = replace(
+        comparison_cells(resized, "steady")[0],
+        workload="cold",
+        workers=2,
+        identities=identities,
+    )
+    workload = window._workload(resized, cell)
+    return tuple(
+        window._spec(
+            resized, cell, workload, "mongodb://unused", index=index, attachment=None
+        )
+        for index in range(cell.workers)
+    )
+
+
+def _with_assignment(registration: Registration, assignment: str) -> Registration:
+    raw = copy.deepcopy(registration.raw)
+    raw["key_assignment"] = assignment
+    return replace(registration, raw=raw)
+
+
+@pytest.mark.parametrize("assignment", ["shared", "partitioned"])
+def test_cold_workers_warm_a_key_outside_their_measured_identities(
+    concurrent_frozen: Registration, assignment: str
+) -> None:
+    specs = _cold_specs(_with_assignment(concurrent_frozen, assignment), identities=200)
+
+    for spec in specs:
+        measured = spec.assignment(warmup=False)
+        assert spec.warm_key is not None
+        assert spec.warm_key not in {
+            measured.key(ordinal) for ordinal in measured.ordinals()
+        }
+
+
+def test_cold_identities_must_leave_a_key_to_warm(
+    concurrent_frozen: Registration,
+) -> None:
+    with pytest.raises(BenchmarkConfigurationError, match="no unread key"):
+        _cold_specs(concurrent_frozen, identities=512)
+
+
+def _foreign_registration(first: JsonDict, _second: JsonDict) -> None:
+    cast("JsonDict", first["environment"])["configuration_sha256"] = "0" * 64
+
+
+def _foreign_phase(_first: JsonDict, second: JsonDict) -> None:
+    second["phase"] = "smoke"
+
+
+def _foreign_revision(_first: JsonDict, second: JsonDict) -> None:
+    cast("JsonDict", second["environment"])["revision"] = "b" * 40
+
+
+def _foreign_window(_first: JsonDict, second: JsonDict) -> None:
+    cast("list[JsonDict]", second["cells"])[0]["phase"] = "validation"
+
+
+def _repeated_windows(first: JsonDict, second: JsonDict) -> None:
+    second["cells"] = first["cells"]
+
+
+@pytest.mark.parametrize(
+    ("alter", "message"),
+    [
+        pytest.param(_foreign_registration, "another registration", id="registration"),
+        pytest.param(_foreign_phase, "holds the smoke phase", id="phase"),
+        pytest.param(_foreign_revision, "different revisions", id="revision"),
+        pytest.param(_foreign_window, "outside the steady phase", id="window"),
+        pytest.param(_repeated_windows, "duplicate", id="duplicate"),
+    ],
+)
+def test_analysis_rejects_mismatched_or_repeated_evidence(
+    tmp_path: Path,
+    described: Registration,
+    alter: Callable[[JsonDict, JsonDict], None],
+    message: str,
+) -> None:
+    config = tmp_path / "config.json"
+    config.write_text(json.dumps(described.raw))
+    records = _describable(described, blocks=2, lag_events=250, bypasses=0)
+    reports = [
+        _report(
+            config,
+            "steady",
+            [record for record in records if record["block"] == block],
+        )
+        for block in (0, 1)
+    ]
+    alter(*reports)
+    paths = [tmp_path / f"steady-{block}.json" for block in (0, 1)]
+    for path, report in zip(paths, reports, strict=True):
+        path.write_text(json.dumps(report))
+
+    with pytest.raises(BenchmarkSetupError, match=message):
+        analysis.main(
+            [
+                *map(str, paths),
+                "--config",
+                str(config),
+                "--phase",
+                "steady",
+                "--blocks",
+                "2",
+            ]
+        )

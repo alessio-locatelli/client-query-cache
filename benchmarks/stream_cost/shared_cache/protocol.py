@@ -53,6 +53,25 @@ class Registration:
     digest: str
 
     def __post_init__(self) -> None:
+        self._validate_workload()
+        self._validate_plan()
+
+    def _validate_plan(self) -> None:
+        if not families(self):
+            message = "calibration lists no families"
+            raise BenchmarkConfigurationError(message)
+        calibration = self.section("calibration")
+        for name in ("probe_windows", "validation_repetitions", "rate_attempts"):
+            if not _positive(calibration[name]):
+                message = f"calibration {name} must be a positive integer"
+                raise BenchmarkConfigurationError(message)
+        phases = cast("dict[str, JsonDict]", self.section("phases"))
+        for phase, settings in phases.items():
+            if "blocks" in settings and not _positive(settings["blocks"]):
+                message = f"{phase} phase blocks must be a positive integer"
+                raise BenchmarkConfigurationError(message)
+
+    def _validate_workload(self) -> None:
         active = self.section("active")
         if "updates" in active and "reads_per_write" in active:
             message = "active windows set both updates and reads_per_write"
@@ -325,6 +344,8 @@ def validation_failure(record: JsonDict, registration: Registration) -> str | No
     if record["workload"] == "cold":
         if record["completed"] != record["identities"]:
             return "cold window did not complete every identity"
+        if any(cast("JsonDict", worker["outcomes"])["hits"] for worker in workers):
+            return "cold window recorded cache hits"
         return None
     floor = cast("int", registration.number("calibration", "sample_floor"))
     populations = cast("JsonDict", record["populations"])
