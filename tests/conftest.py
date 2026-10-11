@@ -101,7 +101,7 @@ def mongodb_uri() -> Iterator[MongoDbUri]:
     with ExitStack() as resources:
         try:
             # renovate: datasource=docker depName=mongo versioning=docker
-            container = DockerContainer("mongo:8.0.4-noble")
+            container = DockerContainer("mongo:8.3.11-noble")
             # MongoDB 8.0: https://www.mongodb.com/docs/v8.0/reference/program/mongod/
             # --replSet: The default is no replica set. We override it because the
             # disposable runtime must support change streams.

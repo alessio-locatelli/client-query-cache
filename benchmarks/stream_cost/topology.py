@@ -34,7 +34,7 @@ if TYPE_CHECKING:
     from types import TracebackType
 
 # renovate: datasource=docker depName=mongo versioning=docker
-MONGODB_IMAGE = "mongo:8.0.4-noble"
+MONGODB_IMAGE = "mongo:8.3.11-noble"
 
 _REPLICA_SET_NAME = "rs0"
 _MONGODB_PORT = 27017
