@@ -165,7 +165,7 @@ def _record(
             "bypasses": 0,
             "bypass_reasons": {},
         },
-        "streams": cell.workers if cell.path == "independent" else 0,
+        "streams": 1 if cell.path == "independent" else 0,
         "loop": loop,
         "lag": {"lag_windows": [[0.01, 0.02]]},
     }
@@ -2018,3 +2018,27 @@ def test_descriptive_analysis_requires_the_registered_block_count(
 
     with pytest.raises(BenchmarkConfigurationError, match="registers 2 blocks"):
         analysis.describe_phase(records, described, phase="steady", blocks=1)
+
+
+def test_a_hot_set_requires_hot_write_targets(concurrent: Registration) -> None:
+    raw = copy.deepcopy(concurrent.raw)
+    del cast("JsonDict", raw["active"])["write_keys"]
+
+    with pytest.raises(BenchmarkConfigurationError, match="needs active write_keys"):
+        Registration(raw, concurrent.digest)
+
+
+def test_descriptive_analysis_requires_one_stream_per_cached_worker(
+    described: Registration,
+) -> None:
+    record = next(
+        record
+        for record in _describable(described, lag_events=250, bypasses=0)
+        if record["path"] == "independent" and record["workers"] == 4
+    )
+    worker = cast("list[JsonDict]", record["workers_measured"])[0]
+    record["workers_measured"] = [{**worker, "streams": 2}, {**worker, "streams": 0}]
+
+    assert analysis.exclusion_reason(record, described) == (
+        "observed stream openings differ from the registered count"
+    )

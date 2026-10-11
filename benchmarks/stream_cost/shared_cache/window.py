@@ -373,8 +373,8 @@ def _verify_ready(
         ):
             raise BenchmarkSetupError("shared working set was not fully admitted")
         group.owner_request({"op": "reset"}, deadline)
-    expected_streams = cell.workers if cell.path == "independent" else 0
-    if sum(_count(sample, "streams") for sample in ready) != expected_streams:
+    per_worker = 1 if cell.path == "independent" else 0
+    if any(_count(sample, "streams") != per_worker for sample in ready):
         raise BenchmarkSetupError("worker stream ownership differs from its path")
 
 

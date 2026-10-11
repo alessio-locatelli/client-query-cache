@@ -131,14 +131,27 @@ def test_cleanup_tolerates_a_closed_owner_pipe(group: window.ProcessGroup) -> No
     assert process.joined
 
 
+@pytest.mark.parametrize(
+    ("path", "streams"),
+    [
+        pytest.param("direct", (1, 0), id="direct-stream"),
+        pytest.param("independent", (2, 0), id="uneven-independent-streams"),
+    ],
+)
 def test_ready_checks_reject_unexpected_stream_ownership(
-    registration: Registration, group: window.ProcessGroup
+    registration: Registration,
+    group: window.ProcessGroup,
+    path: str,
+    streams: tuple[int, int],
 ) -> None:
-    cell = next(cell for cell in smoke_cells(registration) if cell.path == "direct")
+    cell = next(
+        cell
+        for cell in smoke_cells(registration)
+        if cell.path == path and cell.workload == "hot"
+    )
     workload = window._workload(registration, cell)
     ready: list[JsonDict] = [
-        {"entries": None, "streams": 1},
-        {"entries": None, "streams": 0},
+        {"entries": workload.expected_entries, "streams": count} for count in streams
     ]
 
     with pytest.raises(BenchmarkSetupError, match="stream ownership"):
