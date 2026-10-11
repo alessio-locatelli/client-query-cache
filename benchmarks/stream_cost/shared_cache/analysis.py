@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 
 
 type Estimand = Literal["ratio", "delta", "absolute"]
-type CellKey = tuple[str, str, str, int]
+type CellKey = tuple[str, str, str, int] | tuple[str, str, str, int, int]
 type Statistics = Callable[[JsonDict], dict[str, float]]
 
 _CONFIG = Path("reports/shared-worker-cache/v4/config.json")
@@ -242,27 +242,39 @@ def window_statistics(record: JsonDict, lag_floor: NonNegativeInt) -> dict[str, 
 
 
 def cell_key(record: JsonDict) -> CellKey:
-    return (
+    key = (
         str(record["workload"]),
         str(record["profile"]),
         str(record["model"]),
         cast("int", record["workers"]),
     )
+    if record["phase"] == "capacity":
+        return (*key, cast("int", record["concurrency"]))
+    return key
+
+
+def reject_duplicates(records: Iterable[JsonDict]) -> None:
+    seen: set[tuple[CellKey, str, int]] = set()
+    for record in records:
+        window = (cell_key(record), str(record["path"]), cast("int", record["block"]))
+        if window in seen:
+            message = f"duplicate window {window}"
+            raise BenchmarkSetupError(message)
+        seen.add(window)
 
 
 def paired_blocks(
     records: Iterable[JsonDict], statistics: Statistics = block_statistics
 ) -> dict[CellKey, dict[str, dict[int, dict[str, float] | None]]]:
+    grouped = list(records)
+    reject_duplicates(grouped)
     cells: dict[CellKey, dict[str, dict[int, dict[str, float] | None]]] = {}
-    for record in records:
-        key = cell_key(record)
-        paths = cells.setdefault(key, {})
+    for record in grouped:
+        paths = cells.setdefault(cell_key(record), {})
         blocks = paths.setdefault(str(record["path"]), {})
-        block = cast("int", record["block"])
-        if block in blocks:
-            message = f"duplicate {record['path']} block {block} for cell {key}"
-            raise BenchmarkSetupError(message)
-        blocks[block] = statistics(record) if record["healthy"] else None
+        blocks[cast("int", record["block"])] = (
+            statistics(record) if record["healthy"] else None
+        )
     return cells
 
 
@@ -609,6 +621,7 @@ def describe_phase(
 ) -> JsonDict:
     settings = registration.section("analysis")
     inference = registration.section("inference")
+    reject_duplicates(records)
     excluded: list[JsonDict] = []
     usable: list[JsonDict] = []
     for record in records:
@@ -701,6 +714,7 @@ def load_records(
     if any(record["phase"] != phase for record in records):
         message = f"a report holds windows outside the {phase} phase"
         raise BenchmarkSetupError(message)
+    reject_duplicates(records)
     return records
 
 

@@ -1874,6 +1874,13 @@ def _repeated_windows(first: JsonDict, second: JsonDict) -> None:
     second["cells"] = first["cells"]
 
 
+def _failed_window_rerun(first: JsonDict, second: JsonDict) -> None:
+    window = cast("list[JsonDict]", first["cells"])[0]
+    cast("list[JsonDict]", second["cells"]).append(
+        {**window, "healthy": False, "failure": "deliberate failure"}
+    )
+
+
 @pytest.mark.parametrize(
     ("alter", "message"),
     [
@@ -1882,6 +1889,7 @@ def _repeated_windows(first: JsonDict, second: JsonDict) -> None:
         pytest.param(_foreign_revision, "different revisions", id="revision"),
         pytest.param(_foreign_window, "outside the steady phase", id="window"),
         pytest.param(_repeated_windows, "duplicate", id="duplicate"),
+        pytest.param(_failed_window_rerun, "duplicate", id="failed-rerun"),
     ],
 )
 def test_analysis_rejects_mismatched_or_repeated_evidence(
@@ -1918,3 +1926,42 @@ def test_analysis_rejects_mismatched_or_repeated_evidence(
                 "2",
             ]
         )
+
+
+def test_descriptive_analysis_rejects_a_failed_window_and_its_rerun(
+    described: Registration,
+) -> None:
+    records = _describable(described, blocks=1, lag_events=250, bypasses=0)
+    records.append({**records[0], "healthy": False, "failure": "deliberate failure"})
+
+    with pytest.raises(BenchmarkSetupError, match="duplicate window"):
+        analysis.describe_phase(records, described, phase="steady", blocks=1)
+
+
+def test_capacity_analysis_keeps_each_concurrency_level(frozen: Registration) -> None:
+    records = [_record(cell) for cell in capacity_cells(frozen) if cell.block == 0]
+
+    rows = analysis.descriptive(records)
+
+    keys = {cast("tuple[str, str, str, int, int]", row["cell"]) for row in rows}
+    assert {key[4] for key in keys} == {1, 4, 16}
+    assert len(rows) == len(records)
+
+
+def test_shared_key_assignment_rejects_cold_windows_on_the_shared_path(
+    registration: Registration,
+) -> None:
+    raw = copy.deepcopy(registration.raw)
+    raw["key_assignment"] = "shared"
+
+    with pytest.raises(BenchmarkConfigurationError, match="all-miss cold windows"):
+        Registration(raw, registration.digest)
+
+
+def test_shared_key_assignment_allows_the_shared_path_without_cold_windows(
+    concurrent: Registration,
+) -> None:
+    raw = copy.deepcopy(concurrent.raw)
+    raw["paths"] = ["direct", "independent", "shared"]
+
+    assert "shared" in Registration(raw, concurrent.digest).paths
