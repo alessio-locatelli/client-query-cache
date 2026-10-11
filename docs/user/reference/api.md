@@ -128,12 +128,16 @@ with directions `1` or `-1`; collation accepts a PyMongo `Collation` or a dictio
 the collection default. Sorting follows MongoDB's ordering guarantees, including its handling of ties.
 Different filters, projections, sorts, collations and decoding options retain their own results.
 
-Exact `_id` lookups under simple collation and qualifying unique indexes can retain a cached result after
-writes to other documents. Partial, sparse and hashed indexes do not qualify for this optimization.
+`find_one()` filters that pin `_id` to an exact value under simple collation, alone or with additional
+predicates, and qualifying unique-index `find_one()` reads can retain a cached result after writes to other
+documents. For example, `cached_collection.find_one({"_id": order_id, "customer_id": customer_id})`
+keeps its cached result when another order changes. Partial, sparse and hashed indexes do not qualify for this optimization.
 Unique-index collation must have a confirmed match: inherited defaults and fully specified explicit matches
 qualify; an explicit collation with omitted defaults may use collection-wide invalidation instead.
 Other eligible single-document queries are refreshed after any write to the collection, including writes
-that could introduce a match for a cached missing result.
+that could introduce a match for a cached missing result. Every `find()`, `aggregate()`,
+`count_documents()`, `distinct()` and `estimated_document_count()` result is also refreshed after any
+write to the collection.
 
 Cache invalidation is eventual. A cached read can return its previous value until the manager processes
 the relevant change-stream event. Use the PyMongo collection or a session-bound read when you need to

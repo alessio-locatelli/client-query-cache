@@ -2000,14 +2000,14 @@ def test_find_one_sort_and_projection_shapes_do_not_collide(
     assert spy.call_count == 3
 
 
-@pytest.mark.parametrize("scalar_identity", [False, True], ids=["mapping", "scalar"])
+@pytest.mark.parametrize("query_kind", ["mapping", "scalar", "anchored"])
 def test_find_one_inherited_collation_uses_namespace_invalidation(
     cache_manager: CacheManager[BsonDict],
     independent_writer: MongoClient[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
     *,
-    scalar_identity: bool,
+    query_kind: str,
     faker: Faker,
 ) -> None:
     database = cache_manager[cached_database_name]
@@ -2019,7 +2019,11 @@ def test_find_one_inherited_collation_uses_namespace_invalidation(
     query_identity = stored_identity.lower()
     document = {"_id": stored_identity, "rank": 1}
     collection.raw.insert_one(document)
-    query = query_identity if scalar_identity else {"_id": query_identity}
+    query: object = (
+        query_identity if query_kind == "scalar" else {"_id": query_identity}
+    )
+    if query_kind == "anchored":
+        query = {"_id": query_identity, "rank": 1}
     with _spy_on_driver("find_one") as spy:
         assert collection.find_one(query) == document
         assert collection.find_one(query) == document
@@ -2047,7 +2051,9 @@ def test_find_one_inherited_collation_uses_namespace_invalidation(
             > before
         )
     )
-    assert collection.find_one(query) == {"_id": stored_identity, "rank": 2}
+    assert collection.find_one(query) == (
+        None if query_kind == "anchored" else {"_id": stored_identity, "rank": 2}
+    )
 
 
 @pytest.mark.parametrize(
@@ -2201,6 +2207,8 @@ def interrupted_generic_collection(
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
     document = {"_id": faker.uuid4(), "rank": 1}
     collection.raw.insert_one(document)
+    other_identity = faker.uuid4()
+    collection.raw.insert_one({"_id": other_identity, "rank": 0})
     collection.count_documents({})
     namespace = NamespaceId(cached_database_name, nonpersistent_collection_name)
     original_find_one = Collection.find_one
@@ -2214,13 +2222,20 @@ def interrupted_generic_collection(
         if not interrupted:
             assert document is not None
             interrupted = True
-            if request.param == "write":
+            if request.param in {"write", "write-other"}:
                 before = cache_manager.cache_core.capture_namespace_generation(
                     namespace
                 ).generation
                 independent_writer[cached_database_name][
                     nonpersistent_collection_name
-                ].update_one({"_id": document["_id"]}, {"$set": {"rank": 2}})
+                ].update_one(
+                    {
+                        "_id": other_identity
+                        if request.param == "write-other"
+                        else document["_id"]
+                    },
+                    {"$set": {"rank": 2}},
+                )
                 _wait_until(
                     lambda: (
                         cache_manager.cache_core.capture_namespace_generation(
@@ -2289,8 +2304,8 @@ def test_find_one_malformed_filters_preserve_driver_errors(
 
 @pytest.mark.parametrize(
     "query_kind",
-    ["identity", "generic", "unique"],
-    ids=["identity", "generic", "unique"],
+    ["identity", "generic", "unique", "anchored"],
+    ids=["identity", "generic", "unique", "anchored"],
 )
 def test_find_one_explicit_collation_changes_matching_without_alias_leaks(
     cache_manager: CacheManager[BsonDict],
@@ -2305,11 +2320,19 @@ def test_find_one_explicit_collation_changes_matching_without_alias_leaks(
         "_id": stored_spelling,
         "group": stored_spelling,
         "email": stored_spelling,
+        "rank": 1,
     }
     collection.raw.create_index("email", unique=True)
     collection.raw.insert_one(document)
-    query_field = {"identity": "_id", "generic": "group", "unique": "email"}[query_kind]
-    query = {query_field: stored_spelling.lower()}
+    query_field = {
+        "identity": "_id",
+        "generic": "group",
+        "unique": "email",
+        "anchored": "_id",
+    }[query_kind]
+    query: BsonDict = {query_field: stored_spelling.lower()}
+    if query_kind == "anchored":
+        query["rank"] = 1
     with _spy_on_driver("find_one") as spy:
         assert collection.find_one(query) is None
         assert (
@@ -2390,3 +2413,126 @@ def test_scalar_key_failure_preserves_native_arguments_and_error(
         before.entry_count,
     )
     assert after.bypasses == before.bypasses + 1
+
+
+@pytest.mark.parametrize("operation", ["insert", "update", "replace", "delete"])
+def test_id_anchored_find_one_survives_writes_to_other_documents(
+    cache_manager: CacheManager[BsonDict],
+    independent_writer: MongoClient[BsonDict],
+    cached_database_name: DatabaseName,
+    nonpersistent_collection_name: CollectionName,
+    operation: str,
+    *,
+    faker: Faker,
+) -> None:
+    collection = cache_manager[cached_database_name][nonpersistent_collection_name]
+    document = {"_id": faker.uuid4(), "owner": faker.uuid4(), "rank": 1}
+    other = {"_id": faker.uuid4(), "rank": 1}
+    collection.raw.insert_many([document, other])
+    query = {"_id": document["_id"], "owner": document["owner"]}
+    assert collection.find_one(query) == document
+    writer = independent_writer[cached_database_name][nonpersistent_collection_name]
+    if operation == "insert":
+        writer.insert_one({"_id": faker.uuid4(), "rank": 2})
+    elif operation == "update":
+        writer.update_one({"_id": other["_id"]}, {"$set": {"rank": 2}})
+    elif operation == "replace":
+        writer.replace_one({"_id": other["_id"]}, {"rank": 2})
+    else:
+        writer.delete_one({"_id": other["_id"]})
+    wait_for_stream_barrier(
+        cache_manager.cache_core, independent_writer[cached_database_name]
+    )
+    with _spy_on_driver("find_one") as spy:
+        assert collection.find_one(query) == document
+    assert spy.call_count == 0
+
+
+@pytest.mark.parametrize(
+    "operation", ["keep-match", "break-match", "delete", "insert", "gain-match"]
+)
+def test_id_anchored_find_one_refreshes_after_anchored_writes(
+    cache_manager: CacheManager[BsonDict],
+    independent_writer: MongoClient[BsonDict],
+    cached_database_name: DatabaseName,
+    nonpersistent_collection_name: CollectionName,
+    operation: str,
+    *,
+    faker: Faker,
+) -> None:
+    collection = cache_manager[cached_database_name][nonpersistent_collection_name]
+    document = {"_id": faker.uuid4(), "owner": faker.uuid4(), "rank": 1}
+    query = {"_id": document["_id"], "owner": document["owner"]}
+    initial = (
+        {**document, "owner": faker.uuid4()} if operation == "gain-match" else document
+    )
+    if operation != "insert":
+        collection.raw.insert_one(initial)
+    assert collection.find_one(query) == (
+        None if operation in {"insert", "gain-match"} else document
+    )
+    writer = independent_writer[cached_database_name][nonpersistent_collection_name]
+    if operation == "insert":
+        writer.insert_one(document)
+    elif operation == "delete":
+        writer.delete_one({"_id": document["_id"]})
+    else:
+        changes = {
+            "rank": 2,
+            "owner": faker.uuid4() if operation == "break-match" else document["owner"],
+        }
+        writer.update_one({"_id": document["_id"]}, {"$set": changes})
+    wait_for_stream_barrier(
+        cache_manager.cache_core, independent_writer[cached_database_name]
+    )
+    expected = collection.raw.find_one(query)
+    assert (expected is None) == (operation in {"break-match", "delete"})
+    with _spy_on_driver("find_one") as spy:
+        assert collection.find_one(query) == expected
+        assert collection.find_one(query) == expected
+    assert spy.call_count == 1
+
+
+def test_id_anchored_find_one_entries_are_separate(
+    cache_manager: CacheManager[BsonDict],
+    cached_database_name: DatabaseName,
+    nonpersistent_collection_name: CollectionName,
+    faker: Faker,
+) -> None:
+    collection = cache_manager[cached_database_name][nonpersistent_collection_name]
+    document: BsonDict = {"_id": faker.uuid4(), "owner": faker.uuid4()}
+    collection.raw.insert_one(document)
+    queries = (
+        {"_id": document["_id"]},
+        {"_id": document["_id"], "owner": document["owner"]},
+        {"_id": document["_id"], "owner": faker.uuid4()},
+    )
+    expected = tuple(collection.raw.find_one(query) for query in queries)
+    with _spy_on_driver("find_one") as spy:
+        for _ in range(2):
+            for query, match in zip(queries, expected, strict=True):
+                assert collection.find_one(query) == match
+    assert spy.call_count == 3
+
+
+@pytest.mark.parametrize(
+    ("interrupted_generic_collection", "expect_hit"),
+    [("write", False), ("write-other", True)],
+    indirect=["interrupted_generic_collection"],
+    ids=["anchored-write-during-read", "other-write-during-read"],
+)
+def test_id_anchored_find_one_admission_spanning_writes(
+    interrupted_generic_collection: CachedCollection[BsonDict],
+    *,
+    expect_hit: bool,
+) -> None:
+    collection = interrupted_generic_collection
+    documents = collection.raw.find({"rank": 1}).to_list()
+    query = {"_id": documents[0]["_id"], "rank": {"$gte": 1}}
+    first = collection.find_one(query)
+    assert first is not None
+    before = collection.database.manager.snapshot()
+    assert collection.find_one(query) == collection.raw.find_one(query)
+    after = collection.database.manager.snapshot()
+    assert after.hits == before.hits + expect_hit
+    assert after.misses == before.misses + (not expect_hit)

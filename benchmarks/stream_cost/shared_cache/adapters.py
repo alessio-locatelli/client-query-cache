@@ -18,7 +18,7 @@ from client_query_cache._core.cursor_capture import CursorCapture
 from client_query_cache._core.find_reads import FindReadShape, find_read_shape
 from client_query_cache._core.identity_reads import (
     NO_IDENTITY,
-    extract_id_identity,
+    extract_id_anchor,
     normalize_identity_for_cache_key,
 )
 from client_query_cache._core.order_sensitive_keys import order_sensitive_key
@@ -355,8 +355,11 @@ def _identity_outcome(
 
 
 def _prototype_scope(view: View, filter_query: object) -> bool:
-    if extract_id_identity(filter_query) is not NO_IDENTITY and (
-        view._shared._default_collation_for(view._namespace()) is None
+    identity, remainder = extract_id_anchor(filter_query)
+    if (
+        identity is not NO_IDENTITY
+        and not remainder
+        and (view._shared._default_collation_for(view._namespace()) is None)
     ):
         return False
     view._shared.observation.record_bypass(PROTOTYPE_SCOPE)
@@ -473,6 +476,7 @@ class SharedCachedCollection[DocumentType: Mapping[str, Any]](
     def _find_one_by_id(
         self,
         identity: object,
+        filter_query: Mapping[str, Any],
         projection: Mapping[str, Any] | Sequence[str] | None,
         read_shape: object,
         *,
@@ -487,11 +491,11 @@ class SharedCachedCollection[DocumentType: Mapping[str, Any]](
             return value  # type: ignore[return-value]
         if outcome != "miss":
             return self._collection.find_one(
-                {"_id": identity}, projection, sort=sort, collation=collation
+                filter_query, projection, sort=sort, collation=collation
             )
         try:
             document = self._forced_collection_handle().find_one(
-                {"_id": identity}, projection, sort=sort, collation=collation
+                filter_query, projection, sort=sort, collation=collation
             )
         except BaseException:
             if value is not None:
@@ -570,6 +574,7 @@ class AsyncSharedCachedCollection[DocumentType: Mapping[str, Any]](
     async def _find_one_by_id(
         self,
         identity: object,
+        filter_query: Mapping[str, Any],
         projection: Mapping[str, Any] | Sequence[str] | None,
         read_shape: object,
         *,
@@ -584,11 +589,11 @@ class AsyncSharedCachedCollection[DocumentType: Mapping[str, Any]](
             return value  # type: ignore[return-value]
         if outcome != "miss":
             return await self._collection.find_one(
-                {"_id": identity}, projection, sort=sort, collation=collation
+                filter_query, projection, sort=sort, collation=collation
             )
         try:
             document = await self._forced_collection_handle().find_one(
-                {"_id": identity}, projection, sort=sort, collation=collation
+                filter_query, projection, sort=sort, collation=collation
             )
         except BaseException:
             if value is not None:

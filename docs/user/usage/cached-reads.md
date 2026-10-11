@@ -86,7 +86,7 @@ product = cached_products.find_one(
 )
 ```
 
-An exact `_id` lookup or a qualifying unique index can keep its cached result when another document changes. Other eligible queries are refreshed after any write to the collection. See [single-document reads](../reference/api.md#single-document-reads) for sort, collation, projection, index, and decoding rules.
+`find_one()` filters that pin `_id` to an exact value under simple collation, alone or with additional predicates, and qualifying unique-index `find_one()` reads can keep their cached result when another document changes. Other eligible `find_one()` filters, and every `find()`, `aggregate()`, `count_documents()`, `distinct()` and `estimated_document_count()` result, are refreshed after any write to the collection. See [single-document reads](../reference/api.md#single-document-reads) for sort, collation, projection, index, and decoding rules.
 
 ## Why only reads are cached
 

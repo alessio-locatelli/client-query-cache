@@ -16,4 +16,6 @@ Start with [CONTRIBUTING](../../CONTRIBUTING.md) for the development environment
 - [Shared invalidation research](research/shared-invalidation-feasibility.md): multi-process measurements, coordination assessment, and reproduction guidance.
 - [Shared worker cache research](research/shared-worker-cache-feasibility.md): shared-storage prototype, screening verdict, bottleneck attribution, and reproduction guidance.
 
+- [Invalidation scope research](research/invalidation-scope.md): anchored reads under interleaved writes, modeled alternatives, and miss-cost follow-ups.
+
 Published library guides live in [docs/user](../user/index.md).

@@ -54,10 +54,12 @@ writes and schema changes occur.
   lets the original native operation validate its arguments and session; this preserves native error ordering. Cancellation and process-control exceptions propagate.
   The resolver reads local context only and issues no database commands.
 - **Cache granularity**: entries are scoped to a MongoDB namespace (`database.collection`), then further scoped
-  within it. A read resolved to one document — by `_id`, or by a value in a field a unique index enforces — is
+  within it. A `find_one` filter that pins `_id` to an exact value under simple collation, alone or with additional
+  predicates, or resolves through a qualifying unique index is
   cached and invalidated per document, so a write to one document never invalidates another document's cached
   entry. Document identities compare by value as MongoDB compares them, so a write to a document whose stored
-  `_id` is the decimal `1` invalidates a cached read by the integer `_id` `1`. A read with no such resolved identity (a generic `find_one` query or a bounded `find`/`aggregate`/`count_documents`/`distinct` result) is
+  `_id` is the decimal `1` invalidates a cached read by the integer `_id` `1`. Every other eligible `find_one` filter, and every `find`, `aggregate`, `count_documents`, `distinct` and
+  `estimated_document_count` result, is
   cached and invalidated as a whole namespace: any write to that collection invalidates every such cached result for
   it, regardless of which document the write touched.
 - **Unique-key discovery**: the facade discovers which fields can resolve a single-document lookup from the

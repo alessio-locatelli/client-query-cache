@@ -9,6 +9,7 @@ Before enabling the cache for a workload, weigh these factors — each is covere
   the cost of processing a change-stream event and invalidating cache entries on every write, while a shrinking
   share of reads ever reach a warm entry before it's invalidated again. Compare the `read_heavy`, `balanced`, and
   `write_dominant` [reports](stream-cost.md#reports) for a sense of the difference.
+- **Query shape.** `find_one` filters that pin an exact `_id` under simple collation, including additional predicates, and qualifying unique-index `find_one` reads survive writes to other documents. Other cached reads in a frequently written collection mostly miss, and each miss costs more than a direct read. See the [invalidation scope research](https://github.com/alessio-locatelli/client-query-cache/blob/main/docs/development/research/invalidation-scope.md) for the measured workload and limits.
 - **Topology and process model.** Caching a database costs one change-stream cursor per active database per
   `CacheManager` instance (see [capacity estimation](../operations/deployment.md#capacity-estimation)); a high-fan-out or
   short-lived-process deployment, or a manager watching many databases, pays that fixed cost more often or more

@@ -13,7 +13,7 @@ from bson.regex import Regex
 
 from client_query_cache._core.identity_reads import (
     NO_IDENTITY,
-    extract_id_identity,
+    extract_id_anchor,
     normalize_identity_for_cache_key,
 )
 
@@ -25,7 +25,13 @@ pytestmark = pytest.mark.unit
     [
         pytest.param(None, NO_IDENTITY, id="no-filter"),
         pytest.param({"a": 1}, NO_IDENTITY, id="non-id-field"),
-        pytest.param({"_id": 1, "extra": 2}, NO_IDENTITY, id="compound-filter"),
+        pytest.param({"_id": 1, "extra": 2}, 1, id="compound-filter"),
+        pytest.param({"extra": 2, "_id": 1, "last": 3}, 1, id="id-between-predicates"),
+        pytest.param(
+            {"_id": {"$in": [1, 2]}, "a": 1}, NO_IDENTITY, id="compound-operator"
+        ),
+        pytest.param({"_id": None, "a": 1}, NO_IDENTITY, id="compound-null"),
+        pytest.param({"_id": Regex("^doc-"), "a": 1}, NO_IDENTITY, id="compound-regex"),
         pytest.param(
             {"_id": {"$in": [1, 2]}}, NO_IDENTITY, id="id-with-query-operator"
         ),
@@ -46,8 +52,15 @@ pytestmark = pytest.mark.unit
         pytest.param(Regex("^doc-"), NO_IDENTITY, id="bson-regex-shorthand"),
     ],
 )
-def test_extract_id_identity(filter_query: object, expected: object) -> None:
-    assert extract_id_identity(filter_query) == expected
+def test_extract_id_anchor(filter_query: object, expected: object) -> None:
+    identity, remainder = extract_id_anchor(filter_query)
+    assert identity == expected
+    if expected is NO_IDENTITY or not isinstance(filter_query, dict):
+        assert remainder == {}
+    else:
+        assert tuple(remainder.items()) == tuple(
+            (key, value) for key, value in filter_query.items() if key != "_id"
+        )
 
 
 def test_normalize_identity_passes_through_plain_scalars() -> None:
