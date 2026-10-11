@@ -380,6 +380,14 @@ def required_samples(registration: Registration) -> PositiveInt:
     return math.ceil(floor / completion)
 
 
+def measurement_environment(environment: JsonDict) -> JsonDict:
+    return {
+        key: value
+        for key, value in environment.items()
+        if key != "available_memory_bytes"
+    }
+
+
 def validation_failure(record: JsonDict, registration: Registration) -> str | None:
     offered = cast("int", record["offered"])
     in_window = cast("int", record["completed_in_window"])

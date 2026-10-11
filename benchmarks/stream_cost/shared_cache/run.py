@@ -25,6 +25,7 @@ from benchmarks.stream_cost.shared_cache.protocol import (
     families,
     family_cells,
     family_probe_cells,
+    measurement_environment,
     probe_cells,
     required_samples,
     smoke_cells,
@@ -149,8 +150,6 @@ def resumed_cells(
     path: Path, phase: str, registration: Registration, exploratory: str | None
 ) -> list[JsonDict]:
     report = json.loads(path.read_text(encoding="utf-8"))
-    current = environment(registration)
-    previous = cast("JsonDict", report["environment"])
     try:
         limit = report["exploratory"]
     except KeyError:
@@ -158,14 +157,10 @@ def resumed_cells(
     if (
         report["phase"] != phase
         or limit != exploratory
-        or any(
-            previous[key] != current[key]
-            for key in ("revision", "dirty_tree", "configuration_sha256")
-        )
+        or measurement_environment(cast("JsonDict", report["environment"]))
+        != measurement_environment(environment(registration))
     ):
-        message = (
-            "resumed report has another phase, cell limit, revision or registration"
-        )
+        message = "resumed report has another phase, cell limit or environment"
         raise BenchmarkSetupError(message)
     return cast("list[JsonDict]", report["cells"])
 

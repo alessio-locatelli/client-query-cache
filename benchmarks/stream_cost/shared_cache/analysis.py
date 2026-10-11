@@ -16,6 +16,7 @@ from benchmarks.stream_cost.errors import (
 )
 from benchmarks.stream_cost.shared_cache.protocol import (
     Registration,
+    measurement_environment,
     phase_blocks,
     validation_failure,
 )
@@ -709,7 +710,7 @@ def describe_phase(
 def load_records(
     reports: Sequence[Path], registration: Registration, phase: str
 ) -> list[JsonDict]:
-    revisions: set[str] = set()
+    environments: set[str] = set()
     records: list[JsonDict] = []
     for path in reports:
         report = cast("JsonDict", json.loads(path.read_text(encoding="utf-8")))
@@ -723,10 +724,12 @@ def load_records(
         if "exploratory" in report:
             message = f"{path} is exploratory: {report['exploratory']}"
             raise BenchmarkSetupError(message)
-        revisions.add(str(environment["revision"]))
+        environments.add(
+            json.dumps(measurement_environment(environment), sort_keys=True)
+        )
         records.extend(cast("list[JsonDict]", report["cells"]))
-    if len(revisions) > 1:
-        message = "reports were measured at different revisions"
+    if len(environments) > 1:
+        message = "reports were measured at different revisions or environments"
         raise BenchmarkSetupError(message)
     if any(record["phase"] != phase for record in records):
         message = f"a report holds windows outside the {phase} phase"
