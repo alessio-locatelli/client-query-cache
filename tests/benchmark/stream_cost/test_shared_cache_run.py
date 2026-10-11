@@ -1322,6 +1322,13 @@ def _assign(raw: JsonDict, keys: tuple[str, ...], value: object) -> None:
         ),
         pytest.param(
             ("phases", "steady", "cells"),
+            [["active", "async", True]],
+            "steady",
+            "malformed cell",
+            id="boolean-workers",
+        ),
+        pytest.param(
+            ("phases", "steady", "cells"),
             [["hot", "async", 1]],
             "steady",
             "no calibration family covers hot cells",
