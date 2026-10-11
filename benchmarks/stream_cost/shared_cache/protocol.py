@@ -92,6 +92,14 @@ class Registration:
             if not _positive(calibration[name]):
                 message = f"calibration {name} must be a positive integer"
                 raise BenchmarkConfigurationError(message)
+        if "gate" not in self.raw:
+            try:
+                floor = self.section("inference")["lag_event_floor"]
+            except KeyError:
+                floor = None
+            if not _positive(floor):
+                message = "descriptive analysis needs a positive lag_event_floor"
+                raise BenchmarkConfigurationError(message)
         phases = cast("dict[str, JsonDict]", self.section("phases"))
         for phase, settings in phases.items():
             if "blocks" in settings and not _positive(settings["blocks"]):

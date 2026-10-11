@@ -1594,6 +1594,9 @@ def test_closed_loop_windows_cannot_derive_a_write_count(
         pytest.param(
             ("phases", "steady", "blocks"), 0, "steady phase blocks", id="no-blocks"
         ),
+        pytest.param(
+            ("inference", "lag_event_floor"), 0, "lag_event_floor", id="no-lag-floor"
+        ),
     ],
 )
 def test_unsupported_registration_settings_are_rejected(
@@ -2129,3 +2132,13 @@ def test_primary_rate_caps_other_families_in_any_declared_order(
     outcome = run.calibrate(object(), replace(registration, raw=raw), recorder)  # type: ignore[arg-type]
 
     assert outcome["rates"] == {"primary": 750, "cold": 750, "sensitivity": 500}
+
+
+def test_descriptive_registrations_require_a_lag_floor(
+    concurrent: Registration,
+) -> None:
+    raw = copy.deepcopy(concurrent.raw)
+    del cast("JsonDict", raw["inference"])["lag_event_floor"]
+
+    with pytest.raises(BenchmarkConfigurationError, match="lag_event_floor"):
+        Registration(raw, concurrent.digest)
