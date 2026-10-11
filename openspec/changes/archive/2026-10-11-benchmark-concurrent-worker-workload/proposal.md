@@ -2,7 +2,7 @@
 
 ## Why
 
-The [benchmark guide](../../../docs/user/benchmarks/index.md) shows an illustrative latency chart, and the [stream-cost reports](../../../docs/user/benchmarks/stream-cost.md) measure reads and writes in separate phases. Neither shows what happens when several application worker processes, each with its own manager, serve reads while writes are invalidating the cached documents. The [shared worker cache study](../../../docs/development/research/shared-worker-cache-feasibility.md) registered such an `active` phase, but its futility rule stopped the study before that phase ran. Without this evidence, users can't compare cached reads with direct reads under mixed load across workers, and the [shared-invalidation investigation #87](https://github.com/alessio-locatelli/client-query-cache/issues/87) has no steady-state baseline to build on.
+The [benchmark guide](../../../../docs/user/benchmarks/index.md) shows an illustrative latency chart, and the [stream-cost reports](../../../../docs/user/benchmarks/stream-cost.md) measure reads and writes in separate phases. Neither shows what happens when several application worker processes, each with its own manager, serve reads while writes are invalidating the cached documents. The [shared worker cache study](../../../../docs/development/research/shared-worker-cache-feasibility.md) registered such an `active` phase, but its futility rule stopped the study before that phase ran. Without this evidence, users can't compare cached reads with direct reads under mixed load across workers, and the [shared-invalidation investigation #87](https://github.com/alessio-locatelli/client-query-cache/issues/87) has no steady-state baseline to build on.
 
 ## What Changes
 
