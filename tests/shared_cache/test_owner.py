@@ -129,6 +129,66 @@ def shared_owner(
 
 
 @pytest.fixture
+def endpoints() -> Iterator[Callable[[SharedCacheOwner], SyncEndpoint]]:
+    opened: list[SyncEndpoint] = []
+
+    def open_endpoint(owner: SharedCacheOwner) -> SyncEndpoint:
+        endpoint = SyncEndpoint(attachment_for(owner.config))
+        opened.append(endpoint)
+        return endpoint
+
+    yield open_endpoint
+    for endpoint in opened:
+        endpoint.close()
+
+
+@pytest.fixture
+def peers() -> Iterator[Callable[[SharedCacheOwner], socket.socket]]:
+    opened: list[socket.socket] = []
+
+    def authenticated(owner: SharedCacheOwner) -> socket.socket:
+        peer = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        opened.append(peer)
+        peer.settimeout(5)
+        peer.connect(owner.config.socket_path)
+        peer.sendall(encode_frame(attachment_for(owner.config).hello()))
+        _read_reply(peer)
+        return peer
+
+    yield authenticated
+    for peer in opened:
+        peer.close()
+
+
+@pytest.fixture
+def controls() -> Iterator[Callable[[SharedCacheOwner], ControlAttachment]]:
+    opened: list[ControlAttachment] = []
+
+    def attach(owner: SharedCacheOwner) -> ControlAttachment:
+        control = control_handshake(attachment_for(owner.config))
+        opened.append(control)
+        return control
+
+    yield attach
+    for control in opened:
+        control.sock.close()
+
+
+@pytest.fixture
+def contender(owner: SharedCacheOwner) -> Iterator[SharedCacheOwner]:
+    instance = SharedCacheOwner(owner.config)
+    yield instance
+    instance.close()
+
+
+@pytest.fixture
+def local_index(shared_owner: SharedCacheOwner) -> Iterator[LocalIndex]:
+    local = LocalIndex.attach(attachment_for(shared_owner.config))
+    yield local
+    local.close()
+
+
+@pytest.fixture
 def handshake_listener(socket_directory: Path) -> Iterator[socket.socket]:
     listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     listener.bind(str(socket_directory / "handshake.sock"))
@@ -142,9 +202,9 @@ def _metadata(endpoint: SyncEndpoint) -> Message | None:
 
 
 def test_failed_stream_activation_bypasses_and_retries(
-    owner: SharedCacheOwner,
+    owner: SharedCacheOwner, endpoints: Callable[[SharedCacheOwner], SyncEndpoint]
 ) -> None:
-    endpoint = SyncEndpoint(attachment_for(owner.config))
+    endpoint = endpoints(owner)
 
     first = _metadata(endpoint)
     wait_for(lambda: owner._activation[_DATABASE][0] == "failed")
@@ -159,15 +219,13 @@ def test_failed_stream_activation_bypasses_and_retries(
     assert first is not None
     assert held is not None
     assert first["reason"] == held["reason"] == "stream-starting"
-    endpoint.close()
 
 
-def test_a_second_owner_cannot_bind_a_held_endpoint(owner: SharedCacheOwner) -> None:
-    contender = SharedCacheOwner(owner.config)
-
+def test_a_second_owner_cannot_bind_a_held_endpoint(
+    contender: SharedCacheOwner,
+) -> None:
     with pytest.raises(RuntimeError, match="already holds this endpoint"):
         contender.bind()
-    contender.close()
 
 
 def test_a_peer_that_disappears_before_its_reply_is_detached(
@@ -199,15 +257,6 @@ def _select_find(**changes: object) -> Message:
     }
 
 
-def _authenticated(owner: SharedCacheOwner) -> socket.socket:
-    peer = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    peer.settimeout(5)
-    peer.connect(owner.config.socket_path)
-    peer.sendall(encode_frame(attachment_for(owner.config).hello()))
-    _read_reply(peer)
-    return peer
-
-
 def _read_reply(peer: socket.socket) -> bytes:
     (length,) = struct.unpack("<I", _read_exactly(peer, 4))
     return _read_exactly(peer, length)
@@ -223,10 +272,10 @@ def _read_exactly(peer: socket.socket, size: int) -> bytes:
 
 
 def test_selection_reports_unavailable_streams_and_stale_epochs(
-    owner: SharedCacheOwner,
+    owner: SharedCacheOwner, endpoints: Callable[[SharedCacheOwner], SyncEndpoint]
 ) -> None:
     _activate(owner)
-    endpoint = SyncEndpoint(attachment_for(owner.config))
+    endpoint = endpoints(owner)
 
     stale = endpoint.request(_select_find(epoch=7))
     owner.core.set_database_available(_DATABASE, available=False)
@@ -236,7 +285,6 @@ def test_selection_reports_unavailable_streams_and_stale_epochs(
     assert stale["r"] == "refresh"
     assert unavailable is not None
     assert unavailable["reason"] == "stream-unavailable"
-    endpoint.close()
 
 
 @pytest.mark.parametrize(
@@ -247,20 +295,23 @@ def test_selection_reports_unavailable_streams_and_stale_epochs(
     ],
 )
 def test_invalid_requests_after_the_gate_detach_the_peer(
-    owner: SharedCacheOwner, message: Message
+    owner: SharedCacheOwner,
+    peers: Callable[[SharedCacheOwner], socket.socket],
+    message: Message,
 ) -> None:
     _activate(owner)
-    peer = _authenticated(owner)
+    peer = peers(owner)
 
     peer.sendall(encode_frame({"v": 1, "id": 2, **message}))
 
     assert peer.recv(1) == b""
     assert owner.counters.protocol_errors == 1
-    peer.close()
 
 
-def test_split_frames_are_reassembled(owner: SharedCacheOwner) -> None:
-    peer = _authenticated(owner)
+def test_split_frames_are_reassembled(
+    owner: SharedCacheOwner, peers: Callable[[SharedCacheOwner], socket.socket]
+) -> None:
+    peer = peers(owner)
     frame = encode_frame({"v": 1, "id": 2, "op": "observe"})
 
     peer.sendall(frame[:3])
@@ -270,13 +321,12 @@ def test_split_frames_are_reassembled(owner: SharedCacheOwner) -> None:
     peer.sendall(frame[10:])
 
     assert b"group" in _read_reply(peer)
-    peer.close()
 
 
 def test_a_reader_that_falls_behind_receives_every_queued_reply(
-    owner: SharedCacheOwner,
+    owner: SharedCacheOwner, peers: Callable[[SharedCacheOwner], socket.socket]
 ) -> None:
-    peer = _authenticated(owner)
+    peer = peers(owner)
     peer.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4_096)
     replies = 200
 
@@ -287,30 +337,29 @@ def test_a_reader_that_falls_behind_receives_every_queued_reply(
 
     assert len(received) == replies
     assert owner.counters.detached == 0
-    peer.close()
 
 
 @pytest.mark.parametrize("owner", [{"capture_seconds": 0.2}], indirect=True)
 def test_capture_expiry_releases_handles_of_each_session(
-    owner: SharedCacheOwner,
+    owner: SharedCacheOwner, endpoints: Callable[[SharedCacheOwner], SyncEndpoint]
 ) -> None:
     _activate(owner)
-    endpoints = [SyncEndpoint(attachment_for(owner.config)) for _ in range(2)]
+    sessions = [endpoints(owner) for _ in range(2)]
 
-    replies = [endpoint.request(_select_find()) for endpoint in endpoints]
+    replies = [endpoint.request(_select_find()) for endpoint in sessions]
     wait_for(lambda: owner.counters.expired_captures == 2)
 
     assert all(reply is not None and reply["r"] == "miss" for reply in replies)
     assert not owner._handles
-    for endpoint in endpoints:
-        endpoint.close()
 
 
 def test_a_reply_larger_than_the_send_buffer_is_flushed_in_parts(
-    owner: SharedCacheOwner, faker: Faker
+    owner: SharedCacheOwner,
+    peers: Callable[[SharedCacheOwner], socket.socket],
+    faker: Faker,
 ) -> None:
     _activate(owner)
-    peer = _authenticated(owner)
+    peer = peers(owner)
     (connection,) = owner._connections.values()
     connection.sock.setsockopt(
         socket.SOL_SOCKET, socket.SO_SNDBUF, _SMALLEST_SEND_BUFFER
@@ -328,7 +377,6 @@ def test_a_reply_larger_than_the_send_buffer_is_flushed_in_parts(
 
     assert reply["r"] == "hit"
     assert reply["value"] == value
-    peer.close()
 
 
 def _close_after_hello(listener: socket.socket, *, consume: bool) -> None:
@@ -440,21 +488,22 @@ class _Session:
 
 
 @pytest.fixture
-def session(shared_owner: SharedCacheOwner) -> Iterator[_Session]:
+def session(
+    shared_owner: SharedCacheOwner,
+    endpoints: Callable[[SharedCacheOwner], SyncEndpoint],
+    controls: Callable[[SharedCacheOwner], ControlAttachment],
+) -> _Session:
     _activate(shared_owner)
     assert shared_owner._index is not None
     shared_owner._index.set_progress(0, time.monotonic_ns() + _HOUR_NS)
-    endpoint = SyncEndpoint(attachment_for(shared_owner.config))
-    control = control_handshake(attachment_for(shared_owner.config))
+    endpoint = endpoints(shared_owner)
     metadata = _metadata(endpoint)
     assert metadata is not None
     slot = metadata["slot"]
     epoch = metadata["epoch"]
     assert isinstance(slot, list)
     assert isinstance(epoch, int)
-    yield _Session(shared_owner, endpoint, control, slot, epoch)
-    control.sock.close()
-    endpoint.close()
+    return _Session(shared_owner, endpoint, controls(shared_owner), slot, epoch)
 
 
 def _committed(session: _Session, value: bytes, _patch: pytest.MonkeyPatch) -> bytes:
@@ -524,7 +573,9 @@ def test_published_entries_follow_the_owner_core(
 
 
 def test_descriptors_survive_a_partial_handshake_send(
-    shared_owner: SharedCacheOwner, monkeypatch: pytest.MonkeyPatch
+    shared_owner: SharedCacheOwner,
+    controls: Callable[[SharedCacheOwner], ControlAttachment],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     send_fds = socket.send_fds
 
@@ -535,11 +586,10 @@ def test_descriptors_survive_a_partial_handshake_send(
 
     monkeypatch.setattr(socket, "send_fds", partial)
 
-    control = control_handshake(attachment_for(shared_owner.config))
+    attached = controls(shared_owner).reader.incarnation
 
-    assert control.reader.incarnation == shared_owner.incarnation
+    assert attached == shared_owner.incarnation
     assert _index_stats(shared_owner)["sessions"] == 1
-    control.sock.close()
 
 
 @pytest.mark.parametrize("shared_owner", [{"ring_tokens": _SMALL_RING}], indirect=True)
@@ -732,17 +782,13 @@ def _exit_unless_detached(local: LocalIndex) -> None:
 
 
 @pytest.mark.filterwarnings("ignore:This process .* is multi-threaded")
-def test_forked_children_never_read_an_inherited_index(
-    shared_owner: SharedCacheOwner,
-) -> None:
-    local = LocalIndex.attach(attachment_for(shared_owner.config))
+def test_forked_children_never_read_an_inherited_index(local_index: LocalIndex) -> None:
     child = multiprocessing.get_context("fork").Process(
-        target=_exit_unless_detached, args=(local,)
+        target=_exit_unless_detached, args=(local_index,)
     )
 
     child.start()
     child.join(10)
 
     assert child.exitcode == 0
-    assert not local.reader.detached
-    local.close()
+    assert not local_index.reader.detached
