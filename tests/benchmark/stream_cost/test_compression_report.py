@@ -149,7 +149,7 @@ def _full_report() -> JsonDict:
         pymongo_version="4.18.1",
     )
     environment = BenchmarkEnvironment(
-        mongodb_version="8.0.4",
+        mongodb_version="test-server",
         topology="isolated single-member replica set",
         member_count=1,
         resource_limits={"cpus": "1", "memory": "1g"},

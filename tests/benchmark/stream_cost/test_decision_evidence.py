@@ -149,7 +149,7 @@ def test_run_decision_evidence_records_provenance_and_closes_client(
     replica_set.uri = "mongodb://127.0.0.1:27017"
     replica_set.container_cpu_usage_seconds = MagicMock(side_effect=[10.0, 12.0])
     client = MagicMock()
-    client.server_info.return_value = {"version": "8.0.4"}
+    client.server_info.return_value = {"version": "test-server"}
     monkeypatch.setattr(
         decision_evidence, "IsolatedReplicaSet", lambda _limits: replica_set
     )
