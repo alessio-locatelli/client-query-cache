@@ -9,12 +9,8 @@
     "customManagers:githubActionsVersions",
   ],
   // Renovate 44.133.0 preset evidence: https://docs.renovatebot.com/presets-config/#configbest-practices
-  // The default is the best-practices preset's weekly lock maintenance, config migration, and test-directory exclusions. We override it because Dependabot owns lockfiles, updater policy must avoid experimental automatic rewrites, and both MongoDB pins must be discovered.
-  ignorePresets: [
-    ":maintainLockFilesWeekly",
-    ":configMigration",
-    ":ignoreModulesAndTests",
-  ],
+  // The default is the best-practices preset's weekly lock maintenance and config migration. We override it because Dependabot owns lockfiles and updater policy must avoid experimental automatic rewrites.
+  ignorePresets: [":maintainLockFilesWeekly", ":configMigration"],
   // Option defaults: https://github.com/renovatebot/renovate/blob/44.133.0/lib/config/options/index.ts
   // The default is all supported managers. We override it because Dependabot owns manifests and action references.
   enabledManagers: ["custom.regex", "github-actions", "nodenv", "pyenv"],
@@ -38,19 +34,6 @@
   customManagers: [
     {
       customType: "regex",
-      managerFilePatterns: [
-        "/^tests/conftest\\.py$/",
-        "/^benchmarks/stream_cost/topology\\.py$/",
-      ],
-      matchStrings: [
-        '# renovate: datasource=docker depName=mongo versioning=docker\\n[ \\t]*(?:MONGODB_IMAGE = |container = DockerContainer\\()"mongo:(?<currentValue>[^"\\s]+)"',
-      ],
-      datasourceTemplate: "docker",
-      depNameTemplate: "mongo",
-      versioningTemplate: "docker",
-    },
-    {
-      customType: "regex",
       managerFilePatterns: ["/^Containerfile$/"],
       matchStrings: [
         "# renovate-taplo: datasource=github-release-attachments depName=tamasfe/taplo\\nARG TAPLO_TOOL_VERSION=(?<currentValue>[^\\s]+)\\n\\nADD --checksum=sha256:(?<currentDigest>[a-f0-9]{64}) https://github.com/tamasfe/taplo/releases/download/[^/]+/taplo-linux-x86_64.gz /tmp/taplo.gz",
@@ -67,14 +50,6 @@
       matchDepTypes: ["!uses-with"],
       // The default is true. We override it because Dependabot owns action references; Renovate owns only executable inputs.
       enabled: false,
-    },
-    {
-      matchPackageNames: ["mongo"],
-      matchManagers: ["custom.regex"],
-      matchDatasources: ["docker"],
-      // The default is true from best-practices' docker:pinDigests. We override it because this MongoDB regex replacement supports tags only (https://github.com/renovatebot/renovate/issues/24942).
-      pinDigests: false,
-      groupName: "MongoDB test and benchmark image",
     },
     {
       matchPackageNames: ["prek"],

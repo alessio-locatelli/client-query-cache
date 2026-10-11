@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
-import yaml
 from pymongo import MongoClient
 
-from benchmarks.stream_cost import topology
 from benchmarks.stream_cost.topology import IsolatedReplicaSet, ResourceLimits
 from client_query_cache._types import BsonDict
 
@@ -17,14 +14,8 @@ if TYPE_CHECKING:
 pytestmark = pytest.mark.integration
 
 
-@pytest.fixture(params=["benchmark", "compose"])
-def replica_set(
-    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
-) -> Iterator[IsolatedReplicaSet]:
-    if request.param == "compose":
-        compose = Path(__file__).resolve().parents[3] / "docker-compose.yaml"
-        image = str(yaml.safe_load(compose.read_text())["services"]["mongo"]["image"])
-        monkeypatch.setattr(topology, "MONGODB_IMAGE", image)
+@pytest.fixture
+def replica_set() -> Iterator[IsolatedReplicaSet]:
     limits = ResourceLimits(cpus=1.0, memory="512m")
     with IsolatedReplicaSet(limits) as replica_set:
         yield replica_set

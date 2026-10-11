@@ -113,7 +113,7 @@ The alternative of turning off these checks for fault windows was rejected, beca
 
 ### Three-member topology
 
-Add a `ReplicaSetTopology` that starts three `mongo:8.0.4-noble` members with `network_mode="host"` on three distinct loopback ports. Each member gets 1 CPU and 1 GiB. Members advertise `127.0.0.1:<port>`, which resolves the same way inside the containers and in the Toolbx harness, so clients can use replica-set discovery without `directConnection`. Byte proxies are not used on this topology, and the stepdown case reports no MongoDB wire bytes.
+Add a `ReplicaSetTopology` that starts three members from the shared `MONGODB_IMAGE` with `network_mode="host"` on three distinct loopback ports. Each member gets 1 CPU and 1 GiB. Members advertise `127.0.0.1:<port>`, which resolves the same way inside the containers and in the Toolbx harness, so clients can use replica-set discovery without `directConnection`. Byte proxies are not used on this topology, and the stepdown case reports no MongoDB wire bytes.
 
 | Alternative                                             | Pros                                                               | Cons                                                                                                      | Unknowns                                                                                                                  |
 | ------------------------------------------------------- | ------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |

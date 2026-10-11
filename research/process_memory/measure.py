@@ -316,8 +316,10 @@ def seed(control: Any) -> dict[str, object]:  # noqa: ANN401
 def coordinate(arguments: argparse.Namespace) -> None:
     import docker
 
+    from benchmarks.mongodb_image import MONGODB_IMAGE
     from research.collection_adapter.live_error import fixture
 
+    image = arguments.image or MONGODB_IMAGE
     root = Path.cwd()
     mounts = {
         str(path): {"bind": str(path), "mode": "ro"}
@@ -333,13 +335,13 @@ def coordinate(arguments: argparse.Namespace) -> None:
     order = random.Random(arguments.seed)
     report: dict[str, object] = {
         "started": datetime.now(UTC).isoformat(),
-        "image": arguments.image,
+        "image": image,
         "host": platform.uname()._asdict(),
         "cpu_count": psutil.cpu_count(),
         "python": sys.version,
     }
     records: list[dict[str, object]] = []
-    with fixture() as control:
+    with fixture(image) as control:
         host, port = control.address
         uri = f"mongodb://{host}:{port}/?directConnection=true"
         report["dataset"] = seed(control)
@@ -348,7 +350,7 @@ def coordinate(arguments: argparse.Namespace) -> None:
             order.shuffle(cells)
             for scenario, api, mode in cells:
                 output = engine.containers.run(
-                    arguments.image,
+                    image,
                     [
                         "-m",
                         "research.process_memory.measure",
@@ -455,7 +457,7 @@ def main() -> None:
     run = commands.add_parser("run")
     run.add_argument("--runs", type=int, default=5)
     run.add_argument("--seed", type=int, default=197)
-    run.add_argument("--image", default="docker.io/library/mongo:8.0.4-noble")
+    run.add_argument("--image", help="server and measured-process image")
     run.add_argument("--scenarios", nargs="+", choices=SCENARIOS, default=[*SCENARIOS])
     run.add_argument("--output", type=Path, required=True)
     measured = commands.add_parser("child")

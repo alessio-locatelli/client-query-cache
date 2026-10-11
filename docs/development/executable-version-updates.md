@@ -11,8 +11,8 @@ GitHub native auto-merge using rebase; required checks gate merging.
 | CI uv and just                                               | Renovate `github-actions`, `uses-with`     | Literal inputs in `.github/actions/setup-toolchain/action.yml`                                                                                                                |
 | CI and container Node.js                                     | Renovate `nodenv`                          | `.node-version`; CI reads it and the container derives its Node.js/npm major track                                                                                            |
 | Python                                                       | Renovate `pyenv`                           | `.python-version`; default development and container selection; CI also retains older supported release lines                                                                 |
-| MongoDB                                                      | Renovate regex                             | `tests/conftest.py` and `benchmarks/stream_cost/topology.py`; one group                                                                                                       |
-| Local MongoDB service                                        | Dependabot `docker-compose`                | `docker-compose.yaml` image tag and digest                                                                                                                                    |
+| MongoDB                                                      | Dependabot `docker-compose`                | `docker-compose.yaml` image tag and digest; the local service, tests, benchmarks, and research harnesses read it                                                              |
+| Minimum MongoDB                                              | Dependabot `docker-compose`, patch only    | `tests/mongodb-minimum/docker-compose.yaml` image tag and digest; `just test-mongodb-min` reads it                                                                            |
 | Prek                                                         | Renovate Dockerfile/GitHub Actions presets | `test.yml` `PREK_VERSION` and Containerfile ARG; one group; cache derives from the CI selection                                                                               |
 | Zizmor                                                       | Renovate Dockerfile preset                 | Containerfile ARG                                                                                                                                                             |
 | Taplo                                                        | Renovate regex                             | Containerfile ARG, download URL, and SHA256                                                                                                                                   |
@@ -27,10 +27,7 @@ are excluded.
 
 Renovate uses `config:best-practices` and semantic commits. Weekly lockfile
 maintenance and experimental configuration migration are excluded; Dependabot
-owns lockfiles. The inherited test-directory ignore preset is also excluded so
-both Renovate-owned MongoDB occurrences remain in one update group. MongoDB retains the `noble`
-variant and uses tags without digest pinning because its regex replacement is
-tag-only ([upstream limitation](https://github.com/renovatebot/renovate/issues/24942)).
+owns lockfiles.
 Taplo retains its coupled version, download URL, and checksum replacement; pyenv
 inherits the preset's digest exemption. Fedora DNF tools remain unpinned and are
 excluded from extraction.
@@ -41,7 +38,7 @@ excluded from extraction.
 | Dependabot | Two concurrent version-update PRs **per ecosystem**, not across the repository                                  | Existing monthly schedules     |
 
 Renovate waits seven days for timestamped releases; missing timestamps do not
-block indefinitely. Dependabot retains its seven-day cooldowns. Neither bot has repository major-version caps. Renovate maintains the shared
+block indefinitely. Dependabot retains its seven-day cooldowns. Only the minimum MongoDB pin is capped: it stays on the supported floor's release line until the floor is raised. Renovate maintains the shared
 `.node-version`; CI and the development container use the same Node.js major.
 Node updates run tooling and container checks. If Fedora cannot provide a proposed
 track, the container build fails and blocks merging.

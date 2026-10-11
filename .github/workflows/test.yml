@@ -25,15 +25,16 @@ env:
 # checkout v7.0.1:
 # https://github.com/actions/checkout/blob/3d3c42e5aac5ba805825da76410c181273ba90b1/action.yml
 # persist-credentials in scope, prek, prettier, documentation, package, integration-e2e, pymongo-min,
-# memory, guard, container and benchmark-startup: The default is true. We override it
+# mongodb-min, memory, guard, container and benchmark-startup: The default is true. We override it
 # because later repository commands must not inherit checkout credentials.
 # fetch-depth in scope and guard: The default is 1. We override it because revision
 # comparisons need earlier history.
 # uv 0.12.20: https://docs.astral.sh/uv/reference/cli/
-# uv sync --locked in prek, package, integration-e2e, pymongo-min, memory, guard and
-# benchmark-startup: The default is inherited UV_LOCKED, otherwise unlocked resolution.
+# uv sync --locked in prek, package, integration-e2e, pymongo-min, mongodb-min, memory, guard
+# and benchmark-startup: The default is inherited UV_LOCKED, otherwise unlocked resolution.
 # We override it because these standalone commands must validate the committed lockfile.
-# uv sync --all-groups in prek, package, integration-e2e, pymongo-min, guard and benchmark-startup:
+# uv sync --all-groups in prek, package, integration-e2e, pymongo-min, mongodb-min, guard and
+# benchmark-startup:
 # The default is project default groups (dev). We override it because these validation
 # environments need documentation tools too.
 # cache v6.1.0:
@@ -45,12 +46,13 @@ env:
 # it because every supported Python lane must report even when another lane fails.
 # upload-artifact v7.0.1:
 # https://github.com/actions/upload-artifact/blob/043fb46d1a93c77aae656e7c1c64a875d1fc6a0a/action.yml
-# if: failure() for pytest-log (integration-e2e), pytest-log-pymongo-min (pymongo-min)
-# and memory-reports (memory): The default
+# if: failure() for pytest-log (integration-e2e), pytest-log-pymongo-min (pymongo-min),
+# pytest-log-mongodb-min (mongodb-min) and memory-reports (memory): The default
 # is implicit success(). We override it because diagnostics are needed on failed runs.
 # if-no-files-found for those uploads: The default is warn. We override it because
 # failures before test execution can legitimately produce no diagnostics.
-# retention-days for pytest-log, pytest-log-pymongo-min, memory-reports and pr-performance-guard-report (guard):
+# retention-days for pytest-log, pytest-log-pymongo-min, pytest-log-mongodb-min, memory-reports and
+# pr-performance-guard-report (guard):
 # The default is inherited repository/organization retention. We override it because
 # diagnostics need bounded storage lifetimes.
 
@@ -59,10 +61,10 @@ jobs:
     name: Select validation tiers
     runs-on: ubuntu-24.04
     # timeout-minutes for scope (5m), prek (15m), prettier (10m), documentation (10m),
-    # package (15m), integration-e2e (20m), pymongo-min (20m), python-compatibility (5m), memory (10m),
-    # guard (20m), container (20m), benchmark-startup (10m): The default is 360. We
-    # override it because stalled jobs must stop within their assigned
-    # validation/publication budgets.
+    # package (15m), integration-e2e (20m), pymongo-min (20m), mongodb-min (20m),
+    # python-compatibility (5m), memory (10m), guard (20m), container (20m),
+    # benchmark-startup (10m): The default is 360. We override it because stalled jobs
+    # must stop within their assigned validation/publication budgets.
     timeout-minutes: 5
     outputs:
       container: ${{ steps.paths.outputs.container }}
@@ -304,9 +306,36 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+  mongodb-min:
+    name: Minimum MongoDB server compatibility
+    needs: [scope, prek, prettier]
+    if: needs.scope.outputs.python == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: $/.github/actions/setup-toolchain
+
+      - run: uv sync --locked --all-groups
+
+      - run: just test-mongodb-min
+
+      - if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pytest-log-mongodb-min
+          path: |
+            pytest-mongodb-min.log
+            pytest-mongodb-min-gw*.log
+          if-no-files-found: ignore
+          retention-days: 7
+
   python-compatibility:
     name: Python compatibility
-    needs: [scope, package, integration-e2e, pymongo-min]
+    needs: [scope, package, integration-e2e, pymongo-min, mongodb-min]
     # The default is implicit success(). We override it because failed matrix
     # prerequisites must fail the aggregate gate visibly instead of skipping it.
     if: always() && needs.scope.outputs.python == 'true'
@@ -317,6 +346,7 @@ jobs:
           PACKAGE_RESULT: ${{ needs.package.result }}
           TEST_RESULT: ${{ needs.integration-e2e.result }}
           PYMONGO_MIN_RESULT: ${{ needs.pymongo-min.result }}
+          MONGODB_MIN_RESULT: ${{ needs.mongodb-min.result }}
         run: |
           status=0
           if [[ "${PACKAGE_RESULT}" != success ]]; then
@@ -329,6 +359,10 @@ jobs:
           fi
           if [[ "${PYMONGO_MIN_RESULT}" != success ]]; then
             echo "::error title=Python compatibility::Minimum PyMongo behavioral compatibility finished with '${PYMONGO_MIN_RESULT}'; open that job for the cause."
+            status=1
+          fi
+          if [[ "${MONGODB_MIN_RESULT}" != success ]]; then
+            echo "::error title=Python compatibility::Minimum MongoDB server compatibility finished with '${MONGODB_MIN_RESULT}'; open that job for the cause."
             status=1
           fi
           exit "${status}"

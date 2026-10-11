@@ -13,7 +13,7 @@ Every external dependency version that selects an executable tool, interpreter, 
 #### Scenario: An updater extracts dependencies
 
 - **WHEN** both configured bots inspect the repository
-- **THEN** every executable pin is assigned to exactly one bot, including Python MongoDB images, native Actions tool inputs, interpreter selections, pinned development-container tools, and downloaded tools
+- **THEN** every executable pin is assigned to exactly one bot, including MongoDB images, native Actions tool inputs, interpreter selections, pinned development-container tools, and downloaded tools
 
 ### Requirement: Coupled inputs update consistently
 
@@ -35,8 +35,8 @@ Update proposals SHALL retain exact version selection, digest pinning, and image
 
 #### Scenario: A new MongoDB major version is available
 
-- **WHEN** a newer MongoDB major has an eligible noble image tag
-- **THEN** Renovate automatically proposes the newer major for both test and benchmark images, and the PR merges after required CI and automated approval without a separate maintainer decision
+- **WHEN** a newer MongoDB major has an eligible image tag
+- **THEN** Dependabot automatically proposes the newer major for the shared MongoDB image that the local service, tests, benchmarks, and research harnesses read, and the PR merges after required CI and automated approval without a separate maintainer decision
 
 #### Scenario: Fedora packages are installed during a rebuild
 
@@ -47,6 +47,15 @@ Update proposals SHALL retain exact version selection, digest pinning, and image
 
 - **WHEN** a datasource returns an otherwise eligible release without a release timestamp
 - **THEN** the absence of a timestamp does not block an update proposal indefinitely
+
+### Requirement: The minimum MongoDB pin stays on its release line
+
+The minimum supported MongoDB image pin SHALL receive only patch updates, so that it keeps testing the declared server floor until a maintainer raises that floor.
+
+#### Scenario: A newer MongoDB release line is available
+
+- **WHEN** a newer MongoDB minor or major image is published
+- **THEN** no automatic proposal moves the minimum pin to it, while patch releases on the pinned release line remain eligible
 
 ### Requirement: Evidence and compatibility declarations are excluded
 
@@ -182,11 +191,6 @@ Renovate policy SHALL reuse official presets for best practices and semantic com
 
 - **WHEN** the best-practices preset is resolved
 - **THEN** weekly lockfile maintenance and experimental configuration migration are excluded without restating their disabled defaults
-
-#### Scenario: An inherited preset ignores test directories
-
-- **WHEN** Renovate resolves the best-practices baseline for its MongoDB custom manager
-- **THEN** the nested test-directory ignore preset is excluded, so both test and benchmark image occurrences remain available for coupled extraction
 
 ### Requirement: Ordinary update proposals have bounded volume
 

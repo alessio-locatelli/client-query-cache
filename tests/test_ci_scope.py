@@ -85,6 +85,15 @@ pytestmark = pytest.mark.unit
             id="benchmark-mongodb",
         ),
         pytest.param(
+            ("benchmarks/mongodb_image.py",),
+            True,
+            False,
+            False,
+            True,
+            False,
+            id="shared-mongodb-image",
+        ),
+        pytest.param(
             (".github/actions/setup-toolchain/action.yml",),
             True,
             True,
@@ -180,6 +189,15 @@ pytestmark = pytest.mark.unit
         pytest.param(("uv.lock",), True, False, False, True, True, id="lockfile"),
         pytest.param(
             ("docker-compose.yaml",), True, True, False, True, False, id="compose-image"
+        ),
+        pytest.param(
+            ("tests/mongodb-minimum/docker-compose.yaml",),
+            True,
+            True,
+            False,
+            False,
+            False,
+            id="minimum-mongodb-image",
         ),
         pytest.param(
             ("scripts/build_versioned_docs.py",),

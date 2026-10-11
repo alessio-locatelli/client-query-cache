@@ -16,6 +16,7 @@ from pymongo.monitoring import CommandListener
 from pymongo.read_concern import ReadConcern
 from testcontainers.core.container import DockerContainer
 
+from benchmarks.mongodb_image import MONGODB_IMAGE
 from client_query_cache import CachedCollection, CacheManager
 from tests.conftest import _wait_for_mongodb_ping  # noqa: PLC2701 - Reuse the repository fixture readiness check.
 
@@ -52,8 +53,8 @@ class ReadCommands(CommandListener):
 
 
 @contextmanager
-def fixture() -> Generator[MongoClient[Document]]:
-    container = DockerContainer("mongo:8.0.4-noble").with_exposed_ports(27017)
+def fixture(image: str = MONGODB_IMAGE) -> Generator[MongoClient[Document]]:
+    container = DockerContainer(image).with_exposed_ports(27017)
     container.with_command(
         ["--replSet", "rs0", "--bind_ip_all", "--setParameter", "enableTestCommands=1"]
     )

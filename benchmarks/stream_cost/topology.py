@@ -12,6 +12,7 @@ from pymongo.errors import PyMongoError
 from requests.exceptions import ConnectionError as RequestsConnectionError
 from testcontainers.core.container import DockerContainer
 
+from benchmarks.mongodb_image import MONGODB_IMAGE
 from benchmarks.stream_cost.client import (
     BenchmarkClientTopologyConfig,
     build_dedicated_client,
@@ -32,9 +33,6 @@ from client_query_cache._types import (
 if TYPE_CHECKING:
     from collections.abc import Sequence
     from types import TracebackType
-
-# renovate: datasource=docker depName=mongo versioning=docker
-MONGODB_IMAGE = "mongo:8.3.11-noble"
 
 _REPLICA_SET_NAME = "rs0"
 _MONGODB_PORT = 27017
@@ -123,7 +121,7 @@ class IsolatedReplicaSet:
         container: DockerContainer | None = None
         try:
             container = DockerContainer(MONGODB_IMAGE)
-            # MongoDB 8.0: https://www.mongodb.com/docs/v8.0/reference/program/mongod/
+            # MongoDB: https://www.mongodb.com/docs/manual/reference/program/mongod/
             # --replSet: The default is no replica set. We override it because the
             # disposable runtime must support change streams.
             container.with_command(["--replSet", _REPLICA_SET_NAME])

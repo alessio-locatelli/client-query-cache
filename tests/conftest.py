@@ -18,6 +18,7 @@ from pymongo import MongoClient
 from pymongo.errors import AutoReconnect
 from testcontainers.core.container import DockerContainer
 
+from benchmarks.mongodb_image import MONGODB_IMAGE, compose_mongodb_image
 from client_query_cache._types import BsonDict, NonNegativeInt
 
 if TYPE_CHECKING:
@@ -33,9 +34,28 @@ logger = logging.getLogger(__name__)
 
 _MONGODB_STARTUP_TIMEOUT_SECONDS = 30.0
 _MONGODB_POLL_INTERVAL_SECONDS = 0.1
+_MINIMUM_MONGODB_COMPOSE_FILE = (
+    Path(__file__).with_name("mongodb-minimum") / "docker-compose.yaml"
+)
 
 logging.getLogger("faker.factory").setLevel("INFO")
 logging.getLogger("pymongo").setLevel("INFO")
+
+
+def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption(
+        "--minimum-mongodb",
+        action="store_true",
+        help="run MongoDB-backed tests against the minimum supported server",
+    )
+
+
+def _mongodb_image(config: pytest.Config) -> str:
+    return (
+        compose_mongodb_image(_MINIMUM_MONGODB_COMPOSE_FILE)
+        if config.getoption("minimum_mongodb")
+        else MONGODB_IMAGE
+    )
 
 
 @pytest.hookimpl(wrapper=True)  # pragma: lax no cover (startup; CLI verified)
@@ -97,12 +117,11 @@ def nonpersistent_collection_name() -> CollectionName:
 
 
 @pytest.fixture(scope="session")
-def mongodb_uri() -> Iterator[MongoDbUri]:
+def mongodb_uri(request: pytest.FixtureRequest) -> Iterator[MongoDbUri]:
     with ExitStack() as resources:
         try:
-            # renovate: datasource=docker depName=mongo versioning=docker
-            container = DockerContainer("mongo:8.3.11-noble")
-            # MongoDB 8.0: https://www.mongodb.com/docs/v8.0/reference/program/mongod/
+            container = DockerContainer(_mongodb_image(request.config))
+            # MongoDB: https://www.mongodb.com/docs/manual/reference/program/mongod/
             # --replSet: The default is no replica set. We override it because the
             # disposable runtime must support change streams.
             container.with_command(["--replSet", "rs0"])
