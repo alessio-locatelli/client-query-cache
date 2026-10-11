@@ -4,6 +4,7 @@ import asyncio
 import os
 import signal
 import threading
+from contextlib import AsyncExitStack
 from typing import TYPE_CHECKING, cast
 
 import pytest
@@ -11,6 +12,7 @@ from bson.codec_options import CodecOptions, TypeRegistry
 from pymongo import MongoClient
 from pymongo.errors import OperationFailure
 
+from benchmarks.stream_cost.shared_cache import adapters
 from benchmarks.stream_cost.shared_cache.adapters import (
     UNPORTABLE_KEY,
     AsyncSharedCacheManager,
@@ -22,8 +24,11 @@ from benchmarks.stream_cost.shared_cache.attachment import (
     SyncEndpoint,
 )
 from benchmarks.stream_cost.shared_cache.wire import encode_key
-from client_query_cache._types import BsonDict
+from client_query_cache._core import canonical
+from client_query_cache._types import BsonDict, NonNegativeInt
 from tests.codec_helpers import Decimal128ToDecimalDecoder
+from tests.cursor_helpers import materialize
+from tests.polling import wait_until_async
 from tests.shared_cache.conftest import (
     COLLECTION,
     DOCUMENTS,
@@ -34,8 +39,12 @@ from tests.shared_cache.conftest import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
+    from collections.abc import AsyncIterator, Callable, Iterator
 
+    from benchmarks.stream_cost.shared_cache.adapters import (
+        AsyncSharedCachedCollection,
+        SharedCachedCollection,
+    )
     from tests.conftest import MongoDbUri
     from tests.shared_cache.conftest import Owner
 
@@ -367,3 +376,68 @@ def test_connections_of_finished_threads_are_released(
     assert endpoint.counters.connects == 7
     assert endpoint.counters.failures == 0
     endpoint.close()
+
+
+@pytest.fixture(params=("sync", "async"))
+async def shared_find_view(
+    request: pytest.FixtureRequest,
+    client: MongoClient[BsonDict],
+    start_owner: Callable[..., Owner],
+    seeded_database: str,
+    mongodb_uri: MongoDbUri,
+) -> AsyncIterator[
+    tuple[
+        SharedCachedCollection[BsonDict] | AsyncSharedCachedCollection[BsonDict],
+        Owner,
+    ]
+]:
+    owner = start_owner()
+    async with AsyncExitStack() as stack:
+        if request.param == "sync":
+            manager = SharedCacheManager(client, SyncEndpoint(owner.attachment()))
+            stack.callback(manager.close)
+            view: (
+                SharedCachedCollection[BsonDict] | AsyncSharedCachedCollection[BsonDict]
+            ) = manager[seeded_database][COLLECTION]
+        else:
+            async_manager = await stack.enter_async_context(
+                async_shared_manager(owner, mongodb_uri)
+            )
+            view = async_manager[seeded_database][COLLECTION]
+
+        async def warm() -> bool:
+            before = view._shared.observation.hits
+            assert await materialize(view.find({"_id": "warmup"})) == []
+            return view._shared.observation.hits > before
+
+        await wait_until_async(warm)
+        yield view, owner
+
+
+@pytest.mark.parametrize("hit_limit", [8, 4], ids=["exact", "compatible"])
+async def test_shared_find_reuses_prepared_family(
+    shared_find_view: tuple[
+        SharedCachedCollection[BsonDict] | AsyncSharedCachedCollection[BsonDict],
+        Owner,
+    ],
+    raw_key_traversals: list[NonNegativeInt],
+    monkeypatch: pytest.MonkeyPatch,
+    hit_limit: NonNegativeInt,
+) -> None:
+    view, owner = shared_find_view
+    monkeypatch.setattr(adapters, "canonicalize", canonical.canonicalize)
+    raw_key_traversals.clear()
+    admitted = owner.counters()["admitted"]
+    query = {"revision": {"$in": [0, 1, 2]}}
+    hits = view._shared.observation.hits
+    misses = view._shared.observation.misses
+
+    complete = await materialize(view.find(query, **_SORTED, limit=8))
+    wait_for(lambda: owner.counters()["admitted"] == admitted + 1)
+    hit = await materialize(view.find(query, **_SORTED, limit=hit_limit))
+
+    assert view._shared.observation.hits == hits + 1
+    assert view._shared.observation.misses == misses + 1
+    assert [document["_id"] for document in complete] == list(range(8))
+    assert [document["_id"] for document in hit] == list(range(hit_limit))
+    assert raw_key_traversals == [1, 1]

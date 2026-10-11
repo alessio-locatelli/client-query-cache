@@ -22,3 +22,8 @@
 
 - [x] 4.1 Scan the entire file for every edited or added test, including pre-existing tests in those files, and apply the `AGENTS.md` Writing Tests guidelines, including parametrization. Verify the diff introduces no duplicated test lifecycle logic or unused helpers.
 - [x] 4.2 Confirm that Claude Code added no new code prose. Not applicable: this plan is authored for OpenAI Codex, which is exempt.
+
+## 5. Shared-cache adapter alignment
+
+- [x] 5.1 Retain the prepared canonical find family in both shared-cache cursor adapters and reuse it for wire lookup, capture, and source metadata. Add sync/async regression cases covering completed misses and exact/compatible hits. Verify one raw-family traversal per execution; restore the discarded-key implementation temporarily and confirm the regression detects it.
+- [x] 5.2 Remove the duplicate profile-case branches in the combined bypass-precedence test while preserving static typing and the secondary read profile.

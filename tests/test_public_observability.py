@@ -490,6 +490,7 @@ async def test_read_preparation_preserves_combined_bypass_precedence(
     cached_collection: Collection,
     eligibility_probe: Mock,
     raw_key_traversals: list[NonNegativeInt],
+    monkeypatch: pytest.MonkeyPatch,
     *,
     method: str,
     condition: str,
@@ -497,18 +498,13 @@ async def test_read_preparation_preserves_combined_bypass_precedence(
 ) -> None:
     manager = cached_collection.database.manager
     if condition == "profile":
-        if isinstance(manager, AsyncCacheManager):
-            cached_collection = manager.get_cached_collection(
-                manager.client["observations"]["widgets"].with_options(
-                    read_preference=ReadPreference.SECONDARY
-                )
-            )
-        else:
-            cached_collection = manager.get_cached_collection(
-                manager.client["observations"]["widgets"].with_options(
-                    read_preference=ReadPreference.SECONDARY
-                )
-            )
+        monkeypatch.setattr(
+            cached_collection,
+            "_collection",
+            cached_collection.raw.with_options(
+                read_preference=ReadPreference.SECONDARY
+            ),
+        )
     query: BsonDict = {"score": set() if condition == "native-error" else float("nan")}
     if condition == "code":
         query["score"] = Code("function() { return true; }")
