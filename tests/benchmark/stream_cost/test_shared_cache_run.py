@@ -1609,16 +1609,10 @@ def test_shared_assignment_gives_every_worker_the_whole_hot_set(
 
 
 def _describable(
-    registration: Registration,
-    *,
-    blocks: int,
-    lag_events: int,
-    bypasses: int,
+    registration: Registration, *, lag_events: int, bypasses: int
 ) -> list[JsonDict]:
     records: list[JsonDict] = []
     for cell in comparison_cells(registration, "steady"):
-        if cell.block >= blocks:
-            continue
         record = _record(
             cell,
             p99=0.002 if cell.path == "direct" else 0.001,
@@ -1644,6 +1638,7 @@ def _workers(row: JsonDict) -> int:
 def described(concurrent_frozen: Registration) -> Registration:
     raw = copy.deepcopy(concurrent_frozen.raw)
     cast("JsonDict", raw["inference"])["draws"] = 200
+    _assign(raw, ("phases", "steady", "blocks"), 2)
     return replace(concurrent_frozen, raw=raw)
 
 
@@ -1657,16 +1652,16 @@ def described(concurrent_frozen: Registration) -> Registration:
 def test_descriptive_analysis_reports_intervals_counts_and_claimed_lag(
     described: Registration, lag_events: int, claimed: bool
 ) -> None:
-    records = _describable(described, blocks=4, lag_events=lag_events, bypasses=2_500)
+    records = _describable(described, lag_events=lag_events, bypasses=2_500)
 
-    report = analysis.describe_phase(records, described, phase="steady", blocks=4)
+    report = analysis.describe_phase(records, described, phase="steady", blocks=2)
 
     comparisons = cast("list[JsonDict]", report["comparisons"])
     assert {item["measure"] for item in comparisons} == set(
         cast("list[str]", described.section("analysis")["measures"])
     )
     for comparison in comparisons:
-        assert comparison["pairs"] == 4
+        assert comparison["pairs"] == 2
         for estimand in ("ratio", "delta"):
             interval = cast("JsonDict", comparison[estimand])
             assert (
@@ -1691,7 +1686,7 @@ def test_descriptive_analysis_reports_intervals_counts_and_claimed_lag(
     assert ("lag_p95" in cached) is claimed
     assert "lag_p50" not in rows[4, "direct"]
     assert len(cast("list[JsonDict]", report["lag_unclaimed"])) == (
-        0 if claimed else 4 * 2
+        0 if claimed else 2 * 2
     )
     assert report["excluded"] == []
 
@@ -1719,19 +1714,18 @@ def _overload(record: JsonDict) -> None:
 def test_descriptive_analysis_retains_excluded_windows_with_their_reason(
     described: Registration, alter: Callable[[JsonDict], None], reason: str
 ) -> None:
-    records = _describable(described, blocks=1, lag_events=250, bypasses=0)
-    alter(
-        next(
-            record
-            for record in records
-            if record["path"] == "independent" and record["workers"] == 4
-        )
-    )
+    records = _describable(described, lag_events=250, bypasses=0)
+    for record in records:
+        if record["path"] == "independent" and record["workers"] == 4:
+            alter(record)
 
-    report = analysis.describe_phase(records, described, phase="steady", blocks=1)
+    report = analysis.describe_phase(records, described, phase="steady", blocks=2)
 
     excluded = cast("list[JsonDict]", report["excluded"])
-    assert [(item["path"], item["block"]) for item in excluded] == [("independent", 0)]
+    assert [(item["path"], item["block"]) for item in excluded] == [
+        ("independent", 0),
+        ("independent", 1),
+    ]
     assert reason in str(excluded[0]["reason"])
     unpaired = [
         item
@@ -1748,7 +1742,7 @@ def test_analysis_command_describes_an_ungated_registration(
     config = tmp_path / "config.json"
     config.write_text(json.dumps(described.raw))
     report = tmp_path / "report.json"
-    records = _describable(described, blocks=2, lag_events=250, bypasses=0)
+    records = _describable(described, lag_events=250, bypasses=0)
     report.write_text(json.dumps(_report(config, "steady", records)))
 
     analysis.main(
@@ -1902,7 +1896,7 @@ def test_analysis_rejects_mismatched_or_repeated_evidence(
 ) -> None:
     config = tmp_path / "config.json"
     config.write_text(json.dumps(described.raw))
-    records = _describable(described, blocks=2, lag_events=250, bypasses=0)
+    records = _describable(described, lag_events=250, bypasses=0)
     reports = [
         _report(
             config,
@@ -1933,11 +1927,11 @@ def test_analysis_rejects_mismatched_or_repeated_evidence(
 def test_descriptive_analysis_rejects_a_failed_window_and_its_rerun(
     described: Registration,
 ) -> None:
-    records = _describable(described, blocks=1, lag_events=250, bypasses=0)
+    records = _describable(described, lag_events=250, bypasses=0)
     records.append({**records[0], "healthy": False, "failure": "deliberate failure"})
 
     with pytest.raises(BenchmarkSetupError, match="duplicate window"):
-        analysis.describe_phase(records, described, phase="steady", blocks=1)
+        analysis.describe_phase(records, described, phase="steady", blocks=2)
 
 
 def test_capacity_analysis_keeps_each_concurrency_level(frozen: Registration) -> None:
@@ -2015,3 +2009,12 @@ def test_descriptive_analysis_checks_the_shared_owner_stream(
     cast("JsonDict", record["owner"]).update(owner)
 
     assert analysis.exclusion_reason(record, frozen) == expected
+
+
+def test_descriptive_analysis_requires_the_registered_block_count(
+    described: Registration,
+) -> None:
+    records = _describable(described, lag_events=250, bypasses=0)
+
+    with pytest.raises(BenchmarkConfigurationError, match="registers 2 blocks"):
+        analysis.describe_phase(records, described, phase="steady", blocks=1)
