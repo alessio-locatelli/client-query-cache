@@ -1,6 +1,6 @@
 # ruff: noqa: SLF001
 
-import datetime
+import datetime as dt
 import struct
 from decimal import Decimal
 from typing import TYPE_CHECKING, Final
@@ -74,7 +74,7 @@ def to_wire(value: object) -> object:
         return {"t": "int", "p": Int64(value)}
     if isinstance(value, float):
         return value
-    if isinstance(value, datetime.datetime):
+    if isinstance(value, dt.datetime):
         if value.microsecond % 1000 or value.tzinfo is not None:
             message = "datetime key requires naive millisecond precision"
             raise UnportableKeyError(message)
@@ -83,7 +83,7 @@ def to_wire(value: object) -> object:
         return {"t": "class", "p": _CLASS_NAMES[id(value)]}
     if isinstance(value, _TypeRegistryIdentity) and _registry_is_empty(value):
         return {"t": "registry", "p": _EMPTY_REGISTRY}
-    if isinstance(value, datetime.tzinfo) and value is datetime.UTC:
+    if isinstance(value, dt.tzinfo) and value is dt.UTC:
         return {"t": "tzinfo", "p": _UTC}
     if isinstance(value, Decimal):
         message = "native Decimal keys have no portable codec profile"
@@ -130,7 +130,7 @@ def from_wire(value: object) -> object:
         case "registry" if payload == _EMPTY_REGISTRY:
             return _EMPTY_IDENTITY
         case "tzinfo" if payload == _UTC:
-            return datetime.UTC
+            return dt.UTC
         case "tag":
             try:
                 return _TAGS[str(payload)]

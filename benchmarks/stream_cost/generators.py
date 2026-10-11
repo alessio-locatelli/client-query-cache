@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import datetime
+import datetime as dt
 import hashlib
 from dataclasses import dataclass
 
@@ -31,7 +31,7 @@ MEDIUM_DOCUMENT_PROFILE = DocumentSizeProfile("medium", 2_000)
 LARGE_DOCUMENT_PROFILE = DocumentSizeProfile("large", 20_000)
 
 # A fixed UTC boundary keeps seeded timestamps independent of generation time.
-_DOCUMENT_DATE_LIMIT = datetime.datetime(2020, 1, 1, tzinfo=datetime.UTC)
+_DOCUMENT_DATE_LIMIT = dt.datetime(2020, 1, 1, tzinfo=dt.UTC)
 
 
 def _deterministic_object_id(seed: int, index: NonNegativeInt) -> ObjectId:
@@ -39,7 +39,7 @@ def _deterministic_object_id(seed: int, index: NonNegativeInt) -> ObjectId:
     return ObjectId(digest[:12])
 
 
-def _millisecond_precision(value: datetime.datetime) -> datetime.datetime:
+def _millisecond_precision(value: dt.datetime) -> dt.datetime:
     return value.replace(microsecond=(value.microsecond // 1000) * 1000)
 
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import datetime
+import datetime as dt
 import struct
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
@@ -82,7 +82,7 @@ def test_find_shapes_and_codec_profiles_round_trip(
     faker: Faker, *, scalar_predicates: bool
 ) -> None:
     codec: CodecOptions[Mapping[str, Any]] = CodecOptions(
-        tz_aware=True, tzinfo=datetime.UTC, type_registry=_EMPTY_IDENTITY._registry
+        tz_aware=True, tzinfo=dt.UTC, type_registry=_EMPTY_IDENTITY._registry
     )
     sku, price = faker.pystr(), faker.pyfloat()
     shape = find_read_shape(
@@ -113,7 +113,7 @@ def test_find_shapes_and_codec_profiles_round_trip(
         pytest.param(ObjectId(), id="object-id"),
         pytest.param(Decimal128("1.25"), id="decimal128"),
         pytest.param(
-            datetime.datetime(2026, 1, 1, 12, 0, 0, 1000),  # noqa: DTZ001 - BSON keys are naive UTC.
+            dt.datetime(2026, 1, 1, 12, 0, 0, 1000),  # noqa: DTZ001 - BSON keys are naive UTC.
             id="millisecond-datetime",
         ),
     ],
@@ -127,10 +127,10 @@ def test_bson_scalars_keep_their_type(value: object) -> None:
     [
         pytest.param(2**64, id="int-range"),
         pytest.param(
-            datetime.datetime(2026, 1, 1, microsecond=1),  # noqa: DTZ001 - BSON keys are naive UTC.
+            dt.datetime(2026, 1, 1, microsecond=1),  # noqa: DTZ001 - BSON keys are naive UTC.
             id="microseconds",
         ),
-        pytest.param(datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC), id="aware"),
+        pytest.param(dt.datetime(2026, 1, 1, tzinfo=dt.UTC), id="aware"),
         pytest.param(Decimal("1.5"), id="native-decimal"),
         pytest.param(frozenset({1}), id="frozenset"),
         pytest.param(

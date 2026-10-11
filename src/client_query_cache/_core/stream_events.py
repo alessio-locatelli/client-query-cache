@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import datetime
+import datetime as dt
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -51,11 +51,11 @@ def _namespace_from_ns(ns: Mapping[str, Any]) -> NamespaceId:
     return NamespaceId(ns["db"], ns["coll"])
 
 
-def _wall_time_seconds(value: datetime.datetime | DatetimeMS) -> float:
+def _wall_time_seconds(value: dt.datetime | DatetimeMS) -> float:
     if isinstance(value, DatetimeMS):
         return int(value) / 1000.0
     if value.tzinfo is None:
-        value = value.replace(tzinfo=datetime.UTC)
+        value = value.replace(tzinfo=dt.UTC)
     return value.timestamp()
 
 
