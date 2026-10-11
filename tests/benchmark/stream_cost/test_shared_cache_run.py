@@ -361,7 +361,7 @@ def test_validation_rejects_overloaded_or_short_windows(
     ("completed", "expected"),
     [
         pytest.param(10_000, None, id="complete"),
-        pytest.param(9_999, "identity", id="short"),
+        pytest.param(9_999, "cold window did not complete every identity", id="short"),
     ],
 )
 def test_cold_validation_requires_every_identity(
@@ -371,9 +371,7 @@ def test_cold_validation_requires_every_identity(
     record = _record(cell)
     record["completed"] = completed
 
-    failure = validation_failure(record, registration)
-
-    assert (failure is None) if expected is None else (expected in str(failure))
+    assert validation_failure(record, registration) == expected
 
 
 def test_mixed_validation_checks_each_model_population(

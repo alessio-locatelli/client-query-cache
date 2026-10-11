@@ -56,7 +56,6 @@ def served_catalogue(
         env={**os.environ, "MONGODB_URI": mongodb_uri, "CONTENT_CACHE_ENABLED": "true"},
         stdout=subprocess.PIPE,
         text=True,
-        start_new_session=True,
     )
     yield process, free_port
     process.kill()
@@ -110,7 +109,7 @@ def test_catalogue_serves_from_independent_workers(
 
     with pytest.raises(urllib.error.HTTPError) as rejected:
         urllib.request.urlopen(f"http://127.0.0.1:{port}/products/shared")
-    os.killpg(process.pid, signal.SIGINT)
+    process.send_signal(signal.SIGINT)
     remaining, _ = process.communicate(timeout=60)
 
     assert len(started) == SERVED_WORKERS
