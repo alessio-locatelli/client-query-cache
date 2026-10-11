@@ -52,7 +52,7 @@ from client_query_cache._types import BsonDict, JsonDict, NonNegativeInt
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from benchmarks.stream_cost.shared_cache.protocol import Cell
+    from benchmarks.stream_cost.shared_cache.protocol import Cell, PathKind
     from benchmarks.stream_cost.shared_cache.worker import WorkerSpec
 
 pytestmark = pytest.mark.unit
@@ -1846,7 +1846,9 @@ def test_hot_set_limits_only_warm_workloads(concurrent_frozen: Registration) -> 
     assert len(window._workload(concurrent_frozen, steady).keys) == 1_024
 
 
-def _cold_specs(registration: Registration, identities: int) -> tuple[WorkerSpec, ...]:
+def _cold_specs(
+    registration: Registration, identities: int, path: PathKind = "independent"
+) -> tuple[WorkerSpec, ...]:
     raw = copy.deepcopy(registration.raw)
     cast("JsonDict", cast("JsonDict", raw["profiles"])["primary"])["documents"] = 256
     resized = replace(registration, raw=raw)
@@ -1854,6 +1856,7 @@ def _cold_specs(registration: Registration, identities: int) -> tuple[WorkerSpec
         comparison_cells(resized, "steady")[0],
         workload="cold",
         workers=2,
+        path=path,
         identities=identities,
     )
     workload = window._workload(resized, cell)
@@ -1871,18 +1874,29 @@ def _with_assignment(registration: Registration, assignment: str) -> Registratio
     return replace(registration, raw=raw)
 
 
-@pytest.mark.parametrize("assignment", ["shared", "partitioned"])
-def test_cold_workers_warm_a_key_outside_their_measured_identities(
-    concurrent_frozen: Registration, assignment: str
+@pytest.mark.parametrize(
+    ("assignment", "identities", "path"),
+    [
+        pytest.param("shared", 200, "independent", id="shared-keys"),
+        pytest.param("partitioned", 200, "independent", id="partitioned-keys"),
+        pytest.param("partitioned", 255, "shared", id="one-owner-one-free-key"),
+    ],
+)
+def test_cold_workers_warm_a_key_that_no_worker_measures(
+    concurrent_frozen: Registration, assignment: str, identities: int, path: PathKind
 ) -> None:
-    specs = _cold_specs(_with_assignment(concurrent_frozen, assignment), identities=200)
+    specs = _cold_specs(
+        _with_assignment(concurrent_frozen, assignment), identities, path
+    )
 
-    for spec in specs:
-        measured = spec.assignment(warmup=False)
-        assert spec.warm_key is not None
-        assert spec.warm_key not in {
-            measured.key(ordinal) for ordinal in measured.ordinals()
-        }
+    measured = {
+        assignment.key(ordinal)
+        for spec in specs
+        for assignment in (spec.assignment(warmup=False),)
+        for ordinal in assignment.ordinals()
+    }
+    assert all(spec.warm_key is not None for spec in specs)
+    assert not {spec.warm_key for spec in specs} & measured
 
 
 @pytest.mark.parametrize(
