@@ -2091,3 +2091,27 @@ def test_descriptive_analysis_requires_one_stream_per_cached_worker(
     assert analysis.exclusion_reason(record, described) == (
         "observed stream openings differ from the registered count"
     )
+
+
+@pytest.mark.parametrize(
+    "order",
+    [
+        pytest.param(("primary", "cold", "sensitivity"), id="registered-order"),
+        pytest.param(("cold", "sensitivity", "primary"), id="primary-last"),
+    ],
+)
+def test_primary_rate_caps_other_families_in_any_declared_order(
+    registration: Registration, order: tuple[str, ...]
+) -> None:
+    raw = copy.deepcopy(registration.raw)
+    declared = cast("JsonDict", cast("JsonDict", raw["calibration"])["families"])
+    cast("JsonDict", raw["calibration"])["families"] = {
+        name: declared[name] for name in order
+    }
+    recorder = _FakeRecorder(
+        {"hot": 10_000, "active": 10_000, "cold": 40_000, "limit": 10_000}
+    )
+
+    outcome = run.calibrate(object(), replace(registration, raw=raw), recorder)  # type: ignore[arg-type]
+
+    assert outcome["rates"] == {"primary": 750, "cold": 750, "sensitivity": 500}
