@@ -24,7 +24,7 @@ A single-process interleaved benchmark measured this baseline. It ran on a `mong
   - `count`: `count_documents({"author_id": a})`;
   - `own`: `find_one({"_id": id, "author_id": a})`;
   - `by_id`: `find_one({"_id": id})`.
-- **Writes.** Each write either inserts a document for a uniformly drawn author or applies `$inc views` to a uniformly drawn document, so most writes are unrelated to the hot keys.
+- **Writes.** Each write either inserts a document for a uniformly drawn author as that author's newest document, which enters the author's feed, or applies `$inc views` to a uniformly drawn seeded document. Most writes are therefore unrelated to the hot keys.
 - **Runs.** Each run measures 4,096 reads after a 512-read warm-up, with three repetitions in alternating path order.
 - **Ideal bound.** A third path sends the same writes to a sibling collection in the same database. The stream then carries the same event load, but no cached entry is invalidated. This approximates perfectly precise invalidation.
 
@@ -83,7 +83,7 @@ For a non-empty remainder, the identity read shape appends the remainder. The re
 - **Inserts after a negative result.** Missing results become stale only through an insert of that `_id`, which is routed.
 - **Capped and TTL deletions.** In probes against the same server, a capped collection's eviction and a TTL deletion each emitted a `delete` event.
 - **Clear, creation, drop, rename and database invalidation.** These advance the epoch or mark the stream unavailable, as they do today.
-- **Index changes.** Index events do not advance namespace generations today either, so anchoring adds no index exposure. Hints bypass caching. Index-dependent operators bypass caching too: `$text` today, and the proximity operators once `bypass-index-dependent-reads` lands.
+- **Index changes.** Index events do not advance namespace generations today either, so anchoring adds no index exposure. Hints bypass caching. Index-dependent operators, `$text` and the proximity operators, bypass caching too.
 - **Pagination.** `find_one` has no cached skip or limit.
 - **Concurrent admission.** `begin_identity_admission` captures the identity generation before the database read. A write to the identity that is processed before admission rejects it, while writes to other documents do not touch that generation.
 - **Stream interruption and recovery.** The availability generation and the namespace clear on lost history apply unchanged.
@@ -92,7 +92,7 @@ Alternatives:
 
 | Alternative                                                    | Pros                                         | Cons                                                                                                                                                                             |
 | -------------------------------------------------------------- | -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Keep namespace guards for anchored filters (status quo)        | No code                                      | Authorization-style reads are invalidated by every unrelated write                                                                                                               |
+| Keep namespace guards for anchored filters (status quo)        | No code                                      | Owner-filtered reads are invalidated by every unrelated write                                                                                                                    |
 | Also anchor `count_documents`, `distinct`, `find`, `aggregate` | Same correctness argument                    | `find`/`aggregate` need identity-guarded cursor capture and find-family compatibility metadata; anchored counts and distincts are uncommon; each doubles sync/async test surface |
 | Treat `{"_id": {"$eq": v}}` as anchored                        | Covers ODM-generated equality                | Operator interpretation in classification for an unobserved spelling                                                                                                             |
 | Execute `{"_id": identity}` and filter the remainder locally   | Shares one cached document across remainders | Requires a client-side query evaluator, which the request excludes                                                                                                               |
@@ -114,7 +114,9 @@ Conclusion: implement none of these in this change. The two stream-assisted cand
 
 ### D3. Evidence harness
 
-`research/invalidation_scope/benchmark.py` is a standalone research script, following `research/collection_adapter/live_error.py`. It runs the workload and paths from the baseline evidence above, and its `simulate` subcommand replays the same seeded sequences through the policy model. It reuses `IsolatedReplicaSet` and `measure_controlled`, and records psutil RSS and manager snapshot and stream-cost deltas. The report lives in `docs/development/research/invalidation-scope.md`. Raw output stays untracked.
+`research/invalidation_scope/benchmark.py` is a standalone research script, following `research/collection_adapter/live_error.py`. It runs the workload and paths from the baseline evidence above, and its `simulate` subcommand replays the same seeded sequences through the policy model. It reuses `IsolatedReplicaSet` and `measure_controlled`, and records psutil RSS and manager snapshot and stream-cost deltas.
+
+The model invalidates synchronously, whereas the stream applies a write after it returns, so a measured hit can come from an entry that a pending write is about to invalidate. The harness counts these pending-write hits separately, and comparisons with the model use hit shares net of them. A stream barrier after every write would remove them, but it would distort throughput. The baseline above does not separate them. The report lives in `docs/development/research/invalidation-scope.md`. Raw output stays untracked.
 
 | Alternative                                   | Pros                                   | Cons                                                                                                                 |
 | --------------------------------------------- | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
