@@ -39,7 +39,7 @@ def _valid_config() -> BenchmarkConfig:
             pymongo_version="4.18.0",
         ),
         environment=BenchmarkEnvironment(
-            mongodb_version="8.0.4",
+            mongodb_version="test-server",
             topology="replica-set",
             member_count=1,
             resource_limits={"cpu": "1"},

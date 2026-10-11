@@ -29,7 +29,7 @@ def _identity(**overrides: str) -> BenchmarkIdentity:
 
 def _environment(**overrides: object) -> BenchmarkEnvironment:
     defaults: dict[str, object] = {
-        "mongodb_version": "8.0.4",
+        "mongodb_version": "test-server",
         "topology": "replica-set",
         "member_count": 1,
         "resource_limits": {"cpu": "1"},
