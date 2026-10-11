@@ -95,6 +95,7 @@ def _custom_codec() -> CodecOptions[BsonDict]:
 
 
 def test_oversized_find_results_are_not_admitted(
+    open_manager: Callable[..., SharedCacheManager[BsonDict]],
     client: MongoClient[BsonDict],
     start_owner: Callable[..., Owner],
     seeded_database: str,
@@ -106,7 +107,7 @@ def test_oversized_find_results_are_not_admitted(
         {"_id": "big", "payload": "x" * 100_000}
     )
     owner = start_owner(max_entry_bytes=64 * 1024)
-    manager = SharedCacheManager(client, SyncEndpoint(owner.attachment()))
+    manager = open_manager(client, owner)
     ready(manager, seeded_database)
     cursor = manager[seeded_database]["large"].find({}, **_SORTED, limit=8)
 
@@ -124,17 +125,17 @@ def test_oversized_find_results_are_not_admitted(
     wait_for(lambda: owner.observation()["captures"] == 0)
     wait_for(lambda: owner.counters()["admitted"] == 1)
     assert owner.observation()["cache"]["entry_count"] == 1
-    manager.close()
 
 
 def test_unportable_and_bypassed_finds_execute_natively(
+    open_manager: Callable[..., SharedCacheManager[BsonDict]],
     client: MongoClient[BsonDict],
     start_owner: Callable[..., Owner],
     seeded_database: str,
     mongodb_uri: MongoDbUri,
 ) -> None:
     owner = start_owner()
-    manager = SharedCacheManager(client, SyncEndpoint(owner.attachment()))
+    manager = open_manager(client, owner)
     ready(manager, seeded_database)
     custom = client[seeded_database].get_collection(
         COLLECTION, codec_options=_custom_codec()
@@ -171,16 +172,16 @@ def test_unportable_and_bypassed_finds_execute_natively(
         pytest.raises(ValueError, match="different client"),
     ):
         manager.get_cached_collection(other[seeded_database][COLLECTION])
-    manager.close()
 
 
 def test_unlimited_find_hits_return_the_complete_result(
+    open_manager: Callable[..., SharedCacheManager[BsonDict]],
     client: MongoClient[BsonDict],
     start_owner: Callable[..., Owner],
     seeded_database: str,
 ) -> None:
     owner = start_owner()
-    manager = SharedCacheManager(client, SyncEndpoint(owner.attachment()))
+    manager = open_manager(client, owner)
     collection = manager[seeded_database][COLLECTION]
     ready(manager, seeded_database)
 
@@ -190,16 +191,16 @@ def test_unlimited_find_hits_return_the_complete_result(
 
     assert len(hit) == DOCUMENTS
     assert manager.observation.hits == 1
-    manager.close()
 
 
 def test_owner_bypasses_reach_find_one_and_find(
+    open_manager: Callable[..., SharedCacheManager[BsonDict]],
     client: MongoClient[BsonDict],
     start_owner: Callable[..., Owner],
     seeded_database: str,
 ) -> None:
     owner = start_owner()
-    manager = SharedCacheManager(client, SyncEndpoint(owner.attachment()))
+    manager = open_manager(client, owner)
     collection = manager[seeded_database][COLLECTION]
     ready(manager, seeded_database)
     owner.request("pause-watch")
@@ -215,17 +216,17 @@ def test_owner_bypasses_reach_find_one_and_find(
 
     assert len(documents) == 2
     assert manager.observation.bypasses["progress-expired"] >= 2
-    manager.close()
 
 
 def test_exhausted_captures_leave_reads_native(
+    open_manager: Callable[..., SharedCacheManager[BsonDict]],
     client: MongoClient[BsonDict],
     start_owner: Callable[..., Owner],
     seeded_database: str,
     mongodb_uri: MongoDbUri,
 ) -> None:
     owner = start_owner(captures=1)
-    manager = SharedCacheManager(client, SyncEndpoint(owner.attachment()))
+    manager = open_manager(client, owner)
     collection = manager[seeded_database][COLLECTION]
     ready(manager, seeded_database)
     held = select_identity(manager.endpoint, manager, seeded_database, 21)
@@ -246,17 +247,17 @@ def test_exhausted_captures_leave_reads_native(
     assert asyncio.run(asynchronous()) is not None
     assert owner.counters()["capture_limit_misses"] == 3
     assert owner.counters()["admitted"] == 0
-    manager.close()
 
 
 def test_failed_native_reads_release_their_captures(
+    open_manager: Callable[..., SharedCacheManager[BsonDict]],
     client: MongoClient[BsonDict],
     start_owner: Callable[..., Owner],
     seeded_database: str,
     mongodb_uri: MongoDbUri,
 ) -> None:
     owner = start_owner()
-    manager = SharedCacheManager(client, SyncEndpoint(owner.attachment()))
+    manager = open_manager(client, owner)
     ready(manager, seeded_database)
 
     with pytest.raises(OperationFailure):
@@ -273,10 +274,10 @@ def test_failed_native_reads_release_their_captures(
 
     wait_for(lambda: owner.observation()["captures"] == 0)
     assert owner.counters()["misses"] == 2
-    manager.close()
 
 
 def test_large_hits_are_reassembled_from_partial_reads(
+    open_manager: Callable[..., SharedCacheManager[BsonDict]],
     client: MongoClient[BsonDict],
     start_owner: Callable[..., Owner],
     seeded_database: str,
@@ -285,7 +286,7 @@ def test_large_hits_are_reassembled_from_partial_reads(
         {"_id": "large", "payload": "x" * 600_000, "revision": 0}
     )
     owner = start_owner(queued_bytes_per_connection=4 * 1024 * 1024)
-    manager = SharedCacheManager(client, SyncEndpoint(owner.attachment()))
+    manager = open_manager(client, owner)
     collection = manager[seeded_database][COLLECTION]
     ready(manager, seeded_database)
 
@@ -295,7 +296,6 @@ def test_large_hits_are_reassembled_from_partial_reads(
 
     assert document == {"_id": "large", "payload": "x" * 600_000, "revision": 0}
     assert manager.observation.hits == 1
-    manager.close()
 
 
 def test_sync_endpoints_drop_one_way_messages_without_a_connection(
@@ -392,10 +392,10 @@ def test_async_requests_survive_owner_pauses_and_loss(
 
 
 def test_connections_of_finished_threads_are_released(
-    start_owner: Callable[..., Owner],
+    start_owner: Callable[..., Owner], open_endpoint: Callable[[Owner], SyncEndpoint]
 ) -> None:
     owner = start_owner(connections=4)
-    endpoint = SyncEndpoint(owner.attachment())
+    endpoint = open_endpoint(owner)
 
     for _ in range(6):
         worker = threading.Thread(target=endpoint.request, args=({"op": "observe"},))
@@ -405,7 +405,6 @@ def test_connections_of_finished_threads_are_released(
     wait_for(lambda: owner.observation()["connections"] == 1)
     assert endpoint.counters.connects == 7
     assert endpoint.counters.failures == 0
-    endpoint.close()
 
 
 @pytest.fixture(params=("sync", "async"))
@@ -703,6 +702,7 @@ def _reply(incarnation: int) -> bytes:
 )
 def test_handshakes_accept_two_descriptors_from_one_reply(
     owner_endpoint: tuple[socket.socket, AttachmentConfig],
+    handshake_descriptors: list[int],
     model: str,
     *,
     count: int,
@@ -711,10 +711,7 @@ def test_handshakes_accept_two_descriptors_from_one_reply(
     rejection: type[Exception] | None,
 ) -> None:
     listener, config = owner_endpoint
-    index = OwnerIndex(64, 4096, 1, 1, _INCARNATION, 10**9)
-    ring = index.session_ring(4)
-    reader = index.reader_descriptor()
-    sent = [reader, ring.descriptor()] * 3
+    sent = handshake_descriptors * 3
     before = _descriptors()  # pytriage: TR5, TR11
     server = threading.Thread(
         target=_serve_handshake,
@@ -734,6 +731,14 @@ def test_handshakes_accept_two_descriptors_from_one_reply(
     server.join(5)
 
     assert _descriptors() <= before
+
+
+@pytest.fixture
+def handshake_descriptors() -> Iterator[list[int]]:
+    index = OwnerIndex(64, 4096, 1, 1, _INCARNATION, 10**9)
+    ring = index.session_ring(4)
+    reader = index.reader_descriptor()
+    yield [reader, ring.descriptor()]
     os.close(reader)
     ring.close_descriptor()
 

@@ -205,12 +205,13 @@ def test_processed_invalidation_prevents_a_stale_selection(
 
 
 def test_owner_restart_fences_old_sessions_and_handles(
+    open_manager: Callable[..., SharedCacheManager[BsonDict]],
     client: MongoClient[BsonDict],
     start_owner: Callable[..., Owner],
     seeded_database: str,
 ) -> None:
     first = start_owner()
-    manager = SharedCacheManager(client, SyncEndpoint(first.attachment()))
+    manager = open_manager(client, first)
     ready(manager, seeded_database)
     reply = select_identity(manager.endpoint, manager, seeded_database, 3)
     assert reply is not None
@@ -235,7 +236,6 @@ def test_owner_restart_fences_old_sessions_and_handles(
     assert manager.endpoint.incarnation != old_incarnation
     wait_for(lambda: replacement.counters()["rejected_admissions"] == 1)
     assert replacement.observation()["cache"]["entry_count"] == 0
-    manager.close()
 
 
 def test_a_second_live_owner_cannot_take_the_endpoint(
@@ -408,12 +408,13 @@ def _closed(sock: socket.socket) -> bool:
 
 
 def test_a_slow_reader_is_detached_without_blocking_peers(
+    open_manager: Callable[..., SharedCacheManager[BsonDict]],
     client: MongoClient[BsonDict],
     start_owner: Callable[..., Owner],
     seeded_database: str,
 ) -> None:
     owner = start_owner(queued_bytes_per_connection=16_384)
-    manager = SharedCacheManager(client, SyncEndpoint(owner.attachment()))
+    manager = open_manager(client, owner)
     ready(manager, seeded_database)
     slow = _raw_connection(owner.attachment(), authenticate=True)
     slow.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4_096)
@@ -425,7 +426,6 @@ def test_a_slow_reader_is_detached_without_blocking_peers(
     assert manager[seeded_database][COLLECTION].find_one({"_id": 11}) is not None
     assert manager.observation.hits >= 1
     slow.close()
-    manager.close()
 
 
 @pytest.mark.parametrize(
@@ -571,24 +571,24 @@ def test_unauthorized_or_conflicting_attachments_fail_visibly(
 
 
 def test_the_connection_limit_rejects_extra_attachments(
-    start_owner: Callable[..., Owner],
+    start_owner: Callable[..., Owner], open_endpoint: Callable[[Owner], SyncEndpoint]
 ) -> None:
     owner = start_owner(connections=1)
-    endpoint = SyncEndpoint(owner.attachment())
+    open_endpoint(owner)
 
     with pytest.raises(AttachmentConfigurationError, match="not reachable"):
         SyncEndpoint(owner.attachment())
     assert owner.counters()["connections_rejected"] == 1
-    endpoint.close()
 
 
 def test_capture_limits_and_expiry_bound_owner_state(
+    open_manager: Callable[..., SharedCacheManager[BsonDict]],
     client: MongoClient[BsonDict],
     start_owner: Callable[..., Owner],
     seeded_database: str,
 ) -> None:
     owner = start_owner(captures=1, capture_seconds=0.3)
-    manager = SharedCacheManager(client, SyncEndpoint(owner.attachment()))
+    manager = open_manager(client, owner)
     ready(manager, seeded_database)
     wait_for(lambda: owner.observation()["captures"] == 0)
 
@@ -607,7 +607,6 @@ def test_capture_limits_and_expiry_bound_owner_state(
     assert cast("Payload", second)["handle"] is None
     wait_for(lambda: owner.counters()["rejected_admissions"] == 1)
     assert owner.counters()["capture_limit_misses"] >= 1
-    manager.close()
 
 
 def test_unauthorized_databases_bypass(
@@ -622,12 +621,13 @@ def test_unauthorized_databases_bypass(
 
 
 def test_owner_shutdown_during_activation_leaves_reads_native(
+    open_manager: Callable[..., SharedCacheManager[BsonDict]],
     client: MongoClient[BsonDict],
     start_owner: Callable[..., Owner],
     seeded_database: str,
 ) -> None:
     owner = start_owner()
-    manager = SharedCacheManager(client, SyncEndpoint(owner.attachment()))
+    manager = open_manager(client, owner)
     collection = manager[seeded_database][COLLECTION]
 
     first = collection.find_one({"_id": 14})
@@ -637,7 +637,6 @@ def test_owner_shutdown_during_activation_leaves_reads_native(
     assert first == second == {"_id": 14, "payload": "value-14", "revision": 0}
     assert owner.process.exitcode == 0
     assert manager.observation.hits == 0
-    manager.close()
 
 
 def test_an_owner_exits_cleanly_when_the_harness_hangs_up_after_close(
@@ -950,16 +949,6 @@ def _until(predicate: Callable[[], bool], timeout: float = 10.0) -> float:
     return time.monotonic() - started
 
 
-def _shared_manager(
-    client: MongoClient[BsonDict], owner: Owner, database: str
-) -> SharedCacheManager[BsonDict]:
-    manager = SharedCacheManager(
-        client, SyncEndpoint(owner.attachment()), LocalIndex.attach(owner.attachment())
-    )
-    ready(manager, database)
-    return manager
-
-
 def _prime(
     manager: SharedCacheManager[BsonDict], owner: Owner, database: str, key: int
 ) -> bytes:
@@ -975,12 +964,13 @@ def _prime(
 def shared_reads(
     client: MongoClient[BsonDict],
     start_owner: Callable[..., Owner],
+    open_manager: Callable[..., SharedCacheManager[BsonDict]],
     seeded_database: str,
-) -> Iterator[tuple[SharedCacheManager[BsonDict], Owner]]:
+) -> tuple[SharedCacheManager[BsonDict], Owner]:
     owner = start_owner(shared_index=_SHARED_INDEX)
-    manager = _shared_manager(client, owner, seeded_database)
-    yield manager, owner
-    manager.close()
+    manager = open_manager(client, owner, local=True)
+    ready(manager, seeded_database)
+    return manager, owner
 
 
 def test_a_killed_owner_stops_local_hits_within_the_detection_bound(
@@ -1032,12 +1022,14 @@ def test_a_silent_owner_stops_local_hits_by_the_progress_expiry(
 
 
 def test_a_replacement_owner_serves_only_its_own_index(
+    open_manager: Callable[..., SharedCacheManager[BsonDict]],
     client: MongoClient[BsonDict],
     start_owner: Callable[..., Owner],
     seeded_database: str,
 ) -> None:
     first = start_owner(shared_index=_SHARED_INDEX)
-    manager = _shared_manager(client, first, seeded_database)
+    manager = open_manager(client, first, local=True)
+    ready(manager, seeded_database)
     _prime(manager, first, seeded_database, 1)
     previous = manager.local
     assert previous is not None
@@ -1059,7 +1051,6 @@ def test_a_replacement_owner_serves_only_its_own_index(
     assert manager.local.incarnation == replacement.observation()["incarnation"]
     assert manager.local.incarnation != previous.incarnation
     assert replacement.counters()["admitted"] == 1
-    manager.close()
 
 
 def _read_forever(  # pragma: no cover (killed before coverage is saved)
@@ -1083,12 +1074,14 @@ def _shared_metadata(endpoint: SyncEndpoint, database: str) -> Message:
 
 
 def test_a_worker_killed_mid_read_never_delays_reclamation(
+    open_manager: Callable[..., SharedCacheManager[BsonDict]],
     client: MongoClient[BsonDict],
     start_owner: Callable[..., Owner],
     seeded_database: str,
 ) -> None:
     owner = start_owner(shared_index=_SMALL_ARENA)
-    manager = _shared_manager(client, owner, seeded_database)
+    manager = open_manager(client, owner, local=True)
+    ready(manager, seeded_database)
     _prime(manager, owner, seeded_database, 1)
     context = multiprocessing.get_context("spawn")
     reader = context.Process(
@@ -1114,7 +1107,6 @@ def test_a_worker_killed_mid_read_never_delays_reclamation(
         "payload": "value-1",
         "revision": _CHURN_ROUNDS,
     }
-    manager.close()
 
 
 def _stress_reader(
@@ -1142,14 +1134,16 @@ def _stress_reader(
 
 
 def test_concurrent_readers_never_observe_torn_payloads(
-    start_owner: Callable[..., Owner], seeded_database: str
+    start_owner: Callable[..., Owner],
+    open_endpoint: Callable[[Owner], SyncEndpoint],
+    seeded_database: str,
 ) -> None:
     owner = start_owner(
         shared_index=_SHARED_INDEX,
         budget_bytes=_STRESS_BUDGET,
         max_entry_bytes=_STRESS_MAX_ENTRY,
     )
-    endpoint = SyncEndpoint(owner.attachment())
+    endpoint = open_endpoint(owner)
     metadata = _shared_metadata(endpoint, seeded_database)
     context = multiprocessing.get_context("spawn")
     readers = []
@@ -1192,16 +1186,17 @@ def test_concurrent_readers_never_observe_torn_payloads(
     for observed, _reads in reports:
         for key, values in observed.items():
             assert set(values) <= published[key]
-    endpoint.close()
 
 
 def test_publication_capacity_bounds_shared_state(
+    open_manager: Callable[..., SharedCacheManager[BsonDict]],
     client: MongoClient[BsonDict],
     start_owner: Callable[..., Owner],
     seeded_database: str,
 ) -> None:
     owner = start_owner(shared_index=_FEW_SLOTS)
-    manager = _shared_manager(client, owner, seeded_database)
+    manager = open_manager(client, owner, local=True)
+    ready(manager, seeded_database)
     first = [
         manager[seeded_database][COLLECTION].find_one({"_id": key})
         for key in range(DOCUMENTS)
@@ -1219,7 +1214,6 @@ def test_publication_capacity_bounds_shared_state(
     assert published == _FEW_SLOTS.slots * 3 // 4
     assert manager.endpoint.counters.requests == requests + DOCUMENTS - published
     assert manager.observation.hits == DOCUMENTS
-    manager.close()
 
 
 @pytest.mark.parametrize("race", ["write", "eviction"])
@@ -1286,6 +1280,18 @@ def _reopen_writable(descriptor: int) -> None:
         os.close(reopened)
 
 
+@pytest.fixture
+def index_descriptor(
+    shared_reads: tuple[SharedCacheManager[BsonDict], Owner],
+) -> Iterator[int]:
+    _manager, owner = shared_reads
+    peer, descriptors = _received_descriptors(owner.attachment())
+    yield descriptors[0]
+    for descriptor in descriptors:
+        os.close(descriptor)
+    peer.close()
+
+
 @pytest.mark.parametrize(
     "attempt",
     [
@@ -1297,19 +1303,14 @@ def _reopen_writable(descriptor: int) -> None:
 )
 def test_workers_cannot_modify_the_published_index(
     shared_reads: tuple[SharedCacheManager[BsonDict], Owner],
+    index_descriptor: int,
     seeded_database: str,
     attempt: Callable[[int], None],
 ) -> None:
     manager, owner = shared_reads
     payload = _prime(manager, owner, seeded_database, 1)
-    peer, descriptors = _received_descriptors(owner.attachment())
 
-    try:
-        with pytest.raises(OSError, match=_DENIED):
-            attempt(descriptors[0])
-    finally:
-        for descriptor in descriptors:
-            os.close(descriptor)
-        peer.close()
+    with pytest.raises(OSError, match=_DENIED):
+        attempt(index_descriptor)
 
     assert _local_read(manager, seeded_database, 1) == payload

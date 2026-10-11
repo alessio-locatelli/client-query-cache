@@ -14,8 +14,15 @@ import pytest
 from pymongo import AsyncMongoClient, MongoClient
 
 from benchmarks.stream_cost.multiprocess_run import reclaim_workers
-from benchmarks.stream_cost.shared_cache.adapters import AsyncSharedCacheManager
-from benchmarks.stream_cost.shared_cache.attachment import AsyncEndpoint
+from benchmarks.stream_cost.shared_cache.adapters import (
+    AsyncSharedCacheManager,
+    SharedCacheManager,
+)
+from benchmarks.stream_cost.shared_cache.attachment import (
+    AsyncEndpoint,
+    LocalIndex,
+    SyncEndpoint,
+)
 from benchmarks.stream_cost.shared_cache.coordinator import OwnerConfig, TransportLimits
 from benchmarks.stream_cost.shared_cache.owner import owner_main
 from benchmarks.stream_cost.shared_cache.window import attachment_for
@@ -27,11 +34,9 @@ if TYPE_CHECKING:
     from multiprocessing.connection import Connection
     from multiprocessing.process import BaseProcess
 
-    from benchmarks.stream_cost.shared_cache.adapters import SharedCacheManager
     from benchmarks.stream_cost.shared_cache.attachment import (
         AttachmentConfig,
         Message,
-        SyncEndpoint,
     )
     from benchmarks.stream_cost.shared_cache.shared_index import SharedIndexLimits
     from tests.conftest import DatabaseName, MongoDbUri
@@ -127,6 +132,41 @@ async def async_shared_manager(
     finally:
         await manager.close()
         await client.close()
+
+
+@pytest.fixture
+def open_manager() -> Iterator[Callable[..., SharedCacheManager[BsonDict]]]:
+    managers: list[SharedCacheManager[BsonDict]] = []
+
+    def open_manager(
+        client: MongoClient[BsonDict], owner: Owner, *, local: bool = False
+    ) -> SharedCacheManager[BsonDict]:
+        attachment = owner.attachment()
+        manager = SharedCacheManager(
+            client,
+            SyncEndpoint(attachment),
+            LocalIndex.attach(attachment) if local else None,
+        )
+        managers.append(manager)
+        return manager
+
+    yield open_manager
+    for manager in managers:
+        manager.close()
+
+
+@pytest.fixture
+def open_endpoint() -> Iterator[Callable[[Owner], SyncEndpoint]]:
+    endpoints: list[SyncEndpoint] = []
+
+    def open_endpoint(owner: Owner) -> SyncEndpoint:
+        endpoint = SyncEndpoint(owner.attachment())
+        endpoints.append(endpoint)
+        return endpoint
+
+    yield open_endpoint
+    for endpoint in endpoints:
+        endpoint.close()
 
 
 @pytest.fixture
