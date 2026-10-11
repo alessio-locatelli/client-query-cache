@@ -23,6 +23,8 @@ exclude_path = [
   'renovate.json5',
   'site',
   '.cache',
+  'uv.lock',
+  'package-lock.json',
 ]
 # Hosted guide routes can be absent until this revision is published. The strict
 # local site build and preview inspection validate them before publication.
