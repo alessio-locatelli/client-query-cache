@@ -84,11 +84,18 @@ class Registration:
         hot_keys = self.hot_keys
         if hot_keys is None:
             return
-        for kind in self._cell_kinds(smoke=False):
+        cells = {
+            (_FAMILY_WORKLOADS[kind], kind) for kind in self._cell_kinds(smoke=False)
+        }
+        cells.update(
+            (family.probe_workload, kind)
+            for family in families(self)
+            if family.probe_workload is not None
+            for kind, _, _ in family.cells
+        )
+        for workload, kind in cells:
             name = _profile_for(kind)
-            if _FAMILY_WORKLOADS[kind] != "cold" and hot_keys > profile_keys(
-                self.profile(name)
-            ):
+            if workload != "cold" and hot_keys > profile_keys(self.profile(name)):
                 message = f"hot_keys exceeds the keys of the {name} profile"
                 raise BenchmarkConfigurationError(message)
 

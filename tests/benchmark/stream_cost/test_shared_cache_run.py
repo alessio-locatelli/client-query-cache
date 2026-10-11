@@ -854,6 +854,7 @@ def _report(
         "environment": {
             "configuration_sha256": Registration.load(config).digest,
             "revision": revision,
+            "dirty_tree": False,
         },
         "cells": records,
     }
@@ -1877,6 +1878,21 @@ def test_gated_decisions_are_unchanged(
     assert _checksum(decision) == expected
 
 
+def test_hot_set_must_fit_the_profile_of_a_hot_probe(
+    concurrent: Registration,
+) -> None:
+    raw = copy.deepcopy(concurrent.raw)
+    cold_cells = [["cold", "async", 1]]
+    raw["hot_keys"] = 16_385
+    cast("JsonDict", raw["calibration"])["families"] = {
+        "steady": {"probe_workload": "hot", "cells": cold_cells}
+    }
+    cast("JsonDict", cast("JsonDict", raw["phases"])["steady"])["cells"] = cold_cells
+
+    with pytest.raises(BenchmarkConfigurationError, match="the primary profile"):
+        replace(concurrent, raw=raw)
+
+
 def test_hot_set_limits_only_warm_workloads(concurrent_frozen: Registration) -> None:
     steady = comparison_cells(concurrent_frozen, "steady")[0]
     cold = replace(steady, workload="cold", identities=100)
@@ -2000,6 +2016,11 @@ def _exploratory_report(_first: JsonDict, second: JsonDict) -> None:
     second["exploratory"] = _ONLY_SYNC_8
 
 
+def _uncommitted_changes(first: JsonDict, second: JsonDict) -> None:
+    for report in (first, second):
+        cast("JsonDict", report["environment"])["dirty_tree"] = True
+
+
 def _foreign_image(first: JsonDict, second: JsonDict) -> None:
     cast("JsonDict", first["environment"])["mongodb_image"] = "mongo:8.3.11"
     cast("JsonDict", second["environment"])["mongodb_image"] = "mongo:8.0.4"
@@ -2052,6 +2073,7 @@ def _block_report_arguments(
         pytest.param(_failed_window_rerun, "duplicate", id="failed-rerun"),
         pytest.param(_exploratory_report, "is exploratory", id="exploratory"),
         pytest.param(_foreign_image, "different revisions or env", id="image"),
+        pytest.param(_uncommitted_changes, "uncommitted changes", id="dirty-tree"),
     ],
 )
 def test_analysis_rejects_mismatched_or_repeated_evidence(
