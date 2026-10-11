@@ -139,6 +139,23 @@ class OriginServer(ThreadingHTTPServer):
         self.server_close()
 
 
+def wait_for_stored_response(
+    cache_manager: CacheManager[dict[str, Any]], invalidations_before: int
+) -> None:
+    started = monotonic()
+    while (
+        cache_manager.stream_cost_snapshot(DATABASE_NAME).invalidations
+        <= invalidations_before
+    ):
+        if monotonic() - started >= INVALIDATION_TIMEOUT_SECONDS:
+            message = (
+                f"the stored response's change event was not applied "
+                f"after {INVALIDATION_TIMEOUT_SECONDS:.0f} s"
+            )
+            raise SystemExit(message)
+        sleep(INVALIDATION_POLL_INTERVAL_SECONDS)
+
+
 def request_repeatedly(session: CachedSession, origin: OriginServer) -> None:
     for _ in range(REPEATED_REQUESTS):
         session.get(origin.url).raise_for_status()
@@ -175,7 +192,11 @@ def run_scenario(
 ) -> None:
     url = origin.url
 
+    invalidations_before = cache_manager.stream_cost_snapshot(
+        DATABASE_NAME
+    ).invalidations
     session.get(url).raise_for_status()
+    wait_for_stored_response(cache_manager, invalidations_before)
     if origin.hits != 1:
         message = f"expected 1 origin hit after the first request, got {origin.hits}"
         raise SystemExit(message)
@@ -206,6 +227,7 @@ def main() -> None:
     mongodb_uri = os.getenv("MONGODB_URI", DEFAULT_MONGODB_URI)
     with MongoClient[dict[str, Any]](mongodb_uri) as client:
         client.drop_database(DATABASE_NAME)
+        client[DATABASE_NAME].create_collection("responses")
         with (
             CacheManager(client) as cache_manager,
             OriginServer() as origin,
