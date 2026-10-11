@@ -15,6 +15,7 @@ Start with [CONTRIBUTING](../../CONTRIBUTING.md) for the development environment
 - [Causal invalidation barrier research](research/causal-invalidation-barrier.md): provenance, findings, and reproduction guidance.
 - [Shared invalidation research](research/shared-invalidation-feasibility.md): multi-process measurements, coordination assessment, and reproduction guidance.
 - [Shared worker cache research](research/shared-worker-cache-feasibility.md): shared-storage prototype, screening verdict, bottleneck attribution, and reproduction guidance.
+- [Concurrent worker workload research](research/concurrent-worker-workload.md): direct reads versus per-worker managers under concurrent writes, with latency, CPU, memory, and invalidation-lag estimates and reproduction guidance.
 
 - [Invalidation scope research](research/invalidation-scope.md): anchored reads under interleaved writes, modeled alternatives, and miss-cost follow-ups.
 

@@ -89,7 +89,7 @@ One host and a single-member replica set understate network latency and overstat
 
 ## Calibration result
 
-Calibration ran at revision `2c1b6e158e2ef64800d9a07fcb3402afbe9eeddf` from the draft configuration with SHA-256 `e447f37359fe82a50417f2963a84949ce70374ef1f2a04873b25a0770302026c`. All 36 windows were healthy: 12 closed-loop probes and 24 open-loop validations. Throughput is reads/s over the three probe windows of each cell.
+Calibration ran against MongoDB 8.0.4 from the draft configuration with SHA-256 `e447f37359fe82a50417f2963a84949ce70374ef1f2a04873b25a0770302026c`, at revision `2c1b6e158e2ef64800d9a07fcb3402afbe9eeddf`. While it ran, the branch was rebased onto a `main` whose only new commit changed the harness's MongoDB image to 8.3.11; the running harness had already started its replica set, so every calibration window used 8.0.4. The rebased commit `8e94e9667cd3bfa48b3b3b481336f215c3af5a76` differs from the calibrated revision only in the MongoDB image tags of the harness and the test suite. All 36 windows were healthy: 12 closed-loop probes and 24 open-loop validations. Throughput is reads/s over the three probe windows of each cell.
 
 | Cell               | `direct` probes | `independent` probes |
 | ------------------ | --------------: | -------------------: |
