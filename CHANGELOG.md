@@ -22,7 +22,7 @@ bodies or OpenSpec. An empty Unreleased section is valid.
 
 ### Performance
 
-- Cached results use less process memory: about 210 fewer bytes for each document cached by `_id`, and about 70 fewer for every other cached result.
+- Cached results cost less process memory and CPU: about 210 fewer bytes for each document cached by `_id`, and for other cached results about 70 fewer bytes plus a more compact cache key, for example about 440 fewer bytes for a result cached by a one-field filter and about 950 fewer with a 48-value `$in` filter. Building those cache keys on each read takes about 25–55% less CPU.
 
 ### Features
 

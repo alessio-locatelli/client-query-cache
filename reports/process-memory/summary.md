@@ -16,6 +16,16 @@ uv run -- python -m research.process_memory.measure summarize benchmark-reports/
 
 `--scenarios` selects a subset. A full run takes about two hours; raw JSON stays in the ignored `benchmark-reports/` directory. The pre-fix baseline ran the same harness, without the `cycles` scenario, from a disposable worktree of `893c636`, whose `src/` is identical to the parent of the fix.
 
+The compact-key change reran only the scenarios whose keys it changes, in about one hour, and measured key cost without MongoDB:
+
+```bash
+uv run -- python -m research.process_memory.measure run --runs 5 --scenarios small-entries large-keys cycles --output benchmark-reports/process-memory/compact-keys.json
+uv run -- python -m research.process_memory.measure summarize benchmark-reports/process-memory/compact-keys.json
+just pytest -- tests/benchmark/test_namespace_key_cost.py -n 0 -s -q
+```
+
+Its baseline is the run of the bookkeeping fix: `src/` did not change between that measurement and the parent of the compact-key change.
+
 ## Method
 
 [`research/process_memory/measure.py`](../../research/process_memory/measure.py) seeds one database, then runs every combination of scenario, API (synchronous or asyncio), and mode (direct PyMongo or cached view) as a fresh Python process in its own disposable container, five times in a seeded random order. MongoDB runs in a separate container, so its memory never enters a measured cgroup. Cached and direct processes issue identical reads, and the application keeps no results except where a phase says so. Differences below are cached minus direct for the same run, reported as the median and range of five runs.
@@ -50,12 +60,12 @@ The tables use the final code. "Δ" is cached minus direct RSS at the checkpoint
 | ------------------------------- | ----------: | ------: | --------------------------------------------- | ---------------- | -------------------: |
 | `documents`, after eviction     |    64.0 MiB |  15,356 | 74.0 (73.8–74.3)                              | 4,919–4,928 B    |                 1.13 |
 | `result-sets`, after eviction   |    63.4 MiB |      68 | sync 68.3 (67.9–69.2), async 65.0 (61.0–65.9) | 0.92–0.97 MiB    |            0.99–1.04 |
-| `small-entries`, cold           |     3.6 MiB |  64,001 | 72.2 (71.9–72.3)                              | 1,148–1,150 B    |                 19.5 |
-| `small-entries`, after eviction |     4.0 MiB |  71,089 | 86.5 (86.2–86.6)                              | 1,244–1,245 B    |                 21.1 |
-| `large-keys`, cold              |     3.6 MiB |  64,001 | 326.6 (326.5–326.9)                           | 5,317–5,318 B    |                 90.1 |
-| `large-keys`, after eviction    |     4.0 MiB |  71,089 | 369.1 (369.0–369.4)                           | 5,413–5,414 B    |                 91.8 |
+| `small-entries`, cold           |     3.6 MiB |  64,001 | sync 48.7 (48.6–48.9), async 48.4 (48.3–48.9) | 764–767 B        |            12.9–13.0 |
+| `small-entries`, after eviction |     4.0 MiB |  71,089 | sync 61.0 (61.0–61.3), async 60.8 (60.8–61.3) | 871–873 B        |                 14.8 |
+| `large-keys`, cold              |     3.6 MiB |  64,001 | 272.7 (272.4–273.0)                           | 4,435 B          |                 75.2 |
+| `large-keys`, after eviction    |     4.0 MiB |  71,089 | 309.1 (308.8–309.4)                           | 4,530 B          |                 76.8 |
 
-Container `memory.current` differences match the RSS differences within 1.2 MiB in every row, and `anon` and USS differences within 0.4 MiB. Absolute container memory followed USS and stayed about 17 MiB below RSS, which also counts the interpreter's and libraries' shared file pages. Phase peaks equal the end-of-phase values except during eviction of small entries, which peaked 1.9 MiB (`small-entries`) and 3.6 MiB (`large-keys`) above the result.
+Container `memory.current` differences match the RSS differences within 1.2 MiB in every row except the synchronous `small-entries` rows, where three runs' counters already differed by 4.0–6.6 MiB at the `baseline` checkpoint, before the first cached read; `anon` and USS differences match within 0.4 MiB in every row. Absolute container memory followed USS and stayed about 17 MiB below RSS, which also counts the interpreter's and libraries' shared file pages. Phase peaks equal the end-of-phase values except during eviction of small entries, which peaked 1.8–1.9 MiB above the result in both scenarios.
 
 Warm passes added 0.6 MiB for `documents` and 2.2 MiB for the small-entry scenarios, without new entries: hits decode each result into new objects that the reads then discard. `result-sets` warm passes added nothing.
 
@@ -71,22 +81,22 @@ Thirty-two cursors that each read 220 of 224 documents retained 30,765,770 bytes
 | --------------- | ------------------------: | -------------------------: | -----------------------------------: |
 | `documents`     |          19.5 (10.4–19.7) |              7.4 (6.4–7.6) |                            7.7 / 7.6 |
 | `result-sets`   |           13.2 (2.5–22.5) |            −0.4 (−4.6–0.7) |                           1.3 / −1.9 |
-| `small-entries` |          23.2 (22.2–24.2) |           37.1 (30.9–40.3) |                          23.4 / 37.3 |
-| `large-keys`    |          34.0 (31.5–48.7) |           56.9 (50.3–65.4) |                          34.2 / 57.1 |
+| `small-entries` |          20.4 (19.7–22.8) |           38.3 (33.8–39.5) |                          20.6 / 31.6 |
+| `large-keys`    |          37.3 (35.0–39.6) |           61.5 (49.3–68.3) |                          35.8 / 61.7 |
 
-Each value includes the library's modules, which stay imported after closing. GC-tracked object counts after closing were 34–145 below each process's cached baseline, so no cache objects survived. glibc trimming returns the memory that held stored BSON and captures, which glibc allocates outside Python's small-object allocator. It cannot return memory held by Python's small-object arenas, which stay mapped while any block in them is live; keys, entries, and bookkeeping are small objects, so retention grows with the number of entries rather than with stored bytes.
+Each value includes the library's modules, which stay imported after closing. GC-tracked object counts after closing were 21–130 below each process's cached baseline, so no cache objects survived. glibc trimming returns the memory that held stored BSON and captures, which glibc allocates outside Python's small-object allocator. It cannot return memory held by Python's small-object arenas, which stay mapped while any block in them is live; keys, entries, and bookkeeping are small objects, so retention grows with the number of entries rather than with stored bytes.
 
 In `cycles`, five managers in one process each filled a 1 MiB budget with 17,772 small entries and evicted 22,229:
 
 | Cycle | Δ RSS filled, sync / async | Δ RSS closed, sync / async | GC objects after closing, sync / async |
 | ----: | -------------------------: | -------------------------: | -------------------------------------: |
-|     1 |                23.1 / 22.9 |                15.1 / 16.0 |                        46,019 / 46,222 |
-|     2 |                24.0 / 24.0 |                14.6 / 18.6 |                        46,019 / 46,262 |
-|     3 |                24.0 / 24.1 |                16.3 / 19.5 |                        46,019 / 46,302 |
-|     4 |                24.0 / 24.1 |                15.8 / 19.5 |                        46,019 / 46,328 |
-|     5 |                24.0 / 24.4 |                16.8 / 19.9 |                        46,019 / 46,246 |
+|     1 |                16.6 / 16.4 |                11.2 / 13.7 |                        45,979 / 46,324 |
+|     2 |                17.6 / 17.7 |                12.3 / 12.9 |                        45,979 / 46,178 |
+|     3 |                17.9 / 17.5 |                13.1 / 13.0 |                        45,979 / 46,216 |
+|     4 |                17.6 / 17.7 |                13.3 / 13.2 |                        45,979 / 46,266 |
+|     5 |                17.9 / 17.7 |                13.3 / 13.2 |                        45,979 / 46,300 |
 
-Filled peaks grew by at most 0.4 MiB after the first cycle and object counts stayed flat, so closed managers release their cache and later managers reuse the retained memory. An exploratory in-process run of 12 cycles of 64,000 small entries on the pre-fix code showed the same plateau, with 19.2 MB in allocated small-object blocks after the last close against 36.5 MB in unused pools of partly used arenas.
+Filled peaks grew by at most 0.3 MiB after the first cycle and object counts stayed flat, so closed managers release their cache and later managers reuse the retained memory. An exploratory in-process run of 12 cycles of 64,000 small entries on the pre-fix code showed the same plateau, with 19.2 MB in allocated small-object blocks after the last close against 36.5 MB in unused pools of partly used arenas.
 
 ### Effect of the bookkeeping fix
 
@@ -100,30 +110,44 @@ The pre-fix baseline repeated every scenario except `cycles`. Its cached process
 
 `result-sets` and `partial-cursors` did not change beyond noise.
 
+### Effect of compact canonical keys
+
+The compact-key change reran only `small-entries`, `large-keys`, and `cycles`, against the run of the bookkeeping fix. `documents`, `result-sets`, and `partial-cursors` keep the figures above: their reads share one default read shape per collection or hold only 68 entries, so their keys do not change measurably.
+
+| Scenario                        | Growth per entry, before → after | Growth ÷ stored BSON, before → after | GC objects per entry, before → after |
+| ------------------------------- | -------------------------------: | -----------------------------------: | -----------------------------------: |
+| `small-entries`, after eviction |                    1,245 → 873 B |                          21.1 → 14.8 |                               11 → 5 |
+| `large-keys`, after eviction    |                  5,414 → 4,530 B |                          91.8 → 76.8 |                               22 → 9 |
+| `cycles`, fifth fill            |                    1,303 → 923 B |                          22.1 → 15.6 |                               11 → 5 |
+
+Δ RSS after eviction fell 86.5 → 61.0 MiB for `small-entries` and 369.1 → 309.1 MiB for `large-keys` (synchronous medians). The saving per entry, 372 and 884 bytes, is close to the 376 and 872 bytes of key tuples that the key-cost benchmark attributes.
+
 ### Per-entry attribution
 
 `tracemalloc` attribution of 5,000 `_id` entries and 20,000 generic `find_one` entries, admitted after warm-up through the synchronous view, records requested bytes rather than RSS:
 
-| Retained per entry after the fix                   | `_id`, 4.4 KB documents | One-field filter | 48-value `$in` filter |
+| Retained per entry with the final code             | `_id`, 4.4 KB documents | One-field filter | 48-value `$in` filter |
 | -------------------------------------------------- | ----------------------: | ---------------: | --------------------: |
 | Stored BSON `bytes` object                         |                   4,403 |               92 |                    92 |
-| Canonical query key tuples                         |                       – |  648 (10 tuples) |     1,784 (22 tuples) |
+| Canonical query key tuples                         |                       – |   272 (4 tuples) |        912 (8 tuples) |
 | Identity or filter values                          |                      31 |               49 |                 2,679 |
 | Entry, key object, generation guard, LRU and index |               about 310 |        about 290 |             about 290 |
 | Identity state and its index                       |               about 125 |                – |                     – |
-| Total, including smaller items                     |                   4,896 |            1,078 |                 4,893 |
+| Total, including smaller items                     |                   4,896 |              702 |                 4,021 |
 
 The identity value is decoded by the library; filter strings are the objects the application passed in each request.
 
-Before the fix, each `_id` entry also retained a 216-byte empty alias set and a 72-byte `NamespaceId`, and each generic entry the 72-byte `NamespaceId`.
+The key row comes from the key-cost benchmark under [Reproduce](#reproduce), which retains 20,000 generic `find_one` keys built as the synchronous view builds them; the compact-key change took it 648 → 272 bytes (10 → 4 tuples) and 1,784 → 912 bytes (22 → 8 tuples), where the before values equal the full attribution. That change touched no other row's code, so the filter totals are the totals attributed after the bookkeeping fix, 1,078 and 4,893 bytes, minus the measured key saving of 376 and 872 bytes.
+
+Before the bookkeeping fix, each `_id` entry also retained a 216-byte empty alias set and a 72-byte `NamespaceId`, and each generic entry the 72-byte `NamespaceId`.
 
 ## Classification
 
 - **Expected object ownership.** Stored BSON lives in Python `bytes` objects with a 33-byte header. Hits decode results into new Python objects, as direct PyMongo reads do, and the application owns any result it keeps. Allocator rounding and size classes add a few percent.
 - **Justified trade-offs.** About 0.3 KB per entry for the entry, its key object, its generation guard, and the LRU and reclamation indexes, plus about 0.1 KB of identity state for `_id` entries; this supports exact invalidation, eviction, and namespace reclamation without scanning. Cursor captures keep encoded snapshots plus wrappers, 34.1 MiB of RSS for 29.3 MiB of payload, and release them when a cursor closes.
-- **Avoidable duplication.** The empty alias set and the per-entry `NamespaceId` were removed by this change. Canonical keys still wrap each order-sensitive node in an extra tuple layer, about half of the key tuples in the attribution above; [issue #245](https://github.com/alessio-locatelli/client-query-cache/issues/245) tracks removing it, because it changes every namespace key.
+- **Avoidable duplication.** The bookkeeping fix removed the empty alias set and the per-entry `NamespaceId`, and the compact-key change removed the extra tuple layers that canonical keys wrapped around each order-sensitive node, 6 of 10 key tuples for a one-field filter.
 - **Leaks or missing cleanup.** None found. Closing cursors and managers released every cache object, repeated cycles reached a stable peak, and `malloc_trim(0)` recovered the glibc share of freed memory.
-- **Capacity considerations.** The BSON budget does not bound memory for small entries or large filters: a 4 MiB budget of 59-byte results cost 86.5 MiB, and 369.1 MiB with a 48-value `$in` filter. Open miss cursors add up to their payload plus wrappers. Freed memory stays in the process for reuse, so RSS follows the peak. The [deployment guide](../../docs/user/operations/deployment.md#memory-beyond-the-cache-budget) summarizes these points for users.
+- **Capacity considerations.** The BSON budget does not bound memory for small entries or large filters: a 4 MiB budget of 59-byte results cost about 61 MiB, and 309.1 MiB with a 48-value `$in` filter. Open miss cursors add up to their payload plus wrappers. Freed memory stays in the process for reuse, so RSS follows the peak. The [deployment guide](../../docs/user/operations/deployment.md#memory-beyond-the-cache-budget) summarizes these points for users.
 
 Confirmed existing behavior, unchanged here:
 
