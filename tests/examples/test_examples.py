@@ -105,16 +105,15 @@ def test_catalogue_serves_from_independent_workers(
 ) -> None:
     process, port = served_catalogue
     assert process.stdout is not None
-    started: set[str] = set()
-    while len(started) < SERVED_WORKERS:
-        if match := STARTED.search(process.stdout.readline()):
-            started.add(match.group(1))
+    startup = "".join(process.stdout.readline() for _ in range(SERVED_WORKERS))
+    started = set(STARTED.findall(startup))
 
     with pytest.raises(urllib.error.HTTPError) as rejected:
         urllib.request.urlopen(f"http://127.0.0.1:{port}/products/shared")
     os.killpg(process.pid, signal.SIGINT)
     remaining, _ = process.communicate(timeout=60)
 
+    assert len(started) == SERVED_WORKERS
     assert rejected.value.code == 401
     assert process.returncode == 0
     assert set(CLOSED.findall(remaining)) == started

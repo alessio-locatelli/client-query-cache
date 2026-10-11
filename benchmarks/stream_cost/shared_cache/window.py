@@ -154,7 +154,8 @@ def _workload(registration: Registration, cell: Cell) -> _Workload:
     else:
         keys = key_order(seed, cast("int", profile["documents"]))
         read, limit = "find_one", 1
-    keys = keys[: registration.hot_keys]
+    if cell.workload != "cold":
+        keys = keys[: registration.hot_keys]
     updates = write_count(registration, cell) if cell.workload == "active" else 0
     order = key_order(seed + 1, len(keys))
     targets = (
@@ -328,7 +329,7 @@ def _spec(
         if registration.key_assignment == "shared"
         else workload.keys,
         key_assignment=registration.key_assignment,
-        warm_key=workload.keys[-1 - index],
+        warm_key=workload.keys[(-1 - index) % len(workload.keys)],
         budget_bytes=cast("int", registration.raw["budget_bytes"]),
         max_entry_bytes=cast("int", registration.raw["max_entry_bytes"]),
         max_await_time_ms=cast("int", registration.raw["max_await_time_ms"]),

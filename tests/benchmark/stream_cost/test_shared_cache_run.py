@@ -1743,3 +1743,19 @@ def test_gated_decisions_are_unchanged(
     decision = analysis.decide(records, small, phase=phase, blocks=blocks)
 
     assert _checksum(decision) == expected
+
+
+def test_hot_set_limits_only_warm_workloads(concurrent_frozen: Registration) -> None:
+    steady = comparison_cells(concurrent_frozen, "steady")[0]
+    cold = replace(steady, workload="cold", identities=100)
+    raw = copy.deepcopy(concurrent_frozen.raw)
+    raw["hot_keys"] = 2
+    tiny = replace(concurrent_frozen, raw=raw)
+    workload = window._workload(tiny, steady)
+
+    spec = window._spec(
+        tiny, steady, workload, "mongodb://unused", index=5, attachment=None
+    )
+
+    assert len(window._workload(concurrent_frozen, cold).keys) == 16_384
+    assert spec.warm_key in workload.keys
