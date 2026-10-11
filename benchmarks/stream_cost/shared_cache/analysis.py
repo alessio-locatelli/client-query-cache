@@ -720,6 +720,9 @@ def load_records(
         if report["phase"] != phase:
             message = f"{path} holds the {report['phase']} phase, not {phase}"
             raise BenchmarkSetupError(message)
+        if "exploratory" in report:
+            message = f"{path} is exploratory: {report['exploratory']}"
+            raise BenchmarkSetupError(message)
         revisions.add(str(environment["revision"]))
         records.extend(cast("list[JsonDict]", report["cells"]))
     if len(revisions) > 1:

@@ -145,15 +145,27 @@ class Recorder:
             return {**asdict(cell), "healthy": False, "failure": str(error)}
 
 
-def resumed_cells(path: Path, phase: str, registration: Registration) -> list[JsonDict]:
+def resumed_cells(
+    path: Path, phase: str, registration: Registration, exploratory: str | None
+) -> list[JsonDict]:
     report = json.loads(path.read_text(encoding="utf-8"))
     current = environment(registration)
     previous = cast("JsonDict", report["environment"])
-    if report["phase"] != phase or any(
-        previous[key] != current[key]
-        for key in ("revision", "dirty_tree", "configuration_sha256")
+    try:
+        limit = report["exploratory"]
+    except KeyError:
+        limit = None
+    if (
+        report["phase"] != phase
+        or limit != exploratory
+        or any(
+            previous[key] != current[key]
+            for key in ("revision", "dirty_tree", "configuration_sha256")
+        )
     ):
-        message = "resumed report has another phase, revision or registration"
+        message = (
+            "resumed report has another phase, cell limit, revision or registration"
+        )
         raise BenchmarkSetupError(message)
     return cast("list[JsonDict]", report["cells"])
 
@@ -404,7 +416,7 @@ def main(argv: list[str] | None = None) -> None:
         arguments.output,
         phase,
         registration,
-        resumed_cells(arguments.resume, phase, registration)
+        resumed_cells(arguments.resume, phase, registration, exploratory)
         if arguments.resume is not None
         else reused_probes(arguments.reuse_probes)
         if arguments.reuse_probes is not None

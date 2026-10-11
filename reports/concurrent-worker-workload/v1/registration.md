@@ -111,4 +111,4 @@ uv run -- python -m benchmarks.stream_cost.shared_cache.run --phase steady --con
 uv run -- python -m benchmarks.stream_cost.shared_cache.analysis benchmark-reports/concurrent-worker-workload/steady.json --config reports/concurrent-worker-workload/v1/config.json --phase steady --blocks 12
 ```
 
-Use a new output path for every run; raw reports stay untracked. A run interrupted by the host can continue with `--resume <earlier report>` at the same revision and registration.
+Use a new output path for every run; raw reports stay untracked. A run interrupted by the host can continue with `--resume <earlier report>` at the same revision, registration and `--only` limit. A report produced with `--only` is labelled exploratory, and the analysis rejects it.
