@@ -1,6 +1,7 @@
 import decimal
 import logging
 import os
+import tempfile
 import uuid
 from collections.abc import Generator  # noqa: TC003 (pluggy evaluates hook annotations)
 from contextlib import ExitStack
@@ -13,10 +14,12 @@ from typing import TYPE_CHECKING, NewType
 
 import pytest
 from bson import Decimal128
-from docker.errors import DockerException
+from docker.errors import DockerException, ImageNotFound
+from filelock import FileLock
 from pymongo import MongoClient
 from pymongo.errors import AutoReconnect
 from testcontainers.core.container import DockerContainer
+from testcontainers.core.docker_client import DockerClient
 
 from benchmarks.mongodb_image import MONGODB_IMAGE, compose_mongodb_image
 from client_query_cache._types import BsonDict, NonNegativeInt
@@ -37,6 +40,9 @@ _MONGODB_POLL_INTERVAL_SECONDS = 0.1
 _MINIMUM_MONGODB_COMPOSE_FILE = (
     Path(__file__).with_name("mongodb-minimum") / "docker-compose.yaml"
 )
+_MONGODB_IMAGE_LOCK_FILE = (
+    Path(tempfile.gettempdir()) / "client-query-cache-mongodb-image.lock"
+)
 
 logging.getLogger("faker.factory").setLevel("INFO")
 logging.getLogger("pymongo").setLevel("INFO")
@@ -56,6 +62,27 @@ def _mongodb_image(config: pytest.Config) -> str:
         if config.getoption("minimum_mongodb")
         else MONGODB_IMAGE
     )
+
+
+def _pull_missing_image(image: str) -> None:
+    images = DockerClient().client.images
+    with FileLock(_MONGODB_IMAGE_LOCK_FILE):
+        try:
+            images.get(image)
+        except ImageNotFound:  # pragma: lax no cover (depends on the image cache)
+            images.pull(image)
+
+
+def pytest_collection_finish(session: pytest.Session) -> None:
+    needs_mongodb = not session.config.option.collectonly and any(
+        isinstance(item, pytest.Function) and "mongodb_uri" in item.fixturenames
+        for item in session.items
+    )
+    if needs_mongodb:  # pragma: no branch - coverage runs always run MongoDB tests
+        try:
+            _pull_missing_image(_mongodb_image(session.config))
+        except DockerException:  # pragma: no cover (mongodb_uri reports it)
+            pass
 
 
 @pytest.hookimpl(wrapper=True)  # pragma: lax no cover (startup; CLI verified)
