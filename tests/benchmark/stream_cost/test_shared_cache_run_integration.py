@@ -136,6 +136,7 @@ def test_smoke_windows_identify_every_owner(
         assert cast("float", owner["cpu_seconds"]) >= 0
         assert cast("float", memory["steady_owner_pss_bytes"]) > 0
         assert owner["health"] == "healthy"
+        assert cast("dict[str, int]", owner["commands"])["stream:opened"] == 0
     else:
         assert "owner" not in record
     if workload == "active" and path != "direct":
