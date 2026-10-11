@@ -43,4 +43,33 @@ For each floor and caller, the statistic is the larger of the sequential and fou
 
 ### Floor results
 
-Pending.
+Measured on the test host (Intel Core i3-13100, Linux 7.2.9, CPython 3.14.7, PyMongo 4.18.2) at revision `eadca6fe62412d8f998b0de4fda02d3bf18e63f7` with rustc 1.95.0, maturin 1.15.0 and PyO3 0.29.3, building one `cp314-abi3` wheel. Values are caller plus owner CPU per hit in µs over the five timed repetitions; the owner column is the median owner part. Every read hit, and the hit ring dropped no token.
+
+| Floor | Caller      | Mode           | Median |       Range | Owner |
+| ----- | ----------- | -------------- | -----: | ----------: | ----: |
+| F0    | synchronous | sequential     |  11.30 | 11.00–11.47 |     – |
+| F0    | synchronous | four in flight |  12.41 | 11.17–12.90 |     – |
+| F0    | asyncio     | sequential     |  11.36 | 10.98–11.80 |     – |
+| F0    | asyncio     | four in flight |  10.80 | 10.53–10.92 |     – |
+| F1    | synchronous | sequential     |   5.76 |   5.61–6.01 |  0.02 |
+| F1    | synchronous | four in flight |   6.87 |   5.88–7.79 |  0.02 |
+| F1    | asyncio     | sequential     |   6.53 |   6.09–7.32 |  0.02 |
+| F1    | asyncio     | four in flight |   5.87 |   5.70–5.98 |  0.01 |
+| F2    | synchronous | sequential     |  14.25 | 13.95–14.74 |  4.99 |
+| F2    | synchronous | four in flight |  24.76 | 24.31–28.96 |  6.01 |
+| F2    | asyncio     | sequential     |  18.54 | 18.13–19.41 |  5.10 |
+| F2    | asyncio     | four in flight |  14.34 | 14.12–15.45 |  4.71 |
+| F3    | asyncio     | four in flight |  11.55 | 11.47–12.29 |  2.95 |
+
+Each added cost subtracts the caller's F0 statistic, 12.41 µs (synchronous, four in flight) or 11.36 µs (asyncio, sequential).
+
+| Family | Synchronous added cost       | Asyncio added cost       | Eligible |
+| ------ | ---------------------------- | ------------------------ | -------- |
+| A      | −5.55 µs (F1 four in flight) | −4.83 µs (F1 sequential) | yes      |
+| B      | 12.34 µs (F2 four in flight) | 7.17 µs (F2 sequential)  | yes      |
+
+A local hit cost less CPU than a `CacheCore` hit in every cell. B qualifies by 0.46 µs for the synchronous caller, whose four-thread cell costs 10.51 µs more per hit than its sequential cell. Its asyncio caller qualifies without F3, because F2 at four in flight adds only 2.98 µs, so B would not include batching.
+
+**Choice.** A is eligible, so A is built. B is built only if A stops for a failed safety scenario or the memory criterion.
+
+Reproduce from the repository root with `PYTHONPATH=. uv run --with ./native/shared-index -- python research/shared_index_floors/floors.py --output benchmark-reports/shared-worker-cache/v5-floors.json`; the raw report stays untracked.
