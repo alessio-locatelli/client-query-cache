@@ -93,9 +93,11 @@ def find_one_read_shape(
     sort: Sequence[tuple[str, int]] | None,
     effective_collation: Mapping[str, Any] | None,
     codec_identity: object,
+    remainder: Mapping[str, Any] | None = None,
 ) -> object:
+    shape = ("find_one", projection, sort, effective_collation, codec_identity)
     return order_sensitive_discriminator_key(
-        ("find_one", projection, sort, effective_collation, codec_identity)
+        (*shape, remainder) if remainder else shape
     )
 
 

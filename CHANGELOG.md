@@ -26,6 +26,7 @@ bodies or OpenSpec. An empty Unreleased section is valid.
 
 ### Features
 
+- Cached `find_one()` filters that pin `_id` to an exact value under simple collation now retain their result after writes to other documents, including filters with additional predicates such as `customer_id`.
 - **Breaking:** Rename `StreamHealthSnapshot.database_name` to `requested_database_name`. It holds the name you passed to `stream_health_snapshot()`, which is not validated, so while the manager is open an empty or unknown name reports `not_started`.
 
 ## [0.6.0] - 2026-10-09

@@ -110,12 +110,14 @@ def test_unique_key_read_is_cached_after_the_first_lookup(
 
 
 @pytest.mark.parametrize("unique_index_on_other_field", [False, True])
+@pytest.mark.parametrize("anchored", [False, True], ids=["generic", "anchored"])
 def test_cold_read_without_a_unique_key_match_records_one_miss(
     cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
     *,
     unique_index_on_other_field: bool,
+    anchored: bool,
     faker: Faker,
 ) -> None:
     name = faker.first_name()
@@ -125,10 +127,11 @@ def test_cold_read_without_a_unique_key_match_records_one_miss(
         collection.raw.create_index("email", unique=True)
     collection.raw.insert_one(document)
 
+    query = {"_id": document["_id"], "name": name} if anchored else {"name": name}
     start = cache_manager.cache_core.snapshot()
-    first = collection.find_one({"name": name})
+    first = collection.find_one(query)
     before = cache_manager.cache_core.snapshot()
-    second = collection.find_one({"name": name})
+    second = collection.find_one(query)
     after = cache_manager.cache_core.snapshot()
 
     assert first == second == document

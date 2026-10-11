@@ -431,14 +431,48 @@ A resolved unique-key read SHALL verify its original predicate against MongoDB o
 - **WHEN** a cache miss occurs for a key value with a resolved alias, and a database query by the original predicate matches a different document identity than the alias recorded, or matches no document at all
 - **THEN** the facade does not return or cache a value based on the stale alias's identity; it discards or re-resolves the alias and admits the result according to the query's actual outcome
 
+### Requirement: `_id`-anchored single-document reads use identity guards
+
+Synchronous and asyncio cached single-document reads whose mapping filter pins `_id` to one exact non-null, non-regex, non-operator value alongside additional predicates SHALL be guarded by that document identity when the effective collation is simple. The executed query and the cache key SHALL retain every additional predicate, and such an entry SHALL NOT be shared with a read whose predicates differ.
+
+#### Scenario: Another document changes
+
+- **WHEN** an `_id`-anchored result is cached and the manager processes an insert, update, replacement or deletion of a document with a different `_id`
+- **THEN** the next identical read hits the cached result
+
+#### Scenario: The anchored document changes
+
+- **WHEN** an `_id`-anchored result is cached and the manager processes a write to the document with that `_id`, including one that makes it stop matching the additional predicates
+- **THEN** the next read cannot return the pre-invalidation cached result
+
+#### Scenario: A negative anchored result gains a match
+
+- **WHEN** an `_id`-anchored read cached a missing result and the manager processes an insert or update of the document with that `_id` that makes it match
+- **THEN** the next read fetches the current database result rather than the cached negative result
+
+#### Scenario: Additional predicates distinguish entries
+
+- **WHEN** a caller reads `{"_id": value}` and `{"_id": value, "owner": owner}` with otherwise equal options
+- **THEN** each read uses its own entry, so neither can return the other's result
+
+#### Scenario: The effective collation is not simple
+
+- **WHEN** an `_id`-anchored read has a non-simple effective collation, whether explicit or inherited from the collection default
+- **THEN** it uses generic namespace caching
+
+#### Scenario: An anchored read spans writes
+
+- **WHEN** the manager processes a write to the anchored document while the anchored read's database operation is in progress
+- **THEN** the result is not admitted, whereas a write processed meanwhile to only other documents does not prevent admission
+
 ### Requirement: Generic single-document reads use namespace caching
 
-Synchronous and asyncio cached single-document reads SHALL cache deterministic mapping filters that do not qualify for an exact identity or unique-key optimization, including compound predicates, regex-ID queries, and match-all reads. Their entries SHALL be guarded against writes anywhere in the queried collection and against namespace or stream-continuity changes. Negative results SHALL be cacheable under the same guard.
+Synchronous and asyncio cached single-document reads SHALL cache deterministic mapping filters that qualify for no exact-identity, `_id`-anchored, or unique-key optimization, including other compound predicates, regex-ID queries, and match-all reads. Their entries SHALL be guarded against writes anywhere in the queried collection and against namespace or stream-continuity changes. Negative results SHALL be cacheable under the same guard.
 
 #### Scenario: A caller repeats a compound predicate
 
-- **WHEN** a caller repeats an eligible single-document query with an `_id` equality and an additional predicate
-- **THEN** the repeated query can hit a namespace-guarded entry without ignoring the additional predicate
+- **WHEN** a caller repeats an eligible single-document query whose predicates do not pin `_id` to one exact value, or pin it under a non-simple effective collation
+- **THEN** the repeated query can hit a namespace-guarded entry without ignoring any predicate
 
 #### Scenario: A caller repeats a regex-ID query
 
@@ -458,7 +492,7 @@ Synchronous and asyncio cached single-document reads SHALL cache deterministic m
 #### Scenario: A write touches another document
 
 - **WHEN** a write to a different document in the same collection is processed after generic admission
-- **THEN** the generic result is invalidated conservatively, while unrelated exact-identity entries retain their existing narrower guards
+- **THEN** the generic result is invalidated conservatively, while unrelated exact-identity and `_id`-anchored entries retain their narrower guards
 
 #### Scenario: Index metadata is unavailable
 

@@ -40,16 +40,18 @@ def extract_equality_value(value: object) -> object:
     return value
 
 
-def extract_id_identity(filter_query: object) -> object:
-    if filter_query is None:
-        return NO_IDENTITY
+def extract_id_anchor(filter_query: object) -> tuple[object, Mapping[str, Any]]:
     if not isinstance(filter_query, Mapping):
-        if _is_regex(filter_query):
-            return NO_IDENTITY
-        return filter_query
-    if set(filter_query) != {_ID_FIELD}:
-        return NO_IDENTITY
-    return extract_equality_value(filter_query[_ID_FIELD])
+        return extract_equality_value(filter_query), {}
+    try:
+        identity = extract_equality_value(filter_query[_ID_FIELD])
+    except KeyError:
+        return NO_IDENTITY, {}
+    if identity is NO_IDENTITY:
+        return NO_IDENTITY, {}
+    return identity, {
+        key: value for key, value in filter_query.items() if key != _ID_FIELD
+    }
 
 
 def normalize_identity_for_cache_key(

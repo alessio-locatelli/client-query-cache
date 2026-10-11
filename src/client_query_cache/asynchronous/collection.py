@@ -28,7 +28,7 @@ from client_query_cache._core.find_one_reads import (
 )
 from client_query_cache._core.identity_reads import (
     NO_IDENTITY,
-    extract_id_identity,
+    extract_id_anchor,
     normalize_identity_for_cache_key,
 )
 from client_query_cache._core.keys import NamespaceId, canonical_alias_key
@@ -140,12 +140,13 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
         codec_options = self._collection.codec_options
         filter_key: object = filter_query
         if reason is None:
-            identity = extract_id_identity(filter)
+            identity, remainder = extract_id_anchor(filter)
             explicit_collation = effective_find_one_collation(collation, None)
             try:
                 read_shape = (
                     canonicalize(self._find_one_default_shape)
-                    if projection is None
+                    if not remainder
+                    and projection is None
                     and sort is None
                     and explicit_collation is None
                     else canonicalize(
@@ -154,6 +155,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
                             sort,
                             explicit_collation,
                             codec_fingerprint(codec_options),
+                            remainder,
                         )
                     )
                 )
@@ -188,11 +190,17 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
                     sort,
                     effective_collation,
                     codec_fingerprint(codec_options),
+                    remainder,
                 )
             )
         if identity is not NO_IDENTITY and effective_collation is None:
             return await self._find_one_by_id(
-                identity, projection, read_shape, sort=sort, collation=collation
+                identity,
+                filter_query,
+                projection,
+                read_shape,
+                sort=sort,
+                collation=collation,
             )
         namespace = self._namespace()
         cache = self._database.manager.cache_core
@@ -462,6 +470,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
     async def _find_one_by_id(
         self,
         identity: object,
+        filter_query: Mapping[str, Any],
         projection: Mapping[str, Any] | Sequence[str] | None,
         read_shape: object,
         *,
@@ -477,7 +486,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
         if not is_canonicalizable(cache_identity):
             self._record_bypass(BypassReason.UNCANONICALIZABLE_KEY)
             return await self._collection.find_one(
-                {"_id": identity}, projection, sort=sort, collation=collation
+                filter_query, projection, sort=sort, collation=collation
             )
         lookup_result = cache.lookup_identity(
             namespace, cache_identity, read_shape, codec_options=codec_options
@@ -486,12 +495,12 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
             return lookup_result.value  # type: ignore[no-any-return]
         if not cache.is_database_available(namespace.database):
             return await self._collection.find_one(
-                {"_id": identity}, projection, sort=sort, collation=collation
+                filter_query, projection, sort=sort, collation=collation
             )
         capture = cache.begin_identity_admission(namespace, cache_identity)
         try:
             document = await self._forced_collection_handle().find_one(
-                {"_id": identity}, projection, sort=sort, collation=collation
+                filter_query, projection, sort=sort, collation=collation
             )
         except BaseException:
             cache.discard_identity_admission(capture)
