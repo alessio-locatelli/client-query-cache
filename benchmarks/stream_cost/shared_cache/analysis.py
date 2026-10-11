@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal, cast
 
 from benchmarks.stream_cost.bootstrap import ConfidenceInterval
+from benchmarks.stream_cost.errors import BenchmarkSetupError
 from benchmarks.stream_cost.shared_cache.protocol import (
     Registration,
     validation_failure,
@@ -254,11 +255,14 @@ def paired_blocks(
 ) -> dict[CellKey, dict[str, dict[int, dict[str, float] | None]]]:
     cells: dict[CellKey, dict[str, dict[int, dict[str, float] | None]]] = {}
     for record in records:
-        paths = cells.setdefault(cell_key(record), {})
+        key = cell_key(record)
+        paths = cells.setdefault(key, {})
         blocks = paths.setdefault(str(record["path"]), {})
-        blocks[cast("int", record["block"])] = (
-            statistics(record) if record["healthy"] else None
-        )
+        block = cast("int", record["block"])
+        if block in blocks:
+            message = f"duplicate {record['path']} block {block} for cell {key}"
+            raise BenchmarkSetupError(message)
+        blocks[block] = statistics(record) if record["healthy"] else None
     return cells
 
 
@@ -675,6 +679,31 @@ def describe_phase(
     }
 
 
+def load_records(
+    reports: Sequence[Path], registration: Registration, phase: str
+) -> list[JsonDict]:
+    revisions: set[str] = set()
+    records: list[JsonDict] = []
+    for path in reports:
+        report = cast("JsonDict", json.loads(path.read_text(encoding="utf-8")))
+        environment = cast("JsonDict", report["environment"])
+        if environment["configuration_sha256"] != registration.digest:
+            message = f"{path} was measured under another registration"
+            raise BenchmarkSetupError(message)
+        if report["phase"] != phase:
+            message = f"{path} holds the {report['phase']} phase, not {phase}"
+            raise BenchmarkSetupError(message)
+        revisions.add(str(environment["revision"]))
+        records.extend(cast("list[JsonDict]", report["cells"]))
+    if len(revisions) > 1:
+        message = "reports were measured at different revisions"
+        raise BenchmarkSetupError(message)
+    if any(record["phase"] != phase for record in records):
+        message = f"a report holds windows outside the {phase} phase"
+        raise BenchmarkSetupError(message)
+    return records
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
         description="Evaluate shared worker cache evidence."
@@ -686,13 +715,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--describe", action="store_true")
     arguments = parser.parse_args(argv)
     registration = Registration.load(arguments.config)
-    records = [
-        record
-        for path in arguments.reports
-        for record in cast(
-            "list[JsonDict]", json.loads(path.read_text(encoding="utf-8"))["cells"]
-        )
-    ]
+    records = load_records(arguments.reports, registration, arguments.phase)
     output: JsonDict = (
         {"descriptive": descriptive(records)}
         if arguments.describe

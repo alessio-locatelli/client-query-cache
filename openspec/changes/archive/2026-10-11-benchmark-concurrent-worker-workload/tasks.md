@@ -28,3 +28,9 @@
 
 - [x] 5.1 Scan the entire file for edited or added tests, including pre-existing tests within the file, and ensure that the "Writing Tests" guidelines from `AGENTS.md` are applied, including test parametrization.
 - [x] 5.2 If you are Claude Code, confirm that you added no new prose to the code (all "why" explanations must go in the specs and commit bodies). OpenAI Codex is exempt from this rule.
+
+## 6. Pull request review
+
+- [x] 6.1 Make `analysis.py` reject reports whose configuration digest, phase or window phases differ from the requested registration and phase, reports from different revisions, and duplicate `(cell, path, block)` windows. Add parametrized tests for each rejection.
+- [x] 6.2 Warm each cold worker with a key outside its own measured identities under both key assignments, reject a cold cell whose identities leave no such key, and make cold validation reject cached hits. Add a regression test for shared key assignment at 256 keys, two workers and 200 identities.
+- [x] 6.3 Reject a registration without calibration families, with an empty family, or with non-positive probe windows, validation repetitions, rate attempts or phase blocks. Extend the registration rejection tests.

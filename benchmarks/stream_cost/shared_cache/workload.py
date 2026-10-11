@@ -8,6 +8,7 @@ import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Final
 
+from benchmarks.stream_cost.errors import BenchmarkConfigurationError
 from benchmarks.stream_cost.measurement import scalar_latency_distribution
 from client_query_cache._types import (
     JsonDict,
@@ -20,7 +21,7 @@ from client_query_cache._types import (
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
-    from benchmarks.stream_cost.shared_cache.protocol import KeyAssignment
+    from benchmarks.stream_cost.shared_cache.protocol import Cell, KeyAssignment
 
 
 _SLEEP_SLICE_SECONDS: Final = 1.0
@@ -63,6 +64,43 @@ class Assignment:
     def due(self, start: NonNegativeFloat, ordinal: NonNegativeInt) -> NonNegativeFloat:
         assert self.rate is not None
         return start + ordinal / self.rate
+
+
+def assignment_for(
+    cell: Cell,
+    worker: NonNegativeInt,
+    keys: tuple[NonNegativeInt, ...],
+    key_assignment: KeyAssignment,
+    *,
+    warmup: bool,
+) -> Assignment:
+    seconds = cell.warmup_seconds if warmup else cell.window_seconds
+    requests = (
+        cell.identities
+        if cell.identities is not None
+        else round(cell.rate * seconds)
+        if cell.rate is not None
+        else int(seconds * 1_000_000)
+    )
+    return Assignment(
+        worker=worker,
+        workers=cell.workers,
+        rate=cell.rate,
+        requests=requests,
+        keys=keys,
+        offset=len(keys) // 2 if warmup else 0,
+        key_assignment=key_assignment,
+    )
+
+
+def warm_key(assignment: Assignment) -> NonNegativeInt:
+    measured = {assignment.key(ordinal) for ordinal in assignment.ordinals()}
+    reverse = assignment.keys[::-1]
+    for key in (*reverse[assignment.worker :], *reverse[: assignment.worker]):
+        if key not in measured:
+            return key
+    message = "cold identities leave no unread key to warm a worker"
+    raise BenchmarkConfigurationError(message)
 
 
 @dataclass(slots=True)

@@ -24,8 +24,8 @@ from benchmarks.stream_cost.shared_cache.dataset import checksum
 from benchmarks.stream_cost.shared_cache.owner import process_sample, proxy_for
 from benchmarks.stream_cost.shared_cache.profiling import profiling
 from benchmarks.stream_cost.shared_cache.workload import (
-    Assignment,
     LoopResult,
+    assignment_for,
     closed_loop_async,
     closed_loop_sync,
     open_loop_async,
@@ -49,6 +49,7 @@ if TYPE_CHECKING:
     from multiprocessing.connection import Connection
 
     from benchmarks.stream_cost.shared_cache.protocol import Cell, KeyAssignment
+    from benchmarks.stream_cost.shared_cache.workload import Assignment
 
 type Payload = dict[str, object]
 
@@ -69,7 +70,7 @@ class WorkerSpec:
     limit: PositiveInt
     keys: tuple[NonNegativeInt, ...]
     key_assignment: KeyAssignment
-    warm_key: NonNegativeInt
+    warm_key: NonNegativeInt | None
     budget_bytes: PositiveInt
     max_entry_bytes: PositiveInt
     max_await_time_ms: MaxAwaitTimeMs
@@ -80,23 +81,8 @@ class WorkerSpec:
     expected_invalidations: NonNegativeInt
 
     def assignment(self, *, warmup: bool) -> Assignment:
-        cell = self.cell
-        seconds = cell.warmup_seconds if warmup else cell.window_seconds
-        requests = (
-            cell.identities
-            if cell.identities is not None
-            else round(cell.rate * seconds)
-            if cell.rate is not None
-            else int(seconds * 1_000_000)
-        )
-        return Assignment(
-            worker=self.index,
-            workers=cell.workers,
-            rate=cell.rate,
-            requests=requests,
-            keys=self.keys,
-            offset=len(self.keys) // 2 if warmup else 0,
-            key_assignment=self.key_assignment,
+        return assignment_for(
+            self.cell, self.index, self.keys, self.key_assignment, warmup=warmup
         )
 
 
@@ -325,7 +311,7 @@ def sync_worker(connection: Connection, spec: WorkerSpec) -> None:
                 shared = manager[spec.database][spec.collection]
                 while shared._cache_ineligibility_reason() is not None:  # noqa: SLF001
                     time.sleep(_STARTUP_POLL_SECONDS)
-            if spec.cell.workload == "cold":
+            if spec.warm_key is not None:
                 read(spec.warm_key)
             else:
                 for key in spec.keys:
@@ -465,7 +451,7 @@ async def async_worker(connection: Connection, spec: WorkerSpec) -> None:
                 shared = manager[spec.database][spec.collection]
                 while await shared._cache_ineligibility_reason() is not None:  # noqa: ASYNC110, SLF001 - The owner offers no readiness notification.
                     await asyncio.sleep(_STARTUP_POLL_SECONDS)
-            if spec.cell.workload == "cold":
+            if spec.warm_key is not None:
                 await read(spec.warm_key)
             else:
                 for key in spec.keys:
