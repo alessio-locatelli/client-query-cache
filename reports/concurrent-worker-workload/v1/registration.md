@@ -2,7 +2,7 @@
 
 This registration freezes the protocol for comparing direct MongoDB reads with independent per-worker cache managers while reads and writes run together. The machine-readable values live in [config.json](config.json); this companion explains units, measures, rules and limits. The [design](../../../openspec/changes/benchmark-concurrent-worker-workload/design.md#workload-registration) records why each value was chosen.
 
-**Status:** pending calibration. Any change to this file or `config.json` after a comparison window runs requires a new registration version and fresh comparisons; earlier outcomes are retained.
+**Status:** frozen. The frozen `config.json` has SHA-256 `2057af0088101622b441f977fbc9bd78397f2e023fafd8b092cc1e74d1b6d0bc`, which every comparison report must carry. Any change to this file or `config.json` after a comparison window runs requires a new registration version and fresh comparisons; earlier outcomes are retained.
 
 ## Units and scope
 
@@ -86,6 +86,17 @@ The registration has no shared Redis path: a Redis cache matches this library's 
 ## Limits
 
 One host and a single-member replica set understate network latency and overstate the CPU that direct reads compete for. Four workers, the harness and two MongoDB CPUs share the host's logical CPUs. The workload has one database, uniform key popularity and 4 KiB documents; results make no claim about other working sets, synchronous workers, sharded clusters or other hosts.
+
+## Calibration result
+
+Calibration ran at revision `2c1b6e158e2ef64800d9a07fcb3402afbe9eeddf` from the draft configuration with SHA-256 `e447f37359fe82a50417f2963a84949ce70374ef1f2a04873b25a0770302026c`. All 36 windows were healthy: 12 closed-loop probes and 24 open-loop validations. Throughput is reads/s over the three probe windows of each cell.
+
+| Cell               | `direct` probes | `independent` probes |
+| ------------------ | --------------: | -------------------: |
+| asyncio, 1 worker  |     4,884–4,971 |        41,610–42,955 |
+| asyncio, 4 workers |   12,378–12,491 |      162,510–164,505 |
+
+The weakest probe, one direct worker, selected 3,663 reads/s. Its validation failed once: in the first repetition, the one-worker direct window ended with 9 requests outstanding, above the bound of 8, although it completed 99.996% of its reads inside the window. This is the overestimate that read-only probes were expected to produce under writes. The halved rate, 1,831 reads/s, passed all twelve windows, so the frozen rate is 1,831 reads/s with 60 s windows, which offer 109,860 reads and 5,493 writes per window. Every validation window met the sample floor with at least 109,860 latency samples. The largest write lateness across both attempts was 33.4 ms, within the 250 ms tolerance, and the slowest write took 0.40 s.
 
 ## Reproduction
 

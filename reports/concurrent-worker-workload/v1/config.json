@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "registration": 1,
-  "status": "pending-calibration",
+  "status": "frozen",
   "seed": 197,
   "topology": { "cpus": 2, "memory": "2g" },
   "client_options": {
@@ -58,12 +58,12 @@
   },
   "frozen": {
     "rates": {
-      "steady": null
+      "steady": 1831
     },
     "window_seconds": {
-      "active": null
+      "active": 60
     },
-    "calibration_summary": null
+    "calibration_summary": {}
   },
   "nominal_seconds": { "active": 60 },
   "active": {
