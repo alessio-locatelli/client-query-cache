@@ -297,6 +297,14 @@ def _phase_settings(registration: Registration, phase: str) -> JsonDict:
         raise BenchmarkConfigurationError(message) from None
 
 
+def phase_blocks(registration: Registration, phase: str) -> PositiveInt:
+    try:
+        return cast("int", _phase_settings(registration, phase)["blocks"])
+    except KeyError:
+        message = f"{phase} phase has no blocks"
+        raise BenchmarkConfigurationError(message) from None
+
+
 def phase_cells(registration: Registration, phase: str) -> tuple[CellSpec, ...]:
     settings = _phase_settings(registration, phase)
     try:
@@ -529,11 +537,7 @@ def comparison_cells(
     phase: str,
     paths: tuple[PathKind, ...] | None = None,
 ) -> tuple[Cell, ...]:
-    try:
-        blocks = cast("int", _phase_settings(registration, phase)["blocks"])
-    except KeyError:
-        message = f"{phase} phase has no blocks"
-        raise BenchmarkConfigurationError(message) from None
+    blocks = phase_blocks(registration, phase)
     matrix = phase_cells(registration, phase)
     durations = frozen_durations(registration)
     rates = {

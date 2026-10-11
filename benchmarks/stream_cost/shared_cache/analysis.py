@@ -10,9 +10,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal, cast
 
 from benchmarks.stream_cost.bootstrap import ConfidenceInterval
-from benchmarks.stream_cost.errors import BenchmarkSetupError
+from benchmarks.stream_cost.errors import (
+    BenchmarkConfigurationError,
+    BenchmarkSetupError,
+)
 from benchmarks.stream_cost.shared_cache.protocol import (
     Registration,
+    phase_blocks,
     validation_failure,
 )
 from client_query_cache._types import JsonDict, NonNegativeInt, PositiveInt
@@ -627,6 +631,10 @@ def describe_phase(
 ) -> JsonDict:
     settings = registration.section("analysis")
     inference = registration.section("inference")
+    registered = phase_blocks(registration, phase)
+    if blocks != registered:
+        message = f"the {phase} phase registers {registered} blocks, not {blocks}"
+        raise BenchmarkConfigurationError(message)
     reject_duplicates(records)
     excluded: list[JsonDict] = []
     usable: list[JsonDict] = []
