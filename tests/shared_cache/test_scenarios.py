@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import ctypes
 import math
+import mmap
 import multiprocessing
 import os
 import signal
@@ -27,14 +29,20 @@ from benchmarks.stream_cost.shared_cache.attachment import (
     AsyncEndpoint,
     AttachmentConfigurationError,
     InheritedAttachmentError,
+    LocalIndex,
     SyncEndpoint,
 )
+from benchmarks.stream_cost.shared_cache.shared_index import SharedIndexLimits
 from benchmarks.stream_cost.shared_cache.wire import encode_frame, encode_key
+from client_query_cache._core.canonical import canonicalize
+from client_query_cache._core.keys import NamespaceId
+from client_query_cache._core.order_sensitive_keys import order_sensitive_key
 from client_query_cache._types import BsonDict
 from tests.codec_helpers import Decimal128ToDecimalDecoder
 from tests.shared_cache.conftest import (
     COLLECTION,
     DOCUMENTS,
+    LIMITS,
     async_shared_manager,
     ready,
     select_identity,
@@ -52,6 +60,27 @@ if TYPE_CHECKING:
 pytestmark = pytest.mark.integration
 
 _PAST_RETRY_SECONDS = 0.15
+_SHARED_INDEX = SharedIndexLimits(
+    slots=256, arena_bytes=4 * 1024 * 1024, namespaces=4, ring_tokens=1024
+)
+_SMALL_ARENA = SharedIndexLimits(
+    slots=16, arena_bytes=1024, namespaces=1, ring_tokens=64
+)
+_FEW_SLOTS = SharedIndexLimits(
+    slots=8, arena_bytes=1024 * 1024, namespaces=1, ring_tokens=64
+)
+_DETECTION_BOUND_SECONDS = 0.1
+_DETECTION_POLL_SECONDS = 0.001
+_EXPIRY_SLACK_SECONDS = 0.1
+_CHURN_ROUNDS = 12
+_SHAPE_KEY = encode_key("full")
+_STRESS_BUDGET = 64 * 1024
+_STRESS_MAX_ENTRY = 16 * 1024
+_STRESS_READERS = 3
+_STRESS_KEYS = 16
+_STRESS_ROUNDS = 40
+_STRESS_REPEAT = 300
+_DENIED = r"Bad file descriptor|Permission denied|Operation not permitted"
 
 
 @pytest.fixture
@@ -892,3 +921,395 @@ def test_async_find_cursors_and_metadata_refresh(
 
     assert [document["_id"] for document in documents] == list(range(4))
     assert manager.observation.bypasses[METADATA_REFRESH] >= 1
+
+
+def _local_key(key: int) -> bytes:
+    return encode_key(canonicalize(order_sensitive_key(key)))
+
+
+def _local_read(
+    manager: SharedCacheManager[BsonDict], database: str, key: int
+) -> bytes | None:
+    namespace = NamespaceId(database, COLLECTION)
+    database_slot, slot, _incarnation = manager._slots[namespace]
+    assert manager.local is not None
+    return manager.local.reader.lookup(
+        database_slot,
+        slot,
+        manager._metadata[namespace].checked_epoch,
+        _local_key(key),
+        encode_key(manager[database][COLLECTION]._find_one_default_shape),
+    )
+
+
+def _until(predicate: Callable[[], bool], timeout: float = 10.0) -> float:
+    started = time.monotonic()
+    while not predicate():
+        assert time.monotonic() - started < timeout, "condition was not reached in time"
+        time.sleep(_DETECTION_POLL_SECONDS)
+    return time.monotonic() - started
+
+
+def _shared_manager(
+    client: MongoClient[BsonDict], owner: Owner, database: str
+) -> SharedCacheManager[BsonDict]:
+    manager = SharedCacheManager(
+        client, SyncEndpoint(owner.attachment()), LocalIndex.attach(owner.attachment())
+    )
+    ready(manager, database)
+    return manager
+
+
+def _prime(
+    manager: SharedCacheManager[BsonDict], owner: Owner, database: str, key: int
+) -> bytes:
+    admitted = owner.counters()["admitted"]
+    manager[database][COLLECTION].find_one({"_id": key})
+    wait_for(lambda: owner.counters()["admitted"] > admitted)
+    payload = _local_read(manager, database, key)
+    assert payload is not None
+    return payload
+
+
+@pytest.fixture
+def shared_reads(
+    client: MongoClient[BsonDict],
+    start_owner: Callable[..., Owner],
+    seeded_database: str,
+) -> Iterator[tuple[SharedCacheManager[BsonDict], Owner]]:
+    owner = start_owner(shared_index=_SHARED_INDEX)
+    manager = _shared_manager(client, owner, seeded_database)
+    yield manager, owner
+    manager.close()
+
+
+def test_a_killed_owner_stops_local_hits_within_the_detection_bound(
+    shared_reads: tuple[SharedCacheManager[BsonDict], Owner], seeded_database: str
+) -> None:
+    manager, owner = shared_reads
+    _prime(manager, owner, seeded_database, 1)
+    assert manager.local is not None
+    reader = manager.local.reader
+
+    os.kill(owner.pid, signal.SIGKILL)
+    elapsed = _until(lambda: reader.detached)
+    owner.process.join(10)
+
+    assert elapsed <= _DETECTION_BOUND_SECONDS
+    assert _local_read(manager, seeded_database, 1) is None
+    assert manager[seeded_database][COLLECTION].find_one({"_id": 1}) == {
+        "_id": 1,
+        "payload": "value-1",
+        "revision": 0,
+    }
+
+
+@pytest.mark.parametrize("fault", ["sigstop", "watch-pause"])
+def test_a_silent_owner_stops_local_hits_by_the_progress_expiry(
+    shared_reads: tuple[SharedCacheManager[BsonDict], Owner],
+    seeded_database: str,
+    fault: str,
+) -> None:
+    manager, owner = shared_reads
+    _prime(manager, owner, seeded_database, 1)
+    assert manager.local is not None
+
+    if fault == "sigstop":
+        os.kill(owner.pid, signal.SIGSTOP)
+    else:
+        owner.request("pause-watch")
+    try:
+        elapsed = _until(lambda: _local_read(manager, seeded_database, 1) is None)
+    finally:
+        if fault == "sigstop":
+            os.kill(owner.pid, signal.SIGCONT)
+        else:
+            owner.request("resume-watch")
+
+    assert elapsed <= LIMITS.progress_expiry_seconds + _EXPIRY_SLACK_SECONDS
+    assert not manager.local.reader.detached
+    wait_for(lambda: _local_read(manager, seeded_database, 1) is not None)
+
+
+def test_a_replacement_owner_serves_only_its_own_index(
+    client: MongoClient[BsonDict],
+    start_owner: Callable[..., Owner],
+    seeded_database: str,
+) -> None:
+    first = start_owner(shared_index=_SHARED_INDEX)
+    manager = _shared_manager(client, first, seeded_database)
+    _prime(manager, first, seeded_database, 1)
+    previous = manager.local
+    assert previous is not None
+
+    os.kill(first.pid, signal.SIGKILL)
+    first.process.join(10)
+    replacement = start_owner(shared_index=_SHARED_INDEX)
+    wait_for(
+        lambda: (
+            manager[seeded_database][COLLECTION].find_one({"_id": 1}) is not None
+            and manager.local is not previous
+            and NamespaceId(seeded_database, COLLECTION) in manager._slots
+            and _local_read(manager, seeded_database, 1) is not None
+        )
+    )
+
+    assert previous.reader.detached
+    assert manager.local is not None
+    assert manager.local.incarnation == replacement.observation()["incarnation"]
+    assert manager.local.incarnation != previous.incarnation
+    assert replacement.counters()["admitted"] == 1
+    manager.close()
+
+
+def _read_forever(  # pragma: no cover (killed before coverage is saved)
+    config: AttachmentConfig, database: str, key: int
+) -> None:
+    local = LocalIndex.attach(config)
+    metadata = _shared_metadata(SyncEndpoint(config), database)
+    database_slot, slot = cast("list[int]", metadata["slot"])
+    epoch = cast("int", metadata["epoch"])
+    while True:
+        local.reader.lookup(database_slot, slot, epoch, _local_key(key), _SHAPE_KEY)
+
+
+def _shared_metadata(endpoint: SyncEndpoint, database: str) -> Message:
+    request: Message = {"op": "metadata", "ns": [database, COLLECTION]}
+    reply = endpoint.request(dict(request))
+    while reply is None or reply["r"] != "ok":
+        time.sleep(_DETECTION_POLL_SECONDS)
+        reply = endpoint.request(dict(request))
+    return reply
+
+
+def test_a_worker_killed_mid_read_never_delays_reclamation(
+    client: MongoClient[BsonDict],
+    start_owner: Callable[..., Owner],
+    seeded_database: str,
+) -> None:
+    owner = start_owner(shared_index=_SMALL_ARENA)
+    manager = _shared_manager(client, owner, seeded_database)
+    _prime(manager, owner, seeded_database, 1)
+    context = multiprocessing.get_context("spawn")
+    reader = context.Process(
+        target=_read_forever, args=(owner.attachment(), seeded_database, 1)
+    )
+    reader.start()
+    wait_for(lambda: owner.observation()["shared_index"]["sessions"] == 2)
+    time.sleep(_DETECTION_POLL_SECONDS)
+
+    os.kill(cast("int", reader.pid), signal.SIGKILL)
+    reader.join(10)
+    for revision in range(1, _CHURN_ROUNDS + 1):
+        client[seeded_database][COLLECTION].update_one(
+            {"_id": 1}, {"$set": {"revision": revision}}
+        )
+        wait_for(lambda: _local_read(manager, seeded_database, 1) is None)
+        _prime(manager, owner, seeded_database, 1)
+
+    shared = owner.observation()["shared_index"]
+    assert shared == {"published": 1, "sessions": 1, "dropped_touches": 0}
+    assert manager[seeded_database][COLLECTION].find_one({"_id": 1}) == {
+        "_id": 1,
+        "payload": "value-1",
+        "revision": _CHURN_ROUNDS,
+    }
+    manager.close()
+
+
+def _stress_reader(
+    connection: Connection, config: AttachmentConfig, database: str, keys: int
+) -> None:
+    endpoint = SyncEndpoint(config)
+    local = LocalIndex.attach(config)
+    metadata = _shared_metadata(endpoint, database)
+    database_slot, slot = cast("list[int]", metadata["slot"])
+    epoch = cast("int", metadata["epoch"])
+    observed: dict[int, set[bytes]] = {key: set() for key in range(keys)}
+    reads = 0
+    connection.send("reading")
+    while not connection.poll():
+        for key in range(keys):
+            payload = local.reader.lookup(
+                database_slot, slot, epoch, _local_key(key), _SHAPE_KEY
+            )
+            if payload is not None:
+                observed[key].add(payload)
+                reads += 1
+    connection.send(({key: sorted(values) for key, values in observed.items()}, reads))
+    local.close()
+    endpoint.close()
+
+
+def test_concurrent_readers_never_observe_torn_payloads(
+    start_owner: Callable[..., Owner], seeded_database: str
+) -> None:
+    owner = start_owner(
+        shared_index=_SHARED_INDEX,
+        budget_bytes=_STRESS_BUDGET,
+        max_entry_bytes=_STRESS_MAX_ENTRY,
+    )
+    endpoint = SyncEndpoint(owner.attachment())
+    metadata = _shared_metadata(endpoint, seeded_database)
+    context = multiprocessing.get_context("spawn")
+    readers = []
+    for _ in range(_STRESS_READERS):
+        parent, child = context.Pipe()
+        process = context.Process(
+            target=_stress_reader,
+            args=(child, owner.attachment(), seeded_database, _STRESS_KEYS),
+        )
+        process.start()
+        child.close()
+        assert parent.recv() == "reading"
+        readers.append((process, parent))
+    published: dict[int, set[bytes]] = {key: set() for key in range(_STRESS_KEYS)}
+
+    for churn in range(_STRESS_ROUNDS):
+        for key in range(_STRESS_KEYS):
+            reply = endpoint.request(
+                {
+                    "op": "select-identity",
+                    "ns": [seeded_database, COLLECTION],
+                    "epoch": metadata["epoch"],
+                    "identity": _local_key(key),
+                    "shape": _SHAPE_KEY,
+                }
+            )
+            assert reply is not None
+            if reply["r"] != "miss":
+                continue
+            value = f"{key}:{churn}:".encode() * (_STRESS_REPEAT + churn % 7 * 11)
+            published[key].add(value)
+            endpoint.send({"op": "admit", "handle": reply["handle"], "value": value})
+    reports = []
+    for process, parent in readers:
+        parent.send("stop")
+        reports.append(parent.recv())
+        process.join(10)
+
+    assert sum(reads for _observed, reads in reports) > 0
+    for observed, _reads in reports:
+        for key, values in observed.items():
+            assert set(values) <= published[key]
+    endpoint.close()
+
+
+def test_publication_capacity_bounds_shared_state(
+    client: MongoClient[BsonDict],
+    start_owner: Callable[..., Owner],
+    seeded_database: str,
+) -> None:
+    owner = start_owner(shared_index=_FEW_SLOTS)
+    manager = _shared_manager(client, owner, seeded_database)
+    first = [
+        manager[seeded_database][COLLECTION].find_one({"_id": key})
+        for key in range(DOCUMENTS)
+    ]
+    wait_for(lambda: owner.counters()["admitted"] == DOCUMENTS)
+    requests = manager.endpoint.counters.requests
+
+    second = [
+        manager[seeded_database][COLLECTION].find_one({"_id": key})
+        for key in range(DOCUMENTS)
+    ]
+
+    published = owner.observation()["shared_index"]["published"]
+    assert second == first
+    assert published == _FEW_SLOTS.slots * 3 // 4
+    assert manager.endpoint.counters.requests == requests + DOCUMENTS - published
+    assert manager.observation.hits == DOCUMENTS
+    manager.close()
+
+
+@pytest.mark.parametrize("race", ["write", "eviction"])
+def test_an_admission_raced_by_a_write_or_eviction_is_never_published(
+    shared_reads: tuple[SharedCacheManager[BsonDict], Owner],
+    seeded_database: str,
+    race: str,
+) -> None:
+    manager, owner = shared_reads
+    owner.request("race-admission", race=race)
+    admissions = owner.counters()["admissions"]
+
+    document = manager[seeded_database][COLLECTION].find_one({"_id": 5})
+    wait_for(lambda: owner.counters()["admissions"] > admissions)
+
+    assert document == {"_id": 5, "payload": "value-5", "revision": 0}
+    assert _local_read(manager, seeded_database, 5) is None
+
+
+def _received_descriptors(config: AttachmentConfig) -> tuple[socket.socket, list[int]]:
+    peer = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    peer.connect(config.socket_path)
+    peer.sendall(encode_frame(config.hello("control")))
+    _data, descriptors, _flags, _address = socket.recv_fds(peer, 65_536, 4)
+    return peer, descriptors
+
+
+def _write_directly(descriptor: int) -> None:
+    os.write(descriptor, b"x")
+
+
+def _map_writable(descriptor: int) -> None:
+    mmap.mmap(descriptor, os.fstat(descriptor).st_size, mmap.MAP_SHARED)
+
+
+def _upgrade_mapping(descriptor: int) -> None:
+    libc = ctypes.CDLL(None, use_errno=True)
+    libc.mmap.restype = ctypes.c_void_p
+    libc.mmap.argtypes = (
+        ctypes.c_void_p,
+        ctypes.c_size_t,
+        ctypes.c_int,
+        ctypes.c_int,
+        ctypes.c_int,
+        ctypes.c_long,
+    )
+    libc.mprotect.argtypes = (ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int)
+    libc.munmap.argtypes = (ctypes.c_void_p, ctypes.c_size_t)
+    size = os.fstat(descriptor).st_size
+    address = libc.mmap(None, size, mmap.PROT_READ, mmap.MAP_SHARED, descriptor, 0)
+    assert address != ctypes.c_void_p(-1).value
+    ctypes.set_errno(0)
+    libc.mprotect(address, size, mmap.PROT_READ | mmap.PROT_WRITE)
+    error = ctypes.get_errno()
+    libc.munmap(address, size)
+    raise OSError(error, os.strerror(error))
+
+
+def _reopen_writable(descriptor: int) -> None:
+    reopened = os.open(f"/proc/self/fd/{descriptor}", os.O_RDWR)
+    try:
+        os.write(reopened, b"x")
+    finally:
+        os.close(reopened)
+
+
+@pytest.mark.parametrize(
+    "attempt",
+    [
+        pytest.param(_write_directly, id="write"),
+        pytest.param(_map_writable, id="writable-mapping"),
+        pytest.param(_upgrade_mapping, id="mprotect"),
+        pytest.param(_reopen_writable, id="reopened-descriptor"),
+    ],
+)
+def test_workers_cannot_modify_the_published_index(
+    shared_reads: tuple[SharedCacheManager[BsonDict], Owner],
+    seeded_database: str,
+    attempt: Callable[[int], None],
+) -> None:
+    manager, owner = shared_reads
+    payload = _prime(manager, owner, seeded_database, 1)
+    peer, descriptors = _received_descriptors(owner.attachment())
+
+    try:
+        with pytest.raises(OSError, match=_DENIED):
+            attempt(descriptors[0])
+    finally:
+        for descriptor in descriptors:
+            os.close(descriptor)
+        peer.close()
+
+    assert _local_read(manager, seeded_database, 1) == payload

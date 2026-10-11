@@ -164,10 +164,11 @@ os.register_at_fork(after_in_child=_detach_inherited)
 
 
 class LocalIndex:
-    __slots__ = ("__weakref__", "_sock", "_watcher", "reader")
+    __slots__ = ("__weakref__", "_sock", "_watcher", "incarnation", "reader")
 
     def __init__(self, control: ControlAttachment) -> None:
         self.reader = control.reader
+        self.incarnation = control.reader.incarnation
         self._sock = control.sock
         self._sock.settimeout(None)
         self._watcher = threading.Thread(target=self._watch, daemon=True)
@@ -196,7 +197,7 @@ class LocalIndex:
 
 
 class AsyncLocalIndex:
-    __slots__ = ("__weakref__", "_watcher", "_writer", "reader")
+    __slots__ = ("__weakref__", "_watcher", "_writer", "incarnation", "reader")
 
     def __init__(
         self,
@@ -205,6 +206,7 @@ class AsyncLocalIndex:
         writer: asyncio.StreamWriter,
     ) -> None:
         self.reader = reader
+        self.incarnation = reader.incarnation
         self._writer = writer
         self._watcher = asyncio.create_task(self._watch(stream))
         _LOCAL_INDEXES.add(self)
