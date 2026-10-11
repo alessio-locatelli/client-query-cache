@@ -200,6 +200,8 @@ def _record(
             "wire_sent": 0,
             "wire_received": 0,
             "lag_windows": [[0.01, 0.03]],
+            "commands": {"stream:opened": 0},
+            "health": "healthy",
         }
     return record
 
@@ -1983,3 +1985,33 @@ def test_mixed_windows_describe_pooled_request_percentiles(
         "request_p99_sync",
         "request_p99_async",
     } <= statistics.keys()
+
+
+@pytest.mark.parametrize(
+    ("owner", "expected"),
+    [
+        pytest.param({}, None, id="steady-owner"),
+        pytest.param(
+            {"commands": {"stream:opened": 1}},
+            "the shared owner's stream was unhealthy or reopened",
+            id="reopened",
+        ),
+        pytest.param(
+            {"health": "reconnecting"},
+            "the shared owner's stream was unhealthy or reopened",
+            id="unhealthy",
+        ),
+    ],
+)
+def test_descriptive_analysis_checks_the_shared_owner_stream(
+    frozen: Registration, owner: JsonDict, expected: str | None
+) -> None:
+    cell = next(
+        cell
+        for cell in comparison_cells(frozen, "confirmation")
+        if cell.path == "shared"
+    )
+    record = _record(cell)
+    cast("JsonDict", record["owner"]).update(owner)
+
+    assert analysis.exclusion_reason(record, frozen) == expected

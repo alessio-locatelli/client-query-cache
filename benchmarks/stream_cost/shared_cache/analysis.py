@@ -588,6 +588,11 @@ def exclusion_reason(record: JsonDict, registration: Registration) -> str | None
     workers = cast("list[JsonDict]", record["workers_measured"])
     if sum(cast("int", worker["streams"]) for worker in workers) != expected:
         return "observed stream openings differ from the registered count"
+    if record["path"] == "shared":
+        owner = cast("JsonDict", record["owner"])
+        commands = cast("dict[str, int]", owner["commands"])
+        if owner["health"] != "healthy" or commands["stream:opened"]:
+            return "the shared owner's stream was unhealthy or reopened"
     return validation_failure(record, registration)
 
 
