@@ -338,9 +338,9 @@ mod tests {
             identity: b"present",
             shape: b"shape",
         };
-        Writer::new(index.clone())
-            .publish(&query, b"payload", 1)
-            .unwrap();
+        let mut writer = Writer::new(index.clone());
+        let payload = writer.store(b"payload").unwrap();
+        writer.publish(&query, payload).unwrap();
         index
     }
 

@@ -26,6 +26,15 @@ impl<M: Words> Ring<M> {
         Some(Self { memory, capacity })
     }
 
+    pub(crate) fn attach(memory: M) -> Option<Self> {
+        let words = memory.words();
+        let capacity = usize::try_from(words.get(R_CAPACITY)?.load(Ordering::Acquire)).ok()?;
+        if capacity == 0 || words.len() < Self::words_for(capacity)? {
+            return None;
+        }
+        Some(Self { memory, capacity })
+    }
+
     fn word(&self, at: usize) -> &AtomicU64 {
         &self.memory.words()[at]
     }
@@ -67,7 +76,7 @@ impl<M: Words> Ring<M> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(loom)))]
 mod tests {
     use super::*;
     use crate::memory::zeroed;
@@ -109,6 +118,18 @@ mod tests {
         let ring = ring(2);
         ring.word(R_TAIL).store(u64::MAX / 2, Ordering::Relaxed);
         assert_eq!(drained(&ring).len(), 2);
+    }
+
+    #[test]
+    fn attaches_to_a_created_ring() {
+        let created = ring(2);
+        let attached = Ring::attach(created.memory.clone()).unwrap();
+        assert!(attached.push(7));
+        assert_eq!(drained(&created), [7]);
+        assert!(Ring::attach(zeroed(HEADER_WORDS)).is_none());
+        let truncated = zeroed(HEADER_WORDS + 1);
+        truncated[R_CAPACITY].store(2, Ordering::Relaxed);
+        assert!(Ring::attach(truncated).is_none());
     }
 
     #[test]

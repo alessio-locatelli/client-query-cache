@@ -18,3 +18,11 @@ python = ["dep:pyo3"]
 [dependencies]
 libc = "0.2.190"
 pyo3 = { version = "0.29.3", features = ["abi3-py314"], optional = true }
+
+[target.'cfg(loom)'.dependencies]
+loom = "0.7.2"
+
+[lints.rust]
+# Rust 1.95 check-cfg: https://doc.rust-lang.org/rustc/check-cfg/cargo-specifics.html
+# The default is warning on every cfg name Cargo does not declare. We override it because the loom model tests are selected with --cfg loom.
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(loom)"] }

@@ -1,9 +1,11 @@
+use std::collections::HashMap;
+
 use crate::hash;
 use crate::memory::{WORD_BYTES, Words};
 use crate::sync::{AtomicU64, Ordering, fence};
 
-const MAGIC: u64 = u64::from_le_bytes(*b"cqcsidx1");
-const LAYOUT_VERSION: u64 = 1;
+const MAGIC: u64 = u64::from_le_bytes(*b"cqcsidx2");
+const LAYOUT_VERSION: u64 = 2;
 
 const H_MAGIC: usize = 0;
 const H_VERSION: usize = 1;
@@ -23,20 +25,36 @@ const S_VERSION: usize = 0;
 const S_HASH: usize = 1;
 const S_STATE: usize = 2;
 const S_EPOCH: usize = 3;
-const S_OFFSET: usize = 4;
-const S_LENGTHS: usize = 5;
-const S_TOKEN: usize = 6;
+const S_KEY_AT: usize = 4;
+const S_PAYLOAD_AT: usize = 5;
+const S_LENGTHS: usize = 6;
+const S_TOKEN: usize = 7;
 const SLOT_WORDS: usize = 8;
+const SLOT_FIELDS: [usize; 7] = [
+    S_HASH,
+    S_STATE,
+    S_EPOCH,
+    S_KEY_AT,
+    S_PAYLOAD_AT,
+    S_LENGTHS,
+    S_TOKEN,
+];
 
 const EMPTY: u64 = 0;
 const OCCUPIED: u64 = 1;
 const STATE_MASK: u64 = 0xff;
 const NAMESPACE_SHIFT: u32 = 32;
 const LENGTH_MASK: u64 = 0xffff_ffff;
-const PAYLOAD_SHIFT: u32 = 32;
+const HIGH_SHIFT: u32 = 32;
+
+const B_VERSION: usize = 0;
+const B_LENGTH: usize = 1;
+const BLOCK_HEADER_WORDS: usize = 2;
+const EXACT_CLASS_WORDS: usize = 16;
+const CLASSES_PER_DOUBLING: usize = 8;
 
 const READ_ATTEMPTS: usize = 4;
-const INLINE_KEY_BYTES: usize = 256;
+const INLINE_KEY_BYTES: usize = 512;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Layout {
@@ -56,12 +74,8 @@ impl Layout {
         if !slots.is_power_of_two() || arena_words == 0 || databases == 0 || namespaces == 0 {
             return None;
         }
-        let layout = Self {
-            slots,
-            arena_words,
-            databases,
-            namespaces,
-        };
+        u32::try_from(arena_words).ok()?;
+        u32::try_from(namespaces).ok()?;
         let slots_start = databases
             .checked_mul(DATABASE_WORDS)?
             .checked_add(HEADER_WORDS)?
@@ -72,7 +86,12 @@ impl Layout {
             .checked_add(slots_start)?
             .checked_add(arena_words)?
             .checked_mul(WORD_BYTES)?;
-        Some(layout)
+        Some(Self {
+            slots,
+            arena_words,
+            databases,
+            namespaces,
+        })
     }
 
     fn database_at(&self, database: usize) -> usize {
@@ -83,13 +102,10 @@ impl Layout {
         HEADER_WORDS + self.databases * DATABASE_WORDS + namespace
     }
 
-    fn slots_start(&self) -> usize {
+    fn slot_at(&self, slot: usize) -> usize {
         self.namespace_at(self.namespaces)
             .next_multiple_of(SLOT_WORDS)
-    }
-
-    fn slot_at(&self, slot: usize) -> usize {
-        self.slots_start() + slot * SLOT_WORDS
+            + slot * SLOT_WORDS
     }
 
     fn arena_start(&self) -> usize {
@@ -98,6 +114,10 @@ impl Layout {
 
     pub(crate) fn words(&self) -> usize {
         self.arena_start() + self.arena_words
+    }
+
+    fn max_published(&self) -> usize {
+        self.slots - self.slots / 4
     }
 }
 
@@ -112,6 +132,14 @@ pub(crate) enum Miss {
     Contended,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Refusal {
+    Entry,
+    Dead,
+    Arena,
+    Slots,
+}
+
 pub(crate) struct Query<'q> {
     pub(crate) database: usize,
     pub(crate) namespace: usize,
@@ -124,6 +152,10 @@ impl Query<'_> {
     fn key_len(&self) -> usize {
         self.identity.len() + self.shape.len()
     }
+
+    fn hash(&self) -> u64 {
+        hash::key(self.namespace as u64, self.identity, self.shape)
+    }
 }
 
 #[derive(Debug)]
@@ -135,17 +167,16 @@ pub(crate) struct Located {
     pub(crate) token: u64,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Full {
-    Entry,
-    Arena,
-    Slots,
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct Block {
+    pub(crate) at: usize,
+    pub(crate) version: u64,
 }
 
-#[derive(Clone)]
-pub(crate) struct Index<M> {
-    memory: M,
-    layout: Layout,
+impl Block {
+    pub(crate) fn token(self) -> u64 {
+        (self.version << HIGH_SHIFT) | self.at as u64
+    }
 }
 
 fn to_usize(value: u64) -> Option<usize> {
@@ -156,6 +187,28 @@ fn word_of(bytes: &[u8]) -> u64 {
     let mut word = [0_u8; WORD_BYTES];
     word[..bytes.len()].copy_from_slice(bytes);
     u64::from_ne_bytes(word)
+}
+
+fn copy_words(source: &[AtomicU64], destination: &mut [u8]) {
+    for (chunk, word) in destination.chunks_mut(WORD_BYTES).zip(source) {
+        let bytes = word.load(Ordering::Relaxed).to_ne_bytes();
+        chunk.copy_from_slice(&bytes[..chunk.len()]);
+    }
+}
+
+fn block_words(length: usize) -> usize {
+    let words = BLOCK_HEADER_WORDS + length.div_ceil(WORD_BYTES);
+    if words <= EXACT_CLASS_WORDS {
+        return words;
+    }
+    let step = (1_usize << words.ilog2()) / CLASSES_PER_DOUBLING;
+    words.next_multiple_of(step)
+}
+
+#[derive(Clone)]
+pub(crate) struct Index<M> {
+    memory: M,
+    layout: Layout,
 }
 
 impl<M: Words> Index<M> {
@@ -184,12 +237,43 @@ impl<M: Words> Index<M> {
         Some(index)
     }
 
+    pub(crate) fn attach(memory: M) -> Option<Self> {
+        let words = memory.words();
+        if words.len() < HEADER_WORDS
+            || words[H_MAGIC].load(Ordering::Acquire) != MAGIC
+            || words[H_VERSION].load(Ordering::Relaxed) != LAYOUT_VERSION
+        {
+            return None;
+        }
+        let layout = Layout::new(
+            to_usize(words[H_SLOTS].load(Ordering::Relaxed))?,
+            to_usize(words[H_ARENA_WORDS].load(Ordering::Relaxed))?,
+            to_usize(words[H_DATABASES].load(Ordering::Relaxed))?,
+            to_usize(words[H_NAMESPACES].load(Ordering::Relaxed))?,
+        )?;
+        (layout.words() <= words.len()).then_some(Self { memory, layout })
+    }
+
     fn word(&self, at: usize) -> &AtomicU64 {
         &self.memory.words()[at]
     }
 
+    fn arena(&self, at: usize) -> &AtomicU64 {
+        self.word(self.layout.arena_start() + at)
+    }
+
     fn slot_word(&self, slot: usize, field: usize) -> &AtomicU64 {
         self.word(self.layout.slot_at(slot) + field)
+    }
+
+    fn arena_range(&self, at: u64, words: usize) -> Option<&[AtomicU64]> {
+        let start = to_usize(at)?;
+        let end = start.checked_add(words)?;
+        if end > self.layout.arena_words {
+            return None;
+        }
+        let base = self.layout.arena_start();
+        self.memory.words().get(base + start..base + end)
     }
 
     pub(crate) fn incarnation(&self) -> u64 {
@@ -249,7 +333,7 @@ impl<M: Words> Index<M> {
         Ok(())
     }
 
-    fn key_matches(&self, at: usize, query: &Query<'_>) -> bool {
+    fn key_matches(&self, stored: &[AtomicU64], query: &Query<'_>) -> bool {
         let length = query.key_len();
         let mut inline = [0_u8; INLINE_KEY_BYTES];
         let mut spilled = Vec::new();
@@ -261,13 +345,6 @@ impl<M: Words> Index<M> {
         };
         expected[..query.identity.len()].copy_from_slice(query.identity);
         expected[query.identity.len()..].copy_from_slice(query.shape);
-        let Some(stored) = self
-            .memory
-            .words()
-            .get(at..at + length.div_ceil(WORD_BYTES))
-        else {
-            return false;
-        };
         stored
             .iter()
             .zip(expected.chunks(WORD_BYTES))
@@ -275,10 +352,8 @@ impl<M: Words> Index<M> {
     }
 
     fn locate(&self, query: &Query<'_>) -> Result<Located, Miss> {
-        let hash = hash::key(query.namespace as u64, query.identity, query.shape);
+        let hash = query.hash();
         let key_len = query.key_len();
-        let key_words = key_len.div_ceil(WORD_BYTES);
-        let arena_start = self.layout.arena_start();
         let mask = self.layout.slots - 1;
         let mut contended = false;
         for probe in 0..self.layout.slots {
@@ -289,10 +364,8 @@ impl<M: Words> Index<M> {
                 continue;
             }
             let state = self.slot_word(slot, S_STATE).load(Ordering::Relaxed);
-            match state & STATE_MASK {
-                EMPTY => break,
-                OCCUPIED => {}
-                _ => continue,
+            if state & STATE_MASK == EMPTY {
+                break;
             }
             if self.slot_word(slot, S_HASH).load(Ordering::Relaxed) != hash
                 || (state >> NAMESPACE_SHIFT) != query.namespace as u64
@@ -303,18 +376,17 @@ impl<M: Words> Index<M> {
             if (lengths & LENGTH_MASK) != key_len as u64 {
                 continue;
             }
-            let payload_len = (lengths >> PAYLOAD_SHIFT) as usize;
-            let offset = self.slot_word(slot, S_OFFSET).load(Ordering::Relaxed);
-            let in_arena = to_usize(offset)
-                .and_then(|offset| offset.checked_add(key_words))
-                .and_then(|end| end.checked_add(payload_len.div_ceil(WORD_BYTES)))
-                .is_some_and(|end| end <= self.layout.arena_words);
-            if !in_arena {
+            let payload_len = (lengths >> HIGH_SHIFT) as usize;
+            let key_at = self.slot_word(slot, S_KEY_AT).load(Ordering::Relaxed);
+            let payload_at = self.slot_word(slot, S_PAYLOAD_AT).load(Ordering::Relaxed);
+            let (Some(key), Some(_payload)) = (
+                self.arena_range(key_at, key_len.div_ceil(WORD_BYTES)),
+                self.arena_range(payload_at, payload_len.div_ceil(WORD_BYTES)),
+            ) else {
                 contended = true;
                 continue;
-            }
-            let key_at = arena_start + offset as usize;
-            if !self.key_matches(key_at, query) {
+            };
+            if !self.key_matches(key, query) {
                 continue;
             }
             if self.slot_word(slot, S_EPOCH).load(Ordering::Relaxed) != query.epoch {
@@ -323,7 +395,7 @@ impl<M: Words> Index<M> {
             return Ok(Located {
                 slot,
                 version,
-                payload_at: key_at + key_words,
+                payload_at: payload_at as usize,
                 payload_len,
                 token: self.slot_word(slot, S_TOKEN).load(Ordering::Relaxed),
             });
@@ -339,18 +411,13 @@ impl<M: Words> Index<M> {
         if destination.len() != located.payload_len {
             return false;
         }
-        let words = located.payload_len.div_ceil(WORD_BYTES);
-        let Some(source) = self
-            .memory
-            .words()
-            .get(located.payload_at..located.payload_at + words)
-        else {
+        let Some(source) = self.arena_range(
+            located.payload_at as u64,
+            located.payload_len.div_ceil(WORD_BYTES),
+        ) else {
             return false;
         };
-        for (chunk, word) in destination.chunks_mut(WORD_BYTES).zip(source) {
-            let bytes = word.load(Ordering::Relaxed).to_ne_bytes();
-            chunk.copy_from_slice(&bytes[..chunk.len()]);
-        }
+        copy_words(source, destination);
         true
     }
 
@@ -382,109 +449,308 @@ impl<M: Words> Index<M> {
         }
         Err(Miss::Contended)
     }
+
+    fn block_version(&self, block: Block) -> Option<&AtomicU64> {
+        self.arena_range(block.at as u64, BLOCK_HEADER_WORDS)
+            .map(|header| &header[B_VERSION])
+    }
+
+    pub(crate) fn is_live(&self, block: Block) -> bool {
+        self.block_version(block)
+            .is_some_and(|version| version.load(Ordering::Acquire) == block.version)
+    }
+
+    pub(crate) fn snapshot_length(&self, block: Block) -> Option<usize> {
+        let header = self.arena_range(block.at as u64, BLOCK_HEADER_WORDS)?;
+        if header[B_VERSION].load(Ordering::Acquire) != block.version {
+            return None;
+        }
+        let length = to_usize(header[B_LENGTH].load(Ordering::Relaxed))?;
+        self.arena_range(
+            (block.at + BLOCK_HEADER_WORDS) as u64,
+            length.div_ceil(WORD_BYTES),
+        )?;
+        Some(length)
+    }
+
+    pub(crate) fn snapshot_into(&self, block: Block, destination: &mut [u8]) -> bool {
+        let Some(source) = self.arena_range(
+            (block.at + BLOCK_HEADER_WORDS) as u64,
+            destination.len().div_ceil(WORD_BYTES),
+        ) else {
+            return false;
+        };
+        copy_words(source, destination);
+        fence(Ordering::Acquire);
+        self.block_version(block)
+            .is_some_and(|version| version.load(Ordering::Relaxed) == block.version)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn snapshot(&self, block: Block) -> Option<Vec<u8>> {
+        let length = self.snapshot_length(block)?;
+        let mut copy = vec![0; length];
+        self.snapshot_into(block, &mut copy).then_some(copy)
+    }
 }
+
+struct Slot {
+    hash: u64,
+    state: u64,
+    epoch: u64,
+    key_at: u64,
+    payload_at: u64,
+    lengths: u64,
+    token: u64,
+}
+
+const EMPTY_SLOT: Slot = Slot {
+    hash: 0,
+    state: EMPTY,
+    epoch: 0,
+    key_at: 0,
+    payload_at: 0,
+    lengths: 0,
+    token: 0,
+};
 
 pub(crate) struct Writer<M> {
     index: Index<M>,
     cursor: usize,
+    free: HashMap<usize, Vec<usize>>,
+    published: HashMap<u64, usize>,
 }
 
 impl<M: Words> Writer<M> {
     pub(crate) fn new(index: Index<M>) -> Self {
-        Self { index, cursor: 0 }
-    }
-
-    fn store_bytes(&self, at: usize, bytes: &[u8]) {
-        for (offset, chunk) in bytes.chunks(WORD_BYTES).enumerate() {
-            self.index
-                .word(at + offset)
-                .store(word_of(chunk), Ordering::Relaxed);
+        Self {
+            index,
+            cursor: 0,
+            free: HashMap::new(),
+            published: HashMap::new(),
         }
     }
 
-    fn find_slot(&self, hash: u64, query: &Query<'_>) -> Option<usize> {
-        let index = &self.index;
-        let mask = index.layout.slots - 1;
-        let mut reusable = None;
-        for probe in 0..index.layout.slots {
-            let slot = (hash as usize).wrapping_add(probe) & mask;
-            let state = index.slot_word(slot, S_STATE).load(Ordering::Relaxed);
-            match state & STATE_MASK {
-                EMPTY => return reusable.or(Some(slot)),
-                OCCUPIED => {
-                    let lengths = index.slot_word(slot, S_LENGTHS).load(Ordering::Relaxed);
-                    let offset = index.slot_word(slot, S_OFFSET).load(Ordering::Relaxed) as usize;
-                    if index.slot_word(slot, S_HASH).load(Ordering::Relaxed) == hash
-                        && (state >> NAMESPACE_SHIFT) == query.namespace as u64
-                        && (lengths & LENGTH_MASK) == query.key_len() as u64
-                        && index.key_matches(index.layout.arena_start() + offset, query)
-                    {
-                        return Some(slot);
-                    }
+    pub(crate) fn published(&self) -> usize {
+        self.published.len()
+    }
+
+    fn allocate(&mut self, length: usize) -> Option<Block> {
+        let words = block_words(length);
+        let at = match self.free.get_mut(&words).and_then(Vec::pop) {
+            Some(at) => at,
+            None => {
+                let end = self.cursor.checked_add(words)?;
+                if end > self.index.layout.arena_words {
+                    return None;
                 }
-                _ => {
-                    reusable.get_or_insert(slot);
-                }
+                let at = self.cursor;
+                self.cursor = end;
+                at
+            }
+        };
+        let version_word = self.index.arena(at + B_VERSION);
+        let version = version_word.load(Ordering::Relaxed) + 1;
+        version_word.store(version, Ordering::Relaxed);
+        self.index
+            .arena(at + B_LENGTH)
+            .store(length as u64, Ordering::Relaxed);
+        fence(Ordering::Release);
+        Some(Block { at, version })
+    }
+
+    fn free_block(&mut self, block: Block) {
+        let version = self.index.arena(block.at + B_VERSION);
+        if version.load(Ordering::Relaxed) != block.version {
+            return;
+        }
+        version.store(block.version + 1, Ordering::Relaxed);
+        let length = self
+            .index
+            .arena(block.at + B_LENGTH)
+            .load(Ordering::Relaxed) as usize;
+        self.free
+            .entry(block_words(length))
+            .or_default()
+            .push(block.at);
+    }
+
+    fn write_bytes(&self, at: usize, parts: &[&[u8]]) {
+        let mut pending = Vec::with_capacity(WORD_BYTES);
+        let mut offset = at;
+        for byte in parts.iter().flat_map(|part| part.iter()) {
+            pending.push(*byte);
+            if pending.len() == WORD_BYTES {
+                self.index
+                    .arena(offset)
+                    .store(word_of(&pending), Ordering::Relaxed);
+                pending.clear();
+                offset += 1;
             }
         }
-        reusable
+        if !pending.is_empty() {
+            self.index
+                .arena(offset)
+                .store(word_of(&pending), Ordering::Relaxed);
+        }
     }
 
-    pub(crate) fn publish(
-        &mut self,
-        query: &Query<'_>,
-        payload: &[u8],
-        token: u64,
-    ) -> Result<usize, Full> {
-        let key_len = query.key_len();
-        if key_len as u64 > LENGTH_MASK
-            || payload.len() as u64 > LENGTH_MASK
-            || query.namespace >= self.index.layout.namespaces
-        {
-            return Err(Full::Entry);
+    pub(crate) fn store(&mut self, payload: &[u8]) -> Option<Block> {
+        if payload.len() as u64 > LENGTH_MASK {
+            return None;
         }
-        let key_words = key_len.div_ceil(WORD_BYTES);
-        let needed = key_words + payload.len().div_ceil(WORD_BYTES);
-        if self.cursor + needed > self.index.layout.arena_words {
-            return Err(Full::Arena);
-        }
-        let hash = hash::key(query.namespace as u64, query.identity, query.shape);
-        let slot = self.find_slot(hash, query).ok_or(Full::Slots)?;
-        let offset = self.cursor;
-        let key_at = self.index.layout.arena_start() + offset;
-        let mut key = Vec::with_capacity(key_len);
-        key.extend_from_slice(query.identity);
-        key.extend_from_slice(query.shape);
-        self.store_bytes(key_at, &key);
-        self.store_bytes(key_at + key_words, payload);
-        self.cursor += needed;
+        let block = self.allocate(payload.len())?;
+        self.write_bytes(block.at + BLOCK_HEADER_WORDS, &[payload]);
+        Some(block)
+    }
+
+    pub(crate) fn release(&mut self, block: Block) {
+        self.unpublish(block);
+        self.free_block(block);
+    }
+
+    fn write_slot(&self, slot: usize, fields: &Slot) {
         let index = &self.index;
         let version = index.slot_word(slot, S_VERSION);
         let previous = version.load(Ordering::Relaxed);
         version.store(previous + 1, Ordering::Relaxed);
         fence(Ordering::Release);
-        for (field, value) in [
-            (S_HASH, hash),
-            (
-                S_STATE,
-                OCCUPIED | ((query.namespace as u64) << NAMESPACE_SHIFT),
-            ),
-            (S_EPOCH, query.epoch),
-            (S_OFFSET, offset as u64),
-            (
-                S_LENGTHS,
-                key_len as u64 | ((payload.len() as u64) << PAYLOAD_SHIFT),
-            ),
-            (S_TOKEN, token),
-        ] {
+        for (field, value) in SLOT_FIELDS.into_iter().zip([
+            fields.hash,
+            fields.state,
+            fields.epoch,
+            fields.key_at,
+            fields.payload_at,
+            fields.lengths,
+            fields.token,
+        ]) {
             index.slot_word(slot, field).store(value, Ordering::Relaxed);
         }
         version.store(previous + 2, Ordering::Release);
-        Ok(slot)
+    }
+
+    fn read_slot(&self, slot: usize) -> Slot {
+        let field = |field| self.index.slot_word(slot, field).load(Ordering::Relaxed);
+        Slot {
+            hash: field(S_HASH),
+            state: field(S_STATE),
+            epoch: field(S_EPOCH),
+            key_at: field(S_KEY_AT),
+            payload_at: field(S_PAYLOAD_AT),
+            lengths: field(S_LENGTHS),
+            token: field(S_TOKEN),
+        }
+    }
+
+    fn free_key(&mut self, slot: &Slot) {
+        let at = slot.key_at as usize - BLOCK_HEADER_WORDS;
+        let version = self.index.arena(at + B_VERSION).load(Ordering::Relaxed);
+        self.free_block(Block { at, version });
+    }
+
+    fn find_slot(&self, hash: u64, query: &Query<'_>) -> Option<usize> {
+        let index = &self.index;
+        let mask = index.layout.slots - 1;
+        for probe in 0..index.layout.slots {
+            let slot = (hash as usize).wrapping_add(probe) & mask;
+            let fields = self.read_slot(slot);
+            if fields.state & STATE_MASK == EMPTY {
+                return Some(slot);
+            }
+            if fields.hash == hash
+                && (fields.state >> NAMESPACE_SHIFT) == query.namespace as u64
+                && (fields.lengths & LENGTH_MASK) == query.key_len() as u64
+                && index
+                    .arena_range(fields.key_at, query.key_len().div_ceil(WORD_BYTES))
+                    .is_some_and(|key| index.key_matches(key, query))
+            {
+                return Some(slot);
+            }
+        }
+        None
+    }
+
+    pub(crate) fn publish(&mut self, query: &Query<'_>, payload: Block) -> Result<u64, Refusal> {
+        let key_len = query.key_len();
+        if key_len as u64 > LENGTH_MASK || query.namespace >= self.index.layout.namespaces {
+            return Err(Refusal::Entry);
+        }
+        if !self.index.is_live(payload) {
+            return Err(Refusal::Dead);
+        }
+        let token = payload.token();
+        if self.published.contains_key(&token) {
+            return Ok(token);
+        }
+        if self.published.len() >= self.index.layout.max_published() {
+            return Err(Refusal::Slots);
+        }
+        let hash = query.hash();
+        let slot = self.find_slot(hash, query).ok_or(Refusal::Slots)?;
+        let key = self.allocate(key_len).ok_or(Refusal::Arena)?;
+        self.write_bytes(key.at + BLOCK_HEADER_WORDS, &[query.identity, query.shape]);
+        let payload_len = self
+            .index
+            .arena(payload.at + B_LENGTH)
+            .load(Ordering::Relaxed);
+        let previous = self.read_slot(slot);
+        if previous.state & STATE_MASK == OCCUPIED {
+            self.published.remove(&previous.token);
+            self.free_key(&previous);
+        }
+        self.write_slot(
+            slot,
+            &Slot {
+                hash,
+                state: OCCUPIED | ((query.namespace as u64) << NAMESPACE_SHIFT),
+                epoch: query.epoch,
+                key_at: (key.at + BLOCK_HEADER_WORDS) as u64,
+                payload_at: (payload.at + BLOCK_HEADER_WORDS) as u64,
+                lengths: key_len as u64 | (payload_len << HIGH_SHIFT),
+                token,
+            },
+        );
+        self.published.insert(token, slot);
+        Ok(token)
+    }
+
+    pub(crate) fn unpublish(&mut self, payload: Block) -> bool {
+        let Some(slot) = self.published.remove(&payload.token()) else {
+            return false;
+        };
+        let removed = self.read_slot(slot);
+        self.delete(slot);
+        self.free_key(&removed);
+        true
+    }
+
+    fn delete(&mut self, mut hole: usize) {
+        let mask = self.index.layout.slots - 1;
+        let mut next = hole;
+        loop {
+            next = (next + 1) & mask;
+            let candidate = self.read_slot(next);
+            if candidate.state & STATE_MASK == EMPTY {
+                break;
+            }
+            let home = candidate.hash as usize & mask;
+            let stays = if hole <= next {
+                hole < home && home <= next
+            } else {
+                hole < home || home <= next
+            };
+            if stays {
+                continue;
+            }
+            self.write_slot(hole, &candidate);
+            self.published.insert(candidate.token, hole);
+            hole = next;
+        }
+        self.write_slot(hole, &EMPTY_SLOT);
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(loom)))]
 mod tests {
     use std::sync::Arc;
 
@@ -498,18 +764,18 @@ mod tests {
 
     type Memory = Arc<[AtomicU64]>;
 
-    fn fixture() -> (Index<Memory>, Writer<Memory>) {
-        sized_fixture(64)
-    }
-
-    fn sized_fixture(arena_words: usize) -> (Index<Memory>, Writer<Memory>) {
-        let layout = Layout::new(8, arena_words, 2, 2).unwrap();
+    fn sized_fixture(slots: usize, arena_words: usize) -> (Index<Memory>, Writer<Memory>) {
+        let layout = Layout::new(slots, arena_words, 2, 2).unwrap();
         let index = Index::create(zeroed(layout.words()), layout, INCARNATION, EXPIRY_NS).unwrap();
         assert!(index.set_available(0, true));
         assert!(index.set_progress(0, NOW_NS));
         assert!(index.set_epoch(1, EPOCH));
         let writer = Writer::new(index.clone());
         (index, writer)
+    }
+
+    fn fixture() -> (Index<Memory>, Writer<Memory>) {
+        sized_fixture(8, 256)
     }
 
     fn query<'q>(identity: &'q [u8]) -> Query<'q> {
@@ -529,44 +795,34 @@ mod tests {
         })
     }
 
+    fn publish(writer: &mut Writer<Memory>, identity: &[u8], payload: &[u8]) -> Block {
+        let block = writer.store(payload).unwrap();
+        writer.publish(&query(identity), block).unwrap();
+        block
+    }
+
+    fn only_slot(writer: &Writer<Memory>) -> usize {
+        *writer.published.values().next().unwrap()
+    }
+
     #[test]
     fn reads_a_published_entry() {
         let (index, mut writer) = fixture();
-        writer
-            .publish(&query(b"identity"), b"payload bytes", 3)
-            .unwrap();
+        let block = publish(&mut writer, b"identity", b"payload bytes");
         assert_eq!(
             read(&index, &query(b"identity")),
-            Ok((b"payload bytes".to_vec(), 3))
+            Ok((b"payload bytes".to_vec(), block.token()))
         );
         assert_eq!(read(&index, &query(b"other")), Err(Miss::Absent));
     }
 
     #[test]
-    fn republishing_a_key_replaces_its_entry() {
-        let (index, mut writer) = fixture();
-        let first = writer.publish(&query(b"identity"), b"first", 1).unwrap();
-        let second = writer.publish(&query(b"identity"), b"second", 2).unwrap();
-        assert_eq!(first, second);
-        assert_eq!(
-            read(&index, &query(b"identity")),
-            Ok((b"second".to_vec(), 2))
-        );
-    }
-
-    #[test]
     fn rejects_reads_that_fail_a_validity_check() {
         let (index, mut writer) = fixture();
-        writer.publish(&query(b"identity"), b"payload", 1).unwrap();
-        let cases: [(&dyn Fn(), u64, Query<'_>, Miss); 6] = [
+        publish(&mut writer, b"identity", b"payload");
+        let cases: [(u64, Query<'_>, Miss); 5] = [
+            (INCARNATION + 1, query(b"identity"), Miss::Incarnation),
             (
-                &|| {},
-                INCARNATION + 1,
-                query(b"identity"),
-                Miss::Incarnation,
-            ),
-            (
-                &|| {},
                 INCARNATION,
                 Query {
                     database: 2,
@@ -575,7 +831,6 @@ mod tests {
                 Miss::Range,
             ),
             (
-                &|| {},
                 INCARNATION,
                 Query {
                     namespace: 2,
@@ -584,7 +839,6 @@ mod tests {
                 Miss::Range,
             ),
             (
-                &|| {},
                 INCARNATION,
                 Query {
                     database: 1,
@@ -593,7 +847,6 @@ mod tests {
                 Miss::Unavailable,
             ),
             (
-                &|| {},
                 INCARNATION,
                 Query {
                     epoch: EPOCH + 1,
@@ -601,24 +854,20 @@ mod tests {
                 },
                 Miss::Epoch,
             ),
-            (
-                &|| assert!(index.set_progress(0, NOW_NS - EXPIRY_NS - 1)),
-                INCARNATION,
-                query(b"identity"),
-                Miss::Expired,
-            ),
         ];
-        for (prepare, incarnation, query, expected) in cases {
-            prepare();
+        for (incarnation, query, expected) in cases {
             let outcome = index.read(incarnation, &query, NOW_NS, |_| Some(()));
             assert_eq!(outcome.map(|_| ()), Err(expected));
         }
+        assert!(index.set_progress(0, NOW_NS - EXPIRY_NS - 1));
+        let outcome = index.read(INCARNATION, &query(b"identity"), NOW_NS, |_| Some(()));
+        assert_eq!(outcome.map(|_| ()), Err(Miss::Expired));
     }
 
     #[test]
     fn treats_entries_from_an_older_epoch_as_absent() {
         let (index, mut writer) = fixture();
-        writer.publish(&query(b"identity"), b"payload", 1).unwrap();
+        publish(&mut writer, b"identity", b"payload");
         assert!(index.set_epoch(1, EPOCH + 1));
         let current = Query {
             epoch: EPOCH + 1,
@@ -630,11 +879,13 @@ mod tests {
     #[test]
     fn locations_outside_the_arena_are_never_copied() {
         let (index, mut writer) = fixture();
-        let slot = writer.publish(&query(b"identity"), b"payload", 1).unwrap();
+        publish(&mut writer, b"identity", b"payload");
+        let slot = only_slot(&writer);
         for (field, value) in [
-            (S_OFFSET, index.layout.arena_words as u64),
-            (S_OFFSET, u64::MAX),
-            (S_LENGTHS, 16 | (u64::from(u32::MAX) << PAYLOAD_SHIFT)),
+            (S_PAYLOAD_AT, index.layout.arena_words as u64),
+            (S_PAYLOAD_AT, u64::MAX),
+            (S_KEY_AT, u64::MAX - 1),
+            (S_LENGTHS, 16 | (u64::from(u32::MAX) << HIGH_SHIFT)),
         ] {
             let word = index.slot_word(slot, field);
             let original = word.swap(value, Ordering::Relaxed);
@@ -652,7 +903,7 @@ mod tests {
     #[test]
     fn copies_require_the_located_length() {
         let (index, mut writer) = fixture();
-        writer.publish(&query(b"identity"), b"payload", 1).unwrap();
+        publish(&mut writer, b"identity", b"payload");
         let located = index.locate(&query(b"identity")).unwrap();
         assert!(!index.copy_payload(&located, &mut [0; 3]));
     }
@@ -660,26 +911,147 @@ mod tests {
     #[test]
     fn a_write_between_locate_and_validate_rejects_the_copy() {
         let (index, mut writer) = fixture();
-        writer.publish(&query(b"identity"), b"first", 1).unwrap();
+        let first = publish(&mut writer, b"identity", b"first");
         let located = index.locate(&query(b"identity")).unwrap();
-        writer.publish(&query(b"identity"), b"other", 2).unwrap();
+        writer.release(first);
+        publish(&mut writer, b"identity", b"other");
         assert!(!index.validate(&located));
     }
 
     #[test]
     fn a_slot_left_mid_write_is_contended() {
         let (index, mut writer) = fixture();
-        let slot = writer.publish(&query(b"identity"), b"payload", 1).unwrap();
+        publish(&mut writer, b"identity", b"payload");
         index
-            .slot_word(slot, S_VERSION)
+            .slot_word(only_slot(&writer), S_VERSION)
             .fetch_add(1, Ordering::Relaxed);
         assert_eq!(read(&index, &query(b"identity")), Err(Miss::Contended));
     }
 
     #[test]
+    fn publishing_a_dead_token_does_nothing() {
+        let (index, mut writer) = fixture();
+        let block = writer.store(b"payload").unwrap();
+        writer.release(block);
+        assert_eq!(
+            writer.publish(&query(b"identity"), block),
+            Err(Refusal::Dead)
+        );
+        assert_eq!(writer.published(), 0);
+        assert_eq!(read(&index, &query(b"identity")), Err(Miss::Absent));
+    }
+
+    #[test]
+    fn republishing_a_live_token_keeps_its_slot() {
+        let (_index, mut writer) = fixture();
+        let block = publish(&mut writer, b"identity", b"payload");
+        assert_eq!(
+            writer.publish(&query(b"identity"), block),
+            Ok(block.token())
+        );
+        assert_eq!(writer.published(), 1);
+    }
+
+    #[test]
+    fn publishing_a_resident_key_replaces_its_slot() {
+        let (index, mut writer) = fixture();
+        let first = publish(&mut writer, b"identity", b"first");
+        let second = publish(&mut writer, b"identity", b"second");
+        assert_eq!(writer.published(), 1);
+        assert!(!writer.unpublish(first));
+        assert_eq!(
+            read(&index, &query(b"identity")),
+            Ok((b"second".to_vec(), second.token()))
+        );
+    }
+
+    #[test]
+    fn releasing_a_published_payload_unpublishes_it() {
+        let (index, mut writer) = fixture();
+        let block = publish(&mut writer, b"identity", b"payload");
+        writer.release(block);
+        assert_eq!(read(&index, &query(b"identity")), Err(Miss::Absent));
+        assert!(!writer.unpublish(block));
+    }
+
+    #[test]
+    fn deletions_keep_colliding_keys_reachable() {
+        let (index, mut writer) = sized_fixture(16, 1024);
+        let identities: Vec<Vec<u8>> = (0..10_u8).map(|identity| vec![identity; 9]).collect();
+        let blocks: Vec<Block> = identities
+            .iter()
+            .map(|identity| publish(&mut writer, identity, identity))
+            .collect();
+        for block in blocks.iter().step_by(2) {
+            assert!(writer.unpublish(*block));
+        }
+        for (offset, identity) in identities.iter().enumerate() {
+            let expected = if offset % 2 == 0 {
+                Err(Miss::Absent)
+            } else {
+                Ok(identity.clone())
+            };
+            assert_eq!(
+                read(&index, &query(identity)).map(|(payload, _)| payload),
+                expected
+            );
+        }
+        for block in blocks.iter().skip(1).step_by(2) {
+            assert!(writer.unpublish(*block));
+        }
+        assert!((0..16).all(|slot| writer.read_slot(slot).state == EMPTY));
+    }
+
+    #[test]
+    fn freed_blocks_are_reused_by_their_size_class() {
+        let (_index, mut writer) = fixture();
+        let first = writer.store(&[1; 40]).unwrap();
+        writer.release(first);
+        let second = writer.store(&[2; 36]).unwrap();
+        assert_eq!(second.at, first.at);
+        assert_eq!(second.version, first.version + 2);
+        assert_eq!(block_words(4_371), 576);
+    }
+
+    #[test]
+    fn snapshots_detect_free_and_reuse() {
+        let (index, mut writer) = fixture();
+        let first = writer.store(b"first payload").unwrap();
+        assert_eq!(index.snapshot(first), Some(b"first payload".to_vec()));
+        writer.release(first);
+        assert_eq!(index.snapshot(first), None);
+        let reused = writer.store(b"other payload").unwrap();
+        assert_eq!(reused.at, first.at);
+        assert_eq!(index.snapshot(first), None);
+        assert_eq!(index.snapshot(reused), Some(b"other payload".to_vec()));
+    }
+
+    #[test]
+    fn exhausted_capacity_is_reported() {
+        let (_index, mut writer) = sized_fixture(8, 64);
+        assert_eq!(writer.store(&[0; 1024]), None);
+        let blocks: Vec<Block> = (0..7_u8)
+            .map(|identity| writer.store(&[identity]).unwrap())
+            .collect();
+        for (identity, block) in (0..6_u8).zip(&blocks) {
+            assert!(writer.publish(&query(&[identity]), *block).is_ok());
+        }
+        assert_eq!(
+            writer.publish(&query(b"seventh"), blocks[6]),
+            Err(Refusal::Slots)
+        );
+        let (_index, mut writer) = sized_fixture(8, 6);
+        let block = writer.store(b"payload").unwrap();
+        assert_eq!(
+            writer.publish(&query(b"identity"), block),
+            Err(Refusal::Arena)
+        );
+    }
+
+    #[test]
     fn concurrent_rewrites_never_yield_mixed_payloads() {
         const ROUNDS: u64 = 20_000;
-        let (index, mut writer) = sized_fixture(8 * ROUNDS as usize);
+        let (index, mut writer) = sized_fixture(8, 64);
         let payloads = [vec![b'a'; 40], vec![b'b'; 40]];
         let observed = std::thread::scope(|scope| {
             let handle = scope.spawn(|| {
@@ -687,30 +1059,113 @@ mod tests {
                     .filter_map(|_| read(&index, &query(b"identity")).ok())
                     .collect::<Vec<_>>()
             });
+            let mut current = None;
             for round in 0..ROUNDS {
-                writer
-                    .publish(&query(b"identity"), &payloads[(round % 2) as usize], round)
-                    .unwrap();
+                if let Some(block) = current.take() {
+                    writer.release(block);
+                }
+                current = Some(publish(
+                    &mut writer,
+                    b"identity",
+                    &payloads[(round % 2) as usize],
+                ));
             }
             handle.join().unwrap()
         });
         assert!(
             observed
                 .iter()
-                .all(|(payload, token)| *payload == payloads[(token % 2) as usize])
+                .all(|(payload, _)| payloads.contains(payload))
         );
     }
 
     #[test]
-    fn exhausted_capacity_is_reported() {
-        let (_index, mut writer) = fixture();
+    fn attaches_only_to_a_complete_layout() {
+        let (index, _writer) = fixture();
         assert_eq!(
-            writer.publish(&query(b"big"), &[0; 1024], 1),
-            Err(Full::Arena)
+            Index::attach(index.memory.clone()).unwrap().layout,
+            index.layout
         );
-        for identity in 0..8_u8 {
-            writer.publish(&query(&[identity]), b"x", 1).unwrap();
+        let truncated: Memory = zeroed(index.layout.words() - 1);
+        for (target, source) in truncated.iter().zip(index.memory.iter()) {
+            target.store(source.load(Ordering::Relaxed), Ordering::Relaxed);
         }
-        assert_eq!(writer.publish(&query(b"ninth"), b"x", 1), Err(Full::Slots));
+        assert!(Index::attach(truncated).is_none());
+        assert!(Index::attach(zeroed(HEADER_WORDS)).is_none());
+    }
+}
+
+#[cfg(all(test, loom))]
+mod models {
+    use std::sync::Arc;
+
+    use loom::model::Builder;
+
+    use super::*;
+    use crate::memory::zeroed;
+
+    const EPOCH: u64 = 1;
+
+    fn query<'q>(identity: &'q [u8]) -> Query<'q> {
+        Query {
+            database: 0,
+            namespace: 0,
+            epoch: EPOCH,
+            identity,
+            shape: b"",
+        }
+    }
+
+    fn fixture() -> (Index<Arc<[AtomicU64]>>, Writer<Arc<[AtomicU64]>>) {
+        let layout = Layout::new(2, 16, 1, 1).unwrap();
+        let index = Index::create(zeroed(layout.words()), layout, 1, u64::MAX).unwrap();
+        index.set_available(0, true);
+        index.set_progress(0, 1);
+        index.set_epoch(0, EPOCH);
+        let writer = Writer::new(index.clone());
+        (index, writer)
+    }
+
+    fn model(test: impl Fn() + Send + Sync + 'static) {
+        let mut builder = Builder::new();
+        builder.preemption_bound = Some(2);
+        builder.check(test);
+    }
+
+    #[test]
+    fn reads_never_mix_published_and_reused_payloads() {
+        model(|| {
+            let (index, mut writer) = fixture();
+            let first = writer.store(&[1; 16]).unwrap();
+            writer.publish(&query(b"k"), first).unwrap();
+            let reader = loom::thread::spawn(move || {
+                index
+                    .read(1, &query(b"k"), 1, |located| {
+                        let mut copy = vec![0; located.payload_len];
+                        index.copy_payload(located, &mut copy).then_some(copy)
+                    })
+                    .ok()
+            });
+            writer.release(first);
+            let second = writer.store(&[2; 16]).unwrap();
+            writer.publish(&query(b"k"), second).unwrap();
+            if let Some((payload, _token)) = reader.join().unwrap() {
+                assert!(payload == [1; 16] || payload == [2; 16]);
+            }
+        });
+    }
+
+    #[test]
+    fn snapshots_never_return_a_reused_block() {
+        model(|| {
+            let (index, mut writer) = fixture();
+            let first = writer.store(&[1; 16]).unwrap();
+            let reader = loom::thread::spawn(move || index.snapshot(first));
+            writer.release(first);
+            writer.store(&[2; 16]).unwrap();
+            if let Some(payload) = reader.join().unwrap() {
+                assert_eq!(payload, [1; 16]);
+            }
+        });
     }
 }
