@@ -159,6 +159,7 @@ def start_owner(
     def start(
         *,
         max_entry_bytes: int = 1024 * 1024,
+        budget_bytes: int = 8 * 1024 * 1024,
         shared_index: SharedIndexLimits | None = None,
         **limits: object,
     ) -> Owner:
@@ -171,7 +172,7 @@ def start_owner(
                 "serverSelectionTimeoutMS": 10_000,
             },
             databases=(seeded_database,),
-            budget_bytes=8 * 1024 * 1024,
+            budget_bytes=budget_bytes,
             max_entry_bytes=max_entry_bytes,
             max_await_time_ms=AWAIT_MS,
             limits=replace(LIMITS, **limits),  # type: ignore[arg-type]

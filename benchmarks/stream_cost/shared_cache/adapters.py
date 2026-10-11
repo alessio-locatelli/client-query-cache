@@ -1,11 +1,13 @@
 # ruff: noqa: SLF001
 from __future__ import annotations
 
+import time
 from collections import deque
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, override
 
+from benchmarks.stream_cost.shared_cache.attachment import AsyncLocalIndex, LocalIndex
 from benchmarks.stream_cost.shared_cache.wire import (
     KeyCache,
     UnportableKeyError,
@@ -44,8 +46,6 @@ if TYPE_CHECKING:
 
     from benchmarks.stream_cost.shared_cache.attachment import (
         AsyncEndpoint,
-        AsyncLocalIndex,
-        LocalIndex,
         Message,
         SyncEndpoint,
     )
@@ -65,6 +65,7 @@ METADATA_REFRESH = "metadata-refresh"
 OWNER_UNAVAILABLE = "owner-unavailable"
 NO_LOCAL_HIT = object()
 _KEY_CACHE_ENTRIES = 256
+_REATTACH_SECONDS = 0.1
 
 
 @dataclass(slots=True)
@@ -238,8 +239,11 @@ def _local_hit(view: View, keys: tuple[bytes, bytes] | str) -> object:
         return NO_LOCAL_HIT
     namespace = view._namespace()
     try:
-        database, slot = shared._slots[namespace]
+        database, slot, incarnation = shared._slots[namespace]
     except KeyError:
+        return NO_LOCAL_HIT
+    if incarnation != local.incarnation:
+        shared._reattach = True
         return NO_LOCAL_HIT
     identity_key, shape_key = keys
     payload = local.reader.lookup(
@@ -250,6 +254,8 @@ def _local_hit(view: View, keys: tuple[bytes, bytes] | str) -> object:
         shape_key,
     )
     if payload is None:
+        if local.reader.detached:
+            shared._reattach = True
         return NO_LOCAL_HIT
     shared.observation.hits += 1
     return decode_value(payload, view._collection.codec_options)
@@ -261,7 +267,13 @@ def _remember_slot(shared: Shared, namespace: NamespaceId, reply: Message) -> No
     except KeyError:
         return
     assert isinstance(slot, list)
-    shared._slots[namespace] = (slot[0], slot[1])
+    shared._slots[namespace] = (slot[0], slot[1], shared.endpoint.incarnation)
+
+
+def _reattached(shared: Shared) -> None:
+    shared._reattach = False
+    shared._slots.clear()
+    shared._metadata.clear()
 
 
 def _find_message(cursor: Cursor, shape: FindReadShape) -> Message | str:
@@ -724,6 +736,8 @@ class SharedCacheManager[DocumentType: Mapping[str, Any]]:
     __slots__ = (
         "_client",
         "_metadata",
+        "_reattach",
+        "_reattach_after",
         "_slots",
         "endpoint",
         "keys",
@@ -745,7 +759,11 @@ class SharedCacheManager[DocumentType: Mapping[str, Any]]:
         self.observation = LocalObservation()
         self.keys = KeyCache(_KEY_CACHE_ENTRIES)
         self._metadata: dict[NamespaceId, CollectionMetadata] = {}
-        self._slots: dict[NamespaceId, tuple[NonNegativeInt, NonNegativeInt]] = {}
+        self._slots: dict[
+            NamespaceId, tuple[NonNegativeInt, NonNegativeInt, object]
+        ] = {}
+        self._reattach = False
+        self._reattach_after = 0.0
 
     @property
     def client(self) -> MongoClient[DocumentType]:
@@ -755,11 +773,27 @@ class SharedCacheManager[DocumentType: Mapping[str, Any]]:
     def cache_core(self) -> LocalObservation:
         return self.observation
 
+    def _reattach_local(self, local: LocalIndex) -> None:
+        try:
+            replacement = LocalIndex.attach(self.endpoint.config)
+        except OSError:
+            self._reattach_after = time.monotonic() + _REATTACH_SECONDS
+            return
+        local.close()
+        self.local = replacement
+        _reattached(self)
+
     def _cache_ineligibility_reason(
         self,
         namespace: NamespaceId,
         probe: Callable[[], CollectionProbeResult | None],
     ) -> BypassReason | str | None:
+        if (
+            self._reattach
+            and self.local is not None
+            and time.monotonic() >= self._reattach_after
+        ):
+            self._reattach_local(self.local)
         try:
             cached = self._metadata[namespace]
         except KeyError:
@@ -810,6 +844,8 @@ class AsyncSharedCacheManager[DocumentType: Mapping[str, Any]]:
     __slots__ = (
         "_client",
         "_metadata",
+        "_reattach",
+        "_reattach_after",
         "_slots",
         "endpoint",
         "keys",
@@ -831,7 +867,11 @@ class AsyncSharedCacheManager[DocumentType: Mapping[str, Any]]:
         self.observation = LocalObservation()
         self.keys = KeyCache(_KEY_CACHE_ENTRIES)
         self._metadata: dict[NamespaceId, CollectionMetadata] = {}
-        self._slots: dict[NamespaceId, tuple[NonNegativeInt, NonNegativeInt]] = {}
+        self._slots: dict[
+            NamespaceId, tuple[NonNegativeInt, NonNegativeInt, object]
+        ] = {}
+        self._reattach = False
+        self._reattach_after = 0.0
 
     @property
     def client(self) -> AsyncMongoClient[DocumentType]:
@@ -841,11 +881,27 @@ class AsyncSharedCacheManager[DocumentType: Mapping[str, Any]]:
     def cache_core(self) -> LocalObservation:
         return self.observation
 
+    async def _reattach_local(self, local: AsyncLocalIndex) -> None:
+        try:
+            replacement = await AsyncLocalIndex.attach(self.endpoint.config)
+        except OSError:
+            self._reattach_after = time.monotonic() + _REATTACH_SECONDS
+            return
+        await local.close()
+        self.local = replacement
+        _reattached(self)
+
     async def _cache_ineligibility_reason(
         self,
         namespace: NamespaceId,
         probe: Callable[[], Any],
     ) -> BypassReason | str | None:
+        if (
+            self._reattach
+            and self.local is not None
+            and time.monotonic() >= self._reattach_after
+        ):
+            await self._reattach_local(self.local)
         try:
             cached = self._metadata[namespace]
         except KeyError:

@@ -43,6 +43,7 @@ from benchmarks.stream_cost.shared_cache.wire import (
     frame_length,
 )
 from client_query_cache._core import canonical
+from client_query_cache._core.keys import NamespaceId
 from client_query_cache._types import BsonDict, NonNegativeInt
 from tests.codec_helpers import Decimal128ToDecimalDecoder
 from tests.cursor_helpers import materialize
@@ -750,3 +751,59 @@ def owner_endpoint(
         AttachmentConfig(str(path), bytes(32), 1024, 1024, 100, 0.5, 1 << 20),
     )
     listener.close()
+
+
+def test_a_replacement_owner_reattaches_the_local_index(
+    open_reads: Callable[[SharedIndexLimits], tuple[Owner, _SharedReads]],
+    start_owner: Callable[..., Owner],
+) -> None:
+    first, reads = open_reads(_SHARED_INDEX)
+    reads.find_one(1)
+    _admitted(first, 1)
+    previous = reads.manager.local
+    assert previous is not None
+
+    os.kill(first.pid, signal.SIGKILL)
+    first.process.join(10)
+    wait_for(lambda: reads.detached)
+    native = reads.find_one(1)
+    assert reads.find_one(1) == native
+    replacement = start_owner(shared_index=_SHARED_INDEX)
+    wait_for(
+        lambda: (
+            reads.find_one(1) is not None
+            and reads.manager.local is not previous
+            and replacement.counters()["admitted"] == 1
+        )
+    )
+    requests = reads.manager.endpoint.counters.requests
+
+    local = reads.find_one(1)
+
+    assert native == local == {"_id": 1, "payload": "value-1", "revision": 0}
+    assert reads.manager.endpoint.counters.requests == requests
+    assert reads.manager.local is not None
+    assert reads.manager.local.incarnation == replacement.observation()["incarnation"]
+
+
+def test_slots_of_another_incarnation_are_never_read_locally(
+    open_reads: Callable[[SharedIndexLimits], tuple[Owner, _SharedReads]],
+    seeded_database: str,
+) -> None:
+    owner, reads = open_reads(_SHARED_INDEX)
+    reads.find_one(1)
+    _admitted(owner, 1)
+    namespace = NamespaceId(seeded_database, COLLECTION)
+    database, slot, incarnation = reads.manager._slots[namespace]
+    assert isinstance(incarnation, int)
+    reads.manager._slots[namespace] = (database, slot, Int64(incarnation + 1))
+    previous = reads.manager.local  # pytriage: TR5
+    requests = reads.manager.endpoint.counters.requests
+
+    fallback = reads.find_one(1)
+    reattached = reads.find_one(1)
+
+    assert fallback == reattached == {"_id": 1, "payload": "value-1", "revision": 0}
+    assert reads.manager.endpoint.counters.requests > requests
+    assert reads.manager.local is not previous
+    assert reads.manager._slots[namespace][2] == incarnation

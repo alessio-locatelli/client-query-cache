@@ -14,12 +14,16 @@ from benchmarks.stream_cost.client import BenchmarkClientTopologyConfig, WireCom
 from benchmarks.stream_cost.proxy import DirectPathByteProxy, DirectPathProxyConfig
 from benchmarks.stream_cost.shared_cache.coordinator import SharedCacheOwner
 from benchmarks.stream_cost.shared_cache.profiling import WindowProfiler
+from client_query_cache._core.keys import IdentityCacheKey
+from client_query_cache._core.lru import WeightedLru
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from multiprocessing.connection import Connection
 
     from benchmarks.stream_cost.shared_cache.coordinator import Message, OwnerConfig
+    from client_query_cache._core.entries import CacheEntry
+    from client_query_cache._core.keys import CacheKey
 
 TOPOLOGY = BenchmarkClientTopologyConfig(
     tls_enabled=False,
@@ -93,6 +97,29 @@ def process_sample() -> Message:
 _PROFILER = WindowProfiler()
 
 
+def race_next_admission(owner: SharedCacheOwner, race: str) -> None:
+    original = WeightedLru.conditional_put
+
+    def racing(
+        lru: WeightedLru, key: CacheKey, entry: CacheEntry
+    ) -> tuple[bool, CacheEntry | None, list[CacheEntry]]:
+        WeightedLru.conditional_put = original  # type: ignore[method-assign]
+        put = original(lru, key, entry)
+        assert isinstance(key, IdentityCacheKey)
+        if race == "write":
+            owner.core.record_write(key.namespace, key.identity)
+            return put
+        filler = b"x" * (owner.config.max_entry_bytes // 2)
+        for offset in range(owner.config.budget_bytes // len(filler) + 1):
+            capture = owner.core.begin_identity_admission(
+                key.namespace, f"race-filler-{offset}"
+            )
+            owner.core.admit_identity_encoded(capture, key.read_shape, filler)
+        return put
+
+    WeightedLru.conditional_put = racing  # type: ignore[method-assign,assignment]
+
+
 def _sample(owner: SharedCacheOwner, proxy: FaultableProxy) -> Message:
     database = owner.config.databases[0]
     telemetry = owner.core.stream_cost_snapshot(database)
@@ -124,6 +151,9 @@ _CONTROL: dict[str, Callable[[SharedCacheOwner, FaultableProxy, Message], object
     "sever": lambda _owner, proxy, _request: proxy.sever(),
     "lose-history": lambda owner, _proxy, _request: owner.lose_history(
         owner.config.databases[0]
+    ),
+    "race-admission": lambda owner, _proxy, request: race_next_admission(
+        owner, cast("str", request["race"])
     ),
     "profile-start": lambda _owner, _proxy, _request: _PROFILER.start(),
     "profile-stop": lambda _owner, _proxy, _request: _PROFILER.stop("owner"),
