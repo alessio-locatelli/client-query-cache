@@ -59,6 +59,7 @@ dev = [
   "pyyaml>=6.0.3",
   "types-pyyaml>=6.0.12.20260906",
   "filelock>=4.1.0",
+  "client-query-cache-shared-index",
 ]
 docs = ["mike", "tomli-w>=1.2.0", "zensical>=0.0.68"]
 memory = ["pytest-memray>=1.11.0"]
@@ -71,9 +72,16 @@ build-backend = "uv_build"
 # uv 0.12.9 / lock context: https://docs.astral.sh/uv/reference/settings/#environments
 # The default is all environments. We override it because development dependencies and their lock resolution target Linux.
 environments = ["sys_platform == 'linux'"]
+# uv 0.12.18: https://docs.astral.sh/uv/reference/settings/#extra-build-variables
+# The default is no extra build variables, so maturin 1.15.0 downloads a Rust toolchain when Cargo is missing (https://github.com/PyO3/maturin/blob/v1.15.0/maturin/__init__.py#L79). We override it because a missing toolchain must fail synchronization visibly.
+extra-build-variables = { client-query-cache-shared-index = { MATURIN_NO_INSTALL_RUST = "1" } }
 
 [tool.uv.sources]
 mike = { git = "https://github.com/squidfunk/mike.git", rev = "2d4ad799442f4592db8ad53b179bfb33db8c69ac" } # pragma: allowlist secret
+client-query-cache-shared-index = { workspace = true }
+
+[tool.uv.workspace]
+members = ["native/shared-index"]
 
 [tool.slotscheck]
 # slotscheck 0.21.0: https://github.com/ariebovenberg/slotscheck/blob/v0.21.0/src/slotscheck/config.py

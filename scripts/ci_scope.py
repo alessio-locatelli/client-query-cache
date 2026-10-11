@@ -27,7 +27,7 @@ def main() -> None:
             ".github/workflows/test.yml",
             "scripts/ci_scope.py",
         }
-        or path.startswith(".github/actions/setup-toolchain/")
+        or path.startswith((".github/actions/setup-toolchain/", "native/"))
         for path in paths
     )
     documentation = any(

@@ -38,6 +38,8 @@ jobs:
       # lockfile.
       # --all-groups: The default is project default groups (dev). We override it
       # because these validation environments need documentation tools too.
+      # The dev group builds native/shared-index with the runner image's preinstalled
+      # Cargo (https://github.com/actions/runner-images/blob/bdac7c6000c3501174076ad6d6a06ce46871fa71/images/ubuntu/Ubuntu2404-Readme.md#rust-tools).
       - run: uv sync --locked --all-groups
 
       - run: uv run -- python -m benchmarks.stream_cost.run --output-dir benchmark-reports

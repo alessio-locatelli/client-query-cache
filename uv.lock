@@ -9,6 +9,12 @@ supported-markers = [
     "sys_platform == 'linux'",
 ]
 
+[manifest]
+members = [
+    "client-query-cache",
+    "client-query-cache-shared-index",
+]
+
 [[package]]
 name = "annotated-types"
 version = "0.8.0"
@@ -230,6 +236,7 @@ otel = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "client-query-cache-shared-index" },
     { name = "covdefaults" },
     { name = "dnspython" },
     { name = "faker" },
@@ -281,6 +288,7 @@ provides-extras = ["otel"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "client-query-cache-shared-index", editable = "native/shared-index" },
     { name = "covdefaults", specifier = ">=2.3.0" },
     { name = "dnspython", specifier = ">=2.8.0" },
     { name = "faker", specifier = ">=40.38.0" },
@@ -319,6 +327,10 @@ docs = [
     { name = "zensical", specifier = ">=0.0.68" },
 ]
 memory = [{ name = "pytest-memray", specifier = ">=1.11.0" }]
+
+[[package]]
+name = "client-query-cache-shared-index"
+source = { editable = "native/shared-index" }
 
 [[package]]
 name = "colorama"
