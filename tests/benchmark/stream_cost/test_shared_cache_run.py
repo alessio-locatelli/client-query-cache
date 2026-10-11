@@ -7,6 +7,7 @@ import shutil
 import time
 import zlib
 from dataclasses import asdict, replace
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
@@ -51,6 +52,8 @@ from client_query_cache._types import BsonDict, JsonDict, NonNegativeInt
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+    from faker import Faker
 
     from benchmarks.stream_cost.shared_cache.protocol import Cell, PathKind
     from benchmarks.stream_cost.shared_cache.worker import WorkerSpec
@@ -595,11 +598,12 @@ _ONLY_SYNC_8 = "cells limited to sync:8"
     ("environment", "fields", "exploratory"),
     [
         pytest.param({"revision": "0" * 40}, {}, None, id="revision"),
+        pytest.param({"mongodb_image": "mongo:8.0.4"}, {}, None, id="image"),
         pytest.param({}, {"exploratory": _ONLY_SYNC_8}, None, id="limited-report"),
         pytest.param({}, {}, _ONLY_SYNC_8, id="limited-run"),
     ],
 )
-def test_resume_rejects_another_revision_or_cell_limit(
+def test_resume_rejects_another_environment_or_cell_limit(
     tmp_path: Path,
     registration: Registration,
     environment: JsonDict,
@@ -1090,15 +1094,17 @@ def test_environment_requires_git(
 
 
 @pytest.mark.parametrize(
-    ("fields", "exploratory"),
+    ("environment", "fields", "exploratory"),
     [
-        pytest.param({}, None, id="registered"),
-        pytest.param({"exploratory": _ONLY_SYNC_8}, _ONLY_SYNC_8, id="same-limit"),
+        pytest.param({}, {}, None, id="registered"),
+        pytest.param({"available_memory_bytes": 0}, {}, None, id="memory-in-use"),
+        pytest.param({}, {"exploratory": _ONLY_SYNC_8}, _ONLY_SYNC_8, id="same-limit"),
     ],
 )
-def test_resume_accepts_the_same_revision_and_cell_limit(
+def test_resume_accepts_the_same_environment_and_cell_limit(
     tmp_path: Path,
     registration: Registration,
+    environment: JsonDict,
     fields: JsonDict,
     exploratory: str | None,
 ) -> None:
@@ -1108,7 +1114,7 @@ def test_resume_accepts_the_same_revision_and_cell_limit(
         json.dumps(
             {
                 "phase": "capacity",
-                "environment": run.environment(registration),
+                "environment": {**run.environment(registration), **environment},
                 "cells": cells,
                 **fields,
             }
@@ -1987,24 +1993,21 @@ def _exploratory_report(_first: JsonDict, second: JsonDict) -> None:
     second["exploratory"] = _ONLY_SYNC_8
 
 
-@pytest.mark.parametrize(
-    ("alter", "message"),
-    [
-        pytest.param(_foreign_registration, "another registration", id="registration"),
-        pytest.param(_foreign_phase, "holds the smoke phase", id="phase"),
-        pytest.param(_foreign_revision, "different revisions", id="revision"),
-        pytest.param(_foreign_window, "outside the steady phase", id="window"),
-        pytest.param(_repeated_windows, "duplicate", id="duplicate"),
-        pytest.param(_failed_window_rerun, "duplicate", id="failed-rerun"),
-        pytest.param(_exploratory_report, "is exploratory", id="exploratory"),
-    ],
-)
-def test_analysis_rejects_mismatched_or_repeated_evidence(
+def _foreign_image(first: JsonDict, second: JsonDict) -> None:
+    cast("JsonDict", first["environment"])["mongodb_image"] = "mongo:8.3.11"
+    cast("JsonDict", second["environment"])["mongodb_image"] = "mongo:8.0.4"
+
+
+def _free_memory(available: tuple[int, int], first: JsonDict, second: JsonDict) -> None:
+    for report, value in zip((first, second), available, strict=True):
+        cast("JsonDict", report["environment"])["available_memory_bytes"] = value
+
+
+def _block_report_arguments(
     tmp_path: Path,
     described: Registration,
     alter: Callable[[JsonDict, JsonDict], None],
-    message: str,
-) -> None:
+) -> list[str]:
     config = tmp_path / "config.json"
     config.write_text(json.dumps(described.raw))
     records = _describable(described, lag_events=250, bypasses=0)
@@ -2020,19 +2023,54 @@ def test_analysis_rejects_mismatched_or_repeated_evidence(
     paths = [tmp_path / f"steady-{block}.json" for block in (0, 1)]
     for path, report in zip(paths, reports, strict=True):
         path.write_text(json.dumps(report))
+    return [
+        *map(str, paths),
+        "--config",
+        str(config),
+        "--phase",
+        "steady",
+        "--blocks",
+        "2",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("alter", "message"),
+    [
+        pytest.param(_foreign_registration, "another registration", id="registration"),
+        pytest.param(_foreign_phase, "holds the smoke phase", id="phase"),
+        pytest.param(_foreign_revision, "different revisions", id="revision"),
+        pytest.param(_foreign_window, "outside the steady phase", id="window"),
+        pytest.param(_repeated_windows, "duplicate", id="duplicate"),
+        pytest.param(_failed_window_rerun, "duplicate", id="failed-rerun"),
+        pytest.param(_exploratory_report, "is exploratory", id="exploratory"),
+        pytest.param(_foreign_image, "different revisions or env", id="image"),
+    ],
+)
+def test_analysis_rejects_mismatched_or_repeated_evidence(
+    tmp_path: Path,
+    described: Registration,
+    alter: Callable[[JsonDict, JsonDict], None],
+    message: str,
+) -> None:
+    arguments = _block_report_arguments(tmp_path, described, alter)
 
     with pytest.raises(BenchmarkSetupError, match=message):
-        analysis.main(
-            [
-                *map(str, paths),
-                "--config",
-                str(config),
-                "--phase",
-                "steady",
-                "--blocks",
-                "2",
-            ]
-        )
+        analysis.main(arguments)
+
+
+def test_analysis_pools_reports_that_differ_only_in_free_memory(
+    tmp_path: Path,
+    described: Registration,
+    faker: Faker,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    available = faker.pyint(min_value=1)
+    alter = partial(_free_memory, (available, available + faker.pyint(min_value=1)))
+
+    analysis.main(_block_report_arguments(tmp_path, described, alter))
+
+    assert json.loads(capsys.readouterr().out)["blocks"] == 2
 
 
 def test_descriptive_analysis_rejects_a_failed_window_and_its_rerun(
