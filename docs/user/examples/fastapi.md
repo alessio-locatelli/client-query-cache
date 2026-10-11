@@ -30,6 +30,18 @@ With caching disabled, the application still opens a manager, but the manager st
 
 The self-check starts three deployments over the same data: direct, cached, then direct again. It reports manager snapshots at each boundary and requires a miss followed by hits, a bypass for a session-bound read, unchanged counters for direct reads, and released cache resources after each shutdown. The final direct deployment reads the update made while caching was enabled. To export the same counters, see [OpenTelemetry metrics](../operations/monitoring.md#opentelemetry-metrics). Alert thresholds and rollout percentages belong to your operating policy.
 
+## Running several workers
+
+To serve the catalogue over HTTP with several worker processes, run this command from the repository checkout:
+
+```console
+CONTENT_CACHE_ENABLED=true uv run examples/fastapi_catalogue_example.py --serve --workers 2 --port 8000
+```
+
+[Uvicorn](https://uvicorn.dev/deployment/) starts the requested number of worker processes, and each one builds the application itself. The cache flag therefore comes from the `CONTENT_CACHE_ENABLED` environment variable: `true` caches content reads, and `false`, the default, reads directly. Each worker's lifespan creates its own client and manager and prints its process ID when the manager starts. When you stop the server with Ctrl+C, each worker closes its manager before its client.
+
+Every worker caches independently, with its own copy of the documents it reads and its own change stream. See [multi-worker servers](../operations/deployment.md#multi-worker-servers) for the memory and change-stream cost. The served application keeps its authentication dependency, so it answers every request with 401 until you supply your trusted one.
+
 ## Complete program
 
 The code below is included from the [canonical Python source](https://github.com/alessio-locatelli/client-query-cache/blob/main/examples/fastapi_catalogue_example.py).

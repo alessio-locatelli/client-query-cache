@@ -1,17 +1,25 @@
 # /// script
 # requires-python = ">=3.14"
-# dependencies = ["client-query-cache", "fastapi>=0.143.0", "httpx2>=2.13.1"]
+# dependencies = [
+#   "client-query-cache",
+#   "fastapi>=0.143.0",
+#   "httpx2>=2.13.1",
+#   "uvicorn>=0.54.0",
+# ]
 #
 # [tool.uv.sources]
 # client-query-cache = { path = "..", editable = true }
 # ///
 
+import argparse
 import os
 from contextlib import asynccontextmanager
 from functools import partial
+from pathlib import Path
 from time import monotonic, sleep
 from typing import TYPE_CHECKING, Annotated, Literal, TypedDict, cast
 
+import uvicorn
 from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.testclient import TestClient
 from pydantic import (
@@ -497,7 +505,34 @@ async def checked_lifespan(app: FastAPI) -> AsyncGenerator[None]:
         raise SystemExit("lifespan did not close the MongoDB client")
 
 
-def main() -> None:
+@asynccontextmanager
+async def served_lifespan(app: FastAPI) -> AsyncGenerator[None]:
+    async with lifespan(app):
+        print(f"worker {os.getpid()}: cache manager started", flush=True)
+        yield
+    print(f"worker {os.getpid()}: cache manager closed before client", flush=True)
+
+
+def create_served_app() -> FastAPI:
+    flag = os.getenv("CONTENT_CACHE_ENABLED", "false")
+    if flag not in {"true", "false"}:
+        raise SystemExit("CONTENT_CACHE_ENABLED must be true or false")
+    app = create_app(content_cache_enabled=flag == "true")
+    app.router.lifespan_context = served_lifespan
+    return app
+
+
+def serve(workers: PositiveInt, port: PositiveInt) -> None:
+    uvicorn.run(
+        "fastapi_catalogue_example:create_served_app",
+        factory=True,
+        workers=workers,
+        port=port,
+        app_dir=str(Path(__file__).parent),
+    )
+
+
+def self_check() -> None:
     north_description = "north shared"
     for phase, (content_cache_enabled, revision) in enumerate(DEPLOYMENTS):
         app = create_app(content_cache_enabled=content_cache_enabled)
@@ -532,6 +567,24 @@ def main() -> None:
                 if not completed or phase == len(DEPLOYMENTS) - 1:
                     portal.call(repository.manager.client.drop_database, DATABASE_NAME)
         north_description = revision
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Check the catalogue application, or serve it with --serve."
+    )
+    parser.add_argument(
+        "--serve",
+        action="store_true",
+        help="Serve the application with Uvicorn worker processes.",
+    )
+    parser.add_argument("--workers", type=int, default=2)
+    parser.add_argument("--port", type=int, default=8000)
+    arguments = parser.parse_args()
+    if arguments.serve:
+        serve(arguments.workers, arguments.port)
+    else:
+        self_check()
 
 
 if __name__ == "__main__":

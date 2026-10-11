@@ -1,17 +1,66 @@
 import os
+import re
 import shutil
+import signal
+import socket
 import subprocess
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from tests.conftest import MongoDbUri
 
 pytestmark = pytest.mark.integration
 
 REPOSITORY = Path(__file__).parents[2]
+SERVED_WORKERS = 2
+STARTED = re.compile(r"worker (\d+): cache manager started")
+CLOSED = re.compile(r"worker (\d+): cache manager closed before client")
+
+
+def _uv() -> str:
+    uv = shutil.which("uv")
+    assert uv is not None
+    return uv
+
+
+@pytest.fixture
+def free_port() -> int:
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        return int(listener.getsockname()[1])
+
+
+@pytest.fixture
+def served_catalogue(
+    mongodb_uri: MongoDbUri, free_port: int
+) -> Iterator[tuple[subprocess.Popen[str], int]]:
+    process = subprocess.Popen(  # noqa: S603
+        (
+            _uv(),
+            "run",
+            "examples/fastapi_catalogue_example.py",
+            "--serve",
+            "--workers",
+            str(SERVED_WORKERS),
+            "--port",
+            str(free_port),
+        ),
+        cwd=REPOSITORY,
+        env={**os.environ, "MONGODB_URI": mongodb_uri, "CONTENT_CACHE_ENABLED": "true"},
+        stdout=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    yield process, free_port
+    process.kill()
+    process.wait()
 
 
 @pytest.mark.timeout(300)
@@ -37,10 +86,8 @@ REPOSITORY = Path(__file__).parents[2]
     ],
 )
 def test_example_runs(name: str, mongodb_uri: MongoDbUri) -> None:
-    uv = shutil.which("uv")
-    assert uv is not None
     completed = subprocess.run(  # noqa: S603
-        (uv, "run", f"examples/{name}"),
+        (_uv(), "run", f"examples/{name}"),
         cwd=REPOSITORY,
         env={**os.environ, "MONGODB_URI": mongodb_uri},
         capture_output=True,
@@ -50,3 +97,24 @@ def test_example_runs(name: str, mongodb_uri: MongoDbUri) -> None:
     assert completed.returncode == 0, (
         f"stdout:\n{completed.stdout}\nstderr:\n{completed.stderr}"
     )
+
+
+@pytest.mark.timeout(300)
+def test_catalogue_serves_from_independent_workers(
+    served_catalogue: tuple[subprocess.Popen[str], int],
+) -> None:
+    process, port = served_catalogue
+    assert process.stdout is not None
+    started: set[str] = set()
+    while len(started) < SERVED_WORKERS:
+        if match := STARTED.search(process.stdout.readline()):
+            started.add(match.group(1))
+
+    with pytest.raises(urllib.error.HTTPError) as rejected:
+        urllib.request.urlopen(f"http://127.0.0.1:{port}/products/shared")
+    os.killpg(process.pid, signal.SIGINT)
+    remaining, _ = process.communicate(timeout=60)
+
+    assert rejected.value.code == 401
+    assert process.returncode == 0
+    assert set(CLOSED.findall(remaining)) == started

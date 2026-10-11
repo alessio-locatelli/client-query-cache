@@ -2,7 +2,7 @@
 
 Each example is a complete program that adds `client-query-cache` to a MongoDB-backed library or an application with explicit MongoDB storage. Writes go to PyMongo, and supported reads use cached views. Each run prints cache statistics as evidence that repeated reads came from the cache and that a later write invalidated the cached entry, and exits with an error if either did not happen.
 
-The examples demonstrate integrations; they do not recommend caching every read. Authorization policies and Celery task state can lag a write until invalidation arrives; see the [py-abac guide](https://alessio-locatelli.github.io/client-query-cache/examples/py-abac/) and [consistency limits](https://alessio-locatelli.github.io/client-query-cache/usage/consistency/). The [FastAPI catalogue guide](https://alessio-locatelli.github.io/client-query-cache/examples/fastapi/) shows an application that reads update responses directly.
+The examples demonstrate integrations; they do not recommend caching every read. Authorization policies and Celery task state can lag a write until invalidation arrives; see the [py-abac guide](https://alessio-locatelli.github.io/client-query-cache/examples/py-abac/) and [consistency limits](https://alessio-locatelli.github.io/client-query-cache/usage/consistency/). The [FastAPI catalogue guide](https://alessio-locatelli.github.io/client-query-cache/examples/fastapi/) shows an application that reads update responses directly, and `--serve` runs it under Uvicorn with several worker processes.
 
 ## Prerequisites
 
