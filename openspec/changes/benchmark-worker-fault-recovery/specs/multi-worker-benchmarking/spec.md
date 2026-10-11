@@ -109,17 +109,41 @@ A trial SHALL be a failed setup when, before injection, it observes a failed com
 
 ### Requirement: Fault trials record harness write outcomes
 
-Each harness write in a fault trial SHALL be recorded as acknowledged, failed with its error class, or of unknown outcome when it fails after it may have reached the server. A cached worker's expected invalidations SHALL be bounded below by the acknowledged writes committed after its current stream lifetime began. They SHALL be bounded above by adding acknowledged writes whose commit time can't be ordered against the opening, and every unknown-outcome write in the window. A failed write SHALL NOT, by itself, make a trial a failed setup.
+Each harness write in a fault trial SHALL be recorded as acknowledged, failed with its error class, or of unknown outcome when it fails after it may have reached the server.
+
+#### Scenario: A write may have reached the server before failing
+
+- **WHEN** a harness write fails after it may have reached the server and its outcome cannot be determined
+- **THEN** the trial records its outcome as unknown rather than assuming the write was not applied
+
+### Requirement: Fault trials bound invalidations by stream lifetime
+
+A cached worker's expected invalidations SHALL be bounded below by the acknowledged writes committed after its current stream lifetime began. They SHALL be bounded above by adding acknowledged writes whose commit time can't be ordered against the opening, and every unknown-outcome write in the window.
 
 #### Scenario: A replacement worker starts after earlier writes
 
 - **WHEN** a replacement worker's stream opens after acknowledged writes were committed
 - **THEN** those earlier writes are excluded from its expected invalidations, and only writes committed after its stream opened are required
 
+#### Scenario: A write cannot be ordered against the stream opening
+
+- **WHEN** an acknowledged write's commit time cannot be ordered against the current stream's opening
+- **THEN** it counts toward the worker's upper bound on expected invalidations but not its lower bound
+
+#### Scenario: A write's outcome remains unknown
+
+- **WHEN** a harness write in the fault window has an unknown outcome
+- **THEN** it counts toward the upper bound on expected invalidations, regardless of when its failure was observed, but not toward the lower bound
+
+### Requirement: Harness write failures do not alone invalidate fault trials
+
+A failed harness write SHALL NOT, by itself, make a fault trial a failed setup.
+
 #### Scenario: A write fails during failover
 
 - **WHEN** a harness write fails with an election error during a stepdown trial
 - **THEN** the trial records the write's outcome and excludes it from the lower bound on expected invalidations
+- **AND** that write failure alone does not make the trial a failed setup
 
 ### Requirement: Fault windows verify initial stream ownership
 
