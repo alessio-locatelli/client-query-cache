@@ -34,8 +34,9 @@ from benchmarks.stream_cost.shared_cache.coordinator import OwnerConfig
 from benchmarks.stream_cost.shared_cache.dataset import seed_catalogue
 from benchmarks.stream_cost.shared_cache.owner import owner_main, proxy_for
 from benchmarks.stream_cost.shared_cache.profiling import enabled as profiling_enabled
+from benchmarks.stream_cost.shared_cache.protocol import write_count
 from benchmarks.stream_cost.shared_cache.worker import WorkerSpec, worker_main
-from benchmarks.stream_cost.shared_cache.workload import key_order
+from benchmarks.stream_cost.shared_cache.workload import key_order, worker_keys
 from client_query_cache._types import (
     BsonDict,
     NonNegativeFloat,
@@ -153,14 +154,19 @@ def _workload(registration: Registration, cell: Cell) -> _Workload:
     else:
         keys = key_order(seed, cast("int", profile["documents"]))
         read, limit = "find_one", 1
-    updates = cast("int", registration.section("active")["updates"])
-    active = cell.workload == "active"
-    targets = key_order(seed + 1, len(keys))
+    keys = keys[: registration.hot_keys]
+    updates = write_count(registration, cell) if cell.workload == "active" else 0
+    order = key_order(seed + 1, len(keys))
+    targets = (
+        tuple(keys[index] for index in order)
+        if "write_keys" in registration.section("active")
+        else order
+    )
     return _Workload(
         keys=keys,
         read=read,
         limit=limit,
-        expected_invalidations=updates if active and cell.path != "direct" else 0,
+        expected_invalidations=updates if cell.path != "direct" else 0,
         expected_entries=1 if cell.workload == "cold" else len(keys),
         writes=tuple(
             (
@@ -168,9 +174,7 @@ def _workload(registration: Registration, cell: Cell) -> _Workload:
                 targets[ordinal % len(targets)],
             )
             for ordinal in range(updates)
-        )
-        if active
-        else (),
+        ),
     )
 
 
@@ -320,7 +324,10 @@ def _spec(
         client_options=registration.section("client_options"),
         read=workload.read,  # type: ignore[arg-type]
         limit=workload.limit,
-        keys=workload.keys,
+        keys=worker_keys(cast("int", registration.raw["seed"]), index, workload.keys)
+        if registration.key_assignment == "shared"
+        else workload.keys,
+        key_assignment=registration.key_assignment,
         warm_key=workload.keys[-1 - index],
         budget_bytes=cast("int", registration.raw["budget_bytes"]),
         max_entry_bytes=cast("int", registration.raw["max_entry_bytes"]),
@@ -467,7 +474,7 @@ def run_window(
             collection=collection,
             seed=cast("int", registration.raw["seed"]),
             profile=registration.profile(cell.profile),  # type: ignore[arg-type]
-            categories=cast("int", registration.profile("find16")["categories"]),
+            categories=registration.categories,
         )
         sampler = PeriodicCalibrationSampler(
             lambda: observer.admin.command("hello"),

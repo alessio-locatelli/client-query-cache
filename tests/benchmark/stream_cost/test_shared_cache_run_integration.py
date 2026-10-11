@@ -27,6 +27,7 @@ if TYPE_CHECKING:
 pytestmark = pytest.mark.integration
 
 _CONFIG = Path("reports/shared-worker-cache/v4/config.json")
+_CONCURRENT_CONFIG = Path("reports/concurrent-worker-workload/v1/config.json")
 _ORIGINAL_WORKLOAD = window._workload
 _ORIGINAL_SEED = seed_catalogue
 
@@ -56,6 +57,30 @@ def config(tmp_path: Path) -> Path:
 @pytest.fixture
 def registration(config: Path) -> Registration:
     return Registration.load(config)
+
+
+@pytest.fixture
+def concurrent(tmp_path: Path) -> Registration:
+    raw = json.loads(_CONCURRENT_CONFIG.read_text(encoding="utf-8"))
+    raw["status"] = "frozen"
+    raw["profiles"]["primary"]["documents"] = 64
+    raw["hot_keys"] = 32
+    raw.update(
+        {
+            "warmup_seconds": 0.5,
+            "drain_seconds": 2,
+            "schedule_tolerance_seconds": 1.0,
+            "startup_seconds": 60,
+        }
+    )
+    raw["frozen"] = {
+        "rates": {"steady": 100},
+        "window_seconds": {"active": 1},
+        "calibration_summary": {},
+    }
+    path = tmp_path / "concurrent.json"
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    return Registration.load(path)
 
 
 def _cell(registration: Registration, workload: str, path: str) -> Cell:
@@ -115,6 +140,31 @@ def test_smoke_windows_identify_every_owner(
     if workload == "active" and path != "direct":
         lag_owner = owner if path == "shared" else workers[0]["lag"]
         assert cast("JsonDict", lag_owner)["invalidations"] == 200
+    assert _no_children()
+
+
+@pytest.mark.timeout(120)
+def test_a_planned_steady_cell_shares_the_hot_set_across_workers(
+    replica: IsolatedReplicaSet, concurrent: Registration
+) -> None:
+    cell = next(
+        cell
+        for cell in run.planned(concurrent, "steady", concurrent.paths)
+        if cell.workers == 4 and cell.path == "independent"
+    )
+
+    record = window.run_window(replica, concurrent, cell)
+
+    workers = cast("list[JsonDict]", record["workers_measured"])
+    assert record["healthy"] is True
+    assert record["completed"] == record["offered"] == 100
+    assert [ready["entries"] for ready in cast("list[JsonDict]", record["ready"])] == [
+        32
+    ] * 4
+    assert sum(cast("int", worker["streams"]) for worker in workers) == 4
+    assert [cast("JsonDict", worker["lag"])["invalidations"] for worker in workers] == [
+        5
+    ] * 4
     assert _no_children()
 
 
@@ -380,6 +430,7 @@ def test_phase_command_runs_the_planned_baseline_cells(
         [
             "--phase",
             "capacity",
+            "--baselines-only",
             "--only",
             "sync:8",
             "--config",
@@ -389,10 +440,7 @@ def test_phase_command_runs_the_planned_baseline_cells(
         ]
     )
 
-    assert {cell.path for cell in measured if cell.phase == "cold"} == {
-        "direct",
-        "independent",
-    }
+    assert {cell.path for cell in measured} == {"direct", "independent"}
     assert {cell.phase for cell in measured} == {"cold", "capacity"}
     assert {
         (cell.model, cell.workers) for cell in measured if cell.phase == "capacity"

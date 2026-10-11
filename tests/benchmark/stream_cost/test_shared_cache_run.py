@@ -5,17 +5,20 @@ import copy
 import json
 import shutil
 import time
+import zlib
 from dataclasses import asdict, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 
 from benchmarks.stream_cost.errors import (
     BenchmarkConfigurationError,
     BenchmarkSetupError,
 )
-from benchmarks.stream_cost.shared_cache import analysis, run
+from benchmarks.stream_cost.shared_cache import analysis, run, window
 from benchmarks.stream_cost.shared_cache.dataset import (
     catalogue,
     checksum,
@@ -23,7 +26,6 @@ from benchmarks.stream_cost.shared_cache.dataset import (
 )
 from benchmarks.stream_cost.shared_cache.protocol import (
     BASELINES,
-    PATHS,
     Registration,
     capacity_cells,
     comparison_cells,
@@ -31,7 +33,9 @@ from benchmarks.stream_cost.shared_cache.protocol import (
     probe_cells,
     smoke_cells,
     validation_cells,
+    validation_failure,
     window_for,
+    write_count,
 )
 from benchmarks.stream_cost.shared_cache.workload import (
     Assignment,
@@ -41,19 +45,28 @@ from benchmarks.stream_cost.shared_cache.workload import (
     key_order,
     open_loop_async,
     open_loop_sync,
+    worker_keys,
 )
 from client_query_cache._types import BsonDict, JsonDict, NonNegativeInt
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from benchmarks.stream_cost.shared_cache.protocol import Cell, Family
+    from benchmarks.stream_cost.shared_cache.protocol import Cell
 
 pytestmark = pytest.mark.unit
 
 _CONFIG = Path("reports/shared-worker-cache/v4/config.json")
+_V4_COMPANION = Path("reports/shared-worker-cache/v4/registration.md")
 _FROZEN_RATES = {"primary": 3000, "cold": 1000, "sensitivity": 500}
 _FROZEN_WINDOWS = {"hot": 30, "active": 60, "sensitivity": 30}
+_CONCURRENT_CONFIG = Path("reports/concurrent-worker-workload/v1/config.json")
+_CONCURRENT_RATE = 1000
+_CONCURRENT_CELLS = {
+    ("active", "async", workers, path)
+    for workers in (1, 4)
+    for path in ("direct", "independent")
+}
 
 
 @pytest.fixture
@@ -79,6 +92,41 @@ def frozen(registration: Registration) -> Registration:
         "calibration_summary": {},
     }
     return replace(registration, raw=raw)
+
+
+def _restated(
+    registration: Registration, status: str, frozen: JsonDict
+) -> Registration:
+    raw = copy.deepcopy(registration.raw)
+    raw["status"] = status
+    raw["frozen"] = frozen
+    return replace(registration, raw=raw)
+
+
+@pytest.fixture
+def concurrent() -> Registration:
+    return _restated(
+        Registration.load(_CONCURRENT_CONFIG),
+        "pending-calibration",
+        {
+            "rates": {"steady": None},
+            "window_seconds": {"active": None},
+            "calibration_summary": None,
+        },
+    )
+
+
+@pytest.fixture
+def concurrent_frozen(concurrent: Registration) -> Registration:
+    return _restated(
+        concurrent,
+        "frozen",
+        {
+            "rates": {"steady": _CONCURRENT_RATE},
+            "window_seconds": {"active": 60},
+            "calibration_summary": {},
+        },
+    )
 
 
 def _record(
@@ -112,12 +160,15 @@ def _record(
             "hits": completed if hits is None else hits,
             "misses": misses,
             "bypasses": 0,
+            "bypass_reasons": {},
         },
+        "streams": cell.workers if cell.path == "independent" else 0,
         "loop": loop,
         "lag": {"lag_windows": [[0.01, 0.02]]},
     }
     population = {
         "sample_count": sample_count,
+        "p50_seconds": p99 / 4,
         "p95_seconds": p99 / 2,
         "p99_seconds": p99,
     }
@@ -132,6 +183,7 @@ def _record(
         "server_memory_bytes": 10.0,
         "server_cpu_seconds": 0.0,
         "server_drain_cpu_seconds": 0.0,
+        "harness_cpu_seconds": 0.5,
         "populations": {"request": population, "sync": population, "async": population},
         "clock_offset_seconds": 0.0,
         "clock_uncertainty_seconds": 0.001,
@@ -165,11 +217,11 @@ def test_comparison_phases_plan_every_registered_cell(
     cells = comparison_cells(frozen, phase)
 
     assert len(cells) == expected
-    assert {cell.path for cell in cells} == set(PATHS)
+    assert {cell.path for cell in cells} == set(frozen.paths)
 
 
 def test_twelve_blocks_use_every_path_order_twice(frozen: Registration) -> None:
-    orders = [path_order(block, PATHS) for block in range(12)]
+    orders = [path_order(block, frozen.paths) for block in range(12)]
 
     assert all(orders.count(order) == 2 for order in set(orders))
     assert len(set(orders)) == 6
@@ -210,17 +262,21 @@ def test_smoke_cells_cover_each_workload_and_model(registration: Registration) -
 
 
 @pytest.mark.parametrize(
-    ("kind", "rate", "model", "expected"),
+    ("kind", "rate", "populations", "expected"),
     [
-        pytest.param("hot", 3000.0, "sync", 30, id="nominal-hot"),
-        pytest.param("hot", 100.0, "sync", 102, id="sample-floor-extends-hot"),
-        pytest.param("active", 300.0, "mixed", 68, id="mixed-needs-both-models"),
+        pytest.param("hot", 3000.0, 1, 30, id="nominal-hot"),
+        pytest.param("hot", 100.0, 1, 102, id="sample-floor-extends-hot"),
+        pytest.param("active", 300.0, 2, 68, id="mixed-needs-both-models"),
     ],
 )
 def test_window_preserves_the_percentile_sample_floor(
-    registration: Registration, kind: str, rate: float, model: str, expected: float
+    registration: Registration,
+    kind: str,
+    rate: float,
+    populations: int,
+    expected: float,
 ) -> None:
-    assert window_for(registration, kind, rate, model) == expected  # type: ignore[arg-type]
+    assert window_for(registration, kind, rate, populations) == expected
 
 
 def test_unfrozen_registration_rejects_candidate_planning(
@@ -241,7 +297,7 @@ def test_unfrozen_registration_rejects_candidate_planning(
     ],
 )
 def test_rate_uses_the_weakest_baseline_probe(
-    registration: Registration, family: Family, ceiling: float | None, expected: int
+    registration: Registration, family: str, ceiling: float | None, expected: int
 ) -> None:
     cell = probe_cells(registration)[0]
     probes = [_record(cell, completed=completed) for completed in (10_000, 20_000)]
@@ -277,7 +333,7 @@ def test_validation_rejects_overloaded_or_short_windows(
     else:
         record.update(change)
 
-    failure = run.validation_failure(record, registration)
+    failure = validation_failure(record, registration)
 
     assert failure is not None
     assert reason in failure
@@ -297,7 +353,7 @@ def test_cold_validation_requires_every_identity(
     record = _record(cell)
     record["completed"] = completed
 
-    failure = run.validation_failure(record, registration)
+    failure = validation_failure(record, registration)
 
     assert (failure is None) if expected is None else (expected in str(failure))
 
@@ -313,7 +369,7 @@ def test_mixed_validation_checks_each_model_population(
         if cell.model == "mixed"
     )
 
-    assert run.validation_failure(_record(cell), registration) is None
+    assert validation_failure(_record(cell), registration) is None
 
 
 @pytest.mark.parametrize(
@@ -326,7 +382,7 @@ def test_mixed_validation_checks_each_model_population(
 )
 def test_family_durations_follow_the_registered_rule(
     registration: Registration,
-    family: Family,
+    family: str,
     rate: float,
     expected: dict[str, float],
 ) -> None:
@@ -1061,3 +1117,575 @@ def test_reused_probes_keep_only_healthy_probe_windows(
     report.write_text(json.dumps({"phase": "smoke", "cells": [healthy]}))
     with pytest.raises(BenchmarkSetupError, match="healthy probes"):
         run.reused_probes(report)
+
+
+def _checksum(value: object) -> int:
+    return zlib.crc32(json.dumps(value, default=list, sort_keys=True).encode())
+
+
+def _v4_validation(family: str) -> Callable[[Registration], tuple[Cell, ...]]:
+    def plan(v4: Registration) -> tuple[Cell, ...]:
+        rate = v4.rate(family)
+        return validation_cells(
+            v4, family, rate, run.family_durations(v4, family, rate)
+        )
+
+    return plan
+
+
+def _v4_phase(phase: str) -> Callable[[Registration], tuple[Cell, ...]]:
+    def plan(v4: Registration) -> tuple[Cell, ...]:
+        return run.planned(v4, phase, v4.paths)
+
+    return plan
+
+
+@pytest.mark.parametrize(
+    ("plan", "expected"),
+    [
+        pytest.param(
+            _v4_phase("screening"),
+            935_413_582,
+            id="screening",
+        ),
+        pytest.param(
+            _v4_phase("confirmation"),
+            899_046_424,
+            id="confirmation",
+        ),
+        pytest.param(
+            _v4_phase("capacity"),
+            3_320_248_846,
+            id="capacity",
+        ),
+        pytest.param(
+            _v4_phase("active"),
+            2_216_856_171,
+            id="active",
+        ),
+        pytest.param(
+            _v4_phase("cold"),
+            2_255_952_015,
+            id="cold",
+        ),
+        pytest.param(
+            _v4_phase("sensitivity"),
+            2_527_074_307,
+            id="sensitivity",
+        ),
+        pytest.param(
+            probe_cells,
+            2_502_144_019,
+            id="probe",
+        ),
+        pytest.param(
+            smoke_cells,
+            3_139_303_506,
+            id="smoke",
+        ),
+        pytest.param(
+            _v4_validation("primary"),
+            503_062_652,
+            id="validation-primary",
+        ),
+        pytest.param(
+            _v4_validation("cold"),
+            4_195_228_211,
+            id="validation-cold",
+        ),
+        pytest.param(
+            _v4_validation("sensitivity"),
+            1_434_493_908,
+            id="validation-sensitivity",
+        ),
+    ],
+)
+def test_v4_registration_plans_the_same_cells(
+    plan: Callable[[Registration], tuple[Cell, ...]], expected: int
+) -> None:
+    v4 = Registration.load(_CONFIG)
+
+    assert f"SHA-256 `{v4.digest}`" in _V4_COMPANION.read_text(encoding="utf-8")
+    assert _checksum([asdict(cell) for cell in plan(v4)]) == expected
+
+
+def test_v4_freezing_keeps_its_frozen_block_layout(
+    tmp_path: Path, registration: Registration
+) -> None:
+    recorder = _FakeRecorder(
+        {"hot": 40_000, "active": 40_000, "cold": 40_000, "limit": 10_000}
+    )
+    outcome = run.calibrate(object(), registration, recorder)  # type: ignore[arg-type]
+    config = tmp_path / "config.json"
+    config.write_bytes(_CONFIG.read_bytes())
+    report = tmp_path / "calibration.json"
+    report.write_text(json.dumps({"calibration": outcome}))
+
+    run.freeze(config, report)
+
+    v4 = Registration.load(_CONFIG)
+    layout = {
+        key: list(cast("JsonDict", value))
+        for key, value in v4.section("frozen").items()
+    }
+    refrozen = Registration.load(config).section("frozen")
+    assert {key: list(cast("JsonDict", value)) for key, value in refrozen.items()} == (
+        layout
+    )
+    frozen = v4.section("frozen")
+    summary = cast("JsonDict", frozen["calibration_summary"])
+    report.write_text(
+        json.dumps(
+            {
+                "calibration": {
+                    "outcome": "validated",
+                    "rates": frozen["rates"],
+                    "window_seconds": frozen["window_seconds"],
+                    "cold_seconds": summary["cold_seconds"],
+                }
+            }
+        )
+    )
+    run.freeze(config, report)
+    assert config.read_bytes() == _CONFIG.read_bytes()
+
+
+def test_registered_steady_phase_plans_only_its_cells(
+    concurrent_frozen: Registration,
+) -> None:
+    cells = run.planned(concurrent_frozen, "steady", concurrent_frozen.paths)
+
+    assert len(cells) == 12 * len(_CONCURRENT_CELLS)
+    for block in range(12):
+        assert {
+            (cell.workload, cell.model, cell.workers, cell.path)
+            for cell in cells
+            if cell.block == block
+        } == _CONCURRENT_CELLS
+    assert {(cell.rate, cell.window_seconds) for cell in cells} == {
+        (_CONCURRENT_RATE, 60)
+    }
+    assert [cell.path for cell in cells[:2]] == ["direct", "independent"]
+    assert [cell.path for cell in cells[4:6]] == ["independent", "direct"]
+
+
+def _assign(raw: JsonDict, keys: tuple[str, ...], value: object) -> None:
+    target = raw
+    for key in keys[:-1]:
+        target = cast("JsonDict", target[key])
+    target[keys[-1]] = value
+
+
+@pytest.mark.parametrize(
+    ("keys", "value", "phase", "message"),
+    [
+        pytest.param(
+            ("status",), "frozen", "screening", "no screening phase", id="unknown"
+        ),
+        pytest.param(
+            ("status",), "frozen", "smoke", "smoke phase has no blocks", id="smoke"
+        ),
+        pytest.param(
+            ("phases", "soak"),
+            {"blocks": 1},
+            "soak",
+            "soak phase lists no cells",
+            id="without-cells",
+        ),
+        pytest.param(
+            ("phases", "steady", "cells"),
+            [],
+            "steady",
+            "steady phase lists no cells",
+            id="empty-cells",
+        ),
+        pytest.param(
+            ("phases", "steady", "cells"),
+            [["active", "async"]],
+            "steady",
+            "malformed cell",
+            id="short-cell",
+        ),
+        pytest.param(
+            ("phases", "steady", "cells"),
+            [["warm", "async", 1]],
+            "steady",
+            "malformed cell",
+            id="unknown-workload",
+        ),
+        pytest.param(
+            ("phases", "steady", "cells"),
+            [["active", "async", 0]],
+            "steady",
+            "malformed cell",
+            id="no-workers",
+        ),
+        pytest.param(
+            ("phases", "steady", "cells"),
+            [["hot", "async", 1]],
+            "steady",
+            "no calibration family covers hot cells",
+            id="uncalibrated",
+        ),
+        pytest.param(
+            ("calibration", "families", "steady"),
+            {"cells": [["active", "async", 1]]},
+            "steady",
+            "steady family is malformed",
+            id="family",
+        ),
+    ],
+)
+def test_unregistered_phases_and_malformed_cells_are_configuration_errors(
+    concurrent_frozen: Registration,
+    keys: tuple[str, ...],
+    value: object,
+    phase: str,
+    message: str,
+) -> None:
+    raw = copy.deepcopy(concurrent_frozen.raw)
+    _assign(raw, keys, value)
+
+    with pytest.raises(BenchmarkConfigurationError, match=message):
+        run.planned(replace(concurrent_frozen, raw=raw), phase, BASELINES)
+
+
+def test_an_unregistered_phase_fails_before_writing_a_report(
+    tmp_path: Path, concurrent_frozen: Registration
+) -> None:
+    config = tmp_path / "config.json"
+    config.write_text(json.dumps(concurrent_frozen.raw))
+    output = tmp_path / "report.json"
+
+    with pytest.raises(BenchmarkConfigurationError, match="no capacity phase"):
+        run.main(
+            [
+                "--phase",
+                "capacity",
+                "--config",
+                str(config),
+                "--output",
+                str(output),
+            ]
+        )
+
+    assert not output.exists()
+
+
+def test_registered_family_probes_reads_and_validates_mixed_cells(
+    concurrent: Registration,
+) -> None:
+    durations = run.family_durations(concurrent, "steady", _CONCURRENT_RATE)
+    probes = probe_cells(concurrent)
+    validations = validation_cells(concurrent, "steady", _CONCURRENT_RATE, durations)
+
+    assert durations == {"active": 60}
+    assert {(cell.workload, cell.loop) for cell in probes} == {("hot", "closed")}
+    assert {(cell.workload, cell.loop) for cell in validations} == {("active", "open")}
+    for cells in (probes, validations):
+        assert {
+            ("active", cell.model, cell.workers, cell.path) for cell in cells
+        } == _CONCURRENT_CELLS
+
+
+def test_registered_family_freezes_only_its_rate_and_window(
+    tmp_path: Path, concurrent: Registration
+) -> None:
+    recorder = _FakeRecorder({"hot": 20_000, "limit": 10_000})
+    outcome = run.calibrate(object(), concurrent, recorder)  # type: ignore[arg-type]
+    config = tmp_path / "config.json"
+    config.write_text(json.dumps(concurrent.raw, indent=2))
+    report = tmp_path / "calibration.json"
+    report.write_text(json.dumps({"calibration": outcome}))
+
+    run.freeze(config, report)
+
+    frozen = Registration.load(config)
+    assert frozen.raw["status"] == "frozen"
+    assert frozen.section("frozen") == {
+        "rates": {"steady": 1500},
+        "window_seconds": {"active": 60},
+        "calibration_summary": {},
+    }
+    assert {cell.rate for cell in run.planned(frozen, "steady", frozen.paths)} == {1500}
+
+
+def test_open_loop_writes_follow_the_registered_read_share(
+    concurrent_frozen: Registration,
+) -> None:
+    cell = comparison_cells(concurrent_frozen, "steady")[1]
+
+    workload = window._workload(concurrent_frozen, cell)
+
+    updates = _CONCURRENT_RATE * 60 // 20
+    assert write_count(concurrent_frozen, cell) == updates
+    assert len(workload.writes) == updates
+    assert workload.expected_invalidations == updates
+    assert len(workload.keys) == concurrent_frozen.hot_keys
+    assert {target for _offset, target in workload.writes} == set(workload.keys)
+
+
+def test_closed_loop_windows_cannot_derive_a_write_count(
+    concurrent_frozen: Registration,
+) -> None:
+    cell = replace(
+        comparison_cells(concurrent_frozen, "steady")[0], loop="closed", rate=None
+    )
+
+    with pytest.raises(BenchmarkConfigurationError, match="open-loop rate"):
+        write_count(concurrent_frozen, cell)
+
+
+@pytest.mark.parametrize(
+    ("change", "message"),
+    [
+        pytest.param({"updates": 200}, "both updates and reads_per_write", id="both"),
+        pytest.param({"write_keys": "catalogue"}, "only the hot set", id="targets"),
+    ],
+)
+def test_write_mix_conflicts_are_rejected(
+    concurrent: Registration, change: JsonDict, message: str
+) -> None:
+    raw = copy.deepcopy(concurrent.raw)
+    cast("JsonDict", raw["active"]).update(change)
+
+    with pytest.raises(BenchmarkConfigurationError, match=message):
+        Registration(raw, concurrent.digest)
+
+
+@given(
+    workers=st.integers(min_value=1, max_value=8),
+    hot_keys=st.integers(min_value=1, max_value=64),
+    seed=st.integers(min_value=0, max_value=2**32),
+)
+def test_shared_assignment_gives_every_worker_the_whole_hot_set(
+    workers: int, hot_keys: int, seed: int
+) -> None:
+    hot = key_order(seed, hot_keys)
+    rate = 100.0
+    requests = workers * hot_keys
+    shared = [
+        Assignment(
+            worker=worker,
+            workers=workers,
+            rate=rate,
+            requests=requests,
+            keys=worker_keys(seed, worker, hot),
+            key_assignment="shared",
+        )
+        for worker in range(workers)
+    ]
+    partitioned = [
+        replace(assignment, keys=hot, key_assignment="partitioned")
+        for assignment in shared
+    ]
+
+    for assignment in shared:
+        assert {assignment.key(ordinal) for ordinal in assignment.ordinals()} == set(
+            hot
+        )
+    schedules = [
+        sorted(
+            assignment.due(0.0, ordinal)
+            for assignment in assignments
+            for ordinal in assignment.ordinals()
+        )
+        for assignments in (shared, partitioned)
+    ]
+    assert (
+        schedules[0] == schedules[1] == [ordinal / rate for ordinal in range(requests)]
+    )
+
+
+def _describable(
+    registration: Registration,
+    *,
+    blocks: int,
+    lag_events: int,
+    bypasses: int,
+) -> list[JsonDict]:
+    records: list[JsonDict] = []
+    for cell in comparison_cells(registration, "steady"):
+        if cell.block >= blocks:
+            continue
+        record = _record(
+            cell,
+            p99=0.002 if cell.path == "direct" else 0.001,
+            cpu=1.0 + cell.block / 10,
+            hits=0 if cell.path == "direct" else 900,
+            misses=0 if cell.path == "direct" else 100,
+        )
+        worker = cast("list[JsonDict]", record["workers_measured"])[0]
+        cast("JsonDict", worker["outcomes"])["bypass_reasons"] = (
+            {} if cell.path == "direct" else {"stream_unavailable": bypasses}
+        )
+        worker["lag"] = {"lag_windows": [[0.02] * lag_events]}
+        record["server_cpu_seconds"] = 2.0 if cell.path == "direct" else 0.5
+        records.append(record)
+    return records
+
+
+def _workers(row: JsonDict) -> int:
+    return cast("analysis.CellKey", row["cell"])[3]
+
+
+@pytest.fixture
+def described(concurrent_frozen: Registration) -> Registration:
+    raw = copy.deepcopy(concurrent_frozen.raw)
+    cast("JsonDict", raw["inference"])["draws"] = 200
+    return replace(concurrent_frozen, raw=raw)
+
+
+@pytest.mark.parametrize(
+    ("lag_events", "claimed"),
+    [
+        pytest.param(250, True, id="lag-floor-met"),
+        pytest.param(20, False, id="lag-below-floor"),
+    ],
+)
+def test_descriptive_analysis_reports_intervals_counts_and_claimed_lag(
+    described: Registration, lag_events: int, claimed: bool
+) -> None:
+    records = _describable(described, blocks=4, lag_events=lag_events, bypasses=2_500)
+
+    report = analysis.describe_phase(records, described, phase="steady", blocks=4)
+
+    comparisons = cast("list[JsonDict]", report["comparisons"])
+    assert {item["measure"] for item in comparisons} == set(
+        cast("list[str]", described.section("analysis")["measures"])
+    )
+    for comparison in comparisons:
+        assert comparison["pairs"] == 4
+        for estimand in ("ratio", "delta"):
+            interval = cast("JsonDict", comparison[estimand])
+            assert (
+                cast("float", interval["lower"])
+                <= cast("float", interval["point_estimate"])
+                <= cast("float", interval["upper"])
+            )
+    p99 = next(
+        item
+        for item in comparisons
+        if item["measure"] == "request_p99" and _workers(item) == 4
+    )
+    assert cast("JsonDict", p99["ratio"])["point_estimate"] == pytest.approx(0.5)
+    rows = {
+        (_workers(row), row["path"]): row
+        for row in cast("list[JsonDict]", report["paths"])
+    }
+    cached = rows[4, "independent"]
+    assert cast("JsonDict", cached["bypass_stream_unavailable"])["max"] == 2_500
+    assert cast("JsonDict", cached["hits"])["mean"] == 900
+    assert not any("bypass" in key for key in rows[4, "direct"])
+    assert ("lag_p95" in cached) is claimed
+    assert "lag_p50" not in rows[4, "direct"]
+    assert len(cast("list[JsonDict]", report["lag_unclaimed"])) == (
+        0 if claimed else 4 * 2
+    )
+    assert report["excluded"] == []
+
+
+def _fail_setup(record: JsonDict) -> None:
+    record.update(healthy=False, failure="deliberate failure")
+
+
+def _lose_stream(record: JsonDict) -> None:
+    cast("list[JsonDict]", record["workers_measured"])[0]["streams"] = 0
+
+
+def _overload(record: JsonDict) -> None:
+    record["completed_in_window"] = 0
+
+
+@pytest.mark.parametrize(
+    ("alter", "reason"),
+    [
+        pytest.param(_fail_setup, "deliberate failure", id="unhealthy"),
+        pytest.param(_lose_stream, "stream openings differ", id="streams"),
+        pytest.param(_overload, "registered fraction", id="overloaded"),
+    ],
+)
+def test_descriptive_analysis_retains_excluded_windows_with_their_reason(
+    described: Registration, alter: Callable[[JsonDict], None], reason: str
+) -> None:
+    records = _describable(described, blocks=1, lag_events=250, bypasses=0)
+    alter(
+        next(
+            record
+            for record in records
+            if record["path"] == "independent" and record["workers"] == 4
+        )
+    )
+
+    report = analysis.describe_phase(records, described, phase="steady", blocks=1)
+
+    excluded = cast("list[JsonDict]", report["excluded"])
+    assert [(item["path"], item["block"]) for item in excluded] == [("independent", 0)]
+    assert reason in str(excluded[0]["reason"])
+    unpaired = [
+        item
+        for item in cast("list[JsonDict]", report["comparisons"])
+        if _workers(item) == 4
+    ]
+    assert {item["pairs"] for item in unpaired} == {0}
+    assert not any("ratio" in item for item in unpaired)
+
+
+def test_analysis_command_describes_an_ungated_registration(
+    tmp_path: Path, described: Registration, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config = tmp_path / "config.json"
+    config.write_text(json.dumps(described.raw))
+    report = tmp_path / "report.json"
+    records = _describable(described, blocks=2, lag_events=250, bypasses=0)
+    report.write_text(json.dumps({"cells": records}))
+
+    analysis.main(
+        [str(report), "--config", str(config), "--phase", "steady", "--blocks", "2"]
+    )
+
+    output = json.loads(capsys.readouterr().out)
+    assert output["phase"] == "steady"
+    assert "verdict" not in output
+    assert len(output["comparisons"]) == 2 * len(
+        cast("list[str]", described.section("analysis")["measures"])
+    )
+
+
+@pytest.mark.parametrize(
+    ("phase", "blocks", "shared_pss", "expected"),
+    [
+        pytest.param(
+            "screening",
+            6,
+            90.0,
+            1_732_398_015,
+            id="screening-stop",
+        ),
+        pytest.param(
+            "confirmation",
+            4,
+            50.0,
+            1_137_233_933,
+            id="confirmation-promote",
+        ),
+        pytest.param(
+            "confirmation",
+            4,
+            90.0,
+            1_877_843_654,
+            id="confirmation-defer",
+        ),
+    ],
+)
+def test_gated_decisions_are_unchanged(
+    frozen: Registration, phase: str, blocks: int, shared_pss: float, expected: int
+) -> None:
+    raw = copy.deepcopy(frozen.raw)
+    cast("JsonDict", raw["inference"]).update({"draws": 200, "leave_one_out_draws": 50})
+    small = replace(frozen, raw=raw)
+    records = _comparison_records(small, shared_pss=shared_pss, blocks=blocks)
+
+    decision = analysis.decide(records, small, phase=phase, blocks=blocks)
+
+    assert _checksum(decision) == expected

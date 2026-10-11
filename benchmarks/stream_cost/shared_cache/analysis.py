@@ -3,20 +3,26 @@ from __future__ import annotations
 import argparse
 import json
 import random
+from collections import Counter
 from dataclasses import asdict, dataclass
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, cast
 
 from benchmarks.stream_cost.bootstrap import ConfidenceInterval
-from benchmarks.stream_cost.shared_cache.protocol import Registration
+from benchmarks.stream_cost.shared_cache.protocol import (
+    Registration,
+    validation_failure,
+)
 from client_query_cache._types import JsonDict, NonNegativeInt, PositiveInt
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Sequence
+    from collections.abc import Callable, Iterable, Sequence
 
 
 type Estimand = Literal["ratio", "delta", "absolute"]
 type CellKey = tuple[str, str, str, int]
+type Statistics = Callable[[JsonDict], dict[str, float]]
 
 _CONFIG = Path("reports/shared-worker-cache/v4/config.json")
 
@@ -127,6 +133,14 @@ def _lag_values(record: JsonDict) -> list[float]:
 
 
 def block_statistics(record: JsonDict) -> dict[str, float]:
+    statistics = _shared_statistics(record)
+    if record["workload"] == "active" and record["path"] != "direct":
+        statistics["lag_p95"] = _percentile(_lag_values(record), 0.95)
+        statistics["lag_uncertainty"] = _number(record, "clock_uncertainty_seconds")
+    return statistics
+
+
+def _shared_statistics(record: JsonDict) -> dict[str, float]:
     workers = cast("list[JsonDict]", record["workers_measured"])
     try:
         owner: JsonDict | None = cast("JsonDict", record["owner"])
@@ -182,9 +196,47 @@ def block_statistics(record: JsonDict) -> dict[str, float]:
         statistics["miss_p99"] = _number(
             record, "populations", "request", "p99_seconds"
         )
-    if record["workload"] == "active" and cached:
-        statistics["lag_p95"] = _percentile(_lag_values(record), 0.95)
-        statistics["lag_uncertainty"] = _number(record, "clock_uncertainty_seconds")
+    return statistics
+
+
+def window_statistics(record: JsonDict, lag_floor: NonNegativeInt) -> dict[str, float]:
+    workers = cast("list[JsonDict]", record["workers_measured"])
+    completed = _number(record, "completed")
+    reasons: Counter[str] = Counter()
+    for worker in workers:
+        reasons.update(
+            cast(
+                "dict[str, int]",
+                cast("JsonDict", worker["outcomes"])["bypass_reasons"],
+            )
+        )
+    statistics = {
+        **_shared_statistics(record),
+        "throughput": _number(record, "completed_in_window")
+        / _number(record, "window_seconds"),
+        "request_p50": _number(record, "populations", "request", "p50_seconds"),
+        "request_p95": _number(record, "populations", "request", "p95_seconds"),
+        "server_cpu_seconds": _number(record, "server_cpu_seconds")
+        + _number(record, "server_drain_cpu_seconds"),
+        "worker_cpu_per_request": sum(
+            _number(worker, "cpu_seconds") + _number(worker, "drain_cpu_seconds")
+            for worker in workers
+        )
+        / completed,
+        "harness_cpu_seconds": _number(record, "harness_cpu_seconds"),
+        "hits": _outcome_total(record, "hits"),
+        "misses": _outcome_total(record, "misses"),
+        "streams": sum(_number(worker, "streams") for worker in workers),
+        "clock_offset_seconds": _number(record, "clock_offset_seconds"),
+        "clock_uncertainty_seconds": _number(record, "clock_uncertainty_seconds"),
+        **{f"bypass_{reason}": count for reason, count in sorted(reasons.items())},
+    }
+    if record["workload"] == "active" and record["path"] != "direct":
+        lags = _lag_values(record)
+        statistics["lag_events"] = len(lags)
+        if len(lags) >= lag_floor:
+            statistics["lag_p50"] = _percentile(lags, 0.5)
+            statistics["lag_p95"] = _percentile(lags, 0.95)
     return statistics
 
 
@@ -198,14 +250,14 @@ def cell_key(record: JsonDict) -> CellKey:
 
 
 def paired_blocks(
-    records: Iterable[JsonDict],
+    records: Iterable[JsonDict], statistics: Statistics = block_statistics
 ) -> dict[CellKey, dict[str, dict[int, dict[str, float] | None]]]:
     cells: dict[CellKey, dict[str, dict[int, dict[str, float] | None]]] = {}
     for record in records:
         paths = cells.setdefault(cell_key(record), {})
         blocks = paths.setdefault(str(record["path"]), {})
         blocks[cast("int", record["block"])] = (
-            block_statistics(record) if record["healthy"] else None
+            statistics(record) if record["healthy"] else None
         )
     return cells
 
@@ -473,9 +525,11 @@ def decide(
     }
 
 
-def descriptive(records: Iterable[JsonDict]) -> list[JsonDict]:
+def descriptive(
+    records: Iterable[JsonDict], statistics: Statistics = block_statistics
+) -> list[JsonDict]:
     rows: list[JsonDict] = []
-    for key, paths in sorted(paired_blocks(records).items()):
+    for key, paths in sorted(paired_blocks(records, statistics).items()):
         for path, blocks in sorted(paths.items()):
             healthy = [
                 statistics for statistics in blocks.values() if statistics is not None
@@ -510,6 +564,117 @@ def _summary(values: list[float]) -> JsonDict:
     return {"mean": sum(values) / len(values), "min": min(values), "max": max(values)}
 
 
+def exclusion_reason(record: JsonDict, registration: Registration) -> str | None:
+    if not record["healthy"]:
+        return str(record["failure"])
+    expected = record["workers"] if record["path"] == "independent" else 0
+    workers = cast("list[JsonDict]", record["workers_measured"])
+    if sum(cast("int", worker["streams"]) for worker in workers) != expected:
+        return "observed stream openings differ from the registered count"
+    return validation_failure(record, registration)
+
+
+def _paired_values(
+    cell: dict[str, dict[int, dict[str, float] | None]],
+    candidate: str,
+    baseline: str,
+    measure: str,
+    blocks: NonNegativeInt,
+) -> tuple[list[float], list[float]]:
+    left: list[float] = []
+    right: list[float] = []
+    for block in range(blocks):
+        try:
+            values = (
+                cast("dict[str, float]", cell[candidate][block])[measure],
+                cast("dict[str, float]", cell[baseline][block])[measure],
+            )
+        except KeyError:
+            continue
+        left.append(values[0])
+        right.append(values[1])
+    return left, right
+
+
+def describe_phase(
+    records: list[JsonDict],
+    registration: Registration,
+    *,
+    phase: str,
+    blocks: NonNegativeInt,
+) -> JsonDict:
+    settings = registration.section("analysis")
+    inference = registration.section("inference")
+    excluded: list[JsonDict] = []
+    usable: list[JsonDict] = []
+    for record in records:
+        reason = exclusion_reason(record, registration)
+        if reason is None:
+            usable.append(record)
+            continue
+        excluded.append(
+            {
+                "cell": cell_key(record),
+                "path": record["path"],
+                "block": record["block"],
+                "reason": reason,
+            }
+        )
+    lag_floor = cast("int", inference["lag_event_floor"])
+    statistics = partial(window_statistics, lag_floor=lag_floor)
+    cells = paired_blocks(usable, statistics)
+    unclaimed = [
+        {
+            "cell": key,
+            "path": path,
+            "block": block,
+            "lag_events": values["lag_events"],
+            "reason": f"fewer than {lag_floor} captured invalidations",
+        }
+        for key, paths in sorted(cells.items())
+        for path, windows in sorted(paths.items())
+        for block, values in sorted(windows.items())
+        if values is not None and "lag_events" in values and "lag_p50" not in values
+    ]
+    comparisons: list[JsonDict] = []
+    for key, cell in sorted(cells.items()):
+        for candidate, baseline in cast("list[list[str]]", settings["pairs"]):
+            for measure in cast("list[str]", settings["measures"]):
+                left, right = _paired_values(cell, candidate, baseline, measure, blocks)
+                comparison: JsonDict = {
+                    "cell": key,
+                    "candidate": candidate,
+                    "baseline": baseline,
+                    "measure": measure,
+                    "pairs": len(left),
+                }
+                if left:
+                    comparison.update(
+                        {
+                            estimand: asdict(
+                                bootstrap(
+                                    estimand,
+                                    left,
+                                    right,
+                                    draws=cast("int", inference["draws"]),
+                                    seed=cast("list[int]", inference["seeds"])[0],
+                                    confidence=cast("float", inference["confidence"]),
+                                )
+                            )
+                            for estimand in ("ratio", "delta")
+                        }
+                    )
+                comparisons.append(comparison)
+    return {
+        "phase": phase,
+        "blocks": blocks,
+        "excluded": excluded,
+        "lag_unclaimed": unclaimed,
+        "paths": descriptive(usable, statistics),
+        "comparisons": comparisons,
+    }
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
         description="Evaluate shared worker cache evidence."
@@ -532,6 +697,10 @@ def main(argv: list[str] | None = None) -> None:
         {"descriptive": descriptive(records)}
         if arguments.describe
         else decide(
+            records, registration, phase=arguments.phase, blocks=arguments.blocks
+        )
+        if "gate" in registration.raw
+        else describe_phase(
             records, registration, phase=arguments.phase, blocks=arguments.blocks
         )
     )

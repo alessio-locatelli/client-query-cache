@@ -20,6 +20,8 @@ from client_query_cache._types import (
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
+    from benchmarks.stream_cost.shared_cache.protocol import KeyAssignment
+
 
 _SLEEP_SLICE_SECONDS: Final = 1.0
 _STOP: Final = -1
@@ -31,6 +33,14 @@ def key_order(seed: int, size: PositiveInt) -> tuple[NonNegativeInt, ...]:
     return tuple(keys)
 
 
+def worker_keys(
+    seed: int, worker: NonNegativeInt, keys: tuple[NonNegativeInt, ...]
+) -> tuple[NonNegativeInt, ...]:
+    shuffled = list(keys)
+    random.Random(f"{seed}:{worker}").shuffle(shuffled)
+    return tuple(shuffled)
+
+
 @dataclass(frozen=True, slots=True)
 class Assignment:
     worker: NonNegativeInt
@@ -39,12 +49,16 @@ class Assignment:
     requests: NonNegativeInt
     keys: tuple[NonNegativeInt, ...]
     offset: NonNegativeInt = 0
+    key_assignment: KeyAssignment = "partitioned"
 
     def ordinals(self) -> range:
         return range(self.worker, self.requests, self.workers)
 
     def key(self, ordinal: NonNegativeInt) -> NonNegativeInt:
-        return self.keys[(ordinal + self.offset) % len(self.keys)]
+        position = (
+            ordinal // self.workers if self.key_assignment == "shared" else ordinal
+        )
+        return self.keys[(position + self.offset) % len(self.keys)]
 
     def due(self, start: NonNegativeFloat, ordinal: NonNegativeInt) -> NonNegativeFloat:
         assert self.rate is not None

@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import time
-from dataclasses import asdict, dataclass
+from collections import Counter
+from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING, Literal, cast
 
 from pymongo import AsyncMongoClient, MongoClient, ReadPreference
@@ -47,7 +48,7 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
     from multiprocessing.connection import Connection
 
-    from benchmarks.stream_cost.shared_cache.protocol import Cell
+    from benchmarks.stream_cost.shared_cache.protocol import Cell, KeyAssignment
 
 type Payload = dict[str, object]
 
@@ -67,6 +68,7 @@ class WorkerSpec:
     read: Literal["find_one", "find"]
     limit: PositiveInt
     keys: tuple[NonNegativeInt, ...]
+    key_assignment: KeyAssignment
     warm_key: NonNegativeInt
     budget_bytes: PositiveInt
     max_entry_bytes: PositiveInt
@@ -94,6 +96,7 @@ class WorkerSpec:
             requests=requests,
             keys=self.keys,
             offset=len(self.keys) // 2 if warmup else 0,
+            key_assignment=self.key_assignment,
         )
 
 
@@ -128,17 +131,34 @@ class _Outcomes:
     hits: NonNegativeInt = 0
     misses: NonNegativeInt = 0
     bypasses: NonNegativeInt = 0
+    reasons: Counter[str] = field(default_factory=Counter)
 
 
 def _outcomes(manager: object) -> _Outcomes:
     if isinstance(manager, (SharedCacheManager, AsyncSharedCacheManager)):
         observation = manager.observation
         return _Outcomes(
-            observation.hits, observation.misses, sum(observation.bypasses.values())
+            observation.hits,
+            observation.misses,
+            sum(observation.bypasses.values()),
+            Counter(observation.bypasses),
         )
     if isinstance(manager, (CacheManager, AsyncCacheManager)):
         snapshot = manager.snapshot()
-        return _Outcomes(snapshot.hits, snapshot.misses, snapshot.bypasses)
+        return _Outcomes(
+            snapshot.hits,
+            snapshot.misses,
+            snapshot.bypasses,
+            Counter(
+                {
+                    **{
+                        item.reason.value: item.count
+                        for item in snapshot.bypass_reasons
+                    },
+                    "oversized": snapshot.oversized_bypasses,
+                }
+            ),
+        )
     return _Outcomes()
 
 
@@ -217,6 +237,7 @@ def _sample(
             "hits": outcomes.hits - before.outcomes.hits,
             "misses": outcomes.misses - before.outcomes.misses,
             "bypasses": outcomes.bypasses - before.outcomes.bypasses,
+            "bypass_reasons": dict(outcomes.reasons - before.outcomes.reasons),
         },
         "endpoint": _delta(drained.endpoint, before.endpoint),
         "entries": _entries(manager),
