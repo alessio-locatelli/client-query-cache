@@ -7,9 +7,13 @@ from typing import TYPE_CHECKING
 from client_query_cache._types import NonNegativeInt, PositiveInt
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from client_query_cache._core.entries import CacheEntry
     from client_query_cache._core.keys import CacheKey
     from client_query_cache._core.locking import LockOrderGuard
+
+    type RemovalListener = Callable[[CacheKey, CacheEntry], None]
 
 
 class WeightedLru:
@@ -17,6 +21,7 @@ class WeightedLru:
         "_guard",
         "_lock",
         "_max_entry_bytes",
+        "_on_removed",
         "_order",
         "_shared_budget_bytes",
         "_used_bytes",
@@ -28,10 +33,12 @@ class WeightedLru:
         shared_budget_bytes: PositiveInt,
         max_entry_bytes: PositiveInt,
         guard: LockOrderGuard,
+        on_removed: RemovalListener | None = None,
     ) -> None:
         self._shared_budget_bytes = shared_budget_bytes
         self._max_entry_bytes = max_entry_bytes
         self._guard = guard
+        self._on_removed = on_removed
         self._order: OrderedDict[CacheKey, CacheEntry] = OrderedDict()
         self._used_bytes = 0
         self._lock = threading.Lock()
@@ -74,9 +81,12 @@ class WeightedLru:
                 current = None
             if current is not None and current.generation_key >= entry.generation_key:
                 return False, None, evicted
+            on_removed = self._on_removed
             if current is not None:
                 self._used_bytes -= current.weight
                 del self._order[key]
+                if on_removed is not None:
+                    on_removed(key, current)
             self._order[key] = entry
             self._used_bytes += entry.weight
             while self._used_bytes > self._shared_budget_bytes:
@@ -84,6 +94,8 @@ class WeightedLru:
                 del self._order[oldest_key]
                 self._used_bytes -= oldest_entry.weight
                 evicted.append(oldest_entry)
+                if on_removed is not None:
+                    on_removed(oldest_key, oldest_entry)
             return True, current, evicted
 
     def contains_exact(self, key: CacheKey, entry: CacheEntry) -> bool:
@@ -102,10 +114,15 @@ class WeightedLru:
             if current is entry:
                 del self._order[key]
                 self._used_bytes -= entry.weight
+                if self._on_removed is not None:
+                    self._on_removed(key, entry)
                 return True
             return False
 
     def clear_all(self) -> None:
         with self._guard.lru_section(), self._lock:
+            if self._on_removed is not None:
+                for key, entry in self._order.items():
+                    self._on_removed(key, entry)
             self._order.clear()
             self._used_bytes = 0

@@ -49,6 +49,7 @@ if TYPE_CHECKING:
     from client_query_cache._core.canonical import Canonical
     from client_query_cache._core.find_reads import FindReadShape, FindSource
     from client_query_cache._core.keys import AliasKey, CacheKey, NamespaceId
+    from client_query_cache._core.residency import CacheObserver, PayloadStore
 
 DEFAULT_SHARED_BUDGET_BYTES = 64 * 1024 * 1024
 DEFAULT_MAX_ENTRY_BYTES = 1 * 1024 * 1024
@@ -159,17 +160,30 @@ class _CacheCoreBase:
         "_lru",
         "_namespaces",
         "_namespaces_lock",
+        "_observer",
+        "_payloads",
         "_statistics",
         "_stream_cost",
     )
 
-    def __init__(self, config: CacheCoreConfig | None = None) -> None:
+    def __init__(
+        self,
+        config: CacheCoreConfig | None = None,
+        *,
+        observer: CacheObserver | None = None,
+        payloads: PayloadStore | None = None,
+    ) -> None:
         resolved_config = config if config is not None else CacheCoreConfig()
         self._guard = LockOrderGuard()
+        self._observer = observer
+        self._payloads = payloads
         self._lru = WeightedLru(
             shared_budget_bytes=resolved_config.shared_budget_bytes,
             max_entry_bytes=resolved_config.max_entry_bytes,
             guard=self._guard,
+            on_removed=(
+                None if observer is None and payloads is None else self._removed
+            ),
         )
         self._namespaces: dict[NamespaceId, NamespaceState] = {}
         self._database_namespaces: dict[str, dict[NamespaceId, None]] = {}
@@ -185,6 +199,24 @@ class _CacheCoreBase:
 
     def _is_closed(self) -> bool:
         return self._lifecycle is CacheLifecycleState.CLOSED
+
+    def _removed(self, key: CacheKey, entry: CacheEntry) -> None:
+        if self._observer is not None:
+            self._observer.removed(key, entry)
+        self._release(entry)
+
+    def _stored(self, encoded: bytes) -> object:
+        payloads = self._payloads
+        return encoded if payloads is None else payloads.store(encoded)
+
+    def _release(self, entry: CacheEntry) -> None:
+        if self._payloads is not None:
+            self._payloads.release(entry.value)
+
+    def _snapshot(self, stored: object) -> bytes | None:
+        payloads = self._payloads
+        assert payloads is not None
+        return payloads.snapshot(stored)
 
     def _is_database_available(self, database: str) -> bool:
         with self._availability_lock:
@@ -289,6 +321,7 @@ class _CacheCoreBase:
         on_admit: Callable[[], None],
     ) -> AdmissionOutcome:
         if not admitted:
+            self._release(entry)
             return AdmissionOutcome.DECLINED_STALE
         still_resident = self._lru.contains_exact(key, entry)
         rolled_back = False
@@ -298,6 +331,8 @@ class _CacheCoreBase:
             else:
                 state.entry_index[entry] = key
                 on_admit()
+                if self._observer is not None:
+                    self._observer.admitted(key, entry)
             if displaced is not None:
                 _discard_entry_locked(state, displaced)
         if rolled_back:
@@ -399,6 +434,8 @@ class _CacheCoreNamespaceLifecycle(_CacheCoreBase):
             for alias_key in identity_state.alias_keys:
                 state.aliases.pop(alias_key, None)
             identity_state.clear_aliases()
+            if self._observer is not None:
+                self._observer.identity_written(state.namespace, canonicalize(identity))
 
     def clear_namespace(self, namespace: NamespaceId) -> None:
         self._ensure_active()
@@ -414,6 +451,8 @@ class _CacheCoreNamespaceLifecycle(_CacheCoreBase):
             state.generation += 1
             state.epoch += 1
             state.index_generation += 1
+            if self._observer is not None:
+                self._observer.epoch_changed(state.namespace, state.epoch)
             state.aliases = {}
             reclaimed = list(state.entry_index.items())
             state.entry_index.clear()
@@ -452,6 +491,8 @@ class _CacheCoreDatabaseAvailability(_CacheCoreBase):
                 current_available, generation = _DEFAULT_DATABASE_AVAILABILITY
             if available != current_available:
                 self._database_availability[database] = (available, generation + 1)
+                if self._observer is not None:
+                    self._observer.availability_changed(database, available=available)
 
 
 class _CacheCoreIdentityAdmission(_CacheCoreBase):
@@ -558,7 +599,7 @@ class _CacheCoreIdentityAdmission(_CacheCoreBase):
                 entry = CacheEntry(
                     generation_key=capture.generation_key,
                     weight=weight,
-                    value=encoded,
+                    value=self._stored(encoded),
                     namespace=capture.namespace,
                     identity=capture.identity,
                 )
@@ -701,7 +742,7 @@ class _CacheCoreNamespaceAdmission(_CacheCoreBase):
             entry = CacheEntry(
                 generation_key=(capture.generation,),
                 weight=weight,
-                value=encoded,
+                value=self._stored(encoded),
                 namespace=capture.namespace,
                 identity=None,
                 find_source=find_source,
@@ -803,14 +844,14 @@ class _CacheCoreUniqueKeyAdmission(_CacheCoreBase):
             namespace_entry = CacheEntry(
                 generation_key=(namespace_capture.generation,),
                 weight=weight,
-                value=encoded,
+                value=self._stored(encoded),
                 namespace=namespace,
                 identity=None,
             )
             identity_entry = CacheEntry(
                 generation_key=identity_generation_key,
                 weight=weight,
-                value=encoded,
+                value=self._stored(encoded),
                 namespace=namespace,
                 identity=canonical_identity,
             )
@@ -943,8 +984,14 @@ class _CacheCoreLookup(_CacheCoreBase):
             self._statistics.record_miss()
             return None
         self._lru.touch(key)
+        value = entry.value
+        if not isinstance(value, bytes):
+            value = self._snapshot(value)
+            if value is None:
+                self._statistics.record_miss()
+                return None
         self._statistics.record_hit()
-        return entry.value
+        return value
 
     def lookup_identity(
         self,
@@ -982,8 +1029,14 @@ class _CacheCoreLookup(_CacheCoreBase):
             self._statistics.record_miss()
             return None
         self._lru.touch(key)
+        value = entry.value
+        if not isinstance(value, bytes):
+            value = self._snapshot(value)
+            if value is None:
+                self._statistics.record_miss()
+                return None
         self._statistics.record_hit()
-        return entry.value
+        return value
 
     def lookup_namespace(
         self,
@@ -1022,8 +1075,13 @@ class _CacheCoreLookup(_CacheCoreBase):
         if not valid:
             return self._namespace_miss(defer_miss=defer_miss)
         self._lru.touch(key)
+        value = entry.value
+        if not isinstance(value, bytes):
+            value = self._snapshot(value)
+            if value is None:
+                return self._namespace_miss(defer_miss=defer_miss)
         self._statistics.record_hit()
-        return entry.value
+        return value
 
     def _namespace_miss(self, *, defer_miss: bool) -> LookupResult:
         if defer_miss:

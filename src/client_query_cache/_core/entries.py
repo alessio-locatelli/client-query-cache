@@ -24,7 +24,7 @@ class AdmissionOutcome(enum.Enum):
 class CacheEntry:
     generation_key: tuple[NonNegativeInt, ...]
     weight: NonNegativeInt
-    value: bytes
+    value: object
     namespace: NamespaceId
     identity: Canonical | None
     find_source: FindSource | None = None
