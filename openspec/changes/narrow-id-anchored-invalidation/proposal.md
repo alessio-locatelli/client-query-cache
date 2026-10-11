@@ -2,7 +2,7 @@
 
 ## Why
 
-Any write to a collection invalidates every namespace-guarded result cached for it. Under steady write churn, namespace-guarded reads almost never hit, and each miss costs more than a direct PyMongo read. A common authorization-style read, `find_one({"_id": id, "owner": user})`, depends on one document only, yet it is invalidated as broadly as a collection scan. The measurements and the evaluation of broader alternatives are in [design.md](design.md).
+Any write to a collection invalidates every namespace-guarded result cached for it. Under steady write churn, namespace-guarded reads almost never hit, and each miss costs more than a direct PyMongo read. A common owner-filtered read, `find_one({"_id": id, "owner": user})`, depends on one document only, yet it is invalidated as broadly as a collection scan. The measurements and the evaluation of broader alternatives are in [design.md](design.md).
 
 The correctness of this narrowing relies on identity routing following MongoDB numeric equality, which the `match-numeric-identities` change established.
 
@@ -29,4 +29,4 @@ None.
 - Tests: core unit and property tests, and sync and asyncio facade integration tests.
 - Evidence: a new `research/invalidation_scope/` benchmark script and a `docs/development/research/` report.
 - Docs: the single-document read and fit-assessment sections of the user guides, `docs/development/architecture.md`, `context7.json` and `CHANGELOG.md`.
-- Coordination: `benchmark-concurrent-worker-workload` (issue #197) owns the multi-worker evidence for `_id` reads, and this change does not touch its harness. Like `bypass-index-dependent-reads`, this change edits the facade test files, so whichever change lands second rebases.
+- Coordination: `benchmark-concurrent-worker-workload` (issue #197) owns the multi-worker evidence for `_id` reads, and this change does not touch its harness.

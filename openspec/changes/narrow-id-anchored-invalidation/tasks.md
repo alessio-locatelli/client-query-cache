@@ -4,15 +4,15 @@
 
 - [ ] 1.1 Add `research/invalidation_scope/benchmark.py`, a standalone script with `# ruff: noqa: INP001` like `research/collection_adapter/live_error.py`. It implements design.md D3 for the workload, paths and topology listed under design.md Baseline evidence, with three `argparse` subcommands and a `signal.alarm(3600)` runtime bound.
   - **Seeding.** Document `i` gets `_id = i`, `author_id = i % 500`, `created = i` and `views = 0`. Create an index on `[("author_id", 1), ("created", -1)]`. Hot author `a` (0–31) owns document `_id = a`. The feed limit is 20.
-  - **Writes.** Inserts use an auto-generated `_id`. Draw each sequence from `random.Random(f"{mix}-{reads_per_write}-{rep}")`.
-  - **`run --reps N --out PATH`.** Uses `IsolatedReplicaSet(ResourceLimits(cpus=2.0, memory="2g"))` and `build_client(BenchmarkClientTopologyConfig(tls_enabled=False, compressor=WireCompressor.NONE, discovery_enabled=False, shared_connections=False))`. It reseeds the target and the sibling collection for each cell. The `direct` path uses `with_options(read_preference=ReadPreference.PRIMARY, read_concern=ReadConcern("majority"))`. Path order reverses on odd repetitions, and `measure_controlled` wraps the measured loop. For each cell it writes reads/s, P50/P95/P99 per read class, process and container CPU, psutil RSS, and the manager hits, misses, bypasses, `used_bytes`, `entry_count`, stream invalidations and logical event bytes as deltas.
+  - **Writes.** An insert for author `a` gets an auto-generated `_id` and a `created` of 20,000 for the sequence's first insert, increasing by 1 per insert, so it becomes `a`'s newest document and enters `a`'s feed. An update applies `{"$inc": {"views": 1}}` to a uniformly drawn seeded `_id`. Draw each sequence from `random.Random(f"{mix}-{reads_per_write}-{rep}")`.
+  - **`run --reps N --out PATH`.** Uses `IsolatedReplicaSet(ResourceLimits(cpus=2.0, memory="2g"))` and `build_client(BenchmarkClientTopologyConfig(tls_enabled=False, compressor=WireCompressor.NONE, discovery_enabled=False, shared_connections=False))`. It reseeds the target and the sibling collection for each cell. The `direct` path uses `with_options(read_preference=ReadPreference.PRIMARY, read_concern=ReadConcern("majority"))`. Path order reverses on odd repetitions, and `measure_controlled` wraps the measured loop. For each cell it writes reads/s, P50/P95/P99 per read class, process and container CPU, psutil RSS, and the manager hits, misses, bypasses, `used_bytes`, `entry_count`, stream invalidations and logical event bytes as deltas. On both cache paths, while the measured loop's `stream_cost_snapshot("bench").invalidations` delta is below its count of issued writes, the loop classifies each read from the `manager.snapshot()` hit delta and counts its hits per read class as pending-write hits. Once the delta catches up, sampling stops until the next write. Each cell reports hit shares gross and net of pending-write hits.
   - **`simulate`.** Replays the seeded sequences with synchronous invalidation. Under every policy, `by_id` is invalidated only by an update of its document. The policies differ as follows:
     - `current`: any write invalidates `feed`, `count` and `own`.
     - `id_anchor`: `own` behaves like `by_id`.
     - `insert_partition`: an insert invalidates `feed` and `count` only for its own author, and an update invalidates them for every author.
     - `field_dependency`: a `views` update leaves `count` valid.
     - `all`: the three rules above combined.
-    - `exact`: an insert for author `a` invalidates `feed` and `count` for `a`; an update invalidates `feed` for `a` only if it touches one of `a`'s 20 newest documents.
+    - `exact`: `own` behaves like `by_id`. The policy tracks each hot author's 20 newest documents by `created`, including inserted ones. An insert for author `a` invalidates `feed` and `count` for `a`. An update invalidates `feed` for `a` only if its document is among `a`'s current 20 newest.
 
     It prints hit shares per mix, rate and read class.
 
@@ -20,7 +20,7 @@
 
   Verify with `just lint`, then `PYTHONPATH="$PWD" uv run python research/invalidation_scope/benchmark.py simulate`: the `current` policy must report 25–27% overall and `id_anchor` 50–51%.
 
-- [ ] 1.2 On the unchanged code, run `bash -c 'set -euo pipefail; source scripts/testcontainers-bridge.sh; PYTHONPATH="$PWD" uv run python research/invalidation_scope/benchmark.py run --reps 3 --out /tmp/agents/invalidation-scope/before-run.json; PYTHONPATH="$PWD" uv run python research/invalidation_scope/benchmark.py micro --out /tmp/agents/invalidation-scope/before-micro.json'`. Confirm that the `cache` path's `own` class stays below 5% hits and `by_id` stays above 95%. Keep the output untracked.
+- [ ] 1.2 On the unchanged code, run `bash -c 'set -euo pipefail; source scripts/testcontainers-bridge.sh; PYTHONPATH="$PWD" uv run python research/invalidation_scope/benchmark.py run --reps 3 --out /tmp/agents/invalidation-scope/before-run.json; PYTHONPATH="$PWD" uv run python research/invalidation_scope/benchmark.py micro --out /tmp/agents/invalidation-scope/before-micro.json'`. Confirm that, net of pending-write hits, the `cache` path's `own` class stays below 5% hits and `by_id` stays above 95%. Keep the output untracked.
 
 ## 2. `_id`-anchored `find_one`
 
@@ -47,18 +47,24 @@
 
   Add an `anchored` case to `test_find_one_explicit_collation_changes_matching_without_alias_leaks` and to `test_find_one_inherited_collation_uses_namespace_invalidation`, using `{"_id": value, "rank": 1}`. Extend the `interrupted_generic_collection` fixture with a `write-other` parameter that updates a second, pre-inserted document. Add `test_id_anchored_find_one_admission_spanning_writes`, parametrized over `write` (expect a miss on the next read) and `write-other` (expect a hit), with the anchored query `{"_id": <fixture document id>, "rank": {"$gte": 1}}`. In `tests/synchronous/test_unique_key_reads.py` and `tests/asynchronous/test_unique_key_reads.py`, parametrize `test_cold_read_without_a_unique_key_match_records_one_miss` over its filter as well: `{"name": name}`, and the anchored `{"_id": document["_id"], "name": name}`. Verify with `just pytest tests/synchronous tests/asynchronous -k "anchored or collation or spanning or records_one_miss"`.
 
-- [ ] 2.5 Update the user-facing descriptions of which reads keep their cached result after writes to other documents:
-  - In `docs/user/reference/api.md` § Single-document reads, the exact-`_id` paragraph covers `_id` equality with additional predicates under simple collation, and its example is `cached_collection.find_one({"_id": order_id, "customer_id": customer_id})`. State that other filters, and every `find`, `aggregate`, `count_documents`, `distinct` and `estimated_document_count` result, are refreshed after any write to the collection.
-  - Apply the same in the single-document paragraph of `docs/user/usage/cached-reads.md` § Filters, sorting, and collation.
-  - Apply the same in the "Cache granularity" bullet of `docs/development/architecture.md`.
-  - Add one `context7.json` rule stating which reads survive writes to other documents, as a hint for anchoring authorization lookups on `_id`.
-  - Add a `### Features` entry under `## Unreleased` in `CHANGELOG.md`.
+- [ ] 2.5 Update the user-facing descriptions of which reads keep their cached result after writes to other documents. Each description names three groups:
+  - `find_one` reads that pin `_id` to an exact value under simple collation, alone or with additional predicates, and qualifying unique-index `find_one` reads, which can keep their cached result after writes to other documents;
+  - other eligible `find_one` filters, which are refreshed after any write to the collection;
+  - every `find`, `aggregate`, `count_documents`, `distinct` and `estimated_document_count` result, which is also refreshed after any write to the collection.
+
+  Apply them in these places:
+  - the invalidation paragraph of `docs/user/reference/api.md` § Single-document reads, keeping its unique-index qualification and collation sentences, with the example `cached_collection.find_one({"_id": order_id, "customer_id": customer_id})`;
+  - the single-document paragraph of `docs/user/usage/cached-reads.md` § Filters, sorting, and collation;
+  - the "Cache granularity" bullet of `docs/development/architecture.md`;
+  - one new `context7.json` rule, as a hint to anchor owner- or tenant-filtered `find_one` lookups on `_id`. The rule must not present cached reads as suitable for authorization decisions, and the existing rule that sends authorization and other freshness-critical reads to PyMongo stays unchanged.
+
+  Add a `### Features` entry under `## Unreleased` in `CHANGELOG.md`.
 
   Verify each statement against the facade code, then run `just lint`.
 
 ## 3. Evidence and follow-ups
 
-- [ ] 3.1 Rerun the task 1.2 commands into `after-run.json` and `after-micro.json`, and rerun `simulate`. Confirm the following:
+- [ ] 3.1 Rerun the task 1.2 commands into `after-run.json` and `after-micro.json`, and rerun `simulate`. Confirm the following, using hit shares net of pending-write hits:
   - the `cache` path's `own` hit share matches its `by_id` share within 2 percentage points;
   - `feed` and `count` stay within 2 points of `before-run.json`;
   - the `micro` median for `{"author_id": a}` and `{"_id": i}` is no more than 5% slower than before. Investigate any larger slowdown before continuing.
