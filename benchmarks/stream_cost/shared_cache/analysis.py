@@ -217,6 +217,7 @@ def window_statistics(record: JsonDict, lag_floor: NonNegativeInt) -> dict[str, 
         / _number(record, "window_seconds"),
         "request_p50": _number(record, "populations", "request", "p50_seconds"),
         "request_p95": _number(record, "populations", "request", "p95_seconds"),
+        "request_p99": _number(record, "populations", "request", "p99_seconds"),
         "server_cpu_seconds": _number(record, "server_cpu_seconds")
         + _number(record, "server_drain_cpu_seconds"),
         "worker_cpu_per_request": sum(
