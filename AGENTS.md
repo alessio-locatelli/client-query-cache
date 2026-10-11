@@ -19,6 +19,7 @@ See [README.md](README.md).
 - Never use `contextlib.suppress`: coverage cannot show that its exception is never raised. Use `try`/`except <Type>: pass` instead, so that an unreachable handler shows up as a missed line.
 - Any upstream defect (in the MongoDB server, its documentation, specification, or the official Python library) must be documented in the `docs/` with a corresponding URL pointing to a tracking ticket (if none exists on the public issue tracker, ask the user to create one).
 - Immediately add a ticket URL (create one if it doesn't exist) to the repository docs for any known production discrepancy, follow-up work, or "revisit this later" notes. Never leave this information silently buried in the documentation without an owner.
+- **Mandatory caching and reuse:** Any operation performed more than once with equivalent inputs (e.g., cache-key construction, database lookup, parsing, analysis, or value calculation) must reuse a previously computed or cached result instead of repeating the work. Treat redundant computation as a performance defect, and ensure cache invalidation preserves correctness when inputs or dependencies change.
 
 ### Generated artifacts
 
