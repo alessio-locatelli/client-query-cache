@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import fcntl
 import hmac
+import os
 import pathlib
 import secrets
 import selectors
@@ -14,10 +15,16 @@ from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING, Final, Literal, TextIO
 
 from bson.int64 import Int64
+from client_query_cache_shared_index import OwnerIndex
 from pymongo import MongoClient
 from pymongo.errors import OperationFailure
 from pymongo.monitoring import CommandListener
 
+from benchmarks.stream_cost.shared_cache.shared_index import (
+    ArenaPayloads,
+    IndexPublisher,
+    SharedIndexLimits,
+)
 from benchmarks.stream_cost.shared_cache.wire import (
     LENGTH_BYTES,
     PROTOCOL_VERSION,
@@ -56,6 +63,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
     from multiprocessing.connection import Connection
 
+    from client_query_cache_shared_index import SessionRing
     from pymongo.monitoring import (
         CommandFailedEvent,
         CommandStartedEvent,
@@ -99,6 +107,7 @@ class OwnerConfig:
     max_await_time_ms: MaxAwaitTimeMs
     limits: TransportLimits
     lag_capture: tuple[PositiveInt, PositiveInt, NonNegativeInt]
+    shared_index: SharedIndexLimits | None = None
 
     @property
     def frame_limit(self) -> PositiveInt:
@@ -106,10 +115,11 @@ class OwnerConfig:
 
 
 class UpstreamProgress(CommandListener):
-    def __init__(self) -> None:
+    def __init__(self, publish: Callable[[str], None] | None = None) -> None:
         self.observed: dict[str, NonNegativeFloat] = {}
         self.counts: dict[str, NonNegativeInt] = {}
         self._lock = threading.Lock()
+        self._publish = publish
 
     def _count(self, key: str) -> None:
         with self._lock:
@@ -129,6 +139,8 @@ class UpstreamProgress(CommandListener):
         self._count(f"{event.command_name}:completed")
         if event.command_name in {"getMore", "aggregate"}:
             self.observed[event.database_name] = time.monotonic()
+            if self._publish is not None:
+                self._publish(event.database_name)
 
     def failed(self, event: CommandFailedEvent) -> None:
         self._count(f"{event.command_name}:failed")
@@ -150,6 +162,16 @@ class _Handle:
 
 
 @dataclass(slots=True)
+class _Handover:
+    index_descriptor: int
+    ring: SessionRing
+
+    def close(self) -> None:
+        os.close(self.index_descriptor)
+        self.ring.close_descriptor()
+
+
+@dataclass(slots=True)
 class _Connection:
     sock: socket.socket
     inbox: bytearray = field(default_factory=bytearray)
@@ -160,6 +182,8 @@ class _Connection:
     handles: set[NonNegativeInt] = field(default_factory=set)
     writable: bool = False
     closed: bool = False
+    control: bool = False
+    handover: _Handover | None = None
 
 
 @dataclass(slots=True)
@@ -194,6 +218,7 @@ class SharedCacheOwner:
         "_activation_lock",
         "_connections",
         "_handles",
+        "_index",
         "_keys",
         "_lease_epoch",
         "_lease_live",
@@ -202,6 +227,8 @@ class SharedCacheOwner:
         "_next_handle",
         "_next_session",
         "_paused_until",
+        "_publisher",
+        "_rings",
         "_selector",
         "client",
         "config",
@@ -215,7 +242,27 @@ class SharedCacheOwner:
     def __init__(self, config: OwnerConfig) -> None:
         self.config = config
         self.incarnation = Int64(secrets.randbits(63))
-        self.progress = UpstreamProgress()
+        self._index: OwnerIndex | None = None
+        self._publisher: IndexPublisher | None = None
+        self._rings: dict[NonNegativeInt, SessionRing] = {}
+        payloads: ArenaPayloads | None = None
+        limits = config.shared_index
+        if limits is not None:
+            self._index = OwnerIndex(
+                limits.slots,
+                limits.arena_bytes,
+                len(config.databases),
+                limits.namespaces,
+                int(self.incarnation),
+                round(config.limits.progress_expiry_seconds * 1e9),
+            )
+            self._publisher = IndexPublisher(
+                self._index, config.databases, limits.namespaces
+            )
+            payloads = ArenaPayloads(self._index)
+        self.progress = UpstreamProgress(
+            None if self._publisher is None else self._publisher.progress
+        )
         self.client: MongoClient[BsonDict] = MongoClient(
             config.mongodb_uri,
             event_listeners=[self.progress],
@@ -226,7 +273,9 @@ class SharedCacheOwner:
                 shared_budget_bytes=config.budget_bytes,
                 max_entry_bytes=config.max_entry_bytes,
                 lag_capture_window_config=LagCaptureWindowConfig(*config.lag_capture),
-            )
+            ),
+            observer=self._publisher,
+            payloads=payloads,
         )
         self.streams = ChangeStreamCoordinator(
             self.client, self.core, max_await_time_ms=config.max_await_time_ms
@@ -378,6 +427,15 @@ class SharedCacheOwner:
             for connection in self._connections.values():
                 if connection.session == handle.session:
                     connection.handles.discard(handle_id)
+        if self._publisher is not None:
+            self._drain_rings(self._publisher)
+
+    def _drain_rings(self, publisher: IndexPublisher) -> None:
+        for ring in self._rings.values():
+            for token in ring.drain():
+                key = publisher.key(token)
+                if key is not None:
+                    self.core._lru.touch(key)
 
     def _epoch_reply(self, namespace: NamespaceId, epoch: object) -> Message | None:
         current = self.core.current_epoch(namespace)
@@ -399,6 +457,8 @@ class SharedCacheOwner:
                 self.counters.unauthorized += 1
                 raise ProtocolError("attachment must authenticate first")
             return self._hello(connection, message)
+        if connection.control:
+            raise ProtocolError("control connections carry no requests")
         self.counters.requests += 1
         match operation:
             case "admit":
@@ -419,11 +479,17 @@ class SharedCacheOwner:
             return {"r": "bypass", "reason": reason}
         match operation:
             case "metadata":
-                return {
+                epoch = self.core.current_epoch(namespace)
+                metadata: Message = {
                     "r": "ok",
-                    "epoch": self.core.current_epoch(namespace),
+                    "epoch": epoch,
                     "index_generation": self.core.current_index_generation(namespace),
                 }
+                if self._publisher is not None:
+                    slot = self._publisher.assign(namespace, epoch)
+                    if slot is not None:
+                        metadata["slot"] = [slot.database, slot.namespace]
+                return metadata
             case "select-identity":
                 refresh = self._epoch_reply(namespace, message["epoch"])
                 if refresh is not None:
@@ -484,8 +550,22 @@ class SharedCacheOwner:
         ):
             self.counters.configuration_mismatches += 1
             return {"r": "error", "reason": "configuration-mismatch"}
+        try:
+            control = message["role"] == "control"
+        except KeyError:
+            control = False
+        if control and (self._index is None or self.config.shared_index is None):
+            self.counters.configuration_mismatches += 1
+            return {"r": "error", "reason": "shared-index-disabled"}
         connection.session = self._next_session
         self._next_session += 1
+        if control:
+            assert self._index is not None
+            assert self.config.shared_index is not None
+            ring = self._index.session_ring(self.config.shared_index.ring_tokens)
+            self._rings[connection.session] = ring
+            connection.control = True
+            connection.handover = _Handover(self._index.reader_descriptor(), ring)
         return {
             "r": "ok",
             "incarnation": self.incarnation,
@@ -553,6 +633,13 @@ class SharedCacheOwner:
             "connections": len(self._connections),
             "upstream_commands": self.progress.snapshot(),
             "counters": asdict(self.counters),
+            "shared_index": None
+            if self._index is None
+            else {
+                "published": self._index.published(),
+                "sessions": len(self._rings),
+                "dropped_touches": sum(ring.dropped() for ring in self._rings.values()),
+            },
         }
 
     def _accept(self) -> None:
@@ -582,6 +669,11 @@ class SharedCacheOwner:
             self._release(handle_id)
         connection.handles.clear()
         connection.outbox.clear()
+        if connection.handover is not None:
+            connection.handover.close()
+            connection.handover = None
+        if connection.control and connection.session is not None:
+            del self._rings[connection.session]
         connection.sock.close()
 
     def _enqueue(self, connection: _Connection, reply: Message) -> bool:
@@ -605,7 +697,7 @@ class SharedCacheOwner:
         while connection.outbox:
             view = connection.outbox[0]
             try:
-                sent = connection.sock.send(view)
+                sent = self._send(connection, view)
             except BlockingIOError:
                 break
             except OSError:  # pragma: lax no cover (peer reset timing)
@@ -628,6 +720,20 @@ class SharedCacheOwner:
                 connection,
             )
         return True
+
+    @staticmethod
+    def _send(connection: _Connection, view: memoryview) -> int:
+        handover = connection.handover
+        if handover is None:
+            return connection.sock.send(view)
+        sent = socket.send_fds(
+            connection.sock,
+            [view],
+            [handover.index_descriptor, handover.ring.descriptor()],
+        )
+        connection.handover = None
+        handover.close()
+        return sent
 
     def _receive(self, connection: _Connection, now: NonNegativeFloat) -> None:
         try:
