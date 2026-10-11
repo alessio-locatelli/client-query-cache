@@ -5,7 +5,12 @@ import pytest
 from pymongo import ReadPreference
 from pymongo.errors import InvalidOperation
 
-from client_query_cache._core.read_classification import request_bypass_reason
+from client_query_cache._core.canonical import canonicalize
+from client_query_cache._core.read_classification import (
+    prepare_pipeline_key,
+    prepare_query_key,
+    request_bypass_reason,
+)
 from client_query_cache._core.snapshots import BypassReason
 
 pytestmark = pytest.mark.unit
@@ -80,3 +85,85 @@ def test_effective_session_selects_native_execution(
         resolver.assert_not_called()
     else:
         resolver.assert_called_once_with()
+
+
+@pytest.mark.parametrize("pipeline", [False, True], ids=["query", "pipeline"])
+@pytest.mark.parametrize(
+    ("raw_key", "expected_reason"),
+    [
+        pytest.param(None, None, id="none-key"),
+        pytest.param({"v": [1, True, "value"]}, None, id="safe-tree"),
+        pytest.param(float("nan"), BypassReason.UNCANONICALIZABLE_KEY, id="nan"),
+        pytest.param(set(), BypassReason.UNCANONICALIZABLE_KEY, id="unhashable"),
+    ],
+)
+def test_prepare_read_key(
+    pipeline: bool, raw_key: object, expected_reason: BypassReason | None
+) -> None:
+    if pipeline:
+        key, reason = prepare_pipeline_key([{"$match": {"v": 1}}], raw_key)
+    else:
+        key, reason = prepare_query_key({"v": 1}, {"v": 1}, raw_key)
+    assert reason == expected_reason
+    if reason is None:
+        assert key == canonicalize(raw_key)
+    else:
+        assert key is None
+
+
+@pytest.mark.parametrize("pipeline", [False, True], ids=["query", "pipeline"])
+def test_prepared_read_key_retains_canonical_identity(pipeline: bool) -> None:
+    canonical_key = canonicalize({"v": [1, True]})
+    if pipeline:
+        key, reason = prepare_pipeline_key([], canonical_key)
+    else:
+        key, reason = prepare_query_key({}, None, canonical_key)
+    assert reason is None
+    assert key is canonical_key
+
+
+@pytest.mark.parametrize(
+    ("filter_query", "projection", "expected_reason"),
+    [
+        pytest.param({"$where": "true"}, None, BypassReason.UNSAFE_FILTER, id="filter"),
+        pytest.param(
+            {},
+            {"v": {"$meta": "textScore"}},
+            BypassReason.UNSAFE_PROJECTION,
+            id="projection",
+        ),
+        pytest.param(
+            {"$where": "true"},
+            {"v": {"$meta": "textScore"}},
+            BypassReason.UNSAFE_FILTER,
+            id="filter-precedes-projection",
+        ),
+    ],
+)
+def test_unsafe_query_skips_key_preparation(
+    monkeypatch: pytest.MonkeyPatch,
+    filter_query: dict[str, object],
+    projection: dict[str, object] | None,
+    expected_reason: BypassReason,
+) -> None:
+    spy = Mock(side_effect=AssertionError("unsafe input must skip canonicalization"))
+    monkeypatch.setattr(
+        "client_query_cache._core.read_classification.canonicalize", spy
+    )
+    assert prepare_query_key(filter_query, projection, float("nan")) == (
+        None,
+        expected_reason,
+    )
+    spy.assert_not_called()
+
+
+def test_unsafe_pipeline_skips_key_preparation(monkeypatch: pytest.MonkeyPatch) -> None:
+    spy = Mock(side_effect=AssertionError("unsafe input must skip canonicalization"))
+    monkeypatch.setattr(
+        "client_query_cache._core.read_classification.canonicalize", spy
+    )
+    assert prepare_pipeline_key([{"$sample": {"size": 1}}], float("nan")) == (
+        None,
+        BypassReason.UNSAFE_PIPELINE,
+    )
+    spy.assert_not_called()

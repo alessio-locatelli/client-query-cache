@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, cast
 
 import pytest
+from bson.int64 import Int64
 
 from client_query_cache._core.canonical import canonicalize
 from client_query_cache._core.find_reads import (
@@ -105,3 +106,41 @@ def test_discriminators_reference_the_canonical_family(
     assert discriminator[1][0] is family
     assert canonicalize(discriminator) is discriminator
     assert FindReadShape(family, shape.limit).source == shape.source
+
+
+@pytest.mark.parametrize(
+    "filter_document",
+    [
+        pytest.param({"b": 2, "a": 1}, id="normalized-scalars"),
+        pytest.param({"nested": {"b": 2, "a": 1}}, id="ordered-document"),
+        pytest.param({"v": 1.0}, id="float"),
+        pytest.param({"v": Int64(1)}, id="int64"),
+        pytest.param({"v": True}, id="boolean"),
+    ],
+)
+@pytest.mark.parametrize(
+    "limit",
+    [20, 0, -20, True, False],
+    ids=["positive", "unlimited", "negative", "true", "false"],
+)
+def test_prepared_find_shape_preserves_raw_identity(
+    filter_document: object, limit: int
+) -> None:
+    raw_shape = find_read_shape(
+        filter_document,
+        {"v": 1},
+        {"_id": 1},
+        0,
+        limit,
+        collation=None,
+        codec="codec",
+    )
+    family = canonicalize(raw_shape.family)
+    prepared_shape = FindReadShape(family, limit)
+    exact_key = find_discriminator(family, limit)
+    raw_key = canonicalize(raw_shape.discriminator)
+    assert exact_key == raw_key == canonicalize(prepared_shape.discriminator)
+    assert hash(exact_key) == hash(raw_key)
+    assert prepared_shape.source == raw_shape.source
+    assert isinstance(exact_key, tuple)
+    assert exact_key[1][0] is family

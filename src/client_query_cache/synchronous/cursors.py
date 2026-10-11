@@ -15,8 +15,12 @@ from pymongo.synchronous.cursor import Cursor
 
 from client_query_cache._core.codec import codec_fingerprint
 from client_query_cache._core.cursor_capture import CursorCapture
-from client_query_cache._core.find_reads import find_read_shape
-from client_query_cache._core.read_classification import query_bypass_reason
+from client_query_cache._core.find_reads import (
+    FindReadShape,
+    find_discriminator,
+    find_read_shape,
+)
+from client_query_cache._core.read_classification import prepare_query_key
 from client_query_cache._types import NonNegativeInt, PositiveInt
 
 if TYPE_CHECKING:
@@ -79,18 +83,21 @@ class CachedCursor[DocumentType: Mapping[str, Any]](Cursor[DocumentType]):
             collation=self._collation,
             codec=codec_fingerprint(self._codec_options),
         )
-        discriminator = shape.discriminator
-        reason = (
-            self._view._request_bypass_reason(
-                session=self._session,
-                kwargs={"cursor_options": True} if unsupported else {},
-            )
-            or query_bypass_reason(self._spec, self._projection, discriminator)
-            or self._view._cache_ineligibility_reason()
+        reason = self._view._request_bypass_reason(
+            session=self._session,
+            kwargs={"cursor_options": True} if unsupported else {},
         )
+        if reason is None:
+            family, reason = prepare_query_key(
+                self._spec, self._projection, shape.family
+            )
+        if reason is None:
+            reason = self._view._cache_ineligibility_reason()
         if reason is not None:
             self._view._record_bypass(reason)
             return
+        shape = FindReadShape(family, shape.limit)
+        discriminator = find_discriminator(family, shape.limit)
         cache = self._view.database.manager.cache_core
         namespace = self._view._namespace()
         lookup = cache.lookup_find(namespace, shape, codec_options=self._codec_options)

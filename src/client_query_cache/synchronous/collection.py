@@ -41,8 +41,8 @@ from client_query_cache._core.projection import (
 )
 from client_query_cache._core.read_classification import (
     find_one_bypass_reason,
-    pipeline_bypass_reason,
-    query_bypass_reason,
+    prepare_pipeline_key,
+    prepare_query_key,
     request_bypass_reason,
 )
 from client_query_cache._core.snapshots import BypassReason
@@ -287,10 +287,9 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
                 codec_fingerprint(codec_options),
             )
         )
-        reason = (
-            pipeline_bypass_reason(pipeline, discriminator)
-            or self._cache_ineligibility_reason()
-        )
+        discriminator, reason = prepare_pipeline_key(pipeline, discriminator)
+        if reason is None:
+            reason = self._cache_ineligibility_reason()
         if reason is not None:
             self._record_bypass(reason)
             return self.raw.aggregate(
@@ -344,13 +343,13 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
                 codec_fingerprint(codec_options),
             )
         )
-        reason = (
-            self._request_bypass_reason(
-                session=session, kwargs=options["extra_options"]
-            )
-            or query_bypass_reason(filter, None, discriminator)
-            or self._cache_ineligibility_reason()
+        reason = self._request_bypass_reason(
+            session=session, kwargs=options["extra_options"]
         )
+        if reason is None:
+            discriminator, reason = prepare_query_key(filter, None, discriminator)
+        if reason is None:
+            reason = self._cache_ineligibility_reason()
         if reason is not None:
             self._record_bypass(reason)
             return self._collection.count_documents(filter, session=session, **kwargs)
@@ -418,11 +417,11 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
             )
         )
         native_options: Mapping[str, Any] = kwargs
-        reason = (
-            self._request_bypass_reason(session=session, kwargs=kwargs)
-            or query_bypass_reason(filter, None, discriminator)
-            or self._cache_ineligibility_reason()
-        )
+        reason = self._request_bypass_reason(session=session, kwargs=kwargs)
+        if reason is None:
+            discriminator, reason = prepare_query_key(filter, None, discriminator)
+        if reason is None:
+            reason = self._cache_ineligibility_reason()
         if reason is not None:
             self._record_bypass(reason)
             return self._collection.distinct(
