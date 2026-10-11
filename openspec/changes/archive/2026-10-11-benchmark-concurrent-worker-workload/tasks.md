@@ -33,4 +33,4 @@
 
 - [x] 6.1 Make `analysis.py` reject reports whose configuration digest, phase or window phases differ from the requested registration and phase, reports from different revisions, and duplicate `(cell, path, block)` windows. Add parametrized tests for each rejection.
 - [x] 6.2 Warm each cold worker with a key outside its own measured identities under both key assignments, reject a cold cell whose identities leave no such key, and make cold validation reject cached hits. Add a regression test for shared key assignment at 256 keys, two workers and 200 identities.
-- [x] 6.3 Reject a registration without calibration families, with an empty family, or with non-positive probe windows, validation repetitions, rate attempts or phase blocks. Extend the registration rejection tests.
+- [x] 6.3 Reject a registration without calibration families, with an empty family, with repeated paths or repeated cells in a phase or family, or with non-positive probe windows, validation repetitions, rate attempts or phase blocks. Extend the registration rejection tests.
