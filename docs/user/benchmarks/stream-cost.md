@@ -88,7 +88,7 @@ Keep generated raw results out of Git. Validate your local report and recompute 
 uv run -- python -m benchmarks.stream_cost.await_run --output benchmark-reports/await.report.v1.json --validate-only
 ```
 
-The isolated single-member replica set uses MongoDB 8.0.4, one CPU, and 512 MiB of memory, with no TLS or wire
+The isolated single-member replica set runs the MongoDB server pinned in the repository's [`docker-compose.yaml`](https://github.com/alessio-locatelli/client-query-cache/blob/main/docker-compose.yaml) with one CPU and 512 MiB of memory, and with no TLS or wire
 compression. Direct-path bytes cover the measured manager's client connections; process CPU includes the
 writer, proxy, and observation overhead. Container CPU covers the MongoDB process and its background work.
 These measurements do not establish results for sharded clusters, other hosts, or network-failure detection.

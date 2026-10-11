@@ -55,3 +55,16 @@ updates:
     open-pull-requests-limit: 2
     cooldown:
       default-days: 7
+  - package-ecosystem: "docker-compose"
+    directory: "/tests/mongodb-minimum"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 2
+    cooldown:
+      default-days: 7
+    # ignore: The default is no ignored updates. We override it because this file pins
+    # the minimum supported MongoDB release line, so only patch updates are eligible.
+    ignore:
+      - dependency-name: "mongo"
+        update-types:
+          ["version-update:semver-major", "version-update:semver-minor"]

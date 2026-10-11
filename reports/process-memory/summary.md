@@ -10,7 +10,7 @@ Use the [contributor environment](../../CONTRIBUTING.md) with the Podman socket 
 
 ```bash
 source scripts/testcontainers-bridge.sh
-uv run -- python -m research.process_memory.measure run --runs 5 --output benchmark-reports/process-memory/final.json
+uv run -- python -m research.process_memory.measure run --image docker.io/library/mongo:8.0.4-noble --runs 5 --output benchmark-reports/process-memory/final.json
 uv run -- python -m research.process_memory.measure summarize benchmark-reports/process-memory/final.json
 ```
 
@@ -19,7 +19,7 @@ uv run -- python -m research.process_memory.measure summarize benchmark-reports/
 The compact-key change reran only the scenarios whose keys it changes, in about one hour, and measured key cost without MongoDB:
 
 ```bash
-uv run -- python -m research.process_memory.measure run --runs 5 --scenarios small-entries large-keys cycles --output benchmark-reports/process-memory/compact-keys.json
+uv run -- python -m research.process_memory.measure run --image docker.io/library/mongo:8.0.4-noble --runs 5 --scenarios small-entries large-keys cycles --output benchmark-reports/process-memory/compact-keys.json
 uv run -- python -m research.process_memory.measure summarize benchmark-reports/process-memory/compact-keys.json
 just pytest -- tests/benchmark/test_namespace_key_cost.py -n 0 -s -q
 ```

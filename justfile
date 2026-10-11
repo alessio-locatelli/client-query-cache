@@ -5,7 +5,7 @@ set positional-arguments
 set default-list
 
 # Bash 5.3 help set; set -euo pipefail in docs-build-editions, typecheck-examples,
-# verify-release, pytest, test-pymongo-min,
+# verify-release, pytest, test-pymongo-min, test-mongodb-min,
 # enable-podman-socket, podman, test-memory, test-integration, test-e2e and
 # tests_and_coverage:
 # The default is inherited Bash options, normally all three off. We override it because
@@ -171,6 +171,23 @@ test-pymongo-min:
     # -e: The default is tox.ini envlist. We override it because this command runs
     # only the minimum-driver lane.
     exec uv run -- tox run -r -e pymongo-min
+
+test-mongodb-min:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    # pytest 9.1.1: https://docs.pytest.org/en/stable/reference/reference.html
+    # -m: The default is pytest.ini not memory. We override it because this lane runs
+    # only tests that use MongoDB.
+    # --ignore: The default is pytest.ini specifications only. We override it because
+    # benchmark harnesses run only against the default server.
+    # --minimum-mongodb: The default is the docker-compose.yaml server. We override it
+    # because this lane tests the minimum supported server.
+    # --log-file: The default is pytest.log. We override it because minimum-server
+    # diagnostics must be distinct from default-server diagnostics.
+    # --log-file-level: The default is pytest.ini DEBUG. We override it because
+    # uploaded failure logs need bounded, actionable diagnostics.
+    exec just pytest -- -m '(integration or e2e) and not memory' --ignore=tests/benchmark --minimum-mongodb --log-file=pytest-mongodb-min.log --log-file-level=WARNING
 
 build-dev-image:
     podman build --tag {{ dev_image }} .

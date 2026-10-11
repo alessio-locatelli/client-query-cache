@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, cast
 
 import psutil
 
+from benchmarks.mongodb_image import MONGODB_IMAGE
 from benchmarks.stream_cost.errors import BenchmarkSetupError
 from benchmarks.stream_cost.shared_cache.protocol import (
     BASELINES,
@@ -30,11 +31,7 @@ from benchmarks.stream_cost.shared_cache.protocol import (
     window_for,
 )
 from benchmarks.stream_cost.shared_cache.window import run_window
-from benchmarks.stream_cost.topology import (
-    MONGODB_IMAGE,
-    IsolatedReplicaSet,
-    ResourceLimits,
-)
+from benchmarks.stream_cost.topology import IsolatedReplicaSet, ResourceLimits
 from client_query_cache._types import JsonDict, PositiveFloat
 
 if TYPE_CHECKING:

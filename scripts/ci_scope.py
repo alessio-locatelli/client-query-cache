@@ -18,6 +18,7 @@ def main() -> None:
             "pytest.ini",
             "tox.ini",
             "docker-compose.yaml",
+            "tests/mongodb-minimum/docker-compose.yaml",
             ".coveragerc",
             "pyproject.toml",
             "uv.lock",
@@ -69,6 +70,7 @@ def main() -> None:
             ".python-version",
             "pyproject.toml",
             "uv.lock",
+            "benchmarks/mongodb_image.py",
             "benchmarks/stream_cost/topology.py",
             "tests/benchmark/stream_cost/test_topology_integration.py",
         }
