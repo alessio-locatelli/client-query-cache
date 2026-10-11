@@ -23,7 +23,10 @@ from client_query_cache._core.stream_health import (
     StreamHealthStatus,
     public_stream_health,
 )
-from client_query_cache._core.stream_options import DEFAULT_MAX_AWAIT_TIME_MS
+from client_query_cache._core.stream_options import (
+    DEFAULT_MAX_AWAIT_TIME_MS,
+    ensure_supported_server,
+)
 from client_query_cache._types import MaxAwaitTimeMs, NonNegativeFloat
 
 if TYPE_CHECKING:
@@ -35,7 +38,6 @@ if TYPE_CHECKING:
 
     from client_query_cache._core.manager import CacheCore
 
-MINIMUM_SERVER_VERSION = (8, 0)
 
 logger = logging.getLogger(__name__)
 
@@ -102,7 +104,7 @@ class DatabaseStreamSupervisor:
         self._set_health(StreamHealth.CONNECTING)
         self._clear_namespaces_for_database()
         try:
-            await self._ensure_server_supports_expanded_events()
+            ensure_supported_server(await self._database.client.server_info())
             await self._open_stream(resume_token=None, use_start_after=False)
         except StreamStartupError:
             self._set_health(StreamHealth.CLOSED)
@@ -165,16 +167,6 @@ class DatabaseStreamSupervisor:
             self._database.name, available=health is StreamHealth.HEALTHY
         )
         self._health = health
-
-    async def _ensure_server_supports_expanded_events(self) -> None:
-        server_info = await self._database.client.server_info()
-        version = tuple(server_info["versionArray"][:2])
-        if version < MINIMUM_SERVER_VERSION:
-            message = (
-                f"MongoDB server version {server_info['version']} is not supported; "
-                "client_query_cache requires MongoDB 8.0 or newer"
-            )
-            raise StreamStartupError(message)
 
     async def _open_stream(
         self, *, resume_token: Mapping[str, Any] | None, use_start_after: bool

@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from bson.codec_options import CodecOptions
 
+from client_query_cache._core.stream_options import MINIMUM_SERVER_VERSION
 from client_query_cache._types import BsonDict, NonNegativeInt
 
 if TYPE_CHECKING:
@@ -14,6 +15,8 @@ if TYPE_CHECKING:
 
     from pymongo.asynchronous.database import AsyncDatabase
     from pymongo.synchronous.database import Database
+
+SUPPORTED_SERVER_VERSION: list[NonNegativeInt] = [*MINIMUM_SERVER_VERSION, 0]
 
 
 class ScriptedStream:
@@ -70,10 +73,11 @@ class ScriptedDatabase:
     ) -> None:
         self.name = name
         self.codec_options: CodecOptions[Any] = CodecOptions()
+        server_version = version_array or SUPPORTED_SERVER_VERSION
         self.client = SimpleNamespace(
             server_info=lambda: {
-                "version": ".".join(str(part) for part in (version_array or [8, 0, 4])),
-                "versionArray": version_array or [8, 0, 4, 0],
+                "version": ".".join(map(str, server_version)),
+                "versionArray": server_version,
             }
         )
         self._script = list(script)
@@ -149,7 +153,9 @@ class AsyncScriptedDatabase:
         self.name = name
         self.codec_options: CodecOptions[Any] = CodecOptions()
         self.client = SimpleNamespace(
-            server_info=self._make_server_info(version_array or [8, 0, 4])
+            server_info=self._make_server_info(
+                version_array or SUPPORTED_SERVER_VERSION
+            )
         )
         self._script = list(script)
         self.watch_calls: list[dict[str, object]] = []

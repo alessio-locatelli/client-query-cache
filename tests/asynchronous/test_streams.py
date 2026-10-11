@@ -30,6 +30,7 @@ from client_query_cache.asynchronous.streams import (
     ChangeStreamCoordinator,
     DatabaseStreamSupervisor,
 )
+from tests.stream_fakes import SUPPORTED_SERVER_VERSION
 from tests.stream_fakes import AsyncScriptedDatabase as ScriptedDatabase
 from tests.stream_fakes import AsyncScriptedStream as ScriptedStream
 from tests.stream_fakes import as_async_database as as_database
@@ -186,7 +187,7 @@ async def make_coordinator() -> AsyncIterator[Callable[..., ChangeStreamCoordina
     [
         pytest.param([5, 0, 9], [], 0, id="server_below_minimum_version"),
         pytest.param(
-            [8, 0, 4],
+            SUPPORTED_SERVER_VERSION,
             [OperationFailure("showExpandedEvents rejected")],
             1,
             id="server_rejects_expanded_events",
