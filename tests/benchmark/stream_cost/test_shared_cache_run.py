@@ -1877,29 +1877,45 @@ def _with_assignment(registration: Registration, assignment: str) -> Registratio
     return replace(registration, raw=raw)
 
 
+def _measured(spec: WorkerSpec) -> frozenset[int]:
+    assignment = spec.assignment(warmup=False)
+    return frozenset(assignment.key(ordinal) for ordinal in assignment.ordinals())
+
+
+def test_cold_workers_on_one_owner_warm_a_key_that_no_worker_measures(
+    concurrent_frozen: Registration,
+) -> None:
+    one_free_key = 255
+
+    specs = _cold_specs(
+        _with_assignment(concurrent_frozen, "partitioned"), one_free_key, "shared"
+    )
+
+    measured = frozenset().union(*map(_measured, specs))
+    assert all(spec.warm_key is not None for spec in specs)
+    assert not {spec.warm_key for spec in specs} & measured
+
+
 @pytest.mark.parametrize(
     ("assignment", "identities", "path"),
     [
         pytest.param("shared", 200, "independent", id="shared-keys"),
         pytest.param("partitioned", 200, "independent", id="partitioned-keys"),
-        pytest.param("partitioned", 255, "shared", id="one-owner-one-free-key"),
+        pytest.param("partitioned", 256, "independent", id="every-document-read"),
+        pytest.param("partitioned", 256, "direct", id="every-document-direct"),
     ],
 )
-def test_cold_workers_warm_a_key_that_no_worker_measures(
+def test_private_cold_workers_warm_a_key_outside_their_own_identities(
     concurrent_frozen: Registration, assignment: str, identities: int, path: PathKind
 ) -> None:
     specs = _cold_specs(
         _with_assignment(concurrent_frozen, assignment), identities, path
     )
 
-    measured = {
-        assignment.key(ordinal)
+    assert all(
+        spec.warm_key is not None and spec.warm_key not in _measured(spec)
         for spec in specs
-        for assignment in (spec.assignment(warmup=False),)
-        for ordinal in assignment.ordinals()
-    }
-    assert all(spec.warm_key is not None for spec in specs)
-    assert not {spec.warm_key for spec in specs} & measured
+    )
 
 
 @pytest.mark.parametrize(
