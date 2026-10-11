@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
-import datetime
+import datetime as dt
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Literal, get_type_hints
@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 
 pytestmark = pytest.mark.unit
 
-_WALL_TIME = datetime.datetime(2024, 1, 1, tzinfo=datetime.UTC)
+_WALL_TIME = dt.datetime(2024, 1, 1, tzinfo=dt.UTC)
 _LAG_CONFIG_HINTS = get_type_hints(LagCaptureWindowConfig, include_extras=True)
 
 
@@ -436,13 +436,13 @@ def test_uncached_namespace_write_event_records_no_invalidation_or_lag() -> None
 )
 def test_cached_namespace_write_event_records_signed_invalidation_lag(
     single_sample_core: CacheCore,
-    to_wall_time: Callable[[datetime.datetime], object],
+    to_wall_time: Callable[[dt.datetime], object],
 ) -> None:
     capture = single_sample_core.begin_identity_admission(
         NamespaceId("db", "coll"), "doc-1"
     )
     single_sample_core.admit_identity(capture, "full", {"v": 1})
-    future_wall_time = datetime.datetime.now(datetime.UTC) + datetime.timedelta(hours=1)
+    future_wall_time = dt.datetime.now(dt.UTC) + dt.timedelta(hours=1)
 
     route_change_event(
         single_sample_core, "db", _insert_event(to_wall_time(future_wall_time))

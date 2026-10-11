@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import datetime
+import datetime as dt
 import random
 import zlib
 from typing import TYPE_CHECKING, TypedDict
@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from pymongo import MongoClient
 
 
-_EPOCH = datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC)
+_EPOCH = dt.datetime(2026, 1, 1, tzinfo=dt.UTC)
 _TAG_VALUES = 512
 _TAGS_PER_DOCUMENT = 4
 _INSERT_BATCH = 512
@@ -56,7 +56,7 @@ def catalogue(
                     "height": generator.random(),
                     "depth": generator.random(),
                 },
-                "updated": _EPOCH + datetime.timedelta(seconds=index),
+                "updated": _EPOCH + dt.timedelta(seconds=index),
             },
             "payload": generator.randbytes(profile["payload_bytes"] // 2).hex(),
         }

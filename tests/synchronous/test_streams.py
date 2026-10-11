@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import datetime
+import datetime as dt
 import threading
 import time
 import uuid
@@ -52,7 +52,7 @@ class PausedCoordinator(TypedDict):
 pytestmark = pytest.mark.unit
 
 _FAST_BACKOFF = RetryBackoff(base_seconds=0.001, max_seconds=0.002)
-_WALL_TIME = datetime.datetime(2024, 1, 1, tzinfo=datetime.UTC)
+_WALL_TIME = dt.datetime(2024, 1, 1, tzinfo=dt.UTC)
 
 
 class _FixedDelayBackoff:

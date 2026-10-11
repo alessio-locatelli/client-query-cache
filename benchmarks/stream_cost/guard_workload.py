@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import datetime
+import datetime as dt
 import json
 import time
 from contextlib import contextmanager
@@ -218,7 +218,7 @@ def _invalidation(
                 "operationType": "update",
                 "ns": {"db": "guard", "coll": "documents"},
                 "documentKey": {"_id": document_id},
-                "wallTime": datetime.datetime.now(datetime.UTC),
+                "wallTime": dt.datetime.now(dt.UTC),
             }
             for document_id in ids
             for _ in range(_INVALIDATION_REPEATS)

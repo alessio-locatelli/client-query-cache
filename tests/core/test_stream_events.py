@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import datetime
+import datetime as dt
 from typing import TYPE_CHECKING
 from unittest.mock import ANY, Mock, call
 
@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 
 pytestmark = pytest.mark.unit
 
-_WALL_TIME = datetime.datetime(2024, 1, 1, tzinfo=datetime.UTC)
+_WALL_TIME = dt.datetime(2024, 1, 1, tzinfo=dt.UTC)
 
 
 def test_pipeline_matches_only_relevant_operation_types() -> None:

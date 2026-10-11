@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import datetime
+import datetime as dt
 from dataclasses import replace
 
 import pytest
@@ -261,9 +261,7 @@ def test_report_validation_error_collects_every_violation_message() -> None:
 @pytest.mark.parametrize(
     ("key", "value"),
     [
-        pytest.param(
-            "issued_at", datetime.datetime.now(datetime.UTC), id="non_serializable"
-        ),
+        pytest.param("issued_at", dt.datetime.now(dt.UTC), id="non_serializable"),
         pytest.param("ratio", float("nan"), id="non_finite_float"),
     ],
 )
