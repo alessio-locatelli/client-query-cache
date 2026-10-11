@@ -326,17 +326,18 @@ def _warm_key(
     workload: _Workload,
     index: NonNegativeInt,
 ) -> NonNegativeInt:
-    assignments = [
-        assignment_for(
+    workers = range(cell.workers) if cell.path == "shared" else (index,)
+    assignments = {
+        worker: assignment_for(
             cell,
             worker,
             _assigned_keys(registration, workload, worker),
             registration.key_assignment,
             warmup=False,
         )
-        for worker in range(cell.workers)
-    ]
-    measured = frozenset().union(*map(measured_keys, assignments))
+        for worker in workers
+    }
+    measured = frozenset().union(*map(measured_keys, assignments.values()))
     return warm_key(assignments[index], measured)
 
 
