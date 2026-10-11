@@ -123,7 +123,7 @@ def test_canonicalize_rejects_values_unsuitable_as_cache_keys(value: object) -> 
 )
 def test_canonicalize_is_idempotent_on_its_own_output(value: object) -> None:
     once = canonicalize(value)
-    assert canonicalize(once) == once
+    assert canonicalize(once) is once
 
 
 @given(bson_like_values())
@@ -131,7 +131,7 @@ def test_canonicalize_is_idempotent_for_generated_bson_like_structures(
     value: object,
 ) -> None:
     once = canonicalize(value)
-    assert canonicalize(once) == once
+    assert canonicalize(once) is once
 
 
 @given(st.data())

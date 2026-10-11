@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import UserDict
 from itertools import combinations
+from typing import TYPE_CHECKING
 from unittest.mock import Mock
 
 import pytest
@@ -10,6 +11,7 @@ from bson.raw_bson import RawBSONDocument
 from hypothesis import given
 from hypothesis import strategies as st
 
+from client_query_cache._core import order_sensitive_keys, query_filters
 from client_query_cache._core.canonical import canonicalize
 from client_query_cache._core.errors import UnsupportedCacheRequestError
 from client_query_cache._core.order_sensitive_keys import (
@@ -17,6 +19,9 @@ from client_query_cache._core.order_sensitive_keys import (
 )
 from client_query_cache._core.query_filters import find_filter_key
 from client_query_cache._types import BsonDict
+
+if TYPE_CHECKING:
+    from faker import Faker
 
 pytestmark = pytest.mark.unit
 
@@ -73,6 +78,25 @@ def test_scalar_permutations_share_the_complete_key(
     shuffled = dict(ordering.draw(st.permutations(tuple(predicates.items()))))
     assert physical_key(predicates) == physical_key(shuffled)
     assert physical_key(predicates) != physical_key(UserDict(predicates))
+
+
+def test_scalar_filters_hold_one_tagged_ordered_mapping(faker: Faker) -> None:
+    first, second = sorted(faker.unique.pystr() for _ in range(2))
+    first_value, second_value = faker.pystr(), faker.pyint()
+
+    assert physical_key({second: second_value, first: first_value}) == (
+        order_sensitive_keys._SEQUENCE_TAG.canonical,
+        (
+            "find",
+            (
+                query_filters._SCALAR_PREDICATES.canonical,
+                (
+                    order_sensitive_keys._MAPPING_TAG.canonical,
+                    (first, first_value, second, second_value),
+                ),
+            ),
+        ),
+    )
 
 
 @pytest.mark.parametrize(
@@ -151,9 +175,15 @@ def test_fallback_and_explicit_equality_remain_distinct(
     assert physical_key(forward) != physical_key(backward)
 
 
-def test_numeric_key_distinctions_survive_full_wrapping() -> None:
-    for first, second in combinations((True, 1, 1.0, Int64(1)), 2):
-        assert physical_key({"a": first}) != physical_key({"a": second})
+@pytest.mark.parametrize(
+    ("first", "second"),
+    list(combinations((True, 1, 1.0, Int64(1)), 2)),
+    ids=lambda value: type(value).__name__,
+)
+def test_numeric_key_distinctions_survive_full_wrapping(
+    first: object, second: object
+) -> None:
+    assert physical_key({"a": first}) != physical_key({"a": second})
 
 
 @pytest.mark.parametrize("value", [float("nan"), {1, 2}], ids=["nan", "unhashable"])

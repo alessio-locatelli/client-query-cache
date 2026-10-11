@@ -1,12 +1,19 @@
 from __future__ import annotations
 
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 import pytest
 
 from client_query_cache._core.canonical import canonicalize
-from client_query_cache._core.find_reads import find_read_shape
+from client_query_cache._core.find_reads import (
+    FindReadShape,
+    find_discriminator,
+    find_read_shape,
+)
 from client_query_cache._types import NonNegativeInt
+
+if TYPE_CHECKING:
+    from faker import Faker
 
 pytestmark = pytest.mark.unit
 
@@ -75,3 +82,26 @@ def test_family_preserves_every_other_final_input(component: NonNegativeInt) -> 
     assert (canonicalize(reference.family) == canonicalize(changed.family)) is (
         component == 4
     )
+
+
+@pytest.mark.parametrize("operator", [False, True], ids=["scalar", "operator"])
+def test_discriminators_reference_the_canonical_family(
+    faker: Faker, *, operator: bool
+) -> None:
+    value = faker.pyfloat()
+    shape = find_read_shape(
+        {faker.pystr(): {"$gt": value} if operator else value},
+        None,
+        {"_id": 1},
+        0,
+        faker.pyint(min_value=1),
+        collation=None,
+        codec="codec",
+    )
+    family = canonicalize(shape.family)
+    discriminator = find_discriminator(family, shape.limit)
+
+    assert isinstance(discriminator, tuple)
+    assert discriminator[1][0] is family
+    assert canonicalize(discriminator) is discriminator
+    assert FindReadShape(family, shape.limit).source == shape.source

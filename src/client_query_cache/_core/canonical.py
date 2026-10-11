@@ -17,26 +17,35 @@ class _CanonicalTag:
         return f"<canonical:{self._name}>"
 
 
+class _PendingTag:
+    __slots__ = ("canonical", "items")
+
+    def __init__(self, name: str, *, items: bool) -> None:
+        self.canonical = _CanonicalTag(name)
+        self.items = items
+
+
 _MAPPING_TAG = _CanonicalTag("map")
 _SEQUENCE_TAG = _CanonicalTag("seq")
 _BOOL_TAG = _CanonicalTag("bool")
-_OWN_TAGS = (_MAPPING_TAG, _SEQUENCE_TAG, _BOOL_TAG)
 _TAGGED_TUPLE_SIZE = 2
 
 
 def canonicalize(value: object) -> Canonical:
-    if (
-        isinstance(value, tuple)
-        and len(value) == _TAGGED_TUPLE_SIZE
-        and any(value[0] is tag for tag in _OWN_TAGS)
-    ):
-        return value
+    if isinstance(value, tuple) and len(value) == _TAGGED_TUPLE_SIZE:
+        tag, payload = value
+        if type(tag) is _CanonicalTag:
+            return value
+        if type(tag) is _PendingTag:
+            if tag.items:
+                return (tag.canonical, tuple([canonicalize(item) for item in payload]))
+            return (tag.canonical, canonicalize(payload))
     if isinstance(value, Mapping):
         pairs = [(canonicalize(key), canonicalize(item)) for key, item in value.items()]
         items = tuple(sorted(pairs, key=lambda pair: repr(pair[0])))
         return (_MAPPING_TAG, items)
     if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
-        return (_SEQUENCE_TAG, tuple(canonicalize(item) for item in value))
+        return (_SEQUENCE_TAG, tuple([canonicalize(item) for item in value]))
     if isinstance(value, bool):
         return (_BOOL_TAG, value)
     try:

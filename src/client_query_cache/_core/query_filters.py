@@ -1,15 +1,11 @@
 from __future__ import annotations
 
+from client_query_cache._core.canonical import _PendingTag
 from client_query_cache._core.order_sensitive_keys import (
     order_sensitive_discriminator_key,
 )
 
-
-class _FilterTag:
-    __slots__ = ()
-
-
-_SCALAR_PREDICATES = _FilterTag()
+_SCALAR_PREDICATES = _PendingTag("scalar-predicates", items=False)
 _SCALAR_TYPES = (bool, int, float, str)
 
 
