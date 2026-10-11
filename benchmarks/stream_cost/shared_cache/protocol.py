@@ -177,7 +177,10 @@ def _cell_specs(entries: object, owner: str) -> tuple[CellSpec, ...]:
     for entry in cast("list[object]", entries):
         match entry:
             case [str(kind), str(model), int(workers)] if (
-                kind in _FAMILY_WORKLOADS and model in _MODELS and workers > 0
+                kind in _FAMILY_WORKLOADS
+                and model in _MODELS
+                and not isinstance(workers, bool)
+                and workers > 0
             ):
                 specs.append((kind, cast("Model", model), workers))
             case _:
