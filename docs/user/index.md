@@ -4,6 +4,8 @@ Add an in-process read cache to an application using PyMongo directly. The libra
 
 ## Install and start
 
+Use [Should you use this?](getting-started/should-you-use-this.md) to evaluate consistency, reuse, and deployment costs.
+
 Start with [installation](getting-started/installation.md), then follow the complete [synchronous](getting-started/synchronous.md) or [asyncio](getting-started/asyncio.md) tutorial.
 
 Caching requires MongoDB 8.0+ on a replica set or sharded cluster. Writes go through PyMongo. Invalidation is asynchronous, so use direct reads wherever freshness is required; see [consistency](usage/consistency.md).

@@ -19,6 +19,7 @@ Run each command from the [repository checkout](https://github.com/alessio-locat
 | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------- |
 | [`requests_cache_example.py`](https://github.com/alessio-locatelli/client-query-cache/blob/main/examples/requests_cache_example.py)             | [requests-cache](https://github.com/requests-cache/requests-cache)             | `uv run examples/requests_cache_example.py`       |
 | [`fastapi_catalogue_example.py`](https://github.com/alessio-locatelli/client-query-cache/blob/main/examples/fastapi_catalogue_example.py)       | [FastAPI](https://fastapi.tiangolo.com/)                                       | `uv run examples/fastapi_catalogue_example.py`    |
+| [`fastapi_minimal_example.py`](https://github.com/alessio-locatelli/client-query-cache/blob/main/examples/fastapi_minimal_example.py)           | [FastAPI](https://fastapi.tiangolo.com/)                                       | `uv run examples/fastapi_minimal_example.py`      |
 | [`celery_example.py`](https://github.com/alessio-locatelli/client-query-cache/blob/main/examples/celery_example.py)                             | [Celery](https://github.com/celery/celery)                                     | `uv run examples/celery_example.py`               |
 | [`py_abac_example.py`](https://github.com/alessio-locatelli/client-query-cache/blob/main/examples/py_abac_example.py)                           | [py-abac](https://github.com/ketgo/py-abac)                                    | `uv run examples/py_abac_example.py`              |
 | [`aiohttp_client_cache_example.py`](https://github.com/alessio-locatelli/client-query-cache/blob/main/examples/aiohttp_client_cache_example.py) | [aiohttp-client-cache](https://github.com/requests-cache/aiohttp-client-cache) | `uv run examples/aiohttp_client_cache_example.py` |
@@ -28,6 +29,7 @@ Run each command from the [repository checkout](https://github.com/alessio-locat
 
 - [requests-cache guide](https://alessio-locatelli.github.io/client-query-cache/examples/requests-cache/)
 - [FastAPI catalogue guide](https://alessio-locatelli.github.io/client-query-cache/examples/fastapi/)
+- [Compact FastAPI guide](https://alessio-locatelli.github.io/client-query-cache/examples/fastapi-minimal/)
 - [Celery guide](https://alessio-locatelli.github.io/client-query-cache/examples/celery/)
 - [py-abac guide](https://alessio-locatelli.github.io/client-query-cache/examples/py-abac/)
 - [aiohttp-client-cache guide](https://alessio-locatelli.github.io/client-query-cache/examples/aiohttp-client-cache/)

@@ -1,5 +1,7 @@
 # Cached reads
 
+For short operations paired with observable counters, see the [eligibility exercise](eligibility.md).
+
 Keep a PyMongo handle for writes and administration, and a cached view for repeated reads:
 
 ```python

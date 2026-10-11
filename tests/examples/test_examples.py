@@ -24,6 +24,7 @@ REPOSITORY = Path(__file__).parents[2]
         "aiohttp_client_cache_example.py",
         "eve_example.py",
         "fastapi_catalogue_example.py",
+        "fastapi_minimal_example.py",
     ],
     ids=[
         "requests-cache",
@@ -32,6 +33,7 @@ REPOSITORY = Path(__file__).parents[2]
         "aiohttp-client-cache",
         "eve",
         "fastapi",
+        "fastapi-minimal",
     ],
 )
 def test_example_runs(name: str, mongodb_uri: MongoDbUri) -> None:
