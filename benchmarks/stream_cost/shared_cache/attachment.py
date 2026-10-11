@@ -8,9 +8,12 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final
 
+from client_query_cache_shared_index import ReaderIndex
+
 from benchmarks.stream_cost.shared_cache.wire import (
     LENGTH_BYTES,
     PROTOCOL_VERSION,
+    ProtocolError,
     decode_frame,
     encode_frame,
     frame_length,
@@ -33,6 +36,8 @@ _RETRY_SECONDS: Final = 0.1
 _RECEIVE_BYTES: Final = 262_144
 _ATTACH_DEADLINE_SECONDS: Final = 5.0
 _LOST: Final[Message] = {"r": "lost"}
+_CONTROL_DESCRIPTORS: Final = 2
+_MAX_DESCRIPTORS: Final = 4
 
 
 class InheritedAttachmentError(RuntimeError):
@@ -53,8 +58,8 @@ class AttachmentConfig:
     rpc_deadline_seconds: PositiveFloat
     frame_limit: PositiveInt
 
-    def hello(self) -> Message:
-        return {
+    def hello(self, role: str | None = None) -> Message:
+        message: Message = {
             "v": PROTOCOL_VERSION,
             "id": 0,
             "op": "hello",
@@ -64,6 +69,9 @@ class AttachmentConfig:
             "max_entry_bytes": self.max_entry_bytes,
             "max_await_time_ms": self.max_await_time_ms,
         }
+        if role is not None:
+            message["role"] = role
+        return message
 
 
 @dataclass(slots=True)
@@ -84,6 +92,63 @@ def _accepted(reply: Message) -> Message:
         message = f"shared cache owner rejected the attachment: {reply['reason']}"
         raise AttachmentConfigurationError(message)
     return reply
+
+
+@dataclass(frozen=True, slots=True)
+class ControlAttachment:
+    sock: socket.socket
+    reader: ReaderIndex
+
+
+def _handshake_reply(
+    sock: socket.socket, config: AttachmentConfig, received: list[int]
+) -> Message:
+    deadline = time.monotonic() + _ATTACH_DEADLINE_SECONDS
+    inbox = bytearray()
+    end: int | None = None
+    while end is None or len(inbox) < end:
+        sock.settimeout(max(deadline - time.monotonic(), 0.000001))
+        data, descriptors, flags, _address = socket.recv_fds(
+            sock, _RECEIVE_BYTES, _MAX_DESCRIPTORS, socket.MSG_CMSG_CLOEXEC
+        )
+        received.extend(descriptors)
+        if flags & socket.MSG_CTRUNC:
+            raise ProtocolError("handshake descriptors were truncated")
+        if not data:
+            raise ConnectionResetError("owner closed the attachment")
+        inbox += data
+        if end is None and len(inbox) >= LENGTH_BYTES:
+            header = bytes(inbox[:LENGTH_BYTES])
+            end = LENGTH_BYTES + frame_length(header, config.frame_limit)
+    if len(inbox) != end:
+        raise ProtocolError("the owner sent data after the handshake reply")
+    return _accepted(decode_frame(bytes(inbox[LENGTH_BYTES:end])))
+
+
+def _reader(received: list[int], reply: Message) -> ReaderIndex:
+    if len(received) != _CONTROL_DESCRIPTORS:
+        raise ProtocolError("the handshake carries exactly two descriptors")
+    reader = ReaderIndex(received[0], received[1])
+    if reader.incarnation != reply["incarnation"]:
+        raise ProtocolError("the index belongs to another owner incarnation")
+    return reader
+
+
+def control_handshake(config: AttachmentConfig) -> ControlAttachment:
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    received: list[int] = []
+    try:
+        sock.settimeout(_ATTACH_DEADLINE_SECONDS)
+        sock.connect(config.socket_path)
+        sock.sendall(encode_frame(config.hello(role="control")))
+        reader = _reader(received, _handshake_reply(sock, config, received))
+    except BaseException:
+        sock.close()
+        raise
+    finally:
+        for descriptor in received:
+            os.close(descriptor)
+    return ControlAttachment(sock, reader)
 
 
 class _SyncConnection:
