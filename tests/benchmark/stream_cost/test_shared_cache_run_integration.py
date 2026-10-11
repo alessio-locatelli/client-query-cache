@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, cast
 import psutil
 import pytest
 from pymongo.errors import OperationFailure
+from pymongo.synchronous.collection import Collection
 
 from benchmarks.stream_cost.errors import BenchmarkSetupError
 from benchmarks.stream_cost.shared_cache import diagnostics, run, window
@@ -274,35 +275,53 @@ def test_missing_memory_metrics_fail_the_window(
         window.run_window(replica, registration, _cell(registration, "hot", "direct"))
 
 
+_ORIGINAL_WAIT = window._wait
+
+
+def _late_wait(deadline: float) -> None:
+    _ORIGINAL_WAIT(deadline + 1.5)
+
+
+def _failing_update(*_args: object, **_kwargs: object) -> None:
+    raise OperationFailure("deliberate write failure")
+
+
+@dataclass(frozen=True, slots=True)
+class _WriteFailure:
+    target: object
+    name: str
+    replacement: object
+    message: str
+
+
 @pytest.mark.timeout(120)
 @pytest.mark.parametrize(
-    ("failure", "message"),
+    "failure",
     [
-        pytest.param("late", "write schedule exceeded", id="late-write"),
-        pytest.param("write", "harness MongoDB write failed", id="write-error"),
+        pytest.param(
+            _WriteFailure(window, "_wait", _late_wait, "write schedule exceeded"),
+            id="late-write",
+        ),
+        pytest.param(
+            _WriteFailure(
+                Collection,
+                "update_one",
+                _failing_update,
+                "harness MongoDB write failed",
+            ),
+            id="write-error",
+        ),
     ],
 )
 def test_harness_write_failures_reject_the_window(
     replica: IsolatedReplicaSet,
     registration: Registration,
     monkeypatch: pytest.MonkeyPatch,
-    failure: str,
-    message: str,
+    failure: _WriteFailure,
 ) -> None:
-    original_wait = window._wait
-    if failure == "late":
-        monkeypatch.setattr(
-            window, "_wait", lambda deadline: original_wait(deadline + 1.5)
-        )
-    else:
-        from pymongo.synchronous.collection import Collection  # noqa: PLC0415
+    monkeypatch.setattr(failure.target, failure.name, failure.replacement)
 
-        def fail(*_args: object, **_kwargs: object) -> None:
-            raise OperationFailure("deliberate write failure")
-
-        monkeypatch.setattr(Collection, "update_one", fail)
-
-    with pytest.raises(BenchmarkSetupError, match=message):
+    with pytest.raises(BenchmarkSetupError, match=failure.message):
         window.run_window(
             replica, registration, _cell(registration, "active", "direct")
         )
