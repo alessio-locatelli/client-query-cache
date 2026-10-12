@@ -62,6 +62,8 @@ pytestmark = pytest.mark.unit
 
 _CONFIG = Path("reports/shared-worker-cache/v4/config.json")
 _V4_COMPANION = Path("reports/shared-worker-cache/v4/registration.md")
+_V5_CONFIG = Path("reports/shared-worker-cache/v5/config.json")
+_V5_PATHS = {"direct", "independent", "shared-index"}
 _FROZEN_RATES = {"primary": 3000, "cold": 1000, "sensitivity": 500}
 _FROZEN_WINDOWS = {"hot": 30, "active": 60, "sensitivity": 30}
 _CONCURRENT_CONFIG = Path("reports/concurrent-worker-workload/v1/config.json")
@@ -105,6 +107,19 @@ def _restated(
     raw["status"] = status
     raw["frozen"] = frozen
     return replace(registration, raw=raw)
+
+
+@pytest.fixture
+def v5_frozen() -> Registration:
+    return _restated(
+        Registration.load(_V5_CONFIG),
+        "frozen",
+        {
+            "rates": _FROZEN_RATES,
+            "window_seconds": _FROZEN_WINDOWS,
+            "calibration_summary": {},
+        },
+    )
 
 
 @pytest.fixture
@@ -200,7 +215,7 @@ def _record(
     }
     if not healthy:
         record["failure"] = "deliberate failure"
-    if cell.path == "shared":
+    if cell.path not in BASELINES:
         record["owner"] = {
             "cpu_seconds": 0.0,
             "drain_cpu_seconds": 0.0,
@@ -838,7 +853,7 @@ def _comparison_records(
     return [
         _record(
             cell,
-            pss=shared_pss if cell.path == "shared" else 100.0,
+            pss=shared_pss if cell.path not in BASELINES else 100.0,
             p99=0.0005 if cell.path != "direct" else 0.002,
             cpu=1.0,
         )
@@ -924,7 +939,7 @@ def test_screening_stops_on_an_observed_failed_condition(frozen: Registration) -
 
     decision = analysis.decide(records, frozen, phase="screening", blocks=6)
 
-    assert decision["verdict"] == "stop"
+    assert decision["verdicts"] == {"shared": "stop"}
     assert "group-memory" in {
         item["criterion"] for item in cast("list[JsonDict]", decision["failed"])
     }
@@ -1016,7 +1031,7 @@ def test_analysis_command_describes_and_decides(
     )
     description = json.loads(capsys.readouterr().out)
 
-    assert decision["verdict"] == "stop"
+    assert decision["verdicts"] == {"shared": "stop"}
     assert any(row["blocks"] == 0 for row in description["descriptive"])
 
 
@@ -1077,7 +1092,7 @@ def test_confirmation_decisions_require_every_bound(
 
     decision = analysis.decide(records, small, phase="confirmation", blocks=4)
 
-    assert decision["verdict"] == verdict
+    assert decision["verdicts"] == {"shared": verdict}
 
 
 def test_processor_name_falls_back_without_a_model_line() -> None:
@@ -1365,6 +1380,75 @@ def test_v4_freezing_keeps_its_frozen_block_layout(
     assert config.read_bytes() == _CONFIG.read_bytes()
 
 
+def _phase_plan(registration: Registration, *, phase: str) -> tuple[Cell, ...]:
+    return run.planned(registration, phase, registration.paths)
+
+
+@pytest.mark.parametrize(
+    ("plan", "paths"),
+    [
+        *(
+            pytest.param(partial(_phase_plan, phase=phase), _V5_PATHS, id=phase)
+            for phase in (
+                "screening",
+                "confirmation",
+                "capacity",
+                "active",
+                "cold",
+                "sensitivity",
+            )
+        ),
+        pytest.param(smoke_cells, _V5_PATHS, id="smoke"),
+        pytest.param(probe_cells, set(BASELINES), id="probe"),
+    ],
+)
+def test_v5_plans_every_candidate_path(
+    v5_frozen: Registration,
+    plan: Callable[[Registration], tuple[Cell, ...]],
+    paths: set[str],
+) -> None:
+    cells = plan(v5_frozen)
+
+    for block in {cell.block for cell in cells}:
+        assert {cell.path for cell in cells if cell.block == block} == paths
+
+
+@pytest.mark.parametrize(
+    ("candidates", "confidence"),
+    [
+        pytest.param(("shared-index",), 0.95, id="one-candidate"),
+        pytest.param(("shared", "shared-index"), 0.975, id="two-candidates"),
+    ],
+)
+def test_gate_output_names_each_candidate(
+    v5_frozen: Registration, candidates: tuple[PathKind, ...], confidence: float
+) -> None:
+    raw = copy.deepcopy(v5_frozen.raw)
+    raw["paths"] = [*BASELINES, *candidates]
+    registration = replace(v5_frozen, raw=raw)
+    records = _comparison_records(
+        registration, shared_pss=50.0, blocks=6, phase="screening"
+    )
+    *passing, failing = candidates
+    for record in records:
+        if record["path"] == failing:
+            cast("JsonDict", record["memory"])["steady_group_pss_bytes"] = 90.0
+
+    decision = analysis.decide(records, registration, phase="screening", blocks=6)
+
+    assert decision["verdicts"] == {
+        **dict.fromkeys(passing, "continue"),
+        failing: "stop",
+    }
+    comparisons = cast("list[JsonDict]", decision["comparisons"])
+    assert {item["candidate"] for item in comparisons} == set(candidates)
+    assert {
+        item["candidate"] for item in cast("list[JsonDict]", decision["failed"])
+    } == {failing}
+    settings = analysis.InferenceSettings.load(registration, 12, inference=True)
+    assert settings.confidence == confidence
+
+
 def test_registered_steady_phase_plans_only_its_cells(
     concurrent_frozen: Registration,
 ) -> None:
@@ -1584,6 +1668,12 @@ def test_closed_loop_windows_cannot_derive_a_write_count(
         pytest.param(("paths",), [], "paths", id="no-paths"),
         pytest.param(
             ("paths",), ["direct", "direct"], "repeat a path", id="repeated-path"
+        ),
+        pytest.param(
+            ("paths",),
+            ["direct", "shared-index"],
+            "shared_index capacities",
+            id="index-without-capacities",
         ),
         pytest.param(
             ("calibration", "families", "steady", "cells"),
@@ -1874,8 +1964,13 @@ def test_gated_decisions_are_unchanged(
     records = _comparison_records(small, shared_pss=shared_pss, blocks=blocks)
 
     decision = analysis.decide(records, small, phase=phase, blocks=blocks)
+    verdicts = cast("dict[str, str]", decision.pop("verdicts"))
+    for key in ("comparisons", "failed"):
+        for comparison in cast("list[JsonDict]", decision[key]):
+            assert comparison.pop("candidate") == "shared"
 
-    assert _checksum(decision) == expected
+    assert _checksum({**decision, "verdict": verdicts.pop("shared")}) == expected
+    assert not verdicts
 
 
 def test_hot_set_must_fit_the_profile_of_a_hot_probe(

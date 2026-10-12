@@ -2,7 +2,7 @@
 
 Version 5 asks whether a shared worker cache that avoids the owner round trip on hits can pass the [version 4](../v4/registration.md) gate. It reuses version 4's workload, data, phases, counterbalancing, estimands, inference, bounds and gate; version 4 stays their source. The [design](../../../openspec/changes/reduce-shared-cache-overhead/design.md) records the rationale for every difference.
 
-**Status:** draft. This file registers the candidate selection rule before any floor is measured. Paths, bounds, the configuration, the integration criterion, fault cases and reproduction commands are added before baseline calibration, and the file is frozen with its configuration.
+**Status:** pending calibration. The machine-readable values live in [config.json](config.json). The candidate selection rule was registered before any floor was measured, and the paths, bounds, integration criterion, fault cases and reproduction commands below before baseline calibration. Freezing records the calibration result here and in `config.json`.
 
 ## Candidate selection
 
@@ -73,3 +73,69 @@ A local hit cost less CPU than a `CacheCore` hit in every cell. B qualifies by 0
 **Choice.** A is eligible, so A is built. B is built only if A stops for a failed safety scenario or the memory criterion.
 
 Reproduce at that revision from the repository root with `PYTHONPATH=. uv run --with ./native/shared-index -- python research/shared_index_floors/floors.py --output benchmark-reports/shared-worker-cache/v5-floors.json`; the raw report stays untracked.
+
+## Paths and equivalent work
+
+- `direct` and `independent` are version 4's baselines.
+- `shared-index` is candidate A. Version 4's research owner process holds one `CacheCore`, one change stream per active database and the 96 MiB group budget. Its core keeps each admitted payload only in a shared arena and publishes every resident `_id` identity entry into a sealed, read-only shared index. Each worker opens one control connection, which carries the index and the worker's hit ring, next to version 4's RPC connections. An `_id` `find_one` is served from the index when the five read checks pass. Otherwise it falls back to version 4's `select-identity` RPC. Misses, admissions, sorted finds and every other read keep version 4's owner RPC or native execution.
+
+Version 4's `shared` path already stopped at screening and is not repeated. Every path performs version 4's decode and checksum work per result. Each report's environment records the extension's version, the `rustc` that compiled it, the maturin generator and wheel tag, and the SHA-256 of `native/shared-index/Cargo.lock`. Measurements on a tree with uncommitted changes under `benchmarks/`, `native/`, `src/` or `reports/` are rejected.
+
+## Phases and inference
+
+Version 4's phases, cells, blocks, counterbalancing, estimands, gate and futility rule apply with `shared-index` in place of `shared`. Within block `b`, paths run in the `b mod 6`-th lexicographic permutation of `(direct, independent, shared-index)`. With one built candidate, the all-must-pass conjunction uses nominal 95% intervals. The gate output names the candidate in every comparison and gives its verdict.
+
+## Integration criterion
+
+Version 4's "one cache algorithm/router" becomes: `CacheCore` remains the authority for admission, eviction and generations; published state serves only what the core would serve, enforced by the differential check. A local hit needs a validity check outside the core. The amended wording keeps the property behind version 4's rule, that no admission or eviction policy diverges from the core, and makes it testable.
+
+## Deadlines and bounds
+
+Version 4's deadlines and bounds apply unchanged, including the 3-second upstream-progress expiry, which local hits enforce from published progress. The shared index adds these:
+
+| Bound                | Value                                                                                                | Source                                                |
+| -------------------- | ---------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| Owner-exit detection | Local hits stop within 100 ms after the owner exits                                                  | `tests/shared_cache/test_scenarios.py`                |
+| Local read attempts  | 4 version-checked copies, after which the read counts as absent                                      | `READ_ATTEMPTS` in `native/shared-index/src/index.rs` |
+| Index slots          | 32,768, of which at most 24,576 hold published entries                                               | `shared_index.slots`                                  |
+| Payload arena        | 128 MiB: the 96 MiB budget, up to one eighth for size-class rounding, block headers and key blocks   | `shared_index.arena_bytes`                            |
+| Namespaces           | 1                                                                                                    | `shared_index.namespaces`                             |
+| Hit ring             | 16,384 slot tokens per worker session, drained on the owner's 50 ms sweep; a full ring drops touches | `shared_index.ring_tokens`                            |
+
+A `primary` entry occupies a 4,608-byte arena block and a `large` entry a 73,728-byte block, so each hot set fits with room for key blocks. A window fails setup unless the owner has published every primed `_id` entry, so a capacity shortfall cannot silently turn local hits into RPC hits.
+
+## Fault cases
+
+The `fault` phase runs version 4's eleven cases and four more, listed under `fault_cases`:
+
+| Case                            | Scenario test in `tests/shared_cache/test_scenarios.py`           |
+| ------------------------------- | ----------------------------------------------------------------- |
+| `owner-kill-during-local-hits`  | `test_a_killed_owner_stops_local_hits_within_the_detection_bound` |
+| `owner-pause-during-local-hits` | `test_a_silent_owner_stops_local_hits_by_the_progress_expiry`     |
+| `torn-read-stress`              | `test_concurrent_readers_never_observe_torn_payloads`             |
+| `reattachment-after-restart`    | `test_a_replacement_owner_serves_only_its_own_index`              |
+
+## Prototype safety scenarios
+
+The deterministic scenarios run against real owner and worker processes and a disposable replica set. They cover version 4's cases and the [delta specification](../../../openspec/changes/reduce-shared-cache-overhead/specs/shared-cache-benchmarking/spec.md)'s requirements for local hits: processed invalidations, torn and reclaimed reads, stable owner snapshots, owner-loss fencing, bounded reclamation, read-only published state and liveness detection without competing readers. A Hypothesis state machine checks published state against the authoritative core. `loom` models check the version protocol and reclamation. Run them before collecting decision evidence:
+
+```console
+cargo test --manifest-path native/shared-index/Cargo.toml
+RUSTFLAGS="--cfg loom" cargo test --release --manifest-path native/shared-index/Cargo.toml
+just pytest -- tests/shared_cache tests/benchmark/stream_cost/test_shared_cache_run.py tests/benchmark/stream_cost/test_shared_cache_run_integration.py
+```
+
+## Reproduction
+
+From the repository root, after the [contributor setup](../../../CONTRIBUTING.md), which builds the extension from the committed sources and lockfiles:
+
+```console
+source scripts/testcontainers-bridge.sh
+uv run -- python -m benchmarks.stream_cost.shared_cache.run --smoke --config reports/shared-worker-cache/v5/config.json --output benchmark-reports/shared-worker-cache/v5-smoke.json
+uv run -- python -m benchmarks.stream_cost.shared_cache.run --calibrate-baselines --config reports/shared-worker-cache/v5/config.json --output benchmark-reports/shared-worker-cache/v5-calibration.json
+uv run -- python -m benchmarks.stream_cost.shared_cache.run --config reports/shared-worker-cache/v5/config.json --freeze benchmark-reports/shared-worker-cache/v5-calibration.json
+uv run -- python -m benchmarks.stream_cost.shared_cache.run --phase screening --config reports/shared-worker-cache/v5/config.json --output benchmark-reports/shared-worker-cache/v5-screening.json
+uv run -- python -m benchmarks.stream_cost.shared_cache.analysis benchmark-reports/shared-worker-cache/v5-screening.json --config reports/shared-worker-cache/v5/config.json --phase screening --blocks 6
+```
+
+Later phases use the same two commands with their phase name and registered block count. Use a new output path for every run; raw reports stay untracked. A run interrupted by the host can continue with `--resume <earlier report>` at the same revision and registration.

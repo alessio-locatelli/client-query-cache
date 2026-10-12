@@ -32,6 +32,7 @@ if TYPE_CHECKING:
 pytestmark = pytest.mark.integration
 
 _CONFIG = Path("reports/shared-worker-cache/v4/config.json")
+_V5_CONFIG = Path("reports/shared-worker-cache/v5/config.json")
 _CONCURRENT_CONFIG = Path("reports/concurrent-worker-workload/v1/config.json")
 _ORIGINAL_WORKLOAD = window._workload
 _ORIGINAL_SEED = seed_catalogue
@@ -43,9 +44,8 @@ def replica() -> Iterator[IsolatedReplicaSet]:
         yield replica_set
 
 
-@pytest.fixture
-def config(tmp_path: Path) -> Path:
-    raw = json.loads(_CONFIG.read_text(encoding="utf-8"))
+def _smoke_config(source: Path, path: Path, **changes: object) -> Path:
+    raw = json.loads(source.read_text(encoding="utf-8"))
     raw["status"] = "pending-calibration"
     raw["profiles"]["smoke"]["documents"] = 64
     raw["phases"]["smoke"].update(
@@ -54,14 +54,24 @@ def config(tmp_path: Path) -> Path:
     raw["drain_seconds"] = 2
     raw["schedule_tolerance_seconds"] = 1.0
     raw["startup_seconds"] = 60
-    path = tmp_path / "config.json"
+    raw.update(changes)
     path.write_text(json.dumps(raw), encoding="utf-8")
     return path
 
 
 @pytest.fixture
+def config(tmp_path: Path) -> Path:
+    return _smoke_config(_CONFIG, tmp_path / "config.json")
+
+
+@pytest.fixture
 def registration(config: Path) -> Registration:
     return Registration.load(config)
+
+
+@pytest.fixture
+def v5_config(tmp_path: Path) -> Path:
+    return _smoke_config(_V5_CONFIG, tmp_path / "v5.json")
 
 
 @pytest.fixture
@@ -112,12 +122,18 @@ def _no_children() -> bool:
     [
         (workload, path)
         for workload in ("hot", "active", "cold")
-        for path in ("direct", "independent", "shared")
+        for path in ("direct", "independent", "shared", "shared-index")
     ],
 )
 def test_smoke_windows_identify_every_owner(
-    replica: IsolatedReplicaSet, registration: Registration, workload: str, path: str
+    replica: IsolatedReplicaSet,
+    registration: Registration,
+    v5_config: Path,
+    workload: str,
+    path: str,
 ) -> None:
+    if path == "shared-index":
+        registration = Registration.load(v5_config)
     cell = _cell(registration, workload, path)
 
     record = window.run_window(replica, registration, cell)
@@ -135,7 +151,7 @@ def test_smoke_windows_identify_every_owner(
         for ready in cast("list[JsonDict]", record["ready"])
     )
     assert streams == (cell.workers if path == "independent" else 0)
-    if path == "shared":
+    if path in {"shared", "shared-index"}:
         owner = cast("JsonDict", record["owner"])
         assert cast("float", owner["cpu_seconds"]) >= 0
         assert cast("float", memory["steady_owner_pss_bytes"]) > 0
@@ -143,8 +159,12 @@ def test_smoke_windows_identify_every_owner(
         assert cast("dict[str, int]", owner["commands"])["stream:opened"] == 0
     else:
         assert "owner" not in record
+    if workload == "hot" and path == "shared-index":
+        assert [
+            cast("JsonDict", worker["endpoint"])["requests"] for worker in workers
+        ] == [0] * cell.workers
     if workload == "active" and path != "direct":
-        lag_owner = owner if path == "shared" else workers[0]["lag"]
+        lag_owner = owner if path != "independent" else workers[0]["lag"]
         assert cast("JsonDict", lag_owner)["invalidations"] == 200
     if workload == "cold" and path != "direct":
         assert validation_failure(record, registration) is None
@@ -271,6 +291,31 @@ def test_setup_and_collection_failures_are_rejected_and_reclaimed(
 
 
 @pytest.mark.timeout(120)
+def test_an_undersized_shared_index_fails_the_window(
+    replica: IsolatedReplicaSet, tmp_path: Path
+) -> None:
+    registration = Registration.load(
+        _smoke_config(
+            _V5_CONFIG,
+            tmp_path / "undersized.json",
+            shared_index={
+                "slots": 16,
+                "arena_bytes": 1024 * 1024,
+                "namespaces": 1,
+                "ring_tokens": 64,
+            },
+        )
+    )
+
+    with pytest.raises(BenchmarkSetupError, match="did not publish the working set"):
+        window.run_window(
+            replica, registration, _cell(registration, "hot", "shared-index")
+        )
+
+    assert _no_children()
+
+
+@pytest.mark.timeout(120)
 def test_missing_memory_metrics_fail_the_window(
     replica: IsolatedReplicaSet,
     registration: Registration,
@@ -340,12 +385,21 @@ def _shared_replica(replica: IsolatedReplicaSet) -> Generator[IsolatedReplicaSet
 
 
 @pytest.mark.timeout(300)
+@pytest.mark.parametrize(
+    ("source", "candidate"),
+    [
+        pytest.param(_CONFIG, "shared", id="v4"),
+        pytest.param(_V5_CONFIG, "shared-index", id="v5"),
+    ],
+)
 def test_smoke_command_records_every_cell(
     replica: IsolatedReplicaSet,
-    config: Path,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    source: Path,
+    candidate: str,
 ) -> None:
+    config = _smoke_config(source, tmp_path / "config.json")
     monkeypatch.setattr(
         run, "IsolatedReplicaSet", lambda _limits: _shared_replica(replica)
     )
@@ -354,13 +408,29 @@ def test_smoke_command_records_every_cell(
     run.main(["--smoke", "--config", str(config), "--output", str(output)])
 
     report = json.loads(output.read_text(encoding="utf-8"))
+    cells = cast("list[JsonDict]", report["cells"])
     assert report["phase"] == "smoke"
-    assert len(report["cells"]) == 9
-    assert all(cell["healthy"] for cell in report["cells"])
-    assert (
-        report["environment"]["configuration_sha256"]
-        == Registration.load(config).digest
-    )
+    assert len(cells) == 9
+    assert all(cell["healthy"] for cell in cells)
+    assert {cell["path"] for cell in cells} == {"direct", "independent", candidate}
+    for cell in cells:
+        workers = cast("list[JsonDict]", cell["workers_measured"])
+        assert [worker["streams"] for worker in workers] == [
+            1 if cell["path"] == "independent" else 0
+        ] * len(workers)
+        if cell["path"] == candidate:
+            owner = cast("JsonDict", cell["owner"])
+            before = cast("JsonDict", owner["before"])
+            assert (
+                cast("dict[str, int]", before["upstream_commands"])["stream:opened"]
+                == 1
+            )
+            assert cast("dict[str, int]", owner["commands"])["stream:opened"] == 0
+            assert owner["health"] == "healthy"
+    environment = cast("JsonDict", report["environment"])
+    assert environment["configuration_sha256"] == Registration.load(config).digest
+    native = cast("JsonDict", environment["native_extension"])
+    assert cast("str", native["rustc"]).startswith("rustc version ")
 
 
 def test_smoke_command_rejects_a_failed_window(

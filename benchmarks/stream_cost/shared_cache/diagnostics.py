@@ -174,7 +174,7 @@ def socket_diagnostics(
             )
         directory = tempfile.mkdtemp(prefix="socket-diagnostic-")
         config = owner_config(
-            registration, replica.uri, directory, secrets.token_bytes(32)
+            registration, replica.uri, directory, secrets.token_bytes(32), "shared"
         )
         context = multiprocessing.get_context("spawn")
         parent, child = context.Pipe()
