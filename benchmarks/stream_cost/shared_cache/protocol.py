@@ -430,6 +430,14 @@ def measurement_environment(environment: JsonDict) -> JsonDict:
     }
 
 
+def throughput(record: JsonDict) -> float:
+    workers = cast("list[JsonDict]", record["workers_measured"])
+    elapsed = max(
+        cast("float", cast("JsonDict", worker["loop"])["elapsed"]) for worker in workers
+    )
+    return cast("int", record["completed"]) / elapsed
+
+
 def validation_failure(record: JsonDict, registration: Registration) -> str | None:
     offered = cast("int", record["offered"])
     in_window = cast("int", record["completed_in_window"])

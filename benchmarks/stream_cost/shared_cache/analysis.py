@@ -19,6 +19,7 @@ from benchmarks.stream_cost.shared_cache.protocol import (
     Registration,
     measurement_environment,
     phase_blocks,
+    throughput,
     validation_failure,
 )
 from client_query_cache._types import JsonDict, NonNegativeInt, PositiveInt
@@ -100,6 +101,12 @@ CRITERIA: tuple[Criterion, ...] = (
         "delta",
         "lag_p95_delta_seconds",
     ),
+)
+
+
+_CAPACITY_CRITERIA: tuple[tuple[str, str, str], ...] = (
+    ("capacity-independent", "independent", "capacity_independent_ratio"),
+    ("capacity-direct", "direct", "capacity_direct_ratio"),
 )
 
 
@@ -422,6 +429,44 @@ def compare(
     return comparisons
 
 
+def capacity_statistics(record: JsonDict) -> dict[str, float]:
+    return {"throughput": throughput(record)}
+
+
+def compare_capacity(
+    cells: dict[CellKey, dict[str, dict[int, dict[str, float] | None]]],
+    settings: InferenceSettings,
+) -> list[Comparison]:
+    comparisons: list[Comparison] = []
+    for candidate in settings.candidates:
+        for key, cell in sorted(cells.items()):
+            for name, baseline, threshold_key in _CAPACITY_CRITERIA:
+                threshold = cast("float", settings.gate[threshold_key])
+                pairs = _pairs(cell, candidate, "throughput", baseline, settings.blocks)
+                point: float | None = None
+                outcome: Literal["pass", "fail", "missing"] = "missing"
+                if pairs is not None:
+                    point = min(
+                        measured / reference
+                        for measured, reference in zip(*pairs, strict=True)
+                    )
+                    outcome = "pass" if point >= threshold else "fail"
+                comparisons.append(
+                    Comparison(
+                        name,
+                        candidate,
+                        key,
+                        "throughput",
+                        settings.blocks,
+                        point,
+                        None,
+                        threshold,
+                        outcome,
+                    )
+                )
+    return comparisons
+
+
 def _compare(
     criterion: Criterion,
     key: CellKey,
@@ -547,7 +592,11 @@ def decide(
         record for record in records if cast("int", record["workers"]) in {4, 8}
     ]
     settings = InferenceSettings.load(registration, blocks, inference=inference)
-    comparisons = compare(paired_blocks(required), settings)
+    comparisons = (
+        compare_capacity(paired_blocks(required, capacity_statistics), settings)
+        if phase == "capacity"
+        else compare(paired_blocks(required), settings)
+    )
     failures = completion_failures(records, registration)
     failed = [comparison for comparison in comparisons if comparison.outcome != "pass"]
     verdicts: dict[str, str] = {}
