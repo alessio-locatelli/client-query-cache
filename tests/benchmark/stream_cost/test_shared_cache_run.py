@@ -33,6 +33,7 @@ from benchmarks.stream_cost.shared_cache.protocol import (
     path_order,
     probe_cells,
     smoke_cells,
+    throughput,
     validation_cells,
     validation_failure,
     window_for,
@@ -670,7 +671,7 @@ def test_throughput_uses_the_slowest_worker_elapsed_time(
 ) -> None:
     record = _record(probe_cells(registration)[0], completed=500)
 
-    assert run.throughput(record) == pytest.approx(50.0)
+    assert throughput(record) == pytest.approx(50.0)
 
 
 @pytest.mark.parametrize("seed", [197, 1970])
@@ -1093,6 +1094,70 @@ def test_confirmation_decisions_require_every_bound(
     decision = analysis.decide(records, small, phase="confirmation", blocks=4)
 
     assert decision["verdicts"] == {"shared": verdict}
+
+
+@pytest.mark.parametrize(
+    ("candidate_reads", "outcomes", "verdict"),
+    [
+        pytest.param(
+            [950, 960, 970],
+            {"capacity-independent": "pass", "capacity-direct": "pass"},
+            "promote",
+            id="every-window-passes",
+        ),
+        pytest.param(
+            [950, 850, 970],
+            {"capacity-independent": "fail", "capacity-direct": "pass"},
+            "defer",
+            id="one-window-below-independent",
+        ),
+        pytest.param(
+            [950, 960, 700],
+            {"capacity-independent": "fail", "capacity-direct": "fail"},
+            "defer",
+            id="one-window-below-direct",
+        ),
+    ],
+)
+def test_capacity_holds_in_every_window_of_each_point(
+    v5_frozen: Registration,
+    candidate_reads: list[int],
+    outcomes: dict[str, str],
+    verdict: str,
+) -> None:
+    reads = {"direct": 600, "independent": 1_000}
+    records = []
+    for cell in capacity_cells(v5_frozen):
+        if cell.workers != 4 or cell.model != "sync" or cell.concurrency != 4:
+            continue
+        completed = (
+            candidate_reads[cell.block]
+            if cell.path == "shared-index"
+            else reads[cell.path]
+        )
+        records.append(_record(cell, completed=completed))
+
+    decision = analysis.decide(records, v5_frozen, phase="capacity", blocks=3)
+
+    comparisons = cast("list[JsonDict]", decision["comparisons"])
+    assert {item["criterion"]: item["outcome"] for item in comparisons} == outcomes
+    assert decision["verdicts"] == {"shared-index": verdict}
+
+
+def test_capacity_without_a_window_is_missing(v5_frozen: Registration) -> None:
+    records = [
+        _record(cell)
+        for cell in capacity_cells(v5_frozen)
+        if cell.workers == 8 and cell.model == "async" and cell.concurrency == 16
+        if cell.block < 2 or cell.path != "direct"
+    ]
+
+    decision = analysis.decide(records, v5_frozen, phase="capacity", blocks=3)
+
+    assert {
+        item["criterion"]: item["outcome"]
+        for item in cast("list[JsonDict]", decision["comparisons"])
+    } == {"capacity-independent": "pass", "capacity-direct": "missing"}
 
 
 def test_processor_name_falls_back_without_a_model_line() -> None:

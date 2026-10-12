@@ -150,6 +150,7 @@ v4's [outcome handling](../archive/2026-10-10-investigate-shared-worker-cache/de
 - **No candidate built.** The crate and floor programs stay as research sources outside the `dev` group. Drop the development-environment delta and the toolchain changes. The report gives the cargo-based reproduction commands.
 - **Negative verdict after candidates ran.** Publish a permanent tag for the measured source and verify the smoke run from a clean detached worktree at that tag. Then remove the crate, the candidate adapters, the toolchain changes and the development-environment delta. Also remove the core seams, unless another use justifies them. Rust should not remain a contributor requirement for research that failed.
 - **Passing verdict.** Everything stays, and the report opens the integration issue that the non-goals defer.
+- **Every measured criterion passes, but registered evidence is missing.** Version 4's protocol registers a timed `fault` phase that the harness cannot run, because version 4 stopped at screening before needing it. The verdict is `defer`, not negative: everything stays, the report names the missing evidence, and a follow-up issue owns the timed fault phase. The deterministic safety scenarios still gate the candidate.
 
 In every case, the [research report](../../../docs/development/research/shared-worker-cache-feasibility.md) gains a version 5 section with the floors, the verdict, the bottleneck and the reproduction commands. Issue #229 closes only on a passing verdict.
 

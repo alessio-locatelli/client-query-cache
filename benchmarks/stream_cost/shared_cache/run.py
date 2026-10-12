@@ -31,6 +31,7 @@ from benchmarks.stream_cost.shared_cache.protocol import (
     probe_cells,
     required_samples,
     smoke_cells,
+    throughput,
     validation_cells,
     validation_failure,
     window_for,
@@ -207,14 +208,6 @@ def reused_probes(path: Path) -> list[JsonDict]:
         message = "reused probes need a calibration report with healthy probes"
         raise BenchmarkSetupError(message)
     return probes
-
-
-def throughput(record: JsonDict) -> float:
-    workers = cast("list[JsonDict]", record["workers_measured"])
-    elapsed = max(
-        cast("float", cast("JsonDict", worker["loop"])["elapsed"]) for worker in workers
-    )
-    return cast("int", record["completed"]) / elapsed
 
 
 def select_rate(
