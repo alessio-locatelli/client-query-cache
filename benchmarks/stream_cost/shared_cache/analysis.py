@@ -15,6 +15,7 @@ from benchmarks.stream_cost.errors import (
     BenchmarkSetupError,
 )
 from benchmarks.stream_cost.shared_cache.protocol import (
+    BASELINES,
     Registration,
     measurement_environment,
     phase_blocks,
@@ -122,7 +123,7 @@ def _outcome_total(record: JsonDict, outcome: str) -> int:
 
 
 def _lag_values(record: JsonDict) -> list[float]:
-    if record["path"] == "shared":
+    if record["path"] not in BASELINES:
         windows = cast(
             "list[list[float]]", cast("JsonDict", record["owner"])["lag_windows"]
         )
@@ -327,6 +328,7 @@ def bootstrap(
 @dataclass(frozen=True, slots=True)
 class Comparison:
     criterion: str
+    candidate: str
     cell: CellKey
     metric: str
     blocks: NonNegativeInt
@@ -338,19 +340,20 @@ class Comparison:
 
 def _pairs(
     cell: dict[str, dict[int, dict[str, float] | None]],
+    path: str,
     metric: str,
     baseline: str,
     blocks: NonNegativeInt,
 ) -> tuple[list[float], list[float]] | None:
     try:
-        shared, reference = cell["shared"], cell[baseline]
+        measured, reference = cell[path], cell[baseline]
     except KeyError:
         return None
     candidate: list[float] = []
     control: list[float] = []
     for block in range(blocks):
         try:
-            left, right = shared[block], reference[block]
+            left, right = measured[block], reference[block]
         except KeyError:
             return None
         if left is None or right is None:
@@ -365,6 +368,7 @@ def _pairs(
 
 @dataclass(frozen=True, slots=True)
 class InferenceSettings:
+    candidates: tuple[str, ...]
     blocks: NonNegativeInt
     inference: bool
     confidence: float
@@ -378,10 +382,17 @@ class InferenceSettings:
         cls, registration: Registration, blocks: NonNegativeInt, *, inference: bool
     ) -> InferenceSettings:
         settings = registration.section("inference")
+        candidates = registration.candidates
         return cls(
+            candidates=candidates,
             blocks=blocks,
             inference=inference,
-            confidence=cast("float", settings["confidence"]),
+            confidence=cast(
+                "float",
+                settings[
+                    "confidence" if len(candidates) == 1 else "two_candidate_confidence"
+                ],
+            ),
             draws=cast("int", settings["draws"]),
             seeds=tuple(cast("list[int]", settings["seeds"])),
             leave_one_out_draws=cast("int", settings["leave_one_out_draws"]),
@@ -394,18 +405,20 @@ def compare(
     settings: InferenceSettings,
 ) -> list[Comparison]:
     comparisons: list[Comparison] = []
-    for key, cell in sorted(cells.items()):
-        for criterion in CRITERIA:
-            if key[0] not in criterion.workloads:
-                continue
-            metrics = (
-                [f"{criterion.metric}_sync", f"{criterion.metric}_async"]
-                if key[2] == "mixed" and criterion.metric == "request_p99"
-                else [criterion.metric]
-            )
-            comparisons.extend(
-                _compare(criterion, key, cell, metric, settings) for metric in metrics
-            )
+    for candidate in settings.candidates:
+        for key, cell in sorted(cells.items()):
+            for criterion in CRITERIA:
+                if key[0] not in criterion.workloads:
+                    continue
+                metrics = (
+                    [f"{criterion.metric}_sync", f"{criterion.metric}_async"]
+                    if key[2] == "mixed" and criterion.metric == "request_p99"
+                    else [criterion.metric]
+                )
+                comparisons.extend(
+                    _compare(criterion, key, cell, metric, settings, path=candidate)
+                    for metric in metrics
+                )
     return comparisons
 
 
@@ -415,12 +428,15 @@ def _compare(
     cell: dict[str, dict[int, dict[str, float] | None]],
     metric: str,
     settings: InferenceSettings,
+    *,
+    path: str,
 ) -> Comparison:
     threshold = cast("float", settings.gate[criterion.threshold_key])
-    pairs = _pairs(cell, metric, criterion.baseline, settings.blocks)
+    pairs = _pairs(cell, path, metric, criterion.baseline, settings.blocks)
     if pairs is None:
         return Comparison(
             criterion.name,
+            path,
             key,
             metric,
             settings.blocks,
@@ -434,6 +450,7 @@ def _compare(
     if not settings.inference:
         return Comparison(
             criterion.name,
+            path,
             key,
             metric,
             settings.blocks,
@@ -468,8 +485,8 @@ def _compare(
     if criterion.metric == "lag_p95":
         expansion = max(
             statistics["lag_uncertainty"]
-            for path in ("shared", criterion.baseline)
-            for statistics in cell[path].values()
+            for measured in (path, criterion.baseline)
+            for statistics in cell[measured].values()
             if statistics is not None
         )
         uppers = [upper + expansion for upper in uppers]
@@ -479,6 +496,7 @@ def _compare(
     )
     return Comparison(
         criterion.name,
+        path,
         key,
         metric,
         settings.blocks,
@@ -528,19 +546,22 @@ def decide(
     required = [
         record for record in records if cast("int", record["workers"]) in {4, 8}
     ]
-    comparisons = compare(
-        paired_blocks(required),
-        InferenceSettings.load(registration, blocks, inference=inference),
-    )
+    settings = InferenceSettings.load(registration, blocks, inference=inference)
+    comparisons = compare(paired_blocks(required), settings)
     failures = completion_failures(records, registration)
     failed = [comparison for comparison in comparisons if comparison.outcome != "pass"]
-    if inference:
-        verdict = "promote" if not failed and not failures else "defer"
-    else:
-        verdict = "stop" if failed or failures else "continue"
+    verdicts: dict[str, str] = {}
+    for candidate in settings.candidates:
+        blocked = any(item.candidate == candidate for item in failed) or any(
+            failure["path"] in {candidate, *BASELINES} for failure in failures
+        )
+        if inference:
+            verdicts[candidate] = "defer" if blocked else "promote"
+        else:
+            verdicts[candidate] = "stop" if blocked else "continue"
     return {
         "phase": phase,
-        "verdict": verdict,
+        "verdicts": verdicts,
         "completion_failures": failures,
         "comparisons": [asdict(comparison) for comparison in comparisons],
         "failed": [asdict(comparison) for comparison in failed],
@@ -593,7 +614,7 @@ def exclusion_reason(record: JsonDict, registration: Registration) -> str | None
     workers = cast("list[JsonDict]", record["workers_measured"])
     if any(cast("int", worker["streams"]) != per_worker for worker in workers):
         return "observed stream openings differ from the registered count"
-    if record["path"] == "shared":
+    if record["path"] not in BASELINES:
         owner = cast("JsonDict", record["owner"])
         commands = cast("dict[str, int]", owner["commands"])
         if owner["health"] != "healthy" or commands["stream:opened"]:

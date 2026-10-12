@@ -35,11 +35,11 @@ Execute the sections in order. Task 1.4 decides whether sections 2–5 run. [Out
 
 ## 4. Native-owner candidate
 
-- [ ] 4.1 Build candidate B only if task 1.4 or a recorded candidate A stop selects it under the registered order; otherwise check this task as not applicable with that reason. Add a native owner thread to the crate that serves `select-identity` hits from the index and forwards other frames to the Python loop. If F3 made B eligible, add asyncio selection batching. Add a `shared-native-rpc` adapter mode and extend `test_adapter_paths.py` and `test_scenarios.py` with v4's paused-owner deadline, owner restart and malformed-frame cases for that mode. Verify with `cargo test` and `just pytest -- tests/shared_cache`.
+- [x] 4.1 Not applicable: task 1.4 selected A, and A has recorded no stop for a failed safety scenario or the memory criterion. Build candidate B only if task 1.4 or a recorded candidate A stop selects it under the registered order; otherwise check this task as not applicable with that reason. Add a native owner thread to the crate that serves `select-identity` hits from the index and forwards other frames to the Python loop. If F3 made B eligible, add asyncio selection batching. Add a `shared-native-rpc` adapter mode and extend `test_adapter_paths.py` and `test_scenarios.py` with v4's paused-owner deadline, owner restart and malformed-frame cases for that mode. Verify with `cargo test` and `just pytest -- tests/shared_cache`.
 
 ## 5. Registration version 5 and evidence
 
-- [ ] 5.1 Confirm that tasks 1.1 and 1.2 of `benchmark-concurrent-worker-workload` are checked and merged into this branch's base; otherwise stop and report the blocker. Then do the following:
+- [x] 5.1 Confirm that tasks 1.1 and 1.2 of `benchmark-concurrent-worker-workload` are checked and merged into this branch's base; otherwise stop and report the blocker. Then do the following:
   - Register the built candidate paths with the harness (`protocol.py`, `window.py`, `run.py`).
   - Make `analysis.py` compare each candidate path instead of the literal `shared`.
   - Create `reports/shared-worker-cache/v5/config.json` with status `pending-calibration`, using v4's values plus the differences in [Registration version 5](design.md#registration-version-5).

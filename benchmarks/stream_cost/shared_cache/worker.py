@@ -17,7 +17,9 @@ from benchmarks.stream_cost.shared_cache.adapters import (
 )
 from benchmarks.stream_cost.shared_cache.attachment import (
     AsyncEndpoint,
+    AsyncLocalIndex,
     AttachmentConfig,
+    LocalIndex,
     SyncEndpoint,
 )
 from benchmarks.stream_cost.shared_cache.dataset import checksum
@@ -295,9 +297,16 @@ def sync_worker(connection: Connection, spec: WorkerSpec) -> None:
                         max_await_time_ms=spec.max_await_time_ms,
                     )
                     collection = manager[spec.database][spec.collection]  # type: ignore[assignment]
-                case _:
-                    assert spec.attachment is not None
-                    manager = SharedCacheManager(client, SyncEndpoint(spec.attachment))
+                case path:
+                    attachment = spec.attachment
+                    assert attachment is not None
+                    manager = SharedCacheManager(
+                        client,
+                        SyncEndpoint(attachment),
+                        LocalIndex.attach(attachment)
+                        if path == "shared-index"
+                        else None,
+                    )
                     collection = manager[spec.database][spec.collection]  # type: ignore[assignment]
 
             def read(key: NonNegativeInt) -> None:
@@ -433,10 +442,15 @@ async def async_worker(connection: Connection, spec: WorkerSpec) -> None:
                         max_await_time_ms=spec.max_await_time_ms,
                     )
                     collection = manager[spec.database][spec.collection]  # type: ignore[assignment]
-                case _:
-                    assert spec.attachment is not None
+                case path:
+                    attachment = spec.attachment
+                    assert attachment is not None
                     manager = AsyncSharedCacheManager(
-                        client, await AsyncEndpoint.attach(spec.attachment)
+                        client,
+                        await AsyncEndpoint.attach(attachment),
+                        await AsyncLocalIndex.attach(attachment)
+                        if path == "shared-index"
+                        else None,
                     )
                     collection = manager[spec.database][spec.collection]  # type: ignore[assignment]
 

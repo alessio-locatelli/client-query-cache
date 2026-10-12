@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Literal, cast
 
 from benchmarks.stream_cost.errors import BenchmarkConfigurationError
 from benchmarks.stream_cost.shared_cache.coordinator import TransportLimits
+from benchmarks.stream_cost.shared_cache.shared_index import SharedIndexLimits
 from client_query_cache._types import (
     JsonDict,
     NonNegativeFloat,
@@ -22,7 +23,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
-type PathKind = Literal["direct", "independent", "shared"]
+type PathKind = Literal["direct", "independent", "shared", "shared-index"]
 type Model = Literal["sync", "async", "mixed"]
 type Workload = Literal["hot", "active", "cold"]
 type Loop = Literal["open", "closed"]
@@ -31,6 +32,7 @@ type CellSpec = tuple[str, Model, PositiveInt]
 
 BASELINES: tuple[PathKind, ...] = ("direct", "independent")
 _V4_PATHS: tuple[PathKind, ...] = ("direct", "independent", "shared")
+_PATHS: frozenset[str] = frozenset((*_V4_PATHS, "shared-index"))
 _V4_MODELS: tuple[Model, ...] = ("sync", "async")
 _MODELS: frozenset[str] = frozenset(("sync", "async", "mixed"))
 _KEY_ASSIGNMENTS: frozenset[str] = frozenset(("partitioned", "shared"))
@@ -71,12 +73,12 @@ class Registration:
         return kinds
 
     def _validate_cold_routing(self) -> None:
-        if self.key_assignment != "shared" or "shared" not in self.paths:
+        if self.key_assignment != "shared" or not self.candidates:
             return
         if "cold" in self._cell_kinds(smoke=True):
             message = (
                 "shared key assignment lets workers repeat cold keys, "
-                "so the shared path cannot measure all-miss cold windows"
+                "so a shared-owner path cannot measure all-miss cold windows"
             )
             raise BenchmarkConfigurationError(message)
 
@@ -151,11 +153,14 @@ class Registration:
             message = "key_assignment must be partitioned or shared"
             raise BenchmarkConfigurationError(message)
         paths = self.paths
-        if not paths or not set(paths) <= set(_V4_PATHS):
-            message = "paths must list direct, independent or shared"
+        if not paths or not set(paths) <= _PATHS:
+            message = "paths must list direct, independent, shared or shared-index"
             raise BenchmarkConfigurationError(message)
         if len(set(paths)) != len(paths):
             message = "paths must not repeat a path"
+            raise BenchmarkConfigurationError(message)
+        if "shared-index" in paths and "shared_index" not in self.raw:
+            message = "the shared-index path needs shared_index capacities"
             raise BenchmarkConfigurationError(message)
 
     @classmethod
@@ -186,6 +191,10 @@ class Registration:
         return tuple(cast("list[PathKind]", paths))
 
     @property
+    def candidates(self) -> tuple[PathKind, ...]:
+        return tuple(path for path in self.paths if path not in BASELINES)
+
+    @property
     def categories(self) -> PositiveInt:
         try:
             return cast("int", self.raw["categories"])
@@ -211,6 +220,9 @@ class Registration:
 
     def limits(self) -> TransportLimits:
         return TransportLimits(**cast("dict[str, float]", self.section("transport")))  # type: ignore[arg-type]
+
+    def shared_index(self) -> SharedIndexLimits:
+        return SharedIndexLimits(**cast("dict[str, int]", self.section("shared_index")))
 
     def rate(self, family: str) -> PositiveFloat:
         rates = cast("JsonDict", self.section("frozen")["rates"])

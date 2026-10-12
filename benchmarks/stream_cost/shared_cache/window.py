@@ -34,7 +34,11 @@ from benchmarks.stream_cost.shared_cache.coordinator import OwnerConfig
 from benchmarks.stream_cost.shared_cache.dataset import seed_catalogue
 from benchmarks.stream_cost.shared_cache.owner import owner_main, proxy_for
 from benchmarks.stream_cost.shared_cache.profiling import enabled as profiling_enabled
-from benchmarks.stream_cost.shared_cache.protocol import profile_keys, write_count
+from benchmarks.stream_cost.shared_cache.protocol import (
+    BASELINES,
+    profile_keys,
+    write_count,
+)
 from benchmarks.stream_cost.shared_cache.worker import WorkerSpec, worker_main
 from benchmarks.stream_cost.shared_cache.workload import (
     assignment_for,
@@ -57,7 +61,11 @@ if TYPE_CHECKING:
 
     from pymongo.synchronous.collection import Collection
 
-    from benchmarks.stream_cost.shared_cache.protocol import Cell, Registration
+    from benchmarks.stream_cost.shared_cache.protocol import (
+        Cell,
+        PathKind,
+        Registration,
+    )
     from benchmarks.stream_cost.topology import IsolatedReplicaSet
 
 type Payload = dict[str, object]
@@ -195,7 +203,11 @@ def _lag_capture(registration: Registration) -> tuple[int, int, int]:
 
 
 def owner_config(
-    registration: Registration, uri: str, directory: str, capability: bytes
+    registration: Registration,
+    uri: str,
+    directory: str,
+    capability: bytes,
+    path: PathKind,
 ) -> OwnerConfig:
     return OwnerConfig(
         socket_path=os.path.join(directory, "owner.sock"),  # noqa: PTH118
@@ -208,6 +220,7 @@ def owner_config(
         max_await_time_ms=cast("int", registration.raw["max_await_time_ms"]),
         limits=registration.limits(),
         lag_capture=_lag_capture(registration),
+        shared_index=registration.shared_index() if path == "shared-index" else None,
     )
 
 
@@ -246,11 +259,15 @@ class ProcessGroup:
         self.owner_pid: NonNegativeInt | None = None
 
     def start_owner(
-        self, registration: Registration, uri: str, deadline: NonNegativeFloat
+        self,
+        registration: Registration,
+        uri: str,
+        deadline: NonNegativeFloat,
+        path: PathKind,
     ) -> AttachmentConfig:
         self._directory = tempfile.mkdtemp(prefix="shared-cache-")
         config = owner_config(
-            registration, uri, self._directory, secrets.token_bytes(32)
+            registration, uri, self._directory, secrets.token_bytes(32), path
         )
         parent, child = self._context.Pipe()
         self.owner = self._context.Process(target=owner_main, args=(config, child))
@@ -326,7 +343,7 @@ def _warm_key(
     workload: _Workload,
     index: NonNegativeInt,
 ) -> NonNegativeInt:
-    workers = range(cell.workers) if cell.path == "shared" else (index,)
+    workers = range(cell.workers) if cell.path not in BASELINES else (index,)
     assignments = {
         worker: assignment_for(
             cell,
@@ -396,6 +413,13 @@ def _verify_ready(
             workload.expected_entries
         ):
             raise BenchmarkSetupError("shared working set was not fully admitted")
+        if (
+            cell.path == "shared-index"
+            and workload.read == "find_one"
+            and _count(primed, "observation", "shared_index", "published")
+            < workload.expected_entries
+        ):
+            raise BenchmarkSetupError("shared index did not publish the working set")
         group.owner_request({"op": "reset"}, deadline)
     per_worker = 1 if cell.path == "independent" else 0
     if any(_count(sample, "streams") != per_worker for sample in ready):
@@ -528,8 +552,8 @@ def run_window(
         )
         startup_deadline = time.monotonic() + registration.number("startup_seconds")
         attachment = (
-            group.start_owner(registration, replica.uri, startup_deadline)
-            if cell.path == "shared"
+            group.start_owner(registration, replica.uri, startup_deadline, cell.path)
+            if cell.path not in BASELINES
             else None
         )
         for index in range(cell.workers):

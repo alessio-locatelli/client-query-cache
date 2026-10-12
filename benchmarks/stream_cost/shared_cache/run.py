@@ -9,7 +9,9 @@ import shutil
 import subprocess
 import sys
 from dataclasses import asdict
-from importlib.metadata import version
+from email.parser import Parser
+from hashlib import sha256
+from importlib.metadata import distribution, version
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
@@ -45,6 +47,10 @@ if TYPE_CHECKING:
 
 _CONFIG = Path("reports/shared-worker-cache/v4/config.json")
 _CEILING_FAMILY = "primary"
+_NATIVE_DISTRIBUTION = "client-query-cache-shared-index"
+_NATIVE_PACKAGE = "client_query_cache_shared_index"
+_CARGO_LOCK = Path("native/shared-index/Cargo.lock")
+_RUSTC_MARKER = b"rustc version "
 
 
 def environment(registration: Registration) -> JsonDict:
@@ -54,7 +60,16 @@ def environment(registration: Registration) -> JsonDict:
     revision = subprocess.check_output([git, "rev-parse", "HEAD"], text=True).strip()  # noqa: S603
     dirty = bool(
         subprocess.check_output(  # noqa: S603
-            [git, "status", "--porcelain", "--", "benchmarks", "src", "reports"],
+            [
+                git,
+                "status",
+                "--porcelain",
+                "--",
+                "benchmarks",
+                "native",
+                "src",
+                "reports",
+            ],
             text=True,
         ).strip()
     )
@@ -77,6 +92,22 @@ def environment(registration: Registration) -> JsonDict:
         "start_method": registration.raw["start_method"],
         "client_options": registration.section("client_options"),
         "transport": "unix-domain socket, length-prefixed BSON frames",
+        "native_extension": native_extension(),
+    }
+
+
+def native_extension() -> JsonDict:
+    installed = distribution(_NATIVE_DISTRIBUTION)
+    package = Path(str(installed.locate_file(_NATIVE_PACKAGE)))
+    binary = next(package.glob("*.so")).read_bytes()
+    start = binary.index(_RUSTC_MARKER)
+    wheel = Parser().parsestr(cast("str", installed.read_text("WHEEL")))
+    return {
+        "version": version(_NATIVE_DISTRIBUTION),
+        "rustc": binary[start : binary.index(b"\0", start)].decode(),
+        "generator": wheel["Generator"],
+        "tag": wheel["Tag"],
+        "cargo_lock_sha256": sha256(_CARGO_LOCK.read_bytes()).hexdigest(),
     }
 
 
