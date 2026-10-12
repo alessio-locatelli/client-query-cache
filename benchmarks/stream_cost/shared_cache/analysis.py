@@ -17,6 +17,8 @@ from benchmarks.stream_cost.errors import (
 from benchmarks.stream_cost.shared_cache.protocol import (
     BASELINES,
     Registration,
+    capacity_cells,
+    comparison_cells,
     measurement_environment,
     phase_blocks,
     throughput,
@@ -104,6 +106,7 @@ CRITERIA: tuple[Criterion, ...] = (
 )
 
 
+_REQUIRED_WORKERS: frozenset[int] = frozenset((4, 8))
 _CAPACITY_CRITERIA: tuple[tuple[str, str, str], ...] = (
     ("capacity-independent", "independent", "capacity_independent_ratio"),
     ("capacity-direct", "direct", "capacity_direct_ratio"),
@@ -589,13 +592,25 @@ def decide(
 ) -> JsonDict:
     inference = phase != "screening"
     required = [
-        record for record in records if cast("int", record["workers"]) in {4, 8}
+        record
+        for record in records
+        if cast("int", record["workers"]) in _REQUIRED_WORKERS
     ]
     settings = InferenceSettings.load(registration, blocks, inference=inference)
+    capacity = phase == "capacity"
+    cells = paired_blocks(
+        required, capacity_statistics if capacity else block_statistics
+    )
+    planned = (
+        capacity_cells(registration)
+        if capacity
+        else comparison_cells(registration, phase)
+    )
+    for cell in planned:
+        if cell.workers in _REQUIRED_WORKERS:
+            cells.setdefault(cell_key(asdict(cell)), {})
     comparisons = (
-        compare_capacity(paired_blocks(required, capacity_statistics), settings)
-        if phase == "capacity"
-        else compare(paired_blocks(required), settings)
+        compare_capacity(cells, settings) if capacity else compare(cells, settings)
     )
     failures = completion_failures(records, registration)
     failed = [comparison for comparison in comparisons if comparison.outcome != "pass"]
