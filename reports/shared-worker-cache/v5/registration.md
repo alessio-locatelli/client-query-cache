@@ -2,7 +2,7 @@
 
 Version 5 asks whether a shared worker cache that avoids the owner round trip on hits can pass the [version 4](../v4/registration.md) gate. It reuses version 4's workload, data, phases, counterbalancing, estimands, inference, bounds and gate; version 4 stays their source. The [design](../../../openspec/changes/reduce-shared-cache-overhead/design.md) records the rationale for every difference.
 
-**Status:** pending calibration. The machine-readable values live in [config.json](config.json). The candidate selection rule was registered before any floor was measured, and the paths, bounds, integration criterion, fault cases and reproduction commands below before baseline calibration. Freezing records the calibration result here and in `config.json`.
+**Status:** frozen. The machine-readable values live in [config.json](config.json). The candidate selection rule was registered before any floor was measured, and the paths, bounds, integration criterion, fault cases and reproduction commands below before baseline calibration. The frozen `config.json` has SHA-256 `57f4fcce3a96b6a04d0d0020f270411875806971126ecb2298bdc80e49df7580`, which every candidate report must carry. Any change to this file or `config.json` after a candidate measurement starts requires a new registration version and fresh affected comparisons; earlier outcomes are retained.
 
 ## Candidate selection
 
@@ -124,6 +124,20 @@ cargo test --manifest-path native/shared-index/Cargo.toml
 RUSTFLAGS="--cfg loom" cargo test --release --manifest-path native/shared-index/Cargo.toml
 just pytest -- tests/shared_cache tests/benchmark/stream_cost/test_shared_cache_run.py tests/benchmark/stream_cost/test_shared_cache_run_integration.py
 ```
+
+## Calibration result
+
+Version 5's baseline-only calibration followed version 4's rule at revision `59c5dbd09c04cb272c4e2f66f83eb5225a6d1481` from the pending configuration with SHA-256 `318ba02bee6625ef6507869a0ac66e5eb6c5e9d8d3532a488b24a74328b57da5`. All 294 windows were healthy: 114 closed-loop probes and 180 open-loop validations. Throughput is reads/s, and the ranges are the three probe windows of the weakest cell in each family.
+
+| Family      | Weakest probe cell                  | Probe throughput | Rate attempts                                                                                        | Frozen rate | Frozen window         |
+| ----------- | ----------------------------------- | ---------------: | ---------------------------------------------------------------------------------------------------- | ----------: | --------------------- |
+| Primary     | direct, synchronous, one worker     |      2,604–2,706 | 1,953 failed: the one-worker synchronous direct cells completed 95.8–97.0% in the window; 976 passed |         976 | hot 30 s, active 60 s |
+| Cold miss   | independent, asyncio, 4 workers     |      8,946–9,216 | 976 (primary rate) passed                                                                            |         976 | 10.2 s                |
+| Sensitivity | direct `find16`, asyncio, 8 workers |          426–451 | 319 passed                                                                                           |         319 | 32 s                  |
+
+In primary-family probes, independent managers sustained 34,100–164,400 reads/s and direct reads 2,600–22,900 reads/s, so every frozen rate leaves both baselines well below saturation at four and eight workers. Validation windows issued every write within 3 ms of schedule; the slowest write took 0.44 s.
+
+The test host's one-worker direct probes ran slower than version 4's 3,380–3,626 reads/s, so the primary rate fell from version 4's 1,267 to 976 reads/s. Versions are therefore compared only within this registration. The calibration ran in three consecutive invocations, because the agent's task runner stops a command after two hours: the second and third resumed the earlier report with `--resume` at the same revision and registration, copying the completed windows and running the rest fresh. The frozen values come from the third report.
 
 ## Reproduction
 
