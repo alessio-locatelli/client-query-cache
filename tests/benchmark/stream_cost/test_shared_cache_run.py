@@ -845,11 +845,14 @@ def _comparison_records(
     shared_pss: float,
     blocks: int,
     phase: str = "confirmation",
+    complete: bool = False,
 ) -> list[JsonDict]:
     cells = [
         cell
         for cell in comparison_cells(frozen, phase)
-        if cell.block < blocks and cell.workers == 4 and cell.model == "sync"
+        if cell.block < blocks
+        and cell.workers in {4, 8}
+        and (complete or (cell.workers == 4 and cell.model == "sync"))
     ]
     return [
         _record(
@@ -1089,11 +1092,44 @@ def test_confirmation_decisions_require_every_bound(
     raw = copy.deepcopy(frozen.raw)
     cast("JsonDict", raw["inference"]).update({"draws": 200, "leave_one_out_draws": 50})
     small = replace(frozen, raw=raw)
-    records = _comparison_records(small, shared_pss=shared_pss, blocks=4)
+    records = _comparison_records(small, shared_pss=shared_pss, blocks=4, complete=True)
 
     decision = analysis.decide(records, small, phase="confirmation", blocks=4)
 
     assert decision["verdicts"] == {"shared": verdict}
+
+
+def test_a_registered_cell_without_records_blocks_promotion(
+    frozen: Registration,
+) -> None:
+    records = [
+        record
+        for record in _comparison_records(
+            frozen, shared_pss=50.0, blocks=6, phase="screening", complete=True
+        )
+        if (record["model"], record["workers"]) != ("async", 8)
+    ]
+
+    decision = analysis.decide(records, frozen, phase="screening", blocks=6)
+
+    assert decision["verdicts"] == {"shared": "stop"}
+    missing = {
+        cast("tuple[object, ...]", item["cell"])
+        for item in cast("list[JsonDict]", decision["failed"])
+        if item["outcome"] == "missing"
+    }
+    assert missing == {("hot", "primary", "async", 8)}
+
+
+_CAPACITY_POINT = ("shared-index", "sync", 4, 4)
+
+
+def _capacity_outcomes(decision: JsonDict) -> dict[str, str]:
+    return {
+        cast("str", item["criterion"]): cast("str", item["outcome"])
+        for item in cast("list[JsonDict]", decision["comparisons"])
+        if cast("tuple[object, ...]", item["cell"])[2:] == _CAPACITY_POINT[1:]
+    }
 
 
 @pytest.mark.parametrize(
@@ -1125,39 +1161,39 @@ def test_capacity_holds_in_every_window_of_each_point(
     outcomes: dict[str, str],
     verdict: str,
 ) -> None:
-    reads = {"direct": 600, "independent": 1_000}
-    records = []
-    for cell in capacity_cells(v5_frozen):
-        if cell.workers != 4 or cell.model != "sync" or cell.concurrency != 4:
-            continue
-        completed = (
-            candidate_reads[cell.block]
-            if cell.path == "shared-index"
-            else reads[cell.path]
+    reads = {"direct": 600, "independent": 1_000, "shared-index": 1_000}
+    records = [
+        _record(
+            cell,
+            completed=candidate_reads[cell.block]
+            if (cell.path, cell.model, cell.workers, cell.concurrency)
+            == _CAPACITY_POINT
+            else reads[cell.path],
         )
-        records.append(_record(cell, completed=completed))
+        for cell in capacity_cells(v5_frozen)
+        if cell.workers in {4, 8}
+    ]
 
     decision = analysis.decide(records, v5_frozen, phase="capacity", blocks=3)
 
-    comparisons = cast("list[JsonDict]", decision["comparisons"])
-    assert {item["criterion"]: item["outcome"] for item in comparisons} == outcomes
+    assert _capacity_outcomes(decision) == outcomes
     assert decision["verdicts"] == {"shared-index": verdict}
 
 
 def test_capacity_without_a_window_is_missing(v5_frozen: Registration) -> None:
     records = [
-        _record(cell)
+        _record(cell, completed=600 if cell.path == "direct" else 1_000)
         for cell in capacity_cells(v5_frozen)
-        if cell.workers == 8 and cell.model == "async" and cell.concurrency == 16
-        if cell.block < 2 or cell.path != "direct"
+        if cell.workers in {4, 8}
+        and (cell.block < 2 or cell.path != "direct" or cell.concurrency != 4)
     ]
 
     decision = analysis.decide(records, v5_frozen, phase="capacity", blocks=3)
 
-    assert {
-        item["criterion"]: item["outcome"]
-        for item in cast("list[JsonDict]", decision["comparisons"])
-    } == {"capacity-independent": "pass", "capacity-direct": "missing"}
+    assert _capacity_outcomes(decision) == {
+        "capacity-independent": "pass",
+        "capacity-direct": "missing",
+    }
 
 
 def test_processor_name_falls_back_without_a_model_line() -> None:
@@ -1492,7 +1528,7 @@ def test_gate_output_names_each_candidate(
     raw["paths"] = [*BASELINES, *candidates]
     registration = replace(v5_frozen, raw=raw)
     records = _comparison_records(
-        registration, shared_pss=50.0, blocks=6, phase="screening"
+        registration, shared_pss=50.0, blocks=6, phase="screening", complete=True
     )
     *passing, failing = candidates
     for record in records:
@@ -2001,21 +2037,21 @@ def test_analysis_command_describes_an_ungated_registration(
             "screening",
             6,
             90.0,
-            1_732_398_015,
+            1_342_783_830,
             id="screening-stop",
         ),
         pytest.param(
             "confirmation",
             4,
             50.0,
-            1_137_233_933,
+            2_627_194_235,
             id="confirmation-promote",
         ),
         pytest.param(
             "confirmation",
             4,
             90.0,
-            1_877_843_654,
+            3_589_977_065,
             id="confirmation-defer",
         ),
     ],
@@ -2026,7 +2062,9 @@ def test_gated_decisions_are_unchanged(
     raw = copy.deepcopy(frozen.raw)
     cast("JsonDict", raw["inference"]).update({"draws": 200, "leave_one_out_draws": 50})
     small = replace(frozen, raw=raw)
-    records = _comparison_records(small, shared_pss=shared_pss, blocks=blocks)
+    records = _comparison_records(
+        small, shared_pss=shared_pss, blocks=blocks, complete=True
+    )
 
     decision = analysis.decide(records, small, phase=phase, blocks=blocks)
     verdicts = cast("dict[str, str]", decision.pop("verdicts"))
