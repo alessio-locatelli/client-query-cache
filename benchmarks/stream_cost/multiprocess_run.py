@@ -824,6 +824,7 @@ def run_cell(replica: IsolatedReplicaSet, cell: Cell, protocol: Protocol) -> Pay
                 for connection in connections
             )
             drained = process_reading()  # pytriage: TR11 (metric boundary)
+            # Sample at the drain boundary.
             server_drained = replica.container_cpu_usage_seconds()  # pytriage: TR11
             calibration = CalibrationSeries(sampler.stop())
             if (

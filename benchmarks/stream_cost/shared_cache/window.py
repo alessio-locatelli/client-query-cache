@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import multiprocessing
-import os
 import secrets
 import shutil
 import tempfile
@@ -10,6 +9,7 @@ import time
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import ExitStack
 from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Self, cast
 
 import psutil
@@ -210,7 +210,7 @@ def owner_config(
     path: PathKind,
 ) -> OwnerConfig:
     return OwnerConfig(
-        socket_path=os.path.join(directory, "owner.sock"),  # noqa: PTH118
+        socket_path=str(Path(directory) / "owner.sock"),
         capability=capability,
         mongodb_uri=uri,
         client_options=registration.section("client_options"),
@@ -593,10 +593,11 @@ def run_window(
         window_end = window_start + cell.window_seconds  # pytriage: TR11 (schedule)
         _wait(window_start - 0.05)
         harness_before = _process_cpu()  # pytriage: TR11 (metric boundary)
+        # Sample at the measurement window start.
         server_before = replica.container_cpu_usage_seconds()  # pytriage: TR11
         commands_before = writer_listener.snapshot()  # pytriage: TR11 (metric boundary)
         writer_sent = writer_proxy.bytes_sent  # pytriage: TR11 (metric boundary)
-        writer_received = writer_proxy.bytes_received  # pytriage: TR11
+        writer_received = writer_proxy.bytes_received  # pytriage: TR11 (window start)
         owner_before = (
             group.owner_request({"op": "sample"}, window_end)
             if group.owner_control is not None

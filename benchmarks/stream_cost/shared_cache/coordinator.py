@@ -891,8 +891,8 @@ class SharedCacheOwner:
         def unresumable(
             _instance: DatabaseStreamSupervisor,
             *,
-            resume_token: Mapping[str, object] | None,  # noqa: ARG001
-            use_start_after: bool,  # noqa: ARG001
+            resume_token: Mapping[str, object] | None,  # noqa: ARG001 - Keep the patched method's keyword signature.
+            use_start_after: bool,  # noqa: ARG001 - Keep the patched method's keyword signature.
         ) -> None:
             supervisor_type._open_stream = original  # type: ignore[method-assign]
             raise OperationFailure("history lost", code=_HISTORY_LOST)
