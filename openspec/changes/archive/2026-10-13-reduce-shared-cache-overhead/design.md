@@ -2,7 +2,7 @@
 
 ## Context
 
-See [proposal.md](proposal.md#why) for motivation. The [version 4 study](../../../docs/development/research/shared-worker-cache-feasibility.md) and its [registration](../../../reports/shared-worker-cache/v4/registration.md) are the baseline protocol. The facts below shape this design:
+See [proposal.md](proposal.md#why) for motivation. The [version 4 study](../../../../docs/development/research/shared-worker-cache-feasibility.md) and its [registration](../../../../reports/shared-worker-cache/v4/registration.md) are the baseline protocol. The facts below shape this design:
 
 | Observation                                                                                                                                                                                                                                                       | Consequence                                                                                                                                                                                                          |
 | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -145,14 +145,14 @@ A native thread in the owner accepts worker connections, answers `select-identit
 
 ### Outcome handling
 
-v4's [outcome handling](../archive/2026-10-10-investigate-shared-worker-cache/design.md#outcome-handling) applies, with these specifics:
+v4's [outcome handling](../2026-10-10-investigate-shared-worker-cache/design.md#outcome-handling) applies, with these specifics:
 
 - **No candidate built.** The crate and floor programs stay as research sources outside the `dev` group. Drop the development-environment delta and the toolchain changes. The report gives the cargo-based reproduction commands.
 - **Negative verdict after candidates ran.** Publish a permanent tag for the measured source and verify the smoke run from a clean detached worktree at that tag. Then remove the crate, the candidate adapters, the toolchain changes and the development-environment delta. Also remove the core seams, unless another use justifies them. Rust should not remain a contributor requirement for research that failed.
 - **Passing verdict.** Everything stays, and the report opens the integration issue that the non-goals defer.
 - **Deferred with the extension kept.** The verdict is `defer` when memory, the safety scenarios and every fixed-load hit and write criterion pass, but other registered criteria fail or lack evidence, such as the owner's miss and admission path, a capacity window or version 4's timed `fault` phase. Each failure stays a failure in the report, with its observed cause, and a follow-up issue owns it. The extension stays, because a follow-up registration can reuse it unchanged and must repeat every phase, including capacity.
 
-In every case, the [research report](../../../docs/development/research/shared-worker-cache-feasibility.md) gains a version 5 section with the floors, the verdict, the bottleneck and the reproduction commands. Issue #229 closes only on a passing verdict.
+In every case, the [research report](../../../../docs/development/research/shared-worker-cache-feasibility.md) gains a version 5 section with the floors, the verdict, the bottleneck and the reproduction commands. Issue #229 closes only on a passing verdict.
 
 ## Risks / Trade-offs
 

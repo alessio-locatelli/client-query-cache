@@ -114,7 +114,7 @@ At eight workers the shared-index group held 499 MiB PSS against 973 MiB for ind
 
 **Fault phase: not run.** The registration lists a timed fault phase with readiness within 5 seconds. The harness has never been able to run it, because version 4 stopped before needing it. [Issue #273](https://github.com/alessio-locatelli/client-query-cache/issues/273) tracks it.
 
-**Verdict: defer.** Hot reads, writes and memory pass every registered bound. Miss latency fails, capacity fails in one window and the fault evidence is missing. Under the [outcome handling](../../../openspec/changes/reduce-shared-cache-overhead/design.md#outcome-handling) for a deferred candidate whose memory, safety and fixed-load criteria pass, the extension stays in the repository, and a follow-up registration must repeat every phase, including capacity.
+**Verdict: defer.** Hot reads, writes and memory pass every registered bound. Miss latency fails, capacity fails in one window and the fault evidence is missing. Under the [outcome handling](../../../openspec/changes/archive/2026-10-13-reduce-shared-cache-overhead/design.md#outcome-handling) for a deferred candidate whose memory, safety and fixed-load criteria pass, the extension stays in the repository, and a follow-up registration must repeat every phase, including capacity.
 
 ### Bottleneck
 

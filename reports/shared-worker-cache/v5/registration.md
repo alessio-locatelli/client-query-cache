@@ -1,6 +1,6 @@
 # Shared worker cache registration, version 5
 
-Version 5 asks whether a shared worker cache that avoids the owner round trip on hits can pass the [version 4](../v4/registration.md) gate. It reuses version 4's workload, data, phases, counterbalancing, estimands, inference, bounds and gate; version 4 stays their source. The [design](../../../openspec/changes/reduce-shared-cache-overhead/design.md) records the rationale for every difference.
+Version 5 asks whether a shared worker cache that avoids the owner round trip on hits can pass the [version 4](../v4/registration.md) gate. It reuses version 4's workload, data, phases, counterbalancing, estimands, inference, bounds and gate; version 4 stays their source. The [design](../../../openspec/changes/archive/2026-10-13-reduce-shared-cache-overhead/design.md) records the rationale for every difference.
 
 **Status:** frozen. The machine-readable values live in [config.json](config.json). The candidate selection rule was registered before any floor was measured, and the paths, bounds, integration criterion, fault cases and reproduction commands below before baseline calibration. The frozen `config.json` has SHA-256 `57f4fcce3a96b6a04d0d0020f270411875806971126ecb2298bdc80e49df7580`, which every candidate report must carry. Any change to this file or `config.json` after a candidate measurement starts requires a new registration version and fresh affected comparisons; earlier outcomes are retained.
 
@@ -117,7 +117,7 @@ The `fault` phase runs version 4's eleven cases and four more, listed under `fau
 
 ## Prototype safety scenarios
 
-The deterministic scenarios run against real owner and worker processes and a disposable replica set. They cover version 4's cases and the [delta specification](../../../openspec/changes/reduce-shared-cache-overhead/specs/shared-cache-benchmarking/spec.md)'s requirements for local hits: processed invalidations, torn and reclaimed reads, stable owner snapshots, owner-loss fencing, bounded reclamation, read-only published state and liveness detection without competing readers. A Hypothesis state machine checks published state against the authoritative core. `loom` models check the version protocol and reclamation. Run them before collecting decision evidence:
+The deterministic scenarios run against real owner and worker processes and a disposable replica set. They cover version 4's cases and the [delta specification](../../../openspec/changes/archive/2026-10-13-reduce-shared-cache-overhead/specs/shared-cache-benchmarking/spec.md)'s requirements for local hits: processed invalidations, torn and reclaimed reads, stable owner snapshots, owner-loss fencing, bounded reclamation, read-only published state and liveness detection without competing readers. A Hypothesis state machine checks published state against the authoritative core. `loom` models check the version protocol and reclamation. Run them before collecting decision evidence:
 
 ```console
 cargo test --manifest-path native/shared-index/Cargo.toml
