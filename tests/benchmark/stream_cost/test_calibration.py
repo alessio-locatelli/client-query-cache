@@ -103,7 +103,7 @@ def test_sample_clock_offset_treats_naive_datetime_as_utc(
         "benchmarks.stream_cost.calibration.time.monotonic",
         _sequence_source([0.0, 0.0]),
     )
-    naive_time = datetime(2024, 1, 1)  # noqa: DTZ001
+    naive_time = datetime(2024, 1, 1)  # noqa: DTZ001 - Exercise normalization of a server timestamp without timezone metadata.
     aware_time = naive_time.replace(tzinfo=UTC)
 
     point = sample_clock_offset(

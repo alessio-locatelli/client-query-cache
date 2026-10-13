@@ -20,7 +20,11 @@ if TYPE_CHECKING:
     from multiprocessing import Queue
     from multiprocessing.synchronize import Event as EventClass
 
-    from pymongo.monitoring import CommandStartedEvent, CommandSucceededEvent
+    from pymongo.monitoring import (
+        CommandFailedEvent,
+        CommandStartedEvent,
+        CommandSucceededEvent,
+    )
 
 DATABASE_NAME = "real_server_benchmark"
 COLLECTION_NAME = "documents"
@@ -76,7 +80,7 @@ class _FindCommandCounter(CommandListener):
     def succeeded(self, event: CommandSucceededEvent) -> None:
         pass
 
-    def failed(self, event: Any) -> None:  # noqa: ANN401
+    def failed(self, event: CommandFailedEvent) -> None:
         pass
 
 
@@ -105,7 +109,10 @@ def write_documents_until_stopped(
             stop_event.wait(update_interval_seconds)
 
 
-def _read_each_document(collection: Any, document_ids: Sequence[str]) -> int:  # noqa: ANN401
+def _read_each_document(
+    collection: Any,  # noqa: ANN401 - Share this workload across raw and cached collections.
+    document_ids: Sequence[str],
+) -> int:
     max_counter = -1
     for document_id in document_ids:
         document = collection.find_one({"_id": document_id})
@@ -137,7 +144,7 @@ def seed_document_ids(seed_documents: Sequence[BsonDict]) -> list[str]:
 
 
 def _timed_read_cycles(
-    collection: Any,  # noqa: ANN401
+    collection: Any,  # noqa: ANN401 - Share this workload across raw and cached collections.
     document_ids: Sequence[str],
     warmup_cycles: NonNegativeInt,
     measured_cycles: NonNegativeInt,
