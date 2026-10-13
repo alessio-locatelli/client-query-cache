@@ -17,6 +17,10 @@ const STOP: u64 = 1;
 const FIRST_CONNECTION: u64 = 2;
 const EVENTS: usize = 64;
 const RECEIVE_BYTES: usize = 65_536;
+const SELECTION_LIMIT: u32 = 16;
+const REPLY_LIMIT: usize = FRAME_LIMIT;
+const INBOX_LIMIT: usize = LENGTH_BYTES + FRAME_LIMIT;
+const QUEUE_LIMIT: usize = 4 * FRAME_LIMIT;
 
 #[derive(Debug)]
 pub(crate) struct FrameError;
@@ -87,6 +91,9 @@ pub(crate) fn answer_frame<M: Words>(
 ) -> Result<(), FrameError> {
     let request_id = u32_at(body, 0)?;
     let count = u32_at(body, 4)?;
+    if count > SELECTION_LIMIT {
+        return Err(FrameError);
+    }
     let mut rest = body.get(8..).ok_or(FrameError)?;
     let start = out.len();
     out.extend_from_slice(&[0; LENGTH_BYTES]);
@@ -122,6 +129,9 @@ pub(crate) fn answer_frame<M: Words>(
             }
             Err(_) => out.truncate(mark + LENGTH_BYTES),
         }
+        if out.len() - start - LENGTH_BYTES > REPLY_LIMIT {
+            return Err(FrameError);
+        }
     }
     if !rest.is_empty() {
         return Err(FrameError);
@@ -142,7 +152,13 @@ struct Connection {
 impl Connection {
     fn receive(&mut self, scratch: &mut [u8]) -> bool {
         loop {
-            match self.stream.read(scratch) {
+            let room = INBOX_LIMIT
+                .saturating_sub(self.inbox.len())
+                .min(scratch.len());
+            if room == 0 {
+                return true;
+            }
+            match self.stream.read(&mut scratch[..room]) {
                 Ok(0) => return false,
                 Ok(received) => self.inbox.extend_from_slice(&scratch[..received]),
                 Err(error) if error.kind() == io::ErrorKind::WouldBlock => return true,
@@ -166,6 +182,9 @@ impl Connection {
             };
             answer_frame(index, incarnation, body, now_ns, &mut self.outbox)?;
             consumed = end;
+            if self.outbox.len() - self.sent > QUEUE_LIMIT {
+                return Err(FrameError);
+            }
         }
         self.inbox.drain(..consumed);
         Ok(())
@@ -406,6 +425,83 @@ mod tests {
         ] {
             assert!(answer_frame(&index, 5, malformed, 1, &mut Vec::new()).is_err());
         }
+    }
+
+    fn connection() -> (Connection, UnixStream) {
+        let (stream, peer) = UnixStream::pair().unwrap();
+        stream.set_nonblocking(true).unwrap();
+        let connection = Connection {
+            stream,
+            inbox: Vec::new(),
+            outbox: Vec::new(),
+            sent: 0,
+            writable: false,
+        };
+        (connection, peer)
+    }
+
+    #[test]
+    fn rejects_more_selections_than_one_frame_may_carry() {
+        let index = published();
+        let identities = vec![&b"present"[..]; SELECTION_LIMIT as usize + 1];
+        let frame = request(9, &identities);
+        assert!(answer_frame(&index, 5, &frame[LENGTH_BYTES..], 1, &mut Vec::new()).is_err());
+        let frame = request(9, &identities[1..]);
+        assert!(answer_frame(&index, 5, &frame[LENGTH_BYTES..], 1, &mut Vec::new()).is_ok());
+    }
+
+    #[test]
+    fn rejects_replies_larger_than_a_frame() {
+        let payload = vec![7_u8; REPLY_LIMIT / 9];
+        let layout = Layout::new(8, payload.len(), 1, 1).unwrap();
+        let index = Index::create(zeroed(layout.words()), layout, 5, u64::MAX).unwrap();
+        assert!(
+            index.set_available(0, true) && index.set_progress(0, 1) && index.set_epoch(0, EPOCH)
+        );
+        let mut writer = Writer::new(index.clone());
+        let stored = writer.store(&payload).unwrap();
+        let query = Query {
+            database: 0,
+            namespace: 0,
+            epoch: EPOCH,
+            identity: b"present",
+            shape: b"shape",
+        };
+        writer.publish(&query, stored).unwrap();
+        let fits = request(9, &[&b"present"[..]; 8]);
+        assert!(answer_frame(&index, 5, &fits[LENGTH_BYTES..], 1, &mut Vec::new()).is_ok());
+        let oversized = request(9, &[&b"present"[..]; 9]);
+        assert!(answer_frame(&index, 5, &oversized[LENGTH_BYTES..], 1, &mut Vec::new()).is_err());
+    }
+
+    #[test]
+    fn closes_a_connection_whose_replies_are_not_read() {
+        let index = published();
+        let (mut connection, _peer) = connection();
+        connection.outbox = vec![0; QUEUE_LIMIT];
+        connection.inbox = request(9, &[b"present"]);
+        assert!(connection.answer(&index, 5).is_err());
+        connection
+            .outbox
+            .truncate(QUEUE_LIMIT - expected_reply(9).len());
+        connection.inbox = request(9, &[b"present", b"absent"]);
+        assert!(connection.answer(&index, 5).is_ok());
+    }
+
+    #[test]
+    fn buffers_at_most_one_frame_of_unanswered_input() {
+        let (mut connection, mut peer) = connection();
+        let writer = std::thread::spawn(move || {
+            let _ = peer.write_all(&vec![0xff; 2 * INBOX_LIMIT]);
+        });
+        let mut scratch = vec![0_u8; RECEIVE_BYTES];
+        while connection.inbox.len() < INBOX_LIMIT {
+            assert!(connection.receive(&mut scratch));
+        }
+        assert!(connection.receive(&mut scratch));
+        assert_eq!(connection.inbox.len(), INBOX_LIMIT);
+        drop(connection);
+        writer.join().unwrap();
     }
 
     #[test]
