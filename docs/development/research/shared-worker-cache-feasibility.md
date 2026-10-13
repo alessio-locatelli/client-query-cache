@@ -2,7 +2,7 @@
 
 This study asked whether a group of application worker processes on one host could share one resident cache instead of each worker keeping its own copy. It complements the [shared invalidation study](shared-invalidation-feasibility.md), which shared only change streams, and uses the multi-worker application context from [issue #197](https://github.com/alessio-locatelli/client-query-cache/issues/197). Shared storage remains a research question; the supported managers keep process-local caches.
 
-**Recommendation:** defer a supported shared-cache mode. The prototype halved group memory at eight workers and served hits faster than direct MongoDB reads, but at the registered fixed load it raised request P99 latency by 30–69% and total CPU per request by 63–82% compared with independent managers. Both conditions are registered promotion criteria, so screening stopped the candidate. Profiling attributes the excess to per-request owner work rather than to payload transfer, so neither registered payload-store alternative could remove it.
+**Recommendation:** defer a supported shared-cache mode, and keep the version 5 shared-index extension for a follow-up registration. [Version 4](#screening-result) served every hit through a Python owner process, which cost too much CPU and latency. [Version 5](#version-5-local-hits-from-a-shared-index) serves hits from read-only shared memory that the owner publishes. It halved group memory at eight workers while using 13–32% less CPU per request and having a lower request P99 than independent managers, with or without writes. It still defers, because cache misses keep version 4's owner round trip and miss latency failed its gate, and because the harness cannot run the registered timed fault phase.
 
 ## What was measured
 
@@ -73,3 +73,69 @@ uv run -- python -m benchmarks.stream_cost.shared_cache.analysis benchmark-repor
 ```
 
 The smoke run takes a few minutes and cannot support the gate. Screening takes about two and a half hours; a run interrupted by the host can continue with `--resume <earlier report>`. Calibration, diagnostics, profiling and the launch smoke are listed in the [registration](../../../reports/shared-worker-cache/v4/registration.md#reproduction). The registered screening ran at revision `5ceb0c3a981572c1f465ba113c58d60d4e935bb1` with configuration SHA-256 `43156e75cd664bb4fd97fbb891f21139b1ac0d4cd0a436de8673cfd63b535f78`; the exploratory eight-worker rerun ran at `6579f36` and the diagnostics at `be9c522` and `8407b03`. Raw reports remain untracked.
+
+## Version 5: local hits from a shared index
+
+[Issue #229](https://github.com/alessio-locatelli/client-query-cache/issues/229) asked for a design that removes the per-hit owner round trip. The [version 5 registration](../../../reports/shared-worker-cache/v5/registration.md) and its frozen [configuration](../../../reports/shared-worker-cache/v5/config.json) reuse version 4's workload, phases, estimands and gate, and compare direct reads and independent managers with one candidate, `shared-index`:
+
+- The owner keeps version 4's single `CacheCore`, change stream and 96 MiB group budget. It stores each admitted payload once, in a shared arena, and publishes every resident `_id` entry with its validity words into a sealed, read-only shared index. A Rust extension built with PyO3 and maturin (`native/shared-index/`) implements the index.
+- A worker serves an `_id` `find_one` from the index when its attachment is live, the owner incarnation matches, the database is available, the published upstream progress is under 3 seconds old and the namespace epoch matches. Otherwise it falls back to version 4's owner request. Misses, admissions, sorted finds and other reads keep version 4's paths.
+
+### Cost floors and choice
+
+Before any candidate was built, exploratory floors timed one minimal 4 KiB hit per mechanism. A shared-index lookup cost 5.8–6.9 µs of CPU, against 10.8–12.4 µs for a `CacheCore` hit in an independent manager. A native echo owner over a Unix-domain socket cost 14.3–24.8 µs. Both families were eligible under the registered 12.8 µs margin, and the registered order built the shared index first. The [registration](../../../reports/shared-worker-cache/v5/registration.md#candidate-selection) lists every floor. The native-owner family was not built, because the shared index failed no safety scenario or memory criterion.
+
+### Calibration
+
+Baseline calibration froze 976 reads/s for the primary and cold workloads and 319 reads/s for sensitivity. All 294 windows were healthy. The primary rate halved once, because one-worker synchronous direct reads completed only 95.8–97.0% of 1,953 reads/s inside the window. That rate is below version 4's 1,267 reads/s, because direct reads ran slower on the test host. Version 5 compares paths only within its own registration.
+
+### Results
+
+All 774 registered windows were healthy, and every scheduled read completed. Ratios are the registered ratio-of-means estimands with the upper end of the 95% paired-block bootstrap interval in brackets. Deltas are in milliseconds.
+
+**Hot reads (confirmation, 12 blocks, 30-second windows): pass.**
+
+| Cell       | Group PSS, ÷ independent | Hit P95, ÷ direct | Request P99, ÷ independent | CPU per request, ÷ independent |
+| ---------- | -----------------------: | ----------------: | -------------------------: | -----------------------------: |
+| Sync, 4    |            0.663 [0.664] |     0.248 [0.261] |              0.823 [0.860] |   0.843 [0.872]: 254 vs 301 µs |
+| Sync, 8    |            0.513 [0.513] |     0.224 [0.251] |              0.734 [0.928] |   0.871 [0.907]: 278 vs 320 µs |
+| Asyncio, 4 |            0.664 [0.664] |     0.445 [0.466] |              0.928 [0.946] |   0.835 [0.864]: 289 vs 346 µs |
+| Asyncio, 8 |            0.513 [0.513] |     0.421 [0.439] |              0.920 [0.939] |   0.798 [0.845]: 331 vs 415 µs |
+
+At eight workers the shared-index group held 499 MiB PSS against 973 MiB for independent managers. Peak memory, application-plus-MongoDB memory, hit P99, the 1 ms request-P99 delta and MongoDB traffic (0.33–0.46 of independent) also passed. Screening's six blocks gave the same picture.
+
+**Reads with writes (active, 12 blocks, 200 updates per 60-second window): pass.** CPU per request was 0.68–0.82 of independent [upper ends 0.75–0.90]. Request P99 was 0.58–0.97 [0.66–1.06], including both models of the mixed group. The invalidation lag P95 was about 11 ms [at most 18.5 ms after clock expansion], within 7 ms of independent managers.
+
+**Capacity (closed loop, 3 windows per point): fails in one window.** At four and eight workers the shared index sustained 1.23–1.48 times independent throughput and 7.3–20 times direct in every window except one. In the first eight-worker synchronous window at 16 requests in flight, it reached 127,000 reads/s, 0.84 of independent; its other two windows reached 219,000–220,000 reads/s, 1.44 of independent. In that window the workers and owner together received about half the CPU time of the other two windows, which suggests interference on the shared host. An exploratory rerun of that point gave 1.44 in every window. The registered rule counts every window, so capacity fails, and the rerun is not decision evidence.
+
+**Cold misses (12 blocks, 10,000 distinct identities): fail.** The miss P99 delta to direct reads was 1.39–2.31 ms [1.55–2.49 ms] against the registered 1 ms. The miss P95 delta was 0.82–1.37 ms [0.85–1.42 ms], with only the four-worker synchronous cell within the limit. For comparison, independent managers' misses were 0.7–0.9 ms slower than direct reads at P99.
+
+**Sensitivity (descriptive, 3 blocks at 8 workers).** With 64 KiB documents (`large`), every criterion passed, with group PSS at 0.52 of independent. Sorted finds (`find16`) are served through the owner as in version 4. They used 1.39–1.40 times independent CPU per request, had 1.28–1.41 times its request P99 and used 3–5% more group memory than independent managers, because their working set of about 4.3 MiB saves less memory than the owner process costs.
+
+**Fault phase: not run.** The registration lists a timed fault phase with readiness within 5 seconds. The harness has never been able to run it, because version 4 stopped before needing it. [Issue #273](https://github.com/alessio-locatelli/client-query-cache/issues/273) tracks it.
+
+**Verdict: defer.** Hot reads, writes and memory pass every registered bound. Miss latency fails, capacity fails in one window and the fault evidence is missing. Under the [outcome handling](../../../openspec/changes/reduce-shared-cache-overhead/design.md#outcome-handling) for a deferred candidate whose memory, safety and fixed-load criteria pass, the extension stays in the repository, and a follow-up registration must repeat every phase, including capacity.
+
+### Bottleneck
+
+Hits no longer reach the owner. In hot windows, the owner spent about 12 µs of CPU per request on its sweep, progress publication and hit-ring recency touches. Misses still take version 4's path: a local miss, a select request to the Python owner, a native read and an admission message. At 976 misses/s the owner spent 283–338 µs of CPU per miss and was busy 25–30% of the time. An exploratory profile of the four-worker asyncio cold window places most of that in `CacheCore` admission and its lock and guard sections, and in request framing and dispatch. Waiting behind that single Python thread lengthens the miss tail. [Issue #272](https://github.com/alessio-locatelli/client-query-cache/issues/272) tracks reducing it. At peak hit rates the recency touches that the owner drains from the hit rings become visible: at 220,000 reads/s the owner used about 11 CPU seconds per 15-second window, and in the starved capacity window it dropped 128,000 touches. A full ring drops touches without blocking reads.
+
+### Safety evidence
+
+Before any timing, `cargo test` and `loom` model tests checked the version protocol and reclamation. A Hypothesis state machine checked published state against the authoritative `CacheCore`, and `tests/shared_cache/` exercised the shared index against real owner and worker processes: a killed owner stops local hits within 100 ms, a paused owner or stalled watch stops them by the 3-second expiry, a replacement owner's index is never confused with the old one, reads racing eviction churn in three processes only return published payloads, and workers cannot write the index through their descriptor, a writable mapping, `mprotect` or a `/proc` reopen. All pass.
+
+### Limits
+
+A paused owner that stays alive keeps entries servable for up to the 3-second progress expiry. That equals version 4's registered bound for silent faults but is weaker than version 4's 100 ms RPC deadline, and a supported mode would have to decide whether it is acceptable. The measurements ran on x86-64 only; evidence for weakly ordered CPUs such as ARM is limited to the `loom` models. The index uses Linux `memfd` seals. The host, an Intel Core i3-13100 with eight logical CPUs, ran Linux 7.2.9, CPython 3.14.7, PyMongo 4.18.2 and MongoDB 9.0.2 in a single-member replica set limited to two CPUs and 2 GiB. It was not dedicated, so eight-worker closed-loop windows are sensitive to other load.
+
+### Reproduce version 5
+
+Use the [contributor environment](../../../CONTRIBUTING.md), which builds the extension from the committed sources and lockfiles, and configure the container bridge:
+
+```bash
+source scripts/testcontainers-bridge.sh
+uv run -- python -m benchmarks.stream_cost.shared_cache.run --phase confirmation --config reports/shared-worker-cache/v5/config.json --output benchmark-reports/shared-worker-cache/v5-confirmation.json
+uv run -- python -m benchmarks.stream_cost.shared_cache.analysis benchmark-reports/shared-worker-cache/v5-confirmation.json --config reports/shared-worker-cache/v5/config.json --phase confirmation --blocks 12
+```
+
+The other phases use the same commands with their names and block counts: `screening` 6, `capacity` 3, `active` 12, `cold` 12 and `sensitivity` 3. Each takes one to five hours, and an interrupted run continues with `--resume <earlier report>`. The registration lists the smoke, calibration, floor and safety commands. Screening, confirmation and capacity ran at revision `e1986642ac04fd6658d5e2181d82045a1921a47a`, active at `4363970a4a6d7dcabf7c2aa3d860345252c74a18`, and cold and sensitivity at `c9bf928334251ecc9f0fc1798c0227bd7dd345a5`, all with configuration SHA-256 `57f4fcce3a96b6a04d0d0020f270411875806971126ecb2298bdc80e49df7580`. The extension was built by rustc 1.95.0 and maturin 1.15.0 with PyO3 0.29.3 as one `cp314-abi3` wheel. The exploratory capacity rerun used `--only sync:8`, and the profile used `python -m benchmarks.stream_cost.shared_cache.diagnostics --config reports/shared-worker-cache/v5/config.json --profile cold 4 async`. Raw reports remain untracked.
