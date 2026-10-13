@@ -116,21 +116,27 @@ pub(crate) fn answer_frame<M: Words>(
         rest = &rest[shape_end..];
         let mark = out.len();
         out.extend_from_slice(&MISS.to_le_bytes());
+        let mut oversized = false;
         let served = index.read(incarnation, &query, now_ns, |located| {
             out.truncate(mark + LENGTH_BYTES);
-            out.resize(mark + LENGTH_BYTES + located.payload_len, 0);
+            let end = mark + LENGTH_BYTES + located.payload_len;
+            if end - start - LENGTH_BYTES > REPLY_LIMIT {
+                oversized = true;
+                return None;
+            }
+            out.resize(end, 0);
             index
                 .copy_payload(located, &mut out[mark + LENGTH_BYTES..])
                 .then_some(located.payload_len)
         });
+        if oversized {
+            return Err(FrameError);
+        }
         match served {
             Ok((length, _token)) => {
                 out[mark..mark + LENGTH_BYTES].copy_from_slice(&(length as u32).to_le_bytes());
             }
             Err(_) => out.truncate(mark + LENGTH_BYTES),
-        }
-        if out.len() - start - LENGTH_BYTES > REPLY_LIMIT {
-            return Err(FrameError);
         }
     }
     if !rest.is_empty() {
