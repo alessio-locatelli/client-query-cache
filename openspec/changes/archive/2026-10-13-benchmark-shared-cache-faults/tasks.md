@@ -19,8 +19,8 @@
 
 - [x] 4.1 Verify fencing across the complete hot set and both cache selection paths; add regressions for non-first-key residency and RPC hits.
 - [x] 4.2 Distinguish graceful restart, owner failure under continuous local reads, and explicit reattachment; verify traffic across pause and kill transitions.
-- [x] 4.3 Bound retained observations and restrict exhaustive residency checks to detection and rewarming.
-- [ ] 4.4 Repeat the registered phase and replace the insufficient safety evidence with corrected results.
+- [x] 4.3 Bound retained observations, restrict exhaustive residency checks to detection and rewarming, and reuse the existing retry delay after asynchronous RPC timeouts.
+- [x] 4.4 Repeat the registered phase and replace the insufficient safety evidence with corrected results.
 
 ## 5. Code Quality
 

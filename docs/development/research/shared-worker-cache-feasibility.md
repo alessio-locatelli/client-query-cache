@@ -144,4 +144,4 @@ The other phases use the same commands with their names and block counts: `scree
 
 The [version 6 registration](../../../reports/shared-worker-cache/v6/registration.md) runs all fifteen shared-cache cases with two synchronous and two asyncio workers. Its scripted 64-document hot set measures fault transitions separately from version 5's steady-state workload. The registration gives the reproduction commands and defines observation delays, applicability and safety checks. A successful native read alone does not establish cache readiness, and a passing fault phase cannot override version 5's failed miss-latency or capacity criteria.
 
-The [results record](../../../reports/shared-worker-cache/v6/results.md) identifies the withdrawn pre-review evidence. Use the corrected driver and registered commands to measure the complete safety criteria.
+All 75 corrected repetitions passed the registered safety and readiness criteria. The [per-case results](../../../reports/shared-worker-cache/v6/results.md) retain timing maxima, the measured source, observation overhead and the withdrawn pre-review evidence.
