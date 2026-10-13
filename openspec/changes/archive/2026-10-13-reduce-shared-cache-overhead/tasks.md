@@ -62,3 +62,7 @@ Execute the sections in order. Task 1.4 decides whether sections 2–5 run. [Out
 ## 7. Branch review
 
 - [x] 7.1 After a fork, replace each inherited control-connection descriptor in the child with `/dev/null`, so that only the attaching process holds the connection and the owner releases its session and hit ring when that process detaches. Extend the forked-child test to assert that the inherited descriptor is no longer a socket.
+- [x] 7.2 Serialize local-index reattachment per manager, with a non-blocking lock in synchronous managers and an `asyncio.Lock` in asyncio managers, so that concurrent readers attach one replacement and the superseded attachment is closed. Make reads whose namespace metadata a reattachment discarded fall back to a `metadata-refresh` bypass instead of raising `KeyError`. Add tests, parametrized over both execution models, for eight concurrent readers after an owner replacement and for a read whose metadata is discarded mid-read.
+- [x] 7.3 Bound the research echo server: at most 16 selections per frame, replies no larger than one frame, at most one frame of buffered input, and a closed connection once unsent replies exceed four frames. Add unit tests for each bound.
+- [x] 7.4 Install the native extension from its workspace path in the `pymongo-min` tox lane, because `uv pip` resolves the `dev` group's workspace member from the package index otherwise.
+- [x] 7.5 Mark the oracle's hit-ring drain loop `lax no cover`, because a generated run may drain only empty rings.
