@@ -187,6 +187,12 @@ def _namespace_reset(scenario: Scenario) -> list[Event]:
     return [("epoch_changed", (scenario.namespace, 1)), ("removed", (key, encoded))]
 
 
+def _untracked_identity_write(scenario: Scenario) -> list[Event]:
+    identity = scenario.faker.pyint()
+    scenario.core.record_write(scenario.namespace, identity)
+    return [("identity_written", (scenario.namespace, canonicalize(identity)))]
+
+
 def _availability_change(scenario: Scenario) -> list[Event]:
     scenario.core.set_database_available(scenario.namespace.database, available=False)
     return [("availability_changed", (scenario.namespace.database, False))]
@@ -202,6 +208,7 @@ def _availability_change(scenario: Scenario) -> list[Event]:
         pytest.param(_remove_exact, id="remove-exact"),
         pytest.param(_clear_all, id="clear-all"),
         pytest.param(_identity_write, id="identity-write"),
+        pytest.param(_untracked_identity_write, id="untracked-identity-write"),
         pytest.param(_namespace_reset, id="namespace-reset"),
         pytest.param(_availability_change, id="availability-change"),
     ],

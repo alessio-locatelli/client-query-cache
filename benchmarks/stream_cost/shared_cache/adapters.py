@@ -117,15 +117,15 @@ class _RemoteCaptureCore:
         codec_options: CodecOptions[Any],
         find_source: FindSource | None,  # noqa: ARG002 - The owner derives it.
     ) -> None:
-        self._send(
-            _admission(
-                capture,
-                documents,
-                codec_options,
-                self.max_entry_bytes,
-                self.observation,
-            )
+        admission = _admission(
+            capture,
+            documents,
+            codec_options,
+            self.max_entry_bytes,
+            self.observation,
         )
+        assert admission is not None
+        self._send(admission)
 
 
 class RemoteCursorCapture(CursorCapture):
@@ -155,17 +155,26 @@ class RemoteCursorCapture(CursorCapture):
         super().abandon()
 
 
+@dataclass(frozen=True, slots=True)
+class LocalMiss:
+    message: Message
+
+
 def _admission(
     handle: object,
     value: object,
     codec_options: CodecOptions[Any],
     max_entry_bytes: NonNegativeInt,
     observation: LocalObservation,
-) -> Message:
+) -> Message | None:
     encoded = encode_value(value, codec_options)
     if len(encoded) > max_entry_bytes:
         observation.record_oversized_bypass()
+        if isinstance(handle, LocalMiss):
+            return None
         return {"op": "discard", "handle": handle}
+    if isinstance(handle, LocalMiss):
+        return {**handle.message, "value": encoded}
     return {"op": "admit", "handle": handle, "value": encoded}
 
 
@@ -237,7 +246,7 @@ def _identity_message(view: View, keys: tuple[bytes, bytes] | str) -> Message | 
     )
 
 
-def _local_hit(view: View, keys: tuple[bytes, bytes] | str) -> object:
+def _local_select(view: View, keys: tuple[bytes, bytes] | str) -> object:
     shared = view._shared
     local = shared.local
     if local is None or isinstance(keys, str):
@@ -261,6 +270,22 @@ def _local_hit(view: View, keys: tuple[bytes, bytes] | str) -> object:
     if payload is None:
         if local.reader.detached:
             shared._reattach = True
+            return NO_LOCAL_HIT
+        token = local.reader.capture(database, slot, metadata.checked_epoch)
+        if token is not None:
+            shared.observation.misses += 1
+            return LocalMiss(
+                {
+                    "op": "admit-local",
+                    "ns": [namespace.database, namespace.collection],
+                    "slot": [database, slot],
+                    "epoch": metadata.checked_epoch,
+                    "incarnation": incarnation,
+                    "identity": identity_key,
+                    "shape": shape_key,
+                    "token": list(token),
+                }
+            )
         return NO_LOCAL_HIT
     shared.observation.hits += 1
     return decode_value(payload, view._collection.codec_options)
@@ -545,13 +570,17 @@ class SharedCachedCollection[DocumentType: Mapping[str, Any]](
         collation: Any,
     ) -> DocumentType | None:
         keys = _identity_keys(self, identity, read_shape)
-        document = _local_hit(self, keys)
-        if document is not NO_LOCAL_HIT:
+        document = _local_select(self, keys)
+        if document is not NO_LOCAL_HIT and not isinstance(document, LocalMiss):
             return document  # type: ignore[return-value]
-        message = _identity_message(self, keys)
         endpoint = self._shared.endpoint
-        reply = endpoint.request(message) if isinstance(message, dict) else None
-        outcome, value = _identity_outcome(self, message, reply)
+        value: object
+        if isinstance(document, LocalMiss):
+            outcome, value = "miss", document
+        else:
+            message = _identity_message(self, keys)
+            reply = endpoint.request(message) if isinstance(message, dict) else None
+            outcome, value = _identity_outcome(self, message, reply)
         if outcome == "hit":
             return value  # type: ignore[return-value]
         if outcome != "miss":
@@ -563,19 +592,19 @@ class SharedCachedCollection[DocumentType: Mapping[str, Any]](
                 filter_query, projection, sort=sort, collation=collation
             )
         except BaseException:
-            if value is not None:
+            if value is not None and not isinstance(value, LocalMiss):
                 endpoint.send({"op": "discard", "handle": value})
             raise
         if value is not None:
-            endpoint.send(
-                _admission(
-                    value,
-                    document,
-                    self._collection.codec_options,
-                    self._shared.max_entry_bytes,
-                    self._shared.observation,
-                )
+            admission = _admission(
+                value,
+                document,
+                self._collection.codec_options,
+                self._shared.max_entry_bytes,
+                self._shared.observation,
             )
+            if admission is not None:
+                endpoint.send(admission)
         return document
 
     @override
@@ -647,13 +676,19 @@ class AsyncSharedCachedCollection[DocumentType: Mapping[str, Any]](
         collation: Any,
     ) -> DocumentType | None:
         keys = _identity_keys(self, identity, read_shape)
-        document = _local_hit(self, keys)
-        if document is not NO_LOCAL_HIT:
+        document = _local_select(self, keys)
+        if document is not NO_LOCAL_HIT and not isinstance(document, LocalMiss):
             return document  # type: ignore[return-value]
-        message = _identity_message(self, keys)
         endpoint = self._shared.endpoint
-        reply = await endpoint.request(message) if isinstance(message, dict) else None
-        outcome, value = _identity_outcome(self, message, reply)
+        value: object
+        if isinstance(document, LocalMiss):
+            outcome, value = "miss", document
+        else:
+            message = _identity_message(self, keys)
+            reply = (
+                await endpoint.request(message) if isinstance(message, dict) else None
+            )
+            outcome, value = _identity_outcome(self, message, reply)
         if outcome == "hit":
             return value  # type: ignore[return-value]
         if outcome != "miss":
@@ -665,19 +700,19 @@ class AsyncSharedCachedCollection[DocumentType: Mapping[str, Any]](
                 filter_query, projection, sort=sort, collation=collation
             )
         except BaseException:
-            if value is not None:
+            if value is not None and not isinstance(value, LocalMiss):
                 endpoint.send({"op": "discard", "handle": value})
             raise
         if value is not None:
-            endpoint.send(
-                _admission(
-                    value,
-                    document,
-                    self._collection.codec_options,
-                    self._shared.max_entry_bytes,
-                    self._shared.observation,
-                )
+            admission = _admission(
+                value,
+                document,
+                self._collection.codec_options,
+                self._shared.max_entry_bytes,
+                self._shared.observation,
             )
+            if admission is not None:
+                endpoint.send(admission)
         return document
 
     @override

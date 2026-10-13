@@ -17,6 +17,7 @@ from bson.codec_options import CodecOptions, TypeRegistry
 from bson.int64 import Int64
 from client_query_cache_shared_index import OwnerIndex
 from pymongo import AsyncMongoClient, MongoClient
+from pymongo.asynchronous.collection import AsyncCollection
 from pymongo.errors import OperationFailure
 
 from benchmarks.stream_cost.shared_cache import adapters
@@ -59,7 +60,7 @@ from tests.shared_cache.conftest import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Callable, Coroutine, Iterator
+    from collections.abc import AsyncIterator, Callable, Coroutine, Iterator, Mapping
 
     from benchmarks.stream_cost.shared_cache.adapters import (
         AsyncSharedCachedCollection,
@@ -515,11 +516,21 @@ class _SharedReads:
         collection = manager[self._database][COLLECTION]
         wait_for(lambda: self._run(collection._cache_ineligibility_reason()) is None)
 
-    def find_one(self, key: object, collection: str = COLLECTION) -> BsonDict | None:
+    def find_one(
+        self,
+        key: object,
+        collection: str = COLLECTION,
+        *,
+        projection: Mapping[str, object] | None = None,
+    ) -> BsonDict | None:
         manager = self.manager
         if isinstance(manager, SharedCacheManager):
-            return manager[self._database][collection].find_one({"_id": key})
-        return self._run(manager[self._database][collection].find_one({"_id": key}))
+            return manager[self._database][collection].find_one(
+                {"_id": key}, projection
+            )
+        return self._run(
+            manager[self._database][collection].find_one({"_id": key}, projection)
+        )
 
     def find_concurrently(self, key: object, count: int) -> list[BsonDict | None]:
         manager = self.manager
@@ -607,6 +618,80 @@ def test_admitted_identity_hits_are_served_locally(
     counters = reads.manager.endpoint.counters
     assert (counters.failures, counters.timeouts) == (0, 0)
     assert not reads.detached
+
+
+def test_local_misses_read_through_without_selection_or_capture_handles(
+    open_reads: Callable[[SharedIndexLimits], tuple[Owner, _SharedReads]],
+) -> None:
+    owner, reads = open_reads(replace(_SHARED_INDEX, local_miss_admission=True))
+    requests = reads.manager.endpoint.counters.requests
+    first = [reads.find_one(key) for key in range(DOCUMENTS)]
+    _admitted(owner, DOCUMENTS)
+    assert reads.manager.endpoint.counters.requests == requests
+    assert owner.counters()["misses"] == 0
+    assert owner.observation()["captures"] == 0
+    assert [reads.find_one(key) for key in range(DOCUMENTS)] == first
+    assert reads.manager.observation.hits == DOCUMENTS
+    assert reads.manager.observation.misses == DOCUMENTS
+
+
+def test_failed_locally_captured_reads_need_no_discard(
+    open_reads: Callable[[SharedIndexLimits], tuple[Owner, _SharedReads]],
+) -> None:
+    owner, reads = open_reads(replace(_SHARED_INDEX, local_miss_admission=True))
+    requests = reads.manager.endpoint.counters.requests
+    with pytest.raises(OperationFailure):
+        reads.find_one(0, projection=_INVALID_PROJECTION)
+    assert reads.manager.endpoint.counters.requests == requests
+    assert owner.counters()["admissions"] == 0
+    assert owner.observation()["captures"] == 0
+
+
+def test_oversized_local_reads_need_no_discard(
+    open_reads: Callable[[SharedIndexLimits], tuple[Owner, _SharedReads]],
+) -> None:
+    owner, reads = open_reads(replace(_SHARED_INDEX, local_miss_admission=True))
+    reads.manager.max_entry_bytes = 1
+    requests = reads.manager.endpoint.counters.requests
+    assert reads.find_one(0) is not None
+    assert reads.manager.endpoint.counters.requests == requests
+    assert owner.counters()["admissions"] == 0
+    assert owner.observation()["captures"] == 0
+
+
+async def test_cancelling_a_local_miss_retains_no_owner_capture(
+    start_owner: Callable[..., Owner],
+    mongodb_uri: MongoDbUri,
+    seeded_database: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner = start_owner(shared_index=replace(_SHARED_INDEX, local_miss_admission=True))
+    async with async_shared_manager(owner, mongodb_uri, local=True) as manager:
+        collection = manager[seeded_database][COLLECTION]
+
+        async def eligible() -> bool:
+            return await collection._cache_ineligibility_reason() is None
+
+        await wait_until_async(eligible)
+        started = asyncio.Event()
+
+        async def native_read(
+            _collection: object, *_args: object, **_kwargs: object
+        ) -> None:
+            started.set()
+            await asyncio.Future[None]()
+
+        monkeypatch.setattr(AsyncCollection, "find_one", native_read)
+        requests = manager.endpoint.counters.requests  # pytriage: TR11 - Baseline.
+        async with asyncio.TaskGroup() as group:
+            task = group.create_task(collection.find_one({"_id": 0}))
+            await started.wait()
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+        assert manager.endpoint.counters.requests == requests
+        assert owner.counters()["admissions"] == 0
+        assert owner.observation()["captures"] == 0
 
 
 def test_unpublished_entries_fall_back_to_owner_hits(

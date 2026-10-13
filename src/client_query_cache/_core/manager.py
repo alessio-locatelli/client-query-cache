@@ -426,16 +426,17 @@ class _CacheCoreNamespaceLifecycle(_CacheCoreBase):
             state.find_families.clear()
             if not is_canonicalizable(identity):
                 return
+            canonical_identity = canonicalize(identity)
+            if self._observer is not None:
+                self._observer.identity_written(state.namespace, canonical_identity)
             try:
-                identity_state = state.identities[canonicalize(identity)]
+                identity_state = state.identities[canonical_identity]
             except KeyError:
                 return
             identity_state.generation += 1
             for alias_key in identity_state.alias_keys:
                 state.aliases.pop(alias_key, None)
             identity_state.clear_aliases()
-            if self._observer is not None:
-                self._observer.identity_written(state.namespace, canonicalize(identity))
 
     def clear_namespace(self, namespace: NamespaceId) -> None:
         self._ensure_active()

@@ -25,6 +25,7 @@ class SharedIndexLimits:
     arena_bytes: PositiveInt
     namespaces: PositiveInt
     ring_tokens: PositiveInt
+    local_miss_admission: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -170,6 +171,11 @@ class IndexPublisher:
 
     def identity_written(self, namespace: NamespaceId, identity: Canonical) -> None:
         with self._lock:
+            try:
+                slot = self._namespaces[namespace]
+            except KeyError:
+                return
+            self._index.record_write(slot)
             try:
                 payloads = self._identities.pop((namespace, identity))
             except KeyError:

@@ -20,6 +20,7 @@ from benchmarks.stream_cost.shared_cache.adapters import (
 )
 from benchmarks.stream_cost.shared_cache.attachment import (
     AsyncEndpoint,
+    AsyncLocalIndex,
     LocalIndex,
     SyncEndpoint,
 )
@@ -121,11 +122,13 @@ def select_identity(
 
 @asynccontextmanager
 async def async_shared_manager(
-    owner: Owner, uri: str
+    owner: Owner, uri: str, *, local: bool = False
 ) -> AsyncGenerator[AsyncSharedCacheManager[BsonDict]]:
     client = AsyncMongoClient[BsonDict](uri)
     manager = AsyncSharedCacheManager(
-        client, await AsyncEndpoint.attach(owner.attachment())
+        client,
+        await AsyncEndpoint.attach(owner.attachment()),
+        await AsyncLocalIndex.attach(owner.attachment()) if local else None,
     )
     try:
         yield manager
