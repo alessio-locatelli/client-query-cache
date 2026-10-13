@@ -240,7 +240,7 @@ def test_accept_loop_closes_client_when_upstream_unreachable(
 
     probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     probe.bind(("127.0.0.1", 0))
-    unreachable_port = probe.getsockname()[1]  # pytriage: TR5
+    unreachable_port = probe.getsockname()[1]  # pytriage: TR5 (before close)
     probe.close()
 
     proxy = DirectPathByteProxy(_proxy_config(upstream_port=unreachable_port))
