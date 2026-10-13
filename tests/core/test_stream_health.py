@@ -25,7 +25,7 @@ def test_reset_returns_to_the_base_delay() -> None:
 
     backoff.reset()
 
-    assert backoff.next_delay(random_uniform=lambda _low, high: high) == 1.0  # noqa: RUF069
+    assert backoff.next_delay(random_uniform=lambda _low, high: high) == 1.0  # noqa: RUF069 - Verify reset returns the exact base delay.
 
 
 def test_reset_clears_saturation_after_the_cap_was_reached() -> None:
@@ -35,7 +35,7 @@ def test_reset_clears_saturation_after_the_cap_was_reached() -> None:
 
     backoff.reset()
 
-    assert backoff.next_delay(random_uniform=lambda _low, high: high) == 1.0  # noqa: RUF069
+    assert backoff.next_delay(random_uniform=lambda _low, high: high) == 1.0  # noqa: RUF069 - Verify reset returns the base delay after saturation.
 
 
 def test_delay_stays_capped_after_saturating_without_overflowing() -> None:
