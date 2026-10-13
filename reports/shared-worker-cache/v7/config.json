@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "registration": 7,
-  "status": "pending",
+  "status": "frozen",
   "paths": ["direct", "independent", "shared-index"],
   "seed": 197,
   "topology": { "cpus": 2, "memory": "2g" },
@@ -82,17 +82,17 @@
   },
   "frozen": {
     "rates": {
-      "primary": null,
-      "cold": null,
-      "sensitivity": null
+      "primary": 1020,
+      "cold": 1000,
+      "sensitivity": 372
     },
     "window_seconds": {
-      "hot": null,
-      "active": null,
-      "sensitivity": null
+      "hot": 30,
+      "active": 60,
+      "sensitivity": 30
     },
     "calibration_summary": {
-      "cold_seconds": null
+      "cold_seconds": 10.0
     }
   },
   "nominal_seconds": { "hot": 30, "active": 60, "sensitivity": 30 },
