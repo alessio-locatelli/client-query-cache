@@ -165,7 +165,7 @@ class AsyncScriptedDatabase:
     def _make_server_info(
         version_array: list[NonNegativeInt],
     ) -> Callable[[], object]:
-        async def server_info() -> BsonDict:  # noqa: RUF029
+        async def server_info() -> BsonDict:  # noqa: RUF029 - Satisfy the awaited callback interface.
             return {
                 "version": ".".join(str(part) for part in version_array),
                 "versionArray": version_array,

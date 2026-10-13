@@ -1,7 +1,5 @@
 """Measure collection invalidation and replay narrower invalidation policies."""
 
-# ruff: noqa: INP001 - Standalone research script outside the distributed package.
-
 from __future__ import annotations
 
 import argparse

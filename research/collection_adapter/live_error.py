@@ -1,7 +1,5 @@
 """Compare a warm cache hit with native execution under a live server failure."""
 
-# ruff: noqa: INP001 - Standalone research script outside the distributed package.
-
 import json
 from contextlib import contextmanager
 from time import monotonic, sleep
@@ -133,7 +131,8 @@ def run(control: MongoClient[Document]) -> None:
                     raw.count_documents({})
                 assert native_error.value.code == ERROR_CODE
                 assert commands.count == before + 1
-                hits = manager.snapshot().hits  # pytriage: TR5
+                # Snapshot hits before the read whose cache hit is being checked.
+                hits = manager.snapshot().hits
                 before = commands.count
                 assert view.count_documents({}) == 1
                 assert manager.snapshot().hits == hits + 1

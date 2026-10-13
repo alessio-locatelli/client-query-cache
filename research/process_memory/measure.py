@@ -1,4 +1,3 @@
-# ruff: noqa: INP001, PLC0415
 from __future__ import annotations
 
 import argparse
@@ -54,7 +53,7 @@ type Checkpoint = Callable[..., None]
 type Session = tuple[Any, Any, Any]
 
 
-async def call(value: object) -> Any:  # noqa: ANN401
+async def call(value: object) -> Any:
     return await value if inspect.isawaitable(value) else value
 
 
@@ -86,7 +85,7 @@ def _cgroup(name: str) -> int | None:
         return None
 
 
-def sample(phase: str, manager: Any, **extra: object) -> None:  # noqa: ANN401
+def sample(phase: str, manager: Any, **extra: object) -> None:
     gc.collect()
     peak = _keyed("/proc/self/status", ":")["VmHWM"] * 1024
     memory = psutil.Process().memory_full_info()
@@ -128,12 +127,12 @@ def code_filter(index: int, *, large: bool) -> dict[str, object]:
     return {"code": code, "state": {"$in": [*states, "active"]}}
 
 
-async def read_codes(codes: Any, indexes: range, *, large: bool = False) -> None:  # noqa: ANN401
+async def read_codes(codes: Any, indexes: range, *, large: bool = False) -> None:
     for index in indexes:
         assert await call(codes.find_one(code_filter(index, large=large)))
 
 
-async def read_category(catalogue: Any, category: int) -> list[object]:  # noqa: ANN401
+async def read_category(catalogue: Any, category: int) -> list[object]:
     cursor = catalogue.find({"attributes.category": category}).sort("_id", 1)
     documents: list[object] = await call(cursor.to_list())
     assert len(documents) == CATEGORY_DOCUMENTS
@@ -196,7 +195,7 @@ async def partial_cursors(session: Session, checkpoint: Checkpoint) -> None:
         for category in range(PARTIAL_CURSORS)
     ]
 
-    async def consume(cursor: Any) -> None:  # noqa: ANN401
+    async def consume(cursor: Any) -> None:
         for _ in range(PARTIAL_DOCUMENTS):
             await call(cursor.next())
 
@@ -284,7 +283,7 @@ async def child(uri: str, scenario: str, api: str, mode: str) -> None:
     await call(client.close())
 
 
-def seed(control: Any) -> dict[str, object]:  # noqa: ANN401
+def seed(control: Any) -> dict[str, object]:
     from benchmarks.stream_cost.shared_cache.dataset import seed_catalogue
 
     summary = seed_catalogue(

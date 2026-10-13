@@ -67,6 +67,16 @@ ignore = [
 # The default is enabled by ALL. We override it because benchmarks measure internal cache mechanisms alongside the public API.
 "benchmarks/*" = ["private-member-access", "import-private-name"]
 
+# Collection adapters preserve PyMongo's filter keyword.
+"src/client_query_cache/*/collection.py" = ["builtin-argument-shadowing"]
+# Research programs are standalone scripts rather than importable packages.
+"research/*" = ["implicit-namespace-package"]
+# Cold child-process imports keep dependency initialization out of the memory baseline;
+# the same workload intentionally accepts both sync and async, raw and cached objects.
+"research/process_memory/measure.py" = ["import-outside-top-level", "any-type"]
+# This diagnostic compares cache internals directly with an experimental native index.
+"research/shared_index_floors/floors.py" = ["import-private-name"]
+
 [lint.flake8-type-checking]
 # The default is ["typing"]. We override it because public dataclass annotations must resolve at runtime through typing.get_type_hints, so constrained aliases and their metadata stay runtime imports.
 # https://docs.astral.sh/ruff/settings/#lint_flake8-type-checking_exempt-modules

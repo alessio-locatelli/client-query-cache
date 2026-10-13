@@ -1,4 +1,3 @@
-# ruff: noqa: INP001, PLC2701, S603
 from __future__ import annotations
 
 import argparse
@@ -216,9 +215,9 @@ class AsyncCaller(asyncio.Protocol):
         assert isinstance(transport, asyncio.Transport)
         self._transport = transport
 
-    def data_received(self, data: bytes) -> None:  # pytriage: TR1
+    def data_received(self, chunk: bytes) -> None:
         inbox = self._inbox
-        inbox += data
+        inbox += chunk
         offset = 0
         while len(inbox) - offset >= LENGTH.size:
             end = offset + LENGTH.size + LENGTH.unpack_from(inbox, offset)[0]
@@ -373,7 +372,7 @@ class Floors:
         if floor in {"F0", "F1"}:
             local = self.f0 if floor == "F0" else self.f1
 
-            async def hit_local(key: int) -> object:  # noqa: RUF029
+            async def hit_local(key: int) -> object:  # noqa: RUF029 - Match the awaitable interface of the socket-backed floors.
                 return local(key)
 
             return hit_local, lambda: None
@@ -531,7 +530,8 @@ def selection(cells: list[Payload], margin_us: float) -> Payload:
 
 def provenance() -> Payload:
     def command(*arguments: str) -> str:
-        return subprocess.run(
+        # Arguments come from the fixed provenance tool calls below; no shell is used.
+        return subprocess.run(  # noqa: S603
             arguments, capture_output=True, text=True, check=True, cwd=ROOT
         ).stdout.strip()
 
@@ -552,7 +552,7 @@ def provenance() -> Payload:
 
 
 def report() -> Payload:
-    import client_query_cache_shared_index as native  # noqa: PLC0415
+    import client_query_cache_shared_index as native  # noqa: PLC0415 - Load the optional prototype extension only when running the report.
 
     config = json.loads(CONFIG.read_text(encoding="utf-8"))
     entries = Entries(config)

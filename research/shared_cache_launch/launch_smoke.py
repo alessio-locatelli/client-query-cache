@@ -1,4 +1,4 @@
-# ruff: noqa: INP001, S603 - Standalone research launch smoke with fixed local commands.
+# ruff: noqa: S603 - Standalone research launch smoke with fixed local commands.
 from __future__ import annotations
 
 import json
