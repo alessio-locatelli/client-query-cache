@@ -158,17 +158,28 @@ _LOCAL_INDEXES: Final[weakref.WeakSet[LocalIndex | AsyncLocalIndex]] = weakref.W
 def _detach_inherited() -> None:  # pragma: no cover (forked child, pre-coverage)
     for local in tuple(_LOCAL_INDEXES):
         local.reader.detach()
+        placeholder = os.open(os.devnull, os.O_RDONLY | os.O_CLOEXEC)
+        os.dup2(placeholder, local.descriptor)
+        os.close(placeholder)
 
 
 os.register_at_fork(after_in_child=_detach_inherited)
 
 
 class LocalIndex:
-    __slots__ = ("__weakref__", "_sock", "_watcher", "incarnation", "reader")
+    __slots__ = (
+        "__weakref__",
+        "_sock",
+        "_watcher",
+        "descriptor",
+        "incarnation",
+        "reader",
+    )
 
     def __init__(self, control: ControlAttachment) -> None:
         self.reader = control.reader
         self.incarnation = control.reader.incarnation
+        self.descriptor = control.sock.fileno()
         self._sock = control.sock
         self._sock.settimeout(None)
         self._watcher = threading.Thread(target=self._watch, daemon=True)
@@ -197,16 +208,25 @@ class LocalIndex:
 
 
 class AsyncLocalIndex:
-    __slots__ = ("__weakref__", "_watcher", "_writer", "incarnation", "reader")
+    __slots__ = (
+        "__weakref__",
+        "_watcher",
+        "_writer",
+        "descriptor",
+        "incarnation",
+        "reader",
+    )
 
     def __init__(
         self,
         reader: ReaderIndex,
         stream: asyncio.StreamReader,
         writer: asyncio.StreamWriter,
+        descriptor: NonNegativeInt,
     ) -> None:
         self.reader = reader
         self.incarnation = reader.incarnation
+        self.descriptor = descriptor
         self._writer = writer
         self._watcher = asyncio.create_task(self._watch(stream))
         _LOCAL_INDEXES.add(self)
@@ -215,7 +235,7 @@ class AsyncLocalIndex:
     async def attach(cls, config: AttachmentConfig) -> AsyncLocalIndex:
         control = await asyncio.to_thread(control_handshake, config)
         stream, writer = await asyncio.open_unix_connection(sock=control.sock)
-        return cls(control.reader, stream, writer)
+        return cls(control.reader, stream, writer, control.sock.fileno())
 
     async def _watch(self, stream: asyncio.StreamReader) -> None:
         try:

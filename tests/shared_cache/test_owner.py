@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import multiprocessing
+import os
 import secrets
 import select
 import socket
+import stat
 import struct
 import threading
 import time
@@ -778,7 +780,8 @@ def test_every_shape_of_an_identity_is_unpublished(
 
 
 def _exit_unless_detached(local: LocalIndex) -> None:
-    raise SystemExit(int(not local.reader.detached))
+    inherited = stat.S_ISSOCK(os.fstat(local.descriptor).st_mode)
+    raise SystemExit(int(not local.reader.detached or inherited))
 
 
 @pytest.mark.filterwarnings("ignore:This process .* is multi-threaded")
