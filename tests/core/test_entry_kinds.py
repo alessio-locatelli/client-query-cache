@@ -87,7 +87,7 @@ def test_admission_captured_before_a_write_is_rejected_by_compare_and_decide(
     begin: Callable[[CacheCore, NamespaceId], object],
     admit: Callable[[CacheCore, object], AdmissionOutcome],
 ) -> None:
-    capture = begin(core, namespace)  # pytriage: TR5
+    capture = begin(core, namespace)  # pytriage: TR5 (before write)
 
     core.record_write(namespace, "doc-1")
 
