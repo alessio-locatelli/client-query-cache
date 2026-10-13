@@ -543,6 +543,8 @@ class AsyncEndpoint:
             pass
         except ConnectionResetError:  # pragma: lax no cover (peer reset timing)
             pass
+        except BrokenPipeError:
+            pass
         finally:
             self._abandon(writer)
 

@@ -8,6 +8,7 @@
 
 - [x] 2.1 Add fault worker controls and the scenario driver using existing owner controls and reusable safety oracles; verify all registered scenarios against a disposable replica set with both execution models.
 - [x] 2.2 Integrate event-relative records into the runner and window dispatch, preserving failed trials; test event origins, unavailable intervals and safety failures.
+- [ ] 2.3 Handle a broken-pipe error propagated to the asyncio RPC reader during owner exit; replay the observed failure in a deterministic regression and repeat the registered phase without unhandled reader tasks.
 
 ## 3. Analysis and evidence
 
