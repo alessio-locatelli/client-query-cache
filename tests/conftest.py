@@ -124,7 +124,7 @@ def _wait_for_mongodb_ping(client: MongoClient[BsonDict]) -> None:
 @pytest.fixture(autouse=True)
 def log_when_test_starts(request: pytest.FixtureRequest) -> None:
     cls_ = f"{request.cls}." if request.cls else ""
-    logger.debug(f"Starting '{cls_}{request.node.name}'...")  # noqa: G004
+    logger.debug("Starting '%s%s'...", cls_, request.node.name)
 
 
 @pytest.fixture
