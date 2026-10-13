@@ -47,7 +47,7 @@ def free_port() -> int:
 def served_catalogue(
     mongodb_uri: MongoDbUri, free_port: int
 ) -> Iterator[tuple[subprocess.Popen[str], int]]:
-    process = subprocess.Popen(  # noqa: S603
+    process = subprocess.Popen(  # noqa: S603 - Run the repository example with a resolved uv executable and no shell.
         (
             _uv(),
             "run",
@@ -91,7 +91,7 @@ def served_catalogue(
     ],
 )
 def test_example_runs(name: str, mongodb_uri: MongoDbUri) -> None:
-    completed = subprocess.run(  # noqa: S603
+    completed = subprocess.run(  # noqa: S603 - Example names come from the fixed parametrized test cases; no shell is used.
         (_uv(), "run", f"examples/{name}"),
         cwd=REPOSITORY,
         env={**os.environ, "MONGODB_URI": mongodb_uri},
