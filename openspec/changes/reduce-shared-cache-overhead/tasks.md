@@ -58,3 +58,7 @@ Execute the sections in order. Task 1.4 decides whether sections 2–5 run. [Out
 
 - [x] 6.1 Scan the entire file for edited or added tests, including pre-existing tests within the file, and ensure that the "Writing Tests" guidelines from `AGENTS.md` are applied, including test parametrization.
 - [x] 6.2 If you are Claude Code, confirm that you added no new prose to the code (all "why" explanations must go in the specs and commit bodies). OpenAI Codex is exempt from this rule.
+
+## 7. Branch review
+
+- [x] 7.1 After a fork, replace each inherited control-connection descriptor in the child with `/dev/null`, so that only the attaching process holds the connection and the owner releases its session and hit ring when that process detaches. Extend the forked-child test to assert that the inherited descriptor is no longer a socket.
