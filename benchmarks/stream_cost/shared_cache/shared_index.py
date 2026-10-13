@@ -9,7 +9,7 @@ from client_query_cache_shared_index import OwnerIndex, Payload
 
 from benchmarks.stream_cost.shared_cache.wire import KeyCache, encode_key
 from client_query_cache._core.keys import IdentityCacheKey
-from client_query_cache._types import NonNegativeInt, PositiveInt
+from client_query_cache._types import NonNegativeFloat, NonNegativeInt, PositiveInt
 
 if TYPE_CHECKING:
     from client_query_cache._core.canonical import Canonical
@@ -54,6 +54,7 @@ class ArenaPayloads:
 
 class IndexPublisher:
     __slots__ = (
+        "_available_since",
         "_capacity",
         "_databases",
         "_epochs",
@@ -71,6 +72,10 @@ class IndexPublisher:
     ) -> None:
         self._index = index
         self._databases = {database: slot for slot, database in enumerate(databases)}
+        now = time.monotonic()
+        self._available_since: dict[str, NonNegativeFloat | None] = dict.fromkeys(
+            databases, now
+        )
         self._capacity = namespaces
         self._namespaces: dict[NamespaceId, NonNegativeInt] = {}
         self._epochs: dict[NamespaceId, NonNegativeInt] = {}
@@ -182,4 +187,10 @@ class IndexPublisher:
             self._index.set_epoch(slot, self._epochs[namespace])
 
     def availability_changed(self, database: str, *, available: bool) -> None:
-        self._index.set_available(self._databases[database], available=available)
+        with self._lock:
+            self._available_since[database] = time.monotonic() if available else None
+            self._index.set_available(self._databases[database], available=available)
+
+    def available_since(self, database: str) -> NonNegativeFloat | None:
+        with self._lock:
+            return self._available_since[database]

@@ -40,8 +40,7 @@ def local_read(
 ) -> bytes | None:
     namespace = NamespaceId(database, collection)
     local = manager.local
-    if local is None or namespace not in manager._slots:  # noqa: SLF001
-        return None
+    assert local is not None
     database_slot, slot, _incarnation = manager._slots[namespace]  # noqa: SLF001
     return local.reader.lookup(
         database_slot,

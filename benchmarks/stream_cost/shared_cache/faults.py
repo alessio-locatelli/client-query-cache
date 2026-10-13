@@ -65,7 +65,7 @@ def _timestamp(record: Message) -> NonNegativeFloat:
 
 def _number(record: Message, key: str) -> NonNegativeFloat:
     value = record[key]
-    assert isinstance(value, (int, float))
+    assert isinstance(value, (int, float)), f"{key} is not a numeric observation"
     return value
 
 
@@ -78,6 +78,7 @@ class FaultTrial:
         "events",
         "group",
         "probes",
+        "ready_state",
         "registration",
         "revision",
         "stopped",
@@ -102,6 +103,7 @@ class FaultTrial:
         self.checks: list[str] = []
         self.probes: dict[str, list[Message]] = {}
         self.revision: NonNegativeInt = 0
+        self.ready_state = False
         self.stopped = False
 
     def wait(self, predicate: Callable[[], bool]) -> None:
@@ -121,6 +123,10 @@ class FaultTrial:
         return _mapping(self.owner(), "observation")
 
     def workers(self, operation: str = "probe", **fields: object) -> list[Message]:
+        check_recovery = operation in {"probe", "prime"} and (
+            "injection" not in self.events or "recovery" in self.events
+        )
+        before = self._owner_state() if check_recovery else None
         for connection in self.group.connections:
             connection.send({"op": operation, "revision": self.revision, **fields})
         observations = [
@@ -128,26 +134,72 @@ class FaultTrial:
             for connection in self.group.connections
         ]
         self.probes[operation] = observations
+        if before is not None:
+            self.ready_state = self._record_readiness(
+                before, observations, self._owner_state(), operation=operation
+            )
         return observations
 
-    def ready(self) -> bool:
-        owner = _mapping(
-            _mapping(self.observe(), "databases"),
-            str(self.registration.raw["database"]),
-        )
-        return self._record_readiness(owner, self.workers())
+    def _owner_state(self) -> Message:
+        observation = self.observe()
+        return {
+            **_mapping(
+                _mapping(observation, "databases"),
+                str(self.registration.raw["database"]),
+            ),
+            "incarnation": observation["incarnation"],
+            "monotonic": observation["observed_monotonic"],
+        }
 
-    def _record_readiness(self, owner: Message, probes: list[Message]) -> bool:
+    def ready(self) -> bool:
+        self.workers()
+        return self.ready_state
+
+    def _record_readiness(
+        self,
+        before: Message,
+        probes: list[Message],
+        after: Message,
+        *,
+        operation: str = "probe",
+    ) -> bool:
+        self.probes[operation + "-owner"] = [before, after]
+        hits = [probe for probe in probes if probe["hit"]]
+        if hits:
+            first = min(_number(probe, "hit_at") for probe in hits)
+            if "first_hit" not in self.events:
+                self.events["first_hit"] = first
+            if "recovery" in self.events:
+                _require(
+                    after["available"]
+                    and after["progress_fresh"]
+                    and before["incarnation"] == after["incarnation"]
+                    and all(
+                        not probe["unsafe_hit"]
+                        and probe["incarnation"] == after["incarnation"]
+                        and _number(after, "available_since")
+                        <= _number(probe, "hit_at")
+                        and _number(after, "fresh_since") <= _number(probe, "hit_at")
+                        and _timestamp(before)
+                        <= _number(probe, "hit_at")
+                        <= _number(probe, "last_hit_at")
+                        <= _timestamp(after)
+                        for probe in hits
+                    ),
+                    "cached hit lacks safe owner and worker observations "
+                    "across the read",
+                )
         if (
-            owner["available"]
-            and owner["progress_fresh"]
-            and any(probe["eligible"] for probe in probes)
+            after["available"]
+            and after["progress_fresh"]
+            and any(
+                probe["eligible"] and probe["incarnation"] == after["incarnation"]
+                for probe in probes
+            )
         ):
             observed_at = time.monotonic()
             if "readiness" not in self.events:
                 self.events["readiness"] = observed_at
-            if any(probe["hit"] for probe in probes) and "first_hit" not in self.events:
-                self.events["first_hit"] = observed_at
             return True
         return False
 
@@ -243,18 +295,20 @@ class FaultTrial:
         keys = self.registration.number("hot_keys")
 
         def warm_first() -> bool:
-            connection.send({"op": "prime", "revision": self.revision})
-            first = receive(connection, self.deadline, "probe")
-            database = _mapping(
-                _mapping(self.observe(), "databases"),
-                str(self.registration.raw["database"]),
+            before = self._owner_state()
+            operation = (
+                "prime" if before["available"] and before["progress_fresh"] else "probe"
             )
-            if self._record_readiness(database, [first]):
+            connection.send({"op": operation, "revision": self.revision})
+            first = receive(connection, self.deadline, "probe")
+            if self._record_readiness(
+                before, [first], self._owner_state(), operation="warm-first"
+            ):
                 _require(
                     first["incarnation"] != incarnation,
                     "first worker failed to reattach",
                 )
-                return first["resident_keys"] == keys
+                return operation == "prime" and first["resident_keys"] == keys
             return False
 
         self.wait(warm_first)
