@@ -1,4 +1,3 @@
-# ruff: noqa: INP001 - Shared owner launcher for the research launch smoke.
 from __future__ import annotations
 
 import os

@@ -1,4 +1,3 @@
-# ruff: noqa: INP001 - Gunicorn configuration for the research launch smoke.
 from __future__ import annotations
 
 import multiprocessing

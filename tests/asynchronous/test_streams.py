@@ -156,8 +156,8 @@ async def make_supervisor() -> AsyncIterator[Callable[..., DatabaseStreamSupervi
 
     def _make(
         database: AsyncDatabase[Any],
-        cache: Any,  # noqa: ANN401
-        **kwargs: Any,  # noqa: ANN401
+        cache: CacheCore | Mock,
+        **kwargs: Any,  # noqa: ANN401 - Forward heterogeneous supervisor constructor options.
     ) -> DatabaseStreamSupervisor:
         supervisor = DatabaseStreamSupervisor(database, cache, **kwargs)
         supervisors.append(supervisor)
@@ -172,7 +172,10 @@ async def make_supervisor() -> AsyncIterator[Callable[..., DatabaseStreamSupervi
 async def make_coordinator() -> AsyncIterator[Callable[..., ChangeStreamCoordinator]]:
     coordinators: list[ChangeStreamCoordinator] = []
 
-    def _make(client: Any, cache: Any) -> ChangeStreamCoordinator:  # noqa: ANN401
+    def _make(
+        client: Any,  # noqa: ANN401 - Accept scripted clients as well as PyMongo clients.
+        cache: CacheCore | Mock,
+    ) -> ChangeStreamCoordinator:
         coordinator = ChangeStreamCoordinator(client, cache)
         coordinators.append(coordinator)
         return coordinator
@@ -215,7 +218,7 @@ async def test_start_fails_closed_when_server_info_itself_fails(
 ) -> None:
     database = ScriptedDatabase("db", [])
 
-    async def failing_server_info() -> BsonDict:  # noqa: RUF029
+    async def failing_server_info() -> BsonDict:  # noqa: RUF029 - Satisfy the awaited callback interface.
         raise ConnectionFailure("no primary available")
 
     database.client = SimpleNamespace(server_info=failing_server_info)
@@ -242,7 +245,7 @@ async def test_start_raises_and_closes_the_stream_when_stop_races_it(
     database = ScriptedDatabase("db", [stream])
     supervisor = make_supervisor(as_database(database), _mock_cache())
 
-    async def before_watch(_index: NonNegativeInt) -> None:  # noqa: RUF029
+    async def before_watch(_index: NonNegativeInt) -> None:  # noqa: RUF029 - Satisfy the awaited callback interface.
         supervisor._stop_event.set()
 
     database._before_watch = before_watch
@@ -391,7 +394,7 @@ async def test_a_stop_racing_a_successful_reopen_does_not_report_healthy(
         as_database(database), _mock_cache(), backoff=_FAST_BACKOFF
     )
 
-    async def before_watch(index: NonNegativeInt) -> None:  # noqa: RUF029
+    async def before_watch(index: NonNegativeInt) -> None:  # noqa: RUF029 - Satisfy the awaited callback interface.
         if index == 1:
             supervisor._stop_event.set()
 
@@ -424,7 +427,7 @@ async def test_stop_interrupts_an_in_progress_backoff_wait(
 ) -> None:
     entered_backoff = asyncio.Event()
 
-    async def before_watch(index: NonNegativeInt) -> None:  # noqa: RUF029
+    async def before_watch(index: NonNegativeInt) -> None:  # noqa: RUF029 - Satisfy the awaited callback interface.
         if index == 1:
             entered_backoff.set()
 
@@ -460,7 +463,7 @@ async def test_stop_event_set_during_an_unresumable_clear_exits_the_retry_loop(
         as_database(database), _mock_cache(), backoff=_FAST_BACKOFF
     )
 
-    async def before_watch(index: NonNegativeInt) -> None:  # noqa: RUF029
+    async def before_watch(index: NonNegativeInt) -> None:  # noqa: RUF029 - Satisfy the awaited callback interface.
         if index == 1:
             supervisor._stop_event.set()
 
