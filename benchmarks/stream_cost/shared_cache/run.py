@@ -59,9 +59,9 @@ def environment(registration: Registration) -> JsonDict:
     git = shutil.which("git")
     if git is None:
         raise BenchmarkSetupError("git is required to record the benchmark revision")
-    revision = subprocess.check_output([git, "rev-parse", "HEAD"], text=True).strip()  # noqa: S603
+    revision = subprocess.check_output([git, "rev-parse", "HEAD"], text=True).strip()  # noqa: S603 - Use the resolved git executable with fixed arguments and no shell.
     dirty = bool(
-        subprocess.check_output(  # noqa: S603
+        subprocess.check_output(  # noqa: S603 - Use the resolved git executable with fixed arguments and no shell.
             [
                 git,
                 "status",
