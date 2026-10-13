@@ -14,7 +14,9 @@ After a failed local lookup, the native reader captures these serials and a mono
 | Captured miss | Constant-size token, one MongoDB round trip, one admission send | Decode one frame and run authoritative admission |
 | Fallback      | Existing select RPC and native read                             | Existing handle and admission path               |
 
-Storage adds two words per namespace and one per database at most, independent of outstanding misses. Payload encoding/copy costs remain proportional to document bytes. The new path removes a blocking owner request and its reply; core admission and publication remain the expected CPU bottleneck.
+The admission transaction also holds the core availability lock, preventing a database transition between native-token validation and core insertion. Both locks precede namespace and publisher locks; publisher callbacks never acquire the progress lock.
+
+Storage adds one word per namespace and database, plus one header word, independent of outstanding misses. Payload encoding/copy costs remain proportional to document bytes. The new path removes a blocking owner request and its reply; core admission and publication remain the expected CPU bottleneck.
 
 Admission batching was considered: it amortizes framing but cannot remove synchronous selection latency and adds flush/cancellation ownership. Consolidating core locks could reduce CPU for every manager but expands concurrency-sensitive production scope without eliminating the round trip. Neither is required for this candidate. Their comparative benefit remains unmeasured; task 3.1 determines whether the selected approach meets the issue's bound.
 

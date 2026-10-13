@@ -240,7 +240,13 @@ class Registration:
         return TransportLimits(**cast("dict[str, float]", self.section("transport")))  # type: ignore[arg-type]
 
     def shared_index(self) -> SharedIndexLimits:
-        return SharedIndexLimits(**cast("dict[str, int]", self.section("shared_index")))
+        parameters = dict(self.section("shared_index"))
+        local_miss_admission = parameters.pop("local_miss_admission", False)
+        assert isinstance(local_miss_admission, bool)
+        return SharedIndexLimits(
+            **cast("dict[str, PositiveInt]", parameters),
+            local_miss_admission=local_miss_admission,
+        )
 
     def rate(self, family: str) -> PositiveFloat:
         rates = cast("JsonDict", self.section("frozen")["rates"])

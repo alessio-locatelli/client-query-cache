@@ -4,8 +4,8 @@ use crate::hash;
 use crate::memory::{WORD_BYTES, Words};
 use crate::sync::{AtomicU64, Ordering, fence};
 
-const MAGIC: u64 = u64::from_le_bytes(*b"cqcsidx2");
-const LAYOUT_VERSION: u64 = 2;
+const MAGIC: u64 = u64::from_le_bytes(*b"cqcsidx3");
+const LAYOUT_VERSION: u64 = 3;
 
 const H_MAGIC: usize = 0;
 const H_VERSION: usize = 1;
@@ -15,11 +15,16 @@ const H_ARENA_WORDS: usize = 4;
 const H_DATABASES: usize = 5;
 const H_NAMESPACES: usize = 6;
 const H_EXPIRY_NS: usize = 7;
-const HEADER_WORDS: usize = 8;
+const H_CAPTURE_ENABLED: usize = 8;
+const HEADER_WORDS: usize = 9;
 
 const D_AVAILABLE: usize = 0;
 const D_PROGRESS_NS: usize = 1;
-const DATABASE_WORDS: usize = 2;
+const D_FENCE: usize = 2;
+const DATABASE_WORDS: usize = 3;
+const N_EPOCH: usize = 0;
+const N_MUTATION: usize = 1;
+const NAMESPACE_WORDS: usize = 2;
 
 const S_VERSION: usize = 0;
 const S_HASH: usize = 1;
@@ -79,7 +84,7 @@ impl Layout {
         let slots_start = databases
             .checked_mul(DATABASE_WORDS)?
             .checked_add(HEADER_WORDS)?
-            .checked_add(namespaces)?
+            .checked_add(namespaces.checked_mul(NAMESPACE_WORDS)?)?
             .checked_next_multiple_of(SLOT_WORDS)?;
         slots
             .checked_mul(SLOT_WORDS)?
@@ -99,7 +104,7 @@ impl Layout {
     }
 
     fn namespace_at(&self, namespace: usize) -> usize {
-        HEADER_WORDS + self.databases * DATABASE_WORDS + namespace
+        HEADER_WORDS + self.databases * DATABASE_WORDS + namespace * NAMESPACE_WORDS
     }
 
     fn slot_at(&self, slot: usize) -> usize {
@@ -285,26 +290,93 @@ impl<M: Words> Index<M> {
             .then(|| self.word(self.layout.database_at(database) + field))
     }
 
-    fn namespace_word(&self, namespace: usize) -> Option<&AtomicU64> {
-        (namespace < self.layout.namespaces).then(|| self.word(self.layout.namespace_at(namespace)))
+    fn namespace_word(&self, namespace: usize, field: usize) -> Option<&AtomicU64> {
+        (namespace < self.layout.namespaces)
+            .then(|| self.word(self.layout.namespace_at(namespace) + field))
     }
 
     pub(crate) fn set_available(&self, database: usize, available: bool) -> bool {
         self.database_word(database, D_AVAILABLE)
-            .map(|word| word.store(u64::from(available), Ordering::Release))
+            .map(|word| {
+                if word.swap(u64::from(available), Ordering::AcqRel) != u64::from(available) {
+                    self.advance(self.database_word(database, D_FENCE).unwrap());
+                }
+            })
             .is_some()
     }
 
     pub(crate) fn set_progress(&self, database: usize, monotonic_ns: u64) -> bool {
         self.database_word(database, D_PROGRESS_NS)
-            .map(|word| word.store(monotonic_ns, Ordering::Release))
+            .map(|word| {
+                let previous = word.load(Ordering::Acquire);
+                if previous != 0
+                    && monotonic_ns.saturating_sub(previous)
+                        > self.word(H_EXPIRY_NS).load(Ordering::Relaxed)
+                {
+                    self.advance(self.database_word(database, D_FENCE).unwrap());
+                }
+                word.store(monotonic_ns, Ordering::Release);
+            })
             .is_some()
     }
 
     pub(crate) fn set_epoch(&self, namespace: usize, epoch: u64) -> bool {
-        self.namespace_word(namespace)
+        self.namespace_word(namespace, N_EPOCH)
             .map(|word| word.store(epoch, Ordering::Release))
             .is_some()
+    }
+
+    fn advance(&self, word: &AtomicU64) {
+        let _ = word.fetch_update(Ordering::AcqRel, Ordering::Acquire, |value| {
+            value.checked_add(1)
+        });
+    }
+
+    pub(crate) fn record_write(&self, namespace: usize) -> bool {
+        self.namespace_word(namespace, N_MUTATION)
+            .map(|word| self.advance(word))
+            .is_some()
+    }
+
+    pub(crate) fn enable_capture(&self, enabled: bool) {
+        self.word(H_CAPTURE_ENABLED)
+            .store(u64::from(enabled), Ordering::Release);
+    }
+
+    pub(crate) fn capture(
+        &self,
+        incarnation: u64,
+        query: &Query<'_>,
+        now_ns: u64,
+    ) -> Option<(u64, u64, u64)> {
+        if self.word(H_CAPTURE_ENABLED).load(Ordering::Acquire) == 0 {
+            return None;
+        }
+        let mutation = self
+            .namespace_word(query.namespace, N_MUTATION)?
+            .load(Ordering::Acquire);
+        let fence = self
+            .database_word(query.database, D_FENCE)?
+            .load(Ordering::Acquire);
+        if mutation == u64::MAX || fence == u64::MAX {
+            return None;
+        }
+        self.check(incarnation, query, now_ns).ok()?;
+        Some((mutation, fence, now_ns))
+    }
+
+    pub(crate) fn validate_capture(
+        &self,
+        incarnation: u64,
+        query: &Query<'_>,
+        token: (u64, u64, u64),
+        now_ns: u64,
+        max_age_ns: u64,
+    ) -> bool {
+        let (mutation, fence, captured_ns) = token;
+        captured_ns <= now_ns
+            && now_ns - captured_ns < max_age_ns
+            && self.capture(incarnation, query, now_ns) == Some((mutation, fence, now_ns))
     }
 
     fn check(&self, incarnation: u64, query: &Query<'_>, now_ns: u64) -> Result<(), Miss> {
@@ -326,7 +398,9 @@ impl<M: Words> Index<M> {
         {
             return Err(Miss::Expired);
         }
-        let epoch = self.namespace_word(query.namespace).ok_or(Miss::Range)?;
+        let epoch = self
+            .namespace_word(query.namespace, N_EPOCH)
+            .ok_or(Miss::Range)?;
         if epoch.load(Ordering::Acquire) != query.epoch {
             return Err(Miss::Epoch);
         }
@@ -817,6 +891,71 @@ mod tests {
     }
 
     #[test]
+    fn local_captures_require_opt_in_and_current_validity() {
+        let (index, _) = fixture();
+        let q = query(b"uncached");
+        assert_eq!(index.capture(INCARNATION, &q, NOW_NS), None);
+        index.enable_capture(true);
+        let token = index.capture(INCARNATION, &q, NOW_NS).unwrap();
+        assert!(index.validate_capture(INCARNATION, &q, token, NOW_NS + 1, EXPIRY_NS));
+        assert!(!index.validate_capture(INCARNATION + 1, &q, token, NOW_NS + 1, EXPIRY_NS));
+        assert!(!index.validate_capture(INCARNATION, &q, token, NOW_NS - 1, EXPIRY_NS));
+        assert!(!index.validate_capture(INCARNATION, &q, token, NOW_NS + EXPIRY_NS, EXPIRY_NS));
+        assert!(index.record_write(q.namespace));
+        assert!(!index.validate_capture(INCARNATION, &q, token, NOW_NS + 1, EXPIRY_NS));
+        assert!(!index.record_write(index.layout.namespaces));
+        let token = index.capture(INCARNATION, &q, NOW_NS).unwrap();
+        index.set_epoch(q.namespace, EPOCH + 1);
+        assert!(!index.validate_capture(INCARNATION, &q, token, NOW_NS, EXPIRY_NS));
+    }
+
+    #[test]
+    fn recovery_never_revives_obsolete_captures() {
+        let (index, _) = fixture();
+        index.enable_capture(true);
+        let q = query(b"uncached");
+        let token = index.capture(INCARNATION, &q, NOW_NS).unwrap();
+        index.set_available(q.database, false);
+        assert_eq!(index.capture(INCARNATION, &q, NOW_NS), None);
+        index.set_available(q.database, true);
+        assert!(!index.validate_capture(INCARNATION, &q, token, NOW_NS, EXPIRY_NS));
+        let token = index.capture(INCARNATION, &q, NOW_NS).unwrap();
+        index.set_progress(q.database, NOW_NS + EXPIRY_NS + 1);
+        assert!(!index.validate_capture(
+            INCARNATION,
+            &q,
+            token,
+            NOW_NS + EXPIRY_NS + 1,
+            EXPIRY_NS * 10
+        ));
+        assert!(
+            index
+                .capture(INCARNATION, &q, NOW_NS + EXPIRY_NS + 1)
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn exhausted_capture_serials_fail_closed() {
+        let (index, _) = fixture();
+        index.enable_capture(true);
+        for word in [
+            index.namespace_word(1, N_MUTATION).unwrap(),
+            index.database_word(0, D_FENCE).unwrap(),
+        ] {
+            word.store(u64::MAX - 1, Ordering::Release);
+            index.advance(word);
+            index.advance(word);
+            assert_eq!(word.load(Ordering::Acquire), u64::MAX);
+            assert_eq!(
+                index.capture(INCARNATION, &query(b"uncached"), NOW_NS),
+                None
+            );
+            word.store(0, Ordering::Release);
+        }
+    }
+
+    #[test]
     fn rejects_reads_that_fail_a_validity_check() {
         let (index, mut writer) = fixture();
         publish(&mut writer, b"identity", b"payload");
@@ -1166,6 +1305,51 @@ mod models {
             if let Some(payload) = reader.join().unwrap() {
                 assert_eq!(payload, [1; 16]);
             }
+        });
+    }
+
+    #[test]
+    fn completed_mutations_fence_captured_misses() {
+        for availability in [false, true] {
+            model(move || {
+                let (index, _) = fixture();
+                index.enable_capture(true);
+                let token = index.capture(1, &query(b"uncached"), 1).unwrap();
+                let changed = index.clone();
+                let writer = loom::thread::spawn(move || {
+                    if availability {
+                        changed.set_available(0, false);
+                        changed.set_available(0, true);
+                    } else {
+                        changed.record_write(0);
+                    }
+                });
+                let reader = index.clone();
+                let capture =
+                    loom::thread::spawn(move || reader.capture(1, &query(b"uncached"), 1));
+                writer.join().unwrap();
+                capture.join().unwrap();
+                assert!(!index.validate_capture(1, &query(b"uncached"), token, 1, u64::MAX));
+            });
+        }
+    }
+
+    #[test]
+    fn progress_recovery_fences_earlier_misses() {
+        model(|| {
+            let (index, _) = fixture();
+            index.word(H_EXPIRY_NS).store(1, Ordering::Release);
+            index.enable_capture(true);
+            let token = index.capture(1, &query(b"uncached"), 1).unwrap();
+            let resumed = index.clone();
+            let writer = loom::thread::spawn(move || {
+                resumed.set_progress(0, 3);
+            });
+            let reader = index.clone();
+            let capture = loom::thread::spawn(move || reader.capture(1, &query(b"uncached"), 3));
+            writer.join().unwrap();
+            capture.join().unwrap();
+            assert!(!index.validate_capture(1, &query(b"uncached"), token, 3, u64::MAX));
         });
     }
 }

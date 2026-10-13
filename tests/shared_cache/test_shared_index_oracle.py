@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from typing import TypedDict
 
 import pytest
 from client_query_cache_shared_index import OwnerIndex, ReaderIndex
@@ -27,8 +28,10 @@ from client_query_cache._core.manager import (
     CacheCore,
     CacheCoreConfig,
     IdentityCapture,
+    NamespaceCapture,
 )
 from client_query_cache._core.order_sensitive_keys import order_sensitive_key
+from client_query_cache._types import NonNegativeInt
 
 pytestmark = pytest.mark.unit
 
@@ -45,8 +48,15 @@ _RING_TOKENS = 4_096
 _STALE_PROGRESS_NS = 1
 
 
+class LocalCapture(TypedDict):
+    core: NamespaceCapture
+    epoch: NonNegativeInt
+    token: tuple[NonNegativeInt, NonNegativeInt, NonNegativeInt] | None
+
+
 class _SharedIndexMachine(RuleBasedStateMachine):
     captures = Bundle("captures")
+    local_captures = Bundle("local_captures")
 
     def __init__(self) -> None:
         super().__init__()
@@ -55,6 +65,7 @@ class _SharedIndexMachine(RuleBasedStateMachine):
             _SLOTS, _ARENA_BYTES, 1, len(_NAMESPACES), 1, _EXPIRY_NS
         )
         self.publisher = IndexPublisher(self.index, (_DATABASE,), len(_NAMESPACES))
+        self.index.enable_capture(enabled=True)
         self.core = CacheCore(
             _EVICTING_BUDGET,
             observer=self.publisher,
@@ -90,6 +101,37 @@ class _SharedIndexMachine(RuleBasedStateMachine):
     )
     def capture(self, namespace: NamespaceId, identity: int) -> IdentityCapture:
         return self.core.begin_identity_admission(namespace, identity)
+
+    @rule(target=local_captures, namespace=st.sampled_from(_NAMESPACES))
+    def local_capture(self, namespace: NamespaceId) -> LocalCapture:
+        slot = self.slots[namespace]
+        assert slot is not None
+        epoch = self.core.current_epoch(namespace)
+        return {
+            "core": self.core.capture_namespace_generation(namespace),
+            "epoch": epoch,
+            "token": self.reader.capture(slot.database, slot.namespace, epoch),
+        }
+
+    @rule(capture=consumes(local_captures))
+    def validate_local_capture(self, capture: LocalCapture) -> None:
+        core_capture = capture["core"]
+        slot = self.slots[core_capture.namespace]
+        assert slot is not None
+        token = capture["token"]
+        if token is not None and self.index.validate_capture(
+            slot.database,
+            slot.namespace,
+            capture["epoch"],
+            self.reader.incarnation,
+            token,
+            _EXPIRY_NS,
+        ):
+            assert self.core.is_database_available(_DATABASE)
+            assert (
+                self.core.capture_namespace_generation(core_capture.namespace)
+                == core_capture
+            )
 
     @rule(
         capture=consumes(captures),

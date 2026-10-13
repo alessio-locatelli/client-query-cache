@@ -281,6 +281,7 @@ class SharedCacheOwner:
             self._publisher = IndexPublisher(
                 self._index, config.databases, limits.namespaces
             )
+            self._index.enable_capture(limits.local_miss_admission)
             payloads = ArenaPayloads(self._index)
         self.progress = UpstreamProgress(
             None if self._publisher is None else self._publisher.progress,
@@ -484,6 +485,9 @@ class SharedCacheOwner:
             raise ProtocolError("control connections carry no requests")
         self.counters.requests += 1
         match operation:
+            case "admit-local":
+                self._admit_local(message)
+                return None
             case "admit":
                 self._admit(connection, message, now)
                 return None
@@ -595,6 +599,49 @@ class SharedCacheOwner:
             "session": connection.session,
             "databases": list(self.config.databases),
         }
+
+    def _admit_local(self, message: Message) -> None:
+        self.counters.admissions += 1
+        namespace = _namespace(message["ns"])
+        value = message["value"]
+        if not isinstance(value, bytes):
+            raise ProtocolError("local admission value must be encoded bytes")
+        publisher = self._publisher
+        if publisher is None:
+            raise ProtocolError("local admission requires a shared index")
+        index = self._index
+        assert index is not None
+        slot = _capture_words(message["slot"], 2)
+        with self.progress._lock, self.core._availability_lock:
+            if self._gate(namespace.database, time.monotonic()) is not None:
+                self.counters.rejected_admissions += 1
+                return
+            assigned = publisher.assign(namespace, self.core.current_epoch(namespace))
+            if assigned is None or slot != (assigned.database, assigned.namespace):
+                self.counters.rejected_admissions += 1
+                return
+            token = _capture_words(message["token"], 3)
+            epoch = _capture_word(message["epoch"])
+            incarnation = _capture_word(message["incarnation"])
+            identity = decode_key(message["identity"])
+            shape = self._keys.decode(message["shape"])
+            capture = self.core.begin_identity_admission(namespace, identity)
+            if not index.validate_capture(
+                assigned.database,
+                assigned.namespace,
+                epoch,
+                incarnation,
+                (token[0], token[1], token[2]),
+                round(self.config.limits.capture_seconds * 1e9),
+            ):
+                self.core.discard_identity_admission(capture)
+                self.counters.rejected_admissions += 1
+                return
+            outcome = self.core.admit_identity_encoded(capture, shape, value)
+        if outcome is AdmissionOutcome.ADMITTED:
+            self.counters.admitted += 1
+        else:
+            self.counters.rejected_admissions += 1
 
     def _admit(
         self, connection: _Connection, message: Message, now: NonNegativeFloat
@@ -901,6 +948,18 @@ class SharedCacheOwner:
         stream = supervisor._stream
         assert stream is not None
         stream.close()
+
+
+def _capture_word(value: object) -> NonNegativeInt:
+    if not isinstance(value, int) or isinstance(value, bool) or not 0 <= value < 2**63:
+        raise ProtocolError("invalid local capture word")
+    return value
+
+
+def _capture_words(value: object, count: PositiveInt) -> tuple[NonNegativeInt, ...]:
+    if not isinstance(value, list) or len(value) != count:
+        raise ProtocolError("invalid local capture vector")
+    return tuple(_capture_word(word) for word in value)
 
 
 def _namespace(value: object) -> NamespaceId:

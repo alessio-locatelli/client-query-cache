@@ -161,6 +161,37 @@ impl OwnerIndex {
             .ok_or_else(|| out_of_range("namespace"))
     }
 
+    fn record_write(&self, namespace: usize) -> PyResult<()> {
+        self.index
+            .record_write(namespace)
+            .then_some(())
+            .ok_or_else(|| out_of_range("namespace"))
+    }
+
+    fn enable_capture(&self, enabled: bool) {
+        self.index.enable_capture(enabled);
+    }
+
+    fn validate_capture(
+        &self,
+        database: usize,
+        namespace: usize,
+        epoch: u64,
+        incarnation: u64,
+        token: (u64, u64, u64),
+        max_age_ns: u64,
+    ) -> bool {
+        let query = Query {
+            database,
+            namespace,
+            epoch,
+            identity: &[],
+            shape: &[],
+        };
+        self.index
+            .validate_capture(incarnation, &query, token, monotonic_ns(), max_age_ns)
+    }
+
     fn session_ring(&self, tokens: usize) -> PyResult<SessionRing> {
         let words =
             Ring::<Shared>::words_for(tokens).ok_or_else(|| invalid("invalid ring capacity"))?;
@@ -289,6 +320,20 @@ impl ReaderIndex {
             .ok()?;
         self.ring.push(token);
         Some(payload)
+    }
+
+    fn capture(&self, database: usize, namespace: usize, epoch: u64) -> Option<(u64, u64, u64)> {
+        if self.detached.load(Ordering::Acquire) {
+            return None;
+        }
+        let query = Query {
+            database,
+            namespace,
+            epoch,
+            identity: &[],
+            shape: &[],
+        };
+        self.index.capture(self.incarnation, &query, monotonic_ns())
     }
 
     fn detach(&self) {
