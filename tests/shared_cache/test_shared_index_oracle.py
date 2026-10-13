@@ -129,7 +129,9 @@ class _SharedIndexMachine(RuleBasedStateMachine):
 
     @rule()
     def drain(self) -> None:
-        for token in self.ring.drain():
+        for token in (
+            self.ring.drain()
+        ):  # pragma: lax no cover (generated runs may drain only empty rings)
             key = self.publisher.key(token)
             if key is not None:
                 self.core._lru.touch(key)
