@@ -27,6 +27,7 @@ from benchmarks.stream_cost.shared_cache.protocol import (
     families,
     family_cells,
     family_probe_cells,
+    fault_cells,
     measurement_environment,
     probe_cells,
     required_samples,
@@ -360,6 +361,8 @@ def freeze(registration_path: Path, calibration_path: Path) -> None:
 def planned(
     registration: Registration, phase: str, paths: tuple[PathKind, ...]
 ) -> tuple[Cell, ...]:
+    if phase == "fault":
+        return fault_cells(registration, paths)
     if phase == "capacity":
         return capacity_cells(registration, paths)
     return comparison_cells(registration, phase, paths)

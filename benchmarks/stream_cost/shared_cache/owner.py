@@ -14,16 +14,17 @@ from benchmarks.stream_cost.client import BenchmarkClientTopologyConfig, WireCom
 from benchmarks.stream_cost.proxy import DirectPathByteProxy, DirectPathProxyConfig
 from benchmarks.stream_cost.shared_cache.coordinator import SharedCacheOwner
 from benchmarks.stream_cost.shared_cache.profiling import WindowProfiler
-from client_query_cache._core.keys import IdentityCacheKey
+from client_query_cache._core.keys import IdentityCacheKey, NamespaceId
 from client_query_cache._core.lru import WeightedLru
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping
     from multiprocessing.connection import Connection
 
     from benchmarks.stream_cost.shared_cache.coordinator import Message, OwnerConfig
     from client_query_cache._core.entries import CacheEntry
     from client_query_cache._core.keys import CacheKey
+    from client_query_cache.synchronous.streams import DatabaseStreamSupervisor
 
 TOPOLOGY = BenchmarkClientTopologyConfig(
     tls_enabled=False,
@@ -95,6 +96,33 @@ def process_sample() -> Message:
 
 
 _PROFILER = WindowProfiler()
+_HISTORY_READY = threading.Event()
+
+
+def hold_history(owner: SharedCacheOwner) -> None:
+    database = owner.config.databases[0]
+    supervisor = owner.streams._supervisors[database]  # noqa: SLF001
+    supervisor_type = type(supervisor)
+    original = supervisor_type._open_stream  # noqa: SLF001
+    _HISTORY_READY.clear()
+
+    def blocked_open(
+        instance: DatabaseStreamSupervisor,
+        *,
+        resume_token: Mapping[str, object] | None,
+        use_start_after: bool,
+    ) -> None:
+        _HISTORY_READY.wait()
+        supervisor_type._open_stream = original  # type: ignore[method-assign]  # noqa: SLF001
+        original(instance, resume_token=resume_token, use_start_after=use_start_after)
+
+    supervisor_type._open_stream = blocked_open  # type: ignore[method-assign,assignment]  # noqa: SLF001
+    owner.lose_history(database)
+
+
+def activation_pending(owner: SharedCacheOwner) -> bool:
+    with owner._activation_lock:  # noqa: SLF001
+        return any(state == "pending" for state, _since in owner._activation.values())  # noqa: SLF001
 
 
 def race_next_admission(owner: SharedCacheOwner, race: str) -> None:
@@ -136,10 +164,15 @@ def _sample(owner: SharedCacheOwner, proxy: FaultableProxy) -> Message:
             asdict(reading) for reading in telemetry.invalidation_apply_readings
         ],
         "health": owner.streams.stream_health_snapshot(database).status.value,
+        "activation_pending": activation_pending(owner),
     }
 
 
 _CONTROL: dict[str, Callable[[SharedCacheOwner, FaultableProxy, Message], object]] = {
+    "invalidate": lambda owner, _proxy, request: owner.core.record_write(
+        NamespaceId(owner.config.databases[0], cast("str", request["collection"])),
+        request["key"],
+    ),
     "reset": lambda owner, _proxy, _request: owner.core.reset_stream_cost_statistics(
         owner.config.databases[0]
     ),
@@ -152,6 +185,8 @@ _CONTROL: dict[str, Callable[[SharedCacheOwner, FaultableProxy, Message], object
     "lose-history": lambda owner, _proxy, _request: owner.lose_history(
         owner.config.databases[0]
     ),
+    "hold-history": lambda owner, _proxy, _request: hold_history(owner),
+    "resume-history": lambda _owner, _proxy, _request: _HISTORY_READY.set(),
     "race-admission": lambda owner, _proxy, request: race_next_admission(
         owner, cast("str", request["race"])
     ),
@@ -166,7 +201,9 @@ def _control(
     operation = cast("str", request["op"])
     if operation == "sample":
         return _sample(owner, proxy)
-    _CONTROL[operation](owner, proxy, request)
+    outcome = _CONTROL[operation](owner, proxy, request)
+    if operation == "pause-server":
+        return {"ok": True, "resumes_at": outcome}
     return {"ok": True}
 
 
@@ -182,6 +219,7 @@ def owner_main(config: OwnerConfig, control: Connection) -> None:
         except RuntimeError as error:
             control.send({"kind": "failure", "error": str(error)})
         finally:
+            _HISTORY_READY.set()
             proxy.resume()
             owner.close()
             try:

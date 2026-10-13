@@ -833,8 +833,9 @@ class SharedCacheOwner:
                 next_sweep = started + _SWEEP_SECONDS
             self.counters.busy_seconds += time.monotonic() - started
 
-    def pause(self, seconds: PositiveFloat) -> None:
+    def pause(self, seconds: PositiveFloat) -> NonNegativeFloat:
         self._paused_until = time.monotonic() + seconds
+        return self._paused_until
 
     def close(self) -> None:
         if self._listener is not None:

@@ -32,11 +32,22 @@ from benchmarks.stream_cost.shared_cache.attachment import (
     LocalIndex,
     SyncEndpoint,
 )
+from benchmarks.stream_cost.shared_cache.safety import (
+    closed_peer as _closed,
+)
+from benchmarks.stream_cost.shared_cache.safety import (
+    local_key as _local_key,
+)
+from benchmarks.stream_cost.shared_cache.safety import (
+    local_read,
+    verify_published_payloads,
+)
+from benchmarks.stream_cost.shared_cache.safety import (
+    raw_connection as _raw_connection,
+)
 from benchmarks.stream_cost.shared_cache.shared_index import SharedIndexLimits
 from benchmarks.stream_cost.shared_cache.wire import encode_frame, encode_key
-from client_query_cache._core.canonical import canonicalize
 from client_query_cache._core.keys import NamespaceId
-from client_query_cache._core.order_sensitive_keys import order_sensitive_key
 from client_query_cache._types import BsonDict
 from tests.codec_helpers import Decimal128ToDecimalDecoder
 from tests.shared_cache.conftest import (
@@ -279,11 +290,14 @@ def test_a_stalled_watch_disables_selection_and_fences_captures(
     owner.request("pause-watch")
     wait_for(
         lambda: (
-            cast(
-                "Payload",
-                select_identity(manager.endpoint, manager, seeded_database, 7),
-            ).get("reason")
-            == "progress-expired"
+            "reason"
+            in (
+                reply := cast(
+                    "Payload",
+                    select_identity(manager.endpoint, manager, seeded_database, 7),
+                )
+            )
+            and reply["reason"] == "progress-expired"
         )
     )
     manager.endpoint.send(
@@ -387,24 +401,6 @@ def test_a_replacement_worker_reuses_group_entries(
     assert admitted["misses"] == DOCUMENTS
     assert reused == {"documents": DOCUMENTS, "hits": DOCUMENTS, "misses": 0}
     assert owner.request("sample")["commands"]["stream:opened"] == 1
-
-
-def _raw_connection(config: AttachmentConfig, *, authenticate: bool) -> socket.socket:
-    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    sock.settimeout(5)
-    sock.connect(config.socket_path)
-    if authenticate:
-        sock.sendall(encode_frame(config.hello()))
-        sock.recv(struct.unpack("<I", sock.recv(4))[0])
-    return sock
-
-
-def _closed(sock: socket.socket) -> bool:
-    try:
-        b"".join(iter(lambda: sock.recv(65_536), b""))
-    except ConnectionResetError:  # pragma: lax no cover (peer reset timing)
-        pass
-    return True
 
 
 def test_a_slow_reader_is_detached_without_blocking_peers(
@@ -922,23 +918,10 @@ def test_async_find_cursors_and_metadata_refresh(
     assert manager.observation.bypasses[METADATA_REFRESH] >= 1
 
 
-def _local_key(key: int) -> bytes:
-    return encode_key(canonicalize(order_sensitive_key(key)))
-
-
 def _local_read(
     manager: SharedCacheManager[BsonDict], database: str, key: int
 ) -> bytes | None:
-    namespace = NamespaceId(database, COLLECTION)
-    database_slot, slot, _incarnation = manager._slots[namespace]
-    assert manager.local is not None
-    return manager.local.reader.lookup(
-        database_slot,
-        slot,
-        manager._metadata[namespace].checked_epoch,
-        _local_key(key),
-        encode_key(manager[database][COLLECTION]._find_one_default_shape),
-    )
+    return local_read(manager, database, COLLECTION, key)
 
 
 def _until(predicate: Callable[[], bool], timeout: float = 10.0) -> float:
@@ -1184,8 +1167,9 @@ def test_concurrent_readers_never_observe_torn_payloads(
 
     assert sum(reads for _observed, reads in reports) > 0
     for observed, _reads in reports:
-        for key, values in observed.items():
-            assert set(values) <= published[key]
+        verify_published_payloads(
+            {key: set(values) for key, values in observed.items()}, published
+        )
 
 
 def test_publication_capacity_bounds_shared_state(
