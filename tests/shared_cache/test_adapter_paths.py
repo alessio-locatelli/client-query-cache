@@ -6,6 +6,7 @@ import signal
 import socket
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import AsyncExitStack
 from dataclasses import replace
 from pathlib import Path
@@ -81,6 +82,11 @@ _INCARNATION = 0x5EED
 _SPLIT_AT = 3
 _SPLIT_PAUSE_SECONDS = 0.05
 _LOOP_TURN_SECONDS = 0.01
+_CONCURRENT_READS = 8
+# Long enough that every concurrent reader reaches reattachment while one attach runs.
+_SLOW_ATTACH_SECONDS = 0.3
+# Past the adapters' 100 ms reattachment back-off after the owner disappeared.
+_PAST_REATTACH_BACKOFF_SECONDS = 0.15
 _OTHER = "other"
 
 
@@ -515,6 +521,29 @@ class _SharedReads:
             return manager[self._database][collection].find_one({"_id": key})
         return self._run(manager[self._database][collection].find_one({"_id": key}))
 
+    def find_concurrently(self, key: object, count: int) -> list[BsonDict | None]:
+        manager = self.manager
+        if isinstance(manager, SharedCacheManager):
+            with ThreadPoolExecutor(max_workers=count) as pool:
+                return list(pool.map(self.find_one, [key] * count))
+        collection = manager[self._database][COLLECTION]
+
+        async def gather() -> list[BsonDict | None]:
+            return await asyncio.gather(
+                *(collection.find_one({"_id": key}) for _ in range(count))
+            )
+
+        return self._run(gather())
+
+    def reattach_from(self, local: object) -> None:
+        manager = self.manager
+        if isinstance(manager, SharedCacheManager):
+            assert isinstance(local, LocalIndex)
+            manager._reattach_local(local)
+            return
+        assert isinstance(local, AsyncLocalIndex)
+        self._run(manager._reattach_local(local))
+
     @property
     def detached(self) -> bool:
         if self._runner is not None:
@@ -789,6 +818,91 @@ def test_a_replacement_owner_reattaches_the_local_index(
     assert reads.manager.endpoint.counters.requests == requests
     assert reads.manager.local is not None
     assert reads.manager.local.incarnation == replacement.observation()["incarnation"]
+
+
+def _slow_attaches(monkeypatch: pytest.MonkeyPatch) -> list[float]:
+    attaches: list[float] = []
+    sync_attach = LocalIndex.attach
+    async_attach = AsyncLocalIndex.attach
+
+    def slow_sync(_cls: type[LocalIndex], config: AttachmentConfig) -> LocalIndex:
+        attaches.append(time.monotonic())
+        time.sleep(_SLOW_ATTACH_SECONDS)
+        return sync_attach(config)
+
+    async def slow_async(
+        _cls: type[AsyncLocalIndex], config: AttachmentConfig
+    ) -> AsyncLocalIndex:
+        attaches.append(time.monotonic())
+        await asyncio.sleep(_SLOW_ATTACH_SECONDS)
+        return await async_attach(config)
+
+    monkeypatch.setattr(LocalIndex, "attach", classmethod(slow_sync))
+    monkeypatch.setattr(AsyncLocalIndex, "attach", classmethod(slow_async))
+    return attaches
+
+
+def test_concurrent_reads_reattach_once_after_owner_replacement(
+    open_reads: Callable[[SharedIndexLimits], tuple[Owner, _SharedReads]],
+    start_owner: Callable[..., Owner],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first, reads = open_reads(_SHARED_INDEX)
+    reads.find_one(1)
+    _admitted(first, 1)
+    os.kill(first.pid, signal.SIGKILL)
+    first.process.join(10)
+    wait_for(lambda: reads.detached)
+    native = reads.find_one(1)
+    previous = reads.manager.local
+    replacement = start_owner(  # pytriage: TR11 (reads need the owner)
+        shared_index=_SHARED_INDEX
+    )
+    attaches = _slow_attaches(monkeypatch)
+    time.sleep(_PAST_REATTACH_BACKOFF_SECONDS)
+
+    concurrently = reads.find_concurrently(1, _CONCURRENT_READS)
+    reattached = reads.manager.local
+    reads.reattach_from(previous)
+
+    assert concurrently == [native] * _CONCURRENT_READS
+    assert len(attaches) == 1
+    assert reads.manager.local is reattached
+    assert replacement.observation()["shared_index"]["sessions"] == 1
+    assert reads.manager.local is not None
+    assert reads.manager.local.incarnation == replacement.observation()["incarnation"]
+
+
+def test_a_read_whose_metadata_is_discarded_by_reattachment_bypasses(
+    open_reads: Callable[[SharedIndexLimits], tuple[Owner, _SharedReads]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner, reads = open_reads(_SHARED_INDEX)
+    reads.find_one(1)
+    _admitted(owner, 1)
+    manager = reads.manager
+    original = type(manager)._cache_ineligibility_reason
+
+    def discarding(*args: object) -> object:
+        reason = original(*args)  # type: ignore[arg-type]
+        manager._metadata.clear()
+        return reason
+
+    async def discarding_async(*args: object) -> object:
+        reason = await original(*args)  # type: ignore[arg-type,misc]
+        manager._metadata.clear()
+        return reason
+
+    monkeypatch.setattr(
+        type(manager),
+        "_cache_ineligibility_reason",
+        discarding if isinstance(manager, SharedCacheManager) else discarding_async,
+    )
+    requests = manager.endpoint.counters.requests
+
+    assert reads.find_one(1) == {"_id": 1, "payload": "value-1", "revision": 0}
+    assert manager.observation.bypasses == {adapters.METADATA_REFRESH: 1}
+    assert manager.endpoint.counters.requests == requests
 
 
 def test_slots_of_another_incarnation_are_never_read_locally(

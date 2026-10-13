@@ -1,6 +1,8 @@
 # ruff: noqa: SLF001
 from __future__ import annotations
 
+import asyncio
+import threading
 import time
 from collections import deque
 from collections.abc import Mapping, Sequence
@@ -193,11 +195,15 @@ def _metadata(
 
 def _select(
     shared: Shared, operation: str, namespace: NamespaceId, **fields: object
-) -> Message:
+) -> Message | str:
+    try:
+        metadata = shared._metadata[namespace]
+    except KeyError:
+        return METADATA_REFRESH
     return {
         "op": operation,
         "ns": [namespace.database, namespace.collection],
-        "epoch": shared._metadata[namespace].checked_epoch,
+        "epoch": metadata.checked_epoch,
         **fields,
     }
 
@@ -245,13 +251,13 @@ def _local_hit(view: View, keys: tuple[bytes, bytes] | str) -> object:
     if incarnation != local.incarnation:
         shared._reattach = True
         return NO_LOCAL_HIT
+    try:
+        metadata = shared._metadata[namespace]
+    except KeyError:
+        return NO_LOCAL_HIT
     identity_key, shape_key = keys
     payload = local.reader.lookup(
-        database,
-        slot,
-        shared._metadata[namespace].checked_epoch,
-        identity_key,
-        shape_key,
+        database, slot, metadata.checked_epoch, identity_key, shape_key
     )
     if payload is None:
         if local.reader.detached:
@@ -738,6 +744,7 @@ class SharedCacheManager[DocumentType: Mapping[str, Any]]:
         "_metadata",
         "_reattach",
         "_reattach_after",
+        "_reattaching",
         "_slots",
         "endpoint",
         "keys",
@@ -764,6 +771,7 @@ class SharedCacheManager[DocumentType: Mapping[str, Any]]:
         ] = {}
         self._reattach = False
         self._reattach_after = 0.0
+        self._reattaching = threading.Lock()
 
     @property
     def client(self) -> MongoClient[DocumentType]:
@@ -774,14 +782,21 @@ class SharedCacheManager[DocumentType: Mapping[str, Any]]:
         return self.observation
 
     def _reattach_local(self, local: LocalIndex) -> None:
-        try:
-            replacement = LocalIndex.attach(self.endpoint.config)
-        except OSError:
-            self._reattach_after = time.monotonic() + _REATTACH_SECONDS
+        if not self._reattaching.acquire(blocking=False):
             return
+        try:
+            if self.local is not local:
+                return
+            try:
+                replacement = LocalIndex.attach(self.endpoint.config)
+            except OSError:
+                self._reattach_after = time.monotonic() + _REATTACH_SECONDS
+                return
+            self.local = replacement
+            _reattached(self)
+        finally:
+            self._reattaching.release()
         local.close()
-        self.local = replacement
-        _reattached(self)
 
     def _cache_ineligibility_reason(
         self,
@@ -846,6 +861,7 @@ class AsyncSharedCacheManager[DocumentType: Mapping[str, Any]]:
         "_metadata",
         "_reattach",
         "_reattach_after",
+        "_reattaching",
         "_slots",
         "endpoint",
         "keys",
@@ -872,6 +888,7 @@ class AsyncSharedCacheManager[DocumentType: Mapping[str, Any]]:
         ] = {}
         self._reattach = False
         self._reattach_after = 0.0
+        self._reattaching = asyncio.Lock()
 
     @property
     def client(self) -> AsyncMongoClient[DocumentType]:
@@ -882,14 +899,19 @@ class AsyncSharedCacheManager[DocumentType: Mapping[str, Any]]:
         return self.observation
 
     async def _reattach_local(self, local: AsyncLocalIndex) -> None:
-        try:
-            replacement = await AsyncLocalIndex.attach(self.endpoint.config)
-        except OSError:
-            self._reattach_after = time.monotonic() + _REATTACH_SECONDS
+        if self._reattaching.locked():
             return
+        async with self._reattaching:
+            if self.local is not local:
+                return
+            try:
+                replacement = await AsyncLocalIndex.attach(self.endpoint.config)
+            except OSError:
+                self._reattach_after = time.monotonic() + _REATTACH_SECONDS
+                return
+            self.local = replacement
+            _reattached(self)
         await local.close()
-        self.local = replacement
-        _reattached(self)
 
     async def _cache_ineligibility_reason(
         self,
