@@ -29,7 +29,7 @@ def run_command(
     cwd: Path | None = None,
     env: dict[str, str] | None = None,
 ) -> None:
-    subprocess.run(command, check=True, cwd=cwd, env=env)  # noqa: S603
+    subprocess.run(command, check=True, cwd=cwd, env=env)  # noqa: S603 - Commands are assembled by the package-install test, without a shell.
 
 
 @pytest.fixture(scope="session")
