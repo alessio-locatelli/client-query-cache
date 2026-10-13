@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 from unittest.mock import Mock
@@ -34,6 +34,7 @@ from client_query_cache._types import (
 )
 
 if TYPE_CHECKING:
+    from benchmarks.stream_cost.shared_cache.protocol import PathKind
     from client_query_cache._types import BsonDict
 
 pytestmark = pytest.mark.unit
@@ -313,3 +314,64 @@ def test_fault_analysis_cli(
 def test_other_analysis_phases_require_blocks() -> None:
     with pytest.raises(SystemExit, match="2"):
         analysis.main(["fault.json", "--config", str(_CONFIG), "--phase", "screening"])
+
+
+def test_fault_cases_have_distinct_loader_keys(records: list[JsonDict]) -> None:
+    analysis.reject_duplicates(records)
+
+
+@pytest.mark.parametrize(
+    (
+        "path",
+        "cache_delta",
+        "publication_delta",
+        "resident_delta",
+        "all_hits",
+        "complete",
+    ),
+    [
+        ("shared", 0, 0, 0, True, True),
+        ("shared", 0, 0, 0, False, False),
+        ("shared-index", -1, 0, 0, True, False),
+        ("shared-index", 0, -1, 0, True, False),
+        ("shared-index", 0, 0, -1, True, False),
+        ("shared-index", 0, 0, 0, True, True),
+    ],
+    ids=[
+        "rpc-resident",
+        "rpc-still-missing",
+        "incomplete-hot-set",
+        "not-published",
+        "not-worker-visible",
+        "published-hot-set",
+    ],
+)
+def test_rewarming_requires_the_complete_servable_hot_set(
+    trial: faults.FaultTrial,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    path: PathKind,
+    cache_delta: int,
+    publication_delta: int,
+    resident_delta: int,
+    all_hits: bool,
+    complete: bool,
+) -> None:
+    keys = trial.registration.hot_keys
+    assert keys is not None
+    trial.cell = replace(trial.cell, path=path)
+    monkeypatch.setattr(
+        faults.FaultTrial,
+        "workers",
+        lambda *_args: [{"resident_keys": keys + resident_delta, "all_hits": all_hits}],
+    )
+    monkeypatch.setattr(
+        faults.FaultTrial,
+        "observe",
+        lambda _trial: {
+            "cache": {"entry_count": keys + cache_delta},
+            "shared_index": {"published": keys + publication_delta},
+        },
+    )
+    assert trial.rewarmed() is complete
+    assert ("rewarming" in trial.events) is complete
