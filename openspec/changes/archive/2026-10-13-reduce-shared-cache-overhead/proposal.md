@@ -2,7 +2,7 @@
 
 ## Why
 
-The [shared worker cache study](../../../docs/development/research/shared-worker-cache-feasibility.md) halved group memory, but it stopped at screening. Request P99 and total CPU per request exceeded the registered limits because every hit paid a Python owner round trip. [Issue #229](https://github.com/alessio-locatelli/client-query-cache/issues/229) asks for a design that removes or shrinks that per-read cost, judged by a new preregistered study with the same gate.
+The [shared worker cache study](../../../../docs/development/research/shared-worker-cache-feasibility.md) halved group memory, but it stopped at screening. Request P99 and total CPU per request exceeded the registered limits because every hit paid a Python owner round trip. [Issue #229](https://github.com/alessio-locatelli/client-query-cache/issues/229) asks for a design that removes or shrinks that per-read cost, judged by a new preregistered study with the same gate.
 
 ## What Changes
 
