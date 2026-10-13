@@ -26,7 +26,7 @@
 
 - [x] 5.1 Retain first-hit evidence independently of readiness; validate recovery hits against worker eligibility and owner readiness-window timestamps, including transitions between samples.
 - [x] 5.2 Prepare direct local-index lookup inputs once per traffic session and measure the change.
-- [ ] 5.3 Repeat the registered phase and replace the prior recovery evidence.
+- [x] 5.3 Repeat the registered phase and replace the prior recovery evidence.
 - [x] 5.4 Remove a connection only after its handover descriptors and socket have closed, resolving the cleanup-observation race found during full validation.
 
 ## 6. Code Quality
