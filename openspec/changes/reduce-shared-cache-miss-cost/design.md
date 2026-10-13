@@ -18,6 +18,8 @@ The admission transaction also holds the core availability lock, preventing a da
 
 Storage adds one word per namespace and database, plus one header word, independent of outstanding misses. Payload encoding/copy costs remain proportional to document bytes. The new path removes a blocking owner request and its reply; core admission and publication remain the expected CPU bottleneck.
 
+Local miss capture requires an open data connection in the calling thread or event loop. A missing connection falls back to owner selection, preserving authentication and reconnection after transport loss. The existing local hit path remains independent of this connection. One-way sends enforce the registered frame limit after encoding; a combined key-and-value frame that exceeds it is dropped without closing the connection.
+
 Admission batching was considered: it amortizes framing but cannot remove synchronous selection latency and adds flush/cancellation ownership. Consolidating core locks could reduce CPU for every manager but expands concurrency-sensitive production scope without eliminating the round trip. Neither is required for this candidate. Their comparative benefit remains unmeasured; task 3.1 determines whether the selected approach meets the issue's bound.
 
 ## Risks

@@ -62,6 +62,8 @@ from tests.shared_cache.conftest import (
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable, Coroutine, Iterator, Mapping
 
+    from faker import Faker
+
     from benchmarks.stream_cost.shared_cache.adapters import (
         AsyncSharedCachedCollection,
         SharedCachedCollection,
@@ -83,6 +85,7 @@ _INCARNATION = 0x5EED
 _SPLIT_AT = 3
 _SPLIT_PAUSE_SECONDS = 0.05
 _LOOP_TURN_SECONDS = 0.01
+_FRAME_EXCEEDING_ID_BYTES = 600_000
 _CONCURRENT_READS = 8
 # Long enough that every concurrent reader reaches reattachment while one attach runs.
 _SLOW_ATTACH_SECONDS = 0.3
@@ -555,6 +558,20 @@ class _SharedReads:
         assert isinstance(local, AsyncLocalIndex)
         self._run(manager._reattach_local(local))
 
+    def disconnect_data(self) -> None:
+        endpoint = self.manager.endpoint
+        if isinstance(endpoint, SyncEndpoint):
+            endpoint._drop()
+            return
+
+        async def abandon() -> None:
+            writer = endpoint._writer
+            assert writer is not None
+            endpoint._abandon(writer)
+            await writer.wait_closed()
+
+        self._run(abandon())
+
     @property
     def detached(self) -> bool:
         if self._runner is not None:
@@ -645,6 +662,66 @@ def test_failed_locally_captured_reads_need_no_discard(
     assert reads.manager.endpoint.counters.requests == requests
     assert owner.counters()["admissions"] == 0
     assert owner.observation()["captures"] == 0
+
+
+def test_local_misses_in_new_threads_connect_before_admission(
+    open_reads: Callable[[SharedIndexLimits], tuple[Owner, _SharedReads]],
+) -> None:
+    owner, reads = open_reads(replace(_SHARED_INDEX, local_miss_admission=True))
+    requests = reads.manager.endpoint.counters.requests
+    connects = reads.manager.endpoint.counters.connects
+
+    first = reads.find_concurrently(0, 1)
+    _admitted(owner, 1)
+
+    assert first == [reads.find_one(0)]
+    new_thread = isinstance(reads.manager, SharedCacheManager)
+    assert reads.manager.endpoint.counters.requests == requests + new_thread
+    assert reads.manager.endpoint.counters.connects == connects + new_thread
+    assert reads.manager.observation.hits == 1
+
+
+def test_local_misses_reconnect_after_data_channel_loss(
+    open_reads: Callable[[SharedIndexLimits], tuple[Owner, _SharedReads]],
+) -> None:
+    owner, reads = open_reads(replace(_SHARED_INDEX, local_miss_admission=True))
+    endpoint = reads.manager.endpoint
+    requests = endpoint.counters.requests
+    connects = endpoint.counters.connects
+    reads.disconnect_data()
+
+    wait_for(
+        lambda: reads.find_one(0) is not None and endpoint.counters.connects > connects
+    )
+    _admitted(owner, 1)
+
+    assert reads.find_one(0) is not None
+    assert endpoint.counters.requests == requests + 1
+    assert endpoint.counters.connects == connects + 1
+    assert reads.manager.observation.hits == 1
+    assert not reads.detached
+
+
+def test_oversized_local_frames_preserve_the_data_channel(
+    open_reads: Callable[[SharedIndexLimits], tuple[Owner, _SharedReads]],
+    client: MongoClient[BsonDict],
+    seeded_database: str,
+    faker: Faker,
+) -> None:
+    identity = faker.pystr(
+        min_chars=_FRAME_EXCEEDING_ID_BYTES, max_chars=_FRAME_EXCEEDING_ID_BYTES
+    )
+    document: BsonDict = {"_id": identity}
+    client[seeded_database][COLLECTION].insert_one(document)
+    owner, reads = open_reads(replace(_SHARED_INDEX, local_miss_admission=True))
+
+    assert reads.find_one(identity) == document
+    assert reads.find_one(identity) == document
+
+    assert reads.manager.endpoint.counters.dropped_one_way == 2
+    assert reads.manager.endpoint.connected
+    assert owner.counters()["admissions"] == 0
+    assert not reads.detached
 
 
 def test_oversized_local_reads_need_no_discard(
