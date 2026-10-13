@@ -64,7 +64,7 @@ async def make_supervisor() -> AsyncIterator[Callable[..., DatabaseStreamSupervi
     def _make(
         database: AsyncDatabase[Any],
         cache: CacheCore,
-        **kwargs: Any,  # noqa: ANN401
+        **kwargs: Any,  # noqa: ANN401 - Forward heterogeneous supervisor constructor options.
     ) -> DatabaseStreamSupervisor:
         supervisor = DatabaseStreamSupervisor(database, cache, **kwargs)
         supervisors.append(supervisor)
@@ -304,7 +304,7 @@ async def test_recovers_from_a_stream_failure(
     original_watch: Any = database.watch
     call_count = 0
 
-    async def patched_watch(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+    async def patched_watch(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401 - Preserve the wrapped method's arguments and return value.
         nonlocal call_count
         call_count += 1
         if call_count == lost_history_watch_call:
@@ -389,7 +389,7 @@ async def test_a_cache_hit_concurrent_with_event_delivery_may_be_stale_but_not_a
     fetched_event = asyncio.Event()
     release_event = asyncio.Event()
 
-    async def patched_watch(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+    async def patched_watch(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401 - Preserve the wrapped method's arguments and return value.
         real_stream = await original_watch(*args, **kwargs)
         return _PausingStream(real_stream, fetched_event, release_event)
 

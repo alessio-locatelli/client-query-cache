@@ -65,7 +65,7 @@ def make_supervisor() -> Iterator[Callable[..., DatabaseStreamSupervisor]]:
     def _make(
         database: Database[Any],
         cache: CacheCore,
-        **kwargs: Any,  # noqa: ANN401
+        **kwargs: Any,  # noqa: ANN401 - Forward heterogeneous supervisor constructor options.
     ) -> DatabaseStreamSupervisor:
         supervisor = DatabaseStreamSupervisor(database, cache, **kwargs)
         supervisors.append(supervisor)
@@ -320,7 +320,7 @@ def test_recovers_from_a_stream_failure(
     original_watch: Any = database.watch
     call_count = 0
 
-    def patched_watch(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+    def patched_watch(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401 - Preserve the wrapped method's arguments and return value.
         nonlocal call_count
         call_count += 1
         if call_count == lost_history_watch_call:
@@ -380,7 +380,7 @@ def test_a_cache_hit_concurrent_with_event_delivery_may_be_stale_but_not_after(
     fetched_event = threading.Event()
     release_event = threading.Event()
 
-    def blocking_route_change_event(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
+    def blocking_route_change_event(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401 - Preserve the wrapped method's arguments and return value.
         fetched_event.set()
         release_event.wait(timeout=15)
         return original_route_change_event(*args, **kwargs)

@@ -164,8 +164,8 @@ def make_supervisor() -> Iterator[Callable[..., DatabaseStreamSupervisor]]:
 
     def _make(
         database: Database[Any],
-        cache: Any,  # noqa: ANN401
-        **kwargs: Any,  # noqa: ANN401
+        cache: CacheCore | Mock,
+        **kwargs: Any,  # noqa: ANN401 - Forward heterogeneous supervisor constructor options.
     ) -> DatabaseStreamSupervisor:
         supervisor = DatabaseStreamSupervisor(database, cache, **kwargs)
         supervisors.append(supervisor)
@@ -180,7 +180,10 @@ def make_supervisor() -> Iterator[Callable[..., DatabaseStreamSupervisor]]:
 def make_coordinator() -> Iterator[Callable[..., ChangeStreamCoordinator]]:
     coordinators: list[ChangeStreamCoordinator] = []
 
-    def _make(client: Any, cache: Any) -> ChangeStreamCoordinator:  # noqa: ANN401
+    def _make(
+        client: Any,  # noqa: ANN401 - Accept scripted clients as well as PyMongo clients.
+        cache: CacheCore | Mock,
+    ) -> ChangeStreamCoordinator:
         coordinator = ChangeStreamCoordinator(client, cache)
         coordinators.append(coordinator)
         return coordinator
