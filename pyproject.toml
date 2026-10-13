@@ -102,7 +102,7 @@ paths = ["src", "tests", "benchmarks", ".vulture_whitelist"]
 # The default is false. We override it because hook runs should apply available repairs.
 fix = true
 exclude = ["specifications"]
-extend-select = ["unused-pytriage"]
+extend-select = ["unused-pytriage", "suppression-rationale"]
 [tool.ruff-extra-rules.meaningless-vars]
 # ruff-extra-rules v0.5.0: https://github.com/alessio-locatelli/ruff-extra-rules/tree/v0.5.0/src/pre_commit_hooks/ast_checks
 # For meaningless-vars, redundant-assignment, redundant-type-conversion, redundant-dict-get, and defined-far-from-use level:
