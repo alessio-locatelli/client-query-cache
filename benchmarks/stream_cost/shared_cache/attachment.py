@@ -361,6 +361,10 @@ class SyncEndpoint:
             return None
         return None if lease is None else lease.connection
 
+    @property
+    def connected(self) -> bool:
+        return not self._closed and self._leased() is not None
+
     def _handshake(
         self, connection: _SyncConnection, deadline: NonNegativeFloat
     ) -> Message:
@@ -415,6 +419,10 @@ class SyncEndpoint:
         message["v"] = PROTOCOL_VERSION
         message["id"] = 0
         frame = encode_frame(message)
+        frame_bytes = len(frame)
+        if frame_bytes - LENGTH_BYTES > self.config.frame_limit:
+            self.counters.dropped_one_way += 1
+            return
         try:
             connection.sock.settimeout(self.config.rpc_deadline_seconds)
             connection.sock.sendall(frame)
@@ -423,7 +431,7 @@ class SyncEndpoint:
             self._drop()
             return
         self.counters.one_way += 1
-        self.counters.bytes_sent += len(frame)
+        self.counters.bytes_sent += frame_bytes
 
     def close(self) -> None:
         with self._lock:
@@ -578,6 +586,10 @@ class AsyncEndpoint:
             if not future.done():
                 future.set_result(_LOST)
 
+    @property
+    def connected(self) -> bool:
+        return self._writer is not None and not self._writer.is_closing()
+
     async def request(self, message: Message) -> Message | None:
         self._check_owner()
         request_id = self.next_id
@@ -630,9 +642,13 @@ class AsyncEndpoint:
         message["v"] = PROTOCOL_VERSION
         message["id"] = 0
         frame = encode_frame(message)
+        frame_bytes = len(frame)
+        if frame_bytes - LENGTH_BYTES > self.config.frame_limit:
+            self.counters.dropped_one_way += 1
+            return
         writer.write(frame)
         self.counters.one_way += 1
-        self.counters.bytes_sent += len(frame)
+        self.counters.bytes_sent += frame_bytes
 
     async def close(self) -> None:
         self._closed = True

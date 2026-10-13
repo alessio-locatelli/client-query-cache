@@ -9,6 +9,7 @@
 - [x] 2.1 Implement native capture and validation from the design, with atomic ordering tests and loom models for write/availability/progress fencing.
 - [x] 2.2 Notify the publisher for untracked canonical writes; cover this observer behavior and token rejection through real core mutations.
 - [x] 2.3 Add opt-in owner admission and sync/async adapter routing, including malformed/expired/restarted tokens, native errors, cancellation and legacy fallback; verify that captured misses issue no select RPC and leak no owner handles.
+- [x] 2.4 Preserve data-channel reconnection for local misses in new threads and after transport loss; reject oversized combined frames without disconnecting the owner channel.
 
 ## 3. Evidence
 

@@ -271,6 +271,8 @@ def _local_select(view: View, keys: tuple[bytes, bytes] | str) -> object:
         if local.reader.detached:
             shared._reattach = True
             return NO_LOCAL_HIT
+        if not shared.endpoint.connected:
+            return NO_LOCAL_HIT
         token = local.reader.capture(database, slot, metadata.checked_epoch)
         if token is not None:
             shared.observation.misses += 1
