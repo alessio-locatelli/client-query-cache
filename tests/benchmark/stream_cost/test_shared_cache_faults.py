@@ -14,7 +14,7 @@ from benchmarks.stream_cost.errors import (
     BenchmarkConfigurationError,
     BenchmarkSetupError,
 )
-from benchmarks.stream_cost.shared_cache import analysis, faults
+from benchmarks.stream_cost.shared_cache import analysis, fault_worker, faults
 from benchmarks.stream_cost.shared_cache.analysis import analyze_faults
 from benchmarks.stream_cost.shared_cache.fault_worker import verify_document
 from benchmarks.stream_cost.shared_cache.protocol import (
@@ -34,6 +34,7 @@ from client_query_cache._types import (
 )
 
 if TYPE_CHECKING:
+    from benchmarks.stream_cost.shared_cache.coordinator import Message
     from benchmarks.stream_cost.shared_cache.protocol import PathKind
     from client_query_cache._types import BsonDict
 
@@ -236,6 +237,90 @@ def test_observation_deadline(trial: faults.FaultTrial) -> None:
     trial.deadline = 0
     with pytest.raises(BenchmarkSetupError, match="deadline expired"):
         trial.wait(lambda: False)
+
+
+@pytest.mark.parametrize(
+    ("resident", "hit"), [(1, False), (0, True)], ids=["other-local-key", "rpc-hit"]
+)
+def test_detection_rejects_any_cached_selection(
+    trial: faults.FaultTrial,
+    monkeypatch: pytest.MonkeyPatch,
+    resident: NonNegativeInt,
+    hit: bool,
+) -> None:
+    unsafe = {
+        "resident_keys": resident,
+        "hit": hit,
+        "local_hit": False,
+        "bypass": True,
+        "monotonic": 1.0,
+    }
+    safe = {**unsafe, "resident_keys": 0, "hit": False, "monotonic": 2.0}
+    workers = Mock(side_effect=[[safe, unsafe], [safe, safe]])
+    monkeypatch.setattr(faults.FaultTrial, "workers", workers)
+    trial.detect()
+    assert trial.events["detection"] == pytest.approx(2.0)
+    assert workers.call_count == 2
+    workers.assert_called_with("detect")
+
+
+@pytest.mark.parametrize(
+    ("operation", "expected"),
+    [("detect", (0, 1)), ("prime", (0, 1)), ("probe", (0,))],
+    ids=["detection", "rewarming", "readiness"],
+)
+def test_probe_key_scope(operation: str, expected: tuple[NonNegativeInt, ...]) -> None:
+    assert fault_worker.probe_keys(Mock(keys=(0, 1)), {"op": operation}) == expected
+
+
+def test_readiness_snapshot_skips_residency_scan(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    local_snapshot = Mock(side_effect=AssertionError("unexpected residency scan"))
+    monkeypatch.setattr(fault_worker, "local_snapshot", local_snapshot)
+    manager = Mock()
+    manager.observation.hits = 0
+    manager.observation.bypasses = {}
+    observation = fault_worker.snapshot(
+        manager,
+        Mock(),
+        eligible=True,
+        hits_before=0,
+        bypasses_before=0,
+        reads=1,
+        exhaustive=False,
+    )
+    assert observation["resident_keys"] is None
+    local_snapshot.assert_not_called()
+
+
+def test_polling_retains_only_the_latest_round(trial: faults.FaultTrial) -> None:
+    connection = Mock()
+    connection.recv.side_effect = [
+        {"kind": "probe", "monotonic": 1.0},
+        {"kind": "probe", "monotonic": 2.0},
+    ]
+    trial.group.connections = [connection]
+    trial.workers()
+    assert trial.workers() == [{"kind": "probe", "monotonic": 2.0}]
+    assert trial.probes == {"probe": [{"kind": "probe", "monotonic": 2.0}]}
+
+
+def test_readiness_waits_for_both_owner_and_worker_observations(
+    trial: faults.FaultTrial, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first: Message = {"eligible": True, "hit": True, "monotonic": 1.0}
+    unavailable: Message = {"available": False, "progress_fresh": False}
+    available: Message = {"available": True, "progress_fresh": True}
+    monkeypatch.setattr(
+        "benchmarks.stream_cost.shared_cache.faults.time.monotonic",
+        Mock(return_value=2.0),
+    )
+
+    assert not trial._record_readiness(unavailable, [first])
+    assert trial.events == {}
+    assert trial._record_readiness(available, [first])
+    assert trial.events == {"readiness": 2.0, "first_hit": 2.0}
 
 
 @pytest.mark.parametrize(

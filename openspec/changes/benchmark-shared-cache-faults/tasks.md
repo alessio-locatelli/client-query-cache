@@ -15,7 +15,14 @@
 - [x] 3.1 Add complete-matrix fault analysis and readiness gating; test boundary, missing, duplicate and unsafe evidence. Document the invocation and timing interpretation in the research guide.
 - [x] 3.2 Execute the registered phase and record a concise results summary with reproduction commands and raw outputs untracked.
 
-## 4. Code Quality
+## 4. Review corrections
 
-- [x] 4.1 Check entire edited test files against the repository test guidelines.
-- [x] 4.2 Claude-specific prose restriction is inapplicable to Codex.
+- [x] 4.1 Verify fencing across the complete hot set and both cache selection paths; add regressions for non-first-key residency and RPC hits.
+- [x] 4.2 Distinguish graceful restart, owner failure under continuous local reads, and explicit reattachment; verify traffic across pause and kill transitions.
+- [x] 4.3 Bound retained observations and restrict exhaustive residency checks to detection and rewarming.
+- [ ] 4.4 Repeat the registered phase and replace the insufficient safety evidence with corrected results.
+
+## 5. Code Quality
+
+- [x] 5.1 Check entire edited test files against the repository test guidelines.
+- [x] 5.2 Claude-specific prose restriction is inapplicable to Codex.
