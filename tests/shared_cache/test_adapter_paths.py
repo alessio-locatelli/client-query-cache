@@ -355,7 +355,7 @@ def test_async_requests_survive_owner_pauses_and_loss(
     async def scenario() -> tuple[object, ...]:
         async with async_shared_manager(owner, mongodb_uri) as manager:
             collection = manager[seeded_database][COLLECTION]
-            while await collection._cache_ineligibility_reason() is not None:  # noqa: ASYNC110
+            while await collection._cache_ineligibility_reason() is not None:  # noqa: ASYNC110 - Readiness has no event to await.
                 await asyncio.sleep(0.02)
             await collection.find_one({"_id": 25})
             endpoint = manager.endpoint
@@ -741,7 +741,7 @@ def test_handshakes_accept_two_descriptors_from_one_reply(
 ) -> None:
     listener, config = owner_endpoint
     sent = handshake_descriptors * 3
-    before = _descriptors()  # pytriage: TR5, TR11
+    before = _descriptors()  # pytriage: TR5, TR11 (before handshake)
     server = threading.Thread(
         target=_serve_handshake,
         args=(listener, reply, sent[:count]),
@@ -916,7 +916,7 @@ def test_slots_of_another_incarnation_are_never_read_locally(
     database, slot, incarnation = reads.manager._slots[namespace]
     assert isinstance(incarnation, int)
     reads.manager._slots[namespace] = (database, slot, Int64(incarnation + 1))
-    previous = reads.manager.local  # pytriage: TR5
+    previous = reads.manager.local  # pytriage: TR5 (before fallback)
     requests = reads.manager.endpoint.counters.requests
 
     fallback = reads.find_one(1)

@@ -664,7 +664,8 @@ def test_a_peer_lost_before_its_descriptors_are_sent_closes_them(
         raise BlockingIOError
 
     monkeypatch.setattr(socket, "send_fds", blocked)
-    before = _open_descriptors()  # pytriage: TR5, TR11
+    # Count descriptors before the failed handshake can leak them.
+    before = _open_descriptors()  # pytriage: TR11
     peer = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     peer.connect(shared_owner.config.socket_path)
     peer.sendall(encode_frame(attachment_for(shared_owner.config).hello("control")))
