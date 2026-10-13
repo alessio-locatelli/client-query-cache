@@ -1,0 +1,192 @@
+{
+  "schema_version": 1,
+  "registration": 7,
+  "status": "frozen",
+  "paths": ["shared-index"],
+  "seed": 197,
+  "topology": {
+    "cpus": 2,
+    "memory": "2g"
+  },
+  "client_options": {
+    "directConnection": true,
+    "serverSelectionTimeoutMS": 10000
+  },
+  "start_method": "spawn",
+  "max_await_time_ms": 1000,
+  "database": "shared_worker_cache_research",
+  "collection": "catalogue",
+  "profiles": {
+    "primary": {
+      "documents": 64,
+      "payload_bytes": 4096,
+      "read": "find_one"
+    }
+  },
+  "budget_bytes": 1048576,
+  "max_entry_bytes": 16384,
+  "concurrency_per_worker": 1,
+  "outstanding_per_worker": 256,
+  "startup_seconds": 120,
+  "drain_seconds": 10,
+  "shutdown_seconds": 15,
+  "calibration": {
+    "probe_windows": 3,
+    "validation_repetitions": 3,
+    "rate_attempts": 3,
+    "families": {
+      "primary": [["hot", "mixed", 4]]
+    }
+  },
+  "active": {
+    "updates": 200,
+    "lag_capture": {
+      "windows": 6,
+      "events": 20,
+      "separation": 16
+    },
+    "write_keys": "hot"
+  },
+  "phases": {
+    "fault": {
+      "workers": 4,
+      "sync_workers": 2,
+      "repetitions": 5,
+      "timeout_seconds": 15,
+      "poll_seconds": 0.01,
+      "pause_seconds": 0.3,
+      "stress_rounds": 40
+    }
+  },
+  "fault_cases": [
+    "coordinator-restart",
+    "coordinator-pause",
+    "watch-pause",
+    "stream-interruption",
+    "history-loss",
+    "worker-killed-with-capture",
+    "worker-replacement",
+    "slow-reader",
+    "malformed-frames",
+    "shutdown-during-startup",
+    "cancellation-during-publication",
+    "owner-kill-during-local-hits",
+    "owner-pause-during-local-hits",
+    "torn-read-stress",
+    "reattachment-after-restart"
+  ],
+  "transport": {
+    "rpc_deadline_seconds": 0.1,
+    "progress_expiry_seconds": 3,
+    "queued_bytes_per_connection": 16384,
+    "requests_per_connection": 256,
+    "connections": 64,
+    "captures": 4096,
+    "capture_seconds": 30,
+    "frame_overhead_bytes": 65536
+  },
+  "shared_index": {
+    "local_miss_admission": true,
+    "slots": 256,
+    "arena_bytes": 1048576,
+    "namespaces": 1,
+    "ring_tokens": 1024
+  },
+  "gate": {
+    "readiness_seconds": 5
+  },
+  "hot_keys": 64,
+  "fault_timings": {
+    "coordinator-restart": {
+      "detection": true,
+      "readiness": true,
+      "first_hit": true,
+      "rewarming": true
+    },
+    "coordinator-pause": {
+      "detection": true,
+      "readiness": true,
+      "first_hit": true,
+      "rewarming": true
+    },
+    "watch-pause": {
+      "detection": true,
+      "readiness": true,
+      "first_hit": true,
+      "rewarming": true
+    },
+    "stream-interruption": {
+      "detection": false,
+      "readiness": true,
+      "first_hit": true,
+      "rewarming": true
+    },
+    "history-loss": {
+      "detection": false,
+      "readiness": true,
+      "first_hit": true,
+      "rewarming": true
+    },
+    "worker-killed-with-capture": {
+      "detection": false,
+      "readiness": true,
+      "first_hit": true,
+      "rewarming": true
+    },
+    "worker-replacement": {
+      "detection": false,
+      "readiness": true,
+      "first_hit": true,
+      "rewarming": true
+    },
+    "slow-reader": {
+      "detection": false,
+      "readiness": true,
+      "first_hit": true,
+      "rewarming": true
+    },
+    "malformed-frames": {
+      "detection": false,
+      "readiness": false,
+      "first_hit": false,
+      "rewarming": false
+    },
+    "shutdown-during-startup": {
+      "detection": true,
+      "readiness": true,
+      "first_hit": true,
+      "rewarming": true
+    },
+    "cancellation-during-publication": {
+      "detection": false,
+      "readiness": true,
+      "first_hit": true,
+      "rewarming": true
+    },
+    "owner-kill-during-local-hits": {
+      "detection": true,
+      "readiness": true,
+      "first_hit": true,
+      "rewarming": true
+    },
+    "owner-pause-during-local-hits": {
+      "detection": true,
+      "readiness": true,
+      "first_hit": true,
+      "rewarming": true
+    },
+    "torn-read-stress": {
+      "detection": false,
+      "readiness": false,
+      "first_hit": false,
+      "rewarming": false
+    },
+    "reattachment-after-restart": {
+      "detection": true,
+      "readiness": true,
+      "first_hit": true,
+      "rewarming": true
+    }
+  },
+  "categories": 64
+}
