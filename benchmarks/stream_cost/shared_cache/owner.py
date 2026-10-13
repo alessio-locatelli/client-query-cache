@@ -101,9 +101,9 @@ _HISTORY_READY = threading.Event()
 
 def hold_history(owner: SharedCacheOwner) -> None:
     database = owner.config.databases[0]
-    supervisor = owner.streams._supervisors[database]  # noqa: SLF001
+    supervisor = owner.streams._supervisors[database]
     supervisor_type = type(supervisor)
-    original = supervisor_type._open_stream  # noqa: SLF001
+    original = supervisor_type._open_stream
     _HISTORY_READY.clear()
 
     def blocked_open(
@@ -113,16 +113,16 @@ def hold_history(owner: SharedCacheOwner) -> None:
         use_start_after: bool,
     ) -> None:
         _HISTORY_READY.wait()
-        supervisor_type._open_stream = original  # type: ignore[method-assign]  # noqa: SLF001
+        supervisor_type._open_stream = original  # type: ignore[method-assign]
         original(instance, resume_token=resume_token, use_start_after=use_start_after)
 
-    supervisor_type._open_stream = blocked_open  # type: ignore[method-assign,assignment]  # noqa: SLF001
+    supervisor_type._open_stream = blocked_open  # type: ignore[method-assign,assignment]
     owner.lose_history(database)
 
 
 def activation_pending(owner: SharedCacheOwner) -> bool:
-    with owner._activation_lock:  # noqa: SLF001
-        return any(state == "pending" for state, _since in owner._activation.values())  # noqa: SLF001
+    with owner._activation_lock:
+        return any(state == "pending" for state, _since in owner._activation.values())
 
 
 def race_next_admission(owner: SharedCacheOwner, race: str) -> None:

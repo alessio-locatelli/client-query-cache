@@ -344,7 +344,7 @@ def sync_worker(connection: Connection, spec: WorkerSpec) -> None:
 
             if isinstance(manager, SharedCacheManager):
                 shared = manager[spec.database][spec.collection]
-                while shared._cache_ineligibility_reason() is not None:  # noqa: SLF001
+                while shared._cache_ineligibility_reason() is not None:
                     time.sleep(_STARTUP_POLL_SECONDS)
             if spec.warm_key is not None:
                 read(spec.warm_key)
@@ -485,7 +485,7 @@ async def async_worker(connection: Connection, spec: WorkerSpec) -> None:
 
             if isinstance(manager, AsyncSharedCacheManager):
                 shared = manager[spec.database][spec.collection]
-                while await shared._cache_ineligibility_reason() is not None:  # noqa: ASYNC110, SLF001 - The owner offers no readiness notification.
+                while await shared._cache_ineligibility_reason() is not None:  # noqa: ASYNC110 - The owner offers no readiness notification.
                     await asyncio.sleep(_STARTUP_POLL_SECONDS)
             if spec.warm_key is not None:
                 await read(spec.warm_key)

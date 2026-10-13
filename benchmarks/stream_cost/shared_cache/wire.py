@@ -1,5 +1,3 @@
-# ruff: noqa: SLF001
-
 import datetime as dt
 import struct
 from decimal import Decimal

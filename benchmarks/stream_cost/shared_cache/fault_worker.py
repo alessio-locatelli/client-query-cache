@@ -30,14 +30,14 @@ def selection(
     manager: SharedCacheManager[BsonDict] | AsyncSharedCacheManager[BsonDict],
     spec: WorkerSpec,
 ) -> Payload:
-    namespace = next(iter(manager._metadata))  # noqa: SLF001
+    namespace = next(iter(manager._metadata))
     return {
         "op": "select-identity",
         "ns": [spec.database, spec.collection],
-        "epoch": manager._metadata[namespace].checked_epoch,  # noqa: SLF001
+        "epoch": manager._metadata[namespace].checked_epoch,
         "identity": encode_key(len(spec.keys)),
         "shape": encode_key(
-            manager[spec.database][spec.collection]._find_one_default_shape  # noqa: SLF001
+            manager[spec.database][spec.collection]._find_one_default_shape
         ),
     }
 
@@ -59,16 +59,16 @@ class LocalSelection:
     ) -> LocalSelection | None:
         namespace = NamespaceId(spec.database, spec.collection)
         local = manager.local
-        if local is None or namespace not in manager._slots:  # noqa: SLF001
+        if local is None or namespace not in manager._slots:
             return None
-        database_slot, slot, _incarnation = manager._slots[namespace]  # noqa: SLF001
+        database_slot, slot, _incarnation = manager._slots[namespace]
         return cls(
             local.reader,
             database_slot,
             slot,
-            manager._metadata[namespace].checked_epoch,  # noqa: SLF001
+            manager._metadata[namespace].checked_epoch,
             manager.keys.encode(
-                manager[spec.database][spec.collection]._find_one_default_shape  # noqa: SLF001
+                manager[spec.database][spec.collection]._find_one_default_shape
             ),
             tuple(local_key(key) for key in spec.keys),
         )
@@ -226,7 +226,7 @@ def worker_eligible(
     namespace: NamespaceId,
 ) -> bool:
     try:
-        metadata = manager._metadata[namespace]  # noqa: SLF001
+        metadata = manager._metadata[namespace]
     except KeyError:
         return False
     return metadata is not _STALE and metadata.bypass_reason is None
@@ -242,9 +242,9 @@ def stress_reads(
     spec: WorkerSpec,
     manager: SharedCacheManager[BsonDict] | AsyncSharedCacheManager[BsonDict],
 ) -> None:
-    namespace = next(iter(manager._slots))  # noqa: SLF001
-    database_slot, slot, _incarnation = manager._slots[namespace]  # noqa: SLF001
-    epoch = manager._metadata[namespace].checked_epoch  # noqa: SLF001
+    namespace = next(iter(manager._slots))
+    database_slot, slot, _incarnation = manager._slots[namespace]
+    epoch = manager._metadata[namespace].checked_epoch
     local = manager.local
     assert local is not None
     observed: dict[NonNegativeInt, set[bytes]] = {key: set() for key in spec.keys}
