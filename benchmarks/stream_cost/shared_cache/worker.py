@@ -23,6 +23,10 @@ from benchmarks.stream_cost.shared_cache.attachment import (
     SyncEndpoint,
 )
 from benchmarks.stream_cost.shared_cache.dataset import checksum
+from benchmarks.stream_cost.shared_cache.fault_worker import (
+    async_fault_worker,
+    sync_fault_worker,
+)
 from benchmarks.stream_cost.shared_cache.owner import process_sample, proxy_for
 from benchmarks.stream_cost.shared_cache.profiling import profiling
 from benchmarks.stream_cost.shared_cache.workload import (
@@ -272,6 +276,32 @@ def _invalidations(manager: object, spec: WorkerSpec) -> NonNegativeInt:
     )
 
 
+def _shared_sync(
+    spec: WorkerSpec, client: MongoClient[BsonDict]
+) -> SharedCacheManager[BsonDict]:
+    attachment = spec.attachment
+    assert attachment is not None
+    return SharedCacheManager(
+        client,
+        SyncEndpoint(attachment),
+        LocalIndex.attach(attachment) if spec.cell.path == "shared-index" else None,
+    )
+
+
+async def _shared_async(
+    spec: WorkerSpec, client: AsyncMongoClient[BsonDict]
+) -> AsyncSharedCacheManager[BsonDict]:
+    attachment = spec.attachment
+    assert attachment is not None
+    return AsyncSharedCacheManager(
+        client,
+        await AsyncEndpoint.attach(attachment),
+        await AsyncLocalIndex.attach(attachment)
+        if spec.cell.path == "shared-index"
+        else None,
+    )
+
+
 def sync_worker(connection: Connection, spec: WorkerSpec) -> None:
     with proxy_for(spec.uri) as proxy:
         listener = WireCommands((spec.collection,))
@@ -283,6 +313,10 @@ def sync_worker(connection: Connection, spec: WorkerSpec) -> None:
         manager: CacheManager[BsonDict] | SharedCacheManager[BsonDict] | None = None
         try:
             client.admin.command("ping")
+            if spec.cell.phase == "fault":
+                manager = _shared_sync(spec, client)
+                sync_fault_worker(connection, spec, manager)
+                return
             baseline = process_sample()
             started = time.monotonic()
             match spec.cell.path:
@@ -297,16 +331,8 @@ def sync_worker(connection: Connection, spec: WorkerSpec) -> None:
                         max_await_time_ms=spec.max_await_time_ms,
                     )
                     collection = manager[spec.database][spec.collection]  # type: ignore[assignment]
-                case path:
-                    attachment = spec.attachment
-                    assert attachment is not None
-                    manager = SharedCacheManager(
-                        client,
-                        SyncEndpoint(attachment),
-                        LocalIndex.attach(attachment)
-                        if path == "shared-index"
-                        else None,
-                    )
+                case _:
+                    manager = _shared_sync(spec, client)
                     collection = manager[spec.database][spec.collection]  # type: ignore[assignment]
 
             def read(key: NonNegativeInt) -> None:
@@ -428,6 +454,10 @@ async def async_worker(connection: Connection, spec: WorkerSpec) -> None:
         ) = None
         try:
             await client.admin.command("ping")
+            if spec.cell.phase == "fault":
+                manager = await _shared_async(spec, client)
+                await async_fault_worker(connection, spec, manager)
+                return
             baseline = process_sample()
             started = time.monotonic()
             match spec.cell.path:
@@ -442,16 +472,8 @@ async def async_worker(connection: Connection, spec: WorkerSpec) -> None:
                         max_await_time_ms=spec.max_await_time_ms,
                     )
                     collection = manager[spec.database][spec.collection]  # type: ignore[assignment]
-                case path:
-                    attachment = spec.attachment
-                    assert attachment is not None
-                    manager = AsyncSharedCacheManager(
-                        client,
-                        await AsyncEndpoint.attach(attachment),
-                        await AsyncLocalIndex.attach(attachment)
-                        if path == "shared-index"
-                        else None,
-                    )
+                case _:
+                    manager = await _shared_async(spec, client)
                     collection = manager[spec.database][spec.collection]  # type: ignore[assignment]
 
             async def read(key: NonNegativeInt) -> None:

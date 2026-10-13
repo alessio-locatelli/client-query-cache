@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import random
 from collections import Counter
 from dataclasses import asdict, dataclass
@@ -16,22 +17,33 @@ from benchmarks.stream_cost.errors import (
 )
 from benchmarks.stream_cost.shared_cache.protocol import (
     BASELINES,
+    FaultCell,
     Registration,
     capacity_cells,
     comparison_cells,
+    fault_applicability,
+    fault_cells,
     measurement_environment,
     phase_blocks,
     throughput,
     validation_failure,
 )
-from client_query_cache._types import JsonDict, NonNegativeInt, PositiveInt
+from client_query_cache._types import (
+    JsonDict,
+    NonNegativeInt,
+    PositiveFloat,
+    PositiveInt,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Sequence
 
 
 type Estimand = Literal["ratio", "delta", "absolute"]
-type CellKey = tuple[str, str, str, int] | tuple[str, str, str, int, int]
+type CellKey = (
+    tuple[str, str, str, PositiveInt]
+    | tuple[str, str, str, PositiveInt, PositiveInt | str]
+)
 type Statistics = Callable[[JsonDict], dict[str, float]]
 
 _CONFIG = Path("reports/shared-worker-cache/v4/config.json")
@@ -267,6 +279,8 @@ def cell_key(record: JsonDict) -> CellKey:
     )
     if record["phase"] == "capacity":
         return (*key, cast("int", record["concurrency"]))
+    if record["phase"] == "fault":
+        return (*key, str(record["fault_case"]))
     return key
 
 
@@ -826,6 +840,119 @@ def load_records(
     return records
 
 
+def _fault_repetition(
+    record: JsonDict | None,
+    declaration: dict[str, bool],
+    bound: PositiveFloat,
+    block: NonNegativeInt,
+) -> JsonDict:
+    failures: list[str] = []
+    durations: JsonDict = {}
+    if record is None:
+        failures.append("missing trial")
+    else:
+        if not record["healthy"] or not record["checks"]:
+            failures.append(
+                str(record["failure"])
+                if "failure" in record
+                else "safety checks failed or absent"
+            )
+        events = cast("JsonDict", record["events"])
+        reported = cast("JsonDict", record["durations"])
+        for name, applies in declaration.items():
+            try:
+                duration = reported[name]
+            except KeyError:
+                duration = None
+            durations[name] = duration
+            if not applies:
+                if duration is not None:
+                    failures.append(f"{name} must be inapplicable")
+                continue
+            origin = "injection" if name == "detection" else "recovery"
+            if (
+                name not in events
+                or origin not in events
+                or not isinstance(duration, (int, float))
+                or not math.isfinite(duration)
+                or duration < 0
+            ):
+                failures.append(f"missing or invalid {name}")
+                continue
+            if not math.isclose(
+                duration,
+                cast("float", events[name]) - cast("float", events[origin]),
+                abs_tol=1e-9,
+            ):
+                failures.append(f"{name} does not match its event timestamps")
+            if name == "readiness" and duration > bound:
+                failures.append("readiness exceeds registered bound")
+    return {
+        "block": block,
+        "durations": durations,
+        "pass": not failures,
+        "failures": failures,
+    }
+
+
+def analyze_faults(records: list[JsonDict], registration: Registration) -> JsonDict:
+    declarations = fault_applicability(registration)
+    expected = {
+        (cell.fault_case, cell.path, cell.block): asdict(cell)
+        for cell in fault_cells(registration)
+        if isinstance(cell, FaultCell)
+    }
+    measured: dict[tuple[str, str, NonNegativeInt], JsonDict] = {}
+    for record in records:
+        key = (
+            str(record["fault_case"]),
+            str(record["path"]),
+            cast("int", record["block"]),
+        )
+        if key in measured or key not in expected:
+            message = f"duplicate or unregistered fault trial {key}"
+            raise BenchmarkSetupError(message)
+        if any(record[field] != value for field, value in expected[key].items()):
+            message = f"fault trial does not match its registered cell {key}"
+            raise BenchmarkSetupError(message)
+        measured[key] = record
+    cases: list[JsonDict] = []
+    for case, path in dict.fromkeys(
+        (case, path) for case, path, _block in sorted(expected)
+    ):
+        repetitions: list[JsonDict] = []
+        for _case, _path, block in sorted(
+            key for key in expected if key[:2] == (case, path)
+        ):
+            key = (case, path, block)
+            try:
+                trial_record: JsonDict | None = measured[key]
+            except KeyError:
+                trial_record = None
+            repetitions.append(
+                _fault_repetition(
+                    trial_record,
+                    declarations[case],
+                    registration.number("gate", "readiness_seconds"),
+                    block,
+                )
+            )
+        cases.append(
+            {
+                "case": case,
+                "path": path,
+                "applicability": declarations[case],
+                "pass": all(row["pass"] for row in repetitions),
+                "repetitions": repetitions,
+            }
+        )
+    return {
+        "phase": "fault",
+        "pass": all(case["pass"] for case in cases),
+        "cases": cases,
+    }
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
         description="Evaluate shared worker cache evidence."
@@ -833,13 +960,17 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("reports", type=Path, nargs="+")
     parser.add_argument("--config", type=Path, default=_CONFIG)
     parser.add_argument("--phase", required=True)
-    parser.add_argument("--blocks", type=int, required=True)
+    parser.add_argument("--blocks", type=int)
     parser.add_argument("--describe", action="store_true")
     arguments = parser.parse_args(argv)
     registration = Registration.load(arguments.config)
+    if arguments.phase != "fault" and arguments.blocks is None:
+        parser.error("--blocks is required outside the fault phase")
     records = load_records(arguments.reports, registration, arguments.phase)
     output: JsonDict = (
-        {"descriptive": descriptive(records)}
+        analyze_faults(records, registration)
+        if arguments.phase == "fault"
+        else {"descriptive": descriptive(records)}
         if arguments.describe
         else decide(
             records, registration, phase=arguments.phase, blocks=arguments.blocks

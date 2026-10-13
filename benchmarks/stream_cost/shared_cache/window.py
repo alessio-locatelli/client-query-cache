@@ -240,6 +240,7 @@ class ProcessGroup:
     __slots__ = (
         "_context",
         "_directory",
+        "_owner_config",
         "connections",
         "owner",
         "owner_control",
@@ -251,6 +252,7 @@ class ProcessGroup:
     def __init__(self, context: SpawnContext, shutdown_seconds: PositiveFloat) -> None:
         self._context = context
         self._directory: str | None = None
+        self._owner_config: OwnerConfig | None = None
         self.shutdown_seconds = shutdown_seconds
         self.processes: list[BaseProcess] = []
         self.connections: list[Connection] = []
@@ -265,10 +267,18 @@ class ProcessGroup:
         deadline: NonNegativeFloat,
         path: PathKind,
     ) -> AttachmentConfig:
-        self._directory = tempfile.mkdtemp(prefix="shared-cache-")
+        if self._directory is None:
+            self._directory = tempfile.mkdtemp(prefix="shared-cache-")
         config = owner_config(
-            registration, uri, self._directory, secrets.token_bytes(32), path
+            registration,
+            uri,
+            self._directory,
+            secrets.token_bytes(32)
+            if self._owner_config is None
+            else self._owner_config.capability,
+            path,
         )
+        self._owner_config = config
         parent, child = self._context.Pipe()
         self.owner = self._context.Process(target=owner_main, args=(config, child))
         self.owner.start()
@@ -508,6 +518,10 @@ def _process_cpu() -> float:
 def run_window(
     replica: IsolatedReplicaSet, registration: Registration, cell: Cell
 ) -> Payload:
+    if cell.phase == "fault":
+        from benchmarks.stream_cost.shared_cache.faults import run_fault_window  # noqa: PLC0415 - Fault driver reuses window process lifecycle.
+
+        return run_fault_window(replica, registration, cell)
     database = cast("str", registration.raw["database"])
     collection = cast("str", registration.raw["collection"])
     client_options = registration.section("client_options")

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from hashlib import sha256
 from itertools import permutations, starmap
 from typing import TYPE_CHECKING, Literal, cast
@@ -31,6 +31,24 @@ type KeyAssignment = Literal["partitioned", "shared"]
 type CellSpec = tuple[str, Model, PositiveInt]
 
 BASELINES: tuple[PathKind, ...] = ("direct", "independent")
+FAULT_TIMINGS = ("detection", "readiness", "first_hit", "rewarming")
+FAULT_CASES = (
+    "coordinator-restart",
+    "coordinator-pause",
+    "watch-pause",
+    "stream-interruption",
+    "history-loss",
+    "worker-killed-with-capture",
+    "worker-replacement",
+    "slow-reader",
+    "malformed-frames",
+    "shutdown-during-startup",
+    "cancellation-during-publication",
+    "owner-kill-during-local-hits",
+    "owner-pause-during-local-hits",
+    "torn-read-stress",
+    "reattachment-after-restart",
+)
 _V4_PATHS: tuple[PathKind, ...] = ("direct", "independent", "shared")
 _PATHS: frozenset[str] = frozenset((*_V4_PATHS, "shared-index"))
 _V4_MODELS: tuple[Model, ...] = ("sync", "async")
@@ -270,6 +288,89 @@ class Cell:
         if self.model == "mixed":
             return self.workers // 2
         return self.workers if self.model == "sync" else 0
+
+
+@dataclass(frozen=True, slots=True)
+class FaultCell(Cell):
+    fault_case: str = field(kw_only=True)
+
+
+def fault_applicability(registration: Registration) -> dict[str, dict[str, bool]]:
+    try:
+        declarations = cast(
+            "dict[str, dict[str, bool]]", registration.raw["fault_timings"]
+        )
+        cases = cast("list[str]", registration.raw["fault_cases"])
+    except KeyError:
+        raise BenchmarkConfigurationError(
+            "fault phase requires per-case timing applicability"
+        ) from None
+    if (
+        not isinstance(cases, list)
+        or not cases
+        or any(not isinstance(case, str) for case in cases)
+        or len(set(cases)) != len(cases)
+        or not set(cases) <= set(FAULT_CASES)
+    ):
+        raise BenchmarkConfigurationError(
+            "fault_cases must list unique supported cases"
+        )
+    if (
+        not isinstance(declarations, dict)
+        or set(declarations) != set(cases)
+        or any(
+            not isinstance(value, dict)
+            or set(value) != set(FAULT_TIMINGS)
+            or any(type(applies) is not bool for applies in value.values())
+            for value in declarations.values()
+        )
+    ):
+        raise BenchmarkConfigurationError(
+            "every fault case must declare all four timing applicability flags"
+        )
+    return declarations
+
+
+def fault_cells(
+    registration: Registration,
+    paths: tuple[PathKind, ...] | None = None,
+) -> tuple[Cell, ...]:
+    declarations = fault_applicability(registration)
+    settings = _phase_settings(registration, "fault")
+    if settings["workers"] != 4 or settings["sync_workers"] != 2:
+        raise BenchmarkConfigurationError(
+            "shared faults require two sync and two asyncio workers"
+        )
+    if not _positive(settings["repetitions"]):
+        raise BenchmarkConfigurationError(
+            "fault repetitions must be a positive integer"
+        )
+    candidates = tuple(
+        path
+        for path in (registration.paths if paths is None else paths)
+        if path not in BASELINES
+    )
+    if not candidates:
+        raise BenchmarkConfigurationError("shared faults require a shared cache path")
+    return tuple(
+        FaultCell(
+            phase="fault",
+            block=block,
+            workload="hot",
+            profile="primary",
+            model="mixed",
+            workers=4,
+            path=path,
+            loop="closed",
+            concurrency=1,
+            window_seconds=registration.number("phases", "fault", "timeout_seconds"),
+            warmup_seconds=0,
+            fault_case=case,
+        )
+        for block in range(cast("PositiveInt", settings["repetitions"]))
+        for case in declarations
+        for path in path_order(block, candidates)
+    )
 
 
 def path_order(
