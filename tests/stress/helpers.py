@@ -372,7 +372,8 @@ class StressRun:
                 original_next = stream.next
 
                 def interrupted_next() -> Document:
-                    event = original_next()  # pytriage: TR5
+                    # Fetch before injecting a disconnect at the delivery boundary.
+                    event = original_next()
                     self.raise_if_disconnected()
                     return event
 
