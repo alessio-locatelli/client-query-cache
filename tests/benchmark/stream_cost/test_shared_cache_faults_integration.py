@@ -52,6 +52,29 @@ def test_registered_fault(
     assert isinstance(durations, dict)
     for name, applies in fault_applicability(registration)[case].items():
         assert (durations[name] is not None) is applies
+    probes = record["probes"]
+    events = record["events"]
+    checks = record["checks"]
+    assert isinstance(probes, dict)
+    assert isinstance(events, dict)
+    assert isinstance(checks, list)
+    if case in {"owner-kill-during-local-hits", "owner-pause-during-local-hits"}:
+        for before, after in zip(
+            probes["traffic-start"], probes["traffic-stop"], strict=True
+        ):
+            assert before["active"]
+            assert before["hits"] == registration.number("hot_keys")
+            assert not after["active"]
+            assert after["sweeps"] > before["sweeps"]
+            assert after["misses"] > 0
+            assert after["last_hit"] <= events["detection"]
+    elif case == "coordinator-restart":
+        assert "coordinator shut down gracefully before restart" in checks
+    elif case == "reattachment-after-restart":
+        held = probes["local-only"]
+        assert held[0]["resident_keys"] == registration.number("hot_keys")
+        assert all(probe["resident_keys"] == 0 for probe in held[1:])
+        assert all(probe["incarnation"] != held[0]["incarnation"] for probe in held[1:])
 
 
 @contextmanager

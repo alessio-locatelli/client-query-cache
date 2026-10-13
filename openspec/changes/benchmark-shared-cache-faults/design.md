@@ -10,7 +10,7 @@ This design measures scripted fault transitions. It does not estimate steady-sta
 
 ## Decisions
 
-Use a separate fault driver through the existing window dispatch, owner configuration and process group. A worker command loop keeps two synchronous and two asyncio managers alive across transitions. Probes report their own monotonic observation times; controller actions use the same host clock. Extract shared local-selection checks for use by both deterministic tests and trials. Keep fault state and observations out of the steady-state measurement loop.
+Use a separate fault driver through the existing window dispatch, owner configuration and process group. A worker command loop keeps two synchronous and two asyncio managers alive across transitions. Probes report their own monotonic observation times; controller actions use the same host clock. Scenario details and the bounded observation policy are defined in `reports/shared-worker-cache/v6/registration.md`. Extract shared local-selection checks for use by both deterministic tests and trials. Keep fault state and observations out of the steady-state measurement loop.
 
 An alternative is to instrument the offered-load scheduler. That would give latency under load, but adds observer overhead and restart accounting unrelated to this issue's four transition intervals. The scripted driver is chosen because it directly exercises the existing scenarios; no additional research is needed for this choice.
 

@@ -63,6 +63,12 @@ def _timestamp(record: Message) -> NonNegativeFloat:
     return value
 
 
+def _number(record: Message, key: str) -> NonNegativeFloat:
+    value = record[key]
+    assert isinstance(value, (int, float))
+    return value
+
+
 class FaultTrial:
     __slots__ = (
         "attachment",
@@ -94,7 +100,7 @@ class FaultTrial:
         self.deadline = time.monotonic() + cell.window_seconds
         self.events: dict[str, NonNegativeFloat] = {}
         self.checks: list[str] = []
-        self.probes: list[Message] = []
+        self.probes: dict[str, list[Message]] = {}
         self.revision: NonNegativeInt = 0
         self.stopped = False
 
@@ -121,7 +127,7 @@ class FaultTrial:
             receive(connection, self.deadline, "probe")
             for connection in self.group.connections
         ]
-        self.probes.extend(observations)
+        self.probes[operation] = observations
         return observations
 
     def ready(self) -> bool:
@@ -129,20 +135,19 @@ class FaultTrial:
             _mapping(self.observe(), "databases"),
             str(self.registration.raw["database"]),
         )
-        probes = self.workers()
+        return self._record_readiness(owner, self.workers())
+
+    def _record_readiness(self, owner: Message, probes: list[Message]) -> bool:
         if (
             owner["available"]
             and owner["progress_fresh"]
             and any(probe["eligible"] for probe in probes)
         ):
+            observed_at = time.monotonic()
             if "readiness" not in self.events:
-                self.events["readiness"] = min(
-                    _timestamp(probe) for probe in probes if probe["eligible"]
-                )
+                self.events["readiness"] = observed_at
             if any(probe["hit"] for probe in probes) and "first_hit" not in self.events:
-                self.events["first_hit"] = min(
-                    _timestamp(probe) for probe in probes if probe["hit"]
-                )
+                self.events["first_hit"] = observed_at
             return True
         return False
 
@@ -190,11 +195,14 @@ class FaultTrial:
 
     def detect(self) -> None:
         def fenced() -> bool:
-            probes = self.workers()
+            probes = self.workers("detect")
             safe = all(
-                not probe["local_hit"]
-                if self.cell.path == "shared-index"
-                else not probe["hit"] and probe["bypass"]
+                not probe["hit"]
+                and (
+                    probe["resident_keys"] == 0
+                    if self.cell.path == "shared-index"
+                    else probe["bypass"]
+                )
                 for probe in probes
             )
             if safe:
@@ -203,6 +211,65 @@ class FaultTrial:
 
         self.wait(fenced)
         self.checks.append("all workers fenced faulted state")
+
+    def _start_local_traffic(self) -> None:
+        probes = self.workers("traffic-start")
+        _require(
+            all(
+                probe["hits"] == self.registration.number("hot_keys")
+                for probe in probes
+            ),
+            "continuous local traffic did not start with the complete hot set",
+        )
+
+    def _stop_local_traffic(self) -> None:
+        probes = self.workers("traffic-stop")
+        initial = self.probes["traffic-start"]
+        _require(
+            all(
+                _number(probe, "sweeps") > _number(before, "sweeps")
+                and _number(probe, "misses") > 0
+                and _number(probe, "last_hit") <= self.events["detection"]
+                for before, probe in zip(initial, probes, strict=True)
+            ),
+            "continuous local traffic did not fence across the fault transition",
+        )
+        self.checks.append(
+            "continuous local reads crossed injection and remained fenced"
+        )
+
+    def _reattach_to_warm_owner(self, incarnation: object) -> None:
+        connection = self.group.connections[0]
+        keys = self.registration.number("hot_keys")
+
+        def warm_first() -> bool:
+            connection.send({"op": "prime", "revision": self.revision})
+            first = receive(connection, self.deadline, "probe")
+            database = _mapping(
+                _mapping(self.observe(), "databases"),
+                str(self.registration.raw["database"]),
+            )
+            if self._record_readiness(database, [first]):
+                _require(
+                    first["incarnation"] != incarnation,
+                    "first worker failed to reattach",
+                )
+                return first["resident_keys"] == keys
+            return False
+
+        self.wait(warm_first)
+        probes = self.workers("local-only")
+        _require(
+            probes[0]["resident_keys"] == self.registration.number("hot_keys")
+            and all(
+                probe["incarnation"] == incarnation and probe["resident_keys"] == 0
+                for probe in probes[1:]
+            ),
+            "old mappings selected entries from the warm replacement owner",
+        )
+        self.checks.append(
+            "old mappings stayed fenced while replacement publication was warm"
+        )
 
     def restart(self) -> None:
         owner = self.group.owner
@@ -290,6 +357,12 @@ class FaultTrial:
             else self.capture()
         )
         incarnation = self.observe()["incarnation"]
+        local_traffic = case in {
+            "owner-kill-during-local-hits",
+            "owner-pause-during-local-hits",
+        }
+        if local_traffic:
+            self._start_local_traffic()
         self.events["injection"] = time.monotonic()
         if case in {
             "coordinator-restart",
@@ -298,10 +371,21 @@ class FaultTrial:
         }:
             owner = self.group.owner
             assert owner is not None
-            owner.kill()
+            if case == "coordinator-restart":
+                assert self.group.owner_control is not None
+                self.group.owner_control.send("close")
+            else:
+                owner.kill()
             self.detect()
-            self.events["recovery"] = time.monotonic()
+            if local_traffic:
+                self._stop_local_traffic()
+            if case == "coordinator-restart":
+                owner.join(max(0.0, self.deadline - time.monotonic()))
+                _require(owner.exitcode == 0, "coordinator restart was not graceful")
+                self.checks.append("coordinator shut down gracefully before restart")
             self.restart()
+            if case == "reattachment-after-restart":
+                self._reattach_to_warm_owner(incarnation)
             self.wait(self.ready)
             assert capture is not None
             self.stale_admission(capture)
@@ -323,6 +407,8 @@ class FaultTrial:
                 os.kill(self.group.owner_pid, signal.SIGSTOP)
                 self.stopped = True
             self.detect()
+            if local_traffic:
+                self._stop_local_traffic()
             if case == "watch-pause":
                 assert capture is not None
                 self.stale_admission(capture)

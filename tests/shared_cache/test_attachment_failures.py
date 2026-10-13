@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import errno
 from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -73,3 +74,40 @@ async def test_reader_transport_failure_abandons_pending_requests(
     assert reader_failure["pending"].result() == {"r": "lost"}
     assert endpoint._pending == {}
     reader_failure["writer"].close.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "error",
+    [OSError(errno.ENOTCONN, "transport is not connected"), ConnectionResetError()],
+    ids=["not-connected", "reset"],
+)
+async def test_reconnect_handshake_transport_failure_bypasses_cache(
+    endpoint: AsyncEndpoint, monkeypatch: pytest.MonkeyPatch, error: OSError
+) -> None:
+    reader = asyncio.StreamReader()
+    reader.set_exception(error)
+    writer = Mock(spec=asyncio.StreamWriter)
+    monkeypatch.setattr(
+        asyncio, "open_unix_connection", AsyncMock(return_value=(reader, writer))
+    )
+    assert await endpoint.request({"op": "metadata"}) is None
+    assert endpoint.counters.failures == 1
+    assert endpoint._writer is None
+    assert endpoint._pending == {}
+    writer.close.assert_called_once()
+
+
+async def test_handshake_timeout_reuses_unreachable_owner_backoff(
+    endpoint: AsyncEndpoint, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    writer = Mock(spec=asyncio.StreamWriter)
+    connect = AsyncMock(return_value=(asyncio.StreamReader(), writer))
+    monkeypatch.setattr(asyncio, "open_unix_connection", connect)
+
+    assert await endpoint.request({"op": "metadata"}) is None
+    assert await endpoint.request({"op": "metadata"}) is None
+    assert endpoint.counters.timeouts == 1
+    assert endpoint._writer is None
+    assert endpoint._pending == {}
+    connect.assert_awaited_once()
+    writer.close.assert_called_once()

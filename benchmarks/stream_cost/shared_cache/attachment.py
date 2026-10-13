@@ -499,7 +499,7 @@ class AsyncEndpoint:
             except asyncio.IncompleteReadError:
                 writer.close()
                 return self._unreachable()
-            except ConnectionResetError:
+            except OSError:
                 writer.close()
                 return self._unreachable()
             except BaseException:
@@ -588,6 +588,7 @@ class AsyncEndpoint:
                 reply = await self._exchange(request_id, message, future)
         except TimeoutError:
             self.counters.timeouts += 1
+            self._retry_after = time.monotonic() + _RETRY_SECONDS
             if self._writer is not None:
                 self._abandon(self._writer)
             return None
