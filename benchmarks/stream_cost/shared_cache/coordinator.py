@@ -115,8 +115,15 @@ class OwnerConfig:
 
 
 class UpstreamProgress(CommandListener):
-    def __init__(self, publish: Callable[[str], None] | None = None) -> None:
+    def __init__(
+        self,
+        publish: Callable[[str], None] | None = None,
+        *,
+        expiry_seconds: PositiveFloat,
+    ) -> None:
         self.observed: dict[str, NonNegativeFloat] = {}
+        self._fresh_since: dict[str, NonNegativeFloat] = {}
+        self._expiry_seconds = expiry_seconds
         self.counts: dict[str, NonNegativeInt] = {}
         self._lock = threading.Lock()
         self._publish = publish
@@ -138,9 +145,25 @@ class UpstreamProgress(CommandListener):
     def succeeded(self, event: CommandSucceededEvent) -> None:
         self._count(f"{event.command_name}:completed")
         if event.command_name in {"getMore", "aggregate"}:
-            self.observed[event.database_name] = time.monotonic()
-            if self._publish is not None:
-                self._publish(event.database_name)
+            with self._lock:
+                now = time.monotonic()
+                try:
+                    previous = self.observed[event.database_name]
+                except KeyError:
+                    self._fresh_since[event.database_name] = now
+                else:
+                    if now - previous > self._expiry_seconds:
+                        self._fresh_since[event.database_name] = now
+                self.observed[event.database_name] = now
+                if self._publish is not None:
+                    self._publish(event.database_name)
+
+    def fresh_since(self, database: str) -> NonNegativeFloat | None:
+        with self._lock:
+            try:
+                return self._fresh_since[database]
+            except KeyError:
+                return None
 
     def failed(self, event: CommandFailedEvent) -> None:
         self._count(f"{event.command_name}:failed")
@@ -261,7 +284,8 @@ class SharedCacheOwner:
             )
             payloads = ArenaPayloads(self._index)
         self.progress = UpstreamProgress(
-            None if self._publisher is None else self._publisher.progress
+            None if self._publisher is None else self._publisher.progress,
+            expiry_seconds=config.limits.progress_expiry_seconds,
         )
         self.client: MongoClient[BsonDict] = MongoClient(
             config.mongodb_uri,
@@ -626,6 +650,10 @@ class SharedCacheOwner:
                 database: {
                     "available": self.core.is_database_available(database),
                     "progress_fresh": self.lease_fresh(database, now),
+                    "fresh_since": self.progress.fresh_since(database),
+                    "available_since": None
+                    if self._publisher is None
+                    else self._publisher.available_since(database),
                 }
                 for database in self.config.databases
             },
@@ -664,7 +692,6 @@ class SharedCacheOwner:
             return  # pragma: lax no cover (peer reset timing)
         connection.closed = True
         self._selector.unregister(connection.sock)
-        del self._connections[connection.sock.fileno()]
         for handle_id in tuple(connection.handles):
             self._release(handle_id)
         connection.handles.clear()
@@ -674,7 +701,9 @@ class SharedCacheOwner:
             connection.handover = None
         if connection.control and connection.session is not None:
             del self._rings[connection.session]
+        descriptor = connection.sock.fileno()
         connection.sock.close()
+        del self._connections[descriptor]
 
     def _enqueue(self, connection: _Connection, reply: Message) -> bool:
         frame = encode_frame(reply)

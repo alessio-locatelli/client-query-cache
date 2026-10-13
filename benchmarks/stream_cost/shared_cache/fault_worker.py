@@ -7,12 +7,16 @@ from typing import TYPE_CHECKING
 
 import bson
 
-from benchmarks.stream_cost.shared_cache.safety import local_key, local_read
+from benchmarks.stream_cost.shared_cache.adapters import _STALE
+from benchmarks.stream_cost.shared_cache.safety import local_key
 from benchmarks.stream_cost.shared_cache.wire import encode_key
+from client_query_cache._core.keys import NamespaceId
 from client_query_cache._types import NonNegativeFloat, NonNegativeInt
 
 if TYPE_CHECKING:
     from multiprocessing.connection import Connection
+
+    from client_query_cache_shared_index import ReaderIndex
 
     from benchmarks.stream_cost.shared_cache.adapters import (
         AsyncSharedCacheManager,
@@ -38,6 +42,38 @@ def selection(
     }
 
 
+@dataclass(frozen=True, slots=True)
+class LocalSelection:
+    reader: ReaderIndex
+    database_slot: NonNegativeInt
+    slot: NonNegativeInt
+    epoch: NonNegativeInt
+    shape: bytes
+    keys: tuple[bytes, ...]
+
+    @classmethod
+    def prepare(
+        cls,
+        manager: SharedCacheManager[BsonDict] | AsyncSharedCacheManager[BsonDict],
+        spec: WorkerSpec,
+    ) -> LocalSelection | None:
+        namespace = NamespaceId(spec.database, spec.collection)
+        local = manager.local
+        if local is None or namespace not in manager._slots:  # noqa: SLF001
+            return None
+        database_slot, slot, _incarnation = manager._slots[namespace]  # noqa: SLF001
+        return cls(
+            local.reader,
+            database_slot,
+            slot,
+            manager._metadata[namespace].checked_epoch,  # noqa: SLF001
+            manager.keys.encode(
+                manager[spec.database][spec.collection]._find_one_default_shape  # noqa: SLF001
+            ),
+            tuple(local_key(key) for key in spec.keys),
+        )
+
+
 @dataclass(slots=True)
 class LocalTraffic:
     active: bool = False
@@ -45,14 +81,30 @@ class LocalTraffic:
     hits: NonNegativeInt = 0
     misses: NonNegativeInt = 0
     last_hit: NonNegativeFloat = 0.0
+    selection: LocalSelection | None = None
 
-    def step(
+    def prepare(
         self,
         manager: SharedCacheManager[BsonDict] | AsyncSharedCacheManager[BsonDict],
         spec: WorkerSpec,
     ) -> None:
-        for key in spec.keys:
-            if local_read(manager, spec.database, spec.collection, key) is None:
+        self.selection = LocalSelection.prepare(manager, spec)
+        assert self.selection is not None
+
+    def step(self) -> None:
+        selection = self.selection
+        assert selection is not None
+        for key in selection.keys:
+            if (
+                selection.reader.lookup(
+                    selection.database_slot,
+                    selection.slot,
+                    selection.epoch,
+                    key,
+                    selection.shape,
+                )
+                is None
+            ):
                 self.misses += 1
             else:
                 self.hits += 1
@@ -65,12 +117,22 @@ def local_snapshot(
     spec: WorkerSpec,
 ) -> Payload:
     local = manager.local
+    selection = LocalSelection.prepare(manager, spec)
     return {
         "kind": "probe",
         "index": spec.index,
-        "resident_keys": sum(
-            local_read(manager, spec.database, spec.collection, key) is not None
-            for key in spec.keys
+        "resident_keys": 0
+        if selection is None
+        else sum(
+            selection.reader.lookup(
+                selection.database_slot,
+                selection.slot,
+                selection.epoch,
+                key,
+                selection.shape,
+            )
+            is not None
+            for key in selection.keys
         ),
         "incarnation": None if local is None else local.incarnation,
         "monotonic": time.monotonic(),
@@ -84,8 +146,9 @@ def traffic_command(
     spec: WorkerSpec,
 ) -> Payload:
     if operation == "traffic-start":
+        traffic.prepare(manager, spec)
         traffic.active = True
-        traffic.step(manager, spec)
+        traffic.step()
     else:
         traffic.active = False
     return {
@@ -118,6 +181,7 @@ def snapshot(
     bypasses_before: NonNegativeInt,
     reads: NonNegativeInt,
     exhaustive: bool,
+    evidence: ReadEvidence,
 ) -> Payload:
     local = manager.local
     return {
@@ -126,6 +190,9 @@ def snapshot(
         "model": spec.model,
         "eligible": eligible,
         "hit": manager.observation.hits > hits_before,
+        "hit_at": evidence.first_hit,
+        "last_hit_at": evidence.last_hit,
+        "unsafe_hit": evidence.unsafe_hit,
         "all_hits": manager.observation.hits - hits_before == reads,
         "resident_keys": local_snapshot(manager, spec)["resident_keys"]
         if exhaustive
@@ -136,6 +203,33 @@ def snapshot(
         "late_replies": manager.endpoint.counters.late_replies,
         "monotonic": time.monotonic(),
     }
+
+
+@dataclass(slots=True)
+class ReadEvidence:
+    first_hit: NonNegativeFloat | None = None
+    last_hit: NonNegativeFloat | None = None
+    unsafe_hit: bool = False
+
+    def observe(
+        self, before: NonNegativeInt, after: NonNegativeInt, *, eligible: bool
+    ) -> None:
+        if after > before:
+            self.last_hit = time.monotonic()
+            if self.first_hit is None:
+                self.first_hit = self.last_hit
+            self.unsafe_hit |= not eligible
+
+
+def worker_eligible(
+    manager: SharedCacheManager[BsonDict] | AsyncSharedCacheManager[BsonDict],
+    namespace: NamespaceId,
+) -> bool:
+    try:
+        metadata = manager._metadata[namespace]  # noqa: SLF001
+    except KeyError:
+        return False
+    return metadata is not _STALE and metadata.bypass_reason is None
 
 
 def verify_document(document: BsonDict | None, revision: NonNegativeInt) -> None:
@@ -175,10 +269,11 @@ def sync_fault_worker(
 ) -> None:
     connection.send({"kind": "attached"})
     collection = manager[spec.database][spec.collection]
+    namespace = NamespaceId(spec.database, spec.collection)
     traffic = LocalTraffic()
     while True:
         if traffic.active:
-            traffic.step(manager, spec)
+            traffic.step()
             if not connection.poll():
                 continue
         request = connection.recv()
@@ -209,10 +304,14 @@ def sync_fault_worker(
             continue
         hits = manager.observation.hits
         bypasses = sum(manager.observation.bypasses.values())
-        eligible = collection._cache_ineligibility_reason() is None  # noqa: SLF001
+        evidence = ReadEvidence()
+        eligible = False
         keys = probe_keys(spec, request)
         for key in keys:
+            before = manager.observation.hits
             verify_document(collection.find_one({"_id": key}), request["revision"])
+            eligible = worker_eligible(manager, namespace)
+            evidence.observe(before, manager.observation.hits, eligible=eligible)
         connection.send(
             snapshot(
                 manager,
@@ -222,6 +321,7 @@ def sync_fault_worker(
                 bypasses_before=bypasses,
                 reads=len(keys),
                 exhaustive=operation in {"prime", "detect"},
+                evidence=evidence,
             )
         )
 
@@ -233,10 +333,11 @@ async def async_fault_worker(
 ) -> None:
     connection.send({"kind": "attached"})
     collection = manager[spec.database][spec.collection]
+    namespace = NamespaceId(spec.database, spec.collection)
     traffic = LocalTraffic()
     while True:
         if traffic.active:
-            traffic.step(manager, spec)
+            traffic.step()
             await asyncio.sleep(0)
             if not connection.poll():
                 continue
@@ -268,12 +369,16 @@ async def async_fault_worker(
             continue
         hits = manager.observation.hits
         bypasses = sum(manager.observation.bypasses.values())
-        eligible = await collection._cache_ineligibility_reason() is None  # noqa: SLF001
+        evidence = ReadEvidence()
+        eligible = False
         keys = probe_keys(spec, request)
         for key in keys:
+            before = manager.observation.hits
             verify_document(
                 await collection.find_one({"_id": key}), request["revision"]
             )
+            eligible = worker_eligible(manager, namespace)
+            evidence.observe(before, manager.observation.hits, eligible=eligible)
         connection.send(
             snapshot(
                 manager,
@@ -283,5 +388,6 @@ async def async_fault_worker(
                 bypasses_before=bypasses,
                 reads=len(keys),
                 exhaustive=operation in {"prime", "detect"},
+                evidence=evidence,
             )
         )

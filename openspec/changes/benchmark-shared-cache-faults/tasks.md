@@ -22,7 +22,14 @@
 - [x] 4.3 Bound retained observations, restrict exhaustive residency checks to detection and rewarming, and reuse the existing retry delay after asynchronous RPC timeouts.
 - [x] 4.4 Repeat the registered phase and replace the insufficient safety evidence with corrected results.
 
-## 5. Code Quality
+## 5. Recovery safety and traffic reuse
 
-- [x] 5.1 Check entire edited test files against the repository test guidelines.
-- [x] 5.2 Claude-specific prose restriction is inapplicable to Codex.
+- [x] 5.1 Retain first-hit evidence independently of readiness; validate recovery hits against worker eligibility and owner readiness-window timestamps, including transitions between samples.
+- [x] 5.2 Prepare direct local-index lookup inputs once per traffic session and measure the change.
+- [ ] 5.3 Repeat the registered phase and replace the prior recovery evidence.
+- [x] 5.4 Remove a connection only after its handover descriptors and socket have closed, resolving the cleanup-observation race found during full validation.
+
+## 6. Code Quality
+
+- [x] 6.1 Check entire edited test files against the repository test guidelines.
+- [x] 6.2 Claude-specific prose restriction is inapplicable to Codex.

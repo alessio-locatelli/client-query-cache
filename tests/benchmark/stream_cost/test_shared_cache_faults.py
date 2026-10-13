@@ -5,7 +5,7 @@ import json
 from dataclasses import asdict, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
-from unittest.mock import Mock
+from unittest.mock import MagicMock, Mock
 
 import pytest
 from pymongo.errors import PyMongoError
@@ -16,6 +16,7 @@ from benchmarks.stream_cost.errors import (
 )
 from benchmarks.stream_cost.shared_cache import analysis, fault_worker, faults
 from benchmarks.stream_cost.shared_cache.analysis import analyze_faults
+from benchmarks.stream_cost.shared_cache.coordinator import UpstreamProgress
 from benchmarks.stream_cost.shared_cache.fault_worker import verify_document
 from benchmarks.stream_cost.shared_cache.protocol import (
     FAULT_CASES,
@@ -24,8 +25,12 @@ from benchmarks.stream_cost.shared_cache.protocol import (
     fault_applicability,
     fault_cells,
 )
-from benchmarks.stream_cost.shared_cache.safety import verify_published_payloads
+from benchmarks.stream_cost.shared_cache.safety import (
+    local_read,
+    verify_published_payloads,
+)
 from benchmarks.stream_cost.shared_cache.wire import ProtocolError
+from client_query_cache._core.keys import NamespaceId
 from client_query_cache._types import (
     JsonDict,
     NonNegativeInt,
@@ -289,6 +294,7 @@ def test_readiness_snapshot_skips_residency_scan(
         bypasses_before=0,
         reads=1,
         exhaustive=False,
+        evidence=Mock(first_hit=None, last_hit=None, unsafe_hit=False),
     )
     assert observation["resident_keys"] is None
     local_snapshot.assert_not_called()
@@ -301,26 +307,95 @@ def test_polling_retains_only_the_latest_round(trial: faults.FaultTrial) -> None
         {"kind": "probe", "monotonic": 2.0},
     ]
     trial.group.connections = [connection]
-    trial.workers()
-    assert trial.workers() == [{"kind": "probe", "monotonic": 2.0}]
-    assert trial.probes == {"probe": [{"kind": "probe", "monotonic": 2.0}]}
+    trial.workers("detect")
+    assert trial.workers("detect") == [{"kind": "probe", "monotonic": 2.0}]
+    assert trial.probes == {"detect": [{"kind": "probe", "monotonic": 2.0}]}
 
 
-def test_readiness_waits_for_both_owner_and_worker_observations(
-    trial: faults.FaultTrial, monkeypatch: pytest.MonkeyPatch
+@pytest.fixture
+def healthy_owner() -> Message:
+    return {
+        "available": True,
+        "progress_fresh": True,
+        "incarnation": "current",
+        "monotonic": 2.0,
+        "available_since": 0.5,
+        "fresh_since": 0.5,
+    }
+
+
+@pytest.fixture
+def cached_hit() -> Message:
+    return {
+        "eligible": True,
+        "hit": True,
+        "hit_at": 1.0,
+        "last_hit_at": 1.0,
+        "unsafe_hit": False,
+        "incarnation": "current",
+    }
+
+
+@pytest.mark.parametrize(
+    "condition",
+    ["unavailable", "stale", "transition", "incarnation", "ineligible", "unsafe-read"],
+    ids=[
+        "unavailable",
+        "stale",
+        "sampled-transition",
+        "old-incarnation",
+        "ineligible-worker",
+        "unsafe-read",
+    ],
+)
+def test_premature_hit_is_retained_and_fails_recovery(
+    trial: faults.FaultTrial,
+    healthy_owner: Message,
+    cached_hit: Message,
+    condition: str,
 ) -> None:
-    first: Message = {"eligible": True, "hit": True, "monotonic": 1.0}
-    unavailable: Message = {"available": False, "progress_fresh": False}
-    available: Message = {"available": True, "progress_fresh": True}
+    trial.events["recovery"] = 0.0
+    before = {**healthy_owner, "monotonic": 0.0}
+    if condition == "unavailable":
+        healthy_owner["available"] = False
+    elif condition == "stale":
+        healthy_owner["progress_fresh"] = False
+    elif condition == "transition":
+        before["available"] = False
+        healthy_owner["available_since"] = 1.5
+    elif condition == "incarnation":
+        cached_hit["incarnation"] = "obsolete"
+    elif condition == "ineligible":
+        cached_hit["eligible"] = False
+        cached_hit["unsafe_hit"] = True
+    else:
+        cached_hit["unsafe_hit"] = True
+    eligible_peer = {**cached_hit, "eligible": True, "hit": False}
+    with pytest.raises(LookupError, match="lacks safe"):
+        trial._record_readiness(before, [cached_hit, eligible_peer], healthy_owner)
+    assert trial.events == {"recovery": 0.0, "first_hit": 1.0}
+
+
+def test_first_hit_is_independent_of_readiness(
+    trial: faults.FaultTrial,
+    monkeypatch: pytest.MonkeyPatch,
+    healthy_owner: Message,
+    cached_hit: Message,
+) -> None:
     monkeypatch.setattr(
         "benchmarks.stream_cost.shared_cache.faults.time.monotonic",
-        Mock(return_value=2.0),
+        Mock(side_effect=[2.0, 5.0]),
     )
-
-    assert not trial._record_readiness(unavailable, [first])
-    assert trial.events == {}
-    assert trial._record_readiness(available, [first])
-    assert trial.events == {"readiness": 2.0, "first_hit": 2.0}
+    trial.events["recovery"] = 0.0
+    before = {**healthy_owner, "monotonic": 0.0}
+    assert trial._record_readiness(before, [cached_hit], healthy_owner)
+    assert trial.events == {"recovery": 0.0, "readiness": 2.0, "first_hit": 1.0}
+    cached_hit["hit_at"] = 3.0
+    cached_hit["last_hit_at"] = 3.0
+    before["monotonic"] = 2.0
+    healthy_owner["monotonic"] = 4.0
+    assert trial._record_readiness(before, [cached_hit], healthy_owner)
+    assert trial.events == {"recovery": 0.0, "readiness": 2.0, "first_hit": 1.0}
 
 
 @pytest.mark.parametrize(
@@ -460,3 +535,156 @@ def test_rewarming_requires_the_complete_servable_hot_set(
     )
     assert trial.rewarmed() is complete
     assert ("rewarming" in trial.events) is complete
+
+
+@pytest.fixture
+def traffic() -> fault_worker.LocalTraffic:
+    return fault_worker.LocalTraffic()
+
+
+def test_local_traffic_prepares_lookup_inputs_once(
+    traffic: fault_worker.LocalTraffic,
+) -> None:
+    namespace = NamespaceId("catalogue", "documents")
+    manager = MagicMock()
+    manager._slots = {namespace: (0, 1, "owner")}
+    manager._metadata = {namespace: Mock(checked_epoch=2)}
+    manager.keys.encode.return_value = b"shape"
+    manager.local.reader.lookup.return_value = b"payload"
+    spec = Mock(
+        database=namespace.database,
+        collection=namespace.collection,
+        keys=tuple(range(64)),
+    )
+    for _ in range(10):
+        for key in spec.keys:
+            assert (
+                local_read(manager, spec.database, spec.collection, key) == b"payload"
+            )
+    assert manager.__getitem__.call_count == 640
+    assert manager.keys.encode.call_count == 640
+    manager.reset_mock()
+    traffic.prepare(manager, spec)
+    for _ in range(10):
+        traffic.step()
+    assert manager.__getitem__.call_count == 1
+    manager.keys.encode.assert_called_once()
+    assert manager.local.reader.lookup.call_count == 640
+    assert traffic.hits == 640
+    assert traffic.sweeps == 10
+
+
+@pytest.fixture
+def read_evidence() -> fault_worker.ReadEvidence:
+    return fault_worker.ReadEvidence()
+
+
+def test_per_read_evidence_retains_unsafe_hits(
+    read_evidence: fault_worker.ReadEvidence, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "benchmarks.stream_cost.shared_cache.fault_worker.time.monotonic",
+        Mock(side_effect=[1.0, 2.0]),
+    )
+    read_evidence.observe(0, 0, eligible=False)
+    assert read_evidence.first_hit is None
+    read_evidence.observe(0, 1, eligible=False)
+    read_evidence.observe(1, 2, eligible=True)
+    assert read_evidence.first_hit == pytest.approx(1.0)
+    assert read_evidence.unsafe_hit
+
+
+@pytest.mark.parametrize(
+    "window", ["available_since", "fresh_since"], ids=["availability", "progress"]
+)
+def test_sampled_transition_uses_the_actual_ready_window(
+    trial: faults.FaultTrial,
+    healthy_owner: Message,
+    cached_hit: Message,
+    window: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    trial.events["recovery"] = 0.0
+    before = {
+        **healthy_owner,
+        "available": False,
+        "progress_fresh": False,
+        "monotonic": 0.0,
+    }
+    monkeypatch.setattr(
+        "benchmarks.stream_cost.shared_cache.faults.time.monotonic",
+        Mock(return_value=2.0),
+    )
+    assert trial._record_readiness(before, [cached_hit], healthy_owner)
+    healthy_owner[window] = 1.5
+    with pytest.raises(LookupError, match="lacks safe"):
+        trial._record_readiness(before, [cached_hit], healthy_owner)
+    assert trial.events["first_hit"] == pytest.approx(1.0)
+
+
+def test_owner_evidence_uses_snapshot_time_not_receipt_time(
+    trial: faults.FaultTrial,
+    healthy_owner: Message,
+    cached_hit: Message,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    trial.events["recovery"] = 0.0
+    database = str(trial.registration.raw["database"])
+    observation = {
+        "databases": {database: healthy_owner},
+        "incarnation": "current",
+        "observed_monotonic": 0.5,
+    }
+    monkeypatch.setattr(faults.FaultTrial, "observe", Mock(return_value=observation))
+    monkeypatch.setattr(
+        "benchmarks.stream_cost.shared_cache.faults.time.monotonic",
+        Mock(return_value=2.0),
+    )
+    after = trial._owner_state()
+    assert after["monotonic"] == pytest.approx(0.5)
+    before = {**healthy_owner, "monotonic": 0.0}
+    with pytest.raises(LookupError, match="lacks safe"):
+        trial._record_readiness(before, [cached_hit], after)
+
+
+@pytest.fixture
+def progress() -> UpstreamProgress:
+    return UpstreamProgress(expiry_seconds=1.0)
+
+
+def test_progress_window_resets_only_after_expiry(
+    progress: UpstreamProgress, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    database = "progress-window"
+    event = Mock(command_name="getMore", database_name=database)
+    monkeypatch.setattr(
+        "benchmarks.stream_cost.shared_cache.coordinator.time",
+        Mock(monotonic=Mock(side_effect=[1.0, 1.5, 3.0])),
+    )
+    assert progress.fresh_since(database) is None
+    progress.succeeded(event)
+    assert progress.fresh_since(database) == pytest.approx(1.0)
+    progress.succeeded(event)
+    assert progress.fresh_since(database) == pytest.approx(1.0)
+    progress.succeeded(event)
+    assert progress.fresh_since(database) == pytest.approx(3.0)
+
+
+def test_safe_hit_precedes_a_later_readiness_observation(
+    trial: faults.FaultTrial,
+    healthy_owner: Message,
+    cached_hit: Message,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    trial.events["recovery"] = 0.0
+    before = {**healthy_owner, "monotonic": 0.0}
+    cached_hit["eligible"] = False
+    assert not trial._record_readiness(before, [cached_hit], healthy_owner)
+    assert trial.events == {"recovery": 0.0, "first_hit": 1.0}
+    cached_hit.update(eligible=True, hit=False)
+    monkeypatch.setattr(
+        "benchmarks.stream_cost.shared_cache.faults.time.monotonic",
+        Mock(return_value=2.0),
+    )
+    assert trial._record_readiness(before, [cached_hit], healthy_owner)
+    assert trial.events == {"recovery": 0.0, "first_hit": 1.0, "readiness": 2.0}
