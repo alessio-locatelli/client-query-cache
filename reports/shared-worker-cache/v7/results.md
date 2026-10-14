@@ -52,7 +52,7 @@ The 64 KiB document profile passes every comparison. Sorted sixteen-document fin
 
 ## Bottleneck profile
 
-Across the twelve unprofiled cold blocks, the owner uses 245–298 microseconds of CPU per shared miss; workers use 79–126 microseconds more per miss than direct reads. A separate one-block, eight-worker asyncio cProfile diagnostic attributes visible worker cost to key construction, frame encoding and socket sends. The owner profile records about 22 context-manager constructions and ten namespace sections per admission. Core lock-order guards forbid holding a namespace lock through LRU insertion, so merging those sections requires a broader concurrency redesign.
+Across the twelve unprofiled cold blocks, the owner uses 245–298 microseconds of CPU per shared miss; workers use 78–126 microseconds more per miss than direct reads. A separate one-block, eight-worker asyncio cProfile diagnostic attributes visible worker cost to key construction, frame encoding and socket sends. The owner profile records about 22 context-manager constructions and ten namespace sections per admission. Core lock-order guards forbid holding a namespace lock through LRU insertion, so merging those sections requires a broader concurrency redesign.
 
 The diagnostic used the measured revision with a disposable copy of the frozen configuration, `phases.cold.blocks` set to one, and `SHARED_CACHE_PROFILE_DIRECTORY` set to an untracked directory. Reproduce with `python -m benchmarks.stream_cost.shared_cache.run --phase cold --only async:8 --config <diagnostic-config> --output <diagnostic-report>`. It is exploratory and excluded from the gate. Blocking syscall timings in cProfile are wall time, not CPU measurements.
 

@@ -16,7 +16,8 @@
 ## 3. Evidence
 
 - [x] 3.1 Record the complete version 7 study and profiles, retaining its failed miss bounds.
-- [ ] 3.2 Collect every version 8 phase from clean commits and record its decision under the unchanged protocol. Acceptance remains open unless all required issue bounds pass.
+- [x] 3.2 Collect every version 8 phase from clean commits and record its decision under the unchanged protocol.
+- [ ] 3.3 Reduce the remaining miss cost and collect fresh registered evidence that passes every required issue #272 bound; version 8 does not meet acceptance.
 
 ## Code Quality
 
