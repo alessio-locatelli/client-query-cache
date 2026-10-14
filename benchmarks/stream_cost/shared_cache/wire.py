@@ -200,6 +200,16 @@ def frame_length(header: bytes, limit: PositiveInt) -> NonNegativeInt:
     return length
 
 
+def decode_queued_frame(frame: bytes, limit: PositiveInt) -> dict[str, object]:
+    frame_bytes = len(frame)
+    if frame_bytes < LENGTH_BYTES:
+        raise ProtocolError("queued frame has no length header")
+    body_bytes = frame_length(frame[:LENGTH_BYTES], limit)
+    if frame_bytes != LENGTH_BYTES + body_bytes:
+        raise ProtocolError("queued frame length differs from its header")
+    return decode_frame(frame[LENGTH_BYTES:])
+
+
 def decode_frame(body: bytes | memoryview) -> dict[str, object]:
     try:
         message = bson.decode(body, codec_options=_WIRE_OPTIONS)

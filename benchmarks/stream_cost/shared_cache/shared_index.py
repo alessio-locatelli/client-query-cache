@@ -26,6 +26,11 @@ class SharedIndexLimits:
     namespaces: PositiveInt
     ring_tokens: PositiveInt
     local_miss_admission: bool = False
+    native_admission_queue: bool = False
+
+    def __post_init__(self) -> None:
+        if self.native_admission_queue and not self.local_miss_admission:
+            raise ValueError("native admission queues require local miss capture")
 
 
 @dataclass(frozen=True, slots=True)

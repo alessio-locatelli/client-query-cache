@@ -243,9 +243,12 @@ class Registration:
         parameters = dict(self.section("shared_index"))
         local_miss_admission = parameters.pop("local_miss_admission", False)
         assert isinstance(local_miss_admission, bool)
+        native_admission_queue = parameters.pop("native_admission_queue", False)
+        assert isinstance(native_admission_queue, bool)
         return SharedIndexLimits(
             **cast("dict[str, PositiveInt]", parameters),
             local_miss_admission=local_miss_admission,
+            native_admission_queue=native_admission_queue,
         )
 
     def rate(self, family: str) -> PositiveFloat:

@@ -39,6 +39,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from bson.codec_options import CodecOptions
+    from client_query_cache_shared_index import ReaderIndex
     from pymongo import AsyncMongoClient, MongoClient
     from pymongo.asynchronous.collection import AsyncCollection
     from pymongo.asynchronous.database import AsyncDatabase
@@ -158,6 +159,7 @@ class RemoteCursorCapture(CursorCapture):
 @dataclass(frozen=True, slots=True)
 class LocalMiss:
     message: Message
+    reader: ReaderIndex
 
 
 def _admission(
@@ -286,7 +288,8 @@ def _local_select(view: View, keys: tuple[bytes, bytes] | str) -> object:
                     "identity": identity_key,
                     "shape": shape_key,
                     "token": list(token),
-                }
+                },
+                local.reader,
             )
         return NO_LOCAL_HIT
     shared.observation.hits += 1
@@ -606,7 +609,9 @@ class SharedCachedCollection[DocumentType: Mapping[str, Any]](
                 self._shared.observation,
             )
             if admission is not None:
-                endpoint.send(admission)
+                endpoint.send(
+                    admission, value.reader if isinstance(value, LocalMiss) else None
+                )
         return document
 
     @override
@@ -714,7 +719,9 @@ class AsyncSharedCachedCollection[DocumentType: Mapping[str, Any]](
                 self._shared.observation,
             )
             if admission is not None:
-                endpoint.send(admission)
+                endpoint.send(
+                    admission, value.reader if isinstance(value, LocalMiss) else None
+                )
         return document
 
     @override

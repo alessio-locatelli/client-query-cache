@@ -637,10 +637,18 @@ def test_admitted_identity_hits_are_served_locally(
     assert not reads.detached
 
 
+@pytest.mark.parametrize("native_queue", [False, True], ids=("socket", "native-queue"))
 def test_local_misses_read_through_without_selection_or_capture_handles(
     open_reads: Callable[[SharedIndexLimits], tuple[Owner, _SharedReads]],
+    native_queue: bool,
 ) -> None:
-    owner, reads = open_reads(replace(_SHARED_INDEX, local_miss_admission=True))
+    owner, reads = open_reads(
+        replace(
+            _SHARED_INDEX,
+            local_miss_admission=True,
+            native_admission_queue=native_queue,
+        )
+    )
     requests = reads.manager.endpoint.counters.requests
     first = [reads.find_one(key) for key in range(DOCUMENTS)]
     _admitted(owner, DOCUMENTS)
@@ -650,6 +658,9 @@ def test_local_misses_read_through_without_selection_or_capture_handles(
     assert [reads.find_one(key) for key in range(DOCUMENTS)] == first
     assert reads.manager.observation.hits == DOCUMENTS
     assert reads.manager.observation.misses == DOCUMENTS
+    assert reads.manager.endpoint.counters.native_admissions == (
+        DOCUMENTS if native_queue else 0
+    )
 
 
 def test_failed_locally_captured_reads_need_no_discard(

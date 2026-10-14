@@ -9,8 +9,9 @@ use pyo3::types::PyBytes;
 
 use crate::clock::monotonic_ns;
 use crate::echo::Echo;
+use crate::frames::Frames;
 use crate::index::{Block, Index, Layout, Query, Writer};
-use crate::memory::{Mapping, ReadOnly, WORD_BYTES, Writable, reopen_read_only, seal};
+use crate::memory::{Mapping, ReadOnly, WORD_BYTES, Words, Writable, reopen_read_only, seal};
 use crate::ring::Ring;
 use crate::sync::Ordering;
 
@@ -192,15 +193,35 @@ impl OwnerIndex {
             .validate_capture(incarnation, &query, token, monotonic_ns(), max_age_ns)
     }
 
-    fn session_ring(&self, tokens: usize) -> PyResult<SessionRing> {
-        let words =
+    #[pyo3(signature = (tokens, admission_bytes = 0))]
+    fn session_ring(&self, tokens: usize, admission_bytes: usize) -> PyResult<SessionRing> {
+        let ring_words =
             Ring::<Shared>::words_for(tokens).ok_or_else(|| invalid("invalid ring capacity"))?;
+        let words = if admission_bytes == 0 {
+            ring_words
+        } else {
+            ring_words
+                .checked_add(
+                    Frames::<Shared>::words_for(admission_bytes)
+                        .ok_or_else(|| invalid("invalid admission capacity"))?,
+                )
+                .ok_or_else(|| invalid("invalid admission capacity"))?
+        };
         let (mapping, descriptor) =
             Mapping::memfd(c"client-query-cache-ring", words).map_err(PyOSError::new_err)?;
-        let ring = Ring::create(Arc::new(mapping), tokens)
-            .ok_or_else(|| invalid("invalid ring capacity"))?;
+        let memory = Arc::new(mapping);
+        let admissions = if admission_bytes == 0 {
+            None
+        } else {
+            Some(Mutex::new(
+                Frames::create(memory.clone(), ring_words, admission_bytes)
+                    .ok_or_else(|| invalid("invalid admission capacity"))?,
+            ))
+        };
+        let ring = Ring::create(memory, tokens).ok_or_else(|| invalid("invalid ring capacity"))?;
         Ok(SessionRing {
             ring,
+            admissions,
             descriptor: Mutex::new(Some(descriptor)),
         })
     }
@@ -217,6 +238,7 @@ impl OwnerIndex {
 #[pyclass(frozen)]
 struct SessionRing {
     ring: Ring<Shared>,
+    admissions: Option<Mutex<Frames<Shared>>>,
     descriptor: Mutex<Option<OwnedFd>>,
 }
 
@@ -247,12 +269,30 @@ impl SessionRing {
     fn dropped(&self) -> u64 {
         self.ring.dropped()
     }
+
+    #[pyo3(signature = (max_frames = None))]
+    fn drain_admissions<'py>(
+        &self,
+        py: Python<'py>,
+        max_frames: Option<usize>,
+    ) -> PyResult<Vec<Bound<'py, PyBytes>>> {
+        let Some(queue) = &self.admissions else {
+            return Ok(Vec::new());
+        };
+        let frames = queue
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .drain(max_frames.unwrap_or(usize::MAX))
+            .map_err(|()| invalid("damaged admission queue"))?;
+        Ok(frames.iter().map(|frame| PyBytes::new(py, frame)).collect())
+    }
 }
 
 #[pyclass(frozen)]
 struct ReaderIndex {
     index: Index<Shared>,
     ring: Ring<Shared>,
+    admissions: Option<Mutex<Frames<Shared>>>,
     incarnation: u64,
     detached: AtomicBool,
 }
@@ -267,12 +307,22 @@ impl ReaderIndex {
             .ok_or_else(|| invalid("the descriptor holds no index"))?;
         let ring_mapping = Mapping::from_descriptor(borrowed(ring_descriptor)?, Writable)
             .map_err(PyOSError::new_err)?;
-        let ring = Ring::attach(Arc::new(ring_mapping))
-            .ok_or_else(|| invalid("the descriptor holds no ring"))?;
+        let memory = Arc::new(ring_mapping);
+        let ring =
+            Ring::attach(memory.clone()).ok_or_else(|| invalid("the descriptor holds no ring"))?;
+        let ring_words = ring.words();
+        let admissions = if memory.words().len() == ring_words {
+            None
+        } else {
+            Some(Mutex::new(Frames::attach(memory, ring_words).ok_or_else(
+                || invalid("the descriptor holds no admission queue"),
+            )?))
+        };
         Ok(Self {
             incarnation: index.incarnation(),
             index,
             ring,
+            admissions,
             detached: AtomicBool::new(false),
         })
     }
@@ -342,6 +392,18 @@ impl ReaderIndex {
 
     fn dropped(&self) -> u64 {
         self.ring.dropped()
+    }
+
+    fn enqueue_admission(&self, frame: &[u8]) -> bool {
+        if self.detached.load(Ordering::Acquire) {
+            return false;
+        }
+        self.admissions.as_ref().is_some_and(|queue| {
+            queue
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .push(frame)
+        })
     }
 }
 
