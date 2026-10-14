@@ -3,7 +3,7 @@
 ## 1. Registration
 
 - [x] 1.1 Commit version 7 performance and fault registrations before candidate timing; verify their plans preserve version 5 comparisons and version 6 fault applicability.
-- [ ] 1.2 Commit the version 8 queue registration before timing; freeze its rates only from fresh baseline calibration.
+- [x] 1.2 Commit the version 8 queue registration before timing; freeze its rates only from fresh baseline calibration.
 
 ## 2. Local miss capture
 
