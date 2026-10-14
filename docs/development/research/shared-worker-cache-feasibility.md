@@ -150,4 +150,8 @@ All 75 registered repetitions passed with independent first-hit safety checks. T
 
 The [complete version 7 study](../../../reports/shared-worker-cache/v7/results.md) removes owner selection before eligible `_id` misses. Hot, active, capacity and timed fault checks pass, with every capacity window retained. Cold-miss P95 passes at four and eight workers in both models, and P99 passes at four. Eight-worker P99 upper deltas are 1.056 ms for asyncio and 1.134 ms for synchronous reads, exceeding the 1 ms limit. The study therefore defers. The report records the unchanged inference rules, source revisions, sensitivity limits and profiles.
 
-[Issue #272](https://github.com/alessio-locatelli/client-query-cache/issues/272) remains open. The [version 8 registration](../../../reports/shared-worker-cache/v8/registration.md) evaluates a bounded native admission queue under a fresh complete protocol.
+[Issue #272](https://github.com/alessio-locatelli/client-query-cache/issues/272) remains open.
+
+## Native admission queue: version 8
+
+The [complete version 8 study](../../../reports/shared-worker-cache/v8/results.md) adds a bounded native queue for encoded admissions. Hot, active, capacity and timed fault checks pass, but cold-miss P99 does not pass in three of four required comparisons. Observed owner CPU is lower than in version 7 while worker CPU is higher; these separate studies do not establish a causal speedup. The report records every phase, stability failures and an exploratory profile. The candidate remains deferred under [issue #272](https://github.com/alessio-locatelli/client-query-cache/issues/272).
