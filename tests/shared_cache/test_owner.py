@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
-from client_query_cache_shared_index import Payload
+from client_query_cache_shared_index import Payload, ReaderIndex
 
 from benchmarks.stream_cost.shared_cache.attachment import (
     AsyncEndpoint,
@@ -43,11 +43,12 @@ from client_query_cache._core.keys import IdentityCacheKey, NamespaceId
 from client_query_cache._core.lru import WeightedLru
 from client_query_cache._core.manager import CacheCore, IdentityCapture
 from client_query_cache._core.order_sensitive_keys import order_sensitive_key
+from client_query_cache._types import NonNegativeInt
 from tests.core.conftest import patch_conditional_put_hook
 from tests.shared_cache.conftest import LIMITS, wait_for
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
+    from collections.abc import AsyncIterator, Callable, Iterator
 
     from faker import Faker
 
@@ -177,6 +178,27 @@ def controls() -> Iterator[Callable[[SharedCacheOwner], ControlAttachment]]:
     yield attach
     for control in opened:
         control.sock.close()
+
+
+@pytest.fixture
+def writable_control(
+    shared_owner: SharedCacheOwner,
+) -> Iterator[tuple[ControlAttachment, NonNegativeInt]]:
+    peer = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    peer.settimeout(5)
+    peer.connect(shared_owner.config.socket_path)
+    peer.sendall(
+        encode_frame(attachment_for(shared_owner.config).hello(role="control"))
+    )
+    _reply, descriptors, _flags, _address = socket.recv_fds(peer, 262_144, 2)
+    assert len(descriptors) == 2
+    try:
+        reader = ReaderIndex(*descriptors)
+        yield ControlAttachment(peer, reader), descriptors[1]
+    finally:
+        peer.close()
+        for descriptor in descriptors:
+            os.close(descriptor)
 
 
 @pytest.fixture
@@ -823,11 +845,18 @@ def local_miss(session: _Session, faker: Faker) -> Message:
     }
 
 
+@pytest.mark.parametrize(
+    "shared_owner",
+    [{}, {"local_miss_admission": True, "native_admission_queue": True}],
+    indirect=True,
+    ids=("socket", "native-queue"),
+)
 def test_a_local_miss_needs_no_owner_selection(
     session: _Session, local_miss: Message
 ) -> None:
     requests = session.owner.counters.requests
-    session.endpoint.send(local_miss)
+    session.endpoint.send(local_miss, session.control.reader)
+    wait_for(lambda: session.owner.counters.admitted == 1)
     reply = session.endpoint.request({"op": "observe"})
     assert reply is not None
     assert session.owner.counters.requests == requests + 2
@@ -835,6 +864,64 @@ def test_a_local_miss_needs_no_owner_selection(
     assert session.owner.counters.misses == 0
     assert not session.owner._handles
     assert session.local(0) == local_miss["value"]
+
+
+@pytest.mark.parametrize(
+    "shared_owner",
+    [{"local_miss_admission": True, "native_admission_queue": True}],
+    indirect=True,
+)
+@pytest.mark.parametrize(
+    "frame",
+    [
+        b"x",
+        struct.pack("<I", 1) + b"xx",
+        struct.pack("<I", 1) + b"x",
+        encode_frame({"v": 1, "id": 0, "op": "observe"}),
+        encode_frame({"v": 1, "op": "admit-local"}),
+        encode_frame({"v": 1, "id": 1, "op": "admit-local"}),
+        encode_frame({"v": 1, "id": 0, "op": "admit-local"}),
+    ],
+    ids=(
+        "short-header",
+        "length-mismatch",
+        "invalid-bson",
+        "wrong-operation",
+        "missing-id",
+        "nonzero-id",
+        "missing-admission-fields",
+    ),
+)
+def test_malformed_queued_frames_detach_only_the_control_peer(
+    shared_owner: SharedCacheOwner,
+    writable_control: tuple[ControlAttachment, NonNegativeInt],
+    endpoints: Callable[[SharedCacheOwner], SyncEndpoint],
+    frame: bytes,
+) -> None:
+    control, _descriptor = writable_control
+    assert control.reader.enqueue_admission(frame)
+    wait_for(lambda: shared_owner.counters.protocol_errors == 1)
+    assert control.sock.recv(1) == b""
+    assert endpoints(shared_owner).request({"op": "observe"}) is not None
+
+
+@pytest.mark.parametrize(
+    "shared_owner",
+    [{"local_miss_admission": True, "native_admission_queue": True}],
+    indirect=True,
+)
+def test_damaged_queue_positions_detach_only_the_control_peer(
+    shared_owner: SharedCacheOwner,
+    writable_control: tuple[ControlAttachment, NonNegativeInt],
+    endpoints: Callable[[SharedCacheOwner], SyncEndpoint],
+) -> None:
+    control, descriptor = writable_control
+    # Native layout: four recency header words, tokens, then queue head and tail.
+    tail_offset = (4 + _SHARED_INDEX.ring_tokens + 1) * 8
+    os.pwrite(descriptor, struct.pack("<Q", 2**64 - 1), tail_offset)
+    wait_for(lambda: shared_owner.counters.protocol_errors == 1)
+    assert control.sock.recv(1) == b""
+    assert endpoints(shared_owner).request({"op": "observe"}) is not None
 
 
 @pytest.mark.parametrize(
@@ -1011,4 +1098,57 @@ def test_a_namespace_without_a_slot_cannot_admit_local_captures(
     session.owner._admit_local(local_miss)
     assert session.owner.counters.rejected_admissions == 1
     assert session.owner.core.snapshot().entry_count == 0
+    assert not session.owner._handles
+
+
+@pytest.fixture
+def full_admission_queue(
+    session: _Session, local_miss: Message
+) -> Iterator[ReaderIndex]:
+    index = session.owner._index
+    assert index is not None
+    frame = encode_frame({**local_miss, "v": 1, "id": 0})
+    # Fit exactly one complete record, including its native length word.
+    queue_bytes = (1 + (len(frame) + 7) // 8) * 8
+    ring = index.session_ring(4, queue_bytes)
+    descriptor = index.reader_descriptor()
+    try:
+        reader = ReaderIndex(descriptor, ring.descriptor())
+    finally:
+        os.close(descriptor)
+    assert reader.enqueue_admission(frame)
+    yield reader
+    ring.close_descriptor()
+
+
+@pytest.fixture(params=("sync", "async"))
+async def admission_endpoint(
+    session: _Session, request: pytest.FixtureRequest
+) -> AsyncIterator[SyncEndpoint | AsyncEndpoint]:
+    if request.param == "sync":
+        yield session.endpoint
+    else:
+        endpoint = AsyncEndpoint(attachment_for(session.owner.config))
+        assert await endpoint.request({"op": "observe"}) is not None
+        yield endpoint
+        await endpoint.close()
+
+
+async def test_full_native_queues_fall_back_to_socket_admission(
+    session: _Session,
+    local_miss: Message,
+    full_admission_queue: ReaderIndex,
+    admission_endpoint: SyncEndpoint | AsyncEndpoint,
+) -> None:
+    admission_endpoint.send(local_miss, full_admission_queue)
+    reply = (
+        await admission_endpoint.request({"op": "observe"})
+        if isinstance(admission_endpoint, AsyncEndpoint)
+        else admission_endpoint.request({"op": "observe"})
+    )
+    assert reply is not None
+    assert admission_endpoint.counters.native_admissions == 0
+    assert admission_endpoint.counters.one_way == 1
+    assert session.owner.counters.admitted == 1
+    assert session.local(0) == local_miss["value"]
     assert not session.owner._handles

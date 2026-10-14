@@ -11,7 +11,7 @@
 - [x] 2.2 Notify the publisher for untracked canonical writes; cover this observer behavior and token rejection through real core mutations.
 - [x] 2.3 Add opt-in owner admission and sync/async adapter routing, including malformed/expired/restarted tokens, native errors, cancellation and legacy fallback; verify that captured misses issue no select RPC and leak no owner handles.
 - [x] 2.4 Preserve data-channel reconnection for local misses in new threads and after transport loss; reject oversized combined frames without disconnecting the owner channel.
-- [ ] 2.5 Implement the native admission queue from the design, including bounded publication/reuse, socket fallback, peer isolation and startup sampling; validate both adapter models and queue ordering.
+- [x] 2.5 Implement the native admission queue from the design, including bounded publication/reuse, socket fallback, peer isolation and startup sampling; validate both adapter models and queue ordering.
 
 ## 3. Evidence
 
@@ -20,5 +20,5 @@
 
 ## Code Quality
 
-- [ ] 4.1 Scan entire edited test files for the AGENTS.md Writing Tests guidelines, including parametrization.
+- [x] 4.1 Scan entire edited test files for the AGENTS.md Writing Tests guidelines, including parametrization.
 - [x] 4.2 Prose restriction is inapplicable: implemented by OpenAI Codex.

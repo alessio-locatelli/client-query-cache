@@ -83,9 +83,31 @@ class EndpointCounters:
     connects: NonNegativeInt = 0
     late_replies: NonNegativeInt = 0
     one_way: NonNegativeInt = 0
+    native_admissions: NonNegativeInt = 0
     dropped_one_way: NonNegativeInt = 0
     bytes_sent: NonNegativeInt = 0
     bytes_received: NonNegativeInt = 0
+
+
+def _one_way_frame(
+    message: Message,
+    config: AttachmentConfig,
+    counters: EndpointCounters,
+    reader: ReaderIndex | None,
+) -> tuple[bytes, PositiveInt] | None:
+    message["v"] = PROTOCOL_VERSION
+    message["id"] = 0
+    frame = encode_frame(message)
+    frame_bytes = len(frame)
+    if frame_bytes - LENGTH_BYTES > config.frame_limit:
+        counters.dropped_one_way += 1
+        return None
+    if reader is not None and reader.enqueue_admission(frame):
+        counters.native_admissions += 1
+        counters.one_way += 1
+        counters.bytes_sent += frame_bytes
+        return None
+    return frame, frame_bytes
 
 
 def _accepted(reply: Message) -> Message:
@@ -410,19 +432,16 @@ class SyncEndpoint:
         self._drop()
         return None
 
-    def send(self, message: Message) -> None:
+    def send(self, message: Message, reader: ReaderIndex | None = None) -> None:
         self._check_owner()
         connection = self._leased()
         if connection is None:
             self.counters.dropped_one_way += 1
             return
-        message["v"] = PROTOCOL_VERSION
-        message["id"] = 0
-        frame = encode_frame(message)
-        frame_bytes = len(frame)
-        if frame_bytes - LENGTH_BYTES > self.config.frame_limit:
-            self.counters.dropped_one_way += 1
+        prepared = _one_way_frame(message, self.config, self.counters, reader)
+        if prepared is None:
             return
+        frame, frame_bytes = prepared
         try:
             connection.sock.settimeout(self.config.rpc_deadline_seconds)
             connection.sock.sendall(frame)
@@ -633,19 +652,16 @@ class AsyncEndpoint:
         self.counters.bytes_sent += len(frame)
         return await future
 
-    def send(self, message: Message) -> None:
+    def send(self, message: Message, reader: ReaderIndex | None = None) -> None:
         self._check_owner()
         writer = self._writer
         if writer is None:
             self.counters.dropped_one_way += 1
             return
-        message["v"] = PROTOCOL_VERSION
-        message["id"] = 0
-        frame = encode_frame(message)
-        frame_bytes = len(frame)
-        if frame_bytes - LENGTH_BYTES > self.config.frame_limit:
-            self.counters.dropped_one_way += 1
+        prepared = _one_way_frame(message, self.config, self.counters, reader)
+        if prepared is None:
             return
+        frame, frame_bytes = prepared
         writer.write(frame)
         self.counters.one_way += 1
         self.counters.bytes_sent += frame_bytes

@@ -326,6 +326,10 @@ impl<M: Words> Index<M> {
             .is_some()
     }
 
+    #[allow(
+        deprecated,
+        reason = "fetch_update supports the declared Rust 1.85 MSRV"
+    )]
     fn advance(&self, word: &AtomicU64) {
         let _ = word.fetch_update(Ordering::AcqRel, Ordering::Acquire, |value| {
             value.checked_add(1)

@@ -39,6 +39,10 @@ impl<M: Words> Ring<M> {
         &self.memory.words()[at]
     }
 
+    pub(crate) fn words(&self) -> usize {
+        HEADER_WORDS + self.capacity
+    }
+
     fn token(&self, position: u64) -> &AtomicU64 {
         self.word(HEADER_WORDS + (position % self.capacity as u64) as usize)
     }

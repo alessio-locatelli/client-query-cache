@@ -166,6 +166,8 @@ _.toggle_availability  # unused method (tests/shared_cache/test_shared_index_ora
 _.local_values_match_the_core  # unused method (tests/shared_cache/test_shared_index_oracle.py:137)
 _.local_capture  # Hypothesis rule (tests/shared_cache/test_shared_index_oracle.py)
 _.validate_local_capture  # Hypothesis rule (tests/shared_cache/test_shared_index_oracle.py)
+_.post  # Hypothesis rule (tests/shared_cache/test_admission_queue.py)
+_.recency_touches_remain_separate  # Hypothesis invariant (tests/shared_cache/test_admission_queue.py)
 pytestmark  # unused variable (tests/core/test_order_sensitive_keys.py:17)
 pytestmark  # unused variable (tests/core/test_projection.py:21)
 pytestmark  # unused variable (tests/core/test_query_filters.py:20)

@@ -31,6 +31,7 @@ from benchmarks.stream_cost.shared_cache.wire import (
     ProtocolError,
     decode_frame,
     decode_key,
+    decode_queued_frame,
     encode_frame,
     frame_length,
 )
@@ -206,6 +207,7 @@ class _Connection:
     closed: bool = False
     control: bool = False
     handover: _Handover | None = None
+    ring: SessionRing | None = None
 
 
 @dataclass(slots=True)
@@ -460,6 +462,32 @@ class SharedCacheOwner:
                 key = publisher.key(token)
                 if key is not None:
                     self.core._lru.touch(key)
+        limits = self.config.shared_index
+        assert limits is not None
+        if limits.native_admission_queue:
+            self._drain_admissions()
+
+    def _drain_admissions(self, *, all_pending: bool = False) -> None:
+        # Rejection detaches a control peer and mutates the connection table.
+        for connection in tuple(self._connections.values()):
+            ring = connection.ring
+            if ring is None:
+                continue
+            try:
+                frames = ring.drain_admissions(
+                    None if all_pending else self.config.limits.requests_per_connection
+                )
+            except ValueError:
+                self._reject(connection)
+                continue
+            for frame in frames:
+                self.counters.ipc_bytes_received += len(frame)
+                try:
+                    message = decode_queued_frame(frame, self.config.frame_limit)
+                    self._reply(connection, message, time.monotonic(), queued=True)
+                except ProtocolError:
+                    self._reject(connection)
+                    break
 
     def _epoch_reply(self, namespace: NamespaceId, epoch: object) -> Message | None:
         current = self.core.current_epoch(namespace)
@@ -473,7 +501,12 @@ class SharedCacheOwner:
         return None
 
     def _handle_request(
-        self, connection: _Connection, message: Message, now: NonNegativeFloat
+        self,
+        connection: _Connection,
+        message: Message,
+        now: NonNegativeFloat,
+        *,
+        queued: bool = False,
     ) -> Message | None:
         operation = message["op"]
         if connection.session is None:
@@ -481,7 +514,9 @@ class SharedCacheOwner:
                 self.counters.unauthorized += 1
                 raise ProtocolError("attachment must authenticate first")
             return self._hello(connection, message)
-        if connection.control:
+        if connection.control and not (
+            queued and operation == "admit-local" and message["id"] == 0
+        ):
             raise ProtocolError("control connections carry no requests")
         self.counters.requests += 1
         match operation:
@@ -589,9 +624,15 @@ class SharedCacheOwner:
         if control:
             assert self._index is not None
             assert self.config.shared_index is not None
-            ring = self._index.session_ring(self.config.shared_index.ring_tokens)
+            ring = self._index.session_ring(
+                self.config.shared_index.ring_tokens,
+                self.config.limits.queued_bytes_per_connection
+                if self.config.shared_index.native_admission_queue
+                else 0,
+            )
             self._rings[connection.session] = ring
             connection.control = True
+            connection.ring = ring
             connection.handover = _Handover(self._index.reader_descriptor(), ring)
         return {
             "r": "ok",
@@ -860,11 +901,16 @@ class SharedCacheOwner:
         return messages
 
     def _reply(
-        self, connection: _Connection, message: Message, now: NonNegativeFloat
+        self,
+        connection: _Connection,
+        message: Message,
+        now: NonNegativeFloat,
+        *,
+        queued: bool = False,
     ) -> Message | None:
         try:
             request_id = message["id"]
-            reply = self._handle_request(connection, message, now)
+            reply = self._handle_request(connection, message, now, queued=queued)
         except KeyError as error:
             raise ProtocolError("frame is missing a required field") from error
         except UnsupportedCacheRequestError as error:
@@ -902,6 +948,11 @@ class SharedCacheOwner:
                     request = control.recv()
                     if request == "close":
                         return
+                    # A startup sample must include all frames posted before workers
+                    # announced readiness, including the last unswept batch.
+                    limits = self.config.shared_index
+                    if limits is not None and limits.native_admission_queue:
+                        self._drain_admissions(all_pending=True)
                     control.send(on_control(request))
             if started >= next_sweep:
                 self._sweep(started)

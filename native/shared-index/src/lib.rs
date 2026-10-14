@@ -4,6 +4,7 @@
 mod clock;
 #[cfg(not(loom))]
 mod echo;
+mod frames;
 mod hash;
 mod index;
 mod memory;
