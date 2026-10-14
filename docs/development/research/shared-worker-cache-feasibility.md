@@ -2,7 +2,7 @@
 
 This study asked whether a group of application worker processes on one host could share one resident cache instead of each worker keeping its own copy. It complements the [shared invalidation study](shared-invalidation-feasibility.md), which shared only change streams, and uses the multi-worker application context from [issue #197](https://github.com/alessio-locatelli/client-query-cache/issues/197). Shared storage remains a research question; the supported managers keep process-local caches.
 
-**Recommendation:** defer a supported shared-cache mode, and keep the version 5 shared-index extension for a follow-up registration. [Version 4](#screening-result) served every hit through a Python owner process, which cost too much CPU and latency. [Version 5](#version-5-local-hits-from-a-shared-index) serves hits from read-only shared memory that the owner publishes. It halved group memory at eight workers while using 13–32% less CPU per request and having a lower request P99 than independent managers, with or without writes. It still defers, because cache misses keep version 4's owner round trip and miss latency failed its gate, and one capacity window failed its gate. [Version 6](#timed-fault-trials-version-6) reports separate scripted fault trials.
+**Recommendation:** defer a supported shared-cache mode. [Version 4](#screening-result) served every hit through a Python owner process, which cost too much CPU and latency. [Version 5](#version-5-local-hits-from-a-shared-index) serves hits from read-only shared memory that the owner publishes. It halved group memory at eight workers while using 13–32% less CPU per request and having a lower request P99 than independent managers, with or without writes. [Version 7](#local-miss-capture-version-7) repeats the complete study with locally captured misses; its eight-worker miss tail still fails the acceptance bound. [Version 6](#timed-fault-trials-version-6) reports separate scripted fault trials.
 
 ## What was measured
 
@@ -145,3 +145,9 @@ The other phases use the same commands with their names and block counts: `scree
 The [version 6 registration](../../../reports/shared-worker-cache/v6/registration.md) runs all fifteen shared-cache cases with two synchronous and two asyncio workers. Its scripted 64-document hot set measures fault transitions separately from version 5's steady-state workload. The registration gives the reproduction commands and defines observation delays, applicability and safety checks. A successful native read alone does not establish cache readiness, and a passing fault phase cannot override version 5's failed miss-latency or capacity criteria.
 
 All 75 registered repetitions passed with independent first-hit safety checks. The [results record](../../../reports/shared-worker-cache/v6/results.md) gives the measured revision, per-case timings, traffic preparation measurements and interpretation limits.
+
+## Local miss capture: version 7
+
+The [complete version 7 study](../../../reports/shared-worker-cache/v7/results.md) removes owner selection before eligible `_id` misses. Hot, active, capacity and timed fault checks pass, with every capacity window retained. Cold-miss P95 passes at four and eight workers in both models, and P99 passes at four. Eight-worker P99 upper deltas are 1.056 ms for asyncio and 1.134 ms for synchronous reads, exceeding the 1 ms limit. The study therefore defers. The report records the unchanged inference rules, source revisions, sensitivity limits and profiles.
+
+[Issue #272](https://github.com/alessio-locatelli/client-query-cache/issues/272) remains open. The [version 8 registration](../../../reports/shared-worker-cache/v8/registration.md) evaluates a bounded native admission queue under a fresh complete protocol.

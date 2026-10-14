@@ -24,6 +24,17 @@ A research worker MAY capture a miss without an owner round trip. Admission SHAL
 - **WHEN** metadata, publication slots or attachment validity cannot authorize capture
 - **THEN** the worker retains the owner selection or native bypass path
 
+#### Scenario: A worker queues an admission
+
+- **WHEN** a worker posts an encoded admission to its native session queue
+- **THEN** the owner consumes only complete records, copies them before reuse and applies the same admission fencing
+- **AND** a full queue falls back to the bounded socket transport
+
+#### Scenario: A queue peer sends a damaged record
+
+- **WHEN** queue positions, frame boundaries or admission fields are malformed
+- **THEN** the owner detaches that peer without processing an unbounded record or disrupting other sessions
+
 ### Requirement: Miss optimization evidence repeats the complete protocol
 
 A follow-up miss study SHALL preregister fresh baseline calibration and all version 5 phases, plus the version 6 timed fault protocol. Its miss P95 and P99 upper confidence bounds SHALL satisfy the registered direct-read delta at four and eight workers in both models. Missing phases, failed capacity windows or regressed hot and active criteria SHALL prevent promotion.

@@ -7,6 +7,7 @@
 ## What Changes
 
 - Capture admission validity from the read-only shared index before a native read, removing the synchronous miss selection request when published metadata is usable.
+- Hand off encoded local admissions through a bounded native session queue, reducing worker socket sends and batching owner wakeups.
 - Evaluate the candidate under a fresh registration, including the existing timed fault driver.
 
 ## Capabilities
