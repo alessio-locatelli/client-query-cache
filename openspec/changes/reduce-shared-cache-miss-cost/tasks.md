@@ -17,7 +17,7 @@
 
 - [x] 3.1 Record the complete version 7 study and profiles, retaining its failed miss bounds.
 - [x] 3.2 Collect every version 8 phase from clean commits and record its decision under the unchanged protocol.
-- [ ] 3.3 Reduce the remaining miss cost and collect fresh registered evidence that passes every required issue #272 bound; version 8 does not meet acceptance.
+- [ ] 3.3 After [issue #278](https://github.com/alessio-locatelli/client-query-cache/issues/278) establishes the benchmark protocol, follow the [continuation handoff](https://github.com/alessio-locatelli/client-query-cache/issues/279) to reduce the remaining miss cost and collect fresh registered evidence that passes every required issue #272 bound; version 8 does not meet acceptance.
 
 ## Code Quality
 
