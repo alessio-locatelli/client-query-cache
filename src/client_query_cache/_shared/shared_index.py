@@ -82,7 +82,7 @@ class IndexPublisher:
             databases, now
         )
         self._capacity = namespaces
-        self._namespaces: dict[NamespaceId, NonNegativeInt] = {}
+        self._namespaces: dict[NamespaceId, NamespaceSlot] = {}
         self._epochs: dict[NamespaceId, NonNegativeInt] = {}
         self._published: dict[Payload, tuple[int, NamespaceId, Canonical]] = {}
         self._identities: dict[tuple[NamespaceId, Canonical], set[Payload]] = {}
@@ -102,11 +102,18 @@ class IndexPublisher:
             except KeyError:
                 if len(self._namespaces) >= self._capacity:
                     return None
-                slot = len(self._namespaces)
+                slot = NamespaceSlot(database, len(self._namespaces))
                 self._namespaces[namespace] = slot
             self._raise_epoch(namespace, epoch)
-            self._index.set_epoch(slot, self._epochs[namespace])
-        return NamespaceSlot(database, slot)
+            self._index.set_epoch(slot.namespace, self._epochs[namespace])
+        return slot
+
+    def assigned(self, namespace: NamespaceId) -> NamespaceSlot | None:
+        with self._lock:
+            try:
+                return self._namespaces[namespace]
+            except KeyError:
+                return None
 
     def _raise_epoch(self, namespace: NamespaceId, epoch: NonNegativeInt) -> None:
         try:
@@ -129,15 +136,14 @@ class IndexPublisher:
         payload = entry.value
         if not isinstance(key, IdentityCacheKey) or not isinstance(payload, Payload):
             return
-        database = self._databases[key.namespace.database]
         with self._lock:
             try:
                 namespace = self._namespaces[key.namespace]
             except KeyError:
                 return
             token = self._index.publish(
-                database,
-                namespace,
+                namespace.database,
+                namespace.namespace,
                 entry.generation_key[0],
                 encode_key(key.identity),
                 self._shapes.encode(key.read_shape),
@@ -179,7 +185,7 @@ class IndexPublisher:
                 slot = self._namespaces[namespace]
             except KeyError:
                 return
-            self._index.record_write(slot)
+            self._index.record_write(slot.namespace)
             try:
                 payloads = self._identities.pop((namespace, identity))
             except KeyError:
@@ -194,7 +200,7 @@ class IndexPublisher:
                 slot = self._namespaces[namespace]
             except KeyError:
                 return
-            self._index.set_epoch(slot, self._epochs[namespace])
+            self._index.set_epoch(slot.namespace, self._epochs[namespace])
 
     def availability_changed(self, database: str, *, available: bool) -> None:
         with self._lock:

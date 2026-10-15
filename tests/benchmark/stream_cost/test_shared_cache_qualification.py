@@ -21,7 +21,9 @@ if TYPE_CHECKING:
 
 pytestmark = pytest.mark.unit
 
-_ENVIRONMENT = json.loads(qualification.ENVIRONMENT.read_text(encoding="utf-8"))
+_ENVIRONMENT = json.loads(
+    Path("reports/shared-worker-cache/v10/environment.json").read_text(encoding="utf-8")
+)
 _ENVIRONMENT_FIELDS = tuple(
     (field, child) if isinstance(value, dict) else (field,)
     for field, value in _ENVIRONMENT.items()
@@ -29,13 +31,20 @@ _ENVIRONMENT_FIELDS = tuple(
 )
 
 
-@pytest.fixture(scope="module")
-def registration() -> Registration:
-    return Registration.load(Path("reports/shared-worker-cache/v9/config.json"))
+@pytest.fixture(scope="module", params=(9, 10), ids=("v9", "v10"))
+def registration(request: pytest.FixtureRequest) -> Registration:
+    return Registration.load(
+        Path(f"reports/shared-worker-cache/v{request.param}/config.json")
+    )
 
 
 @pytest.fixture(scope="module")
 def completed_report(registration: Registration) -> JsonDict:
+    required_environment = json.loads(
+        Path(
+            f"reports/shared-worker-cache/v{registration.raw['registration']}/environment.json"
+        ).read_text(encoding="utf-8")
+    )
     git = shutil.which("git")
     assert git is not None
     revision = subprocess.check_output([git, "rev-parse", "HEAD"], text=True).strip()  # noqa: S603 - Resolved git executable with fixed arguments and no shell.
@@ -82,11 +91,11 @@ def completed_report(registration: Registration) -> JsonDict:
         )
     return {
         "environment": {
-            **_ENVIRONMENT,
+            **required_environment,
             "revision": revision,
             "dirty_tree": False,
             "configuration_sha256": registration.digest,
-            "available_memory_bytes": _ENVIRONMENT["total_memory_bytes"],
+            "available_memory_bytes": required_environment["total_memory_bytes"],
         },
         "program_sha256": hashlib.sha256(producer).hexdigest(),
         "research_source_paths": list(design.RESEARCH_PATHS),

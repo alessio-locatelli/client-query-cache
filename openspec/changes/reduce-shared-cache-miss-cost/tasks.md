@@ -12,12 +12,14 @@
 - [x] 2.3 Add opt-in owner admission and sync/async adapter routing, including malformed/expired/restarted tokens, native errors, cancellation and legacy fallback; verify that captured misses issue no select RPC and leak no owner handles.
 - [x] 2.4 Preserve data-channel reconnection for local misses in new threads and after transport loss; reject oversized combined frames without disconnecting the owner channel.
 - [x] 2.5 Implement the native admission queue from the design, including bounded publication/reuse, socket fallback, peer isolation and startup sampling; validate both adapter models and queue ordering.
+- [x] 2.6 Reduce the measured copying, guard and drain costs from the design without weakening lock ordering or admission fences; cover fragment boundaries/reuse, reusable sections and adaptive polling.
 
 ## 3. Evidence
 
 - [x] 3.1 Record the complete version 7 study and profiles, retaining its failed miss bounds.
 - [x] 3.2 Collect every version 8 phase from clean commits and record its decision under the unchanged protocol.
-- [ ] 3.3 After [issue #278](https://github.com/alessio-locatelli/client-query-cache/issues/278) establishes the benchmark protocol, follow the [continuation handoff](https://github.com/alessio-locatelli/client-query-cache/issues/279) to reduce the remaining miss cost and collect fresh registered evidence that passes every required issue #272 bound; version 8 does not meet acceptance.
+- [ ] 3.3 Collect fresh registered evidence that passes every required issue #272 bound under the runtime decision from [issue #278](https://github.com/alessio-locatelli/client-query-cache/issues/278); version 8 does not meet acceptance. Use the version 10 registration for the current public library and baseline environment.
+- [ ] 3.4 Commit the candidate declaration and version 10 baseline-only calibration protocol, qualify fresh rates without candidate observations, then record complete phase results and reproduction commands.
 
 ## Code Quality
 

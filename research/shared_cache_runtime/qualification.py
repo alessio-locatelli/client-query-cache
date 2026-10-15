@@ -23,8 +23,6 @@ from research.shared_cache_runtime.design import (
     planned_rows,
 )
 
-ENVIRONMENT = Path("reports/shared-worker-cache/v9/environment.json")
-
 
 @cache
 def committed_program_digest(revision: NonEmptyStr) -> NonEmptyStr:
@@ -58,14 +56,19 @@ def require_complete(
         raise ValueError(
             "recorded research implementation differs from its Git revision"
         )
-    if registration.raw["registration"] == 9:
+    number = registration.raw["registration"]
+    assert isinstance(number, int)
+    if number >= 9:
         if "research_source_paths" not in report or report[
             "research_source_paths"
         ] != list(RESEARCH_PATHS):
             raise ValueError(
                 "qualification did not record the required research source scope"
             )
-        required_environment = json.loads(ENVIRONMENT.read_text(encoding="utf-8"))
+        environment_path = Path(
+            f"reports/shared-worker-cache/v{number}/environment.json"
+        )
+        required_environment = json.loads(environment_path.read_text(encoding="utf-8"))
         mismatches = [
             field
             for field, expected_value in required_environment.items()

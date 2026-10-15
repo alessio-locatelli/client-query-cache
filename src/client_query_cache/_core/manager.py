@@ -577,6 +577,7 @@ class _CacheCoreIdentityAdmission(_CacheCoreBase):
         encoded: bytes,
         alias: AliasKey | None,
     ) -> AdmissionOutcome:
+        state = self._namespace(capture.namespace)
         try:
             canonical_shape = canonicalize(read_shape)
             weight = len(encoded)
@@ -588,7 +589,6 @@ class _CacheCoreIdentityAdmission(_CacheCoreBase):
                 key = IdentityCacheKey(
                     capture.namespace, capture.identity, canonical_shape
                 )
-                state = self._namespace(capture.namespace)
                 with self._namespace_section(state):
                     identity_state = _match_identity_state(
                         state, capture.identity, capture.generation_key
@@ -628,13 +628,16 @@ class _CacheCoreIdentityAdmission(_CacheCoreBase):
                 on_admit=_on_admit,
             )
         finally:
-            self._release_identity_capture(capture)
+            self._release_identity_capture(capture, state)
 
-    def _release_identity_capture(self, capture: IdentityCapture) -> None:
+    def _release_identity_capture(
+        self, capture: IdentityCapture, state: NamespaceState | None = None
+    ) -> None:
         if capture.released:
             return
         capture.released = True
-        state = self._namespace(capture.namespace)
+        if state is None:
+            state = self._namespace(capture.namespace)
         with self._namespace_section(state):
             try:
                 identity_state = state.identities[capture.identity]
