@@ -26,7 +26,7 @@ They are not dependencies of the published library, whose Python dependencies
 remain declared separately. Tool updates can still affect installation, validation,
 or benchmark results, so validate the rebuilt image before using it.
 
-Synchronizing the development groups builds the Rust extension in `native/shared-index`, so an environment outside the image also needs [Rust and Cargo](https://rust-lang.org/tools/install) on `PATH`.
+Installing the project builds its bundled Rust extension in `native/shared-index`, so an environment outside the image also needs [Rust and Cargo](https://rust-lang.org/tools/install) on `PATH`.
 
 From the host, build the image and create a Toolbx container:
 

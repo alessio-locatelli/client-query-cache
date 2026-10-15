@@ -15,20 +15,21 @@ from typing import TYPE_CHECKING, cast
 import pytest
 from bson.codec_options import CodecOptions, TypeRegistry
 from bson.int64 import Int64
-from client_query_cache_shared_index import OwnerIndex
 from pymongo import AsyncMongoClient, MongoClient
 from pymongo.asynchronous.collection import AsyncCollection
 from pymongo.errors import OperationFailure
 
-from benchmarks.stream_cost.shared_cache import adapters
-from benchmarks.stream_cost.shared_cache.adapters import (
+from client_query_cache._core import canonical
+from client_query_cache._core.keys import NamespaceId
+from client_query_cache._shared import adapters
+from client_query_cache._shared.adapters import (
     METADATA_REFRESH,
     OWNER_UNAVAILABLE,
     UNPORTABLE_KEY,
     AsyncSharedCacheManager,
     SharedCacheManager,
 )
-from benchmarks.stream_cost.shared_cache.attachment import (
+from client_query_cache._shared.attachment import (
     AsyncEndpoint,
     AsyncLocalIndex,
     AttachmentConfig,
@@ -36,16 +37,15 @@ from benchmarks.stream_cost.shared_cache.attachment import (
     LocalIndex,
     SyncEndpoint,
 )
-from benchmarks.stream_cost.shared_cache.shared_index import SharedIndexLimits
-from benchmarks.stream_cost.shared_cache.wire import (
+from client_query_cache._shared.shared_index import SharedIndexLimits
+from client_query_cache._shared.wire import (
     LENGTH_BYTES,
     ProtocolError,
     encode_frame,
     encode_key,
     frame_length,
 )
-from client_query_cache._core import canonical
-from client_query_cache._core.keys import NamespaceId
+from client_query_cache._shared_index import OwnerIndex
 from client_query_cache._types import BsonDict, NonNegativeInt
 from tests.codec_helpers import Decimal128ToDecimalDecoder
 from tests.cursor_helpers import materialize
@@ -64,7 +64,7 @@ if TYPE_CHECKING:
 
     from faker import Faker
 
-    from benchmarks.stream_cost.shared_cache.adapters import (
+    from client_query_cache._shared.adapters import (
         AsyncSharedCachedCollection,
         SharedCachedCollection,
     )

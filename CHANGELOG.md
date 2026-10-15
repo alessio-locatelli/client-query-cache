@@ -13,6 +13,13 @@ bodies or OpenSpec. An empty Unreleased section is valid.
 
 ## Unreleased
 
+## [0.8.0] - 2026-10-15
+
+### Features
+
+- Share cached `find_one()` reads by `_id` and database change streams across trusted sync and asyncio workers on one host with `SharedCacheServer` and `SharedCacheManager`. The server owns startup, shutdown and restart; workers retain their own PyMongo clients and fall back to direct reads during owner outages.
+- **Breaking:** The distribution includes a Rust native module. Wheels support CPython 3.14+ on Linux x86-64 with glibc 2.28+; shared caching requires Linux 5.1+ with `memfd` sealing. Source builds require Rust and Cargo. Free-threaded Python and other platforms are outside this release's supported contract.
+
 ## [0.7.0] - 2026-10-11
 
 ### Bug fixes

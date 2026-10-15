@@ -1,3 +1,5 @@
+from typing import TYPE_CHECKING
+
 from client_query_cache._core.manager import CacheCore, CacheCoreConfig
 from client_query_cache._core.snapshots import (
     BypassReason,
@@ -26,7 +28,20 @@ __all__ = [
     "CachedDatabase",
     "ChangeStreamCoordinator",
     "DatabaseStreamSupervisor",
+    "SharedCacheManager",
+    "SharedCachedCollection",
     "StreamCostSnapshot",
     "StreamHealthSnapshot",
     "StreamHealthStatus",
 ]
+
+if TYPE_CHECKING:
+    from .shared import SharedCachedCollection, SharedCacheManager
+
+
+def __getattr__(name: str) -> object:
+    if name in {"SharedCacheManager", "SharedCachedCollection"}:
+        from . import shared  # noqa: PLC0415 - Resolve shared exports after both adapter packages initialize.
+
+        return getattr(shared, name)
+    raise AttributeError(name)

@@ -7,22 +7,21 @@ from typing import TYPE_CHECKING
 
 import bson
 
-from benchmarks.stream_cost.shared_cache.adapters import _STALE
 from benchmarks.stream_cost.shared_cache.safety import local_key
-from benchmarks.stream_cost.shared_cache.wire import encode_key
 from client_query_cache._core.keys import NamespaceId
+from client_query_cache._shared.adapters import _STALE
+from client_query_cache._shared.wire import encode_key
 from client_query_cache._types import NonNegativeFloat, NonNegativeInt
 
 if TYPE_CHECKING:
     from multiprocessing.connection import Connection
 
-    from client_query_cache_shared_index import ReaderIndex
-
-    from benchmarks.stream_cost.shared_cache.adapters import (
+    from benchmarks.stream_cost.shared_cache.worker import Payload, WorkerSpec
+    from client_query_cache._shared.adapters import (
         AsyncSharedCacheManager,
         SharedCacheManager,
     )
-    from benchmarks.stream_cost.shared_cache.worker import Payload, WorkerSpec
+    from client_query_cache._shared_index import ReaderIndex
     from client_query_cache._types import BsonDict
 
 

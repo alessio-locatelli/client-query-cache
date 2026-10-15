@@ -6,8 +6,8 @@ from typing import TYPE_CHECKING, Any
 
 from pymongo import MongoClient
 
-from benchmarks.stream_cost.shared_cache.adapters import SharedCacheManager
-from benchmarks.stream_cost.shared_cache.attachment import SyncEndpoint
+from client_query_cache._shared.adapters import SharedCacheManager
+from client_query_cache._shared.attachment import SyncEndpoint
 from research.shared_cache_launch.launch_owner import attachment_from_environment
 
 if TYPE_CHECKING:

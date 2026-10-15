@@ -16,7 +16,6 @@ from benchmarks.stream_cost.errors import (
 )
 from benchmarks.stream_cost.shared_cache import analysis, fault_worker, faults
 from benchmarks.stream_cost.shared_cache.analysis import analyze_faults
-from benchmarks.stream_cost.shared_cache.coordinator import UpstreamProgress
 from benchmarks.stream_cost.shared_cache.fault_worker import verify_document
 from benchmarks.stream_cost.shared_cache.protocol import (
     FAULT_CASES,
@@ -29,8 +28,9 @@ from benchmarks.stream_cost.shared_cache.safety import (
     local_read,
     verify_published_payloads,
 )
-from benchmarks.stream_cost.shared_cache.wire import ProtocolError
 from client_query_cache._core.keys import NamespaceId
+from client_query_cache._shared.coordinator import UpstreamProgress
+from client_query_cache._shared.wire import ProtocolError
 from client_query_cache._types import (
     JsonDict,
     NonNegativeInt,
@@ -39,8 +39,8 @@ from client_query_cache._types import (
 )
 
 if TYPE_CHECKING:
-    from benchmarks.stream_cost.shared_cache.coordinator import Message
     from benchmarks.stream_cost.shared_cache.protocol import PathKind
+    from client_query_cache._shared.coordinator import Message
     from client_query_cache._types import BsonDict
 
 pytestmark = pytest.mark.unit
@@ -658,7 +658,7 @@ def test_progress_window_resets_only_after_expiry(
     database = "progress-window"
     event = Mock(command_name="getMore", database_name=database)
     monkeypatch.setattr(
-        "benchmarks.stream_cost.shared_cache.coordinator.time",
+        "client_query_cache._shared.coordinator.time",
         Mock(monotonic=Mock(side_effect=[1.0, 1.5, 3.0])),
     )
     assert progress.fresh_since(database) is None

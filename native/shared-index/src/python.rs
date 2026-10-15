@@ -423,7 +423,7 @@ impl EchoOwner {
 }
 
 #[pymodule]
-mod client_query_cache_shared_index {
+mod _shared_index {
     #[pymodule_export]
     use super::{EchoOwner, OwnerIndex, Payload, ReaderIndex, SessionRing};
 }

@@ -11,17 +11,6 @@ from pymongo.read_concern import ReadConcern
 
 from benchmarks.stream_cost.errors import BenchmarkSetupError
 from benchmarks.stream_cost.multiprocess_run import WireCommands, command_delta
-from benchmarks.stream_cost.shared_cache.adapters import (
-    AsyncSharedCacheManager,
-    SharedCacheManager,
-)
-from benchmarks.stream_cost.shared_cache.attachment import (
-    AsyncEndpoint,
-    AsyncLocalIndex,
-    AttachmentConfig,
-    LocalIndex,
-    SyncEndpoint,
-)
 from benchmarks.stream_cost.shared_cache.dataset import checksum
 from benchmarks.stream_cost.shared_cache.fault_worker import (
     async_fault_worker,
@@ -39,6 +28,17 @@ from benchmarks.stream_cost.shared_cache.workload import (
 )
 from client_query_cache._core.manager import CacheCoreConfig
 from client_query_cache._core.stream_cost import LagCaptureWindowConfig
+from client_query_cache._shared.adapters import (
+    AsyncSharedCacheManager,
+    SharedCacheManager,
+)
+from client_query_cache._shared.attachment import (
+    AsyncEndpoint,
+    AsyncLocalIndex,
+    AttachmentConfig,
+    LocalIndex,
+    SyncEndpoint,
+)
 from client_query_cache._types import (
     BsonDict,
     MaxAwaitTimeMs,

@@ -19,7 +19,6 @@ from bson.codec_options import CodecOptions
 from pymongo import MongoClient
 
 from benchmarks.stream_cost.shared_cache.analysis import block_statistics
-from benchmarks.stream_cost.shared_cache.attachment import AsyncEndpoint, SyncEndpoint
 from benchmarks.stream_cost.shared_cache.dataset import seed_catalogue
 from benchmarks.stream_cost.shared_cache.owner import owner_main
 from benchmarks.stream_cost.shared_cache.profiling import PROFILE_DIRECTORY, summarize
@@ -29,21 +28,22 @@ from benchmarks.stream_cost.shared_cache.window import (
     owner_config,
     run_window,
 )
-from benchmarks.stream_cost.shared_cache.wire import encode_key
 from benchmarks.stream_cost.topology import IsolatedReplicaSet, ResourceLimits
 from client_query_cache._core.canonical import canonicalize
 from client_query_cache._core.codec import codec_fingerprint, decode_value, encode_value
 from client_query_cache._core.find_one_reads import find_one_read_shape
 from client_query_cache._core.keys import NamespaceId
 from client_query_cache._core.manager import CacheCore, CacheCoreConfig
+from client_query_cache._shared.attachment import AsyncEndpoint, SyncEndpoint
+from client_query_cache._shared.wire import encode_key
 from client_query_cache._types import BsonDict, PositiveInt
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
     from multiprocessing.connection import Connection
 
-    from benchmarks.stream_cost.shared_cache.attachment import Message
     from benchmarks.stream_cost.shared_cache.protocol import Cell
+    from client_query_cache._shared.attachment import Message
 
 type Payload = dict[str, object]
 

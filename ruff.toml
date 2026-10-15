@@ -67,6 +67,15 @@ ignore = [
 # The default is enabled by ALL. We override it because benchmarks measure internal cache mechanisms alongside the public API.
 "benchmarks/*" = ["private-member-access", "import-private-name"]
 
+# The shared runtime coordinates cache/PyMongo internals across its transport,
+# owner and read adapters; those accesses implement the shared lifecycle contract.
+# The default is enabled by ALL. We override it for these collaborating internals.
+"src/client_query_cache/_shared/*" = [
+  "private-member-access",
+  "import-private-name",
+]
+"src/client_query_cache/*/shared.py" = ["private-member-access"]
+
 # Collection adapters preserve PyMongo's filter keyword.
 "src/client_query_cache/*/collection.py" = ["builtin-argument-shadowing"]
 # Research programs are standalone scripts rather than importable packages.
@@ -76,6 +85,9 @@ ignore = [
 "research/process_memory/measure.py" = ["import-outside-top-level", "any-type"]
 # This diagnostic compares cache internals directly with an experimental native index.
 "research/shared_index_floors/floors.py" = ["import-private-name"]
+# These launch studies deliberately exercise the internal transport.
+# The default is enabled by ALL. We override it for research instrumentation.
+"research/shared_cache_launch/*" = ["import-private-name"]
 
 [lint.flake8-type-checking]
 # The default is ["typing"]. We override it because public dataclass annotations must resolve at runtime through typing.get_type_hints, so constrained aliases and their metadata stay runtime imports.

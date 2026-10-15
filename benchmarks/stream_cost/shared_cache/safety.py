@@ -5,25 +5,25 @@ import time
 from functools import lru_cache
 from typing import TYPE_CHECKING
 
-from benchmarks.stream_cost.shared_cache.attachment import (
-    EndpointCounters,
-    _SyncConnection,
-)
-from benchmarks.stream_cost.shared_cache.wire import encode_frame, encode_key
 from client_query_cache._core.canonical import canonicalize
 from client_query_cache._core.keys import NamespaceId
 from client_query_cache._core.order_sensitive_keys import order_sensitive_key
+from client_query_cache._shared.attachment import (
+    EndpointCounters,
+    _SyncConnection,
+)
+from client_query_cache._shared.wire import encode_frame, encode_key
 from client_query_cache._types import NonNegativeInt
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
     from collections.abc import Set as AbstractSet
 
-    from benchmarks.stream_cost.shared_cache.adapters import (
+    from client_query_cache._shared.adapters import (
         AsyncSharedCacheManager,
         SharedCacheManager,
     )
-    from benchmarks.stream_cost.shared_cache.attachment import AttachmentConfig
+    from client_query_cache._shared.attachment import AttachmentConfig
     from client_query_cache._types import BsonDict
 
 

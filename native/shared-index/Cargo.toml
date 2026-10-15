@@ -1,15 +1,18 @@
 [package]
 name = "client-query-cache-shared-index"
-version = "0.1.0"
+version = "0.8.0"
+description = "Shared index for client-query-cache worker caches."
+repository = "https://github.com/alessio-locatelli/client-query-cache"
+documentation = "https://alessio-locatelli.github.io/client-query-cache/"
 edition = "2024"
 rust-version = "1.85"
 license = "Apache-2.0"
 # Cargo 1.95 publish field: https://doc.rust-lang.org/cargo/reference/manifest.html#the-publish-field
-# The default is publishing to any registry allowed. We override it because this research extension must never be published.
+# The default is publishing to any registry allowed. We override it because the native crate ships only inside the Python distribution.
 publish = false
 
 [lib]
-name = "client_query_cache_shared_index"
+name = "_shared_index"
 crate-type = ["cdylib"]
 
 [features]

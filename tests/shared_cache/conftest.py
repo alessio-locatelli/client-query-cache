@@ -14,20 +14,20 @@ import pytest
 from pymongo import AsyncMongoClient, MongoClient
 
 from benchmarks.stream_cost.multiprocess_run import reclaim_workers
-from benchmarks.stream_cost.shared_cache.adapters import (
+from benchmarks.stream_cost.shared_cache.owner import owner_main
+from benchmarks.stream_cost.shared_cache.window import attachment_for
+from client_query_cache._shared.adapters import (
     AsyncSharedCacheManager,
     SharedCacheManager,
 )
-from benchmarks.stream_cost.shared_cache.attachment import (
+from client_query_cache._shared.attachment import (
     AsyncEndpoint,
     AsyncLocalIndex,
     LocalIndex,
     SyncEndpoint,
 )
-from benchmarks.stream_cost.shared_cache.coordinator import OwnerConfig, TransportLimits
-from benchmarks.stream_cost.shared_cache.owner import owner_main
-from benchmarks.stream_cost.shared_cache.window import attachment_for
-from benchmarks.stream_cost.shared_cache.wire import encode_key
+from client_query_cache._shared.coordinator import OwnerConfig, TransportLimits
+from client_query_cache._shared.wire import encode_key
 from client_query_cache._types import BsonDict
 
 if TYPE_CHECKING:
@@ -35,11 +35,11 @@ if TYPE_CHECKING:
     from multiprocessing.connection import Connection
     from multiprocessing.process import BaseProcess
 
-    from benchmarks.stream_cost.shared_cache.attachment import (
+    from client_query_cache._shared.attachment import (
         AttachmentConfig,
         Message,
     )
-    from benchmarks.stream_cost.shared_cache.shared_index import SharedIndexLimits
+    from client_query_cache._shared.shared_index import SharedIndexLimits
     from tests.conftest import DatabaseName, MongoDbUri
 
 type Payload = dict[str, Any]

@@ -3,16 +3,16 @@ from __future__ import annotations
 import os
 from typing import TYPE_CHECKING
 
-from benchmarks.stream_cost.shared_cache.coordinator import OwnerConfig, TransportLimits
 from benchmarks.stream_cost.shared_cache.owner import owner_main
 from benchmarks.stream_cost.shared_cache.window import attachment_for
+from client_query_cache._shared.coordinator import OwnerConfig, TransportLimits
 
 if TYPE_CHECKING:
     from multiprocessing.connection import Connection
     from multiprocessing.context import SpawnContext
     from multiprocessing.process import BaseProcess
 
-    from benchmarks.stream_cost.shared_cache.attachment import AttachmentConfig
+    from client_query_cache._shared.attachment import AttachmentConfig
 
 LIMITS = TransportLimits(
     rpc_deadline_seconds=0.5,

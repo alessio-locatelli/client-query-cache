@@ -2,22 +2,31 @@ from __future__ import annotations
 
 import asyncio
 import errno
+import socket
+import threading
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict
 from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from benchmarks.stream_cost.shared_cache.attachment import AsyncEndpoint
 from benchmarks.stream_cost.shared_cache.protocol import Registration
 from benchmarks.stream_cost.shared_cache.window import attachment_for, owner_config
+from client_query_cache._shared.attachment import AsyncEndpoint, SyncEndpoint
+from client_query_cache._shared.wire import (
+    PROTOCOL_VERSION,
+    ProtocolError,
+    encode_frame,
+)
 
 pytestmark = pytest.mark.unit
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator
+    from collections.abc import AsyncGenerator, Iterator
 
-    from benchmarks.stream_cost.shared_cache.coordinator import Message
+    from client_query_cache._shared.attachment import AttachmentConfig
+    from client_query_cache._shared.coordinator import Message
 
 
 class ReaderFailure(TypedDict):
@@ -111,3 +120,39 @@ async def test_handshake_timeout_reuses_unreachable_owner_backoff(
     assert endpoint._pending == {}
     connect.assert_awaited_once()
     writer.close.assert_called_once()
+
+
+@pytest.fixture
+def incompatible_peer(
+    endpoint: AsyncEndpoint, tmp_path: Path
+) -> Iterator[AttachmentConfig]:
+    listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    path = tmp_path / "incompatible.sock"
+    listener.bind(str(path))
+    listener.listen(1)
+    listener.settimeout(5)
+
+    def respond() -> None:
+        peer, _address = listener.accept()
+        with peer:
+            peer.recv(65_536)
+            peer.sendall(encode_frame({"v": PROTOCOL_VERSION + 1, "id": 0, "r": "ok"}))
+
+    thread = threading.Thread(target=respond, daemon=True)
+    thread.start()
+    yield replace(endpoint.config, socket_path=str(path))
+    listener.close()
+    thread.join(5)
+    assert not thread.is_alive()
+
+
+@pytest.mark.parametrize("asynchronous", [False, True])
+async def test_incompatible_handshake_is_a_hard_error(
+    incompatible_peer: AttachmentConfig, asynchronous: bool
+) -> None:
+    if asynchronous:
+        with pytest.raises(ProtocolError, match="version"):
+            await AsyncEndpoint.attach(incompatible_peer, require_owner=False)
+    else:
+        with pytest.raises(ProtocolError, match="version"):
+            SyncEndpoint(incompatible_peer, require_owner=False)

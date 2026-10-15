@@ -8,8 +8,8 @@ from itertools import permutations, starmap
 from typing import TYPE_CHECKING, Literal, cast
 
 from benchmarks.stream_cost.errors import BenchmarkConfigurationError
-from benchmarks.stream_cost.shared_cache.coordinator import TransportLimits
-from benchmarks.stream_cost.shared_cache.shared_index import SharedIndexLimits
+from client_query_cache._shared.coordinator import TransportLimits
+from client_query_cache._shared.shared_index import SharedIndexLimits
 from client_query_cache._types import (
     JsonDict,
     NonNegativeFloat,

@@ -20,6 +20,7 @@ nav = [
   { "Benchmarks" = [
     { "Workload evaluation" = "benchmarks/index.md" },
     { "Stream cost" = "benchmarks/stream-cost.md" },
+    { "Shared cache" = "benchmarks/shared-cache.md" },
   ] },
   { "Examples" = [
     { "Run the examples" = "examples/index.md" },
@@ -37,6 +38,7 @@ nav = [
   { "Operations" = [
     { "Overview" = "operations/index.md" },
     { "Deployment" = "operations/deployment.md" },
+    { "Shared worker cache" = "operations/shared-cache.md" },
     { "Monitoring" = "operations/monitoring.md" },
     { "Permission recovery exercise" = "operations/permission-recovery.md" },
   ] },

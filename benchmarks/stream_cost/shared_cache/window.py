@@ -29,8 +29,6 @@ from benchmarks.stream_cost.multiprocess_run import (
     reclaim_workers,
     stop_workers,
 )
-from benchmarks.stream_cost.shared_cache.attachment import AttachmentConfig
-from benchmarks.stream_cost.shared_cache.coordinator import OwnerConfig
 from benchmarks.stream_cost.shared_cache.dataset import seed_catalogue
 from benchmarks.stream_cost.shared_cache.owner import owner_main, proxy_for
 from benchmarks.stream_cost.shared_cache.profiling import enabled as profiling_enabled
@@ -47,6 +45,8 @@ from benchmarks.stream_cost.shared_cache.workload import (
     warm_key,
     worker_keys,
 )
+from client_query_cache._shared.attachment import AttachmentConfig
+from client_query_cache._shared.coordinator import OwnerConfig
 from client_query_cache._types import (
     BsonDict,
     NonNegativeFloat,

@@ -55,6 +55,10 @@ with (
     cached_collection.find_one({"_id": "example"})  # Repeated reads can use the cache.
 ```
 
+## Shared application workers
+
+For several trusted workers on one Linux x86-64 host, `SharedCacheServer` and sync/async `SharedCacheManager` share cached `find_one()` reads by `_id` and database change streams. Start the server in the application parent and attach each worker's own PyMongo client. Other reads use PyMongo. See the [shared-cache deployment guide](https://alessio-locatelli.github.io/client-query-cache/operations/shared-cache/) for the supported platform and lifecycle.
+
 ## References
 
 [Getting started](https://alessio-locatelli.github.io/client-query-cache/getting-started/synchronous/) · [Benchmarks](https://alessio-locatelli.github.io/client-query-cache/benchmarks/) · [Examples](https://alessio-locatelli.github.io/client-query-cache/examples/)

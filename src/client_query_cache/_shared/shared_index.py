@@ -5,10 +5,9 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final
 
-from client_query_cache_shared_index import OwnerIndex, Payload
-
-from benchmarks.stream_cost.shared_cache.wire import KeyCache, encode_key
 from client_query_cache._core.keys import IdentityCacheKey
+from client_query_cache._shared.wire import KeyCache, encode_key
+from client_query_cache._shared_index import OwnerIndex, Payload
 from client_query_cache._types import NonNegativeFloat, NonNegativeInt, PositiveInt
 
 if TYPE_CHECKING:

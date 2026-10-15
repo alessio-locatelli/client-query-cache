@@ -4,7 +4,6 @@ import os
 from typing import TypedDict
 
 import pytest
-from client_query_cache_shared_index import OwnerIndex, ReaderIndex
 from faker import Faker
 from hypothesis import strategies as st
 from hypothesis.stateful import (
@@ -16,11 +15,6 @@ from hypothesis.stateful import (
     run_state_machine_as_test,
 )
 
-from benchmarks.stream_cost.shared_cache.shared_index import (
-    ArenaPayloads,
-    IndexPublisher,
-)
-from benchmarks.stream_cost.shared_cache.wire import encode_key
 from client_query_cache._core.canonical import canonicalize
 from client_query_cache._core.codec import encode_value
 from client_query_cache._core.keys import NamespaceId
@@ -31,6 +25,12 @@ from client_query_cache._core.manager import (
     NamespaceCapture,
 )
 from client_query_cache._core.order_sensitive_keys import order_sensitive_key
+from client_query_cache._shared.shared_index import (
+    ArenaPayloads,
+    IndexPublisher,
+)
+from client_query_cache._shared.wire import encode_key
+from client_query_cache._shared_index import OwnerIndex, ReaderIndex
 from client_query_cache._types import NonNegativeInt
 
 pytestmark = pytest.mark.unit

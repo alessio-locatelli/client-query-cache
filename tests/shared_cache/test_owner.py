@@ -15,9 +15,15 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
-from client_query_cache_shared_index import Payload, ReaderIndex
 
-from benchmarks.stream_cost.shared_cache.attachment import (
+from benchmarks.stream_cost.shared_cache.window import attachment_for
+from client_query_cache._core.canonical import canonicalize
+from client_query_cache._core.codec import encode_value
+from client_query_cache._core.keys import IdentityCacheKey, NamespaceId
+from client_query_cache._core.lru import WeightedLru
+from client_query_cache._core.manager import CacheCore, IdentityCapture
+from client_query_cache._core.order_sensitive_keys import order_sensitive_key
+from client_query_cache._shared.attachment import (
     AsyncEndpoint,
     AttachmentConfigurationError,
     ControlAttachment,
@@ -26,23 +32,17 @@ from benchmarks.stream_cost.shared_cache.attachment import (
     SyncEndpoint,
     control_handshake,
 )
-from benchmarks.stream_cost.shared_cache.coordinator import (
+from client_query_cache._shared.coordinator import (
     OwnerConfig,
     SharedCacheOwner,
 )
-from benchmarks.stream_cost.shared_cache.shared_index import SharedIndexLimits
-from benchmarks.stream_cost.shared_cache.window import attachment_for
-from benchmarks.stream_cost.shared_cache.wire import (
+from client_query_cache._shared.shared_index import SharedIndexLimits
+from client_query_cache._shared.wire import (
     decode_frame,
     encode_frame,
     encode_key,
 )
-from client_query_cache._core.canonical import canonicalize
-from client_query_cache._core.codec import encode_value
-from client_query_cache._core.keys import IdentityCacheKey, NamespaceId
-from client_query_cache._core.lru import WeightedLru
-from client_query_cache._core.manager import CacheCore, IdentityCapture
-from client_query_cache._core.order_sensitive_keys import order_sensitive_key
+from client_query_cache._shared_index import Payload, ReaderIndex
 from client_query_cache._types import NonNegativeInt
 from tests.core.conftest import patch_conditional_put_hook
 from tests.shared_cache.conftest import LIMITS, wait_for
@@ -52,8 +52,8 @@ if TYPE_CHECKING:
 
     from faker import Faker
 
-    from benchmarks.stream_cost.shared_cache.attachment import Message
     from client_query_cache._core.entries import AdmissionOutcome
+    from client_query_cache._shared.attachment import Message
 
 pytestmark = pytest.mark.unit
 
@@ -164,6 +164,28 @@ def peers() -> Iterator[Callable[[SharedCacheOwner], socket.socket]]:
     yield authenticated
     for peer in opened:
         peer.close()
+
+
+@pytest.fixture
+def raw_peer() -> Iterator[socket.socket]:
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as peer:
+        peer.settimeout(5)
+        yield peer
+
+
+def test_peer_uid_rejection_preserves_same_user_attachment(
+    owner: SharedCacheOwner,
+    raw_peer: socket.socket,
+    monkeypatch: pytest.MonkeyPatch,
+    endpoints: Callable[[SharedCacheOwner], SyncEndpoint],
+) -> None:
+    original_uid = os.geteuid
+    monkeypatch.setattr(os, "geteuid", lambda: original_uid() + 1)
+    raw_peer.connect(owner.config.socket_path)
+    assert raw_peer.recv(1) == b""
+    assert owner.counters.unauthorized == 1
+    monkeypatch.setattr(os, "geteuid", original_uid)
+    assert endpoints(owner).request({"op": "observe"}) is not None
 
 
 @pytest.fixture
