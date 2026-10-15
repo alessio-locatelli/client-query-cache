@@ -39,7 +39,7 @@ A research worker MAY capture a miss without an owner round trip. Admission SHAL
 #### Scenario: Sustained admissions use short queue drains
 
 - **WHEN** an owner consumes queued admissions
-- **THEN** it polls admission queues every five milliseconds until fifty milliseconds after the latest nonempty drain
+- **THEN** it polls admission queues every millisecond until fifty milliseconds after the latest nonempty drain
 - **AND** capture cleanup and recency sweeps retain their fifty-millisecond cadence
 - **AND** quiet owners return to fifty-millisecond polling
 

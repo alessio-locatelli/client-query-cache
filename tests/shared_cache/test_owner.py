@@ -208,10 +208,10 @@ def test_recent_admissions_poll_without_accelerating_maintenance(
 ) -> None:
     polling_loop.owner.serve(polling_loop.control, lambda _request: None)
 
-    assert polling_loop.timeouts == pytest.approx([0.005] * 10 + [0.05] * 2)
-    assert polling_loop.sweeps == pytest.approx([0.005, 0.1])
+    assert polling_loop.timeouts == pytest.approx([0.001] * 50 + [0.05] * 2)
+    assert polling_loop.sweeps == pytest.approx([0.001, 0.1])
     assert polling_loop.drains == pytest.approx(
-        [milliseconds / 1000 for milliseconds in range(5, 51, 5)] + [0.1]
+        [milliseconds / 1000 for milliseconds in range(1, 51)] + [0.1]
     )
 
 

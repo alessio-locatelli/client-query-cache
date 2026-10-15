@@ -79,7 +79,7 @@ type ActivationState = Literal["pending", "active", "failed"]
 
 _RECEIVE_BYTES: Final = 262_144
 _SWEEP_SECONDS: Final = 0.05
-_ADMISSION_POLL_SECONDS: Final = 0.005
+_ADMISSION_POLL_SECONDS: Final = 0.001
 _ACTIVATION_RETRY_SECONDS: Final = 1.0
 _HISTORY_LOST: Final = 286
 _KEY_CACHE_ENTRIES: Final = 1024
