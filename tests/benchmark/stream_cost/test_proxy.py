@@ -116,6 +116,12 @@ def test_proxy_forwards_and_counts_direct_path_bytes(
             client.sendall(payload)
             received = client.recv(len(payload))
             assert received == payload
+            with proxy._lock:
+                assert len(proxy._sockets) == 2
+                assert all(
+                    sock.getsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY) == 1
+                    for sock in proxy._sockets
+                )
 
         deadline = time.monotonic() + 2
         while (
@@ -259,6 +265,32 @@ def test_accept_loop_closes_client_when_upstream_unreachable(
 
     assert proxy._sockets == []
     assert proxy._connection_threads == []
+
+
+@pytest.mark.parametrize("fail_at", [1, 2], ids=["client", "upstream"])
+def test_socket_option_failure_closes_both_connections(
+    bound_socket: socket.socket,
+    monkeypatch: pytest.MonkeyPatch,
+    fail_at: NonNegativeInt,
+) -> None:
+    original = socket.socket.setsockopt
+    attempted: list[socket.socket] = []
+
+    def set_option(sock: socket.socket, level: int, option: int, value: int) -> None:
+        if level == socket.IPPROTO_TCP and option == socket.TCP_NODELAY:
+            attempted.append(sock)
+            if len(attempted) == fail_at:
+                raise OSError("socket option rejected")
+        original(sock, level, option, value)
+
+    monkeypatch.setattr(socket.socket, "setsockopt", set_option)
+    with DirectPathByteProxy(_proxy_config(bound_socket.getsockname()[1])) as proxy:
+        with socket.create_connection(("127.0.0.1", proxy.local_port)) as client:
+            assert client.recv(1) == b""
+        assert len(attempted) == fail_at
+        assert all(sock.fileno() == -1 for sock in attempted)
+        assert proxy._sockets == []
+        assert proxy._connection_threads == []
 
 
 def test_exit_force_closes_and_joins_still_active_connections(

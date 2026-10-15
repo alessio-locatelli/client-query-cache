@@ -32,6 +32,9 @@ _TAGGED_TUPLE_SIZE = 2
 
 
 def canonicalize(value: object) -> Canonical:
+    value_type = type(value)
+    if value_type is int or value_type is str or value_type is bytes or value is None:
+        return value
     if isinstance(value, tuple) and len(value) == _TAGGED_TUPLE_SIZE:
         tag, payload = value
         if type(tag) is _CanonicalTag:

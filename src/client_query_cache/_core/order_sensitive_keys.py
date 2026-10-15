@@ -13,11 +13,14 @@ _FLOAT_TAG = _PendingTag("float", items=False)
 _INT64_TAG = _PendingTag("int64", items=False)
 _TAG_TYPES = (_CanonicalTag, _PendingTag)
 _TAGGED_TUPLE_SIZE = 2
+_ORDER_INDEPENDENT_SCALAR_TYPES = (int, str, bytes, bool, type(None))
 
 
 def _order_sensitive_key(
     value: object, *, distinguish_numeric_subtypes: bool
 ) -> object:
+    if type(value) in _ORDER_INDEPENDENT_SCALAR_TYPES:
+        return value
     if (
         isinstance(value, tuple)
         and len(value) == _TAGGED_TUPLE_SIZE

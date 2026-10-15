@@ -19,6 +19,7 @@ import psutil
 
 from benchmarks.mongodb_image import MONGODB_IMAGE
 from benchmarks.stream_cost.errors import BenchmarkSetupError
+from benchmarks.stream_cost.proxy import PROXY_TCP_NODELAY
 from benchmarks.stream_cost.shared_cache.protocol import (
     BASELINES,
     Registration,
@@ -97,6 +98,7 @@ def environment(
         "start_method": registration.raw["start_method"],
         "client_options": registration.section("client_options"),
         "transport": "unix-domain socket, length-prefixed BSON frames",
+        "proxy_tcp_nodelay": PROXY_TCP_NODELAY,
         "native_extension": native_extension(),
     }
 
