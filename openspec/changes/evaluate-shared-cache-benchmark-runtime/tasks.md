@@ -10,6 +10,12 @@
 - [x] 2.1 Execute the bounded study with retained version 7/8 reports, preserving hashes and experimental wall time in untracked output.
 - [x] 2.2 Publish `reports/shared-worker-cache/runtime/results.md` with runtime/precision comparisons, active-write alternatives, coverage constraints, a recommendation and explicit limits on optimality claims.
 
+## 3. Empirical continuation
+
+- [ ] 3.1 Add stage timers, ordered request traces and memory observations around existing benchmark windows; preserve fresh worker/cache lifecycles and verify instrumentation with a short real-server run.
+- [ ] 3.2 Execute the committed discovery design, select a faster protocol against the precision requirements, then freeze a separate validation design before fresh validation measurements.
+- [ ] 3.3 Validate the selected protocol, quantify the complete-study cost frontier and publish the resulting preregistration or an evidence-backed minimum for the retained requirements.
+
 ## Code Quality
 
 - [x] Scan entire edited test files against the Writing Tests guidelines: no test files planned; numerical verification belongs to task 1.2.
