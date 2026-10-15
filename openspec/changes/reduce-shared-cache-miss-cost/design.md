@@ -34,6 +34,18 @@ Full, disabled or detached queues use the existing socket path. This also preser
 
 A namespace-wide serial rejects reads raced by unrelated writes. This is conservative and avoids an unbounded identity-generation table in shared memory; the active study measures the consequence. Publishing progress after an expiry must fence old tokens even when no owner RPC observed the stale interval. Counter wrap must fail closed. Malformed tokens must detach through the existing protocol error path. A native read that raises or is cancelled sends no admission and requires no owner cleanup.
 
+## Remaining admission overhead
+
+The continuation profiles the installed library path after public integration. Core admission still creates nested generator context managers to enforce lock ordering. Each core instead retains two reusable section objects whose nesting depth lives in thread-local storage. Exceptions unwind the depth, and leaving an inner section cannot disable an outer guard. Namespace and LRU locks remain separate; admission ordering and publication callbacks do not change. This removes per-section generator allocations without adding work proportional to cache size.
+
+The native writer copies complete atomic words directly from input slices, using a stack buffer only for words spanning fragments or the final partial word. Payload and key copies retain their existing relaxed atomic stores and publication fences. This removes a temporary vector and per-byte push/clear work while preserving concatenation across identity/shape boundaries and arena reuse.
+
+The publisher retains each assigned namespace slot and local admission resolves that existing assignment instead of rebuilding it and rewriting its epoch. Processed resets still publish epoch changes through the observer; native validation and the core capture remain authoritative. Core identity admission reuses its namespace state when releasing the capture within the same operation, without retaining that state in a caller-held capture after closure.
+
+After consuming queued admissions, the owner polls admission queues at five-millisecond intervals for fifty milliseconds after the last nonempty drain. Capture cleanup and recency sweeps retain their fifty-millisecond cadence, and idle/hot-hit workloads return to that polling interval. This reduces sustained miss bursts while bounding extra wakeups to recent admission traffic. All queues and per-connection drain limits remain bounded. The candidate declaration records the final mechanism before acceptance timing.
+
+Public integration changed the independent baseline's namespace reuse and native distribution metadata. Version 9's registered environment therefore cannot qualify this checkout. Version 10 registers the current environment, including the compiled extension digest, and fresh baseline-only downward calibration before candidate measurements; historical results remain frozen.
+
 ## Delivery
 
-The registration is committed before candidate timing. Measurements use clean source commits and disposable replica sets. Research results record the measured revisions and raw-output reproduction commands. No supported shared-cache mode is introduced, regardless of the outcome; issue #272's acceptance remains open until its registered measurements pass.
+The registration is committed before candidate timing. Measurements use clean source commits and disposable replica sets. Research results record the measured revisions and raw-output reproduction commands. This change preserves the public shared-cache contract; issue #272's acceptance remains open until its registered measurements pass.

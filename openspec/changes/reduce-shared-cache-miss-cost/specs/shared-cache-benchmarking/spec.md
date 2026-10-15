@@ -19,6 +19,12 @@ A research worker MAY capture a miss without an owner round trip. Admission SHAL
 - **WHEN** a write arrives after the owner's local-token validation
 - **THEN** the core's identity capture prevents stale publication
 
+#### Scenario: Reusable core guard sections
+
+- **WHEN** concurrent admissions reuse the core's lock-order guard objects
+- **THEN** namespace/LRU exclusion remains thread-local and lasts through the outermost section
+- **AND** an exception releases the section without weakening later checks
+
 #### Scenario: A local capture is unavailable
 
 - **WHEN** metadata, publication slots or attachment validity cannot authorize capture
@@ -29,6 +35,13 @@ A research worker MAY capture a miss without an owner round trip. Admission SHAL
 - **WHEN** a worker posts an encoded admission to its native session queue
 - **THEN** the owner consumes only complete records, copies them before reuse and applies the same admission fencing
 - **AND** a full queue falls back to the bounded socket transport
+
+#### Scenario: Sustained admissions use short queue drains
+
+- **WHEN** an owner consumes queued admissions
+- **THEN** it polls admission queues every five milliseconds until fifty milliseconds after the latest nonempty drain
+- **AND** capture cleanup and recency sweeps retain their fifty-millisecond cadence
+- **AND** quiet owners return to fifty-millisecond polling
 
 #### Scenario: A queue peer sends a damaged record
 

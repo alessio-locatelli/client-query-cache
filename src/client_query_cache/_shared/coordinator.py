@@ -79,6 +79,7 @@ type ActivationState = Literal["pending", "active", "failed"]
 
 _RECEIVE_BYTES: Final = 262_144
 _SWEEP_SECONDS: Final = 0.05
+_ADMISSION_POLL_SECONDS: Final = 0.005
 _ACTIVATION_RETRY_SECONDS: Final = 1.0
 _HISTORY_LOST: Final = 286
 _KEY_CACHE_ENTRIES: Final = 1024
@@ -241,6 +242,7 @@ class SharedCacheOwner:
     __slots__ = (
         "_activation",
         "_activation_lock",
+        "_admission_poll_until",
         "_connections",
         "_handles",
         "_index",
@@ -266,6 +268,7 @@ class SharedCacheOwner:
 
     def __init__(self, config: OwnerConfig) -> None:
         self.config = config
+        self._admission_poll_until: NonNegativeFloat = 0.0
         self.incarnation = Int64(secrets.randbits(63))
         self._index: OwnerIndex | None = None
         self._publisher: IndexPublisher | None = None
@@ -481,6 +484,8 @@ class SharedCacheOwner:
             except ValueError:
                 self._reject(connection)
                 continue
+            if frames:
+                self._admission_poll_until = time.monotonic() + _SWEEP_SECONDS
             for frame in frames:
                 self.counters.ipc_bytes_received += len(frame)
                 try:
@@ -658,7 +663,7 @@ class SharedCacheOwner:
             if self._gate(namespace.database, time.monotonic()) is not None:
                 self.counters.rejected_admissions += 1
                 return
-            assigned = publisher.assign(namespace, self.core.current_epoch(namespace))
+            assigned = publisher.assigned(namespace)
             if assigned is None or slot != (assigned.database, assigned.namespace):
                 self.counters.rejected_admissions += 1
                 return
@@ -938,7 +943,12 @@ class SharedCacheOwner:
         self._selector.register(control.fileno(), selectors.EVENT_READ, control)
         next_sweep = 0.0
         while True:
-            events = self._selector.select(timeout=_SWEEP_SECONDS)
+            polling_admissions = time.monotonic() < self._admission_poll_until
+            events = self._selector.select(
+                timeout=(
+                    _ADMISSION_POLL_SECONDS if polling_admissions else _SWEEP_SECONDS
+                )
+            )
             started = time.monotonic()
             if started < self._paused_until:
                 time.sleep(self._paused_until - started)
@@ -965,6 +975,8 @@ class SharedCacheOwner:
             if started >= next_sweep:
                 self._sweep(started)
                 next_sweep = started + _SWEEP_SECONDS
+            elif polling_admissions:
+                self._drain_admissions()
             self.counters.busy_seconds += time.monotonic() - started
 
     def pause(self, seconds: PositiveFloat) -> NonNegativeFloat:

@@ -108,6 +108,7 @@ def native_extension() -> JsonDict:
     wheel = Parser().parsestr(cast("str", installed.read_text("WHEEL")))
     return {
         "version": version(_NATIVE_DISTRIBUTION),
+        "binary_sha256": sha256(binary).hexdigest(),
         "rustc": binary[start : binary.index(b"\0", start)].decode(),
         "generator": wheel["Generator"],
         "tag": wheel["Tag"],

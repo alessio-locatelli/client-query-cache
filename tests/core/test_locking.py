@@ -72,8 +72,8 @@ def test_nested_sections_keep_the_outer_guard_until_exit(
     with outer(guard):
         with outer(guard):
             pass
-        with pytest.raises(LockOrderViolationError), other(guard):
-            pass
+        with pytest.raises(LockOrderViolationError):
+            other(guard).__enter__()
     with other(guard):
         pass
 

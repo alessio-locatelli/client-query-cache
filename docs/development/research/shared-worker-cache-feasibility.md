@@ -155,3 +155,7 @@ The [complete version 7 study](../../../reports/shared-worker-cache/v7/results.m
 ## Native admission queue: version 8
 
 The [complete version 8 study](../../../reports/shared-worker-cache/v8/results.md) adds a bounded native queue for encoded admissions. Hot, active, capacity and timed fault checks pass, but cold-miss P99 does not pass in three of four required comparisons. Observed owner CPU is lower than in version 7 while worker CPU is higher; these separate studies do not establish a causal speedup. The report records every phase, stability failures and an exploratory profile. The candidate remains deferred under [issue #272](https://github.com/alessio-locatelli/client-query-cache/issues/272).
+
+## Admission-cost continuation: version 10
+
+The [version 10 registration](../../../reports/shared-worker-cache/v10/registration.md) applies the validated version 9 acquisition protocol to the current public library and records a fresh baseline environment. Its [development diagnostics](../../../reports/shared-worker-cache/v10/development.md) identify copying and guard costs, while retaining variable cold tails. These exploratory observations do not satisfy issue #272; fresh registered acceptance remains required.

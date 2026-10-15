@@ -654,22 +654,40 @@ impl<M: Words> Writer<M> {
     }
 
     fn write_bytes(&self, at: usize, parts: &[&[u8]]) {
-        let mut pending = Vec::with_capacity(WORD_BYTES);
+        let mut pending = [0; WORD_BYTES];
+        let mut used = 0;
         let mut offset = at;
-        for byte in parts.iter().flat_map(|part| part.iter()) {
-            pending.push(*byte);
-            if pending.len() == WORD_BYTES {
+        for mut part in parts.iter().copied() {
+            if used != 0 {
+                let copied = (WORD_BYTES - used).min(part.len());
+                pending[used..used + copied].copy_from_slice(&part[..copied]);
+                used += copied;
+                part = &part[copied..];
+                if used == WORD_BYTES {
+                    self.index
+                        .arena(offset)
+                        .store(word_of(&pending), Ordering::Relaxed);
+                    offset += 1;
+                    used = 0;
+                }
+            }
+            let mut chunks = part.chunks_exact(WORD_BYTES);
+            for chunk in chunks.by_ref() {
                 self.index
                     .arena(offset)
-                    .store(word_of(&pending), Ordering::Relaxed);
-                pending.clear();
+                    .store(word_of(chunk), Ordering::Relaxed);
                 offset += 1;
             }
+            let remainder = chunks.remainder();
+            if !remainder.is_empty() {
+                pending[..remainder.len()].copy_from_slice(remainder);
+                used = remainder.len();
+            }
         }
-        if !pending.is_empty() {
+        if used != 0 {
             self.index
                 .arena(offset)
-                .store(word_of(&pending), Ordering::Relaxed);
+                .store(word_of(&pending[..used]), Ordering::Relaxed);
         }
     }
 
@@ -892,6 +910,40 @@ mod tests {
             Ok((b"payload bytes".to_vec(), block.token()))
         );
         assert_eq!(read(&index, &query(b"other")), Err(Miss::Absent));
+    }
+
+    #[test]
+    fn stored_fragments_preserve_word_boundaries_and_reuse() {
+        let (index, mut writer) = fixture();
+        for first_length in 0..=WORD_BYTES * 2 + 1 {
+            for second_length in 0..=WORD_BYTES * 2 + 1 {
+                let first = vec![0x11; first_length];
+                let second = vec![0x22; second_length];
+                let third = [0x33; 3];
+                let expected = [first.as_slice(), second.as_slice(), &third].concat();
+                let block = writer.allocate(expected.len()).unwrap();
+                writer.write_bytes(
+                    block.at + BLOCK_HEADER_WORDS,
+                    &[&first, &[], &second, &third],
+                );
+                assert_eq!(index.snapshot(block), Some(expected));
+                writer.release(block);
+            }
+        }
+    }
+
+    #[test]
+    fn payloads_cross_word_and_page_boundaries() {
+        for length in [7, 8, 9, 4095, 4096, 4097, 65_535, 65_536, 65_537] {
+            let (index, mut writer) = sized_fixture(8, block_words(length) + 256);
+            let expected = (0..length).map(|offset| offset as u8).collect::<Vec<_>>();
+            let block = publish(&mut writer, b"identity", &expected);
+            assert_eq!(
+                read(&index, &query(b"identity")),
+                Ok((expected, block.token()))
+            );
+            writer.release(block);
+        }
     }
 
     #[test]

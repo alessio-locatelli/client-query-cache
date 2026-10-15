@@ -5,12 +5,13 @@ import multiprocessing
 import os
 import secrets
 import select
+import selectors
 import socket
 import stat
 import struct
 import threading
 import time
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -23,6 +24,7 @@ from client_query_cache._core.keys import IdentityCacheKey, NamespaceId
 from client_query_cache._core.lru import WeightedLru
 from client_query_cache._core.manager import CacheCore, IdentityCapture
 from client_query_cache._core.order_sensitive_keys import order_sensitive_key
+from client_query_cache._shared import coordinator
 from client_query_cache._shared.attachment import (
     AsyncEndpoint,
     AttachmentConfigurationError,
@@ -43,12 +45,13 @@ from client_query_cache._shared.wire import (
     encode_key,
 )
 from client_query_cache._shared_index import Payload, ReaderIndex
-from client_query_cache._types import NonNegativeInt
+from client_query_cache._types import NonNegativeFloat, NonNegativeInt, PositiveFloat
 from tests.core.conftest import patch_conditional_put_hook
 from tests.shared_cache.conftest import LIMITS, wait_for
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable, Iterator
+    from multiprocessing.connection import Connection
 
     from faker import Faker
 
@@ -79,6 +82,8 @@ _OVERFLOWING_HITS = 32
 _ADDRESS_MASK = 0xFFFF_FFFF
 _PAUSE_SECONDS = 1.0
 _SWEEP_GAP_SECONDS = 0.2
+_POLL_QUIET_MS = 50
+_POLL_STOP_MS = 120
 
 
 def _config(socket_directory: Path, **changes: object) -> OwnerConfig:
@@ -131,6 +136,82 @@ def shared_owner(
             max_entry_bytes=_SHARED_MAX_ENTRY,
             shared_index=replace(_SHARED_INDEX, **changes),
         )
+    )
+
+
+@dataclass(slots=True)
+class _PollingLoop:
+    owner: SharedCacheOwner
+    control: Connection
+    milliseconds: NonNegativeInt = 0
+    timeouts: list[PositiveFloat] = field(default_factory=list)
+    sweeps: list[NonNegativeFloat] = field(default_factory=list)
+    drains: list[NonNegativeFloat] = field(default_factory=list)
+
+    def monotonic(self) -> NonNegativeFloat:
+        return self.milliseconds / 1000
+
+    def select(
+        self, timeout: PositiveFloat
+    ) -> list[tuple[selectors.SelectorKey, NonNegativeInt]]:
+        self.timeouts.append(timeout)
+        self.milliseconds += round(timeout * 1000)
+        if self.milliseconds >= _POLL_STOP_MS:
+            return [
+                (
+                    self.owner._selector.get_key(self.control.fileno()),
+                    selectors.EVENT_READ,
+                )
+            ]
+        return []
+
+
+@pytest.fixture
+def polling_loop(
+    socket_directory: Path, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[_PollingLoop]:
+    instance = SharedCacheOwner(
+        _config(
+            socket_directory,
+            shared_index=replace(
+                _SHARED_INDEX, local_miss_admission=True, native_admission_queue=True
+            ),
+        )
+    )
+    parent, child = multiprocessing.Pipe()
+    parent.send("close")
+    loop = _PollingLoop(instance, child)
+    sweep = SharedCacheOwner._sweep
+    drain = SharedCacheOwner._drain_admissions
+
+    def record_sweep(owner: SharedCacheOwner, now: NonNegativeFloat) -> None:
+        loop.sweeps.append(now)
+        sweep(owner, now)
+
+    def record_drain(owner: SharedCacheOwner, *, all_pending: bool = False) -> None:
+        loop.drains.append(loop.monotonic())
+        drain(owner, all_pending=all_pending)
+
+    instance._admission_poll_until = _POLL_QUIET_MS / 1000
+    monkeypatch.setattr(coordinator, "time", loop)
+    monkeypatch.setattr(instance._selector, "select", loop.select)
+    monkeypatch.setattr(SharedCacheOwner, "_sweep", record_sweep)
+    monkeypatch.setattr(SharedCacheOwner, "_drain_admissions", record_drain)
+    yield loop
+    child.close()
+    parent.close()
+    instance.close()
+
+
+def test_recent_admissions_poll_without_accelerating_maintenance(
+    polling_loop: _PollingLoop,
+) -> None:
+    polling_loop.owner.serve(polling_loop.control, lambda _request: None)
+
+    assert polling_loop.timeouts == pytest.approx([0.005] * 10 + [0.05] * 2)
+    assert polling_loop.sweeps == pytest.approx([0.005, 0.1])
+    assert polling_loop.drains == pytest.approx(
+        [milliseconds / 1000 for milliseconds in range(5, 51, 5)] + [0.1]
     )
 
 
@@ -886,6 +967,27 @@ def test_a_local_miss_needs_no_owner_selection(
     assert session.owner.counters.misses == 0
     assert not session.owner._handles
     assert session.local(0) == local_miss["value"]
+
+
+@pytest.mark.parametrize(
+    "shared_owner",
+    [{"local_miss_admission": True, "native_admission_queue": True}],
+    indirect=True,
+)
+def test_nonempty_admission_drains_extend_fast_polling(
+    session: _Session, local_miss: Message
+) -> None:
+    owner = session.owner
+    assert owner._admission_poll_until == 0
+
+    session.endpoint.send(local_miss, session.control.reader)
+    wait_for(lambda: owner.counters.admissions == 1)
+    first_deadline = owner._admission_poll_until
+    assert first_deadline > 0
+
+    session.endpoint.send(local_miss, session.control.reader)
+    wait_for(lambda: owner.counters.admissions == 2)
+    assert owner._admission_poll_until > first_deadline
 
 
 @pytest.mark.parametrize(

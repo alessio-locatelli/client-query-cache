@@ -18,4 +18,4 @@
 
 ## Impact
 
-The native research extension, shared-cache adapters and owner, core observer notification, and research reports change. The supported cache API and sorted-find path remain unchanged.
+The native extension, shared-cache adapters and owner, core locking and observer notification, and research reports change. The supported cache API and sorted-find path remain unchanged.
