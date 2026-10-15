@@ -2,7 +2,7 @@
 
 ## Context
 
-See [proposal.md](proposal.md) for scope. Local untracked version 7/8 reports retain per-window percentile summaries, priming times and calibration failures. They omit per-request sequences and elapsed orchestration timers. These observations support block analysis but cannot reconstruct shorter windows.
+See [proposal.md](proposal.md) for scope. Local untracked version 7/8 reports retain per-window percentile summaries, priming times and calibration overload failures. All their windows completed setup successfully, including the overloaded validations. They omit per-request sequences and elapsed orchestration timers. These observations support block analysis but cannot reconstruct shorter windows.
 
 ## Decisions
 
