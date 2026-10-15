@@ -42,9 +42,11 @@ The native writer copies complete atomic words directly from input slices, using
 
 The publisher retains each assigned namespace slot and local admission resolves that existing assignment instead of rebuilding it and rewriting its epoch. Processed resets still publish epoch changes through the observer; native validation and the core capture remain authoritative. Core identity admission reuses its namespace state when releasing the capture within the same operation, without retaining that state in a caller-held capture after closure.
 
-After consuming queued admissions, the owner polls admission queues at five-millisecond intervals for fifty milliseconds after the last nonempty drain. Capture cleanup and recency sweeps retain their fifty-millisecond cadence, and idle/hot-hit workloads return to that polling interval. This reduces sustained miss bursts while bounding extra wakeups to recent admission traffic. All queues and per-connection drain limits remain bounded. The candidate declaration records the final mechanism before acceptance timing.
+After consuming queued admissions, the owner polls admission queues at one-millisecond intervals for fifty milliseconds after the last nonempty drain. Capture cleanup and recency sweeps retain their fifty-millisecond cadence, and idle/hot-hit workloads return to that polling interval. This reduces sustained miss bursts while bounding extra wakeups to recent admission traffic. All queues and per-connection drain limits remain bounded. The candidate declaration records the final mechanism before acceptance timing.
 
 Public integration changed the independent baseline's namespace reuse and native distribution metadata. Version 9's registered environment therefore cannot qualify this checkout. Version 10 registers the current environment, including the compiled extension digest, and fresh baseline-only downward calibration before candidate measurements; historical results remain frozen.
+
+Version 10's cold study fails all four P99 comparisons despite healthy completion and passing P95 bounds. Instrumented owner drains still average about 1.4 milliseconds with five-millisecond polling. Version 11 reduces only the admission polling interval to one millisecond, registers fresh qualification and repeats the unchanged acceptance protocol. Its development diagnostics do not substitute for that study.
 
 ## Delivery
 

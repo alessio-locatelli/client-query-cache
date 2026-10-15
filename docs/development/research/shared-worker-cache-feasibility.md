@@ -158,4 +158,6 @@ The [complete version 8 study](../../../reports/shared-worker-cache/v8/results.m
 
 ## Admission-cost continuation: version 10
 
-The [version 10 registration](../../../reports/shared-worker-cache/v10/registration.md) applies the validated version 9 acquisition protocol to the current public library and records a fresh baseline environment. Its [development diagnostics](../../../reports/shared-worker-cache/v10/development.md) identify copying and guard costs, while retaining variable cold tails. These exploratory observations do not satisfy issue #272; fresh registered acceptance remains required.
+The [version 10 registration](../../../reports/shared-worker-cache/v10/registration.md) applies the validated version 9 acquisition protocol to the current public library and records a fresh baseline environment. Its [development diagnostics](../../../reports/shared-worker-cache/v10/development.md) identify copying and guard costs. All 38 baseline and 144 cold windows complete healthily, but [cold P99 fails or is unstable in all four comparisons](../../../reports/shared-worker-cache/v10/results.md). The registered cold-first rule stops the study before the remaining phases.
+
+The [version 11 registration](../../../reports/shared-worker-cache/v11/registration.md) tests shorter admission polling while preserving maintenance cadence, workloads and gates. Its development diagnostics remain excluded from acceptance; issue #272 stays open until the registered evidence passes.
