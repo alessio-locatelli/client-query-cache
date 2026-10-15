@@ -19,4 +19,5 @@
 ## Code Quality
 
 - [x] 4.1 Resolve PR #281's qualification provenance, environment and completion findings with regression coverage; update the qualification result contract and preregistration.
+- [x] 4.2 Separate shared schedule construction from the experiment driver, cover active/capacity schedule behavior and verify the complete coverage gate after PR #281's CI failure.
 - [x] Scan edited test files against the Writing Tests guidelines.

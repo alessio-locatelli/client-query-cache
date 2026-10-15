@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 import argparse
-import copy
 import hashlib
 import json
 import threading
 import time
 from contextlib import ExitStack
 from dataclasses import asdict, replace
-from functools import cache
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 from unittest.mock import patch
@@ -20,7 +18,6 @@ from benchmarks.stream_cost.shared_cache import window, worker, workload
 from benchmarks.stream_cost.shared_cache.dataset import seed_catalogue
 from benchmarks.stream_cost.shared_cache.protocol import (
     Registration,
-    capacity_cells,
     comparison_cells,
 )
 from benchmarks.stream_cost.shared_cache.run import environment
@@ -28,23 +25,21 @@ from benchmarks.stream_cost.topology import IsolatedReplicaSet, ResourceLimits
 from client_query_cache._types import (  # noqa: PLC2701 - Runtime constrained aliases are canonical for research too.
     JsonDict,
     NonNegativeFloat,
-    PositiveFloat,
     PositiveInt,
+)
+from research.shared_cache_runtime.design import (
+    CONFIG,
+    RESEARCH_PATHS,
+    design_cells,
+    planned_rows,
 )
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from multiprocessing.connection import Connection
 
-    from benchmarks.stream_cost.shared_cache.protocol import Cell, Model, PathKind
+    from benchmarks.stream_cost.shared_cache.protocol import Cell
     from benchmarks.stream_cost.shared_cache.worker import WorkerSpec
-
-CONFIG = Path("reports/shared-worker-cache/v8/config.json")
-PROGRAM = Path("research/shared_cache_runtime/experiment.py")
-RESEARCH_PATHS = (
-    "research/shared_cache_runtime",
-    "scripts/analyze_shared_cache_runtime.py",
-)
 
 
 class TimedLatencies(list[NonNegativeFloat]):  # noqa: FURB189 - The harness and JSON encoder require a native list.
@@ -232,72 +227,6 @@ def selected_cells(registration: Registration, mode: str) -> tuple[Cell, ...]:
         for cell in planned
         if cell.model == "async" and cell.workers == 8 and cell.block < blocks
     )
-
-
-def design_cells(
-    registration: Registration, design: JsonDict
-) -> tuple[tuple[str, Registration, Cell], ...]:
-    @cache
-    def with_updates(updates: PositiveInt) -> Registration:
-        raw = copy.deepcopy(registration.raw)
-        cast("JsonDict", raw["active"])["updates"] = updates
-        encoded = json.dumps(raw, sort_keys=True).encode()
-        return Registration(raw, hashlib.sha256(encoded).hexdigest())
-
-    selected: list[tuple[str, Registration, Cell]] = []
-    for group in cast("list[JsonDict]", design["groups"]):
-        phase = cast("str", group["phase"])
-        planned = (
-            capacity_cells(registration)
-            if phase == "capacity"
-            else comparison_cells(registration, phase)
-        )
-        variants = cast("list[JsonDict]", group["variants"])
-        models = cast("list[Model]", group["models"])
-        workers = cast("list[PositiveInt]", group["workers"])
-        paths = cast("list[PathKind]", group["paths"])
-        blocks = cast("PositiveInt", group["blocks"])
-        for cell in planned:
-            if (
-                cell.model not in models
-                or cell.workers not in workers
-                or cell.path not in paths
-                or cell.block >= blocks
-            ):
-                continue
-            if phase == "capacity" and cell.concurrency != 16:
-                continue
-            offset = cell.block % len(variants)
-            ordered = variants[offset:] + variants[:offset]
-            for variant in ordered:
-                duration = cell.window_seconds
-                trial_registration = registration
-                if phase == "active" and "updates" in variant:
-                    duration = cast("PositiveFloat", variant["window_seconds"])
-                    trial_registration = with_updates(
-                        cast("PositiveInt", variant["updates"])
-                    )
-                selected.append(
-                    (
-                        cast("str", variant["label"]),
-                        trial_registration,
-                        replace(
-                            cell,
-                            warmup_seconds=cast(
-                                "NonNegativeFloat", variant["warmup_seconds"]
-                            ),
-                            window_seconds=duration,
-                        ),
-                    )
-                )
-    return tuple(selected)
-
-
-def planned_rows(cells: tuple[tuple[str, Registration, Cell], ...]) -> list[JsonDict]:
-    return [
-        {"condition": label, "configuration_sha256": trial.digest, **asdict(cell)}
-        for label, trial, cell in cells
-    ]
 
 
 def main() -> None:

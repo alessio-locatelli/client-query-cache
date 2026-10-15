@@ -16,7 +16,7 @@ from benchmarks.stream_cost.shared_cache.protocol import (
     validation_failure,
 )
 from client_query_cache._types import JsonDict, NonEmptyStr
-from research.shared_cache_runtime.experiment import (
+from research.shared_cache_runtime.design import (
     PROGRAM,
     RESEARCH_PATHS,
     design_cells,
