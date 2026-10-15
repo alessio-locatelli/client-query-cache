@@ -12,11 +12,11 @@
 
 ## 3. Empirical continuation
 
-- [ ] 3.1 Add stage timers, ordered request traces and memory observations around existing benchmark windows; preserve fresh worker/cache lifecycles and verify instrumentation with a short real-server run.
-- [ ] 3.2 Execute the committed discovery design, select a faster protocol against the precision requirements, then freeze a separate validation design before fresh validation measurements.
-- [ ] 3.3 Validate the selected protocol, quantify the complete-study cost frontier and publish the resulting preregistration or an evidence-backed minimum for the retained requirements.
+- [x] 3.1 Add stage timers, ordered request traces and memory observations around existing benchmark windows; preserve fresh worker/cache lifecycles and verify instrumentation with a short real-server run.
+- [x] 3.2 Execute the committed discovery design, select a faster protocol against the precision requirements, then freeze a separate validation design before fresh validation measurements.
+- [x] 3.3 Validate the selected protocol, quantify the complete-study cost frontier and publish the resulting preregistration or an evidence-backed minimum for the retained requirements.
 
 ## Code Quality
 
-- [x] Scan entire edited test files against the Writing Tests guidelines: no test files planned; numerical verification belongs to task 1.2.
-- [x] Claude-only prose restriction: applied by Codex.
+- [x] 4.1 Resolve PR #281's qualification provenance, environment and completion findings with regression coverage; update the qualification result contract and preregistration.
+- [x] Scan edited test files against the Writing Tests guidelines.

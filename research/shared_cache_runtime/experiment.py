@@ -17,6 +17,7 @@ from unittest.mock import patch
 
 from benchmarks.stream_cost.errors import BenchmarkSetupError
 from benchmarks.stream_cost.shared_cache import window, worker, workload
+from benchmarks.stream_cost.shared_cache.dataset import seed_catalogue
 from benchmarks.stream_cost.shared_cache.protocol import (
     Registration,
     capacity_cells,
@@ -27,6 +28,7 @@ from benchmarks.stream_cost.topology import IsolatedReplicaSet, ResourceLimits
 from client_query_cache._types import (  # noqa: PLC2701 - Runtime constrained aliases are canonical for research too.
     JsonDict,
     NonNegativeFloat,
+    PositiveFloat,
     PositiveInt,
 )
 
@@ -34,10 +36,15 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from multiprocessing.connection import Connection
 
-    from benchmarks.stream_cost.shared_cache.protocol import Cell
+    from benchmarks.stream_cost.shared_cache.protocol import Cell, Model, PathKind
     from benchmarks.stream_cost.shared_cache.worker import WorkerSpec
 
 CONFIG = Path("reports/shared-worker-cache/v8/config.json")
+PROGRAM = Path("research/shared_cache_runtime/experiment.py")
+RESEARCH_PATHS = (
+    "research/shared_cache_runtime",
+    "scripts/analyze_shared_cache_runtime.py",
+)
 
 
 class TimedLatencies(list[NonNegativeFloat]):  # noqa: FURB189 - The harness and JSON encoder require a native list.
@@ -163,7 +170,7 @@ class Observations:
                 patch.object(
                     window,
                     "seed_catalogue",
-                    self.wrap("prepare", window.seed_catalogue),
+                    self.wrap("prepare", seed_catalogue),
                 )
             )
             hooks.enter_context(patch.object(window.ProcessGroup, "collect", collect))
@@ -246,12 +253,16 @@ def design_cells(
             else comparison_cells(registration, phase)
         )
         variants = cast("list[JsonDict]", group["variants"])
+        models = cast("list[Model]", group["models"])
+        workers = cast("list[PositiveInt]", group["workers"])
+        paths = cast("list[PathKind]", group["paths"])
+        blocks = cast("PositiveInt", group["blocks"])
         for cell in planned:
             if (
-                cell.model not in group["models"]
-                or cell.workers not in group["workers"]
-                or cell.path not in group["paths"]
-                or cell.block >= group["blocks"]
+                cell.model not in models
+                or cell.workers not in workers
+                or cell.path not in paths
+                or cell.block >= blocks
             ):
                 continue
             if phase == "capacity" and cell.concurrency != 16:
@@ -259,12 +270,10 @@ def design_cells(
             offset = cell.block % len(variants)
             ordered = variants[offset:] + variants[:offset]
             for variant in ordered:
-                changed: dict[str, object] = {
-                    "warmup_seconds": variant["warmup_seconds"]
-                }
+                duration = cell.window_seconds
                 trial_registration = registration
                 if phase == "active" and "updates" in variant:
-                    changed["window_seconds"] = variant["window_seconds"]
+                    duration = cast("PositiveFloat", variant["window_seconds"])
                     trial_registration = with_updates(
                         cast("PositiveInt", variant["updates"])
                     )
@@ -272,9 +281,15 @@ def design_cells(
                     (
                         cast("str", variant["label"]),
                         trial_registration,
-                        replace(cell, **changed),
+                        replace(
+                            cell,
+                            warmup_seconds=cast(
+                                "NonNegativeFloat", variant["warmup_seconds"]
+                            ),
+                            window_seconds=duration,
+                        ),
                     )
-                )  # type: ignore[arg-type]
+                )
     return tuple(selected)
 
 
@@ -290,11 +305,12 @@ def main() -> None:
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--mode", choices=("check", "discovery"))
     mode.add_argument("--design", type=Path)
+    parser.add_argument("--config", type=Path, default=CONFIG)
     parser.add_argument("--output", type=Path, required=True)
     arguments = parser.parse_args()
     if arguments.output.exists():
         parser.error("output already exists")
-    registration = Registration.load(CONFIG)
+    registration = Registration.load(arguments.config)
     if arguments.design is None:
         cells = tuple(
             (arguments.mode, registration, cell)
@@ -306,8 +322,9 @@ def main() -> None:
         cells = design_cells(registration, design)
     report: JsonDict = {
         "label": "protocol investigation; excluded from candidate acceptance",
-        "environment": environment(registration),
+        "environment": environment(registration, extra_source_paths=RESEARCH_PATHS),
         "program_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+        "research_source_paths": list(RESEARCH_PATHS),
         "design": design,
         "planned": planned_rows(cells),
         "cells": [],

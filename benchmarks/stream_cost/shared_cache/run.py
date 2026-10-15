@@ -40,7 +40,7 @@ from benchmarks.stream_cost.shared_cache.protocol import (
 )
 from benchmarks.stream_cost.shared_cache.window import run_window
 from benchmarks.stream_cost.topology import IsolatedReplicaSet, ResourceLimits
-from client_query_cache._types import JsonDict, PositiveFloat
+from client_query_cache._types import JsonDict, NonEmptyStr, PositiveFloat
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -55,7 +55,9 @@ _CARGO_LOCK = Path("native/shared-index/Cargo.lock")
 _RUSTC_MARKER = b"rustc version "
 
 
-def environment(registration: Registration) -> JsonDict:
+def environment(
+    registration: Registration, *, extra_source_paths: tuple[NonEmptyStr, ...] = ()
+) -> JsonDict:
     git = shutil.which("git")
     if git is None:
         raise BenchmarkSetupError("git is required to record the benchmark revision")
@@ -71,6 +73,7 @@ def environment(registration: Registration) -> JsonDict:
                 "native",
                 "src",
                 "reports",
+                *extra_source_paths,
             ],
             text=True,
         ).strip()

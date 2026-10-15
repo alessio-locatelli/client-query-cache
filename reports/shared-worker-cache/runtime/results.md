@@ -1,5 +1,7 @@
 # Shared-cache benchmark runtime and precision
 
+**Initial analytical stage; superseded by the [completed empirical investigation](empirical-results.md) and [version 9 preregistration](../v9/registration.md).** Recommendations and missing-evidence statements below describe the first stage, before fresh experiments.
+
 **Recommendation: retain the current acceptance protocol for now.** The investigation for [issue #278](https://github.com/alessio-locatelli/client-query-cache/issues/278) rules out several large reductions, but does **not** establish a minimum practical runtime or validate the current protocol against every dependence model. That acceptance item remains open. No registration changes or candidate timings result from this study; [version 7](../v7/results.md), [version 8](../v8/results.md) and issue #272 keep their recorded conclusions.
 
 The [plan](plan.md) fixed the precision requirements before alternatives were compared, at commit `c7f998c706abd6bbeeb72a8b1b2558dbb5814be6`. The analysis reuses all fourteen available version 7/8 calibration and performance reports. All 2,136 windows completed setup; overloaded calibration validations remain included. Request sequences and orchestration timers were not retained. The maintainer's approximately 24-hour estimate describes the previous session, whose boundaries are unknown; it is not an elapsed timer for either study.
