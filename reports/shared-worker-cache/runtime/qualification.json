@@ -1,0 +1,45 @@
+{
+  "trace": false,
+  "groups": [
+    {
+      "phase": "confirmation",
+      "models": ["sync", "async"],
+      "workers": [4, 8],
+      "paths": ["direct", "independent"],
+      "blocks": 1,
+      "variants": [{ "label": "qualification", "warmup_seconds": 10 }]
+    },
+    {
+      "phase": "screening",
+      "models": ["sync", "async"],
+      "workers": [1],
+      "paths": ["direct", "independent"],
+      "blocks": 1,
+      "variants": [{ "label": "qualification", "warmup_seconds": 10 }]
+    },
+    {
+      "phase": "active",
+      "models": ["sync", "async", "mixed"],
+      "workers": [4, 8],
+      "paths": ["direct", "independent"],
+      "blocks": 1,
+      "variants": [{ "label": "qualification", "warmup_seconds": 10 }]
+    },
+    {
+      "phase": "cold",
+      "models": ["sync", "async"],
+      "workers": [4, 8],
+      "paths": ["direct", "independent"],
+      "blocks": 1,
+      "variants": [{ "label": "qualification", "warmup_seconds": 0 }]
+    },
+    {
+      "phase": "sensitivity",
+      "models": ["sync", "async"],
+      "workers": [8],
+      "paths": ["direct", "independent"],
+      "blocks": 1,
+      "variants": [{ "label": "qualification", "warmup_seconds": 10 }]
+    }
+  ]
+}

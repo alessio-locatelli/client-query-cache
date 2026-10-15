@@ -3,19 +3,25 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
 import threading
 import time
 from contextlib import ExitStack
 from dataclasses import asdict, replace
+from functools import cache
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 from unittest.mock import patch
 
 from benchmarks.stream_cost.errors import BenchmarkSetupError
 from benchmarks.stream_cost.shared_cache import window, worker, workload
-from benchmarks.stream_cost.shared_cache.protocol import Registration, comparison_cells
+from benchmarks.stream_cost.shared_cache.protocol import (
+    Registration,
+    capacity_cells,
+    comparison_cells,
+)
 from benchmarks.stream_cost.shared_cache.run import environment
 from benchmarks.stream_cost.topology import IsolatedReplicaSet, ResourceLimits
 from client_query_cache._types import (  # noqa: PLC2701 - Runtime constrained aliases are canonical for research too.
@@ -100,7 +106,12 @@ class Observations:
         return timed
 
     def measure(
-        self, replica: IsolatedReplicaSet, registration: Registration, cell: Cell
+        self,
+        replica: IsolatedReplicaSet,
+        registration: Registration,
+        cell: Cell,
+        *,
+        trace: bool = True,
     ) -> JsonDict:
         original_collect = window.ProcessGroup.collect
         original_pool = window._pooled  # noqa: SLF001 - Capture raw samples before the existing pool discards them.
@@ -117,7 +128,7 @@ class Observations:
             return samples
 
         def pooled(samples: list[JsonDict], model: str | None) -> JsonDict:
-            if model is None:
+            if model is None and trace:
                 self.latencies = [
                     {
                         "index": sample["index"],
@@ -146,7 +157,8 @@ class Observations:
             original_wait(deadline)
 
         with ExitStack() as hooks:
-            hooks.enter_context(patch.object(window, "worker_main", traced_worker))
+            if trace:
+                hooks.enter_context(patch.object(window, "worker_main", traced_worker))
             hooks.enter_context(
                 patch.object(
                     window,
@@ -215,20 +227,89 @@ def selected_cells(registration: Registration, mode: str) -> tuple[Cell, ...]:
     )
 
 
+def design_cells(
+    registration: Registration, design: JsonDict
+) -> tuple[tuple[str, Registration, Cell], ...]:
+    @cache
+    def with_updates(updates: PositiveInt) -> Registration:
+        raw = copy.deepcopy(registration.raw)
+        cast("JsonDict", raw["active"])["updates"] = updates
+        encoded = json.dumps(raw, sort_keys=True).encode()
+        return Registration(raw, hashlib.sha256(encoded).hexdigest())
+
+    selected: list[tuple[str, Registration, Cell]] = []
+    for group in cast("list[JsonDict]", design["groups"]):
+        phase = cast("str", group["phase"])
+        planned = (
+            capacity_cells(registration)
+            if phase == "capacity"
+            else comparison_cells(registration, phase)
+        )
+        variants = cast("list[JsonDict]", group["variants"])
+        for cell in planned:
+            if (
+                cell.model not in group["models"]
+                or cell.workers not in group["workers"]
+                or cell.path not in group["paths"]
+                or cell.block >= group["blocks"]
+            ):
+                continue
+            if phase == "capacity" and cell.concurrency != 16:
+                continue
+            offset = cell.block % len(variants)
+            ordered = variants[offset:] + variants[:offset]
+            for variant in ordered:
+                changed: dict[str, object] = {
+                    "warmup_seconds": variant["warmup_seconds"]
+                }
+                trial_registration = registration
+                if phase == "active" and "updates" in variant:
+                    changed["window_seconds"] = variant["window_seconds"]
+                    trial_registration = with_updates(
+                        cast("PositiveInt", variant["updates"])
+                    )
+                selected.append(
+                    (
+                        cast("str", variant["label"]),
+                        trial_registration,
+                        replace(cell, **changed),
+                    )
+                )  # type: ignore[arg-type]
+    return tuple(selected)
+
+
+def planned_rows(cells: tuple[tuple[str, Registration, Cell], ...]) -> list[JsonDict]:
+    return [
+        {"condition": label, "configuration_sha256": trial.digest, **asdict(cell)}
+        for label, trial, cell in cells
+    ]
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--mode", choices=("check", "discovery"), required=True)
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--mode", choices=("check", "discovery"))
+    mode.add_argument("--design", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     arguments = parser.parse_args()
     if arguments.output.exists():
         parser.error("output already exists")
     registration = Registration.load(CONFIG)
-    cells = selected_cells(registration, arguments.mode)
+    if arguments.design is None:
+        cells = tuple(
+            (arguments.mode, registration, cell)
+            for cell in selected_cells(registration, arguments.mode)
+        )
+        design: JsonDict = {"trace": True}
+    else:
+        design = json.loads(arguments.design.read_text(encoding="utf-8"))
+        cells = design_cells(registration, design)
     report: JsonDict = {
         "label": "protocol investigation; excluded from candidate acceptance",
         "environment": environment(registration),
         "program_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
-        "planned": [asdict(cell) for cell in cells],
+        "design": design,
+        "planned": planned_rows(cells),
         "cells": [],
     }
     arguments.output.parent.mkdir(parents=True, exist_ok=True)
@@ -236,8 +317,12 @@ def main() -> None:
     topology = registration.section("topology")
     with IsolatedReplicaSet(ResourceLimits(**topology)) as replica:  # type: ignore[arg-type]
         report["container_startup_seconds"] = time.monotonic() - started
-        for cell in cells:
-            observed = Observations().measure(replica, registration, cell)
+        for label, trial, cell in cells:
+            observed = Observations().measure(
+                replica, trial, cell, trace=bool(design["trace"])
+            )
+            observed["condition"] = label
+            observed["configuration_sha256"] = trial.digest
             cast("list[JsonDict]", report["cells"]).append(observed)
             arguments.output.write_text(json.dumps(report) + "\n", encoding="utf-8")
         report["container_shutdown_started_seconds"] = time.monotonic() - started

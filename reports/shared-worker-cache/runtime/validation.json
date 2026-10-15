@@ -1,0 +1,53 @@
+{
+  "trace": false,
+  "groups": [
+    {
+      "phase": "active",
+      "models": ["mixed"],
+      "workers": [8],
+      "paths": ["direct", "independent", "shared-index"],
+      "blocks": 6,
+      "variants": [
+        {
+          "label": "reference",
+          "warmup_seconds": 10,
+          "window_seconds": 60,
+          "updates": 200
+        },
+        {
+          "label": "short20.1",
+          "warmup_seconds": 10,
+          "window_seconds": 20.1,
+          "updates": 67
+        },
+        {
+          "label": "short27.6",
+          "warmup_seconds": 10,
+          "window_seconds": 27.6,
+          "updates": 92
+        }
+      ]
+    },
+    {
+      "phase": "active",
+      "models": ["sync", "async"],
+      "workers": [4, 8],
+      "paths": ["direct", "independent", "shared-index"],
+      "blocks": 1,
+      "variants": [
+        {
+          "label": "reference",
+          "warmup_seconds": 10,
+          "window_seconds": 60,
+          "updates": 200
+        },
+        {
+          "label": "short27.6",
+          "warmup_seconds": 10,
+          "window_seconds": 27.6,
+          "updates": 92
+        }
+      ]
+    }
+  ]
+}
