@@ -85,6 +85,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
         "_find_one_default_shape",
         "_forced_collection",
         "_forced_database",
+        "_namespace_id",
     )
 
     def __init__(
@@ -94,6 +95,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
     ) -> None:
         self._database = database
         self._collection = collection
+        self._namespace_id = NamespaceId(database.name, collection.name)
         default_shape = find_one_read_shape(
             None, None, None, codec_fingerprint(collection.codec_options)
         )
@@ -638,7 +640,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
         return document
 
     def _namespace(self) -> NamespaceId:
-        return NamespaceId(self._database.name, self.name)
+        return self._namespace_id
 
     def _request_bypass_reason(
         self, *, session: AsyncClientSession | None, kwargs: Mapping[str, object]

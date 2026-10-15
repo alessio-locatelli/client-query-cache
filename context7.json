@@ -33,7 +33,7 @@
     "Explicit find batching and aggregate batchSize at invocation bypass caching; later command-cursor batch_size() preserves the selected execution and has no remote effect on a local hit.",
     "Reuse one long-lived CacheManager per MongoClient or AsyncMongoClient per process. Each manager has independent cached data, a stored-BSON budget, and change-stream progress.",
     "In multi-worker servers such as Gunicorn, Uvicorn, or Granian, create the client and CacheManager inside each worker, for example in a FastAPI lifespan handler, never in a parent process before workers start.",
-    "Worker processes share no cached data or change streams, so cache memory and stream cursors grow with the worker count. Size shared_budget_bytes per worker.",
+    "With process-local CacheManager, worker processes share no cached data or change streams, so cache memory and stream cursors grow with the worker count. Size shared_budget_bytes per worker.",
     "Per-worker caches may not reduce MongoDB CPU under frequent writes: every update reaches each worker's change stream and causes a miss in each worker that reads the document again. Measure MongoDB load before relying on the cache to offload it.",
     "Budget and lag-window numeric fields require exact built-in integers. Booleans, integer subclasses, floats (including NaN and infinities), strings, None, and other types raise CacheConfigurationError naming the field at construction; no coercion.",
     "shared_budget_bytes and max_entry_bytes must be positive, with max_entry_bytes no larger than shared_budget_bytes. Invalid ranges or relationships raise CacheConfigurationError naming the field at construction.",
@@ -46,6 +46,15 @@
     "Initial startup is independent per database. Competing reads bypass with stream_unavailable while health is connecting. Failed startup reports startup_failed and warns once per attempt.",
     "Later reads retry failed startup after a jittered exponential cooldown capped at 30 seconds; idle databases do not retry. Established streams reconnect automatically. Healthy stream health does not promise event catch-up.",
     "Async close() defers cancellation until stream cleanup and cache release finish. Concurrent or subsequent calls join the same shutdown.",
-    "stream_health_snapshot(name) never validates the name; requested_database_name echoes it. On an open manager a name without a stream, even empty or mistyped, reports not_started; after close, closed."
+    "stream_health_snapshot(name) never validates the name; requested_database_name echoes it. On an open manager a name without a stream, even empty or mistyped, reports not_started; after close, closed.",
+    "Start SharedCacheServer in the parent and pass its private connection to trusted same-host workers. Each worker creates its own PyMongo client and SharedCacheManager.",
+    "Async SharedCacheManager supports async with or await attach(client, connection). Construct and use it in one event loop.",
+    "SharedCacheManager shares deterministic find_one reads by exact _id without extra predicates, on simple-default-collation collections with portable codecs. Non-simple collations and other reads use PyMongo; find returns a native cursor.",
+    "All shared workers must use the same MongoDB deployment, credentials and read visibility. The connection grants access to all configured databases; never share it across security principals.",
+    "Shared invalidation is eventual. Silent stalls disable hits within three seconds of upstream progress. Outages use direct reads with bounded attachment attempts. server.restart() creates fresh state; workers reconnect lazily.",
+    "Close shared managers before clients, stop workers, then close the server. Do not inherit clients, managers or servers through fork; pass the connection and create fresh resources. Async cleanup defers cancellation.",
+    "Shared manager.snapshot() reports worker-local hits, misses and bypasses. SharedCacheConfig budget, arena, index and transport capacities are separate limits, not a total RSS limit.",
+    "The native distribution targets CPython 3.14+ Linux x86-64 glibc 2.28+. Shared caching needs Linux 5.1+ memfd sealing and /proc. Free-threaded Python and other platforms are unsupported.",
+    "Use stable collection names with SharedCacheServer and size namespaces for that set. Namespace slots bound the index, not all Python bookkeeping; sustained collection-name churn is outside the initial contract (issue #282)."
   ]
 }

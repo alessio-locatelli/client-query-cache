@@ -6,6 +6,8 @@ Invalidation is asynchronous. Plan direct PyMongo reads for operations that must
 
 To enable caching through an application-owned deployment flag and roll it back, see the [FastAPI catalogue rollout](../examples/fastapi.md#feature-flagged-rollout).
 
+This page describes process-local `CacheManager` deployments. To share `_id` reads and streams across workers, use the [shared worker cache](shared-cache.md).
+
 ## Retry and error handling
 
 - **Initial stream startup**: one read starts a stream for its database. Concurrent reads for that
@@ -131,10 +133,6 @@ Workers then cache independently. Each keeps its own copy of the documents it re
 
 Duplicate change streams put little load on MongoDB. In the project's measurements, seven extra streams from eight workers on one database cost MongoDB about 0.3% of a CPU core while idle and about 1% at about three writes per second; the cost grows with the write rate. With frequent writes, a cache in every worker may not reduce MongoDB load at all. In a [single-host benchmark](../benchmarks/index.md#multiple-workers-with-concurrent-writes) where four asyncio workers read 1,831 documents per second by `_id` and one update followed every 20 reads, caching cut median latency by about 40%, but MongoDB used about 10% more CPU than with direct reads. Each update reaches every worker's change stream and causes a miss in each worker that reads the document again.
 
-### Memory versus CPU in the cloud
+### Shared identity reads
 
-The library does not share one cache across worker processes, so each worker's cache costs its own memory. The project researches sharing one cache per host. In its most recent prototype, eight workers read cached documents directly from shared memory: the group used about half as much memory as eight independent caches (about 0.5 GiB saved at 70 MiB per worker), and requests used 13–32% less CPU. Cache misses, however, were 1–2 ms slower at the tail than reads without a cache, so the prototype is not ready for a supported mode.
-
-Until sharing is supported, weigh memory against workers yourself: fewer workers that each serve more concurrent requests, with asyncio or threads, hold fewer copies of the same documents.
-
-[Issue #229](https://github.com/alessio-locatelli/client-query-cache/issues/229) tracks a shared cache across workers, and [issue #87](https://github.com/alessio-locatelli/client-query-cache/issues/87) tracks sharing change streams across processes. Maintainers can read the [shared cache research](https://github.com/alessio-locatelli/client-query-cache/blob/main/docs/development/research/shared-worker-cache-feasibility.md) and the [shared invalidation research](https://github.com/alessio-locatelli/client-query-cache/blob/main/docs/development/research/shared-invalidation-feasibility.md) for the measurements and their limits.
+Use [SharedCacheServer](shared-cache.md) when trusted workers on one host repeatedly read the same `_id` documents. It shares those values and one stream per active database; other reads use PyMongo. Compare the [supported workload measurements](../benchmarks/shared-cache.md) with your own read mix and memory limits before choosing a mode.

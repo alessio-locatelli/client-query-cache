@@ -17,21 +17,6 @@ import pytest
 from bson.codec_options import CodecOptions, TypeRegistry
 from pymongo import MongoClient
 
-from benchmarks.stream_cost.shared_cache.adapters import (
-    METADATA_REFRESH,
-    OWNER_UNAVAILABLE,
-    PROTOTYPE_SCOPE,
-    UNPORTABLE_KEY,
-    AsyncSharedCacheManager,
-    SharedCacheManager,
-)
-from benchmarks.stream_cost.shared_cache.attachment import (
-    AsyncEndpoint,
-    AttachmentConfigurationError,
-    InheritedAttachmentError,
-    LocalIndex,
-    SyncEndpoint,
-)
 from benchmarks.stream_cost.shared_cache.safety import (
     closed_peer as _closed,
 )
@@ -45,9 +30,24 @@ from benchmarks.stream_cost.shared_cache.safety import (
 from benchmarks.stream_cost.shared_cache.safety import (
     raw_connection as _raw_connection,
 )
-from benchmarks.stream_cost.shared_cache.shared_index import SharedIndexLimits
-from benchmarks.stream_cost.shared_cache.wire import encode_frame, encode_key
 from client_query_cache._core.keys import NamespaceId
+from client_query_cache._shared.adapters import (
+    METADATA_REFRESH,
+    OWNER_UNAVAILABLE,
+    PROTOTYPE_SCOPE,
+    UNPORTABLE_KEY,
+    AsyncSharedCacheManager,
+    SharedCacheManager,
+)
+from client_query_cache._shared.attachment import (
+    AsyncEndpoint,
+    AttachmentConfigurationError,
+    InheritedAttachmentError,
+    LocalIndex,
+    SyncEndpoint,
+)
+from client_query_cache._shared.shared_index import SharedIndexLimits
+from client_query_cache._shared.wire import encode_frame, encode_key
 from client_query_cache._types import BsonDict
 from tests.codec_helpers import Decimal128ToDecimalDecoder
 from tests.shared_cache.conftest import (
@@ -64,7 +64,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
     from multiprocessing.connection import Connection
 
-    from benchmarks.stream_cost.shared_cache.attachment import AttachmentConfig, Message
+    from client_query_cache._shared.attachment import AttachmentConfig, Message
     from tests.conftest import MongoDbUri
     from tests.shared_cache.conftest import Owner, Payload
 
@@ -553,7 +553,7 @@ def test_malformed_peers_are_rejected_while_others_continue(
 @pytest.mark.parametrize(
     ("change", "message"),
     [
-        pytest.param({"capability": b"wrong"}, "not reachable", id="capability"),
+        pytest.param({"capability": b"wrong"}, "unauthorized", id="capability"),
         pytest.param({"budget_bytes": 1}, "configuration-mismatch", id="budget"),
     ],
 )
@@ -793,11 +793,12 @@ def test_closing_during_a_reconnection_discards_the_new_connection(
 
 def test_inherited_attachments_are_rejected_before_use(
     sync_manager: tuple[SharedCacheManager[BsonDict], Owner],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     manager, owner = sync_manager
     endpoint = asyncio.run(AsyncEndpoint.attach(owner.attachment()))
-    manager.endpoint._pid = os.getpid() + 1
-    endpoint._pid = os.getpid() + 1
+    monkeypatch.setattr(manager.endpoint, "_pid", os.getpid() + 1)
+    monkeypatch.setattr(endpoint, "_pid", os.getpid() + 1)
     operations: tuple[Callable[[], object], ...] = (
         lambda: manager.endpoint.request({"op": "observe"}),
         lambda: manager.endpoint.send({"op": "discard", "handle": 1}),

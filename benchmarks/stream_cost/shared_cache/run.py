@@ -40,6 +40,7 @@ from benchmarks.stream_cost.shared_cache.protocol import (
 )
 from benchmarks.stream_cost.shared_cache.window import run_window
 from benchmarks.stream_cost.topology import IsolatedReplicaSet, ResourceLimits
+from client_query_cache import _shared_index
 from client_query_cache._types import JsonDict, NonEmptyStr, PositiveFloat
 
 if TYPE_CHECKING:
@@ -49,8 +50,7 @@ if TYPE_CHECKING:
 
 _CONFIG = Path("reports/shared-worker-cache/v4/config.json")
 _CEILING_FAMILY = "primary"
-_NATIVE_DISTRIBUTION = "client-query-cache-shared-index"
-_NATIVE_PACKAGE = "client_query_cache_shared_index"
+_NATIVE_DISTRIBUTION = "client-query-cache"
 _CARGO_LOCK = Path("native/shared-index/Cargo.lock")
 _RUSTC_MARKER = b"rustc version "
 
@@ -103,8 +103,7 @@ def environment(
 
 def native_extension() -> JsonDict:
     installed = distribution(_NATIVE_DISTRIBUTION)
-    package = Path(str(installed.locate_file(_NATIVE_PACKAGE)))
-    binary = next(package.glob("*.so")).read_bytes()
+    binary = Path(_shared_index.__file__).read_bytes()
     start = binary.index(_RUSTC_MARKER)
     wheel = Parser().parsestr(cast("str", installed.read_text("WHEEL")))
     return {

@@ -70,7 +70,14 @@ format:
     just --fmt
 
 build:
-    uv build
+    # Maturin 1.15: https://www.maturin.rs/distribution
+    # --release: The default is the dev profile. We override it for optimized artifacts.
+    # --sdist: The default is wheel-only. We override it to verify a source build too.
+    # --zig: The default is the host linker. We override it for portable glibc symbols.
+    # --compatibility: The default is the lowest detected tag, possibly linux. We
+    # override it because PyPI requires a portable wheel for our glibc 2.28 target.
+    # --locked: The default permits lock updates. We override it for reproducibility.
+    uv run -- maturin build --release --sdist --zig --compatibility manylinux_2_28 --locked --out dist
 
 docs-serve:
     # uv 0.12.9 locally / 0.12.19 in CI --only-group docs in docs-serve/docs-build/docs-build-editions:

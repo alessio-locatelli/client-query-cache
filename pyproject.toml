@@ -1,6 +1,6 @@
 [project]
 name = "client-query-cache"
-version = "0.7.0"
+version = "0.8.0"
 description = "Client-side caching for PyMongo, kept coherent using MongoDB change streams."
 authors = [
   { name = "Alessio Locatelli", email = "<software.development@secure.mailbox.org>" },
@@ -10,6 +10,8 @@ requires-python = ">=3.14"
 license = "Apache-2.0"
 classifiers = [
   "Framework :: AsyncIO",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: Implementation :: CPython",
   "Intended Audience :: Developers",
   "Programming Language :: Python :: 3.14",
   "Programming Language :: Python :: 3.15",
@@ -28,6 +30,7 @@ otel = ["opentelemetry-api>=1.45.0"]
 
 [dependency-groups]
 dev = [
+  "maturin[zig]>=1.15.0,<2.0",
   "covdefaults>=2.3.0",
   "mypy>=2.3.1",
   "types-docker>=7.2.0.20260827",
@@ -59,29 +62,44 @@ dev = [
   "pyyaml>=6.0.3",
   "types-pyyaml>=6.0.12.20260906",
   "filelock>=4.1.0",
-  "client-query-cache-shared-index",
 ]
 docs = ["mike", "tomli-w>=1.2.0", "zensical>=0.0.68"]
 memory = ["pytest-memray>=1.11.0"]
 
 [build-system]
-requires = ["uv_build>=0.12.18,<0.13.0"]
-build-backend = "uv_build"
+requires = ["maturin>=1.15.0,<2.0"]
+build-backend = "maturin"
+
+[tool.maturin]
+manifest-path = "native/shared-index/Cargo.toml"
+python-source = "src"
+module-name = "client_query_cache._shared_index"
+features = ["python"]
+# Maturin 1.15: https://www.maturin.rs/distribution
+# The default is the minimum supported glibc detected at build time. We override
+# it because release wheels must install on glibc 2.28 and newer.
+compatibility = "manylinux_2_28"
 
 [tool.uv]
-# uv 0.12.9 / lock context: https://docs.astral.sh/uv/reference/settings/#environments
-# The default is all environments. We override it because development dependencies and their lock resolution target Linux.
+# uv 0.12.18: https://docs.astral.sh/uv/reference/settings/#environments
+# The default is all environments. We override it because development dependencies
+# and their lock resolution target Linux.
 environments = ["sys_platform == 'linux'"]
 # uv 0.12.18: https://docs.astral.sh/uv/reference/settings/#extra-build-variables
-# The default is no extra build variables, so maturin 1.15.0 downloads a Rust toolchain when Cargo is missing (https://github.com/PyO3/maturin/blob/v1.15.0/maturin/__init__.py#L79). We override it because a missing toolchain must fail synchronization visibly.
-extra-build-variables = { client-query-cache-shared-index = { MATURIN_NO_INSTALL_RUST = "1" } }
+# The default is no extra build variables. We override it because a missing Rust
+# toolchain must fail synchronization instead of installing system software.
+extra-build-variables = { client-query-cache = { MATURIN_NO_INSTALL_RUST = "1" } }
+# The default keys omit Rust sources. We override them because native edits must
+# rebuild editable installations.
+cache-keys = [
+  { file = "pyproject.toml" },
+  { file = "native/shared-index/Cargo.toml" },
+  { file = "native/shared-index/Cargo.lock" },
+  { file = "native/shared-index/src/**/*.rs" },
+]
 
 [tool.uv.sources]
 mike = { git = "https://github.com/squidfunk/mike.git", rev = "2d4ad799442f4592db8ad53b179bfb33db8c69ac" } # pragma: allowlist secret
-client-query-cache-shared-index = { workspace = true }
-
-[tool.uv.workspace]
-members = ["native/shared-index"]
 
 [tool.slotscheck]
 # slotscheck 0.21.0: https://github.com/ariebovenberg/slotscheck/blob/v0.21.0/src/slotscheck/config.py

@@ -7,6 +7,7 @@ import pathlib
 import secrets
 import selectors
 import socket
+import struct
 import threading
 import time
 from collections import deque
@@ -14,27 +15,10 @@ from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING, Final, Literal, TextIO
 
 from bson.int64 import Int64
-from client_query_cache_shared_index import OwnerIndex
 from pymongo import MongoClient
 from pymongo.errors import OperationFailure
 from pymongo.monitoring import CommandListener
 
-from benchmarks.stream_cost.shared_cache.shared_index import (
-    ArenaPayloads,
-    IndexPublisher,
-    SharedIndexLimits,
-)
-from benchmarks.stream_cost.shared_cache.wire import (
-    LENGTH_BYTES,
-    PROTOCOL_VERSION,
-    KeyCache,
-    ProtocolError,
-    decode_frame,
-    decode_key,
-    decode_queued_frame,
-    encode_frame,
-    frame_length,
-)
 from client_query_cache._core.entries import AdmissionOutcome
 from client_query_cache._core.errors import (
     StreamLifecycleError,
@@ -49,6 +33,23 @@ from client_query_cache._core.manager import (
     NamespaceCapture,
 )
 from client_query_cache._core.stream_cost import LagCaptureWindowConfig
+from client_query_cache._shared.shared_index import (
+    ArenaPayloads,
+    IndexPublisher,
+    SharedIndexLimits,
+)
+from client_query_cache._shared.wire import (
+    LENGTH_BYTES,
+    PROTOCOL_VERSION,
+    KeyCache,
+    ProtocolError,
+    decode_frame,
+    decode_key,
+    decode_queued_frame,
+    encode_frame,
+    frame_length,
+)
+from client_query_cache._shared_index import OwnerIndex
 from client_query_cache._types import (
     BsonDict,
     MaxAwaitTimeMs,
@@ -63,7 +64,6 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
     from multiprocessing.connection import Connection
 
-    from client_query_cache_shared_index import SessionRing
     from pymongo.monitoring import (
         CommandFailedEvent,
         CommandStartedEvent,
@@ -71,6 +71,7 @@ if TYPE_CHECKING:
     )
 
     from client_query_cache._core.find_reads import FindSource
+    from client_query_cache._shared_index import SessionRing
     from client_query_cache.synchronous.streams import DatabaseStreamSupervisor
 
 type Message = dict[str, object]
@@ -98,9 +99,9 @@ class TransportLimits:
 @dataclass(frozen=True, slots=True)
 class OwnerConfig:
     socket_path: str
-    capability: bytes
-    mongodb_uri: str
-    client_options: Mapping[str, object]
+    capability: bytes = field(repr=False)
+    mongodb_uri: str = field(repr=False)
+    client_options: Mapping[str, object] = field(repr=False)
     databases: tuple[str, ...]
     budget_bytes: PositiveInt
     max_entry_bytes: PositiveInt
@@ -604,7 +605,7 @@ class SharedCacheOwner:
             capability, self.config.capability
         ):
             self.counters.unauthorized += 1
-            raise ProtocolError("attachment is not authorized")
+            return {"r": "error", "reason": "unauthorized"}
         if (
             message["budget_bytes"] != self.config.budget_bytes
             or message["max_entry_bytes"] != self.config.max_entry_bytes
@@ -764,6 +765,13 @@ class SharedCacheOwner:
                 sock, _address = self._listener.accept()
             except BlockingIOError:
                 return
+            _pid, uid, _gid = struct.unpack(
+                "3i", sock.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12)
+            )
+            if uid != os.geteuid():
+                self.counters.unauthorized += 1
+                sock.close()
+                continue
             if len(self._connections) >= self.config.limits.connections:
                 self.counters.connections_rejected += 1
                 sock.close()
@@ -854,7 +862,7 @@ class SharedCacheOwner:
     def _receive(self, connection: _Connection, now: NonNegativeFloat) -> None:
         try:
             chunk = connection.sock.recv(_RECEIVE_BYTES)
-        except BlockingIOError:  # pragma: no cover (selector reported readability)
+        except BlockingIOError:  # pragma: lax no cover (readiness race)
             return
         except OSError:  # pragma: lax no cover (peer reset timing)
             self.detach(connection)

@@ -1,5 +1,5 @@
 import dataclasses
-from typing import get_args, get_type_hints
+from typing import Any, get_args, get_type_hints
 
 import pytest
 from annotated_types import Ge, Gt
@@ -12,6 +12,7 @@ from client_query_cache import (
     CacheSnapshot,
     StreamCostSnapshot,
 )
+from client_query_cache._core.find_one_reads import CollationInput
 
 pytestmark = pytest.mark.unit
 
@@ -33,6 +34,28 @@ def test_public_dataclass_annotations_resolve_at_runtime(cls: type) -> None:
     assert get_type_hints(cls, include_extras=True).keys() == {
         field.name for field in dataclasses.fields(cls)
     }
+
+
+@pytest.mark.parametrize(
+    "cls",
+    [
+        pytest.param(client_query_cache.SharedCachedCollection, id="sync"),
+        pytest.param(
+            client_query_cache.asynchronous.SharedCachedCollection, id="async"
+        ),
+    ],
+)
+def test_shared_find_one_annotations_resolve_at_runtime(
+    cls: type[
+        client_query_cache.SharedCachedCollection[Any]
+        | client_query_cache.asynchronous.SharedCachedCollection[Any]
+    ],
+) -> None:
+    document_type = cls.__type_params__[0]
+    hints = get_type_hints(
+        cls.find_one, localns={document_type.__name__: document_type}
+    )
+    assert hints["collation"] == CollationInput | None
 
 
 @pytest.mark.parametrize(

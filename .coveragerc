@@ -12,6 +12,8 @@ omit =
     tests/e2e/*
     tests/memory/*
     scripts/*
+    # Performance acceptance runs this harness without instrumentation.
+    benchmarks/public_shared_cache.py
     tests/benchmark/real_server/test_cache_benefit.py
 
 [report]

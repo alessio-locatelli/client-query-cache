@@ -24,7 +24,6 @@ from typing import TYPE_CHECKING, Any
 from bson.codec_options import CodecOptions
 
 from benchmarks.stream_cost.shared_cache.dataset import catalogue
-from benchmarks.stream_cost.shared_cache.wire import KeyCache, encode_key
 from client_query_cache._core.canonical import canonicalize
 from client_query_cache._core.codec import (
     codec_fingerprint,
@@ -35,13 +34,14 @@ from client_query_cache._core.find_one_reads import find_one_read_shape
 from client_query_cache._core.keys import NamespaceId
 from client_query_cache._core.manager import CacheCore, CacheCoreConfig
 from client_query_cache._core.order_sensitive_keys import order_sensitive_key
+from client_query_cache._shared.wire import KeyCache, encode_key
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Mapping, Sequence
     from multiprocessing.connection import Connection
     from types import ModuleType
 
-    import client_query_cache_shared_index as native
+    from client_query_cache import _shared_index as native
 
 type Payload = dict[str, Any]
 type SyncHit = Callable[[int], object]
@@ -547,12 +547,12 @@ def provenance() -> Payload:
             if line.startswith("model name")
         ),
         "pymongo": version("pymongo"),
-        "extension": version("client-query-cache-shared-index"),
+        "extension": version("client-query-cache"),
     }
 
 
 def report() -> Payload:
-    import client_query_cache_shared_index as native  # noqa: PLC0415 - Load the optional prototype extension only when running the report.
+    from client_query_cache import _shared_index as native  # noqa: PLC0415 - Load the optional prototype extension only when running the report.
 
     config = json.loads(CONFIG.read_text(encoding="utf-8"))
     entries = Entries(config)

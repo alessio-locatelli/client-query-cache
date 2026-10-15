@@ -2,6 +2,8 @@
 
 ## Requirements
 
+The 0.8 release distribution includes a native module. Binary wheels target CPython 3.14+ on Linux x86-64 with glibc 2.28+. Shared caching additionally requires Linux 5.1+ with `memfd` sealing and `/proc`. Free-threaded interpreters and other platforms are not supported by this release. Source builds require [Rust and Cargo](https://rust-lang.org/tools/install).
+
 - Python 3.14 or newer and PyMongo 4.18.1 or newer, as declared by the package.
 - Caching requires MongoDB 8.0+ on a replica set or sharded cluster. Change streams are unavailable on standalone servers; the library also enforces its MongoDB version floor at startup.
 - A caller-owned PyMongo client with access to the collections and their database change stream.

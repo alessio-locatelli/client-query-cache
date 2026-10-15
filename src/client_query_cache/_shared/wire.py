@@ -39,6 +39,7 @@ _CLASSES: Final[dict[str, type]] = {"dict": dict}
 _CLASS_NAMES: Final = {id(kind): name for name, kind in _CLASSES.items()}
 _EMPTY_REGISTRY: Final = "empty-registry"
 _UTC: Final = "utc"
+_MAX_CACHED_KEY_BYTES: Final = 4096
 
 
 class UnportableKeyError(ValueError):
@@ -169,9 +170,10 @@ class KeyCache:
         except KeyError:
             pass
         encoded = encode_key(value)
-        if len(self._encoded) >= self._limit:
-            self._encoded.clear()
-        self._encoded[value] = encoded
+        if len(encoded) <= _MAX_CACHED_KEY_BYTES:
+            if len(self._encoded) >= self._limit:
+                self._encoded.clear()
+            self._encoded[value] = encoded
         return encoded
 
     def decode(self, encoded: object) -> object:
@@ -182,9 +184,11 @@ class KeyCache:
         except TypeError as error:
             raise ProtocolError("cache keys must be encoded BSON") from error
         value = decode_key(encoded)
-        if len(self._decoded) >= self._limit:
-            self._decoded.clear()
-        self._decoded[encoded] = value  # type: ignore[index]
+        assert isinstance(encoded, bytes)
+        if len(encoded) <= _MAX_CACHED_KEY_BYTES:
+            if len(self._decoded) >= self._limit:
+                self._decoded.clear()
+            self._decoded[encoded] = value
         return value
 
 

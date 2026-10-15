@@ -6,8 +6,8 @@ from typing import TYPE_CHECKING, Any
 
 from pymongo import AsyncMongoClient
 
-from benchmarks.stream_cost.shared_cache.adapters import AsyncSharedCacheManager
-from benchmarks.stream_cost.shared_cache.attachment import AsyncEndpoint
+from client_query_cache._shared.adapters import AsyncSharedCacheManager
+from client_query_cache._shared.attachment import AsyncEndpoint
 from research.shared_cache_launch.launch_owner import attachment_from_environment
 
 if TYPE_CHECKING:

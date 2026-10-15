@@ -15,7 +15,6 @@ from pymongo.errors import PyMongoError
 
 from benchmarks.stream_cost.errors import BenchmarkSetupError
 from benchmarks.stream_cost.multiprocess_run import receive
-from benchmarks.stream_cost.shared_cache.attachment import SyncEndpoint
 from benchmarks.stream_cost.shared_cache.dataset import seed_catalogue
 from benchmarks.stream_cost.shared_cache.protocol import FaultCell, fault_applicability
 from benchmarks.stream_cost.shared_cache.safety import (
@@ -30,7 +29,8 @@ from benchmarks.stream_cost.shared_cache.window import (
     _spec,
     _workload,
 )
-from benchmarks.stream_cost.shared_cache.wire import (
+from client_query_cache._shared.attachment import SyncEndpoint
+from client_query_cache._shared.wire import (
     ProtocolError,
     encode_frame,
     encode_key,
@@ -40,10 +40,10 @@ from client_query_cache._types import BsonDict, NonNegativeFloat, NonNegativeInt
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from benchmarks.stream_cost.shared_cache.attachment import AttachmentConfig
-    from benchmarks.stream_cost.shared_cache.coordinator import Message
     from benchmarks.stream_cost.shared_cache.protocol import Cell, Registration
     from benchmarks.stream_cost.topology import IsolatedReplicaSet
+    from client_query_cache._shared.attachment import AttachmentConfig
+    from client_query_cache._shared.coordinator import Message
 
 
 def _require(condition: object, message: str) -> None:

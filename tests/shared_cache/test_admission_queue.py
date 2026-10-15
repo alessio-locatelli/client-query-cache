@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import pytest
-from client_query_cache_shared_index import OwnerIndex, ReaderIndex, SessionRing
 from hypothesis import settings
 from hypothesis import strategies as st
 from hypothesis.stateful import (
@@ -16,7 +15,8 @@ from hypothesis.stateful import (
     run_state_machine_as_test,
 )
 
-from benchmarks.stream_cost.shared_cache.shared_index import SharedIndexLimits
+from client_query_cache._shared.shared_index import SharedIndexLimits
+from client_query_cache._shared_index import OwnerIndex, ReaderIndex, SessionRing
 from client_query_cache._types import NonNegativeInt, PositiveInt
 
 if TYPE_CHECKING:

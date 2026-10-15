@@ -5,6 +5,10 @@ read methods, ownership rules, and how to fall back to plain PyMongo. Start with
 
 Synchronous names live at the top level (`client_query_cache`) and wrap `pymongo.MongoClient`. The same names are available under `client_query_cache.asynchronous` and wrap `pymongo.AsyncMongoClient`. With asyncio, await every cached read except `find()`, which returns its async cursor immediately; await `aggregate()` before consuming its cursor. [Cached read methods](#cached-read-methods) shows both forms. Everything below applies to both APIs unless it names an asyncio difference.
 
+## Shared workers
+
+`client_query_cache` exports `SharedCacheServer`, `SharedCacheConfig`, `SharedCacheConnection`, `SharedCacheStatistics`, `SharedCacheManager` and `SharedCachedCollection`. The asyncio package exports its own `SharedCacheManager` and `SharedCachedCollection`. Their supported reads, configuration, worker statistics, startup and cleanup are documented in the [shared-cache guide](../operations/shared-cache.md).
+
 ## Constructing a manager
 
 ```python

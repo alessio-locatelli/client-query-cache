@@ -1,17 +1,17 @@
 from __future__ import annotations
 
 import asyncio
+import errno
 import os
 import socket
 import threading
 import time
 import weakref
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Final
 
-from client_query_cache_shared_index import ReaderIndex
-
-from benchmarks.stream_cost.shared_cache.wire import (
+from client_query_cache._core.errors import CacheClosedError, CacheConfigurationError
+from client_query_cache._shared.wire import (
     LENGTH_BYTES,
     PROTOCOL_VERSION,
     ProtocolError,
@@ -19,6 +19,7 @@ from benchmarks.stream_cost.shared_cache.wire import (
     encode_frame,
     frame_length,
 )
+from client_query_cache._shared_index import ReaderIndex
 from client_query_cache._types import (
     MaxAwaitTimeMs,
     NonNegativeFloat,
@@ -26,6 +27,7 @@ from client_query_cache._types import (
     PositiveFloat,
     PositiveInt,
 )
+from client_query_cache.asynchronous.streams import _join_cleanup
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -41,18 +43,24 @@ _CONTROL_DESCRIPTORS: Final = 2
 _MAX_DESCRIPTORS: Final = 4
 
 
-class InheritedAttachmentError(RuntimeError):
+class InheritedAttachmentError(CacheClosedError):
     pass
 
 
-class AttachmentConfigurationError(RuntimeError):
+class AttachmentConfigurationError(CacheConfigurationError):
     pass
+
+
+def attachment_unavailable(error: OSError) -> bool:
+    return isinstance(error, (ConnectionError, FileNotFoundError, TimeoutError)) or (
+        error.errno in {errno.EAGAIN, errno.ENOTCONN}
+    )
 
 
 @dataclass(frozen=True, slots=True)
 class AttachmentConfig:
     socket_path: str
-    capability: bytes
+    capability: bytes = field(repr=False)
     budget_bytes: PositiveInt
     max_entry_bytes: PositiveInt
     max_await_time_ms: MaxAwaitTimeMs
@@ -177,7 +185,8 @@ def control_handshake(config: AttachmentConfig) -> ControlAttachment:
 _LOCAL_INDEXES: Final[weakref.WeakSet[LocalIndex | AsyncLocalIndex]] = weakref.WeakSet()
 
 
-def _detach_inherited() -> None:  # pragma: no cover (forked child, pre-coverage)
+# Fork callbacks run before coverage resumes in the child.
+def _detach_inherited() -> None:  # pragma: lax no cover
     for local in tuple(_LOCAL_INDEXES):
         local.reader.detach()
         placeholder = os.open(os.devnull, os.O_RDONLY | os.O_CLOEXEC)
@@ -255,8 +264,17 @@ class AsyncLocalIndex:
 
     @classmethod
     async def attach(cls, config: AttachmentConfig) -> AsyncLocalIndex:
-        control = await asyncio.to_thread(control_handshake, config)
-        stream, writer = await asyncio.open_unix_connection(sock=control.sock)
+        handshake = asyncio.create_task(asyncio.to_thread(control_handshake, config))
+        try:
+            control = await _join_cleanup(handshake)
+        except asyncio.CancelledError:
+            handshake.result().sock.close()
+            raise
+        try:
+            stream, writer = await asyncio.open_unix_connection(sock=control.sock)
+        except BaseException:
+            control.sock.close()
+            raise
         return cls(control.reader, stream, writer, control.sock.fileno())
 
     async def _watch(self, stream: asyncio.StreamReader) -> None:
@@ -268,6 +286,7 @@ class AsyncLocalIndex:
             self.reader.detach()
 
     async def close(self) -> None:
+        self.reader.detach()
         self._writer.close()
         self._watcher.cancel()
         try:
@@ -330,7 +349,7 @@ class SyncEndpoint:
         "incarnation",
     )
 
-    def __init__(self, config: AttachmentConfig) -> None:
+    def __init__(self, config: AttachmentConfig, *, require_owner: bool = True) -> None:
         self.config = config
         self._pid = os.getpid()
         self._local = threading.local()
@@ -340,7 +359,10 @@ class SyncEndpoint:
         self._closed = False
         self.counters = EndpointCounters()
         self.incarnation: object = None
-        if self._connect(time.monotonic() + _ATTACH_DEADLINE_SECONDS) is None:
+        deadline = (
+            _ATTACH_DEADLINE_SECONDS if require_owner else config.rpc_deadline_seconds
+        )
+        if self._connect(time.monotonic() + deadline) is None and require_owner:
             message = "shared cache owner is not reachable"
             raise AttachmentConfigurationError(message)
 
@@ -354,11 +376,16 @@ class SyncEndpoint:
         connection = _SyncConnection(sock)
         try:
             reply = self._handshake(connection, deadline)
-        except OSError:
+        except OSError as error:
             sock.close()
+            if not attachment_unavailable(error):
+                raise
             self._retry_after = time.monotonic() + _RETRY_SECONDS
             self.counters.failures += 1
             return None
+        except BaseException:
+            sock.close()
+            raise
         try:
             _accepted(reply)
         except AttachmentConfigurationError:
@@ -492,11 +519,21 @@ class AsyncEndpoint:
         self.next_id = 1
 
     @classmethod
-    async def attach(cls, config: AttachmentConfig) -> AsyncEndpoint:
+    async def attach(
+        cls, config: AttachmentConfig, *, require_owner: bool = True
+    ) -> AsyncEndpoint:
         endpoint = cls(config)
-        async with asyncio.timeout(_ATTACH_DEADLINE_SECONDS):
-            connected = await endpoint._connect()
-        if not connected:
+        deadline = (
+            _ATTACH_DEADLINE_SECONDS if require_owner else config.rpc_deadline_seconds
+        )
+        try:
+            async with asyncio.timeout(deadline):
+                connected = await endpoint._connect()
+        except TimeoutError:
+            if require_owner:
+                raise
+            connected = endpoint._unreachable()
+        if not connected and require_owner:
             message = "shared cache owner is not reachable"
             raise AttachmentConfigurationError(message)
         return endpoint
@@ -516,7 +553,9 @@ class AsyncEndpoint:
                 reader, writer = await asyncio.open_unix_connection(
                     self.config.socket_path, limit=self.config.frame_limit * 2
                 )
-            except OSError:
+            except OSError as error:
+                if not attachment_unavailable(error):
+                    raise
                 return self._unreachable()
             frame = encode_frame(self.config.hello())
             writer.write(frame)
@@ -526,8 +565,10 @@ class AsyncEndpoint:
             except asyncio.IncompleteReadError:
                 writer.close()
                 return self._unreachable()
-            except OSError:
+            except OSError as error:
                 writer.close()
+                if not attachment_unavailable(error):
+                    raise
                 return self._unreachable()
             except BaseException:
                 writer.close()

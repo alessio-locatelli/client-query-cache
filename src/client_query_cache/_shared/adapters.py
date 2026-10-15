@@ -8,16 +8,14 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, override
 
-from benchmarks.stream_cost.shared_cache.attachment import AsyncLocalIndex, LocalIndex
-from benchmarks.stream_cost.shared_cache.wire import (
-    KeyCache,
-    UnportableKeyError,
-    encode_key,
-)
-from client_query_cache._core.canonical import canonicalize, is_canonicalizable
+from pymongo.collation import Collation
+
+from client_query_cache._core.canonical import canonicalize
 from client_query_cache._core.codec import codec_fingerprint, decode_value, encode_value
 from client_query_cache._core.collection_metadata import CollectionMetadata
 from client_query_cache._core.cursor_capture import CursorCapture
+from client_query_cache._core.errors import CacheClosedError
+from client_query_cache._core.find_one_reads import CollationInput  # noqa: TC001 - Public method annotations resolve with the class type parameters.
 from client_query_cache._core.find_reads import FindReadShape, find_read_shape
 from client_query_cache._core.identity_reads import (
     NO_IDENTITY,
@@ -27,6 +25,15 @@ from client_query_cache._core.identity_reads import (
 from client_query_cache._core.order_sensitive_keys import order_sensitive_key
 from client_query_cache._core.read_classification import prepare_query_key
 from client_query_cache._core.snapshots import BypassReason
+from client_query_cache._shared.attachment import (
+    AsyncLocalIndex,
+    LocalIndex,
+    attachment_unavailable,
+)
+from client_query_cache._shared.wire import (
+    KeyCache,
+    UnportableKeyError,
+)
 from client_query_cache._types import NonNegativeInt
 from client_query_cache.asynchronous import collection as async_collection
 from client_query_cache.asynchronous import cursors as async_cursors
@@ -39,21 +46,21 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from bson.codec_options import CodecOptions
-    from client_query_cache_shared_index import ReaderIndex
     from pymongo import AsyncMongoClient, MongoClient
     from pymongo.asynchronous.collection import AsyncCollection
     from pymongo.asynchronous.database import AsyncDatabase
     from pymongo.synchronous.collection import Collection
     from pymongo.synchronous.database import Database
 
-    from benchmarks.stream_cost.shared_cache.attachment import (
+    from client_query_cache._core.collection_metadata import CollectionProbeResult
+    from client_query_cache._core.find_reads import FindSource
+    from client_query_cache._core.keys import NamespaceId
+    from client_query_cache._shared.attachment import (
         AsyncEndpoint,
         Message,
         SyncEndpoint,
     )
-    from client_query_cache._core.collection_metadata import CollectionProbeResult
-    from client_query_cache._core.find_reads import FindSource
-    from client_query_cache._core.keys import NamespaceId
+    from client_query_cache._shared_index import ReaderIndex
 
     type Shared = SharedCacheManager[Any] | AsyncSharedCacheManager[Any]
     type Cursor = SharedCachedCursor[Any] | AsyncSharedCachedCursor[Any]
@@ -61,12 +68,11 @@ if TYPE_CHECKING:
 
 _STALE = CollectionMetadata(checked_epoch=0, bypass_reason=None, default_collation=None)
 UNPORTABLE_KEY = "unportable-key"
-_UNCANONICALIZABLE = BypassReason.UNCANONICALIZABLE_KEY.value
-PROTOTYPE_SCOPE = "prototype-scope"
+PROTOTYPE_SCOPE = "shared-scope"
 METADATA_REFRESH = "metadata-refresh"
 OWNER_UNAVAILABLE = "owner-unavailable"
 NO_LOCAL_HIT = object()
-_KEY_CACHE_ENTRIES = 256
+_KEY_CACHE_ENTRIES = 8192
 _REATTACH_SECONDS = 0.1
 
 
@@ -85,6 +91,15 @@ class LocalObservation:
 
     def record_oversized_bypass(self) -> None:
         self.record_bypass("oversized")
+
+
+@dataclass(frozen=True, slots=True)
+class SharedCacheStatistics:
+    """Read counts for this worker attachment."""
+
+    hits: NonNegativeInt
+    misses: NonNegativeInt
+    bypasses: NonNegativeInt
 
 
 class _RemoteCaptureCore:
@@ -224,11 +239,9 @@ def _identity_keys(
     cache_identity = normalize_identity_for_cache_key(
         identity, view._collection.codec_options, view._shared.client.codec_options
     )
-    if not is_canonicalizable(cache_identity):
-        return _UNCANONICALIZABLE  # pragma: no cover (portable round trips)
     try:
         return (
-            encode_key(canonicalize(order_sensitive_key(cache_identity))),
+            view._shared.keys.encode(canonicalize(order_sensitive_key(cache_identity))),
             view._shared.keys.encode(read_shape),
         )
     except UnportableKeyError:
@@ -445,11 +458,18 @@ def _identity_outcome(
     return outcome, None
 
 
-def _prototype_scope(view: View, filter_query: object) -> bool:
+def _prototype_scope(
+    view: View, filter_query: object, collation: CollationInput | None
+) -> bool:
     identity, remainder = extract_id_anchor(filter_query)
     if (
         identity is not NO_IDENTITY
         and not remainder
+        and (
+            collation is None
+            or (collation.document if isinstance(collation, Collation) else collation)
+            == {"locale": "simple"}
+        )
         and (view._shared._default_collation_for(view._namespace()) is None)
     ):
         return False
@@ -546,21 +566,27 @@ class SharedCachedCollection[DocumentType: Mapping[str, Any]](
     def __getitem__(self, name: str) -> SharedCachedCollection[DocumentType]:
         database = self._database
         assert isinstance(database, SharedCachedDatabase)
-        return SharedCachedCollection(database, self._collection[name])
+        return type(self)(database, self._collection[name])
 
     @override
     def find_one(
         self,
         filter: object = None,
         projection: Mapping[str, Any] | Sequence[str] | None = None,
+        *,
+        collation: CollationInput | None = None,
         **kwargs: Any,
     ) -> DocumentType | None:
-        if _prototype_scope(self, filter):
-            return self._collection.find_one(filter, projection, **kwargs)
-        return super().find_one(filter, projection, **kwargs)
+        self._shared._check_open()
+        if _prototype_scope(self, filter, collation):
+            return self._collection.find_one(
+                filter, projection, collation=collation, **kwargs
+            )
+        return super().find_one(filter, projection, collation=collation, **kwargs)
 
     @override
     def find(self, *args: object, **kwargs: object) -> SharedCachedCursor[DocumentType]:
+        self._shared._check_open()
         return SharedCachedCursor(self, *args, **kwargs)
 
     @override
@@ -616,21 +642,25 @@ class SharedCachedCollection[DocumentType: Mapping[str, Any]](
 
     @override
     def aggregate(self, *args: Any, **kwargs: Any) -> Any:
+        self._shared._check_open()
         self._shared.observation.record_bypass(PROTOTYPE_SCOPE)
         return self._collection.aggregate(*args, **kwargs)
 
     @override
     def count_documents(self, *args: Any, **kwargs: Any) -> Any:
+        self._shared._check_open()
         self._shared.observation.record_bypass(PROTOTYPE_SCOPE)
         return self._collection.count_documents(*args, **kwargs)
 
     @override
     def estimated_document_count(self, **kwargs: Any) -> Any:
+        self._shared._check_open()
         self._shared.observation.record_bypass(PROTOTYPE_SCOPE)
         return self._collection.estimated_document_count(**kwargs)
 
     @override
     def distinct(self, *args: Any, **kwargs: Any) -> Any:
+        self._shared._check_open()
         self._shared.observation.record_bypass(PROTOTYPE_SCOPE)
         return self._collection.distinct(*args, **kwargs)
 
@@ -652,23 +682,29 @@ class AsyncSharedCachedCollection[DocumentType: Mapping[str, Any]](
     def __getitem__(self, name: str) -> AsyncSharedCachedCollection[DocumentType]:
         database = self._database
         assert isinstance(database, AsyncSharedCachedDatabase)
-        return AsyncSharedCachedCollection(database, self._collection[name])
+        return type(self)(database, self._collection[name])
 
     @override
     async def find_one(
         self,
         filter: object = None,
         projection: Mapping[str, Any] | Sequence[str] | None = None,
+        *,
+        collation: CollationInput | None = None,
         **kwargs: Any,
     ) -> DocumentType | None:
-        if _prototype_scope(self, filter):
-            return await self._collection.find_one(filter, projection, **kwargs)
-        return await super().find_one(filter, projection, **kwargs)
+        self._shared._check_open()
+        if _prototype_scope(self, filter, collation):
+            return await self._collection.find_one(
+                filter, projection, collation=collation, **kwargs
+            )
+        return await super().find_one(filter, projection, collation=collation, **kwargs)
 
     @override
     def find(
         self, *args: object, **kwargs: object
     ) -> AsyncSharedCachedCursor[DocumentType]:
+        self._shared._check_open()
         return AsyncSharedCachedCursor(self, *args, **kwargs)
 
     @override
@@ -726,21 +762,25 @@ class AsyncSharedCachedCollection[DocumentType: Mapping[str, Any]](
 
     @override
     async def aggregate(self, *args: Any, **kwargs: Any) -> Any:
+        self._shared._check_open()
         self._shared.observation.record_bypass(PROTOTYPE_SCOPE)
         return await self._collection.aggregate(*args, **kwargs)
 
     @override
     async def count_documents(self, *args: Any, **kwargs: Any) -> Any:
+        self._shared._check_open()
         self._shared.observation.record_bypass(PROTOTYPE_SCOPE)
         return await self._collection.count_documents(*args, **kwargs)
 
     @override
     async def estimated_document_count(self, **kwargs: Any) -> Any:
+        self._shared._check_open()
         self._shared.observation.record_bypass(PROTOTYPE_SCOPE)
         return await self._collection.estimated_document_count(**kwargs)
 
     @override
     async def distinct(self, *args: Any, **kwargs: Any) -> Any:
+        self._shared._check_open()
         self._shared.observation.record_bypass(PROTOTYPE_SCOPE)
         return await self._collection.distinct(*args, **kwargs)
 
@@ -760,7 +800,7 @@ class SharedCachedDatabase[DocumentType: Mapping[str, Any]](
 
     @override
     def __getitem__(self, name: str) -> SharedCachedCollection[DocumentType]:
-        return SharedCachedCollection(self, self._database[name])
+        return self.shared.get_cached_collection(self._database[name])
 
 
 class AsyncSharedCachedDatabase[DocumentType: Mapping[str, Any]](
@@ -778,12 +818,13 @@ class AsyncSharedCachedDatabase[DocumentType: Mapping[str, Any]](
 
     @override
     def __getitem__(self, name: str) -> AsyncSharedCachedCollection[DocumentType]:
-        return AsyncSharedCachedCollection(self, self._database[name])
+        return self.shared.get_cached_collection(self._database[name])
 
 
 class SharedCacheManager[DocumentType: Mapping[str, Any]]:
     __slots__ = (
         "_client",
+        "_closed",
         "_metadata",
         "_reattach",
         "_reattach_after",
@@ -803,6 +844,7 @@ class SharedCacheManager[DocumentType: Mapping[str, Any]]:
         local: LocalIndex | None = None,
     ) -> None:
         self._client = client
+        self._closed = False
         self.endpoint = endpoint
         self.local = local
         self.max_entry_bytes = endpoint.config.max_entry_bytes
@@ -816,6 +858,18 @@ class SharedCacheManager[DocumentType: Mapping[str, Any]]:
         self._reattach_after = 0.0
         self._reattaching = threading.Lock()
 
+    def _check_open(self) -> None:
+        self.endpoint._check_owner()
+        if self._closed:
+            raise CacheClosedError("the shared cache manager is closed")
+
+    def snapshot(self) -> SharedCacheStatistics:
+        return SharedCacheStatistics(
+            self.observation.hits,
+            self.observation.misses,
+            sum(self.observation.bypasses.values()),
+        )
+
     @property
     def client(self) -> MongoClient[DocumentType]:
         return self._client
@@ -824,7 +878,7 @@ class SharedCacheManager[DocumentType: Mapping[str, Any]]:
     def cache_core(self) -> LocalObservation:
         return self.observation
 
-    def _reattach_local(self, local: LocalIndex) -> None:
+    def _reattach_local(self, local: LocalIndex | None) -> None:
         if not self._reattaching.acquire(blocking=False):
             return
         try:
@@ -832,14 +886,17 @@ class SharedCacheManager[DocumentType: Mapping[str, Any]]:
                 return
             try:
                 replacement = LocalIndex.attach(self.endpoint.config)
-            except OSError:
+            except OSError as error:
+                if not attachment_unavailable(error):
+                    raise
                 self._reattach_after = time.monotonic() + _REATTACH_SECONDS
                 return
             self.local = replacement
             _reattached(self)
         finally:
             self._reattaching.release()
-        local.close()
+        if local is not None:
+            local.close()
 
     def _cache_ineligibility_reason(
         self,
@@ -848,7 +905,7 @@ class SharedCacheManager[DocumentType: Mapping[str, Any]]:
     ) -> BypassReason | str | None:
         if (
             self._reattach
-            and self.local is not None
+            and (self.local is not None or self.endpoint.connected)
             and time.monotonic() >= self._reattach_after
         ):
             self._reattach_local(self.local)
@@ -857,7 +914,9 @@ class SharedCacheManager[DocumentType: Mapping[str, Any]]:
         except KeyError:
             cached = _STALE
         if cached is not _STALE:
-            return cached.bypass_reason
+            return cached.bypass_reason or (
+                PROTOTYPE_SCOPE if cached.default_collation is not None else None
+            )
         reply = self.endpoint.request(
             {"op": "metadata", "ns": [namespace.database, namespace.collection]}
         )
@@ -869,7 +928,9 @@ class SharedCacheManager[DocumentType: Mapping[str, Any]]:
         assert reply is not None
         _remember_slot(self, namespace, reply)
         self._metadata[namespace] = metadata
-        return metadata.bypass_reason
+        return metadata.bypass_reason or (
+            PROTOTYPE_SCOPE if metadata.default_collation is not None else None
+        )
 
     def _default_collation_for(
         self, namespace: NamespaceId
@@ -893,6 +954,10 @@ class SharedCacheManager[DocumentType: Mapping[str, Any]]:
         )
 
     def close(self) -> None:
+        self.endpoint._check_owner()
+        if self._closed:
+            return
+        self._closed = True
         if self.local is not None:
             self.local.close()
         self.endpoint.close()
@@ -901,6 +966,7 @@ class SharedCacheManager[DocumentType: Mapping[str, Any]]:
 class AsyncSharedCacheManager[DocumentType: Mapping[str, Any]]:
     __slots__ = (
         "_client",
+        "_closed",
         "_metadata",
         "_reattach",
         "_reattach_after",
@@ -920,6 +986,7 @@ class AsyncSharedCacheManager[DocumentType: Mapping[str, Any]]:
         local: AsyncLocalIndex | None = None,
     ) -> None:
         self._client = client
+        self._closed = False
         self.endpoint = endpoint
         self.local = local
         self.max_entry_bytes = endpoint.config.max_entry_bytes
@@ -933,6 +1000,18 @@ class AsyncSharedCacheManager[DocumentType: Mapping[str, Any]]:
         self._reattach_after = 0.0
         self._reattaching = asyncio.Lock()
 
+    def _check_open(self) -> None:
+        self.endpoint._check_owner()
+        if self._closed:
+            raise CacheClosedError("the shared cache manager is closed")
+
+    def snapshot(self) -> SharedCacheStatistics:
+        return SharedCacheStatistics(
+            self.observation.hits,
+            self.observation.misses,
+            sum(self.observation.bypasses.values()),
+        )
+
     @property
     def client(self) -> AsyncMongoClient[DocumentType]:
         return self._client
@@ -941,7 +1020,7 @@ class AsyncSharedCacheManager[DocumentType: Mapping[str, Any]]:
     def cache_core(self) -> LocalObservation:
         return self.observation
 
-    async def _reattach_local(self, local: AsyncLocalIndex) -> None:
+    async def _reattach_local(self, local: AsyncLocalIndex | None) -> None:
         if self._reattaching.locked():
             return
         async with self._reattaching:
@@ -949,12 +1028,15 @@ class AsyncSharedCacheManager[DocumentType: Mapping[str, Any]]:
                 return
             try:
                 replacement = await AsyncLocalIndex.attach(self.endpoint.config)
-            except OSError:
+            except OSError as error:
+                if not attachment_unavailable(error):
+                    raise
                 self._reattach_after = time.monotonic() + _REATTACH_SECONDS
                 return
             self.local = replacement
             _reattached(self)
-        await local.close()
+        if local is not None:
+            await local.close()
 
     async def _cache_ineligibility_reason(
         self,
@@ -963,7 +1045,7 @@ class AsyncSharedCacheManager[DocumentType: Mapping[str, Any]]:
     ) -> BypassReason | str | None:
         if (
             self._reattach
-            and self.local is not None
+            and (self.local is not None or self.endpoint.connected)
             and time.monotonic() >= self._reattach_after
         ):
             await self._reattach_local(self.local)
@@ -972,7 +1054,9 @@ class AsyncSharedCacheManager[DocumentType: Mapping[str, Any]]:
         except KeyError:
             cached = _STALE
         if cached is not _STALE:
-            return cached.bypass_reason
+            return cached.bypass_reason or (
+                PROTOTYPE_SCOPE if cached.default_collation is not None else None
+            )
         reply = await self.endpoint.request(
             {"op": "metadata", "ns": [namespace.database, namespace.collection]}
         )
@@ -984,7 +1068,9 @@ class AsyncSharedCacheManager[DocumentType: Mapping[str, Any]]:
         assert reply is not None
         _remember_slot(self, namespace, reply)
         self._metadata[namespace] = metadata
-        return metadata.bypass_reason
+        return metadata.bypass_reason or (
+            PROTOTYPE_SCOPE if metadata.default_collation is not None else None
+        )
 
     def _default_collation_for(
         self, namespace: NamespaceId
@@ -1008,6 +1094,8 @@ class AsyncSharedCacheManager[DocumentType: Mapping[str, Any]]:
         )
 
     async def close(self) -> None:
+        self.endpoint._check_owner()
+        self._closed = True
         if self.local is not None:
             await self.local.close()
         await self.endpoint.close()

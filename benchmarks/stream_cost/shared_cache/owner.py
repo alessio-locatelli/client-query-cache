@@ -12,18 +12,18 @@ import psutil
 
 from benchmarks.stream_cost.client import BenchmarkClientTopologyConfig, WireCompressor
 from benchmarks.stream_cost.proxy import DirectPathByteProxy, DirectPathProxyConfig
-from benchmarks.stream_cost.shared_cache.coordinator import SharedCacheOwner
 from benchmarks.stream_cost.shared_cache.profiling import WindowProfiler
 from client_query_cache._core.keys import IdentityCacheKey, NamespaceId
 from client_query_cache._core.lru import WeightedLru
+from client_query_cache._shared.coordinator import SharedCacheOwner
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
     from multiprocessing.connection import Connection
 
-    from benchmarks.stream_cost.shared_cache.coordinator import Message, OwnerConfig
     from client_query_cache._core.entries import CacheEntry
     from client_query_cache._core.keys import CacheKey
+    from client_query_cache._shared.coordinator import Message, OwnerConfig
     from client_query_cache.synchronous.streams import DatabaseStreamSupervisor
 
 TOPOLOGY = BenchmarkClientTopologyConfig(

@@ -4,6 +4,12 @@ from ._core.errors import (
     CacheError,
     UnsupportedCacheRequestError,
 )
+from .shared import (
+    SharedCacheConfig,
+    SharedCacheConnection,
+    SharedCacheServer,
+    SharedCacheStatistics,
+)
 from .synchronous import (
     BypassReason,
     BypassReasonCount,
@@ -13,6 +19,8 @@ from .synchronous import (
     CachedDatabase,
     CacheManager,
     CacheSnapshot,
+    SharedCachedCollection,
+    SharedCacheManager,
     StreamCostSnapshot,
     StreamHealthSnapshot,
     StreamHealthStatus,
@@ -30,6 +38,12 @@ __all__ = [
     "CacheSnapshot",
     "CachedCollection",
     "CachedDatabase",
+    "SharedCacheConfig",
+    "SharedCacheConnection",
+    "SharedCacheManager",
+    "SharedCacheServer",
+    "SharedCacheStatistics",
+    "SharedCachedCollection",
     "StreamCostSnapshot",
     "StreamHealthSnapshot",
     "StreamHealthStatus",

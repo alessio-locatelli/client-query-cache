@@ -14,8 +14,19 @@ from bson.objectid import ObjectId
 from hypothesis import given
 from hypothesis import strategies as st
 
-from benchmarks.stream_cost.shared_cache.wire import (
+from client_query_cache._core.canonical import canonicalize
+from client_query_cache._core.codec import codec_fingerprint
+from client_query_cache._core.find_reads import (
+    FindReadShape,
+    find_discriminator,
+    find_read_shape,
+)
+from client_query_cache._core.order_sensitive_keys import (
+    order_sensitive_discriminator_key,
+)
+from client_query_cache._shared.wire import (
     _EMPTY_IDENTITY,
+    _MAX_CACHED_KEY_BYTES,
     KeyCache,
     ProtocolError,
     UnportableKeyError,
@@ -27,16 +38,7 @@ from benchmarks.stream_cost.shared_cache.wire import (
     from_wire,
     to_wire,
 )
-from client_query_cache._core.canonical import canonicalize
-from client_query_cache._core.codec import codec_fingerprint
-from client_query_cache._core.find_reads import (
-    FindReadShape,
-    find_discriminator,
-    find_read_shape,
-)
-from client_query_cache._core.order_sensitive_keys import (
-    order_sensitive_discriminator_key,
-)
+from client_query_cache._types import PositiveInt
 from tests.codec_helpers import Decimal128ToDecimalDecoder
 
 if TYPE_CHECKING:
@@ -197,6 +199,38 @@ def test_key_cache_reuses_bounded_encodings(faker: Faker) -> None:
     assert cache.encode(shapes[2]) is encoded[2]
     assert [cache.decode(item) for item in encoded] == shapes
     assert cache.decode(encoded[2]) == shapes[2]
+
+
+@pytest.mark.parametrize("payload_bytes", [_MAX_CACHED_KEY_BYTES, 1024 * 1024])
+def test_large_keys_are_usable_without_retention(payload_bytes: PositiveInt) -> None:
+    cache = KeyCache(8192)
+    retained = canonicalize({"ordinary": "identity"})
+    small = cache.encode(retained)
+    assert cache.decode(small) == retained
+    payload = "x" * payload_bytes
+    for index in range(128):
+        key = canonicalize({"identifier": f"{index}:{payload}"})
+        encoded = cache.encode(key)
+        assert cache.decode(encoded) == key
+    assert cache._encoded == {retained: small}
+    assert cache._decoded == {small: retained}
+
+
+@pytest.mark.parametrize(
+    ("encoded_bytes", "retained"),
+    [(_MAX_CACHED_KEY_BYTES, True), (_MAX_CACHED_KEY_BYTES + 1, False)],
+)
+def test_key_cache_admits_the_encoded_size_boundary(
+    encoded_bytes: PositiveInt, *, retained: bool
+) -> None:
+    overhead = len(encode_key(canonicalize("")))
+    key = canonicalize("x" * (encoded_bytes - overhead))
+    cache = KeyCache(2)
+    encoded = cache.encode(key)
+    assert len(encoded) == encoded_bytes
+    assert cache.decode(encoded) == key
+    assert (key in cache._encoded) is retained
+    assert (encoded in cache._decoded) is retained
 
 
 @pytest.mark.parametrize(
