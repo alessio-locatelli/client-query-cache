@@ -15,4 +15,4 @@ No requirement changes. This research change sets `skip_specs: true`; existing r
 
 ## Impact
 
-Standalone research tooling and a report under `reports/shared-worker-cache/runtime/`. No library, benchmark runner, dependency lockfile or version 7/8 registration changes. The separate miss-cost change and issue #272 keep their existing outcomes.
+Standalone research tooling and a report under `reports/shared-worker-cache/runtime/`. Slotscheck excludes the isolated script from project-environment imports. No library, benchmark runner, dependency lockfile or version 7/8 registration changes. The separate miss-cost change and issue #272 keep their existing outcomes.

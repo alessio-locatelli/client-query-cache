@@ -87,10 +87,14 @@ members = ["native/shared-index"]
 # slotscheck 0.21.0: https://github.com/ariebovenberg/slotscheck/blob/v0.21.0/src/slotscheck/config.py
 # require-subclass: The default is false. We override it because subclasses must preserve their slotted parent's memory contract.
 require-subclass = true
+# slotscheck 0.21.0: https://github.com/ariebovenberg/slotscheck/blob/v0.21.0/src/slotscheck/config.py
+# The default excludes __main__ modules. This standalone research script also uses
+# its PEP 723 environment; its numerical dependencies are absent from the project.
 exclude-modules = '''
 (
   ^specifications
   | ^examples
+  | ^scripts\.analyze_shared_cache_runtime$
 )
 '''
 
