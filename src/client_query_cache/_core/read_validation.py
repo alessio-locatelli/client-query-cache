@@ -48,9 +48,12 @@ UNCACHEABLE_SYSTEM_VARIABLES = frozenset({"$$NOW", "$$CLUSTER_TIME", "$$USER_ROL
 _UNCACHEABLE_VARIABLE_PREFIXES = tuple(
     f"{variable}." for variable in UNCACHEABLE_SYSTEM_VARIABLES
 )
+_SAFE_SCALAR_TYPES = (int, float, bool, bytes, bytearray, type(None))
 
 
 def _contains_unsafe_construct(node: object, unsafe_keys: frozenset[str]) -> bool:
+    if type(node) in _SAFE_SCALAR_TYPES:
+        return False
     if isinstance(node, Mapping):
         for key, value in node.items():
             if not isinstance(key, str) or key in unsafe_keys:

@@ -1,0 +1,30 @@
+{
+  "python": "3.14.7",
+  "pymongo": "4.18.2",
+  "psutil": "7.2.2",
+  "testcontainers": "4.15.0",
+  "platform": "Linux-7.2.9-201.fc44.x86_64-x86_64-with-glibc2.43",
+  "processor": "13th Gen Intel(R) Core(TM) i3-13100",
+  "logical_cpus": 8,
+  "total_memory_bytes": 67161395200,
+  "mongodb_image": "mongo:9.0.2@sha256:bac22ea7710d774103dcad3ec8ac13cba1eb378f488e3ce8a6b3a1adf2ba9dcc",
+  "topology": {
+    "cpus": 2,
+    "memory": "2g"
+  },
+  "start_method": "spawn",
+  "client_options": {
+    "directConnection": true,
+    "serverSelectionTimeoutMS": 10000
+  },
+  "transport": "unix-domain socket, length-prefixed BSON frames",
+  "native_extension": {
+    "version": "0.8.0",
+    "binary_sha256": "553e70bb21943c2dbdd11d3b47a78977ed2f5dca6e1657a094be2eaf31e78efb",
+    "rustc": "rustc version 1.99.0 (b940084d7 2026-09-28)",
+    "generator": "maturin (1.15.0)",
+    "tag": "cp314-abi3-linux_x86_64",
+    "cargo_lock_sha256": "78496ae54147678e169f504e4094bd984ce34c1ce33a3bd890619ef93c2913b9"
+  },
+  "proxy_tcp_nodelay": true
+}

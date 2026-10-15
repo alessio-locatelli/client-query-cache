@@ -19,6 +19,7 @@ DIRECT_PATH_BYTES_LIMITATION = (
     "dedicated client and the replica-set primary; not a substitute for "
     "universal wire-traffic accounting"
 )
+PROXY_TCP_NODELAY = True
 
 _BUFFER_SIZE = 65_536
 _JOIN_TIMEOUT_SECONDS = 5.0
@@ -130,14 +131,23 @@ class DirectPathByteProxy:
                 continue
             except OSError:
                 return
+            upstream_socket = None
             try:
+                client_socket.setsockopt(
+                    socket.IPPROTO_TCP, socket.TCP_NODELAY, PROXY_TCP_NODELAY
+                )
                 upstream_socket = socket.create_connection(
                     (self._config.upstream_host, self._config.upstream_port),
                     timeout=_UPSTREAM_CONNECT_TIMEOUT_SECONDS,
                 )
                 upstream_socket.settimeout(None)
+                upstream_socket.setsockopt(
+                    socket.IPPROTO_TCP, socket.TCP_NODELAY, PROXY_TCP_NODELAY
+                )
             except OSError:
                 client_socket.close()
+                if upstream_socket is not None:
+                    upstream_socket.close()
                 continue
             connection_thread = threading.Thread(
                 target=self._run_connection,

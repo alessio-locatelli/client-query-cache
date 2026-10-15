@@ -31,7 +31,7 @@ _ENVIRONMENT_FIELDS = tuple(
 )
 
 
-@pytest.fixture(scope="module", params=(9, 10), ids=("v9", "v10"))
+@pytest.fixture(scope="module", params=(9, 10, 12), ids=("v9", "v10", "v12"))
 def registration(request: pytest.FixtureRequest) -> Registration:
     return Registration.load(
         Path(f"reports/shared-worker-cache/v{request.param}/config.json")
@@ -237,6 +237,28 @@ def test_rejects_incompatible_registered_environment(
     with pytest.raises(
         ValueError, match="registered environment differs: " + field_path[0]
     ):
+        qualification.qualification_decision(report, registration)
+
+
+@pytest.mark.parametrize("registration", [12], indirect=True)
+@pytest.mark.parametrize(
+    ("missing", "expected_error"),
+    [(False, ValueError), (True, KeyError)],
+    ids=["disabled", "missing"],
+)
+def test_qualification_requires_registered_proxy_policy(
+    report: JsonDict,
+    registration: Registration,
+    missing: bool,
+    expected_error: type[ValueError | KeyError],
+) -> None:
+    environment = report["environment"]
+    assert isinstance(environment, dict)
+    if missing:
+        environment.pop("proxy_tcp_nodelay")
+    else:
+        environment["proxy_tcp_nodelay"] = False
+    with pytest.raises(expected_error, match="proxy_tcp_nodelay"):
         qualification.qualification_decision(report, registration)
 
 

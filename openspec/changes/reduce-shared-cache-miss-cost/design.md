@@ -46,7 +46,13 @@ After consuming queued admissions, the owner polls admission queues at one-milli
 
 Public integration changed the independent baseline's namespace reuse and native distribution metadata. Version 9's registered environment therefore cannot qualify this checkout. Version 10 registers the current environment, including the compiled extension digest, and fresh baseline-only downward calibration before candidate measurements; historical results remain frozen.
 
-Version 10's cold study fails all four P99 comparisons despite healthy completion and passing P95 bounds. Instrumented owner drains still average about 1.4 milliseconds with five-millisecond polling. Version 11 reduces only the admission polling interval to one millisecond, registers fresh qualification and repeats the unchanged acceptance protocol. Its development diagnostics do not substitute for that study.
+Version 10's cold study fails all four P99 comparisons despite healthy completion and passing P95 bounds. Instrumented owner drains still average about 1.4 milliseconds with five-millisecond polling. Version 11 reduces only the admission polling interval to one millisecond; one cold P99 comparison passes, but three fail or are unstable.
+
+Version 12 adds exact built-in scalar fast paths to canonicalization, order-sensitive keys and filter validation, retaining all tagged/subclass/container representations. Identity extraction reuses an immutable empty remainder. Matching-codec plain signed 32-bit integers bypass BSON normalization only with the default dictionary document class and an empty decoder map; wider integers, explicit `Int64`, other types and custom/distinct codecs retain normalization. Differential tests compare values and exact result types against real BSON decoding, including signed-width boundaries and custom decoders.
+
+The byte-counting relay enables `TCP_NODELAY` on both connected sockets, matching PyMongo's direct connection policy. Socket setup failure closes both legs before accepting another connection. Counters, fault controls and path scopes remain intact. The frozen environment records this observer policy, and fresh baseline qualification covers both scalar changes and relay behavior. Historical registrations remain frozen. Exploratory relay bypasses and GC/GIL prototypes contribute no acceptance evidence.
+
+The secret scanner uses its built-in line-exclusion filter for exact JSON `binary_sha256` and `cargo_lock_sha256` fields containing 64 lowercase hexadecimal characters. These are public reproducibility digests. This replaces repeated per-report false-positive entries while retaining all other scanning rules and findings.
 
 ## Delivery
 
