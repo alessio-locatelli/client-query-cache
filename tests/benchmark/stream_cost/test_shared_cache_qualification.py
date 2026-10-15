@@ -14,7 +14,7 @@ import pytest
 from benchmarks.stream_cost.shared_cache import run
 from benchmarks.stream_cost.shared_cache.protocol import Registration
 from client_query_cache._types import JsonDict, NonEmptyStr
-from research.shared_cache_runtime import experiment, qualification
+from research.shared_cache_runtime import design, qualification
 
 if TYPE_CHECKING:
     from faker import Faker
@@ -40,15 +40,15 @@ def completed_report(registration: Registration) -> JsonDict:
     assert git is not None
     revision = subprocess.check_output([git, "rev-parse", "HEAD"], text=True).strip()  # noqa: S603 - Resolved git executable with fixed arguments and no shell.
     producer = subprocess.check_output(  # noqa: S603 - Read the committed research producer without a shell.
-        [git, "show", f"{revision}:{experiment.PROGRAM}"]
+        [git, "show", f"{revision}:{design.PROGRAM}"]
     )
-    design = json.loads(
+    schedule = json.loads(
         Path("reports/shared-worker-cache/runtime/qualification.json").read_text(
             encoding="utf-8"
         )
     )
-    selected = experiment.design_cells(registration, design)
-    planned = experiment.planned_rows(selected)
+    selected = design.design_cells(registration, schedule)
+    planned = design.planned_rows(selected)
     cells = []
     for row, (_label, _registration, cell) in zip(planned, selected, strict=True):
         assert cell.rate is not None
@@ -89,7 +89,7 @@ def completed_report(registration: Registration) -> JsonDict:
             "available_memory_bytes": _ENVIRONMENT["total_memory_bytes"],
         },
         "program_sha256": hashlib.sha256(producer).hexdigest(),
-        "research_source_paths": list(experiment.RESEARCH_PATHS),
+        "research_source_paths": list(design.RESEARCH_PATHS),
         "planned": planned,
         "cells": cells,
         "wall_seconds": 2083.39,
@@ -99,6 +99,70 @@ def completed_report(registration: Registration) -> JsonDict:
 @pytest.fixture
 def report(completed_report: JsonDict) -> JsonDict:
     return copy.deepcopy(completed_report)
+
+
+def test_active_validation_schedule_preserves_workload_and_order(
+    registration: Registration,
+) -> None:
+    schedule = json.loads(
+        Path("reports/shared-worker-cache/runtime/validation.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    selected = design.design_cells(registration, schedule)
+    conditions = {
+        "reference": (60, 200),
+        "short20.1": (20.1, 67),
+        "short27.6": (27.6, 92),
+    }
+    assert len(selected) == 78
+    for label, trial, cell in selected:
+        seconds, updates = conditions[label]
+        assert cell.window_seconds == seconds
+        assert trial.section("active")["updates"] == updates
+        assert seconds / updates == pytest.approx(0.3)
+        assert cell.rate == registration.rate("primary")
+    mixed = [(label, cell) for label, _trial, cell in selected if cell.model == "mixed"]
+    assert len(mixed) == 54
+    orders = {
+        tuple(cell.path for _label, cell in mixed if cell.block == block)[::3]
+        for block in range(6)
+    }
+    assert len(orders) == 6
+    assert registration.section("active")["updates"] == 200
+    for label in conditions:
+        variants = [trial for condition, trial, _cell in selected if condition == label]
+        assert all(trial is variants[0] for trial in variants)
+
+
+def test_capacity_design_preserves_registered_saturation_workload(
+    registration: Registration,
+) -> None:
+    schedule: JsonDict = {
+        "groups": [
+            {
+                "phase": "capacity",
+                "models": ["sync"],
+                "workers": [8],
+                "paths": list(registration.paths),
+                "blocks": 1,
+                "variants": [{"label": "capacity", "warmup_seconds": 0}],
+            }
+        ]
+    }
+
+    selected = design.design_cells(registration, schedule)
+
+    assert len(selected) == 3
+    assert {cell.path for _label, _trial, cell in selected} == set(registration.paths)
+    assert all(
+        cell.loop == "closed"
+        and cell.workers == 8
+        and cell.concurrency == 16
+        and cell.window_seconds == 15
+        and cell.warmup_seconds == 0
+        for _label, _trial, cell in selected
+    )
 
 
 def test_success_keeps_manual_compatibility_pending(
@@ -263,7 +327,7 @@ def source_repository(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     git = shutil.which("git")
     assert git is not None
     subprocess.run([git, "init", "-q", str(tmp_path)], check=True)  # noqa: S603 - Initialize only the disposable test repository.
-    for name in ("experiment.py", "analysis.py"):
+    for name in ("design.py", "analysis.py"):
         path = tmp_path / "research/shared_cache_runtime" / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("# committed producer or analyzer\n", encoding="utf-8")
@@ -295,7 +359,7 @@ def source_repository(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 @pytest.mark.parametrize(
     "relative_path",
     [
-        "research/shared_cache_runtime/experiment.py",
+        "research/shared_cache_runtime/design.py",
         "research/shared_cache_runtime/analysis.py",
         "scripts/analyze_shared_cache_runtime.py",
     ],
@@ -308,8 +372,6 @@ def test_research_tool_changes_mark_source_dirty(
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("# uncommitted implementation\n", encoding="utf-8")
 
-    metadata = run.environment(
-        registration, extra_source_paths=experiment.RESEARCH_PATHS
-    )
+    metadata = run.environment(registration, extra_source_paths=design.RESEARCH_PATHS)
 
     assert metadata["dirty_tree"]

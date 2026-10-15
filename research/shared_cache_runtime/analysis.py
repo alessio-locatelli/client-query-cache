@@ -23,6 +23,7 @@ from benchmarks.stream_cost.shared_cache.analysis import (
 )
 from benchmarks.stream_cost.shared_cache.protocol import Registration
 from client_query_cache._types import JsonDict, NonEmptyStr, PositiveInt
+from research.shared_cache_runtime.design import CONFIG
 from research.shared_cache_runtime.qualification import (
     health_failures,
     qualification_decision,
@@ -34,7 +35,6 @@ if TYPE_CHECKING:
     from numpy.typing import NDArray
 
 type Array = NDArray[np.float64]
-CONFIG = Path("reports/shared-worker-cache/v8/config.json")
 
 
 def interval(
