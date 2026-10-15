@@ -4,6 +4,7 @@ import asyncio
 import errno
 import socket
 import threading
+import time
 from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict
@@ -13,14 +14,23 @@ import pytest
 
 from benchmarks.stream_cost.shared_cache.protocol import Registration
 from benchmarks.stream_cost.shared_cache.window import attachment_for, owner_config
-from client_query_cache._shared.attachment import AsyncEndpoint, SyncEndpoint
+from client_query_cache._shared.attachment import (
+    AsyncEndpoint,
+    EndpointCounters,
+    SyncEndpoint,
+    _SyncConnection,
+)
 from client_query_cache._shared.wire import (
+    LENGTH_BYTES,
     PROTOCOL_VERSION,
     ProtocolError,
     encode_frame,
 )
 
 pytestmark = pytest.mark.unit
+
+_REPLY_FRAME = encode_frame({"v": PROTOCOL_VERSION, "id": 1, "r": "ok"})
+_RECEIVE_TIMEOUT_SECONDS = 5.0
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Iterator
@@ -34,6 +44,34 @@ class ReaderFailure(TypedDict):
     reader: asyncio.StreamReader
     writer: Mock
     pending: asyncio.Future[Message]
+
+
+@pytest.fixture
+def closed_connection(frame_prefix: bytes) -> Iterator[_SyncConnection]:
+    receiver, peer = socket.socketpair()
+    with receiver, peer:
+        peer.sendall(frame_prefix)
+        peer.shutdown(socket.SHUT_WR)
+        yield _SyncConnection(receiver)
+
+
+@pytest.mark.parametrize(
+    "frame_prefix",
+    [b"", _REPLY_FRAME[: LENGTH_BYTES - 1], _REPLY_FRAME[:-1]],
+    ids=["before-frame", "partial-header", "partial-body"],
+)
+def test_sync_receive_rejects_eof_before_a_complete_reply(
+    closed_connection: _SyncConnection, frame_prefix: bytes
+) -> None:
+    counters = EndpointCounters()
+
+    with pytest.raises(ConnectionResetError, match="owner closed the attachment"):
+        closed_connection.receive(
+            time.monotonic() + _RECEIVE_TIMEOUT_SECONDS, len(_REPLY_FRAME), counters
+        )
+
+    assert counters.bytes_received == len(frame_prefix)
+    assert closed_connection.inbox == frame_prefix
 
 
 @pytest.fixture
