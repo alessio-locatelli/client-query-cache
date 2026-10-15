@@ -31,4 +31,5 @@ exclude_path = [
 exclude = [
   'https://github.com/alessio-locatelli/client-query-cache',
   '^https://alessio-locatelli\.github\.io/client-query-cache/(stable|dev|getting-started|usage|benchmarks|examples|reference|operations)(/|$)',
+  '^https://www.freedesktop.org/software/systemd/man/latest/systemctl.html$',                                                                   # Fails with a timeout.
 ]
