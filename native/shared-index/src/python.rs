@@ -348,6 +348,11 @@ impl ReaderIndex {
         self.detached.load(Ordering::Acquire)
     }
 
+    #[getter]
+    fn admissions_enabled(&self) -> bool {
+        self.admissions.is_some()
+    }
+
     fn lookup<'py>(
         &self,
         py: Python<'py>,

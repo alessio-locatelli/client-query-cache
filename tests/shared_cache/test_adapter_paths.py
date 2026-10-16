@@ -572,6 +572,13 @@ class _SharedReads:
 
         self._run(abandon())
 
+    def close_endpoint(self) -> None:
+        endpoint = self.manager.endpoint
+        if isinstance(endpoint, SyncEndpoint):
+            endpoint.close()
+        else:
+            self._run(endpoint.close())
+
     @property
     def detached(self) -> bool:
         if self._runner is not None:
@@ -675,10 +682,18 @@ def test_failed_locally_captured_reads_need_no_discard(
     assert owner.observation()["captures"] == 0
 
 
-def test_local_misses_in_new_threads_connect_before_admission(
+@pytest.mark.parametrize("native_queue", [False, True], ids=("socket", "native-queue"))
+def test_local_misses_in_new_threads_connect_only_for_socket_admission(
     open_reads: Callable[[SharedIndexLimits], tuple[Owner, _SharedReads]],
+    native_queue: bool,
 ) -> None:
-    owner, reads = open_reads(replace(_SHARED_INDEX, local_miss_admission=True))
+    owner, reads = open_reads(
+        replace(
+            _SHARED_INDEX,
+            local_miss_admission=True,
+            native_admission_queue=native_queue,
+        )
+    )
     requests = reads.manager.endpoint.counters.requests
     connects = reads.manager.endpoint.counters.connects
 
@@ -686,31 +701,61 @@ def test_local_misses_in_new_threads_connect_before_admission(
     _admitted(owner, 1)
 
     assert first == [reads.find_one(0)]
-    new_thread = isinstance(reads.manager, SharedCacheManager)
+    new_thread = isinstance(reads.manager, SharedCacheManager) and not native_queue
     assert reads.manager.endpoint.counters.requests == requests + new_thread
     assert reads.manager.endpoint.counters.connects == connects + new_thread
     assert reads.manager.observation.hits == 1
+    assert reads.manager.endpoint.counters.native_admissions == int(native_queue)
 
 
-def test_local_misses_reconnect_after_data_channel_loss(
+@pytest.mark.parametrize("native_queue", [False, True], ids=("socket", "native-queue"))
+def test_local_misses_use_the_control_queue_or_reconnect_after_data_channel_loss(
     open_reads: Callable[[SharedIndexLimits], tuple[Owner, _SharedReads]],
+    native_queue: bool,
 ) -> None:
-    owner, reads = open_reads(replace(_SHARED_INDEX, local_miss_admission=True))
+    owner, reads = open_reads(
+        replace(
+            _SHARED_INDEX,
+            local_miss_admission=True,
+            native_admission_queue=native_queue,
+        )
+    )
     endpoint = reads.manager.endpoint
     requests = endpoint.counters.requests
     connects = endpoint.counters.connects
     reads.disconnect_data()
 
     wait_for(
-        lambda: reads.find_one(0) is not None and endpoint.counters.connects > connects
+        lambda: (
+            reads.find_one(0) is not None
+            and (native_queue or endpoint.counters.connects > connects)
+        )
     )
     _admitted(owner, 1)
 
     assert reads.find_one(0) is not None
-    assert endpoint.counters.requests == requests + 1
-    assert endpoint.counters.connects == connects + 1
+    assert endpoint.counters.requests == requests + int(not native_queue)
+    assert endpoint.counters.connects == connects + int(not native_queue)
+    assert endpoint.counters.native_admissions == int(native_queue)
     assert reads.manager.observation.hits == 1
     assert not reads.detached
+
+
+def test_closed_endpoints_drop_native_admissions(
+    open_reads: Callable[[SharedIndexLimits], tuple[Owner, _SharedReads]],
+) -> None:
+    _owner, reads = open_reads(
+        replace(_SHARED_INDEX, local_miss_admission=True, native_admission_queue=True)
+    )
+    local = reads.manager.local
+    assert local is not None
+    assert local.reader.admissions_enabled
+    reads.close_endpoint()
+
+    reads.manager.endpoint.send({"op": "discard", "handle": 0}, local.reader)
+
+    assert reads.manager.endpoint.counters.native_admissions == 0
+    assert reads.manager.endpoint.counters.dropped_one_way == 1
 
 
 def test_oversized_local_frames_preserve_the_data_channel(

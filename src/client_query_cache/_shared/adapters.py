@@ -240,11 +240,28 @@ def _identity_keys(
     cache_identity = normalize_identity_for_cache_key(
         identity, view._collection.codec_options, view._shared.client.codec_options
     )
+    default_shape = (
+        view._default_shape_key if read_shape is view._find_one_default_shape else None
+    )
+    if isinstance(default_shape, str):
+        return default_shape
     try:
         return (
             view._shared.keys.encode(canonicalize(order_sensitive_key(cache_identity))),
-            view._shared.keys.encode(read_shape),
+            default_shape
+            if default_shape is not None
+            else view._shared.keys.encode(read_shape),
         )
+    except UnportableKeyError:
+        return UNPORTABLE_KEY
+
+
+def _default_shape_key(view: View) -> bytes | str:
+    shape, reason = _prepare_key(view._find_one_default_shape)
+    if reason is not None:
+        return UNPORTABLE_KEY
+    try:
+        return view._shared.keys.encode(shape)
     except UnportableKeyError:
         return UNPORTABLE_KEY
 
@@ -287,7 +304,7 @@ def _local_select(view: View, keys: tuple[bytes, bytes] | str) -> object:
         if local.reader.detached:
             shared._reattach = True
             return NO_LOCAL_HIT
-        if not shared.endpoint.connected:
+        if not local.admissions_enabled and not shared.endpoint.connected:
             return NO_LOCAL_HIT
         token = local.reader.capture(database, slot, metadata.checked_epoch)
         if token is not None:
@@ -586,7 +603,7 @@ class AsyncSharedCachedCursor[DocumentType: Mapping[str, Any]](
 class SharedCachedCollection[DocumentType: Mapping[str, Any]](
     sync_collection.CachedCollection[DocumentType]
 ):
-    __slots__ = ("_shared",)
+    __slots__ = ("_default_shape_key", "_shared")
 
     def __init__(
         self,
@@ -595,6 +612,7 @@ class SharedCachedCollection[DocumentType: Mapping[str, Any]](
     ) -> None:
         super().__init__(database, collection)
         self._shared: SharedCacheManager[DocumentType] = database.shared
+        self._default_shape_key = _default_shape_key(self)
 
     @override
     def __getitem__(self, name: str) -> SharedCachedCollection[DocumentType]:
@@ -715,7 +733,7 @@ class SharedCachedCollection[DocumentType: Mapping[str, Any]](
 class AsyncSharedCachedCollection[DocumentType: Mapping[str, Any]](
     async_collection.CachedCollection[DocumentType]
 ):
-    __slots__ = ("_shared",)
+    __slots__ = ("_default_shape_key", "_shared")
 
     def __init__(
         self,
@@ -724,6 +742,7 @@ class AsyncSharedCachedCollection[DocumentType: Mapping[str, Any]](
     ) -> None:
         super().__init__(database, collection)
         self._shared: AsyncSharedCacheManager[DocumentType] = database.shared
+        self._default_shape_key = _default_shape_key(self)
 
     @override
     def __getitem__(self, name: str) -> AsyncSharedCachedCollection[DocumentType]:
