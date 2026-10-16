@@ -58,3 +58,30 @@ class LockOrderGuard:
 
     def lru_section(self) -> _LockSection:
         return self._lru
+
+
+class NamespaceLock(AbstractContextManager[None]):
+    __slots__ = ("_lock", "_section")
+
+    def __init__(self, guard: LockOrderGuard) -> None:
+        self._section = guard.namespace_section()
+        self._lock = threading.Lock()
+
+    def __enter__(self) -> None:
+        self._section.__enter__()
+        try:
+            self._lock.acquire()
+        except BaseException:
+            self._section.__exit__(None, None, None)
+            raise
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        try:
+            self._lock.release()
+        finally:
+            self._section.__exit__(exc_type, exc_value, traceback)

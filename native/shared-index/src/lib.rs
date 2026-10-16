@@ -10,5 +10,7 @@ mod index;
 mod memory;
 #[cfg(all(feature = "python", not(loom)))]
 mod python;
+#[cfg(not(loom))]
+mod relay;
 mod ring;
 mod sync;

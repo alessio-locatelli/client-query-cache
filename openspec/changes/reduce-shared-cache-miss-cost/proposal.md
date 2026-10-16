@@ -10,6 +10,7 @@
 - Hand off encoded local admissions through a bounded native session queue, reducing worker socket sends and batching owner wakeups.
 - Reduce measured guard, copying, scalar normalization and owner polling costs while preserving admission authority.
 - Match the byte-counting relay's TCP delivery policy to the driver and qualify the changed observer afresh.
+- Forward shared-cache relay bytes outside the Python GIL while retaining bounded buffers, byte accounting and fault controls.
 - Evaluate the candidate under a fresh registration, including the existing timed fault driver.
 
 ## Capabilities

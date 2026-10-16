@@ -178,6 +178,11 @@ class DirectPathByteProxy:
             pump.start()
         for pump in pumps:
             pump.join()
+        self._close_connection(client_socket, upstream_socket)
+
+    def _close_connection(
+        self, client_socket: socket.socket, upstream_socket: socket.socket
+    ) -> None:
         for sock in (client_socket, upstream_socket):
             sock.close()
         with self._lock:

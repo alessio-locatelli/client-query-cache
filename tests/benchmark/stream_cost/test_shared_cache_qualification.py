@@ -31,7 +31,7 @@ _ENVIRONMENT_FIELDS = tuple(
 )
 
 
-@pytest.fixture(scope="module", params=(9, 10, 12), ids=("v9", "v10", "v12"))
+@pytest.fixture(scope="module", params=(9, 10, 12, 13), ids=("v9", "v10", "v12", "v13"))
 def registration(request: pytest.FixtureRequest) -> Registration:
     return Registration.load(
         Path(f"reports/shared-worker-cache/v{request.param}/config.json")
@@ -240,7 +240,11 @@ def test_rejects_incompatible_registered_environment(
         qualification.qualification_decision(report, registration)
 
 
-@pytest.mark.parametrize("registration", [12], indirect=True)
+@pytest.mark.parametrize(
+    ("registration", "field"),
+    [(12, "proxy_tcp_nodelay"), (13, "proxy_tcp_nodelay"), (13, "proxy_io")],
+    indirect=["registration"],
+)
 @pytest.mark.parametrize(
     ("missing", "expected_error"),
     [(False, ValueError), (True, KeyError)],
@@ -251,14 +255,15 @@ def test_qualification_requires_registered_proxy_policy(
     registration: Registration,
     missing: bool,
     expected_error: type[ValueError | KeyError],
+    field: str,
 ) -> None:
     environment = report["environment"]
     assert isinstance(environment, dict)
     if missing:
-        environment.pop("proxy_tcp_nodelay")
+        environment.pop(field)
     else:
-        environment["proxy_tcp_nodelay"] = False
-    with pytest.raises(expected_error, match="proxy_tcp_nodelay"):
+        environment[field] = False
+    with pytest.raises(expected_error, match=field):
         qualification.qualification_decision(report, registration)
 
 

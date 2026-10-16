@@ -31,7 +31,7 @@ _COLLATION_FIELDS = frozenset(
 def normalize_find_one_filter(filter_query: object) -> Mapping[str, Any]:
     if filter_query is None:
         return {}
-    if isinstance(filter_query, Mapping):
+    if type(filter_query) is dict or isinstance(filter_query, Mapping):
         return filter_query
     return {"_id": filter_query}
 

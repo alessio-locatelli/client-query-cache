@@ -99,6 +99,7 @@ def environment(
         "client_options": registration.section("client_options"),
         "transport": "unix-domain socket, length-prefixed BSON frames",
         "proxy_tcp_nodelay": PROXY_TCP_NODELAY,
+        "proxy_io": "native duplex relay",
         "native_extension": native_extension(),
     }
 

@@ -374,7 +374,7 @@ def test_the_lock_order_guard_would_catch_a_real_nesting_bug(
     core: CacheCore, namespace: NamespaceId
 ) -> None:
     state = core._namespace(namespace)
-    with core._namespace_section(state), pytest.raises(LockOrderViolationError):
+    with state.lock, pytest.raises(LockOrderViolationError):
         core._guard.lru_section().__enter__()
 
 

@@ -1,4 +1,5 @@
-use std::os::fd::{BorrowedFd, IntoRawFd, OwnedFd, RawFd};
+use std::net::TcpStream;
+use std::os::fd::{BorrowedFd, FromRawFd, IntoRawFd, OwnedFd, RawFd};
 use std::os::unix::net::UnixListener;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -12,6 +13,7 @@ use crate::echo::Echo;
 use crate::frames::Frames;
 use crate::index::{Block, Index, Layout, Query, Writer};
 use crate::memory::{Mapping, ReadOnly, WORD_BYTES, Words, Writable, reopen_read_only, seal};
+use crate::relay::Relay;
 use crate::ring::Ring;
 use crate::sync::Ordering;
 
@@ -30,6 +32,15 @@ fn borrowed(fd: RawFd) -> PyResult<BorrowedFd<'static>> {
         return Err(invalid("descriptors must be non-negative"));
     }
     Ok(unsafe { BorrowedFd::borrow_raw(fd) })
+}
+
+fn duplicate_tcp(fd: RawFd) -> std::io::Result<TcpStream> {
+    let duplicate = unsafe { libc::fcntl(fd, libc::F_DUPFD_CLOEXEC, 0) };
+    if duplicate < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    // fcntl returned a new owned descriptor, independent of the caller's handle.
+    Ok(TcpStream::from(unsafe { OwnedFd::from_raw_fd(duplicate) }))
 }
 
 #[pyclass(frozen, eq, hash)]
@@ -422,8 +433,54 @@ impl EchoOwner {
     }
 }
 
+#[pyclass(frozen)]
+struct ByteRelay {
+    relay: Relay,
+}
+
+#[pymethods]
+impl ByteRelay {
+    #[new]
+    fn new() -> Self {
+        Self {
+            relay: Relay::new(),
+        }
+    }
+
+    fn pause(&self) {
+        self.relay.pause();
+    }
+
+    fn resume(&self) {
+        self.relay.resume();
+    }
+
+    fn stop(&self) {
+        self.relay.stop();
+    }
+
+    #[getter]
+    fn bytes_sent(&self) -> u64 {
+        self.relay.sent()
+    }
+
+    #[getter]
+    fn bytes_received(&self) -> u64 {
+        self.relay.received()
+    }
+
+    fn run(&self, py: Python<'_>, client: RawFd, upstream: RawFd) -> PyResult<()> {
+        // Duplicate while the caller still holds the GIL. Python teardown can
+        // then close its descriptors without invalidating the native handles.
+        let client = duplicate_tcp(client)?;
+        let upstream = duplicate_tcp(upstream)?;
+        py.detach(|| self.relay.forward(client, upstream))
+            .map_err(PyOSError::new_err)
+    }
+}
+
 #[pymodule]
 mod _shared_index {
     #[pymodule_export]
-    use super::{EchoOwner, OwnerIndex, Payload, ReaderIndex, SessionRing};
+    use super::{ByteRelay, EchoOwner, OwnerIndex, Payload, ReaderIndex, SessionRing};
 }

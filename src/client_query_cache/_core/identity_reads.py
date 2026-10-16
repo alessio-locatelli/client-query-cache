@@ -17,6 +17,7 @@ _ID_FIELD = "_id"
 _EMPTY_REMAINDER: Mapping[str, Any] = MappingProxyType({})
 _INT32_MIN = -(1 << 31)
 _INT32_LIMIT = 1 << 31
+_SCALAR_EQUALITY_TYPES = (int, str, bytes, bool, float)
 
 
 class _NoIdentity:
@@ -37,6 +38,8 @@ def _is_regex(value: object) -> bool:
 def extract_equality_value(value: object) -> object:
     if value is None:
         return NO_IDENTITY
+    if type(value) in _SCALAR_EQUALITY_TYPES:
+        return value
     if isinstance(value, Mapping) and _is_query_operator_mapping(value):
         return NO_IDENTITY
     if _is_regex(value):
