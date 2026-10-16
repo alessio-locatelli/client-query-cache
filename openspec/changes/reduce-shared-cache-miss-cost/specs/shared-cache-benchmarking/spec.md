@@ -47,6 +47,19 @@ A research worker MAY capture a miss without an owner round trip. Admission SHAL
 - **THEN** the owner consumes only complete records, copies them before reuse and applies the same admission fencing
 - **AND** a full queue falls back to the bounded socket transport
 
+#### Scenario: A native queue is available without a data socket
+
+- **WHEN** a valid authenticated control mapping provides a native admission queue and an executor thread has no data socket or loses its data socket
+- **THEN** the worker captures and queues eligible misses without an owner selection RPC or data-socket setup
+- **AND** a full queue reuses the same encoded frame for socket fallback when that transport is available
+- **AND** socket-only attachments retain data-channel reconnection and owner selection
+
+#### Scenario: An endpoint closes while its control mapping still exists
+
+- **WHEN** the closed endpoint receives an admission with a queue-capable reader
+- **THEN** it drops the admission without publishing through that queue
+- **AND** detached readers remain unable to capture or enqueue
+
 #### Scenario: Sustained admissions use short queue drains
 
 - **WHEN** an owner consumes queued admissions
@@ -72,6 +85,17 @@ An optimized default identity read SHALL retain per-request session and read-pro
 
 - **WHEN** a default integer identity request first probes a collection with non-simple default collation
 - **THEN** both that read and subsequent reads bypass the shared cache
+
+#### Scenario: Identity-key eviction leaves the default shape unchanged
+
+- **WHEN** a collection view repeats its portable default read shape after unrelated identity keys leave the bounded key cache
+- **THEN** it reuses its previously encoded default shape
+- **AND** other shapes retain existing key preparation
+
+#### Scenario: Codec metadata cannot form a canonical key
+
+- **WHEN** a valid codec contains unhashable metadata
+- **THEN** constructing the view succeeds and reads preserve the existing native bypass
 
 ### Requirement: Miss optimization evidence repeats the complete protocol
 

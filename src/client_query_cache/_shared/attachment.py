@@ -202,6 +202,7 @@ class LocalIndex:
         "__weakref__",
         "_sock",
         "_watcher",
+        "admissions_enabled",
         "descriptor",
         "incarnation",
         "reader",
@@ -209,6 +210,7 @@ class LocalIndex:
 
     def __init__(self, control: ControlAttachment) -> None:
         self.reader = control.reader
+        self.admissions_enabled = control.reader.admissions_enabled
         self.incarnation = control.reader.incarnation
         self.descriptor = control.sock.fileno()
         self._sock = control.sock
@@ -243,6 +245,7 @@ class AsyncLocalIndex:
         "__weakref__",
         "_watcher",
         "_writer",
+        "admissions_enabled",
         "descriptor",
         "incarnation",
         "reader",
@@ -256,6 +259,7 @@ class AsyncLocalIndex:
         descriptor: NonNegativeInt,
     ) -> None:
         self.reader = reader
+        self.admissions_enabled = reader.admissions_enabled
         self.incarnation = reader.incarnation
         self.descriptor = descriptor
         self._writer = writer
@@ -461,13 +465,22 @@ class SyncEndpoint:
 
     def send(self, message: Message, reader: ReaderIndex | None = None) -> None:
         self._check_owner()
+        if self._closed:
+            self.counters.dropped_one_way += 1
+            return
+        prepared = None
+        if reader is not None and reader.admissions_enabled:
+            prepared = _one_way_frame(message, self.config, self.counters, reader)
+            if prepared is None:
+                return
         connection = self._leased()
         if connection is None:
             self.counters.dropped_one_way += 1
             return
-        prepared = _one_way_frame(message, self.config, self.counters, reader)
         if prepared is None:
-            return
+            prepared = _one_way_frame(message, self.config, self.counters, reader)
+            if prepared is None:
+                return
         frame, frame_bytes = prepared
         try:
             connection.sock.settimeout(self.config.rpc_deadline_seconds)
@@ -695,13 +708,22 @@ class AsyncEndpoint:
 
     def send(self, message: Message, reader: ReaderIndex | None = None) -> None:
         self._check_owner()
+        if self._closed:
+            self.counters.dropped_one_way += 1
+            return
+        prepared = None
+        if reader is not None and reader.admissions_enabled:
+            prepared = _one_way_frame(message, self.config, self.counters, reader)
+            if prepared is None:
+                return
         writer = self._writer
         if writer is None:
             self.counters.dropped_one_way += 1
             return
-        prepared = _one_way_frame(message, self.config, self.counters, reader)
         if prepared is None:
-            return
+            prepared = _one_way_frame(message, self.config, self.counters, reader)
+            if prepared is None:
+                return
         frame, frame_bytes = prepared
         writer.write(frame)
         self.counters.one_way += 1

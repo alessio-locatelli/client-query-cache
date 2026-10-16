@@ -66,6 +66,7 @@ def test_native_queues_require_local_capture() -> None:
 
 
 def test_detached_readers_cannot_post_admissions(queue: Queue) -> None:
+    assert queue.reader.admissions_enabled
     assert queue.reader.enqueue_admission(b"before detachment")
     queue.reader.detach()
     assert not queue.reader.enqueue_admission(b"after detachment")

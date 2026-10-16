@@ -11,7 +11,7 @@ import socket
 import threading
 import time
 from collections import UserDict
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict, override
@@ -19,7 +19,9 @@ from unittest.mock import AsyncMock, Mock
 
 import psutil
 import pytest
-from bson.codec_options import TypeDecoder, TypeRegistry
+from bson.codec_options import CodecOptions, TypeDecoder, TypeRegistry
+from bson.timestamp import Timestamp
+from bson.tz_util import FixedOffset
 from pymongo import AsyncMongoClient, MongoClient, ReadPreference
 from pymongo.asynchronous.cursor import AsyncCursor
 from pymongo.collation import Collation
@@ -34,6 +36,7 @@ from client_query_cache import (
     SharedCacheServer,
     shared,
 )
+from client_query_cache._core.snapshots import BypassReason
 from client_query_cache._shared import adapters, attachment, wire
 from client_query_cache._shared.attachment import (
     AsyncLocalIndex,
@@ -54,6 +57,8 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Buffer, Callable, Iterator
     from multiprocessing.connection import Connection
     from typing import Any
+
+    from faker import Faker
 
     from client_query_cache._core.find_one_reads import CollationInput
     from client_query_cache.asynchronous import SharedCachedCollection as AsyncView
@@ -456,19 +461,40 @@ async def test_default_identity_reads_respect_bound_sessions(
     assert manager.observation.bypasses["session"] == 1
 
 
+@dataclass(init=False)
+class _UnhashableUTC(FixedOffset):
+    pass
+
+
 @pytest.mark.parametrize(
-    "options",
+    ("options", "reason"),
     [
         pytest.param(
-            {"read_preference": ReadPreference.SECONDARY_PREFERRED}, id="secondary"
+            {"read_preference": ReadPreference.SECONDARY_PREFERRED},
+            BypassReason.READ_PROFILE,
+            id="secondary",
         ),
-        pytest.param({"read_concern": ReadConcern("local")}, id="local-concern"),
+        pytest.param(
+            {"read_concern": ReadConcern("local")},
+            BypassReason.READ_PROFILE,
+            id="local-concern",
+        ),
+        pytest.param(
+            {
+                "codec_options": CodecOptions(
+                    tz_aware=True, tzinfo=_UnhashableUTC(0, "UTC")
+                )
+            },
+            BypassReason.UNCANONICALIZABLE_KEY,
+            id="uncanonicalizable-codec",
+        ),
     ],
 )
-async def test_default_identity_reads_preserve_read_profiles(
+async def test_default_identity_reads_preserve_policy_and_codec_bypasses(
     manager: SharedCacheManager[BsonDict] | AsyncSharedCacheManager[BsonDict],
     seeded_database: DatabaseName,
     options: dict[str, Any],
+    reason: BypassReason,
 ) -> None:
     await _warm(manager, manager[seeded_database]["catalogue"])
     if isinstance(manager, AsyncSharedCacheManager):
@@ -483,7 +509,7 @@ async def test_default_identity_reads_preserve_read_profiles(
     assert await _read(view, {"_id": 0}) is not None
     assert manager.snapshot().hits == before.hits
     assert manager.snapshot().bypasses == before.bypasses + 1
-    assert manager.observation.bypasses["read_profile"] == 1
+    assert manager.observation.bypasses[reason.value] == 1
 
 
 async def test_default_identity_reads_refresh_collection_collation(
@@ -757,6 +783,23 @@ async def test_custom_decoding_that_cannot_form_a_key_uses_the_driver(
     assert document["_id"] == {0}
     assert manager.snapshot().bypasses == before.bypasses + 1
     assert manager.snapshot().hits == before.hits
+
+
+async def test_bson_timestamps_outside_the_wire_key_types_use_the_driver(
+    manager: SharedCacheManager[BsonDict] | AsyncSharedCacheManager[BsonDict],
+    seeded_database: DatabaseName,
+    faker: Faker,
+) -> None:
+    view = manager[seeded_database]["catalogue"]
+    await _warm(manager, view)
+    identity = Timestamp(faker.pyint(), faker.pyint())
+    before = manager.snapshot()
+
+    assert await _read(view, {"_id": identity}) is None
+
+    assert manager.snapshot().hits == before.hits
+    assert manager.snapshot().bypasses == before.bypasses + 1
+    assert manager.observation.bypasses[adapters.UNPORTABLE_KEY] == 1
 
 
 def test_server_rejects_unsupported_architecture(
