@@ -23,7 +23,7 @@ from client_query_cache._core.identity_reads import (
     normalize_identity_for_cache_key,
 )
 from client_query_cache._core.order_sensitive_keys import order_sensitive_key
-from client_query_cache._core.read_classification import prepare_query_key
+from client_query_cache._core.read_classification import _prepare_key, prepare_query_key
 from client_query_cache._core.snapshots import BypassReason
 from client_query_cache._shared.attachment import (
     AsyncLocalIndex,
@@ -52,6 +52,7 @@ if TYPE_CHECKING:
     from pymongo.synchronous.collection import Collection
     from pymongo.synchronous.database import Database
 
+    from client_query_cache._core.canonical import Canonical
     from client_query_cache._core.collection_metadata import CollectionProbeResult
     from client_query_cache._core.find_reads import FindSource
     from client_query_cache._core.keys import NamespaceId
@@ -477,6 +478,39 @@ def _prototype_scope(
     return True
 
 
+def _default_identity_request(
+    view: View,
+    filter_query: object,
+    projection: object,
+    collation: CollationInput | None,
+    kwargs: Mapping[str, object],
+) -> tuple[Mapping[str, Any], int, Canonical, BypassReason | None] | None:
+    if (
+        projection is not None
+        or collation is not None
+        or kwargs
+        or type(filter_query) is not dict
+        or len(filter_query) != 1
+    ):
+        return None
+    if type(next(iter(filter_query))) is not str:
+        return None
+    try:
+        identity = filter_query["_id"]
+    except KeyError:
+        return None
+    if (
+        type(identity) is not int
+        or view._shared._default_collation_for(view._namespace()) is not None
+    ):
+        return None
+    reason = view._request_bypass_reason(session=None, kwargs=kwargs)
+    if reason is not None:
+        return filter_query, identity, None, reason
+    shape, reason = _prepare_key(view._find_one_default_shape)
+    return filter_query, identity, shape, reason
+
+
 class SharedCachedCursor[DocumentType: Mapping[str, Any]](
     sync_cursors.CachedCursor[DocumentType]
 ):
@@ -578,11 +612,24 @@ class SharedCachedCollection[DocumentType: Mapping[str, Any]](
         **kwargs: Any,
     ) -> DocumentType | None:
         self._shared._check_open()
-        if _prototype_scope(self, filter, collation):
-            return self._collection.find_one(
-                filter, projection, collation=collation, **kwargs
-            )
-        return super().find_one(filter, projection, collation=collation, **kwargs)
+        prepared = _default_identity_request(
+            self, filter, projection, collation, kwargs
+        )
+        if prepared is not None:
+            filter_query, identity, shape, prepared_reason = prepared
+            reason: BypassReason | str | None = prepared_reason
+            if reason is None:
+                reason = self._cache_ineligibility_reason()
+            if reason is None:
+                return self._find_one_by_id(
+                    identity, filter_query, projection, shape, sort=None, collation=None
+                )
+            self._shared.observation.record_bypass(reason)
+        elif not _prototype_scope(self, filter, collation):
+            return super().find_one(filter, projection, collation=collation, **kwargs)
+        return self._collection.find_one(
+            filter, projection, collation=collation, **kwargs
+        )
 
     @override
     def find(self, *args: object, **kwargs: object) -> SharedCachedCursor[DocumentType]:
@@ -694,11 +741,26 @@ class AsyncSharedCachedCollection[DocumentType: Mapping[str, Any]](
         **kwargs: Any,
     ) -> DocumentType | None:
         self._shared._check_open()
-        if _prototype_scope(self, filter, collation):
-            return await self._collection.find_one(
+        prepared = _default_identity_request(
+            self, filter, projection, collation, kwargs
+        )
+        if prepared is not None:
+            filter_query, identity, shape, prepared_reason = prepared
+            reason: BypassReason | str | None = prepared_reason
+            if reason is None:
+                reason = await self._cache_ineligibility_reason()
+            if reason is None:
+                return await self._find_one_by_id(
+                    identity, filter_query, projection, shape, sort=None, collation=None
+                )
+            self._shared.observation.record_bypass(reason)
+        elif not _prototype_scope(self, filter, collation):
+            return await super().find_one(
                 filter, projection, collation=collation, **kwargs
             )
-        return await super().find_one(filter, projection, collation=collation, **kwargs)
+        return await self._collection.find_one(
+            filter, projection, collation=collation, **kwargs
+        )
 
     @override
     def find(

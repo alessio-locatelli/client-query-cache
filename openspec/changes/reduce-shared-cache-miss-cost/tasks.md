@@ -17,12 +17,14 @@
 - [x] 2.8 Move shared-cache relay I/O outside the Python GIL with bounded buffers, owned descriptors, exact byte counters, half-close preservation and pause/stop coverage.
 - [x] 2.9 Reuse guarded namespace contexts and fixed integer BSON envelopes; retain interrupted-acquisition cleanup, scalar/subclass semantics, exact wire compatibility and malformed-key rejection.
 
+- [x] 2.10 Classify default integer identity reads once while retaining bound-session/read-profile checks, metadata and collation eligibility, codec normalization and read-through/admission authorities; cover sync/async policy bypasses and stabilize the existing eligible-index Hypothesis example.
+
 ## 3. Evidence
 
 - [x] 3.1 Record the complete version 7 study and profiles, retaining its failed miss bounds.
 - [x] 3.2 Collect every version 8 phase from clean commits and record its decision under the unchanged protocol.
-- [ ] 3.3 Collect fresh registered evidence that passes every required issue #272 bound under the runtime decision from [issue #278](https://github.com/alessio-locatelli/client-query-cache/issues/278); versions 8, 10, 11 and 12 do not meet acceptance. Use the version 13 registration with native relay I/O and fresh baseline qualification.
-- [ ] 3.4 Commit the candidate declaration and version 13 baseline-only calibration protocol, qualify fresh rates without candidate observations, then record complete phase results and reproduction commands.
+- [ ] 3.3 Collect fresh registered evidence that passes every required issue #272 bound under the runtime decision from [issue #278](https://github.com/alessio-locatelli/client-query-cache/issues/278); versions 8 and 10 through 13 do not meet acceptance. Use the version 14 registration with single-pass default identity classification and fresh baseline qualification.
+- [ ] 3.4 Commit the candidate declaration and version 14 baseline-only calibration protocol, qualify fresh rates without candidate observations, then record complete phase results and reproduction commands.
 
 ## Code Quality
 

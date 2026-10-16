@@ -10,6 +10,7 @@ import signal
 import socket
 import threading
 import time
+from collections import UserDict
 from dataclasses import replace
 from functools import partial
 from pathlib import Path
@@ -19,9 +20,10 @@ from unittest.mock import AsyncMock, Mock
 import psutil
 import pytest
 from bson.codec_options import TypeDecoder, TypeRegistry
-from pymongo import AsyncMongoClient, MongoClient
+from pymongo import AsyncMongoClient, MongoClient, ReadPreference
 from pymongo.asynchronous.cursor import AsyncCursor
 from pymongo.collation import Collation
+from pymongo.read_concern import ReadConcern
 from pymongo.synchronous.cursor import Cursor
 
 from client_query_cache import (
@@ -51,6 +53,7 @@ from tests.shared_cache.conftest import wait_for
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Buffer, Callable, Iterator
     from multiprocessing.connection import Connection
+    from typing import Any
 
     from client_query_cache._core.find_one_reads import CollationInput
     from client_query_cache.asynchronous import SharedCachedCollection as AsyncView
@@ -308,10 +311,11 @@ async def _read(
     filter_query: object,
     *,
     collation: CollationInput | None = None,
+    **kwargs: object,
 ) -> BsonDict | None:
     if isinstance(view, AsyncSharedCachedCollection):
-        return await view.find_one(filter_query, collation=collation)
-    return view.find_one(filter_query, collation=collation)
+        return await view.find_one(filter_query, None, collation=collation, **kwargs)
+    return view.find_one(filter_query, None, collation=collation, **kwargs)
 
 
 async def _warm(
@@ -385,6 +389,120 @@ async def test_explicit_simple_collation_reuses_the_shared_hit(
     before = manager.snapshot().hits
     assert await _read(view, {"_id": 0}, collation=collation) is not None
     assert manager.snapshot().hits == before + 1
+
+
+class _IdentityField(str):  # noqa: FURB189 - Exercise real string-subclass keys, which BSON accepts.
+    __slots__ = ()
+
+
+@pytest.mark.parametrize(
+    ("filter_query", "shared_hit"),
+    [
+        pytest.param(UserDict({"_id": 0}), True, id="mapping"),
+        pytest.param({_IdentityField("_id"): 0}, True, id="field-subclass"),
+        pytest.param({"_id": {"$eq": 0}}, False, id="equality-operator"),
+    ],
+)
+async def test_identity_forms_preserve_shared_scope(
+    manager: SharedCacheManager[BsonDict] | AsyncSharedCacheManager[BsonDict],
+    seeded_database: DatabaseName,
+    filter_query: object,
+    shared_hit: bool,
+) -> None:
+    view = manager[seeded_database]["catalogue"]
+    await _warm(manager, view)
+    before = manager.snapshot()
+    assert await _read(view, filter_query) is not None
+    assert manager.snapshot().hits == before.hits + int(shared_hit)
+    assert manager.snapshot().bypasses == before.bypasses + int(not shared_hit)
+
+
+async def test_default_identity_reads_with_a_hint_use_the_driver(
+    manager: SharedCacheManager[BsonDict] | AsyncSharedCacheManager[BsonDict],
+    seeded_database: DatabaseName,
+) -> None:
+    view = manager[seeded_database]["catalogue"]
+    await _warm(manager, view)
+    before = manager.snapshot()
+    assert await _read(view, {"_id": 0}, hint="_id_") is not None
+    assert manager.snapshot().hits == before.hits
+    assert manager.snapshot().bypasses == before.bypasses + 1
+    assert manager.observation.bypasses["unsupported_options"] == 1
+
+
+@pytest.fixture
+async def bound_shared_view(
+    manager: SharedCacheManager[BsonDict] | AsyncSharedCacheManager[BsonDict],
+    seeded_database: DatabaseName,
+) -> AsyncIterator[SyncView[BsonDict] | AsyncView[BsonDict]]:
+    view = manager[seeded_database]["catalogue"]
+    await _warm(manager, view)
+    if isinstance(manager, AsyncSharedCacheManager):
+        async with manager.client.start_session().bind():
+            yield view
+    else:
+        with manager.client.start_session().bind():
+            yield view
+
+
+async def test_default_identity_reads_respect_bound_sessions(
+    manager: SharedCacheManager[BsonDict] | AsyncSharedCacheManager[BsonDict],
+    bound_shared_view: SyncView[BsonDict] | AsyncView[BsonDict],
+) -> None:
+    before = manager.snapshot()
+    assert await _read(bound_shared_view, {"_id": 0}) is not None
+    assert manager.snapshot().hits == before.hits
+    assert manager.snapshot().bypasses == before.bypasses + 1
+    assert manager.observation.bypasses["session"] == 1
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        pytest.param(
+            {"read_preference": ReadPreference.SECONDARY_PREFERRED}, id="secondary"
+        ),
+        pytest.param({"read_concern": ReadConcern("local")}, id="local-concern"),
+    ],
+)
+async def test_default_identity_reads_preserve_read_profiles(
+    manager: SharedCacheManager[BsonDict] | AsyncSharedCacheManager[BsonDict],
+    seeded_database: DatabaseName,
+    options: dict[str, Any],
+) -> None:
+    await _warm(manager, manager[seeded_database]["catalogue"])
+    if isinstance(manager, AsyncSharedCacheManager):
+        view: SyncView[BsonDict] | AsyncView[BsonDict] = manager.get_cached_collection(
+            manager.client[seeded_database]["catalogue"].with_options(**options)
+        )
+    else:
+        view = manager.get_cached_collection(
+            manager.client[seeded_database]["catalogue"].with_options(**options)
+        )
+    before = manager.snapshot()
+    assert await _read(view, {"_id": 0}) is not None
+    assert manager.snapshot().hits == before.hits
+    assert manager.snapshot().bypasses == before.bypasses + 1
+    assert manager.observation.bypasses["read_profile"] == 1
+
+
+async def test_default_identity_reads_refresh_collection_collation(
+    manager: SharedCacheManager[BsonDict] | AsyncSharedCacheManager[BsonDict],
+    seeded_database: DatabaseName,
+    client: MongoClient[BsonDict],
+) -> None:
+    await _warm(manager, manager[seeded_database]["catalogue"])
+    raw = client[seeded_database].create_collection(
+        "collated", collation=Collation("en", strength=2)
+    )
+    raw.insert_one({"_id": 0})
+    view = manager[seeded_database][raw.name]
+    before = manager.snapshot()
+    for _ in range(2):
+        assert await _read(view, {"_id": 0}) == {"_id": 0}
+    assert manager.snapshot().hits == before.hits
+    assert manager.snapshot().bypasses == before.bypasses + 2
+    assert manager.observation.bypasses[adapters.PROTOTYPE_SCOPE] == 2
 
 
 @pytest.mark.parametrize(
