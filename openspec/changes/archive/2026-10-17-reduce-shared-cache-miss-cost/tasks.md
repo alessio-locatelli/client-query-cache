@@ -25,11 +25,11 @@
 
 - [x] 3.1 Record the complete version 7 study and profiles, retaining its failed miss bounds.
 - [x] 3.2 Collect every version 8 phase from clean commits and record its decision under the unchanged protocol.
-- [ ] 3.3 Collect fresh registered evidence that passes every required issue #272 bound under the runtime decision from [issue #278](https://github.com/alessio-locatelli/client-query-cache/issues/278); versions 8 and 10 through 14 do not meet acceptance. Use the version 15 registration with direct control-queue admission and fresh baseline qualification.
-- [ ] 3.4 Commit the candidate declaration and version 15 baseline-only calibration protocol, qualify fresh rates without candidate observations, then record complete phase results and reproduction commands.
+- [x] 3.3 Collect fresh registered evidence that passes every required issue #272 bound under the runtime decision from [issue #278](https://github.com/alessio-locatelli/client-query-cache/issues/278); versions 8 and 10 through 14 do not meet acceptance. Use the version 15 registration with direct control-queue admission and fresh baseline qualification.
+- [x] 3.4 Commit the candidate declaration and version 15 baseline-only calibration protocol, qualify fresh rates without candidate observations, then record complete phase results and reproduction commands.
 
 ## Code Quality
 
 - [x] 4.1 Scan entire edited test files for the AGENTS.md Writing Tests guidelines, including parametrization.
 - [x] 4.2 Prose restriction is inapplicable: implemented by OpenAI Codex.
-- [ ] 4.3 Complete the configured review of the whole branch, including the final registered evidence, before spec sync and archive.
+- [x] 4.3 Complete the configured review of the whole branch, including the final registered evidence, before spec sync and archive.

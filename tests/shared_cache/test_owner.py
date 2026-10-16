@@ -1247,32 +1247,39 @@ def full_admission_queue(
 
 @pytest.fixture(params=("sync", "async"))
 async def admission_endpoint(
-    session: _Session, request: pytest.FixtureRequest
+    session: _Session, request: pytest.FixtureRequest, connected: bool
 ) -> AsyncIterator[SyncEndpoint | AsyncEndpoint]:
     if request.param == "sync":
+        if not connected:
+            session.endpoint._drop()
         yield session.endpoint
     else:
         endpoint = AsyncEndpoint(attachment_for(session.owner.config))
-        assert await endpoint.request({"op": "observe"}) is not None
+        if connected:
+            assert await endpoint.request({"op": "observe"}) is not None
         yield endpoint
         await endpoint.close()
 
 
-async def test_full_native_queues_fall_back_to_socket_admission(
+@pytest.mark.parametrize("connected", [True, False], ids=("socket", "no-data-channel"))
+async def test_full_native_queues_use_bounded_fallback_or_skip_admission(
     session: _Session,
     local_miss: Message,
     full_admission_queue: ReaderIndex,
     admission_endpoint: SyncEndpoint | AsyncEndpoint,
+    connected: bool,
 ) -> None:
     admission_endpoint.send(local_miss, full_admission_queue)
-    reply = (
-        await admission_endpoint.request({"op": "observe"})
-        if isinstance(admission_endpoint, AsyncEndpoint)
-        else admission_endpoint.request({"op": "observe"})
-    )
-    assert reply is not None
+    if connected:
+        reply = (
+            await admission_endpoint.request({"op": "observe"})
+            if isinstance(admission_endpoint, AsyncEndpoint)
+            else admission_endpoint.request({"op": "observe"})
+        )
+        assert reply is not None
     assert admission_endpoint.counters.native_admissions == 0
-    assert admission_endpoint.counters.one_way == 1
-    assert session.owner.counters.admitted == 1
-    assert session.local(0) == local_miss["value"]
+    assert admission_endpoint.counters.one_way == int(connected)
+    assert admission_endpoint.counters.dropped_one_way == int(not connected)
+    assert session.owner.counters.admitted == int(connected)
+    assert session.local(0) == (local_miss["value"] if connected else None)
     assert not session.owner._handles

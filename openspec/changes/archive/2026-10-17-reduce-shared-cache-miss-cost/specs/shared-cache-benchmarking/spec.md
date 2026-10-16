@@ -45,7 +45,7 @@ A research worker MAY capture a miss without an owner round trip. Admission SHAL
 
 - **WHEN** a worker posts an encoded admission to its native session queue
 - **THEN** the owner consumes only complete records, copies them before reuse and applies the same admission fencing
-- **AND** a full queue falls back to the bounded socket transport
+- **AND** a full queue uses bounded socket fallback when a data channel is available, otherwise skips admission while preserving the MongoDB result
 
 #### Scenario: A native queue is available without a data socket
 
