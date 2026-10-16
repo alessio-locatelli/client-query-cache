@@ -59,6 +59,20 @@ A research worker MAY capture a miss without an owner round trip. Admission SHAL
 - **WHEN** queue positions, frame boundaries or admission fields are malformed
 - **THEN** the owner detaches that peer without processing an unbounded record or disrupting other sessions
 
+### Requirement: Default identity classification retains request policy
+
+An optimized default identity read SHALL retain per-request session and read-profile inspection, metadata eligibility, owner reattachment, codec normalization and the existing capture/admission authorities. Requests outside the optimized shape SHALL retain general classification.
+
+#### Scenario: A session is bound after warming an integer identity
+
+- **WHEN** the same default identity request executes inside a bound session
+- **THEN** it bypasses the shared hit and executes through the driver's session policy
+
+#### Scenario: Metadata discovers a default collation
+
+- **WHEN** a default integer identity request first probes a collection with non-simple default collation
+- **THEN** both that read and subsequent reads bypass the shared cache
+
 ### Requirement: Miss optimization evidence repeats the complete protocol
 
 A follow-up miss study SHALL preregister fresh baseline calibration and all version 5 phases, plus the version 6 timed fault protocol. Its miss P95 and P99 upper confidence bounds SHALL satisfy the registered direct-read delta at four and eight workers in both models. Missing phases, failed capacity windows or regressed hot and active criteria SHALL prevent promotion.

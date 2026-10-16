@@ -268,6 +268,7 @@ def _index_specs(draw: st.DrawFn) -> BsonDict:
 
 
 @given(_index_specs())
+@example({"key": {"a": 1}, "name": "idx", "unique": True})
 def test_discover_unique_keys_includes_an_index_iff_eligible(
     index_spec: BsonDict,
 ) -> None:
