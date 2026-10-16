@@ -296,7 +296,7 @@ def test_old_cleanup_preserves_new_replacement(
     old_entry = next(iter(state.entry_index))
     core.record_write(namespace, 0)
     admit(core, namespace, shape(100), marker=1)
-    with core._namespace_section(state):
+    with state.lock:
         _discard_entry_locked(state, old_entry)
     assert core.lookup_find(namespace, shape(10)).value == [1]
     assert sum(map(len, state.find_families.values())) == 1

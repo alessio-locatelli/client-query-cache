@@ -16,6 +16,8 @@ from benchmarks.stream_cost.shared_cache.profiling import WindowProfiler
 from client_query_cache._core.keys import IdentityCacheKey, NamespaceId
 from client_query_cache._core.lru import WeightedLru
 from client_query_cache._shared.coordinator import SharedCacheOwner
+from client_query_cache._shared_index import ByteRelay
+from client_query_cache._types import NonNegativeInt
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -35,18 +37,32 @@ TOPOLOGY = BenchmarkClientTopologyConfig(
 
 
 class FaultableProxy(DirectPathByteProxy):
-    __slots__ = ("_open",)
+    __slots__ = ("_native",)
 
     def __init__(self, config: DirectPathProxyConfig) -> None:
         super().__init__(config)
-        self._open = threading.Event()
-        self._open.set()
+        self._native = ByteRelay()
+
+    @override
+    def __exit__(self, *exc_info: object) -> None:
+        self._native.stop()
+        super().__exit__(*exc_info)
+
+    @property
+    @override
+    def bytes_sent(self) -> NonNegativeInt:
+        return self._native.bytes_sent
+
+    @property
+    @override
+    def bytes_received(self) -> NonNegativeInt:
+        return self._native.bytes_received
 
     def pause(self) -> None:
-        self._open.clear()
+        self._native.pause()
 
     def resume(self) -> None:
-        self._open.set()
+        self._native.resume()
 
     def sever(self) -> None:
         with self._lock:
@@ -58,20 +74,13 @@ class FaultableProxy(DirectPathByteProxy):
                 pass
 
     @override
-    def _relay(
-        self, source: socket.socket, destination: socket.socket, *, is_sent: bool
+    def _run_connection(
+        self, client_socket: socket.socket, upstream_socket: socket.socket
     ) -> None:
-        while True:
-            chunk = source.recv(65_536)
-            if not chunk:
-                return
-            self._open.wait()
-            destination.sendall(chunk)
-            with self._lock:
-                if is_sent:
-                    self._bytes_sent += len(chunk)
-                else:
-                    self._bytes_received += len(chunk)
+        try:
+            self._native.run(client_socket.fileno(), upstream_socket.fileno())
+        finally:
+            self._close_connection(client_socket, upstream_socket)
 
 
 def proxy_for(uri: str) -> FaultableProxy:

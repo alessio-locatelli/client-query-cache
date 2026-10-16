@@ -25,6 +25,17 @@ A research worker MAY capture a miss without an owner round trip. Admission SHAL
 - **THEN** namespace/LRU exclusion remains thread-local and lasts through the outermost section
 - **AND** an exception releases the section without weakening later checks
 
+#### Scenario: Namespace acquisition is interrupted
+
+- **WHEN** acquiring a reused namespace lock raises before the primitive lock is held
+- **THEN** its lock-order guard unwinds and later LRU/namespace exclusion remains correct
+
+#### Scenario: Integer identities reuse a BSON envelope
+
+- **WHEN** a signed 64-bit plain integer key uses the optimized wire path
+- **THEN** its bytes and decoded type match the existing tagged BSON representation exactly
+- **AND** damaged lengths, field names or terminators remain protocol errors
+
 #### Scenario: A local capture is unavailable
 
 - **WHEN** metadata, publication slots or attachment validity cannot authorize capture

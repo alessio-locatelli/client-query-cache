@@ -40,6 +40,17 @@ _CLASS_NAMES: Final = {id(kind): name for name, kind in _CLASSES.items()}
 _EMPTY_REGISTRY: Final = "empty-registry"
 _UTC: Final = "utc"
 _MAX_CACHED_KEY_BYTES: Final = 4096
+_INT64_MIN: Final = -(1 << 63)
+_INT64_LIMIT: Final = 1 << 63
+_INT64: Final = struct.Struct("<q")
+# The outer key document and inner tagged node each end with a BSON terminator.
+_INT_KEY_SUFFIX: Final = b"\x00\x00"
+_INT_KEY_TRAILER_BYTES: Final = _INT64.size + len(_INT_KEY_SUFFIX)
+_INT_KEY_PREFIX: Final = bson.encode({"k": {"t": "int", "p": Int64(0)}})[
+    :-_INT_KEY_TRAILER_BYTES
+]
+_INT_KEY_VALUE_OFFSET: Final = len(_INT_KEY_PREFIX)
+_INT_KEY_BYTES: Final = _INT_KEY_VALUE_OFFSET + _INT_KEY_TRAILER_BYTES
 
 
 class UnportableKeyError(ValueError):
@@ -67,7 +78,7 @@ def to_wire(value: object) -> object:
     if isinstance(value, int):
         if isinstance(value, DatetimeConversion):
             return {"t": "datetime-conversion", "p": int(value)}
-        if not -(2**63) <= value < 2**63:
+        if not _INT64_MIN <= value < _INT64_LIMIT:
             message = "integer outside the BSON int64 range"
             raise UnportableKeyError(message)
         return {"t": "int", "p": Int64(value)}
@@ -139,12 +150,21 @@ def from_wire(value: object) -> object:
 
 
 def encode_key(value: object) -> bytes:
+    if type(value) is int and _INT64_MIN <= value < _INT64_LIMIT:
+        return _INT_KEY_PREFIX + _INT64.pack(value) + _INT_KEY_SUFFIX
     return bson.encode({"k": to_wire(value)})
 
 
 def decode_key(encoded: object) -> object:
     if not isinstance(encoded, bytes):
         raise ProtocolError("cache keys must be encoded BSON")
+    if (
+        type(encoded) is bytes
+        and len(encoded) == _INT_KEY_BYTES
+        and encoded.startswith(_INT_KEY_PREFIX)
+        and encoded.endswith(_INT_KEY_SUFFIX)
+    ):
+        return _INT64.unpack_from(encoded, _INT_KEY_VALUE_OFFSET)[0]
     try:
         document = bson.decode(encoded, codec_options=_WIRE_OPTIONS)
     except BSONError as error:

@@ -49,12 +49,14 @@ _UNCACHEABLE_VARIABLE_PREFIXES = tuple(
     f"{variable}." for variable in UNCACHEABLE_SYSTEM_VARIABLES
 )
 _SAFE_SCALAR_TYPES = (int, float, bool, bytes, bytearray, type(None))
+_MAPPING_TYPES = (dict, Mapping)
 
 
 def _contains_unsafe_construct(node: object, unsafe_keys: frozenset[str]) -> bool:
-    if type(node) in _SAFE_SCALAR_TYPES:
+    node_type = type(node)
+    if node_type in _SAFE_SCALAR_TYPES:
         return False
-    if isinstance(node, Mapping):
+    if isinstance(node, _MAPPING_TYPES):
         for key, value in node.items():
             if not isinstance(key, str) or key in unsafe_keys:
                 return True

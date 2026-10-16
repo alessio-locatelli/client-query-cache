@@ -11,7 +11,7 @@ from bson.codec_options import CodecOptions, DatetimeConversion, TypeRegistry
 from bson.decimal128 import Decimal128
 from bson.int64 import Int64
 from bson.objectid import ObjectId
-from hypothesis import given
+from hypothesis import example, given
 from hypothesis import strategies as st
 
 from client_query_cache._core.canonical import canonicalize
@@ -42,20 +42,56 @@ from client_query_cache._types import PositiveInt
 from tests.codec_helpers import Decimal128ToDecimalDecoder
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Callable, Mapping
 
     from faker import Faker
 
 pytestmark = pytest.mark.unit
 
+_INTEGERS = st.integers(min_value=-(2**63), max_value=2**63 - 1)
 _SCALARS = st.one_of(
     st.none(),
     st.booleans(),
-    st.integers(min_value=-(2**63), max_value=2**63 - 1),
+    _INTEGERS,
     st.floats(allow_nan=False),
     st.text(max_size=8),
     st.binary(max_size=8),
 )
+
+
+@pytest.mark.parametrize("build", [int, Int64], ids=["plain", "explicit-int64"])
+@given(value=_INTEGERS)
+@example(value=-(1 << 63))
+@example(value=(1 << 63) - 1)
+@example(value=-(1 << 31))
+@example(value=1 << 31)
+def test_integer_keys_preserve_bson_wire_bytes(
+    build: Callable[[int], int], value: int
+) -> None:
+    key = build(value)
+    expected_bytes = bson.encode({"k": to_wire(key)})
+    expected_value = from_wire(bson.decode(expected_bytes)["k"])
+
+    assert encode_key(key) == expected_bytes
+    decoded = decode_key(expected_bytes)
+    assert decoded == expected_value
+    assert type(decoded) is type(expected_value)
+
+
+@pytest.mark.parametrize(
+    "offset", [0, 5, -2, -1], ids=["length", "field", "inner-end", "outer-end"]
+)
+@given(value=_INTEGERS)
+def test_damaged_integer_key_envelopes_remain_protocol_errors(
+    offset: int, value: int
+) -> None:
+    encoded = bytearray(encode_key(value))
+    encoded[offset] ^= 1
+
+    with pytest.raises(ProtocolError):
+        decode_key(bytes(encoded))
+
+
 _VALUES = st.recursive(
     _SCALARS,
     lambda children: (

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import threading
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -15,6 +14,7 @@ if TYPE_CHECKING:
         NamespaceCacheKey,
         NamespaceId,
     )
+    from client_query_cache._core.locking import NamespaceLock
 
 
 _NO_ALIASES: frozenset[AliasKey] = frozenset()
@@ -45,7 +45,7 @@ class IdentityState:
 @dataclass(slots=True)
 class NamespaceState:
     namespace: NamespaceId
-    lock: threading.Lock = field(default_factory=threading.Lock)
+    lock: NamespaceLock
     generation: NonNegativeInt = 0
     epoch: NonNegativeInt = 0
     index_generation: NonNegativeInt = 0

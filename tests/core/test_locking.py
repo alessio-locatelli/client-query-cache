@@ -4,11 +4,16 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from client_query_cache._core.locking import LockOrderGuard, LockOrderViolationError
+from client_query_cache._core.locking import (
+    LockOrderGuard,
+    LockOrderViolationError,
+    NamespaceLock,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from contextlib import AbstractContextManager
+    from typing import NoReturn
 
 pytestmark = pytest.mark.unit
 
@@ -33,6 +38,16 @@ def test_lru_section_can_be_entered_after_namespace_section_exits() -> None:
             lambda guard: guard.lru_section(),
             lambda guard: guard.namespace_section(),
             id="namespace_inside_lru",
+        ),
+        pytest.param(
+            NamespaceLock,
+            LockOrderGuard.lru_section,
+            id="lru_inside_namespace_lock",
+        ),
+        pytest.param(
+            LockOrderGuard.lru_section,
+            NamespaceLock,
+            id="namespace_lock_inside_lru",
         ),
     ],
 )
@@ -80,8 +95,8 @@ def test_nested_sections_keep_the_outer_guard_until_exit(
 
 @pytest.mark.parametrize(
     "section",
-    [LockOrderGuard.namespace_section, LockOrderGuard.lru_section],
-    ids=["namespace", "lru"],
+    [LockOrderGuard.namespace_section, LockOrderGuard.lru_section, NamespaceLock],
+    ids=["namespace", "lru", "namespace-lock"],
 )
 def test_exceptions_release_reusable_sections(
     section: Callable[[LockOrderGuard], AbstractContextManager[None]],
@@ -93,3 +108,25 @@ def test_exceptions_release_reusable_sections(
         pass
     with guard.lru_section():
         pass
+
+
+class _InterruptedAcquire:
+    __slots__ = ()
+
+    @staticmethod
+    def acquire() -> NoReturn:
+        raise KeyboardInterrupt
+
+
+def test_interrupted_namespace_acquisition_releases_the_guard(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    guard = LockOrderGuard()
+    section = NamespaceLock(guard)
+    monkeypatch.setattr(section, "_lock", _InterruptedAcquire())
+
+    with pytest.raises(KeyboardInterrupt):
+        section.__enter__()
+
+    with guard.lru_section(), pytest.raises(LockOrderViolationError):
+        guard.namespace_section().__enter__()

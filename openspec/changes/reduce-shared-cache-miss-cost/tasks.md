@@ -14,15 +14,18 @@
 - [x] 2.5 Implement the native admission queue from the design, including bounded publication/reuse, socket fallback, peer isolation and startup sampling; validate both adapter models and queue ordering.
 - [x] 2.6 Reduce the measured copying, guard and drain costs from the design without weakening lock ordering or admission fences; cover fragment boundaries/reuse, reusable sections and adaptive polling.
 - [x] 2.7 Add scalar fast paths with BSON differential coverage, preserve driver TCP delivery through the byte relay, freeze its observer policy and deduplicate public integrity-digest exclusions.
+- [x] 2.8 Move shared-cache relay I/O outside the Python GIL with bounded buffers, owned descriptors, exact byte counters, half-close preservation and pause/stop coverage.
+- [x] 2.9 Reuse guarded namespace contexts and fixed integer BSON envelopes; retain interrupted-acquisition cleanup, scalar/subclass semantics, exact wire compatibility and malformed-key rejection.
 
 ## 3. Evidence
 
 - [x] 3.1 Record the complete version 7 study and profiles, retaining its failed miss bounds.
 - [x] 3.2 Collect every version 8 phase from clean commits and record its decision under the unchanged protocol.
-- [ ] 3.3 Collect fresh registered evidence that passes every required issue #272 bound under the runtime decision from [issue #278](https://github.com/alessio-locatelli/client-query-cache/issues/278); versions 8, 10 and 11 do not meet acceptance. Use the version 12 registration for the scalar candidate and corrected relay environment.
-- [ ] 3.4 Commit the candidate declaration and version 12 baseline-only calibration protocol, qualify fresh rates without candidate observations, then record complete phase results and reproduction commands.
+- [ ] 3.3 Collect fresh registered evidence that passes every required issue #272 bound under the runtime decision from [issue #278](https://github.com/alessio-locatelli/client-query-cache/issues/278); versions 8, 10, 11 and 12 do not meet acceptance. Use the version 13 registration with native relay I/O and fresh baseline qualification.
+- [ ] 3.4 Commit the candidate declaration and version 13 baseline-only calibration protocol, qualify fresh rates without candidate observations, then record complete phase results and reproduction commands.
 
 ## Code Quality
 
 - [x] 4.1 Scan entire edited test files for the AGENTS.md Writing Tests guidelines, including parametrization.
 - [x] 4.2 Prose restriction is inapplicable: implemented by OpenAI Codex.
+- [ ] 4.3 Complete the configured review of the whole branch, including the final registered evidence, before spec sync and archive.

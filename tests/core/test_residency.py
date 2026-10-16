@@ -46,7 +46,7 @@ class RecordingObserver:
 
     def _namespace_locked(self, namespace: NamespaceId) -> bool:
         assert self.core is not None
-        return self.core._namespaces[namespace].lock.locked()
+        return self.core._namespaces[namespace].lock._lock.locked()
 
     def admitted(self, key: CacheKey, entry: CacheEntry) -> None:
         self._record(
