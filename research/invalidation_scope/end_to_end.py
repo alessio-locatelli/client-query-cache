@@ -635,8 +635,15 @@ def main() -> None:
     parser.add_argument("--reps", type=int, default=4)
     parser.add_argument("--reads", type=int, default=4096)
     parser.add_argument("--seconds", type=float, default=8.0)
+    parser.add_argument(
+        "--focus",
+        choices=("insert", "fields"),
+        help="Controls only: matching write mix at 100 writes/second.",
+    )
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
+    if args.focus and args.suite != "controls":
+        parser.error("--focus requires --suite controls")
     if (
         args.reps < 1
         or args.reads < 128
@@ -676,10 +683,17 @@ def main() -> None:
             body = seed(client.bench, size)
             paths = PATHS if rep % 2 == 0 else tuple(reversed(PATHS))
             mixes: tuple[Mix, ...] = ("insert", "update")
+            if args.focus:
+                paths = tuple(path for path in paths if path in {"current", args.focus})
+                mixes = ("insert",) if args.focus == "insert" else ("update",)
             scenarios: tuple[Scenario, ...] = (
                 ("uncached", "unrelated") if args.suite == "controls" else ("cached",)
             )
-            rates = (10, 100) if args.suite == "controls" else (100, 10)
+            rates: tuple[PositiveInt, ...] = (
+                (10, 100) if args.suite == "controls" else (100, 10)
+            )
+            if args.focus:
+                rates = (100,)
             for mix, scenario, rate, path in product(mixes, scenarios, rates, paths):
                 if args.suite == "controls" and path == "direct":
                     continue
@@ -702,6 +716,7 @@ def main() -> None:
         json.dump(
             {
                 "suite": args.suite,
+                "focus": args.focus,
                 "python": platform.python_version(),
                 "pymongo": pymongo.version,
                 "mongodb": client.server_info()["version"],
