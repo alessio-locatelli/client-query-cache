@@ -18,8 +18,10 @@ With shared caching, workers look up the same cache and use their own PyMongo cl
 
 ```mermaid
 flowchart TB
-    Worker1["Python worker 1"] -->|"Cache lookup"| Cache["Rust-backed<br/>shared cache"]
-    Worker2["Python worker 2"] -->|"Cache lookup"| Cache
+    subgraph Application["Python application"]
+        Worker1["Python worker 1"] -->|"Cache lookup"| Cache["Rust-backed<br/>shared cache"]
+        Worker2["Python worker 2"] -->|"Cache lookup"| Cache
+    end
     Worker1 -->|"Miss / bypass"| DB[("MongoDB")]
     Worker2 -->|"Miss / bypass"| DB
     DB -.->|"Change streams<br/>Async invalidation"| Cache
