@@ -68,14 +68,16 @@ All eighteen large-document comparisons pass. Sorted `find16` has six failures, 
 
 The sensitivity analyzer therefore returns `shared-index: defer`. Sorted-find publication is explicitly outside #272 and outside the public shared-cache read scope. Its failures remain visible and prevent a general promotion claim; they do not invalidate this issue's completed `_id`-miss acceptance.
 
-## Reproduce
+## Reproduction and evidence limits
+
+The raw measurements, analyzer outputs and one-off orchestration scripts were not durably preserved and are no longer available in the study's temporary storage. The committed artifacts therefore cannot independently reproduce the original acceptance statistics. The procedure below collects and analyzes new measurements; it does not verify the original acquisition.
 
 Use clean sources at revision `56a837b`, the frozen files above and the [registered procedure](registration.md). Keep fresh raw output paths untracked. Build with `uv run -- maturin develop --release --locked`, source `scripts/testcontainers-bridge.sh`, then run fresh baseline qualification and resolve both manual checks before candidate acquisition.
 
-Use the v10 registration's commands with `v15` paths. For analysis, the executed environment pins NumPy and SciPy explicitly:
+Use the [v10 command sequence](../v10/registration.md#reproduce) with `v15` configuration paths and fresh output paths of your choice. To analyze a collected performance phase, set `REPORT` to its raw JSON path, `PHASE` to its registered phase and `BLOCKS` to its registered block count. The executed analysis environment pins NumPy and SciPy explicitly:
 
 ```bash
-OPENBLAS_NUM_THREADS=1 uv run --with numpy==2.3.4 --with scipy==1.16.3 -- python -m benchmarks.stream_cost.shared_cache.analysis /tmp/agents/issue-272-continuation/v15-<phase>.json --config reports/shared-worker-cache/v15/config.json --phase <phase> --blocks <registered-blocks>
+OPENBLAS_NUM_THREADS=1 uv run --with numpy==2.3.4 --with scipy==1.16.3 -- python -m benchmarks.stream_cost.shared_cache.analysis "$REPORT" --config reports/shared-worker-cache/v15/config.json --phase "$PHASE" --blocks "$BLOCKS" > "${REPORT%.json}-analysis.json"
 ```
 
-Run cold first, then screening, confirmation, capacity, active, sensitivity and faults with their registered block counts. Faults use `reports/shared-worker-cache/v8/fault-config.json` for both acquisition and analysis. Inspect explicit verdicts, stability and completion failures; process exit status alone does not establish acceptance. Raw reports and the executed orchestration scripts remain under `/tmp/agents/issue-272-continuation/`, including `run-v15-initial.zsh`, `run-v15-phase.zsh` and `run-v15-study.zsh`.
+Run cold first, then screening, confirmation, capacity, active and sensitivity with their registered block counts. Then run faults using the registration's separate fault commands: both acquisition and analysis use `reports/shared-worker-cache/v8/fault-config.json`, and fault analysis omits `--blocks`. Inspect explicit verdicts, stability and completion failures; process exit status alone does not establish acceptance.
