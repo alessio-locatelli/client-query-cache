@@ -10,7 +10,7 @@
 
 - [x] 2.1 Add fixed-workload research guards using native cache reads and stream processing; qualify freshness, conservative fallbacks and admission races against real MongoDB.
 - [x] 2.2 Add the end-to-end runner and pilot its correctness/acquisition cost; pin decision-run parameters before gathering decision evidence.
-- [ ] 2.3 Measure both hypotheses independently, including actual saved reads, router CPU, warm hits and unrelated/uncached controls; resolve noisy comparisons with matched repetitions.
+- [x] 2.3 Measure both hypotheses independently, including actual saved reads, router CPU, warm hits and unrelated/uncached controls; resolve noisy comparisons with matched repetitions.
 - [ ] 2.4 Publish the measured net-benefit decisions and reproduction commands, and align #257 and PR #297 with those completed acceptance criteria.
 
 ## 3. Code Quality
