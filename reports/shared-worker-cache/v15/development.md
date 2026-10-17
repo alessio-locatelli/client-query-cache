@@ -19,7 +19,7 @@ Six balanced cold blocks in all four cells complete with all seventy-two windows
 | sync / 4        |  0.657, 1.497, 0.526, 0.400, 1.464, 0.061 |   0.768 |
 | sync / 8        | 0.013, -0.147, 0.307, 0.716, 1.178, 0.757 |   0.471 |
 
-Tails remain variable. These point diagnostics cannot establish registered confidence or stability bounds. Reproduce at this candidate by copying its config under `/tmp/agents/`, changing only `phases.cold.blocks` to six, sourcing `scripts/testcontainers-bridge.sh` and running the cold acquisition module with fresh output paths. Subtract direct request P99 from shared request P99 within each balanced block; retain every window and inspect health. Raw output is `v15-six-block-cold.json` under `/tmp/agents/issue-272-continuation/`.
+Tails remain variable. These point diagnostics cannot establish registered confidence or stability bounds. Reproduce at this candidate by copying its config to an untracked scratch path, changing only `phases.cold.blocks` to six, sourcing `scripts/testcontainers-bridge.sh` and running the cold acquisition module with fresh output paths. Subtract direct request P99 from shared request P99 within each balanced block; retain every window and inspect health.
 
 ## Discarded alternatives
 
@@ -27,4 +27,4 @@ A cached BSON-frame prefix prototype preserves exact bytes for 10,000 sample adm
 
 A single-thread native polling relay prototype completes thirty-six windows healthily. Three-block P99 deltas are async/four 0.422, 0.694, 0.230 ms; async/eight -0.044, 0.946, 0.468 ms; sync/four 0.279, 0.019, 0.543 ms; sync/eight 1.020, 0.487, 0.764 ms. This does not show a robust advantage over the existing relay and is discarded. The registered observer remains unchanged.
 
-Scratch tracers, prototype sources, key/frame timing harnesses and raw outputs remain untracked under `/tmp/agents/issue-272-continuation/`. None contributes to acceptance.
+Scratch tracers, prototype sources, key/frame timing harnesses and raw outputs were not durably preserved. None contributes to acceptance.
