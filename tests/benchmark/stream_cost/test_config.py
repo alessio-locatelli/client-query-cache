@@ -19,9 +19,9 @@ pytestmark = pytest.mark.unit
 def _identity(**overrides: str) -> BenchmarkIdentity:
     defaults = {
         "revision": "abc123",
-        "library_version": "0.1.0",
-        "python_version": "3.14.6",
-        "pymongo_version": "4.18.0",
+        "library_version": "test-library-version",
+        "python_version": "test-python-version",
+        "pymongo_version": "test-pymongo-version",
     }
     defaults.update(overrides)
     return BenchmarkIdentity(**defaults)

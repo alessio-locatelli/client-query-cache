@@ -23,6 +23,8 @@ if TYPE_CHECKING:
 pytestmark = pytest.mark.unit
 
 _SOURCE_FILE_NAMES = ("errors.py", "generators.py", "guard_workload.py")
+_SAME_PYTHON_VERSION = "test-python-version"
+_DIFFERENT_PYTHON_VERSION = "other-test-python-version"
 
 
 def _write_workload_sources(root: Path, *, content: str) -> None:
@@ -81,7 +83,7 @@ def _revision_command(
         expected_command.extend(("--python", selected_python))
         assert command == expected_command
         return ""
-    return "3.14.6\n"
+    return _SAME_PYTHON_VERSION + "\n"
 
 
 @pytest.fixture
@@ -119,7 +121,7 @@ def test_run_returns_the_subprocess_stdout() -> None:
 
 @pytest.mark.parametrize(
     "selected_python",
-    ["3.14.6", "3.14.7"],
+    [_SAME_PYTHON_VERSION, _DIFFERENT_PYTHON_VERSION],
     ids=["unchanged-interpreter", "proposed-interpreter"],
 )
 def test_prepare_environment_succeeds(
@@ -140,7 +142,7 @@ def test_prepare_environment_succeeds(
     )
 
     assert environment.revision == "abc123"
-    assert environment.python_version == "3.14.6"
+    assert environment.python_version == _SAME_PYTHON_VERSION
     assert environment.python_executable == worktree_dir / ".venv" / "bin" / "python"
 
 
@@ -153,14 +155,14 @@ def test_prepare_environment_copies_base_workload_source(
     _write_python_executable(worktree_dir)
     _write_workload_sources(worktree_dir, content="head-definition")
 
-    revision_commands(worktree_dir, "def456", "", "3.14.6")
+    revision_commands(worktree_dir, "def456", "", _SAME_PYTHON_VERSION)
 
     environment = prepare_environment(
         base_root,
         "main",
         worktree_dir=worktree_dir,
         workload_source_root=base_root,
-        python_version="3.14.6",
+        python_version=_SAME_PYTHON_VERSION,
     )
 
     copied = (
@@ -204,19 +206,22 @@ def test_prepare_environment_reports_setup_faults(
     if fault != "missing_workload_definition":
         _write_workload_sources(worktree_dir, content="original")
 
-    revision_commands(worktree_dir, "abc123", fault, "3.14.7")
+    revision_commands(worktree_dir, "abc123", fault, _DIFFERENT_PYTHON_VERSION)
 
     with pytest.raises(BenchmarkSetupError, match=match):
         prepare_environment(
-            repo_root, "main", worktree_dir=worktree_dir, python_version="3.14.7"
+            repo_root,
+            "main",
+            worktree_dir=worktree_dir,
+            python_version=_DIFFERENT_PYTHON_VERSION,
         )
 
 
 @pytest.mark.parametrize(
     ("head_python_version", "head_workload_digest", "match"),
     [
-        ("3.13.0", "digest", "different Python versions"),
-        ("3.14.6", "head-digest", "same guard workload definition"),
+        (_DIFFERENT_PYTHON_VERSION, "digest", "different Python versions"),
+        (_SAME_PYTHON_VERSION, "head-digest", "same guard workload definition"),
     ],
     ids=["interpreter-mismatch", "workload-mismatch"],
 )
@@ -224,7 +229,10 @@ def test_measure_paired_case_detects_environment_mismatch(
     tmp_path: Path, head_python_version: str, head_workload_digest: str, match: str
 ) -> None:
     base = _environment(
-        tmp_path, revision="base", python_version="3.14.6", workload_digest="digest"
+        tmp_path,
+        revision="base",
+        python_version=_SAME_PYTHON_VERSION,
+        workload_digest="digest",
     )
     head = _environment(
         tmp_path,
@@ -240,10 +248,16 @@ def test_measure_paired_case_reports_outcome_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     base = _environment(
-        tmp_path, revision="base", python_version="3.14.6", workload_digest="digest"
+        tmp_path,
+        revision="base",
+        python_version=_SAME_PYTHON_VERSION,
+        workload_digest="digest",
     )
     head = _environment(
-        tmp_path, revision="head", python_version="3.14.6", workload_digest="digest"
+        tmp_path,
+        revision="head",
+        python_version=_SAME_PYTHON_VERSION,
+        workload_digest="digest",
     )
 
     def fake_run(command: Sequence[str], *, cwd: Path | None = None) -> str:
@@ -260,10 +274,16 @@ def test_measure_paired_case_alternates_and_attributes_sides(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     base = _environment(
-        tmp_path, revision="base", python_version="3.14.6", workload_digest="digest"
+        tmp_path,
+        revision="base",
+        python_version=_SAME_PYTHON_VERSION,
+        workload_digest="digest",
     )
     head = _environment(
-        tmp_path, revision="head", python_version="3.14.6", workload_digest="digest"
+        tmp_path,
+        revision="head",
+        python_version=_SAME_PYTHON_VERSION,
+        workload_digest="digest",
     )
     elapsed_seconds_by_python = {
         str(base.python_executable): 0.01,
@@ -308,11 +328,14 @@ def test_revision_python_version_reads_requested_head(
         assert cwd == tmp_path
         if not available:
             raise subprocess.CalledProcessError(1, command, stderr="missing selection")
-        return "3.14.7\n"
+        return _DIFFERENT_PYTHON_VERSION + "\n"
 
     monkeypatch.setattr(guard_runner, "_run", fake_run)
     if available:
-        assert guard_runner.revision_python_version(tmp_path, "proposed") == "3.14.7"
+        assert (
+            guard_runner.revision_python_version(tmp_path, "proposed")
+            == _DIFFERENT_PYTHON_VERSION
+        )
     else:
         with pytest.raises(
             BenchmarkSetupError,

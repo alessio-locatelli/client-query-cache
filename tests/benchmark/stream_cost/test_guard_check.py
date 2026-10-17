@@ -18,12 +18,15 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 pytestmark = [pytest.mark.unit, pytest.mark.usefixtures("proposed_python")]
+_TEST_PYTHON_VERSION = "test-python-version"
 
 
 @pytest.fixture
 def proposed_python(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        guard_check, "revision_python_version", lambda _root, _revision: "3.14.6"
+        guard_check,
+        "revision_python_version",
+        lambda _root, _revision: _TEST_PYTHON_VERSION,
     )
 
 
@@ -32,7 +35,7 @@ def _environment(tmp_path: Path, revision: str) -> RevisionEnvironment:
         revision=revision,
         repo_root=tmp_path / revision,
         python_executable=tmp_path / revision / "python",
-        python_version="3.14.6",
+        python_version=_TEST_PYTHON_VERSION,
         workload_digest="digest",
     )
 
@@ -73,7 +76,7 @@ def test_run_guard_measures_every_case_and_profile(
         python_version: str | None = None,
     ) -> RevisionEnvironment:
         del worktree_dir, workload_source_root
-        assert python_version == "3.14.6"
+        assert python_version == _TEST_PYTHON_VERSION
         return prepared["abc123"] if revision == "abc123" else prepared["head"]
 
     def fake_measure_and_evaluate_case(
@@ -102,7 +105,9 @@ def test_run_guard_measures_every_case_and_profile(
 
     assert report.base_revision == "abc123"
     assert report.head_revision == "def456"
-    assert report.base_python_version == report.head_python_version == "3.14.6"
+    assert (
+        report.base_python_version == report.head_python_version == _TEST_PYTHON_VERSION
+    )
     assert report.passed is True
     assert sorted(observed_cases) == sorted(
         (case, profile.name) for case in CASE_NAMES for profile in PROFILES
