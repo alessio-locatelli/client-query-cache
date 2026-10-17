@@ -141,7 +141,12 @@ class Protocol:
 
     @classmethod
     def smoke(cls) -> Protocol:
-        return cls(1.0, 16, 20, 4, 0.04, 0.2, 0.05, 30, 10, 10)
+        registration = load_registration()
+        # Leave room for completed idle polls inside the one-second smoke window.
+        registration["max_await_time_ms"] = 100
+        return cls(
+            1.0, 16, 20, 4, 0.04, 0.2, 0.05, 30, 10, 10, registration=registration
+        )
 
 
 @dataclass(frozen=True, slots=True)
