@@ -2,7 +2,7 @@
 
 ## Context
 
-See [proposal.md](proposal.md) for motivation. The existing simulator predicts invalidations; it does not account for projection, transport or decoding. The database stream also observes collections without resident entries.
+See [proposal.md](proposal.md) for motivation. The database stream also observes collections without resident entries.
 
 ## Decisions
 
