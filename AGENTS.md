@@ -77,6 +77,8 @@ For more details or a first time setup see [CONTRIBUTING.md](CONTRIBUTING.md).
 - Non-recoverable persistent failures (such as missing files, missing dependencies, permission or access errors, etc.) must not go unreported. At minimum, produce a visible error message so users can either take corrective action or report the issue.
 - **Do not compete with official documentation:** Do not teach users how to install third-party tools, how to debug or configure their environment, etc. Use a short hint and a reference to the official resource.
 - Follow the editing policy in the HTML comment at the top of the [changelog source](CHANGELOG.md?plain=1).
+- **Single source of truth:** Document each fact, rule, or explanation in one canonical location. Link to it elsewhere instead of duplicating or paraphrasing the content.
+- **User-focused documentation:** Write for developers unfamiliar with the library's internals. Explain usage, configuration, and limitations clearly, with practical examples. Document low-level implementation details separately only when needed to understand non-obvious design decisions, invariants, or maintenance procedures; omit details that are self-evident from the code or serve no practical purpose.
 
 ## References
 
