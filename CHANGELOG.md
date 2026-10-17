@@ -13,6 +13,8 @@ bodies or OpenSpec. An empty Unreleased section is valid.
 
 ## Unreleased
 
+## [0.8.1] - 2026-10-17
+
 ### Performance
 
 - Reduce CPU overhead for cache misses and reads by `_id`.
