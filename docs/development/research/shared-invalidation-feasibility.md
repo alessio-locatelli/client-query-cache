@@ -27,8 +27,8 @@ source scripts/testcontainers-bridge.sh
 uv run -- python -m benchmarks.stream_cost.multiprocess_run --smoke --output benchmark-reports/shared-invalidation/smoke.json
 ```
 
-Use a new output path for each run. The smoke phase has a shortened schedule and
-working set and cannot support the investment gate. The registered baseline is:
+Use a new output path for each run. The smoke phase shortens the schedule, working
+set, and stream polling wait and cannot support the investment gate. The registered baseline is:
 
 ```bash
 uv run -- python -m benchmarks.stream_cost.multiprocess_run --output benchmark-reports/shared-invalidation/baseline-retry.json
