@@ -16,7 +16,11 @@ from client_query_cache._core.errors import (
     CacheConfigurationError,
     UnsupportedCacheRequestError,
 )
-from client_query_cache._core.find_reads import find_discriminator
+from client_query_cache._core.find_reads import (
+    FindReadShape,
+    PreparedFindRead,
+    find_discriminator,
+)
 from client_query_cache._core.keys import (
     IdentityCacheKey,
     NamespaceCacheKey,
@@ -47,7 +51,7 @@ if TYPE_CHECKING:
     from bson.codec_options import CodecOptions
 
     from client_query_cache._core.canonical import Canonical
-    from client_query_cache._core.find_reads import FindReadShape, FindSource
+    from client_query_cache._core.find_reads import FindSource
     from client_query_cache._core.keys import AliasKey, CacheKey, NamespaceId
     from client_query_cache._core.residency import CacheObserver, PayloadStore
 
@@ -199,6 +203,10 @@ class _CacheCoreBase:
 
     def _is_closed(self) -> bool:
         return self._lifecycle is CacheLifecycleState.CLOSED
+
+    @property
+    def max_entry_bytes(self) -> PositiveInt:
+        return self._lru.max_entry_bytes
 
     def _removed(self, key: CacheKey, entry: CacheEntry) -> None:
         if self._observer is not None:
@@ -938,7 +946,7 @@ class _CacheCoreLookup(_CacheCoreBase):
     def lookup_find(
         self,
         namespace: NamespaceId,
-        shape: FindReadShape,
+        shape: FindReadShape | PreparedFindRead,
         *,
         codec_options: CodecOptions[Any] | None = None,
     ) -> LookupResult:
@@ -953,15 +961,17 @@ class _CacheCoreLookup(_CacheCoreBase):
         return LookupResult(hit=True, value=documents)
 
     def lookup_find_encoded(
-        self, namespace: NamespaceId, shape: FindReadShape
+        self, namespace: NamespaceId, shape: FindReadShape | PreparedFindRead
     ) -> bytes | None:
         self._ensure_active()
         if not self._is_database_available(namespace.database):
             self._statistics.record_bypass(BypassReason.STREAM_UNAVAILABLE)
             return None
         state = self._namespace(namespace)
-        family = canonicalize(shape.family)
-        key = NamespaceCacheKey(namespace, find_discriminator(family, shape.limit))
+        if isinstance(shape, FindReadShape):
+            shape = PreparedFindRead(canonicalize(shape.family), shape.limit)
+        family = shape.family
+        key = NamespaceCacheKey(namespace, shape.discriminator)
         entry = self._probe_namespace_entry(state, key)
         if entry is None and not isinstance(shape.limit, bool) and shape.limit > 0:
             with state.lock:

@@ -5,16 +5,23 @@ from typing import TYPE_CHECKING, cast
 import pytest
 from bson.int64 import Int64
 
+from client_query_cache._core import find_reads as find_module
 from client_query_cache._core.canonical import canonicalize
 from client_query_cache._core.find_reads import (
     FindReadShape,
+    PreparedFindRead,
     find_discriminator,
     find_read_shape,
 )
+from client_query_cache._core.keys import NamespaceCacheKey
 from client_query_cache._types import NonNegativeInt
+from tests.call_counting import count_current_thread_calls
 
 if TYPE_CHECKING:
     from faker import Faker
+
+    from client_query_cache._core.keys import NamespaceId
+    from client_query_cache._core.manager import CacheCore
 
 pytestmark = pytest.mark.unit
 
@@ -124,7 +131,11 @@ def test_discriminators_reference_the_canonical_family(
     ids=["positive", "unlimited", "negative", "true", "false"],
 )
 def test_prepared_find_shape_preserves_raw_identity(
-    filter_document: object, limit: int
+    core: CacheCore,
+    namespace: NamespaceId,
+    monkeypatch: pytest.MonkeyPatch,
+    filter_document: object,
+    limit: int,
 ) -> None:
     raw_shape = find_read_shape(
         filter_document,
@@ -136,11 +147,25 @@ def test_prepared_find_shape_preserves_raw_identity(
         codec="codec",
     )
     family = canonicalize(raw_shape.family)
-    prepared_shape = FindReadShape(family, limit)
-    exact_key = find_discriminator(family, limit)
+    prepared_shape = PreparedFindRead(family, limit)
+    exact_key = prepared_shape.discriminator
     raw_key = canonicalize(raw_shape.discriminator)
     assert exact_key == raw_key == canonicalize(prepared_shape.discriminator)
     assert hash(exact_key) == hash(raw_key)
     assert prepared_shape.source == raw_shape.source
     assert isinstance(exact_key, tuple)
     assert exact_key[1][0] is family
+    builds = count_current_thread_calls(monkeypatch, find_module, "find_discriminator")
+    core.admit_namespace(
+        core.capture_namespace_generation(namespace),
+        exact_key,
+        [],
+        find_source=prepared_shape.source,
+    )
+    assert builds.count == 0
+    assert core.lookup_find(namespace, prepared_shape).hit
+    assert prepared_shape.discriminator is exact_key
+    stored_key = next(iter(core._lru._order))
+    assert isinstance(stored_key, NamespaceCacheKey)
+    assert stored_key.discriminator is exact_key
+    assert builds.count == 0

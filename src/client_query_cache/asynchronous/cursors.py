@@ -16,8 +16,7 @@ from pymongo.asynchronous.cursor import AsyncCursor
 from client_query_cache._core.codec import codec_fingerprint
 from client_query_cache._core.cursor_capture import CursorCapture
 from client_query_cache._core.find_reads import (
-    FindReadShape,
-    find_discriminator,
+    PreparedFindRead,
     find_read_shape,
 )
 from client_query_cache._core.read_classification import prepare_query_key
@@ -96,11 +95,12 @@ class CachedCursor[DocumentType: Mapping[str, Any]](AsyncCursor[DocumentType]):
         if reason is not None:
             self._view._record_bypass(reason)
             return
-        shape = FindReadShape(family, shape.limit)
-        discriminator = find_discriminator(family, shape.limit)
+        prepared = PreparedFindRead(family, shape.limit)
         cache = self._view.database.manager.cache_core
         namespace = self._view._namespace()
-        lookup = cache.lookup_find(namespace, shape, codec_options=self._codec_options)
+        lookup = cache.lookup_find(
+            namespace, prepared, codec_options=self._codec_options
+        )
         if lookup.hit:
             documents: list[DocumentType] = lookup.value
             self._data = deque(documents)
@@ -113,9 +113,9 @@ class CachedCursor[DocumentType: Mapping[str, Any]](AsyncCursor[DocumentType]):
         self._capture = CursorCapture(
             cache,
             cache.capture_namespace_generation(namespace),
-            discriminator,
+            prepared.discriminator,
             self._codec_options,
-            find_source=shape.source,
+            find_source=prepared.source,
         )
         forced = self._view._forced_collection_handle()
         self._read_concern = forced.read_concern

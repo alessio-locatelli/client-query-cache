@@ -183,6 +183,6 @@ def test_find_family_lookup(
     )
     pstats.Stats(profiler).sort_stats("tottime").print_stats(5)
     assert probes.count == 2
-    assert discriminators.count == 2
+    assert discriminators.count == 1
     assert core.snapshot().used_bytes == before.used_bytes
     assert core.snapshot().entry_count == before.entry_count

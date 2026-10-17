@@ -336,7 +336,7 @@ def test_lookup_probes_only_its_family(
     )
     assert core.lookup_find(namespace, shape(10)).value == [100]
     assert probes.count == 2
-    assert discriminators.count == 2
+    assert discriminators.count == 1
 
 
 @example([("admit", limit) for limit in range(5)])

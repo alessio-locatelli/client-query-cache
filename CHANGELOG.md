@@ -13,6 +13,10 @@ bodies or OpenSpec. An empty Unreleased section is valid.
 
 ## Unreleased
 
+### Performance
+
+- Reduce CPU and latency overhead for `find()` cache misses.
+
 ## [0.8.1] - 2026-10-17
 
 ### Performance

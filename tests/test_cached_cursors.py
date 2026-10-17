@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 import pytest
 from bson.codec_options import CodecOptions, TypeRegistry
 from bson.decimal128 import Decimal128
+from bson.son import SON
 from pymongo import AsyncMongoClient
 from pymongo.asynchronous.command_cursor import AsyncCommandCursor
 from pymongo.asynchronous.cursor import AsyncCursor
@@ -43,6 +44,31 @@ from tests.codec_helpers import Decimal128ToDecimalDecoder, fail_decimal_encodin
 from tests.cursor_fixtures import DOCUMENT_COUNT
 
 pytestmark = pytest.mark.integration
+
+
+@pytest.mark.parametrize("document_class", [dict, SON], ids=["dict", "ordered"])
+async def test_aggregate_capture_preserves_nonleading_id_order(
+    cursors: Binding, document_class: type[BsonDict | SON[str, object]]
+) -> None:
+    view = with_codec_options(
+        cursors["view"], CodecOptions(document_class=document_class)
+    )
+    pipeline: list[BsonDict] = [
+        {"$sort": {"_id": 1}},
+        {"$replaceWith": {"value": "$value", "_id": "$_id", "nested": "$nested"}},
+    ]
+    expected = await materialize(view.raw.aggregate(pipeline))
+    assert expected
+    assert all(tuple(document) == ("value", "_id", "nested") for document in expected)
+    for warm in (False, True):
+        cursors["commands"].commands.clear()
+        documents = await materialize(view.aggregate(pipeline))
+        assert documents == expected
+        assert all(
+            tuple(document) == tuple(original)
+            for document, original in zip(documents, expected, strict=True)
+        )
+        assert bool(cursors["commands"].commands) is not warm
 
 
 @pytest.mark.parametrize(
