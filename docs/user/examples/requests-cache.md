@@ -1,8 +1,10 @@
 # requests-cache integration
 
+This adapter uses process-local `CacheManager` for its broader cached-read coverage. See [manager selection](../getting-started/choose-a-manager.md) for shared identity-read deployments.
+
 The adapter routes requests-cache's MongoDB storage lookups through `CacheManager`, while its writes, deletion, and index management use the original PyMongo collections. It consumes the cached `find` cursor through the iterator expected by requests-cache.
 
-The program serves HTTP locally, fetches a response once, and waits until the cache has applied the change event for the stored response. A change event that arrives after a later read has filled the cache evicts that entry and costs one more miss, so the program creates the `responses` collection up front, which leaves a single event to wait for. It then checks that repeated storage reads hit this library's cache without another origin request. Deleting the stored response uses raw writes; the program waits for invalidation before checking that the next request reaches the origin again. This separates requests-cache's HTTP response behavior from the MongoDB read cache.
+The program serves HTTP locally, fetches a response once, and waits until the cache has applied the change event for the stored response. It then checks that repeated storage reads hit this library's cache without another origin request. Deleting the stored response uses raw writes; the program waits for invalidation before checking that the next request reaches the origin again. This separates requests-cache's HTTP response behavior from the MongoDB read cache.
 
 See the [example catalogue](index.md) for prerequisites, run commands, expected evidence, and the database-reset warning.
 

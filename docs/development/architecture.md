@@ -1,6 +1,6 @@
 # Architecture
 
-This guide describes the internal cache and invalidation design. Public contracts live in the [API reference](../user/reference/api.md), [consistency guide](../user/usage/consistency.md), and [operations guides](../user/operations/index.md).
+This guide describes the process-local cache and the cache core used by the shared owner. The [shared-cache reference](shared-cache.md) covers native mappings, ownership and publication. Public contracts live in the [API reference](../user/reference/api.md), [consistency guide](../user/usage/consistency.md), and [operations guides](../user/operations/index.md).
 
 ## High-level design
 

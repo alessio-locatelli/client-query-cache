@@ -1,94 +1,40 @@
 # Deployment
 
-Use a long-lived manager alongside each PyMongo client you want cached. The manager owns its cached data and background streams; you own the client and its connection, credentials, TLS, and timeout settings. See [ownership](../reference/api.md#ownership) and the [installation requirements](../getting-started/installation.md).
+This page covers `CacheManager`. For one cache shared by workers, follow [shared deployment](shared-cache.md). Start with [manager selection](../getting-started/choose-a-manager.md) if you are choosing between them.
 
-Invalidation is asynchronous. Plan direct PyMongo reads for operations that must immediately observe a preceding write; see [consistency](../usage/consistency.md).
+Create a long-lived PyMongo client and manager inside each worker and reuse them across requests. The manager owns cached data and streams; your application owns the client's credentials, TLS, pools and timeouts. Close the manager before the client, using `with` or `async with`. Never inherit a client or manager from a pre-fork parent.
 
-To enable caching through an application-owned deployment flag and roll it back, see the [FastAPI catalogue rollout](../examples/fastapi.md#feature-flagged-rollout).
-
-This page describes process-local `CacheManager` deployments. To share `_id` reads and streams across workers, use the [shared worker cache](shared-cache.md).
+Use direct reads where freshness is required; [invalidation is asynchronous](../usage/consistency.md). The [catalogue rollout example](../examples/fastapi.md#feature-flagged-rollout) selects direct or cached content reads at application startup and demonstrates rollback.
 
 ## Retry and error handling
 
-- **Initial stream startup**: one read starts a stream for its database. Concurrent reads for that
-  database run uncached while startup is pending; other databases can start or use their caches independently.
-  Failed attempts emit a warning and enter a cooldown. Retry delays are sampled between half and all of
-  an exponential cap, starting at 100 ms and doubling to 30 seconds. A read at or after the deadline
-  initiates the next attempt; idle databases do not retry in the background. This also applies to
-  unsupported servers and denied watch permissions, so corrected deployments can recover on later reads.
-- **Change-stream reconnection**: a dropped stream connection reconnects automatically using capped exponential
-  backoff with jitter (starting near 100 ms, capped at 30 seconds), resuming from its last saved position. While
-  reconnecting, that database's cache bypasses reads and admissions until the stream is healthy again — never
-  serving from a cache that might have missed an invalidation.
-- **Unresumable interruptions**: if the stream's resume position is no longer available on the server (for example,
-  after an extended outage), the affected database's cache is cleared before the stream reopens, rather than assumed
-  safe.
-- **Errors raised to callers**: cache exceptions report invalid configuration, use after `close()`, or explicit low-level misuse. The [API reference's error table](../reference/api.md#errors) is the complete list.
-- **Cache-ineligible requests bypass**: tailable, exhaust, or partial-result `find()`, `$changeStream` aggregation, and the other [bypass conditions](../reference/api.md#bypass-conditions) execute as normal PyMongo calls instead of raising a cache error. The underlying PyMongo call can still raise its own errors or wait for the server.
+Initial reads start one stream per database. Concurrent reads for the same database bypass while startup is pending; other databases operate independently. Failed startup logs a warning and subsequent reads retry after a jittered exponential cooldown, starting near 100 ms and capped at 30 seconds. Idle databases do not retry startup in the background. Correcting permissions or topology can therefore restore caching on later reads without replacing the manager.
 
-Use the [permission recovery exercise](permission-recovery.md) to observe startup failure, bypass counters, and read-triggered recovery on a disposable authenticated replica set.
+Established streams reconnect automatically with capped backoff. Reads and admissions bypass during reconnection. If MongoDB can no longer resume from the saved position, the affected database's cache is cleared before the stream reopens. See [health diagnostics](monitoring.md#bypass-reasons-and-stream-health) and the [permission recovery exercise](permission-recovery.md).
+
+Bypassing still executes a MongoDB operation: database outages and driver errors can reach callers. Ineligible requests use native PyMongo behavior; invalid configuration and manager misuse raise the [documented errors](../reference/api.md#errors). Configure driver timeouts for your request and shutdown policy.
 
 ## Security
 
-- The cache introduces no new network exposure or authentication mechanism of its own. Every connection,
-  credential, and TLS setting is entirely controlled by the PyMongo client you construct and pass to `CacheManager`
-  — caching a client does not change what it's authorized to do or how it connects.
-- Cached values live only in your application process's memory for the lifetime of the `CacheManager`; nothing is
-  written to disk, sent over the network, or shared between processes. Treat cached documents the same as any other
-  in-memory application data: anyone who can read your process's memory can read them.
-- The cache does not perform its own authorization checks; a cached result reflects whatever the wrapped client was
-  authorized to read when it was fetched. A cached document keeps returning from the cache until the underlying
-  document changes or the entry is evicted — an unrelated permission change alone does not invalidate it. If your
-  application depends on re-authorizing every read (for example, after changing a user's access), read that data
-  through `.raw` instead of the cached view.
+The process-local cache uses your client's connections and credentials, and stores values in application memory. It creates no listening endpoint. Anyone able to inspect process memory can read cached documents. The separate [shared-cache security model](shared-cache.md#security-and-monitoring) includes a private Unix endpoint and access to all configured databases.
+
+Plan access changes using the [freshness and authorization guidance](../usage/consistency.md#freshness-and-authorization), and keep permission checks outside cached content retrieval.
 
 ## Connection-pool behavior
 
-Each active cached database keeps one change-stream cursor open, advanced by periodic `getMore` calls. Each
-`getMore` borrows a connection from the client's own connection pool only for that call's duration — it does not
-pin a connection to the cursor for its entire lifetime (outside of session-pinning cases) — so an active cached
-database competes for pool connections the same way one more long-running caller would, rather than permanently
-reserving one. If you activate caching for many databases through one client, size that client's `maxPoolSize` with
-that many concurrent long-poll consumers in mind, alongside your application's own concurrent reads and writes.
+Each active cached database has one change-stream cursor. Its periodic `getMore` calls borrow connections from the client's pool for the duration of each call. Size `maxPoolSize` for one concurrent long poll per active database plus application reads and writes. The manager leaves client pool settings unchanged.
 
 ## Recovery behavior
 
-Each database can start, connect, become healthy, reconnect, and close independently. Caching is permitted only while its change stream is healthy; reads bypass the cache in every other state. Shutting down a manager (`cache_manager.close()`, or exiting its context manager) makes every active database unavailable before waiting for streams and background workers to stop. Close the manager before its PyMongo client; use `await cache_manager.close()` with asyncio.
+Databases recover independently. Only healthy streams permit caching; healthy status does not promise catch-up to an independent writer's latest event.
 
-Shutdown waits for pending startup and native stream cleanup. Cancelling asyncio `close()` defers
-cancellation until those resources and the manager's cache are released. Concurrent or later calls
-join the same shutdown. Driver I/O can delay completion; configure timeouts on your PyMongo client.
+Closing a manager first disables caching, then waits for pending startup and stream cleanup. Async `close()` finishes cleanup before propagating cancellation; concurrent closes join the same shutdown. Driver I/O can delay completion, so configure client timeouts. The manager never closes your client.
 
 ## Capacity estimation
 
-Sizing a deployment starts from one fact: **each `CacheManager` instance opens one change-stream cursor per active
-cached database it watches — not one cursor for the whole client.** A manager caching three databases through one
-client keeps three cursors open, one per database, each with its own independent retry and recovery state.
+`CacheCoreConfig(shared_budget_bytes=..., max_entry_bytes=...)` bounds stored BSON across all collections and databases within one manager. Despite its name, `shared_budget_bytes` does not share values between processes. It is not an RSS limit; keys, metadata, active cursors and application-held results add memory.
 
-This has two consequences for multi-instance or multi-process deployments:
-
-- **A synchronous and an asyncio `CacheManager` constructed for the same MongoDB deployment in the same process do
-  not share anything.** Each keeps its own memory budget (`shared_budget_bytes`) and its own change-stream cursors;
-  running both to cache the same databases pays for the cursors and the budget twice.
-- **Each additional process caching the same deployment multiplies the same per-instance cost again.** Ten worker
-  processes each running one `CacheManager` against the same three databases open thirty change-stream cursors
-  total and reserve ten independent memory budgets — none of it shared, because the cache is intentionally
-  process-local. See [multi-worker servers](#multi-worker-servers).
-
-This multiplication matters most in two shapes of deployment:
-
-1. **A high-fan-out or short-lived-process model** — for example, one process (or one `CacheManager`) created per
-   incoming request or per invocation. Opening a change-stream cursor per active database has a fixed startup cost
-   that a short-lived process pays on every invocation, often without enough request volume in that one process's
-   lifetime for caching to pay that cost back. Prefer a small number of long-lived `CacheManager` instances — for
-   example, one created once per worker process at startup and reused across every request that worker handles —
-   over constructing a new one per request.
-2. **A manager caching many databases** — the number of open cursors grows with the number of active databases.
-   One configured memory budget is shared across all databases and collections within that manager;
-   activating another database does not increase it. If a single manager ends up watching dozens
-   of databases, apportion `shared_budget_bytes` (see the [API reference](../reference/api.md#configuration)) across
-   the databases and collections you actually expect concurrent hot data from, rather than leaving the default in
-   place for a manager sized for a handful of databases.
+One manager watching three databases opens three streams. Four workers watching those databases open twelve streams and hold four independent cache budgets. Sync and asyncio managers are also independent, even in one process. Avoid constructing a manager per request: startup and independent warming can consume the benefit before the process reuses any data.
 
 ### Memory beyond the cache budget
 
@@ -113,7 +59,7 @@ Process memory usually stays near its peak after the cache frees memory. After e
 
 Container memory limits apply to the container's own memory counter, not to process RSS, which also counts shared library pages. In the measurements, the container counter followed the process's private memory and stayed about 17 MiB below RSS.
 
-The figures come from Python 3.14, PyMongo 4.18, and glibc on Linux, and depend on document shape. Measure your own workload before relying on them.
+The figures come from Python 3.14, PyMongo 4.18, and glibc on Linux; see the [memory measurement report](https://github.com/alessio-locatelli/client-query-cache/blob/main/reports/process-memory/summary.md) for commands and evidence. Measure your own document and query shapes.
 
 Monitor [cache outcomes and stream health](monitoring.md) alongside your application workload. Use the [benchmark guide](../benchmarks/index.md) to decide what to measure before deployment.
 
@@ -127,12 +73,10 @@ For an economic comparison, measure the application's change in CPU, memory, and
 
 ## Multi-worker servers
 
-Application servers such as Gunicorn, Uvicorn, and Granian can run several worker processes. Create the PyMongo client and the `CacheManager` inside each worker, for example in a FastAPI [lifespan handler](https://fastapi.tiangolo.com/advanced/events/), never in a parent process before the workers start. PyMongo [requires a new client](https://www.mongodb.com/docs/languages/python/pymongo-driver/current/connect/mongoclient/#multiple-forks) in each forked process.
+Gunicorn, Uvicorn and Granian can run independent `CacheManager` instances in worker lifespans. The [FastAPI catalogue launcher](../examples/fastapi.md#running-several-workers) demonstrates this under Uvicorn. Every worker warms and retains its own data, so account for the worker count when setting budgets.
 
-Workers then cache independently. Each keeps its own copy of the documents it reads and its own change streams, and warms its cache on its own after it starts or restarts. For example, eight workers that each cache 100 MiB of the same hot documents hold about 800 MiB of cached data on one host and open eight change-stream cursors per cached database. Set `shared_budget_bytes` per worker with that multiplication in mind; a smaller budget lowers memory but evicts more and hits less often. Fewer workers that each serve more concurrent requests, with asyncio or threads, duplicate less.
-
-Duplicate change streams put little load on MongoDB. In the project's measurements, seven extra streams from eight workers on one database cost MongoDB about 0.3% of a CPU core while idle and about 1% at about three writes per second; the cost grows with the write rate. With frequent writes, a cache in every worker may not reduce MongoDB load at all. In a [single-host benchmark](../benchmarks/index.md#multiple-workers-with-concurrent-writes) where four asyncio workers read 1,831 documents per second by `_id` and one update followed every 20 reads, caching cut median latency by about 40%, but MongoDB used about 10% more CPU than with direct reads. Each update reaches every worker's change stream and causes a miss in each worker that reads the document again.
+With frequent writes, independent caches can reduce read latency while increasing MongoDB CPU: every worker consumes each event and may refetch the same invalidated document. The [concurrent-write measurements](../benchmarks/index.md#multiple-workers-with-concurrent-writes) demonstrate that tradeoff. Measure application and database CPU at the same request rate.
 
 ### Shared identity reads
 
-Use [SharedCacheServer](shared-cache.md) when trusted workers on one host repeatedly read the same `_id` documents. It shares those values and one stream per active database; other reads use PyMongo. Compare the [supported workload measurements](../benchmarks/shared-cache.md) with your own read mix and memory limits before choosing a mode.
+For repeated exact `_id` reads across trusted same-host workers, consider [shared caching](shared-cache.md) and the [Granian example](../examples/fastapi-shared.md). One server avoids duplicate stored values and streams. Broader query results are not shared; compare the [public measurements](../benchmarks/shared-cache.md) before changing managers.

@@ -1,8 +1,12 @@
 # Monitoring
 
-Use cache counters to measure reuse, and inspect stream health to explain bypasses. A healthy stream does not promise that an independent writer's latest event has arrived; see [consistency](../usage/consistency.md).
+Choose diagnostics for the manager you use. Process-local `CacheManager` exposes capacity, detailed bypass reasons and stream health. `SharedCacheManager` exposes only worker-local outcome totals; see [shared diagnostics](#shared-manager-diagnostics).
+
+Measure hit rate alongside request latency, application and MongoDB CPU, and memory. A healthy stream does not mean a writer's latest event has arrived; see [consistency](../usage/consistency.md).
 
 ## Observability
+
+The remainder of this section describes synchronous and asyncio **process-local `CacheManager`** instances.
 
 - **Logging**: every component logs through the standard `logging` module under `client_query_cache.*` logger
   names (for example, `client_query_cache.synchronous.streams` logs stream reconnects and shutdown warnings). Attach
@@ -12,8 +16,7 @@ Use cache counters to measure reuse, and inspect stream health to explain bypass
   evictions, bypasses, and oversized bypasses. `bypass_reasons` contains fixed `BypassReasonCount` records in
   `BypassReason` order, including zeros. Ordinary reasons sum to `bypasses`; oversized recordings are separate.
   Counters describe recording events: a read records at most one hit or miss, and can also record more than one bypass.
-  None of these fields expose document contents, queries, or
-  credentials, so the snapshot is safe to log or export to a metrics system directly.
+  Cache snapshots omit document contents, queries and credentials.
 - **Per-database stream telemetry**: `cache_manager.stream_cost_snapshot(database_name)` returns manager iteration-call counts,
   logical event bytes, invalidation counts, and invalidation-delivery-lag samples for one database, and
   `cache_manager.active_stream_cost_databases()` lists which databases currently have telemetry. This is the
@@ -51,10 +54,7 @@ your application's responsibility; see the
 | `client_query_cache.stream.polls` / `.invalidations` / `.logical_event_bytes`                    | counter | cumulative stream activity, tagged per database with `db.namespace`                                                      |
 | `client_query_cache.stream.invalidation_lag`                                                     | gauge   | invalidation-delivery-lag percentiles (p50/p95/max by default), tagged per database with `db.namespace` and `percentile` |
 
-The lag gauge reports a simple order-statistic quantile over the samples the manager currently retains — a live,
-at-a-glance figure, not the calibrated, confidence-interval estimate the
-[stream-cost benchmark suite](../benchmarks/stream-cost.md) produces for report-grade claims. It carries the same
-clock-skew disclaimer as the underlying stream telemetry.
+Lag gauges summarize retained samples and compare server and application clocks. Clock skew can distort them; they are not an application freshness guarantee. Use the [benchmark methodology](../benchmarks/stream-cost.md) for controlled measurements.
 
 ## Bypass reasons and stream health
 
@@ -74,12 +74,10 @@ clock-skew disclaimer as the underlying stream telemetry.
 | `admission_invalidated`                                 | Stream continuity changed during admission, although the stream is currently available. |
 | `unspecified`                                           | An advanced caller recorded a bypass without a reason.                                  |
 
-Request classification checks session, read profile, unsupported options, unsafe filter or pipeline,
-unsafe projection, and cache-key suitability in that order, before collection and stream eligibility.
-A missing collection or unavailable metadata is checked again on a later read.
+If several request checks would bypass a read, the first failing check supplies its reason: session, read profile, unsupported options, unsafe filter or pipeline, unsafe projection, then cache-key suitability. These checks precede collection and stream eligibility. A missing collection or unavailable metadata is checked again on later reads. For unexpected bypasses, check the recorded reason first, then the [eligibility contract](../reference/api.md#bypass-conditions).
 
 `manager.stream_health_snapshot(database_name)` reports `not_started`, `connecting`, `healthy`,
-`reconnecting`, `startup_failed`, or `closed`. Inspection is synchronous for both managers and never
+`reconnecting`, `startup_failed`, or `closed`. Inspection is synchronous for sync and asyncio `CacheManager` and never
 starts a stream. Its `requested_database_name` echoes the name you passed without checking it against MongoDB. While the manager is open, a name without a stream, including an empty or mistyped one, reports `not_started`. `connecting` covers initial startup until it is available to cached reads. An actual
 failed attempt emits a startup warning and leaves `startup_failed` visible during its retry cooldown;
 reads continue through PyMongo and record `stream_unavailable` without another startup warning.
@@ -93,3 +91,16 @@ The separate `client_query_cache.cache.bypasses.by_reason` OpenTelemetry counter
 `cache.bypass.reason`. It reports the same ordinary reason counts without query, collection, database,
 or error attributes. The aggregate and oversized counters remain separate. Advanced registrations
 using `manager.cache_core`, including the `cache_core=` keyword, are supported.
+
+## Shared manager diagnostics
+
+```python
+counts = manager.snapshot()  # SharedCacheStatistics; synchronous in both APIs.
+print(counts.hits, counts.misses, counts.bypasses)
+```
+
+These cumulative totals belong to this worker's manager. They do not aggregate other workers or report owner capacity, entry count, bypass reasons, stream health or invalidation lag. `register_cache_metrics` requires the process-local statistics interface and does not support shared managers. Export the three counters through your application's telemetry if needed, identifying workers and handling restarts as counter resets.
+
+To investigate low reuse, check the [shared query scope](../reference/shared-cache.md#worker-managers-and-reads), owner logs and liveness, worker plus owner memory, and configured capacities. Returning a document alone is not proof of a hit. The [shared web self-check](../examples/fastapi-shared.md) combines worker snapshots with actual MongoDB command counts to verify reuse across processes.
+
+Monitor the parent as well as workers: losing it stops the owner. Temporary owner outages can leave HTTP requests succeeding through direct reads while cache hit rates fall. Persistent access, credential and protocol errors remain visible failures; see [shared recovery](shared-cache.md#consistency-and-recovery).

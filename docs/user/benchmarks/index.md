@@ -1,6 +1,8 @@
 # Benchmarks
 
-For an adoption checklist and comparison of caching layers, start with [Should you use this?](../getting-started/should-you-use-this.md).
+For an adoption checklist, start with [Should you use this?](../getting-started/should-you-use-this.md). Compare [manager capabilities](../getting-started/choose-a-manager.md) before applying a measurement to your deployment.
+
+The [shared-cache comparison](shared-cache.md) measures the Rust-backed public API against direct reads and independent process-local caches. Sharing reduces duplicate values and streams, but owner overhead can offset memory savings and cold reads can cost more. The measurements below describe process-local caching unless stated otherwise.
 
 ## Is caching a good fit for your workload?
 
@@ -25,8 +27,7 @@ Before enabling the cache for a workload, weigh these factors — each is covere
   [system requirements](../getting-started/installation.md#requirements)), bypasses the cache for that traffic instead of
   raising an error.
 
-None of the [reports](stream-cost.md#reports) establishes a performance guarantee for your own workload, host, or MongoDB topology —
-use them to decide what to measure on your own deployment before relying on the cache in production.
+Measure the chosen manager against direct reads under your own query mix and write traffic. Record latency percentiles, hit rate, database and application CPU, and combined worker/owner memory at equal throughput.
 
 ## Illustrative read latency
 

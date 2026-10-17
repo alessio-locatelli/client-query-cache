@@ -1,5 +1,7 @@
 # Observe cache eligibility
 
+These exercises use process-local `CacheManager` diagnostics. For cross-process hits and invalidation, run the [shared FastAPI self-check](../examples/fastapi-shared.md).
+
 Run the [compact FastAPI self-check](../examples/fastapi-minimal.md) to see these outcomes against a disposable replica set. The fragments below come from that executable program: `owned` contains its application resources, and `observed_bypass` checks public snapshots before and after a fully consumed read.
 
 ## Miss followed by hit
