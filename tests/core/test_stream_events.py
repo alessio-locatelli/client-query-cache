@@ -170,7 +170,7 @@ def test_index_events_record_an_index_change_against_the_namespace(
                 "ns": {"db": "db", "coll": "coll"},
                 "wallTime": _WALL_TIME,
             },
-            "clear_namespace",
+            "drop_namespace",
             id="drop",
         ),
         pytest.param(
@@ -219,7 +219,7 @@ def test_event_for_an_untracked_namespace_does_not_touch_the_cache(
     ("operation_type", "method_name"),
     [
         pytest.param("create", "create_namespace", id="create"),
-        pytest.param("drop", "clear_namespace", id="drop"),
+        pytest.param("drop", "drop_namespace", id="drop"),
     ],
 )
 def test_event_for_a_tracked_namespace_updates_the_cache(
@@ -240,7 +240,7 @@ def test_event_for_a_tracked_namespace_updates_the_cache(
     getattr(cache, method_name).assert_called_once_with(namespace)
 
 
-def test_rename_event_clears_both_the_source_and_destination_namespaces() -> None:
+def test_rename_event_releases_the_source_and_clears_the_destination() -> None:
     cache = Mock()
     cache.has_namespace.return_value = True
     source = NamespaceId("db", "old_coll")
@@ -255,7 +255,8 @@ def test_rename_event_clears_both_the_source_and_destination_namespaces() -> Non
     must_reopen = route_change_event(cache, "db", event)
 
     assert must_reopen is False
-    cache.clear_namespace.assert_has_calls([call(source), call(destination)])
+    cache.drop_namespace.assert_called_once_with(source)
+    cache.clear_namespace.assert_called_once_with(destination)
 
 
 def test_rename_event_does_not_clear_a_destination_in_another_database() -> None:
@@ -272,7 +273,7 @@ def test_rename_event_does_not_clear_a_destination_in_another_database() -> None
     must_reopen = route_change_event(cache, "db", event)
 
     assert must_reopen is False
-    cache.clear_namespace.assert_called_once_with(source)
+    cache.drop_namespace.assert_called_once_with(source)
 
 
 @pytest.mark.parametrize(
@@ -291,7 +292,7 @@ def test_rename_event_does_not_clear_a_destination_in_another_database() -> None
         ),
     ],
 )
-def test_database_wide_events_clear_every_tracked_namespace_immediately(
+def test_database_wide_events_release_every_tracked_namespace_immediately(
     event: BsonDict,
 ) -> None:
     cache = Mock()
@@ -305,8 +306,8 @@ def test_database_wide_events_clear_every_tracked_namespace_immediately(
     assert cache.mock_calls == [
         call.set_database_available("db", available=False),
         call.namespaces_for_database("db"),
-        call.clear_namespace(first),
-        call.clear_namespace(second),
+        call.drop_namespace(first),
+        call.drop_namespace(second),
         call.record_invalidation_applied("db", ANY, ANY, ANY),
     ]
 

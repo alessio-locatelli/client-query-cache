@@ -505,7 +505,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
                 filter_query, projection, sort=sort, collation=collation
             )
         except BaseException:
-            cache.discard_identity_admission(capture)
+            capture.release()
             raise
         cache.admit_identity(capture, read_shape, document, codec_options=codec_options)
         return document
@@ -604,8 +604,8 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
         )
         if document is None:
             if previous_identity is not None:
-                cache.discard_stale_alias(namespace, alias, previous_identity)
-            cache.discard_namespace_entry(namespace, discriminator, capture.generation)
+                cache.discard_stale_alias(capture, alias, previous_identity)
+            cache.discard_namespace_entry(capture, discriminator)
             cache.admit_namespace(
                 capture, discriminator, None, codec_options=codec_options
             )
@@ -619,7 +619,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
             raw_identity, codec_options, self._database.manager.client.codec_options
         )
         if cache_identity is not None and is_canonicalizable(cache_identity):
-            cache.discard_namespace_entry(namespace, discriminator, capture.generation)
+            cache.discard_namespace_entry(capture, discriminator)
             outcome = cache.admit_unique_key_match(
                 capture,
                 discriminator,
@@ -633,10 +633,10 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
                 outcome is not AdmissionOutcome.ADMITTED
                 and previous_identity is not None
             ):
-                cache.discard_stale_alias(namespace, alias, previous_identity)
+                cache.discard_stale_alias(capture, alias, previous_identity)
         elif previous_identity is not None:
-            cache.discard_stale_alias(namespace, alias, previous_identity)
-            cache.discard_namespace_entry(namespace, discriminator, capture.generation)
+            cache.discard_stale_alias(capture, alias, previous_identity)
+            cache.discard_namespace_entry(capture, discriminator)
         return document
 
     def _namespace(self) -> NamespaceId:

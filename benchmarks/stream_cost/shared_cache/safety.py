@@ -41,11 +41,15 @@ def local_read(
     namespace = NamespaceId(database, collection)
     local = manager.local
     assert local is not None
-    database_slot, slot, _incarnation = manager._slots[namespace]
+    assignment = manager._slots.find(namespace)
+    metadata = manager._metadata.find(namespace)
+    assert assignment is not None
+    assert metadata is not None
+    database_slot, slot, _incarnation = assignment
     return local.reader.lookup(
         database_slot,
         slot,
-        manager._metadata[namespace].checked_epoch,
+        metadata.checked_epoch,
         local_key(key),
         manager.keys.encode(manager[database][collection]._find_one_default_shape),
     )

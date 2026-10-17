@@ -92,7 +92,7 @@ class _CacheCoreMachine(RuleBasedStateMachine):
     @rule(namespace=_NAMESPACE_STRATEGY, identity=_IDENTITY_STRATEGY)
     def begin_and_discard_identity(self, namespace: NamespaceId, identity: str) -> None:
         capture = self.core.begin_identity_admission(namespace, identity)
-        self.core.discard_identity_admission(capture)
+        capture.release()
 
     @rule(
         namespace=_NAMESPACE_STRATEGY,

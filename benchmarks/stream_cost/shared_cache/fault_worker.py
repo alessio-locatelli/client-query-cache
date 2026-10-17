@@ -29,11 +29,13 @@ def selection(
     manager: SharedCacheManager[BsonDict] | AsyncSharedCacheManager[BsonDict],
     spec: WorkerSpec,
 ) -> Payload:
-    namespace = next(iter(manager._metadata))
+    namespace = NamespaceId(spec.database, spec.collection)
+    metadata = manager._metadata.find(namespace)
+    assert metadata is not None
     return {
         "op": "select-identity",
         "ns": [spec.database, spec.collection],
-        "epoch": manager._metadata[namespace].checked_epoch,
+        "epoch": metadata.checked_epoch,
         "identity": encode_key(len(spec.keys)),
         "shape": encode_key(
             manager[spec.database][spec.collection]._find_one_default_shape
@@ -58,14 +60,16 @@ class LocalSelection:
     ) -> LocalSelection | None:
         namespace = NamespaceId(spec.database, spec.collection)
         local = manager.local
-        if local is None or namespace not in manager._slots:
+        assignment = manager._slots.find(namespace)
+        metadata = manager._metadata.find(namespace)
+        if local is None or assignment is None or metadata is None:
             return None
-        database_slot, slot, _incarnation = manager._slots[namespace]
+        database_slot, slot, _incarnation = assignment
         return cls(
             local.reader,
             database_slot,
             slot,
-            manager._metadata[namespace].checked_epoch,
+            metadata.checked_epoch,
             manager.keys.encode(
                 manager[spec.database][spec.collection]._find_one_default_shape
             ),
@@ -224,9 +228,8 @@ def worker_eligible(
     manager: SharedCacheManager[BsonDict] | AsyncSharedCacheManager[BsonDict],
     namespace: NamespaceId,
 ) -> bool:
-    try:
-        metadata = manager._metadata[namespace]
-    except KeyError:
+    metadata = manager._metadata.find(namespace)
+    if metadata is None:
         return False
     return metadata is not _STALE and metadata.bypass_reason is None
 
@@ -241,9 +244,13 @@ def stress_reads(
     spec: WorkerSpec,
     manager: SharedCacheManager[BsonDict] | AsyncSharedCacheManager[BsonDict],
 ) -> None:
-    namespace = next(iter(manager._slots))
-    database_slot, slot, _incarnation = manager._slots[namespace]
-    epoch = manager._metadata[namespace].checked_epoch
+    namespace = NamespaceId(spec.database, spec.collection)
+    assignment = manager._slots.find(namespace)
+    metadata = manager._metadata.find(namespace)
+    assert assignment is not None
+    assert metadata is not None
+    database_slot, slot, _incarnation = assignment
+    epoch = metadata.checked_epoch
     local = manager.local
     assert local is not None
     observed: dict[NonNegativeInt, set[bytes]] = {key: set() for key in spec.keys}

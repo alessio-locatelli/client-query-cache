@@ -239,4 +239,4 @@ def test_an_identity_left_without_aliases_retains_no_alias_storage(
     assert resolved == current_owner
     if current_owner is not None:
         assert identities[current_owner].alias_keys == frozenset({SHARED_ALIAS})
-    core.discard_identity_admission(pending)
+    pending.release()

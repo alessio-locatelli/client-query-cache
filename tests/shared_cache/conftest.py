@@ -16,6 +16,7 @@ from pymongo import AsyncMongoClient, MongoClient
 from benchmarks.stream_cost.multiprocess_run import reclaim_workers
 from benchmarks.stream_cost.shared_cache.owner import owner_main
 from benchmarks.stream_cost.shared_cache.window import attachment_for
+from client_query_cache._core.keys import NamespaceId
 from client_query_cache._shared.adapters import (
     AsyncSharedCacheManager,
     SharedCacheManager,
@@ -108,12 +109,14 @@ def select_identity(
     database: str,
     key: int,
 ) -> Message | None:
-    namespace = next(iter(manager._metadata))
+    namespace = NamespaceId(database, COLLECTION)
+    metadata = manager._metadata.find(namespace)
+    assert metadata is not None
     return endpoint.request(
         {
             "op": "select-identity",
             "ns": [database, COLLECTION],
-            "epoch": manager._metadata[namespace].checked_epoch,
+            "epoch": metadata.checked_epoch,
             "identity": encode_key(key),
             "shape": encode_key(manager[database][COLLECTION]._find_one_default_shape),
         }

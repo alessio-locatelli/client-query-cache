@@ -247,7 +247,7 @@ def test_cancelled_admission_is_rejected_at_lookup_but_not_physically_reclaimed(
     )
     admitted, _displaced, _evicted = core._lru.conditional_put(key, entry)
     assert admitted
-    core.discard_identity_admission(capture)
+    capture.release()
 
     core.record_write(namespace, identity)
 
@@ -280,7 +280,7 @@ def test_an_orphaned_entry_is_not_revalidated_by_a_later_admission_for_the_ident
         orphaned_key, orphaned_entry
     )
     assert admitted
-    core.discard_identity_admission(capture)
+    capture.release()
 
     state = core._namespace(namespace)
     assert identity not in state.identities
@@ -317,8 +317,8 @@ def test_a_pruned_high_generation_identity_does_not_block_future_admissions(
     )
     admitted, _displaced, _evicted = core._lru.conditional_put(key, orphaned_entry)
     assert admitted
-    core.discard_identity_admission(orphan_capture)
-    core.discard_identity_admission(holder_capture)
+    orphan_capture.release()
+    holder_capture.release()
 
     state = core._namespace(namespace)
     assert identity not in state.identities
@@ -382,7 +382,7 @@ def test_identity_capture_can_be_discarded_without_admitting(
     core: CacheCore, namespace: NamespaceId
 ) -> None:
     capture = core.begin_identity_admission(namespace, "doc-1")
-    core.discard_identity_admission(capture)
+    capture.release()
 
     state = core._namespace(namespace)
     assert "doc-1" not in state.identities
@@ -392,8 +392,8 @@ def test_double_discard_of_a_capture_is_a_no_op(
     core: CacheCore, namespace: NamespaceId
 ) -> None:
     capture = core.begin_identity_admission(namespace, "doc-1")
-    core.discard_identity_admission(capture)
-    core.discard_identity_admission(capture)
+    capture.release()
+    capture.release()
 
 
 def test_thread_local_guard_is_isolated_per_thread(core: CacheCore) -> None:

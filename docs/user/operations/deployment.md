@@ -32,7 +32,7 @@ Closing a manager first disables caching, then waits for pending startup and str
 
 ## Capacity estimation
 
-`CacheCoreConfig(shared_budget_bytes=..., max_entry_bytes=...)` bounds stored BSON across all collections and databases within one manager. Despite its name, `shared_budget_bytes` does not share values between processes. It is not an RSS limit; keys, metadata, active cursors and application-held results add memory.
+`CacheCoreConfig(shared_budget_bytes=..., max_entry_bytes=...)` bounds stored BSON across all collections and databases within one manager. Despite its name, `shared_budget_bytes` does not share values between processes. The separate `max_namespaces` setting bounds tracked database/collection pairs; when full, other names bypass caching until a collection drop releases a slot. See the [configuration reference](../reference/api.md#configuration). These settings are not an RSS limit; keys, active cursors and application-held results add memory.
 
 One manager watching three databases opens three streams. Four workers watching those databases open twelve streams and hold four independent cache budgets. Sync and asyncio managers are also independent, even in one process. Avoid constructing a manager per request: startup and independent warming can consume the benefit before the process reuses any data.
 

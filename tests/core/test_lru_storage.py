@@ -25,6 +25,7 @@ def test_default_budget_and_max_entry_size() -> None:
     config = CacheCoreConfig()
     assert config.shared_budget_bytes == 64 * 1024 * 1024
     assert config.max_entry_bytes == 1024 * 1024
+    assert config.max_namespaces == 1024
 
 
 @pytest.mark.parametrize(
@@ -53,16 +54,21 @@ def test_config_rejects_invalid_budgets(
         )
 
 
-@pytest.mark.parametrize("field", ["shared_budget_bytes", "max_entry_bytes"])
+@pytest.mark.parametrize(
+    "field", ["shared_budget_bytes", "max_entry_bytes", "max_namespaces"]
+)
 @pytest.mark.parametrize("peer_value", [1, 0], ids=("valid_peer", "invalid_peer_range"))
 def test_config_rejects_non_builtin_integers_before_ranges(
-    field: Literal["shared_budget_bytes", "max_entry_bytes"],
+    field: Literal["shared_budget_bytes", "max_entry_bytes", "max_namespaces"],
     peer_value: NonNegativeInt,
     invalid_config_integer: object,
 ) -> None:
-    budgets: dict[Literal["shared_budget_bytes", "max_entry_bytes"], object] = {
+    budgets: dict[
+        Literal["shared_budget_bytes", "max_entry_bytes", "max_namespaces"], object
+    ] = {
         "shared_budget_bytes": peer_value,
         "max_entry_bytes": peer_value,
+        "max_namespaces": peer_value,
     }
     budgets[field] = invalid_config_integer
 
@@ -83,16 +89,22 @@ def test_config_accepts_equal_budgets(budget: PositiveInt) -> None:
 @given(
     shared_budget_bytes=st.from_type(_CONFIG_HINTS["shared_budget_bytes"]),
     max_entry_bytes=st.from_type(_CONFIG_HINTS["max_entry_bytes"]),
+    max_namespaces=st.from_type(_CONFIG_HINTS["max_namespaces"]),
 )
 def test_config_accepts_every_annotated_budget(
-    shared_budget_bytes: PositiveInt, max_entry_bytes: PositiveInt
+    shared_budget_bytes: PositiveInt,
+    max_entry_bytes: PositiveInt,
+    max_namespaces: PositiveInt,
 ) -> None:
     max_entry_bytes = min(max_entry_bytes, shared_budget_bytes)
     config = CacheCoreConfig(
-        shared_budget_bytes=shared_budget_bytes, max_entry_bytes=max_entry_bytes
+        shared_budget_bytes=shared_budget_bytes,
+        max_entry_bytes=max_entry_bytes,
+        max_namespaces=max_namespaces,
     )
     assert config.shared_budget_bytes == shared_budget_bytes
     assert config.max_entry_bytes == max_entry_bytes
+    assert config.max_namespaces == max_namespaces
 
 
 def test_eviction_keeps_used_bytes_within_the_shared_budget(

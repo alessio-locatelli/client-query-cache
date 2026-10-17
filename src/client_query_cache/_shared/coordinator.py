@@ -27,6 +27,7 @@ from client_query_cache._core.errors import (
 from client_query_cache._core.find_reads import FindReadShape
 from client_query_cache._core.keys import NamespaceId
 from client_query_cache._core.manager import (
+    DEFAULT_MAX_NAMESPACES,
     CacheCore,
     CacheCoreConfig,
     IdentityCapture,
@@ -186,6 +187,11 @@ class _Handle:
     find_source: FindSource | None = None
 
 
+def _drop_capture(capture: IdentityCapture | NamespaceCapture) -> None:
+    if isinstance(capture, IdentityCapture):
+        capture.release()
+
+
 @dataclass(slots=True)
 class _Handover:
     index_descriptor: int
@@ -302,6 +308,9 @@ class SharedCacheOwner:
             CacheCoreConfig(
                 shared_budget_bytes=config.budget_bytes,
                 max_entry_bytes=config.max_entry_bytes,
+                max_namespaces=(
+                    DEFAULT_MAX_NAMESPACES if limits is None else limits.namespaces
+                ),
                 lag_capture_window_config=LagCaptureWindowConfig(*config.lag_capture),
             ),
             observer=self._publisher,
@@ -417,7 +426,7 @@ class SharedCacheOwner:
         assert connection.session is not None
         if len(self._handles) >= self.config.limits.captures:
             self.counters.capture_limit_misses += 1
-            self._drop_capture(capture)
+            _drop_capture(capture)
             return None
         handle = self._next_handle
         self._next_handle += 1
@@ -436,13 +445,9 @@ class SharedCacheOwner:
         )
         return handle
 
-    def _drop_capture(self, capture: IdentityCapture | NamespaceCapture) -> None:
-        if isinstance(capture, IdentityCapture):
-            self.core.discard_identity_admission(capture)
-
     def _release(self, handle_id: NonNegativeInt) -> _Handle:
         handle = self._handles.pop(handle_id)
-        self._drop_capture(handle.capture)
+        _drop_capture(handle.capture)
         return handle
 
     def _sweep(self, now: NonNegativeFloat) -> None:
@@ -496,7 +501,10 @@ class SharedCacheOwner:
                     break
 
     def _epoch_reply(self, namespace: NamespaceId, epoch: object) -> Message | None:
-        current = self.core.current_epoch(namespace)
+        current = self.core.try_current_epoch(namespace)
+        if current is None:
+            self.counters.bypasses += 1
+            return {"r": "bypass", "reason": "namespace_capacity"}
         if epoch != current:
             self.counters.refreshes += 1
             return {
@@ -547,17 +555,21 @@ class SharedCacheOwner:
             return {"r": "bypass", "reason": reason}
         match operation:
             case "metadata":
-                epoch = self.core.current_epoch(namespace)
-                metadata: Message = {
-                    "r": "ok",
-                    "epoch": epoch,
-                    "index_generation": self.core.current_index_generation(namespace),
-                }
-                if self._publisher is not None:
-                    slot = self._publisher.assign(namespace, epoch)
-                    if slot is not None:
+                with self.core.locked_namespace_metadata(namespace) as generations:
+                    if generations is None:
+                        self.counters.bypasses += 1
+                        return {"r": "bypass", "reason": "namespace_capacity"}
+                    epoch, index_generation = generations
+                    metadata: Message = {
+                        "r": "ok",
+                        "epoch": epoch,
+                        "index_generation": index_generation,
+                    }
+                    if self._publisher is not None:
+                        slot = self._publisher.assign(namespace, epoch)
+                        assert slot is not None
                         metadata["slot"] = [slot.database, slot.namespace]
-                return metadata
+                    return metadata
             case "select-identity":
                 refresh = self._epoch_reply(namespace, message["epoch"])
                 if refresh is not None:
@@ -681,7 +693,7 @@ class SharedCacheOwner:
                 (token[0], token[1], token[2]),
                 round(self.config.limits.capture_seconds * 1e9),
             ):
-                self.core.discard_identity_admission(capture)
+                capture.release()
                 self.counters.rejected_admissions += 1
                 return
             outcome = self.core.admit_identity_encoded(capture, shape, value)
@@ -709,7 +721,7 @@ class SharedCacheOwner:
             or handle.lease != self._lease(handle.database)
         ):
             self.counters.rejected_admissions += 1
-            self._drop_capture(handle.capture)
+            _drop_capture(handle.capture)
             return
         if isinstance(handle.capture, IdentityCapture):
             outcome = self.core.admit_identity_encoded(

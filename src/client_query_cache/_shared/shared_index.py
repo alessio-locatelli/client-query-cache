@@ -63,10 +63,12 @@ class IndexPublisher:
         "_capacity",
         "_databases",
         "_epochs",
+        "_free_slots",
         "_identities",
         "_index",
         "_lock",
         "_namespaces",
+        "_next_slot",
         "_published",
         "_shapes",
         "_tokens",
@@ -84,6 +86,8 @@ class IndexPublisher:
         self._capacity = namespaces
         self._namespaces: dict[NamespaceId, NamespaceSlot] = {}
         self._epochs: dict[NamespaceId, NonNegativeInt] = {}
+        self._free_slots: list[NonNegativeInt] = []
+        self._next_slot: NonNegativeInt = 0
         self._published: dict[Payload, tuple[int, NamespaceId, Canonical]] = {}
         self._identities: dict[tuple[NamespaceId, Canonical], set[Payload]] = {}
         self._tokens: dict[int, CacheKey] = {}
@@ -100,10 +104,16 @@ class IndexPublisher:
             try:
                 slot = self._namespaces[namespace]
             except KeyError:
-                if len(self._namespaces) >= self._capacity:
+                if self._free_slots:
+                    slot_number = self._free_slots.pop()
+                elif self._next_slot < self._capacity:
+                    slot_number = self._next_slot
+                    self._next_slot += 1
+                else:
                     return None
-                slot = NamespaceSlot(database, len(self._namespaces))
+                slot = NamespaceSlot(database, slot_number)
                 self._namespaces[namespace] = slot
+                self._epochs[namespace] = epoch
             self._raise_epoch(namespace, epoch)
             self._index.set_epoch(slot.namespace, self._epochs[namespace])
         return slot
@@ -116,11 +126,7 @@ class IndexPublisher:
                 return None
 
     def _raise_epoch(self, namespace: NamespaceId, epoch: NonNegativeInt) -> None:
-        try:
-            current = self._epochs[namespace]
-        except KeyError:
-            current = epoch
-        self._epochs[namespace] = max(current, epoch)
+        self._epochs[namespace] = max(self._epochs[namespace], epoch)
 
     def progress(self, database: str) -> None:
         self._index.set_progress(self._databases[database], time.monotonic_ns())
@@ -195,12 +201,25 @@ class IndexPublisher:
 
     def epoch_changed(self, namespace: NamespaceId, epoch: NonNegativeInt) -> None:
         with self._lock:
-            self._raise_epoch(namespace, epoch)
             try:
                 slot = self._namespaces[namespace]
             except KeyError:
                 return
+            self._raise_epoch(namespace, epoch)
             self._index.set_epoch(slot.namespace, self._epochs[namespace])
+
+    def namespace_released(self, namespace: NamespaceId, epoch: NonNegativeInt) -> None:
+        with self._lock:
+            try:
+                assigned_epoch = self._epochs[namespace]
+            except KeyError:
+                return
+            if assigned_epoch != epoch:
+                return
+            slot = self._namespaces[namespace]
+            del self._namespaces[namespace]
+            del self._epochs[namespace]
+            self._free_slots.append(slot.namespace)
 
     def availability_changed(self, database: str, *, available: bool) -> None:
         with self._lock:

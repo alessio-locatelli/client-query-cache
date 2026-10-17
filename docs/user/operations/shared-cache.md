@@ -55,9 +55,9 @@ The [shared-read contract](../reference/shared-cache.md#worker-managers-and-read
 
 ## Collection names and capacity
 
-Keep a fixed collection-name set for the server's lifetime. Ordinary collections such as `catalogue.products`, `catalogue.categories` and `catalogue.prices` are suitable even if their documents change continually. Those are three database/collection pairs, so `namespaces` must allow at least three, plus any other collections the workers access through the shared manager.
+`namespaces` sets how many database/collection pairs the server can track at once. Size it for the collections workers use concurrently. A processed collection drop releases its capacity, so applications can create, use and remove collections over time.
 
-Creating `events_2026_10_17`, `events_2026_10_18`, or a fresh `request_<uuid>` collection indefinitely is different: every name introduces bookkeeping that can remain for the owner's lifetime, even after the collection is dropped. Increasing `namespaces` only increases the shared index's collection capacity; it does not bound all metadata or make this workload supported. Reusing the same collection names is suitable; continuously introducing new names is not.
+When every slot is in use, reads for another collection still run through MongoDB and bypass shared caching. They do not add namespace metadata; caching can resume after a tracked collection is dropped. For example, `events_2026_10_17` and `events_2026_10_18` can be separate collections when the configured capacity covers the number used at the same time.
 
 For example, store events from every day in one `events` collection, with the day recorded in each document:
 
@@ -69,8 +69,6 @@ For example, store events from every day in one `events` collection, with the da
 ```
 
 Then `collection.find({"day": "2026-10-17"})` selects a day's events without creating a new collection. This is a direct PyMongo query; see the [shared-read contract](../reference/shared-cache.md#worker-managers-and-reads) for caching eligibility. MongoDB's [indexing guidance](https://www.mongodb.com/docs/manual/indexes/) explains when an index on the queried field helps.
-
-If dynamic collection names are essential, use direct reads for those collections or a separate process-local manager with memory monitoring. Bounded shared metadata under name churn is tracked in [issue #282](https://github.com/alessio-locatelli/client-query-cache/issues/282).
 
 Use the [SharedCacheConfig field reference](../reference/shared-cache.md#configuration) for memory and index sizing, and the [memory accounting reference](https://github.com/alessio-locatelli/client-query-cache/blob/main/docs/development/shared-cache.md#memory-outside-the-accounted-budget) when interpreting process measurements.
 

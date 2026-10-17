@@ -184,15 +184,16 @@ cache_manager = CacheManager(
 | --------------------------- | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `shared_budget_bytes`       | 64 MiB                   | Total BSON-encoded size the manager's cache may hold at once, shared across every database and collection that manager caches.                                                                                                                                                                            |
 | `max_entry_bytes`           | 1 MiB                    | The largest single cached value (one document, or one `find`/`aggregate`/`distinct` result) the cache accepts.                                                                                                                                                                                            |
+| `max_namespaces`            | 1,024                    | Maximum number of database/collection pairs whose cache state the manager tracks at once. A dropped collection releases its slot; other names bypass caching while all slots are in use.                                                                                                                  |
 | `lag_capture_window_config` | 10 windows of 100 events | Sizes the invalidation-lag sample windows used by the stream-cost telemetry described in [Observability](../operations/monitoring.md#observability). Most applications never need to change this; it exists for the benchmark suite documented in [stream cost benchmarks](../benchmarks/stream-cost.md). |
 
 `shared_budget_bytes` and `max_entry_bytes` must be positive, and `max_entry_bytes` must not exceed
-`shared_budget_bytes`. Equal budgets are allowed.
+`shared_budget_bytes`. `max_namespaces` must be positive. Equal budgets are allowed.
 
 The `lag_capture_window_config` has three numeric fields: `window_count` and `events_per_window` must be
 positive; `min_separation_events` must be nonnegative. The default separation is zero, allowing adjacent windows.
 
-All five numeric fields require exact built-in integers. Booleans, integer subclasses, floats (including NaN and
+All six numeric fields require exact built-in integers. Booleans, integer subclasses, floats (including NaN and
 infinities), strings, `None`, and other types raise `CacheConfigurationError` at configuration construction,
 naming the invalid field. Values are not converted. Invalid ranges or budget relationships also raise
 `CacheConfigurationError` at construction.

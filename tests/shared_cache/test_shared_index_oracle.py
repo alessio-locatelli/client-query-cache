@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import logging
 import os
-from typing import TypedDict
+from typing import TYPE_CHECKING, TypedDict
 
 import pytest
 from faker import Faker
@@ -17,6 +18,7 @@ from hypothesis.stateful import (
 
 from client_query_cache._core.canonical import canonicalize
 from client_query_cache._core.codec import encode_value
+from client_query_cache._core.entries import AdmissionOutcome
 from client_query_cache._core.keys import NamespaceId
 from client_query_cache._core.manager import (
     CacheCore,
@@ -28,10 +30,14 @@ from client_query_cache._core.order_sensitive_keys import order_sensitive_key
 from client_query_cache._shared.shared_index import (
     ArenaPayloads,
     IndexPublisher,
+    NamespaceSlot,
 )
 from client_query_cache._shared.wire import encode_key
 from client_query_cache._shared_index import OwnerIndex, ReaderIndex
 from client_query_cache._types import NonNegativeInt
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 pytestmark = pytest.mark.unit
 
@@ -46,6 +52,149 @@ _SLOTS = 64
 _ARENA_BYTES = 64 * 1024
 _RING_TOKENS = 4_096
 _STALE_PROGRESS_NS = 1
+
+
+@pytest.fixture
+def bounded_shared_index() -> Iterator[
+    tuple[CacheCore, IndexPublisher, OwnerIndex, ReaderIndex]
+]:
+    index = OwnerIndex(8, 4096, 1, 1, 1, _EXPIRY_NS)
+    publisher = IndexPublisher(index, (_DATABASE,), 1)
+    core = CacheCore(
+        CacheCoreConfig(max_namespaces=1),
+        observer=publisher,
+        payloads=ArenaPayloads(index),
+    )
+    ring = index.session_ring(8)
+    descriptor = index.reader_descriptor()
+    reader = ReaderIndex(descriptor, ring.descriptor())
+    ring.close_descriptor()
+    publisher.progress(_DATABASE)
+    try:
+        yield core, publisher, index, reader
+    finally:
+        os.close(descriptor)
+        core.close()
+
+
+def test_recycled_namespace_slot_rejects_a_reader_with_the_old_epoch(
+    bounded_shared_index: tuple[CacheCore, IndexPublisher, OwnerIndex, ReaderIndex],
+) -> None:
+    core, publisher, _index, reader = bounded_shared_index
+    identity = encode_key(canonicalize(order_sensitive_key(1)))
+    shape = encode_key(canonicalize("full"))
+    first = NamespaceId(_DATABASE, "first")
+    second = NamespaceId(_DATABASE, "second")
+    first_epoch = core.current_epoch(first)
+    first_slot = publisher.assign(first, first_epoch)
+    assert first_slot is not None
+    assert (
+        core.admit_identity(
+            core.begin_identity_admission(first, 1), "full", {"value": "first"}
+        )
+        is AdmissionOutcome.ADMITTED
+    )
+    assert (
+        reader.lookup(
+            first_slot.database, first_slot.namespace, first_epoch, identity, shape
+        )
+        is not None
+    )
+
+    core.drop_namespace(first)
+    second_epoch = core.current_epoch(second)
+    second_slot = publisher.assign(second, second_epoch)
+    assert second_slot == first_slot
+    assert second_epoch > first_epoch
+    assert (
+        core.admit_identity(
+            core.begin_identity_admission(second, 1), "full", {"value": "second"}
+        )
+        is AdmissionOutcome.ADMITTED
+    )
+
+    assert (
+        reader.lookup(
+            second_slot.database, second_slot.namespace, first_epoch, identity, shape
+        )
+        is None
+    )
+    assert (
+        reader.lookup(
+            second_slot.database, second_slot.namespace, second_epoch, identity, shape
+        )
+        is not None
+    )
+
+
+def test_publisher_returns_no_slot_when_its_capacity_is_full(
+    bounded_shared_index: tuple[CacheCore, IndexPublisher, OwnerIndex, ReaderIndex],
+) -> None:
+    _core, publisher, _index, _reader = bounded_shared_index
+
+    assert publisher.assign(_NAMESPACES[0], 0) == NamespaceSlot(0, 0)
+    assert publisher.assign(_NAMESPACES[1], 0) is None
+
+
+def test_unassigned_namespace_lifecycle_events_do_not_publish_to_the_index(
+    bounded_shared_index: tuple[CacheCore, IndexPublisher, OwnerIndex, ReaderIndex],
+) -> None:
+    core, publisher, _index, _reader = bounded_shared_index
+    namespace = NamespaceId(_DATABASE, "unassigned")
+    capture = core.begin_identity_admission(namespace, 1)
+
+    assert (
+        core.admit_identity(capture, "full", {"value": "unassigned"})
+        is AdmissionOutcome.ADMITTED
+    )
+    core.record_write(namespace, 1)
+    core.clear_namespace(namespace)
+    core.drop_namespace(namespace)
+
+    assert publisher.assigned(namespace) is None
+    assert publisher._published == {}
+
+
+def test_stale_namespace_release_does_not_remove_a_reused_namespace_slot(
+    bounded_shared_index: tuple[CacheCore, IndexPublisher, OwnerIndex, ReaderIndex],
+) -> None:
+    core, publisher, _index, _reader = bounded_shared_index
+    namespace = _NAMESPACES[0]
+    first_epoch = core.current_epoch(namespace)
+    first_slot = publisher.assign(namespace, first_epoch)
+    assert first_slot is not None
+
+    core.drop_namespace(namespace)
+    next_epoch = core.current_epoch(namespace)
+    next_slot = publisher.assign(namespace, next_epoch)
+    assert next_slot == first_slot
+
+    publisher.namespace_released(namespace, first_epoch)
+
+    assert publisher.assigned(namespace) == next_slot
+
+
+def test_namespace_churn_reuses_owner_state_and_shared_slot(
+    bounded_shared_index: tuple[CacheCore, IndexPublisher, OwnerIndex, ReaderIndex],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.WARNING, logger="client_query_cache._core.manager")
+    core, publisher, _index, _reader = bounded_shared_index
+
+    for index in range(1_000):
+        namespace = NamespaceId(_DATABASE, f"collection_{index}")
+        epoch = core.current_epoch(namespace)
+        slot = publisher.assign(namespace, epoch)
+        core.record_write(namespace, 0)
+
+        assert slot == NamespaceSlot(0, 0)
+        core.drop_namespace(namespace)
+
+    assert len(core._namespaces) == 0
+    assert len(core._database_namespaces) == 0
+    assert publisher._namespaces == {}
+    assert publisher._epochs == {}
+    assert publisher._free_slots == [0]
 
 
 class LocalCapture(TypedDict):
@@ -77,12 +226,12 @@ class _SharedIndexMachine(RuleBasedStateMachine):
         ring.close_descriptor()
         self.ring = ring
         self.descriptor = descriptor
-        self.slots = {
-            namespace: self.publisher.assign(namespace, 0) for namespace in _NAMESPACES
-        }
-        self.epochs: dict[NamespaceId, set[int]] = {
-            namespace: {0} for namespace in _NAMESPACES
-        }
+        self.slots: dict[NamespaceId, NamespaceSlot | None] = {}
+        self.epochs: dict[NamespaceId, set[NonNegativeInt]] = {}
+        for namespace in _NAMESPACES:
+            epoch = self.core.current_epoch(namespace)
+            self.slots[namespace] = self.publisher.assign(namespace, epoch)
+            self.epochs[namespace] = {epoch}
         self.publisher.progress(_DATABASE)
 
     def teardown(self) -> None:

@@ -45,6 +45,7 @@ from benchmarks.stream_cost.shared_cache.workload import (
     warm_key,
     worker_keys,
 )
+from client_query_cache._core.manager import DEFAULT_MAX_NAMESPACES
 from client_query_cache._shared.attachment import AttachmentConfig
 from client_query_cache._shared.coordinator import OwnerConfig
 from client_query_cache._types import (
@@ -233,6 +234,11 @@ def attachment_for(config: OwnerConfig) -> AttachmentConfig:
         config.max_await_time_ms,
         config.limits.rpc_deadline_seconds,
         config.frame_limit,
+        max_namespaces=(
+            DEFAULT_MAX_NAMESPACES
+            if config.shared_index is None
+            else config.shared_index.namespaces
+        ),
     )
 
 
