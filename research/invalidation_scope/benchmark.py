@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import cProfile
+import io
 import json
+import pstats
 import random
 import signal
 import statistics
@@ -453,6 +456,100 @@ def micro() -> dict[str, NonNegativeFloat]:
     return medians
 
 
+def find_cost(reps: PositiveInt) -> dict[str, object]:
+    cells = []
+    listener = ReadCommands()
+    with (
+        IsolatedReplicaSet(ResourceLimits(cpus=2.0, memory="2g")) as replica,
+        replica.build_client(TOPOLOGY, event_listeners=(listener,)) as client,
+        CacheManager(client) as manager,
+    ):
+        seed(client.bench.target)
+        view = manager["bench"]["target"]
+        direct = client.bench.target.with_options(
+            read_preference=ReadPreference.PRIMARY,
+            read_concern=ReadConcern("majority"),
+        )
+        namespace = view._namespace()  # noqa: SLF001 - Isolate namespace-guard misses without resetting collection metadata.
+        core = manager.cache_core
+        await_warm(manager, lambda: view.find_one({"_id": 0}))
+
+        def feed(
+            author: NonNegativeInt, *, limit: PositiveInt = FEED_LIMIT
+        ) -> list[BsonDict]:
+            return list(
+                view.find({"author_id": author}).sort("created", -1).limit(limit)
+            )
+
+        expected = [
+            list(
+                direct.find({"author_id": author}).sort("created", -1).limit(FEED_LIMIT)
+            )
+            for author in range(HOT_AUTHORS)
+        ]
+        for rep in range(reps):
+            phases = ("direct", "cold", "exact", "compatible")
+            for phase in reversed(phases) if rep % 2 else phases:
+                core.clear_namespace(namespace)
+                if phase in {"exact", "compatible"}:
+                    for author in range(HOT_AUTHORS):
+                        feed(author, limit=40 if phase == "compatible" else FEED_LIMIT)
+                listener.counts = dict.fromkeys(CLASSES, 0)
+                listener.active = "feed"
+                before = core.snapshot()
+                wall_seconds = cpu_seconds = 0.0
+                repetitions = 1024 if phase in {"direct", "cold"} else 4096
+                for index in range(repetitions):
+                    author = index % HOT_AUTHORS
+                    if phase == "cold":
+                        core.record_write(namespace, index)
+                    cpu_started = time.process_time()
+                    wall_started = time.perf_counter()
+                    if phase == "direct":
+                        documents = list(
+                            direct.find({"author_id": author})
+                            .sort("created", -1)
+                            .limit(FEED_LIMIT)
+                        )
+                    else:
+                        documents = feed(author)
+                    wall_seconds += time.perf_counter() - wall_started
+                    cpu_seconds += time.process_time() - cpu_started
+                    assert documents == expected[author]
+                listener.active = None
+                after = core.snapshot()
+                driver_reads = sum(listener.counts.values())
+                assert driver_reads == (
+                    repetitions if phase in {"direct", "cold"} else 0
+                )
+                assert after.misses - before.misses == (
+                    repetitions if phase == "cold" else 0
+                )
+                assert after.hits - before.hits == (
+                    repetitions if phase in {"exact", "compatible"} else 0
+                )
+                cells.append(
+                    {
+                        "rep": rep,
+                        "phase": phase,
+                        "repetitions": repetitions,
+                        "wall_us": wall_seconds * 1e6 / repetitions,
+                        "cpu_us": cpu_seconds * 1e6 / repetitions,
+                        "driver_reads": driver_reads,
+                    }
+                )
+        profiler = cProfile.Profile()
+        for index in range(128):
+            core.record_write(namespace, index)
+            with profiler:
+                feed(index % HOT_AUTHORS)
+        profile_output = io.StringIO()
+        pstats.Stats(profiler, stream=profile_output).strip_dirs().sort_stats(
+            "cumulative"
+        ).print_stats(35)
+        return {"cells": cells, "cold_profile": profile_output.getvalue()}
+
+
 def main() -> None:
     signal.alarm(3600)
     parser = argparse.ArgumentParser(description=__doc__)
@@ -463,13 +560,19 @@ def main() -> None:
     run_parser.add_argument("--out", type=Path, required=True)
     micro_parser = commands.add_parser("micro")
     micro_parser.add_argument("--out", type=Path, required=True)
+    cost_parser = commands.add_parser("find-cost")
+    cost_parser.add_argument("--reps", type=int, default=5)
+    cost_parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
     if args.command == "simulate":
         simulate()
     else:
-        if args.command == "run" and args.reps <= 0:
+        if args.command in {"run", "find-cost"} and args.reps <= 0:
             parser.error("--reps must be positive")
-        summary = run(args.reps) if args.command == "run" else micro()
+        if args.command == "find-cost":
+            summary = find_cost(args.reps)
+        else:
+            summary = run(args.reps) if args.command == "run" else micro()
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.write_text(json.dumps(summary, indent=2) + "\n")
 

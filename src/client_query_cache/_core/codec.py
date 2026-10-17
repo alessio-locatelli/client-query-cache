@@ -11,6 +11,8 @@ if TYPE_CHECKING:
     from bson.codec_options import TypeRegistry
 
 _ENVELOPE_FIELD = "v"
+# BSON length, document tag, UTF-8 field name, and its NUL terminator.
+_DOCUMENT_OFFSET = 4 + 1 + len(_ENVELOPE_FIELD.encode()) + 1
 
 
 class _TypeRegistryIdentity:
@@ -35,6 +37,13 @@ def encode_value(
     return bson.encode(
         {_ENVELOPE_FIELD: value}, codec_options=codec_options or CodecOptions()
     )
+
+
+def encode_document(
+    document: Mapping[str, Any], codec_options: CodecOptions[Mapping[str, Any]]
+) -> bytes:
+    # Embedded encoding preserves field order; top-level encoding promotes _id.
+    return encode_value(document, codec_options)[_DOCUMENT_OFFSET:-1]
 
 
 def decode_value(

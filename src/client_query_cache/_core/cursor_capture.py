@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Any
 
 from bson.raw_bson import DEFAULT_RAW_BSON_OPTIONS, RawBSONDocument
 
-from client_query_cache._core.codec import encode_value
+from client_query_cache._core.codec import encode_document
 from client_query_cache._core.errors import CacheClosedError
 
 if TYPE_CHECKING:
@@ -46,7 +46,7 @@ class CursorCapture:
         self._discriminator = discriminator
         self._codec_options = codec_options
         self._find_source = find_source
-        self._max_entry_bytes = core.snapshot().max_entry_bytes
+        self._max_entry_bytes = core.max_entry_bytes
         self._documents: list[RawBSONDocument] = []  # An empty result is cacheable.
         self.retained_bytes = 0
         self._active = True
@@ -55,7 +55,7 @@ class CursorCapture:
         if not self._active:
             return
         try:
-            encoded = encode_value(document, self._codec_options)
+            encoded = encode_document(document, self._codec_options)
         except Exception:  # noqa: BLE001 - Application BSON encoders can raise arbitrary errors.
             self.abandon()
             return
@@ -63,9 +63,7 @@ class CursorCapture:
             self._core.record_oversized_bypass()
             self.abandon()
             return
-        # Access the envelope without replaying application codec transformations.
-        envelope = RawBSONDocument(encoded, DEFAULT_RAW_BSON_OPTIONS)
-        self._documents.append(envelope["v"])
+        self._documents.append(RawBSONDocument(encoded, DEFAULT_RAW_BSON_OPTIONS))
         self.retained_bytes += len(encoded)
 
     def abandon(self) -> None:

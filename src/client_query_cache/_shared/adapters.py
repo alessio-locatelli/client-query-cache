@@ -116,9 +116,6 @@ class _RemoteCaptureCore:
         self.max_entry_bytes = max_entry_bytes
         self.observation = observation
 
-    def snapshot(self) -> _RemoteCaptureCore:
-        return self
-
     def record_oversized_bypass(self) -> None:
         self.observation.record_oversized_bypass()
 

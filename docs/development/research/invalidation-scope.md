@@ -82,6 +82,36 @@ Anchored hits build a discriminator that includes their additional predicates, w
 
 Reproduce the isolated comparison by running `micro` sequentially on each revision with no other checks running, then reversing revision order. Use the same harness and topology on both revisions.
 
+## Find miss cost
+
+[Issue #258](https://github.com/alessio-locatelli/client-query-cache/issues/258) was evaluated on 2026-10-17 against main commit `355a6bd`, using the topology and seeded feed described above. The `find-cost` subcommand separates miss cost from hit-rate changes. Each repetition measures 1,024 direct reads, 1,024 forced misses, 4,096 exact hits, and 4,096 compatible hits supplied by limit-40 sources. Authors cycle over the same 32 hot keys. Phase order reverses on odd repetitions. Forced misses advance the core's write generation before each timed read, preserving warm collection metadata; invalidation, correctness assertions, and the separate 128-miss profile are outside the timing samples. Driver commands and cache counters verify every miss and hit.
+
+Two baseline/corrected-candidate pairs each ran five repetitions per phase with no concurrent validation work. Revision order was baseline first in pair 1 and candidate first in pair 2. Values below are medians of the per-repetition mean microseconds, shown as **baseline / candidate**.
+
+| Pair | Read phase     |      Client CPU |       Wall time |
+| ---: | -------------- | --------------: | --------------: |
+|    1 | Direct PyMongo | 105.96 / 109.51 | 159.85 / 173.02 |
+|    1 | Forced miss    | 283.84 / 242.39 | 371.61 / 313.05 |
+|    1 | Exact hit      |   50.43 / 49.31 |   50.23 / 49.07 |
+|    1 | Compatible hit |   60.11 / 59.28 |   59.92 / 59.04 |
+|    2 | Direct PyMongo | 129.43 / 123.74 | 203.25 / 204.17 |
+|    2 | Forced miss    | 288.08 / 250.13 | 377.84 / 325.49 |
+|    2 | Exact hit      |   50.41 / 50.12 |   50.15 / 49.92 |
+|    2 | Compatible hit |   59.98 / 59.47 |   59.79 / 59.21 |
+
+Miss CPU fell 13–15% and wall time fell 14–16%; neither warm phase regressed. Direct-read variability limits the precision of these local observations, but the miss improvement repeated with revision order reversed. In pair 1's separate profile, cumulative document-capture time fell from 24 ms to 14 ms across 128 misses. Captured documents are encoded inside the existing BSON envelope and their embedded bytes are sliced out without inflating the wrapper. Embedded encoding preserves field order, including a non-leading `_id`; top-level encoding would move `_id` to the front. Final list encoding retains raw snapshots without replaying application codecs. Eligible executions reuse one prepared final discriminator through lookup and admission, and capture reads its immutable size limit without collecting statistics. The remaining profile is dominated by native reads and cursor setup. A miss still costs more than direct PyMongo.
+
+The original three-repetition churn matrix compared main with the initial candidate `2a3bf7a`; it was not repeated for the field-order correction. Feed hit shares remained 4.88% at 100 reads/write and 0.49% at 10 reads/write for both write mixes. Median cache process CPU per read, including writes and stream work, changed from 129.8 to 127.3 µs for insert/100, 404.4 to 358.3 for insert/10, 127.5 to 114.4 for update/100, and 387.7 to 384.5 for update/10. Those initial observations separate miss cost from hit-rate improvement; interleaved write latency and host variation limit end-to-end comparisons.
+
+Reproduce with the same version of the harness on both library revisions, using the existing testcontainers bridge. The baseline checkout needs the `find-cost` harness addition from this change, without its runtime edits. Run each command sequentially and replace `before` with `after` for the candidate:
+
+```bash
+bash -c 'set -euo pipefail; source scripts/testcontainers-bridge.sh; PYTHONPATH="$PWD" uv run python research/invalidation_scope/benchmark.py find-cost --reps 5 --out /tmp/agents/find-miss-258/before-cost.json'
+bash -c 'set -euo pipefail; source scripts/testcontainers-bridge.sh; PYTHONPATH="$PWD" uv run python research/invalidation_scope/benchmark.py run --reps 3 --out /tmp/agents/find-miss-258/before-churn.json'
+```
+
+The `find-cost` output includes the separate cold profile. Raw measurements remain untracked. The 225 existing capture/cursor correctness cases took 46.25 seconds on main and 45.86 seconds on the corrected candidate, with process CPU changing from 11.89 to 11.53 seconds. Four new aggregation field-order cases run separately for dict and SON in both cursor APIs; the existing codec cases now also include a non-leading `_id`. Public cursor behavior, snapshot isolation, complete-consumption admission, exact entry-size enforcement, and generation/availability guards retain their existing tests. These results cover one local synchronous process; both cursor APIs share the optimized key and capture code, but asyncio and production speedups are not quantified here.
+
 ## Modeled policies
 
 The simulator replays the same seeded read/write sequences with synchronous invalidation and initially warm keys. All policies invalidate `by_id` only when its document is updated. `current` invalidates the other classes on every write. `id_anchor` treats `own` like `by_id`. `insert_partition` narrows feed/count inserts to their author but keeps updates collection-wide. `field_dependency` retains counts through `views` updates. `all` combines those three rules. `exact` tracks each hot author's 20 newest documents: inserts invalidate that author's feed/count, and updates invalidate its feed only while the updated document is in the current feed.
@@ -103,6 +133,6 @@ Overall hit shares, averaged across the three sequences:
 
 [Stream-assisted equality invalidation (#257)](https://github.com/alessio-locatelli/client-query-cache/issues/257) tracks insert partitions and update field dependencies. Each requires additional stream fields, conservative matching and a new guard subsystem. Measure server CPU and stream bytes before designing either. Tracking result IDs alone misses inserts, membership changes and pagination effects. Images add storage/DDL cost; `updateLookup` adds per-event I/O and can observe a later state. Finite `$in` identity sets add variable-size guards and cursor integration without measured demand. TTL does not provide invalidation. Extending anchoring to other read methods or `$eq` spelling lacks usage evidence.
 
-[Find miss overhead (#258)](https://github.com/alessio-locatelli/client-query-cache/issues/258) tracks repeated key canonicalization and capture encoding separately. Namespace-guarded reads remain cold under churn, so narrowing `own` does not eliminate their miss cost.
+[Find miss cost](#find-miss-cost) records the separate miss-path optimization. Namespace-guarded reads remain cold under churn, so narrowing `own` does not eliminate their miss cost.
 
 These are single-process, closed-loop, local-container observations. They do not measure open-loop capacity, production latency or multi-worker scaling. The [concurrent worker workload study](concurrent-worker-workload.md) holds the open-loop multi-worker evidence, tracked by [#197](https://github.com/alessio-locatelli/client-query-cache/issues/197).

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from client_query_cache._core.canonical import canonicalize
@@ -31,9 +31,29 @@ class FindReadShape:
 
     @property
     def source(self) -> FindSource | None:
-        if isinstance(self.limit, bool) or self.limit < 0:
-            return None
-        return FindSource(hash(canonicalize(self.family)), self.limit)
+        return _find_source(self.family, self.limit)
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedFindRead:
+    family: Canonical
+    limit: int  # Negative and boolean limits retain exact identity.
+    discriminator: Canonical = field(init=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "discriminator", find_discriminator(self.family, self.limit)
+        )
+
+    @property
+    def source(self) -> FindSource | None:
+        return _find_source(self.family, self.limit)
+
+
+def _find_source(family: object, limit: int) -> FindSource | None:
+    if isinstance(limit, bool) or limit < 0:
+        return None
+    return FindSource(hash(canonicalize(family)), limit)
 
 
 def find_discriminator(

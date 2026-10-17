@@ -13,7 +13,7 @@ from bson.son import SON
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
-from client_query_cache._core.codec import decode_value, encode_value
+from client_query_cache._core.codec import decode_value, encode_document, encode_value
 from client_query_cache._core.cursor_capture import CursorCapture
 from client_query_cache._core.entries import AdmissionOutcome
 from client_query_cache._core.manager import CacheCore, CacheCoreConfig
@@ -108,14 +108,14 @@ def test_capture_owns_values_before_caller_mutation(
         pytest.param(1, AdmissionOutcome.DECLINED_OVERSIZE, id="under-budget"),
     ],
 )
-def test_capture_limit_includes_snapshot_envelope(
+def test_capture_limit_bounds_retained_document_bytes(
     make_core: Callable[[PositiveInt], CacheCore],
     namespace: NamespaceId,
     delta: int,
     expected: AdmissionOutcome | None,
 ) -> None:
     document = {"value": "bounded"}
-    limit = len(encode_value(document)) + delta
+    limit = len(bson.encode(document)) + delta
     core = make_core(limit)
     capture = capture_for(core, namespace)
     capture.append(document)
@@ -233,17 +233,21 @@ def test_capture_keeps_existing_admission_guards(
 def test_finalization_matches_ordinary_cache_codec_round_trip(
     core: CacheCore, namespace: NamespaceId, options: CodecOptions[Mapping[str, Any]]
 ) -> None:
-    document: BsonDict = {"z": Decimal128("1.25"), "a": {"second": 2, "first": 1}}
+    document: BsonDict = {
+        "z": Decimal128("1.25"),
+        "a": {"second": 2, "first": 1},
+        "_id": 2,
+    }
     if options.uuid_representation == UuidRepresentation.STANDARD:
         document["uuid"] = UUID("12345678-1234-5678-1234-567812345678")
-    decoded = bson.decode(
-        bson.encode(document, codec_options=options), codec_options=options
-    )
+    decoded = bson.decode(encode_value(document, options), codec_options=options)["v"]
+    assert tuple(decoded) == tuple(document)
     expected = decode_value(encode_value([decoded], options), options)
     capture = capture_for(core, namespace, options)
     capture.append(decoded)
     assert capture.finish() is AdmissionOutcome.ADMITTED
     actual = core.lookup_namespace(namespace, QUERY, codec_options=options).value
+    assert tuple(actual[0]) == tuple(document)
     # Raw documents are compared by encoded bytes; other classes retain field order.
     assert encode_value(actual, options) == encode_value(expected, options)
 
@@ -251,9 +255,9 @@ def test_finalization_matches_ordinary_cache_codec_round_trip(
 def test_exact_final_entry_size_is_enforced(
     make_core: Callable[[PositiveInt], CacheCore], namespace: NamespaceId
 ) -> None:
-    # A single document's stored list envelope exceeds its snapshot envelope.
+    # Final admission also accounts for the list envelope and array element keys.
     documents = [{"value": True}]
-    retained = sum(len(encode_value(document)) for document in documents)
+    retained = sum(len(bson.encode(document)) for document in documents)
     assert len(encode_value(documents)) > retained
     core = make_core(retained)
     capture = capture_for(core, namespace)
@@ -268,13 +272,17 @@ def test_snapshots_encode_each_document_once(
     core: CacheCore, namespace: NamespaceId, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     encoded_documents: list[object] = []
-    original_encode = encode_value
+    original_encode = encode_document
 
-    def record(document: object, options: CodecOptions[Mapping[str, Any]]) -> bytes:
+    def record(
+        document: Mapping[str, Any], options: CodecOptions[Mapping[str, Any]]
+    ) -> bytes:
         encoded_documents.append(document)
         return original_encode(document, options)
 
-    monkeypatch.setattr("client_query_cache._core.cursor_capture.encode_value", record)
+    monkeypatch.setattr(
+        "client_query_cache._core.cursor_capture.encode_document", record
+    )
     documents = [{"n": n} for n in range(10)]
     capture = capture_for(core, namespace)
     for document in documents:
