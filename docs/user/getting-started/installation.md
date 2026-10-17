@@ -2,13 +2,20 @@
 
 ## Requirements
 
-The 0.8 release distribution includes a native module. Binary wheels target CPython 3.14+ on Linux x86-64 with glibc 2.28+. Shared caching additionally requires Linux 5.1+ with `memfd` sealing and `/proc`. Free-threaded interpreters and other platforms are not supported by this release. Source builds require [Rust and Cargo](https://rust-lang.org/tools/install).
+| Component         | Supported configuration                                                                                                                  |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| Python            | Standard CPython 3.14+; free-threaded builds are unsupported                                                                             |
+| PyMongo           | 4.18.1 or newer                                                                                                                          |
+| Package platform  | Linux x86-64 with glibc 2.28+; other platforms are unsupported                                                                           |
+| Shared-cache host | Linux 5.1+ with `memfd` sealing and `/proc` available                                                                                    |
+| MongoDB caching   | MongoDB 8.0+ on a replica set or sharded cluster                                                                                         |
+| Database access   | Collection reads and metadata (`listCollections`, plus `listIndexes` for unique-key discovery), and database-level `changeStream` access |
 
-- Python 3.14 or newer and PyMongo 4.18.1 or newer, as declared by the package.
-- Caching requires MongoDB 8.0+ on a replica set or sharded cluster. Change streams are unavailable on standalone servers; the library also enforces its MongoDB version floor at startup.
-- A caller-owned PyMongo client with access to the collections and their database change stream.
+Binary wheels include the Rust native module. Source builds require [Rust and Cargo](https://rust-lang.org/tools/install).
 
-On standalone servers and MongoDB versions below 8.0, reads run through PyMongo without caching. The manager logs a warning when it cannot establish a database change stream; see [stream health](../operations/monitoring.md#bypass-reasons-and-stream-health).
+For shared caching, also review the [owner and worker security requirements](../operations/shared-cache.md#security-and-monitoring).
+
+On standalone MongoDB servers or versions below the minimum, reads run through PyMongo without caching. The manager logs a warning when it cannot establish a database change stream; see [stream health](../operations/monitoring.md#bypass-reasons-and-stream-health).
 
 ## Install
 
@@ -26,9 +33,9 @@ For optional telemetry, install `client-query-cache[otel]` and follow [Monitorin
 
 ## Dependency upgrades
 
-Commit your application's lockfile, such as `uv.lock` or `poetry.lock`, and deploy from those selected versions. For pip-based deployments, use a pinned dependency set. See [uv's locking and syncing guidance](https://docs.astral.sh/uv/concepts/projects/sync/) or [Poetry's lockfile guidance](https://python-poetry.org/docs/basic-usage/#committing-your-poetrylock-file-to-version-control).
+Deploy from a lockfile or pinned dependency set; see [uv locking and syncing](https://docs.astral.sh/uv/concepts/projects/sync/) or [Poetry's lockfile guidance](https://python-poetry.org/docs/basic-usage/#committing-your-poetrylock-file-to-version-control).
 
-PyMongo upgrades need application testing: the cache's driver integration can be sensitive to changes between releases, including patch releases. Before deploying an update, exercise cached hits and misses, cursor consumption, session bypass, startup, shutdown, and recovery in your application. A lockfile makes dependency selection reproducible; it does not prove compatibility, and passing CI covers only the behavior your checks exercise.
+Test PyMongo upgrades, including patch releases, against your application's cached hits, misses, cursor consumption, session bypass, startup, shutdown and recovery. The integration depends on driver behavior beyond query signatures.
 
 ## Local MongoDB
 

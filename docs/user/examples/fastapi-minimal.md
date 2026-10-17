@@ -1,5 +1,7 @@
 # Compact FastAPI application
 
+This example uses process-local `CacheManager`. For a single cache shared by real HTTP workers, run the [FastAPI and Granian example](fastapi-shared.md). See [manager selection](../getting-started/choose-a-manager.md) before deployment.
+
 This application owns one `AsyncMongoClient` and one `CacheManager` per lifespan. GET reads use a cached collection; PATCH writes and reads its response directly in a causally consistent session with majority concerns. `/metrics/cache` returns the public cache snapshot. The manager closes before its client.
 
 Run the self-check from the repository checkout:
@@ -8,7 +10,7 @@ Run the self-check from the repository checkout:
 uv run examples/fastapi_minimal_example.py
 ```
 
-Use a disposable MongoDB 8.0+ replica set. The self-check resets and cleans `client_query_cache_example_fastapi_minimal`; the application lifespan itself never resets data. See [example prerequisites](index.md#prerequisites) for connection settings. The self-check uses FastAPI's in-process client and exposes no HTTP listener. Supply your own authentication before serving these endpoints; the [advanced catalogue](fastapi.md) demonstrates trusted identity and tenant separation.
+Use a disposable deployment meeting the [MongoDB requirements](../getting-started/installation.md#requirements). The self-check resets and cleans `client_query_cache_example_fastapi_minimal`; the application lifespan itself never resets data. See [example prerequisites](index.md#prerequisites) for connection settings. The self-check uses FastAPI's in-process client and exposes no HTTP listener. Supply your own authentication before serving these endpoints; the [advanced catalogue](fastapi.md) demonstrates trusted identity and tenant separation.
 
 ## Application
 

@@ -5,29 +5,31 @@
 [![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen)](https://github.com/alessio-locatelli/client-query-cache/actions/workflows/test.yml)
 [![Typing](https://img.shields.io/pypi/types/client-query-cache)](https://pypi.org/project/client-query-cache/)
 
-`client-query-cache` uses MongoDB change streams to asynchronously invalidate cached query results. It supports synchronous and asyncio applications without requiring a separate cache server.
+`client-query-cache` adds transparent caching to PyMongo read calls through an explicit [cached collection view](https://alessio-locatelli.github.io/client-query-cache/usage/cached-reads/). Keep your MongoDB queries and use PyMongo for writes.
+
+- **[Synchronous](https://alessio-locatelli.github.io/client-query-cache/getting-started/synchronous/) and [asyncio](https://alessio-locatelli.github.io/client-query-cache/getting-started/asyncio/) APIs** for long-lived Python applications.
+- **[MongoDB change streams](https://alessio-locatelli.github.io/client-query-cache/usage/consistency/)** invalidate affected results, including writes from other applications.
+- **[Shared caching across application workers](https://alessio-locatelli.github.io/client-query-cache/operations/shared-cache/)** on one [supported Linux host](https://alessio-locatelli.github.io/client-query-cache/getting-started/installation/#requirements) reduces duplicate cached documents and uses one change stream per active database.
+- **[A Rust-backed shared cache](https://alessio-locatelli.github.io/client-query-cache/benchmarks/shared-cache/)** serves eligible warm reads from native shared memory without a MongoDB round trip.
+
+Choose `CacheManager` for the broadest cached-read support in one process, or `SharedCacheManager` for repeated `find_one({"_id": ...})` reads across workers. Both support sync and asyncio. See [which manager to choose](https://alessio-locatelli.github.io/client-query-cache/getting-started/choose-a-manager/).
+
+With shared caching, workers look up the same cache and use their own PyMongo clients for misses and bypasses:
 
 ```mermaid
-%%{init: {"flowchart": {"diagramPadding": 75}}}%%
-flowchart LR
-    App["Python<br/>application"] -->|"Reads"| Cache["Client-side<br/>caching"]
-    Cache -->|"Miss / bypass"| DB[("MongoDB")]
+flowchart TB
+    Worker1["Python worker 1"] -->|"Cache lookup"| Cache["Rust-backed<br/>shared cache"]
+    Worker2["Python worker 2"] -->|"Cache lookup"| Cache
+    Worker1 -->|"Miss / bypass"| DB[("MongoDB")]
+    Worker2 -->|"Miss / bypass"| DB
     DB -.->|"Change streams<br/>Async invalidation"| Cache
 ```
 
-Cache hits are served from client-side memory, reducing read latency and database load in read-heavy applications.
+[Benchmarks](https://alessio-locatelli.github.io/client-query-cache/benchmarks/shared-cache/) compare direct reads, independent caches and shared caching. Sharing avoids duplicated values and streams, but its owner process and cache misses have costs. Rust does not guarantee a faster application or lower total memory for every workload.
 
-The library is tested against real MongoDB replica sets, including concurrency stress tests, and automated checks guard its performance and memory use against regressions.
+![Illustrative process-local read latency on a logarithmic scale: direct local MongoDB read, about 120 microseconds; direct Atlas M0 read, 79.4 milliseconds; cached reads in either deployment, about 61 microseconds.](docs/user/assets/benchmark-latency-light.svg)
 
-![Illustrative read latency on a logarithmic scale: direct local MongoDB read, 120 microseconds; direct Atlas M0 read, 79.4 milliseconds; cached read in either deployment, about 61 microseconds.](docs/user/assets/benchmark-latency-light.svg)
-
-Results vary by workload and deployment. [Measurements and methodology](https://alessio-locatelli.github.io/client-query-cache/benchmarks/).
-
-Caching requires [MongoDB 8.0+ on a replica set or sharded cluster](https://alessio-locatelli.github.io/client-query-cache/getting-started/installation/#requirements). Reads on standalone servers and older MongoDB versions run through PyMongo without caching.
-
-Invalidation is asynchronous: a cached read can return a preceding value until the write's change-stream event is processed. Use PyMongo directly when a read must immediately observe a preceding write; see [consistency](https://alessio-locatelli.github.io/client-query-cache/usage/consistency/).
-
-Eligible cache misses read from the primary with `majority` read concern, even when the collection leaves read concern unspecified, so only majority-committed results enter the cache. Uncached PyMongo reads use the deployment's default read concern, normally `local`. The two usually perform alike, but while replication lags or data-bearing members are unavailable, a miss can return older data or fail where an uncached read would not. Majority admission does not make cache hits current: invalidation remains asynchronous. See [bypass conditions](https://alessio-locatelli.github.io/client-query-cache/reference/api/#bypass-conditions).
+The graphic shows [process-local measurements from local MongoDB and Atlas deployments](https://alessio-locatelli.github.io/client-query-cache/benchmarks/#illustrative-read-latency); it is separate from the shared-cache comparison above.
 
 ## Quick start
 
@@ -51,17 +53,21 @@ with (
     collection.replace_one(
         {"_id": "example"}, {"_id": "example", "value": 42}, upsert=True
     )
-    cached_collection.find_one({"_id": "example"})  # Reads from MongoDB.
-    cached_collection.find_one({"_id": "example"})  # Repeated reads can use the cache.
+    cached_collection.find_one({"_id": "example"})
+    cached_collection.find_one({"_id": "example"})  # Repeated reads can hit the cache.
 ```
 
-## Shared application workers
+Check the [platform and MongoDB requirements](https://alessio-locatelli.github.io/client-query-cache/getting-started/installation/#requirements) before installing. [Read eligibility](https://alessio-locatelli.github.io/client-query-cache/reference/api/#bypass-conditions) determines which requests can use the cache.
 
-For several trusted workers on one Linux x86-64 host, `SharedCacheServer` and sync/async `SharedCacheManager` share cached `find_one()` reads by `_id` and database change streams. Start the server in the application parent and attach each worker's own PyMongo client. Other reads use PyMongo. See the [shared-cache deployment guide](https://alessio-locatelli.github.io/client-query-cache/operations/shared-cache/) for the supported platform and lifecycle.
+Invalidation is asynchronous: cached reads can briefly return a preceding value after a write. Use direct PyMongo reads with suitable consistency controls for read-after-write and current authorization; see [consistency](https://alessio-locatelli.github.io/client-query-cache/usage/consistency/).
 
-## References
+## Run an application
 
-[Getting started](https://alessio-locatelli.github.io/client-query-cache/getting-started/synchronous/) · [Benchmarks](https://alessio-locatelli.github.io/client-query-cache/benchmarks/) · [Examples](https://alessio-locatelli.github.io/client-query-cache/examples/)
+Start with the [synchronous](https://alessio-locatelli.github.io/client-query-cache/getting-started/synchronous/) or [asyncio](https://alessio-locatelli.github.io/client-query-cache/getting-started/asyncio/) tutorial. The [shared FastAPI example](https://alessio-locatelli.github.io/client-query-cache/examples/fastapi-shared/) runs real Granian workers and verifies cross-process hits, invalidation and graceful shutdown. The [compact FastAPI example](https://alessio-locatelli.github.io/client-query-cache/examples/fastapi-minimal/) demonstrates process-local caching.
+
+[Deployment](https://alessio-locatelli.github.io/client-query-cache/operations/) · [API reference](https://alessio-locatelli.github.io/client-query-cache/reference/api/) · [Examples](https://alessio-locatelli.github.io/client-query-cache/examples/)
+
+The library is tested against real MongoDB replica sets, including [concurrency stress tests](https://github.com/alessio-locatelli/client-query-cache/blob/main/docs/development/concurrency-stress-tests.md). Separate checks guard against [performance](https://github.com/alessio-locatelli/client-query-cache/blob/main/docs/development/performance-regression-guard.md) and [memory](https://github.com/alessio-locatelli/client-query-cache/blob/main/docs/development/memory-regression-tests.md) regressions.
 
 ---
 

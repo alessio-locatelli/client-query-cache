@@ -1,5 +1,7 @@
 # Eve integration
 
+This adapter uses process-local `CacheManager` for its broader cached-read coverage. See [manager selection](../getting-started/choose-a-manager.md) for shared identity-read deployments.
+
 The Mongo data-layer subclass shares the manager's client with an Eve application. Its collection receiver caches `find`, `find_one`, and `count_documents` during GET/HEAD requests. Mutation precondition checks and operations without an HTTP request context use raw PyMongo reads. Eve retains its query construction, validation, writes, and response formatting. The example configures one database and ordinary document resources.
 
 The program uses Eve's in-process application client to create items for two owners. It checks sorting, pagination, projection, owner filtering, and response metadata during repeated page and item GETs, then sends two consecutive PATCHes using each response's ETag. It verifies that mutations perform no cached reads, then waits until both GETs observe the final change. The resource uses majority write concern so that acknowledged setup writes are visible to the cache's majority reads.

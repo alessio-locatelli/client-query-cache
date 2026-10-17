@@ -1,13 +1,8 @@
 # API reference
 
-This reference covers the complete public surface of `client_query_cache`: construction, configuration, the cached
-read methods, ownership rules, and how to fall back to plain PyMongo. Start with the [synchronous](../getting-started/synchronous.md) or [asyncio](../getting-started/asyncio.md) tutorial for a complete program.
+This reference describes `CacheManager` and its cached views. For `SharedCacheServer`, `SharedCacheManager` and shared configuration, use the [shared API reference](shared-cache.md). Start with [manager selection](../getting-started/choose-a-manager.md), then the [synchronous](../getting-started/synchronous.md) or [asyncio](../getting-started/asyncio.md) tutorial.
 
-Synchronous names live at the top level (`client_query_cache`) and wrap `pymongo.MongoClient`. The same names are available under `client_query_cache.asynchronous` and wrap `pymongo.AsyncMongoClient`. With asyncio, await every cached read except `find()`, which returns its async cursor immediately; await `aggregate()` before consuming its cursor. [Cached read methods](#cached-read-methods) shows both forms. Everything below applies to both APIs unless it names an asyncio difference.
-
-## Shared workers
-
-`client_query_cache` exports `SharedCacheServer`, `SharedCacheConfig`, `SharedCacheConnection`, `SharedCacheStatistics`, `SharedCacheManager` and `SharedCachedCollection`. The asyncio package exports its own `SharedCacheManager` and `SharedCachedCollection`. Their supported reads, configuration, worker statistics, startup and cleanup are documented in the [shared-cache guide](../operations/shared-cache.md).
+Synchronous names live at the top level (`client_query_cache`) and wrap `pymongo.MongoClient`. Their asyncio counterparts live under `client_query_cache.asynchronous` and wrap `pymongo.AsyncMongoClient`. In this page, “both APIs” means those two process-local variants. Await single-result reads and `aggregate()` with asyncio; `find()` returns its async cursor immediately.
 
 ## Constructing a manager
 
@@ -204,7 +199,7 @@ naming the invalid field. Values are not converted. Invalid ranges or budget rel
 
 ### Change-stream await time
 
-Set `max_await_time_ms` directly on either manager to choose the maximum idle server wait for a change-stream batch:
+Set `max_await_time_ms` on the synchronous or asyncio `CacheManager` to choose the maximum idle server wait for a change-stream batch:
 
 ```python
 cache_manager = CacheManager(client, max_await_time_ms=5_000)
@@ -241,19 +236,11 @@ deployment.
 
 ## Ownership
 
-`CacheManager` constructs and exclusively owns one cache core (`CacheCore`) and one change-stream coordinator
-(`ChangeStreamCoordinator`) for its own lifetime; it does not share either with another manager. `CacheCore` and
-`ChangeStreamCoordinator` are also exported directly (`client_query_cache.synchronous` /
-`client_query_cache.asynchronous`) for advanced use, but constructing them yourself and sharing one `CacheCore`
-across more than one `ChangeStreamCoordinator` — or activating the same database from two coordinators over one
-`CacheCore` — is unsupported.
+Create the client and manager inside the process that uses them, and reuse them across requests. The manager owns cached data and one change stream per active database. Close it before closing its caller-owned client, using `with` or `async with` where practical.
 
-Such sharing can make reads for a healthy database bypass the cache without an error or warning. The repository's [architecture notes](https://github.com/alessio-locatelli/client-query-cache/blob/main/docs/development/architecture.md#low-level-design) explain why.
+Each process-local manager has an independent budget and streams, even when another manager uses the same client or deployment. The `shared_budget_bytes` name means the budget is shared across collections **within that manager**; it does not enable sharing across processes. Use [shared managers](shared-cache.md) for that deployment.
 
-Construct one `CacheManager` per `MongoClient` (or `AsyncMongoClient`) you want cached. Two managers wrapping the
-same underlying deployment — a synchronous and an asyncio manager in the same process, or one manager per process —
-each keep an independent budget and independent change-stream cursors; see
-[deployment guidance](../operations/deployment.md#capacity-estimation) for the capacity consequence of that duplication.
+Advanced direct construction of exported cache-core and coordinator types is covered by the [maintainer architecture reference](https://github.com/alessio-locatelli/client-query-cache/blob/main/docs/development/architecture.md#low-level-design). Do not share one core between multiple coordinators.
 
 ## Raw fallback
 
@@ -300,7 +287,7 @@ are retried internally rather than surfaced to callers at all.
 
 ## Diagnostics
 
-Both manager variants provide synchronous, read-only local inspection, including after close:
+Both process-local variants provide synchronous, read-only local inspection, including after close:
 
 ```python
 from client_query_cache import CacheSnapshot, StreamCostSnapshot, StreamHealthSnapshot

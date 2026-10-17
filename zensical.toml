@@ -1,6 +1,6 @@
 [project]
 site_name = "client-query-cache"
-site_description = "Client-side caching for PyMongo with MongoDB change streams."
+site_description = "Sync and asyncio PyMongo query caching with change-stream invalidation and Rust-backed sharing across workers."
 site_url = "https://alessio-locatelli.github.io/client-query-cache/"
 repo_url = "https://github.com/alessio-locatelli/client-query-cache"
 docs_dir = "docs/user"
@@ -8,6 +8,7 @@ nav = [
   { "Home" = "index.md" },
   { "Getting started" = [
     { "Should you use this?" = "getting-started/should-you-use-this.md" },
+    { "Choose a manager" = "getting-started/choose-a-manager.md" },
     { "Installation" = "getting-started/installation.md" },
     { "Synchronous" = "getting-started/synchronous.md" },
     { "Asyncio" = "getting-started/asyncio.md" },
@@ -24,6 +25,7 @@ nav = [
   ] },
   { "Examples" = [
     { "Run the examples" = "examples/index.md" },
+    { "FastAPI shared workers" = "examples/fastapi-shared.md" },
     { "Compact FastAPI" = "examples/fastapi-minimal.md" },
     { "requests-cache" = "examples/requests-cache.md" },
     { "FastAPI catalogue" = "examples/fastapi.md" },
@@ -33,7 +35,8 @@ nav = [
     { "Eve" = "examples/eve.md" },
   ] },
   { "Reference" = [
-    { "API" = "reference/api.md" },
+    { "Process-local API" = "reference/api.md" },
+    { "Shared API" = "reference/shared-cache.md" },
   ] },
   { "Operations" = [
     { "Overview" = "operations/index.md" },
@@ -84,7 +87,7 @@ anchor_linenums = true
 check_paths = true
 
 [project.plugins.llmstxt]
-markdown_description = "Public guidance for synchronous and asyncio PyMongo applications. Writes use PyMongo directly; change-stream invalidation is asynchronous."
+markdown_description = "Synchronous and asyncio PyMongo caching, including Rust-backed sharing across same-host workers. Choose a manager before deployment. Writes use PyMongo; invalidation is asynchronous."
 full_output = "llms-full.txt"
 
 [project.plugins.llmstxt.sections]

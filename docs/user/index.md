@@ -1,19 +1,24 @@
 # client-query-cache
 
-Add an in-process read cache to an application using PyMongo directly. The library supports synchronous and asyncio clients and uses MongoDB change streams to invalidate cached results, without a separate cache server.
+Cache repeated PyMongo queries in your application, with synchronous and asyncio APIs. MongoDB change streams invalidate affected results when data changes, including writes by other clients.
+
+For multiple trusted workers on one host, a **Rust-backed native shared cache** lets processes reuse the same cached documents and one change stream per active database. Workers avoid storing their own copies of the hot data. A process-local manager also supports caching broader queries, cursors, aggregations and counts.
+
+Sharing has an owner process and admission costs. The [measured comparisons](benchmarks/shared-cache.md) show hot-read benefits and cold-read costs; neither Rust nor sharing guarantees a win for every workload.
 
 ## Install and start
 
-Use [Should you use this?](getting-started/should-you-use-this.md) to evaluate consistency, reuse, and deployment costs.
+1. [Check whether caching fits](getting-started/should-you-use-this.md) your consistency and workload needs.
+2. [Choose a manager](getting-started/choose-a-manager.md): broad reads within a process, or shared `_id` reads across workers.
+3. [Check the requirements and install](getting-started/installation.md).
+4. Follow the [synchronous](getting-started/synchronous.md) or [asyncio](getting-started/asyncio.md) quick start, or run the [shared FastAPI application](examples/fastapi-shared.md).
 
-Start with [installation](getting-started/installation.md), then follow the complete [synchronous](getting-started/synchronous.md) or [asyncio](getting-started/asyncio.md) tutorial.
+Before using cached reads, review the [consistency guarantees](usage/consistency.md) and plan direct PyMongo reads where freshness is required.
 
-Caching requires MongoDB 8.0+ on a replica set or sharded cluster. Writes go through PyMongo. Invalidation is asynchronous, so use direct reads wherever freshness is required; see [consistency](usage/consistency.md).
+## Operate the application
 
-## Find guidance
-
-- [Usage](usage/cached-reads.md): choose cached reads and understand raw fallback.
-- [Benchmarks](benchmarks/index.md): evaluate your workload and inspect reproducible measurement evidence.
-- [Examples](examples/index.md): study and run applications and integrations with MongoDB-backed libraries.
-- [API reference](reference/api.md): exact options, limits, errors, and ownership contracts.
-- [Operations](operations/index.md): plan capacity, security, recovery, and monitoring.
+- [Cached reads](usage/cached-reads.md) and [eligibility](usage/eligibility.md) explain which requests can hit.
+- [Deployment](operations/index.md) covers ownership, memory, security and recovery for both managers.
+- [Monitoring](operations/monitoring.md) explains the diagnostics available in each mode.
+- [API reference](reference/api.md) gives exact call and configuration contracts.
+- [Examples](examples/index.md) provide runnable web applications and adapters.

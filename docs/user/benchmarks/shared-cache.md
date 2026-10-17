@@ -34,33 +34,23 @@ Independent sync caches were faster. Async hot medians were close in this run, w
 | Async | Independent |    333.99 | 420.01 |  531.39 |                 2.44 |         270.7 |
 | Async | Shared      |    319.62 | 519.13 | 1248.62 |                 3.00 |         261.2 |
 
-Shared cold windows recorded zero hits. Their median was below independent caches, but CPU and P99 were higher. Admission work and background publication add cost to MongoDB reads; the owner occupied about 77–78 MiB in these windows. CPU including warmup and owner startup was 5.41 seconds sync and 8.81 seconds async, versus 4.67 and 7.37 seconds for independent caches. These results support using sharing for a reused identity hot set; measure miss-heavy applications before opting in. Broader cold-miss optimization remains tracked in [issue #272](https://github.com/alessio-locatelli/client-query-cache/issues/272).
+Shared cold windows recorded zero hits. Their median was below independent caches, but CPU and P99 were higher. Admission work and background publication add cost to MongoDB reads; the owner occupied about 77–78 MiB in these windows. CPU including warmup and owner startup was 5.41 seconds sync and 8.81 seconds async, versus 4.67 and 7.37 seconds for independent caches. These results support using sharing for a reused identity hot set; measure miss-heavy applications before opting in. These are 0.8.0 measurements. Subsequent cold-miss work is recorded in [issue #272](https://github.com/alessio-locatelli/client-query-cache/issues/272); it does not replace this dated public-API comparison.
 
-### Profile attribution
-
-A separate one-repetition cProfile run traced 8,000 shared hot reads per model across the four workers. Instrumented profile time summed to 484 ms sync and 497 ms async; it is separate from the latency measurements above. Cumulative times overlap and must not be added:
-
-| Operation                                      | Sync cumulative ms | Async cumulative ms |
-| ---------------------------------------------- | -----------------: | ------------------: |
-| Identity normalization and key preparation     |              110.0 |               109.9 |
-| Local index selection, payload copy and decode |               61.1 |                60.8 |
-| Namespace getter, 32,000 calls                 |                3.8 |                 3.8 |
-
-Python request classification and key preparation are the main hot-path costs. Identity preparation accounted for about 22–23% of profile time; local selection accounted for about 12–13%. The profile recorded zero key-encoding calls and zero namespace constructions during measured hot reads: workers reuse key encodings and each collection view retains its immutable namespace.
+Native implementation and profile attribution are in the [maintainer reference](https://github.com/alessio-locatelli/client-query-cache/blob/main/docs/development/shared-cache.md#profile-attribution-for-the-public-release-workload).
 
 ## Reproduce
 
-Build the wheel with `just build`, then run the installed artifact from a repository checkout:
+To run this workload against the current checkout, build its wheel with `just build`, then run the installed artifact:
 
 ```bash
 uv run --isolated --no-project \
   --python 3.14.7 \
-  --with dist/client_query_cache-0.8.0-cp314-abi3-manylinux_2_28_x86_64.whl \
+  --with dist/client_query_cache-0.8.1-cp314-abi3-manylinux_2_28_x86_64.whl \
   --with psutil --with testcontainers --with requests --with pyyaml \
   python -m benchmarks.public_shared_cache \
   --output /tmp/agents/shared-cache-performance.json
 ```
 
-The command requires a working Docker-compatible development runtime. Use the repository's documented [development environment](https://github.com/alessio-locatelli/client-query-cache/blob/main/CONTRIBUTING.md) when running in Toolbx. The harness accepts no production URI and writes only to its disposable replica set. Raw timing output is untracked.
+This measures the current 0.8.1 checkout, not the recorded 0.8.0 artifact. For that revision, use the `v0.8.0` checkout and its matching wheel filename.
 
-For profile attribution, repeat the command with `--repetitions 1 --profile-dir /tmp/agents/shared-cache-profiles` and a separate output file. Each worker writes a `.pstats` file; inspect or combine files for one model, workload and path with Python's [pstats tooling](https://docs.python.org/3.14/library/profile.html#the-stats-class). Profiling overhead makes that run unsuitable for latency comparisons.
+The command requires a working Docker-compatible development runtime. Use the repository's documented [development environment](https://github.com/alessio-locatelli/client-query-cache/blob/main/CONTRIBUTING.md) when running in Toolbx. The harness accepts no production URI and writes only to its disposable replica set. Raw timing output is untracked.

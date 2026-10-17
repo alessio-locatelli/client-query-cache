@@ -1,5 +1,7 @@
 # FastAPI catalogue
 
+This example uses process-local `CacheManager`. For a single cache shared by real HTTP workers, run the [FastAPI and Granian example](fastapi-shared.md). See [manager selection](../getting-started/choose-a-manager.md) before deployment.
+
 For a smaller starting point, use the [compact FastAPI application](fastapi-minimal.md).
 
 This application caches product descriptions and ordered product pages for two tenants. FastAPI's [application lifespan](https://fastapi.tiangolo.com/advanced/events/) owns one asyncio MongoDB client and cache manager, and request dependencies supply a catalogue repository and an authenticated principal.
@@ -40,7 +42,7 @@ CONTENT_CACHE_ENABLED=true uv run examples/fastapi_catalogue_example.py --serve 
 
 [Uvicorn](https://uvicorn.dev/deployment/) starts the requested number of worker processes, and each one builds the application itself. The cache flag therefore comes from the `CONTENT_CACHE_ENABLED` environment variable: `true` caches content reads, and `false`, the default, reads directly. Each worker's lifespan creates its own client and manager and prints its process ID when the manager starts. When you stop the server with Ctrl+C, each worker closes its manager before its client.
 
-Every worker caches independently, with its own copy of the documents it reads and its own change stream. See [multi-worker servers](../operations/deployment.md#multi-worker-servers) for the memory and change-stream cost. The served application keeps its authentication dependency, so it answers every request with 401 until you supply your trusted one.
+This launch mode gives every worker an independent cache and change stream. It does not use `SharedCacheManager`. See [multi-worker servers](../operations/deployment.md#multi-worker-servers) for the memory and change-stream cost. The served application keeps its authentication dependency, so it answers every request with 401 until you supply your trusted one.
 
 ## Complete program
 

@@ -1,16 +1,18 @@
-# A cache shared by application workers
+# Share a cache across application workers
 
-`SharedCacheServer` shares cached `_id` documents and one change stream per active database across trusted workers on one Linux host. Sync and asyncio workers can attach to the same server. Each worker still needs its own PyMongo client for misses and writes.
+Use `SharedCacheServer` when [trusted workers](#security-and-monitoring) on one host repeatedly make [eligible `_id` reads](../reference/shared-cache.md#worker-managers-and-reads). The server starts one cache-owner process; workers reuse its values and one change stream per active database. Sync and asyncio workers can share the same server. Each worker still owns a PyMongo client for misses, writes and uncached reads.
+
+Compare [the two managers](../getting-started/choose-a-manager.md) before adopting this model. Sharing supports fewer cached operations and requires an application parent that stays alive until every worker has stopped.
 
 ## Supported deployment
 
-Use CPython 3.14 or newer on Linux x86-64, glibc 2.28 or newer, and a Linux 5.1 or newer kernel with `memfd` sealing and `/proc` available. The release wheel contains the native module; applications do not need Rust. Source installations require [Rust and Cargo](https://rust-lang.org/tools/install). Free-threaded Python, other architectures, other operating systems and cross-host sharing are outside this initial contract.
+Check the [package, shared-host and MongoDB requirements](../getting-started/installation.md#requirements), and review the [worker trust boundary](#security-and-monitoring) before passing a connection to workers.
 
-Use a stable set of collection names within the configured databases, and size `namespaces` for that set. The slot limit bounds the shared index, not all Python metadata. Sustained collection-name churn is outside this initial contract; [issue #282](https://github.com/alessio-locatelli/client-query-cache/issues/282) tracks bounded metadata for that workload.
+## Startup and shutdown
 
-Use a replica set or sharded cluster running MongoDB 8.0 or newer, with database change-stream and collection metadata permissions. Give the owner and workers the same deployment, credentials and read visibility. One connection grants access to every configured database: never share it across tenants, users with different permissions, or mutually untrusted workers.
+Run the [FastAPI and Granian application](../examples/fastapi-shared.md) for a complete multi-process integration. Its parent starts the server once and passes `cache_server.connection` through a picklable application loader. Each worker's lifespan creates its client and attaches its manager.
 
-Start one server in your application's parent, then pass `server.connection` to workers. The connection is picklable for spawned processes; it contains an attachment credential, so keep it private. Construct PyMongo clients and managers inside each worker. Reuse the manager throughout that worker's lifetime. Do not put a server in every worker's FastAPI lifespan: that creates independent caches. Application supervisors without a parent startup hook should use the process-local `CacheManager`.
+The same ownership pattern works for background workers:
 
 ```python
 from concurrent.futures import ProcessPoolExecutor
@@ -23,70 +25,69 @@ from client_query_cache import SharedCacheManager, SharedCacheServer
 
 def worker(connection):
     with (
-        MongoClient(
-            "mongodb://localhost:27017", serverSelectionTimeoutMS=5000
-        ) as client,
+        MongoClient("mongodb://localhost:27017", timeoutMS=5000) as client,
         SharedCacheManager(client, connection) as manager,
     ):
-        items = manager.get_cached_collection(client.catalogue.items)
-        return items.find_one({"_id": "example"})
+        return manager["catalogue"]["products"].find_one({"_id": "book"})
 
 
 if __name__ == "__main__":
     with SharedCacheServer(
         "mongodb://localhost:27017",
         ("catalogue",),
-        client_options={"serverSelectionTimeoutMS": 5000},
-    ) as server:
+        client_options={"timeoutMS": 5000},
+    ) as cache_server:
         with ProcessPoolExecutor(
             max_workers=4, mp_context=get_context("spawn")
         ) as pool:
-            print(list(pool.map(worker, (server.connection,) * 4)))
+            print(list(pool.map(worker, (cache_server.connection,) * 4)))
 ```
 
-An asyncio worker uses the same connection:
+This small program demonstrates ownership, not a guaranteed hit: the document must exist and initial reads can bypass while the stream starts. The web example verifies actual cross-process reuse.
 
-```python
-from pymongo import AsyncMongoClient
+An asyncio worker uses `async with AsyncMongoClient(...) as client, SharedCacheManager(client, connection) as manager` with the manager from `client_query_cache.asynchronous`. Alternatively, call `await SharedCacheManager.attach(client, connection)` and later `await manager.close()`. Construct and use that manager in one event loop.
 
-from client_query_cache.asynchronous import SharedCacheManager
+Close managers before clients, stop workers, then close the server. Pass only `cache_server.connection` to workers. Clients, managers and server handles must not be reused after fork. Never start a server in each FastAPI lifespan: that produces independent caches. If the application supervisor cannot own and distribute one connection, use process-local managers.
 
+## Which reads share data?
 
-async def worker(connection):
-    async with (
-        AsyncMongoClient("mongodb://localhost:27017") as client,
-        SharedCacheManager(client, connection) as manager,
-    ):
-        return await manager["catalogue"]["items"].find_one({"_id": "example"})
+The [shared-read contract](../reference/shared-cache.md#worker-managers-and-reads) defines eligible queries, supported options, direct-read fallback and admission behavior. Use it to check whether your application's read mix can benefit from sharing.
+
+## Collection names and capacity
+
+Keep a fixed collection-name set for the server's lifetime. Ordinary collections such as `catalogue.products`, `catalogue.categories` and `catalogue.prices` are suitable even if their documents change continually. Those are three database/collection pairs, so `namespaces` must allow at least three, plus any other collections the workers access through the shared manager.
+
+Creating `events_2026_10_17`, `events_2026_10_18`, or a fresh `request_<uuid>` collection indefinitely is different: every name introduces bookkeeping that can remain for the owner's lifetime, even after the collection is dropped. Increasing `namespaces` only increases the shared index's collection capacity; it does not bound all metadata or make this workload supported. Reusing the same collection names is suitable; continuously introducing new names is not.
+
+For example, store events from every day in one `events` collection, with the day recorded in each document:
+
+```json
+[
+  { "_id": "first-event", "day": "2026-10-17" },
+  { "_id": "second-event", "day": "2026-10-18" }
+]
 ```
 
-Alternatively, use `await SharedCacheManager.attach(client, connection)` and subsequently `await manager.close()`. Construct and use an asyncio manager in one event loop. Close worker managers before their clients, stop workers, then close the server. Closing a manager preserves the client and the server. Both server and manager close are safe to repeat; async cleanup finishes before propagating cancellation. Clients, managers and servers must not be used after inheritance through fork; pass the connection and create fresh worker resources.
+Then `collection.find({"day": "2026-10-17"})` selects a day's events without creating a new collection. This is a direct PyMongo query; see the [shared-read contract](../reference/shared-cache.md#worker-managers-and-reads) for caching eligibility. MongoDB's [indexing guidance](https://www.mongodb.com/docs/manual/indexes/) explains when an index on the queried field helps.
 
-## Reads and consistency
+If dynamic collection names are essential, use direct reads for those collections or a separate process-local manager with memory monitoring. Bounded shared metadata under name churn is tracked in [issue #282](https://github.com/alessio-locatelli/client-query-cache/issues/282).
 
-Only deterministic `find_one()` reads with an exact `_id` and no additional filter predicates are shared. Projections are supported. Collections must use simple default collation; explicit non-simple collations execute through PyMongo; custom document classes and custom codec registries bypass sharing. Sessions, unsupported read concerns/preferences and other normal cache bypass conditions still execute through PyMongo. `find()`, aggregation, counts, distinct and non-identity reads always execute through PyMongo; `find()` returns a native cursor immediately. Use the original collection or `.raw` for writes.
+Use the [SharedCacheConfig field reference](../reference/shared-cache.md#configuration) for memory and index sizing, and the [memory accounting reference](https://github.com/alessio-locatelli/client-query-cache/blob/main/docs/development/shared-cache.md#memory-outside-the-accounted-budget) when interpreting process measurements.
 
-The first read may run uncached while metadata and the database stream start. Eligible misses use primary, majority reads and queue admission without waiting for the owner to select the result. Full queues or oversized entries can skip caching without changing the delivered document. `manager.snapshot()` reports this worker's hits, misses and bypasses; these counts do not aggregate other workers.
+Connection capacity must cover each worker's control and request connections; synchronous request threads can need additional connections. Size the owner's MongoDB pool for one concurrent stream poll per active database, and worker pools for their own traffic. Precise native layout bounds and memory accounting are in the [maintainer reference](https://github.com/alessio-locatelli/client-query-cache/blob/main/docs/development/shared-cache.md).
 
-Invalidation is asynchronous. A hit can precede a concurrent write's change-stream event; use direct PyMongo reads for authorization or read-after-write requirements. If the owner silently stalls or loses upstream progress, hits stop within three seconds of the last successful stream poll. Detected disconnects disable their mapping immediately. During an outage, existing and newly started workers use their own PyMongo clients, with bounded attachment attempts and retry cooldown. Managers reconnect lazily when the owner returns. Credential and configuration rejections, protocol errors and persistent access failures remain errors; an unreachable owner cannot validate attachment credentials until it returns. The database read itself remains subject to the client's timeouts.
+## Consistency and recovery
 
-`server.restart()` replaces the owner with an empty cache at the same endpoint. Attached workers reconnect lazily, discard previous metadata and warm again. A restarted owner cannot revive earlier admissions. There is no automatic owner election or cross-host recovery. Parent loss stops the owner; normal application shutdown should always use the context managers above.
+For read-after-write and authorization decisions, follow the [consistency guidance](../usage/consistency.md).
 
-## Capacity and security
+If the owner silently stalls, hits stop within three seconds of its last successful upstream stream poll. That is an outage safeguard, not a maximum write-to-invalidation delay. Detected transport disconnects disable the affected mapping immediately. During temporary owner outages, workers use their own clients for direct reads, with bounded attachment attempts and retry cooldowns. The database operation still depends on the client's timeouts and can fail.
 
-Pass `config=SharedCacheConfig(...)` to the server. All fields require positive built-in integers:
+Use [`cache_server.restart()`](../reference/shared-cache.md#server-and-connection) for explicit cache-owner recovery. There is no automatic election or cross-host failover. Parent loss stops the owner. See the [API failure reference](../reference/shared-cache.md#diagnostics-and-failures) for errors that require application or operator action.
 
-| Field             | Default | Meaning                                                                                  |
-| ----------------- | ------- | ---------------------------------------------------------------------------------------- |
-| `budget_bytes`    | 64 MiB  | Accounted cached entries across the owner.                                               |
-| `max_entry_bytes` | 1 MiB   | Maximum encoded value, no larger than the budget or arena.                               |
-| `slots`           | 65,536  | Index capacity; use a power of two. Collisions or arena pressure can refuse publication. |
-| `arena_bytes`     | 80 MiB  | Shared payload arena capacity.                                                           |
-| `namespaces`      | 1,024   | Collection slots in the shared index; size for the stable collection set.                |
-| `connections`     | 256     | Transport connections, including each worker's control connection; minimum two.          |
+## Security and monitoring
 
-Arena capacity cannot exceed 34,359,738,360 bytes; namespace count cannot exceed 4,294,967,295. Slot count must fit the native address-space limit. Workers retain up to 8,192 key encodings. The owner separately retains up to 1,024 decoded read-shape keys and 256 encoded read-shape keys. Each cache admits only keys whose encoded size is at most 4 KiB; canonical Python objects add memory overhead. Larger identifiers and read shapes remain usable without being retained in these key caches. These are separate capacities, not a total RSS limit. The index also consumes about 4 MiB at its default slot count. Each attached worker maps shared pages and owns a bounded admission queue; its client, decoded documents and temporary frames consume additional memory. A manager needs a control connection plus a request connection; synchronous request threads can use additional connections. Size the owner's pool for one concurrent stream poll per active database, and workers' pools for their own requests.
+Keep `SharedCacheConnection` private; do not log or persist it. All participants must use the same MongoDB deployment, credentials and read visibility. A connection grants access to every configured database. Never share it across security principals or mutually untrusted workers, even if collection names contain tenant IDs.
 
-The private Unix endpoint is accessible only to its operating-system user and requires a random capability. Cached values are in sealed read-only mappings in workers. All capability holders are trusted equally: a worker can read all shared values and submit values for admission. This is an application cache, not an authorization boundary. Credential or role changes alone do not invalidate cached values; restart the owner or use direct reads when authorization changes.
+The private Unix endpoint is restricted to its operating-system user and requires the connection credential. Workers receive read-only shared value mappings, but every credential holder is trusted to read all shared values and submit values for caching. Sharing is not an authorization boundary. Follow the [freshness and authorization guidance](../usage/consistency.md#freshness-and-authorization) when access changes.
 
-See the [release workload measurements](../benchmarks/shared-cache.md) for measured benefits and miss costs. Choose the process-local manager when you need its broader cached-read scope.
+Use the [shared-manager monitoring guide](monitoring.md#shared-manager-diagnostics) to interpret worker counters and investigate low reuse. The [release workload measurements](../benchmarks/shared-cache.md) provide a comparison to reproduce for your application.

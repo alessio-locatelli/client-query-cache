@@ -1,9 +1,11 @@
 # Shared invalidation feasibility
 
+This is historical research evidence, not the current deployment contract. For supported shared caching, use the [public guide](../../user/operations/shared-cache.md), [API comparison](../../user/getting-started/choose-a-manager.md) and [release measurements](../../user/benchmarks/shared-cache.md).
+
 [Issue #87](https://github.com/alessio-locatelli/client-query-cache/issues/87)
 owns this investigation into sharing MongoDB invalidations across processes.
-Shared invalidation is a research question; the supported managers each own
-streams and process-local cached values.
+At the time of this study, shared invalidation was a research question; the
+supported managers each owned streams and process-local cached values.
 
 **Recommendation:** defer a shared-delivery prototype for the measured
 workloads. All four complete baseline comparisons are below the registered

@@ -1,5 +1,7 @@
 # Synchronous quick start
 
+This tutorial uses the process-local `CacheManager`. For sharing across workers, see [choose a manager](choose-a-manager.md) and the [shared FastAPI example](../examples/fastapi-shared.md).
+
 This program writes a document to your local MongoDB replica set and reads it through a cached view. It uses a dedicated tutorial collection.
 
 ```python

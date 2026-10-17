@@ -79,6 +79,7 @@ def served_catalogue(
         "eve_example.py",
         "fastapi_catalogue_example.py",
         "fastapi_minimal_example.py",
+        "fastapi_shared_example.py",
     ],
     ids=[
         "requests-cache",
@@ -88,6 +89,7 @@ def served_catalogue(
         "eve",
         "fastapi",
         "fastapi-minimal",
+        "fastapi-shared",
     ],
 )
 def test_example_runs(name: str, mongodb_uri: MongoDbUri) -> None:

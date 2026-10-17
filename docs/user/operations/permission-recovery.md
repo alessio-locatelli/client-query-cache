@@ -1,6 +1,8 @@
 # Permission recovery exercise
 
-Use this exercise on a **disposable, self-managed MongoDB 8.0+ replica set with authentication enabled**. It creates a dedicated database, role, and user. It demonstrates reads that remain available while database change-stream access is denied, then recovery in the same manager after that privilege is granted.
+This exercise uses process-local `CacheManager` health snapshots. Shared managers have [different diagnostics](monitoring.md#shared-manager-diagnostics).
+
+Use this exercise on a **disposable, self-managed replica set with authentication enabled**, meeting the [MongoDB requirements](../getting-started/installation.md#requirements). It creates a dedicated database, role, and user. It demonstrates reads that remain available while database change-stream access is denied, then recovery in the same manager after that privilege is granted.
 
 Use an administrator connection in `mongosh` for the setup below. Follow MongoDB's official [custom role](https://www.mongodb.com/docs/manual/reference/method/db.createRole/) and [user creation](https://www.mongodb.com/docs/manual/reference/method/db.createUser/) guidance for access and authentication setup. Atlas manages custom roles through its own interfaces; these shell role-management commands target self-managed deployments.
 

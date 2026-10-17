@@ -1,5 +1,7 @@
 # Asyncio quick start
 
+This tutorial uses the process-local `CacheManager`. For sharing across workers, see [choose a manager](choose-a-manager.md) and the [shared FastAPI example](../examples/fastapi-shared.md).
+
 This program uses the asyncio manager from `client_query_cache.asynchronous` to write and read a document on your local MongoDB replica set. Await writes and single-result reads. Consume multi-document cursors with async iteration or `to_list()`.
 
 ```python

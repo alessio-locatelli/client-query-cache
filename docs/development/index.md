@@ -2,7 +2,10 @@
 
 Start with [CONTRIBUTING](../../CONTRIBUTING.md) for the development environment and validation commands.
 
-- [Architecture](architecture.md): cache storage, read classification, and invalidation design.
+- [Architecture](architecture.md): process-local cache storage, read classification, and invalidation design.
+- [Cache manager decision](decisions/keep-explicit-cache-managers.md): why public process-local and shared managers remain explicit.
+- [Shared-cache internals](shared-cache.md): native capacity bounds, memory accounting and profile attribution.
+- [Stream-cost benchmark protocols](stream-cost-benchmarks.md): report accounting, retained studies and reproduction commands.
 - [Performance regression guard](performance-regression-guard.md): measurements and maintainer review policy.
 - [Memory regression tests](memory-regression-tests.md): opt-in allocation checks, calibration, and failure traces.
 - [Process memory measurements](../../reports/process-memory/summary.md): cached versus direct process memory by entry shape, retention after release, and reproduction guidance.

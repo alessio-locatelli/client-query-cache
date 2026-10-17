@@ -1,7 +1,7 @@
 [project]
 name = "client-query-cache"
 version = "0.8.1"
-description = "Client-side caching for PyMongo, kept coherent using MongoDB change streams."
+description = "Sync and asyncio PyMongo query caching with change-stream invalidation and Rust-backed sharing across workers."
 authors = [
   { name = "Alessio Locatelli", email = "<software.development@secure.mailbox.org>" },
 ]
