@@ -30,7 +30,7 @@ from benchmarks.stream_cost.measurement import measure_controlled
 from benchmarks.stream_cost.proxy import DirectPathByteProxy, DirectPathProxyConfig
 from benchmarks.stream_cost.topology import IsolatedReplicaSet, ResourceLimits
 from benchmarks.stream_cost.workload import DATA_SIZE_PROFILES
-from client_query_cache._core.stream_events import (  # noqa: PLC2701 - benchmark the runtime's exact projection
+from client_query_cache._core.stream_events import (
     build_change_stream_pipeline,
 )
 from client_query_cache._types import (
@@ -60,26 +60,27 @@ TOPOLOGY = BenchmarkClientTopologyConfig(
 )
 
 
-def pipeline(mode: Mode) -> list[BsonDict]:
+def pipeline(
+    mode: Mode, *, scalar_field: Literal["index", "author_id"] = "index"
+) -> list[BsonDict]:
     stages = [dict(stage) for stage in build_change_stream_pipeline()]
     projection = stages[-1]["$project"]
+    scalar_path = f"$fullDocument.{scalar_field}"
     if mode == "scalar":
         bounded = {
             "$switch": {
                 "branches": [
                     {
-                        "case": {"$eq": [{"$type": "$fullDocument.index"}, "string"]},
+                        "case": {"$eq": [{"$type": scalar_path}, "string"]},
                         "then": {
                             "$lte": [
-                                {"$strLenBytes": "$fullDocument.index"},
+                                {"$strLenBytes": scalar_path},
                                 MAX_STRING_BYTES,
                             ]
                         },
                     }
                 ],
-                "default": {
-                    "$in": [{"$type": "$fullDocument.index"}, ["int", "long", "bool"]]
-                },
+                "default": {"$in": [{"$type": scalar_path}, ["int", "long", "bool"]]},
             }
         }
         projection["partition"] = {
@@ -88,7 +89,7 @@ def pipeline(mode: Mode) -> list[BsonDict]:
                 {
                     "$cond": [
                         bounded,
-                        {"known": True, "value": "$fullDocument.index"},
+                        {"known": True, "value": scalar_path},
                         {"known": False},
                     ]
                 },
