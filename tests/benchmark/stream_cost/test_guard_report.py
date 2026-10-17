@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 pytestmark = pytest.mark.unit
+_TEST_PYTHON_VERSION = "test-python-version"
 
 
 def _environment(tmp_path: Path, revision: str) -> RevisionEnvironment:
@@ -31,7 +32,7 @@ def _environment(tmp_path: Path, revision: str) -> RevisionEnvironment:
         revision=revision,
         repo_root=tmp_path / revision,
         python_executable=tmp_path / revision / "python",
-        python_version="3.14.6",
+        python_version=_TEST_PYTHON_VERSION,
         workload_digest="digest",
     )
 

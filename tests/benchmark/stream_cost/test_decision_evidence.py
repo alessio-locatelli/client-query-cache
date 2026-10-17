@@ -176,7 +176,7 @@ def test_run_decision_evidence_records_provenance_and_closes_client(
         "check_output",
         lambda *_args, **_kwargs: "abc123\n",
     )
-    version_lookup = MagicMock(return_value="0.1.0")
+    version_lookup = MagicMock(return_value="test-library-version")
     monkeypatch.setattr(decision_evidence, "version", version_lookup)
 
     if git_available:
@@ -186,7 +186,7 @@ def test_run_decision_evidence_records_provenance_and_closes_client(
         assert evidence["mongodb_container_cpu_seconds"] == pytest.approx(2.0)
         assert evidence["consolidated_stream"] == {"healthy": True}
         versions = cast("dict[str, str]", evidence["versions"])
-        assert versions["client_query_cache"] == "0.1.0"
+        assert versions["client_query_cache"] == "test-library-version"
         assert version_lookup.call_args_list == [
             call("pymongo"),
             call("client-query-cache"),
