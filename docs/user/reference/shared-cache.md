@@ -41,6 +41,8 @@ Only deterministic `find_one(filter, projection=None, *, collation=None, **kwarg
 
 `find`, `aggregate`, `count_documents`, `estimated_document_count`, `distinct` and broader `find_one` calls execute through PyMongo, without a second process-local cache. `find()` returns a native cursor immediately; await `aggregate()` with asyncio. Use the raw collection for writes and administration. Eligible misses use primary, majority reads and may return before shared admission completes; receiving a value is not proof of admission.
 
+Support for caching these other reads across workers is tracked in [issue #295](https://github.com/alessio-locatelli/client-query-cache/issues/295).
+
 ## Configuration
 
 `SharedCacheConfig` configures the server, not individual workers. Every field requires a positive built-in integer; booleans and numeric coercions are rejected with `CacheConfigurationError`.
