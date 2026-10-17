@@ -80,6 +80,9 @@ ignore = [
 "src/client_query_cache/*/collection.py" = ["builtin-argument-shadowing"]
 # Research programs are standalone scripts rather than importable packages.
 "research/*" = ["implicit-namespace-package"]
+# The default is enabled by ALL. We override it because these experiments
+# instrument native cache guards and stream routing directly.
+"research/invalidation_scope/*" = ["import-private-name"]
 # Cold child-process imports keep dependency initialization out of the memory baseline;
 # the same workload intentionally accepts both sync and async, raw and cached objects.
 "research/process_memory/measure.py" = ["import-outside-top-level", "any-type"]

@@ -7,7 +7,7 @@
 ## What Changes
 
 - Add a reproducible, isolated projection-cost experiment and a decision report linked from the existing invalidation research.
-- Evaluate the two policies independently before introducing any guard subsystem.
+- Extend the transport evidence with independent end-to-end research guards and a measured net-benefit decision for each bounded policy.
 
 ## Capabilities
 
@@ -15,4 +15,4 @@ No public behavior or existing requirement changes. This research-only change se
 
 ## Impact
 
-Standalone tooling under `research/invalidation_scope/` and maintainer research documentation. Runtime library code and production environments are outside this change.
+Standalone tooling under `research/invalidation_scope/` and maintainer research documentation. Experimental adapters exercise the native cache and stream in disposable environments; production library behavior remains unchanged unless the evidence justifies adoption under the issue's constraints.

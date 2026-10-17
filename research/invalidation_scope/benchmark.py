@@ -13,6 +13,7 @@ import statistics
 import time
 from contextlib import ExitStack
 from dataclasses import asdict, dataclass
+from functools import partial
 from itertools import product
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
@@ -46,7 +47,10 @@ if TYPE_CHECKING:
     )
     from pymongo.synchronous.collection import Collection
 
+    from client_query_cache.synchronous.collection import CachedCollection
+
 CLASSES = ("feed", "count", "own", "by_id")
+MIXES: tuple[Literal["insert", "update"], ...] = ("insert", "update")
 POLICIES = (
     "current",
     "id_anchor",
@@ -81,7 +85,7 @@ def sequence(
     mix: Literal["insert", "update"], rate: PositiveInt, rep: NonNegativeInt
 ) -> dict[NonNegativeInt, Write]:
     rng = random.Random(f"{mix}-{rate}-{rep}")
-    writes = {}
+    writes: dict[NonNegativeInt, Write] = {}
     for index in range(rate, READS, rate):
         identity = rng.randrange(DOCUMENTS)
         author = rng.randrange(AUTHORS) if mix == "insert" else identity % AUTHORS
@@ -141,7 +145,7 @@ def read_key(index: NonNegativeInt) -> tuple[str, NonNegativeInt]:
 
 
 def simulate() -> None:
-    for mix, rate in product(("insert", "update"), (100, 10)):
+    for mix, rate in product(MIXES, (100, 10)):
         schedules = tuple(sequence(mix, rate, rep) for rep in range(3))
         for policy in POLICIES:
             totals = dict.fromkeys(CLASSES, 0)
@@ -211,7 +215,7 @@ def seed(collection: Collection[BsonDict]) -> None:
 
 
 def operations(
-    view: Collection[BsonDict],
+    view: Collection[BsonDict] | CachedCollection[BsonDict],
 ) -> dict[tuple[str, NonNegativeInt], Callable[[], object]]:
     return {
         (kind, author): operation
@@ -418,7 +422,7 @@ def run(reps: PositiveInt) -> list[dict[str, object]]:
     cells = []
     with IsolatedReplicaSet(ResourceLimits(cpus=2.0, memory="2g")) as replica:
         for rep in range(reps):
-            for mix in ("insert", "update"):
+            for mix in MIXES:
                 for rate in (100, 10):
                     for path in (
                         ("direct", "cache", "ideal")
@@ -445,7 +449,7 @@ def micro() -> dict[str, NonNegativeFloat]:
                 "generic": {"author_id": 0},
             }
             for kind, query in filters.items():
-                await_warm(manager, lambda query=query: view.find_one(query))
+                await_warm(manager, partial(view.find_one, query))
                 batches = []
                 for _ in range(5):
                     start = time.perf_counter()
@@ -569,6 +573,7 @@ def main() -> None:
     else:
         if args.command in {"run", "find-cost"} and args.reps <= 0:
             parser.error("--reps must be positive")
+        summary: object
         if args.command == "find-cost":
             summary = find_cost(args.reps)
         else:

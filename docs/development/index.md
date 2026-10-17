@@ -21,5 +21,6 @@ Start with [CONTRIBUTING](../../CONTRIBUTING.md) for the development environment
 - [Concurrent worker workload research](research/concurrent-worker-workload.md): direct reads versus per-worker managers under concurrent writes, with latency, CPU, memory, and invalidation-lag estimates and reproduction guidance.
 
 - [Invalidation scope research](research/invalidation-scope.md): anchored reads under interleaved writes, modeled alternatives, and miss-cost follow-ups.
+- [Stream-assisted invalidation evaluation](research/stream-assisted-invalidation.md): projection costs and the outstanding net-benefit evaluation for insert partitions and update dependencies.
 
 Published library guides live in [docs/user](../user/index.md).
