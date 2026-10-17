@@ -38,7 +38,11 @@ from client_query_cache._shared.coordinator import (
     OwnerConfig,
     SharedCacheOwner,
 )
-from client_query_cache._shared.shared_index import SharedIndexLimits
+from client_query_cache._shared.shared_index import (
+    IndexPublisher,
+    NamespaceSlot,
+    SharedIndexLimits,
+)
 from client_query_cache._shared.wire import (
     decode_frame,
     encode_frame,
@@ -816,34 +820,111 @@ def _pending_handover(owner: SharedCacheOwner) -> bool:
 
 
 @pytest.mark.parametrize("shared_owner", [{"namespaces": 1}], indirect=True)
-def test_namespaces_beyond_the_slot_capacity_stay_unpublished(
-    session: _Session, faker: Faker
+def test_namespaces_beyond_the_slot_capacity_bypass_without_retention(
+    session: _Session,
 ) -> None:
     other = NamespaceId(_DATABASE, "other")
     metadata = session.endpoint.request({"op": "metadata", "ns": list(other)})
     assert metadata is not None
-    reply = session.endpoint.request(
-        {
-            "op": "select-identity",
-            "ns": list(other),
-            "epoch": metadata["epoch"],
-            "identity": _identity(1),
-            "shape": encode_key(_SHAPE),
-        }
-    )
-    assert reply is not None
-    session.endpoint.send(
-        {
-            "op": "admit",
-            "handle": reply["handle"],
-            "value": encode_frame({"name": faker.name()}),
-        }
-    )
-    wait_for(lambda: session.owner.counters.admitted == 1)
-    session.owner.core.clear_namespace(other)
-
-    assert "slot" not in metadata
+    assert metadata["r"] == "bypass"
+    assert metadata["reason"] == "namespace_capacity"
+    selection = session.endpoint.request(_select_find(ns=list(other)))
+    assert selection is not None
+    assert selection["r"] == "bypass"
+    assert selection["reason"] == "namespace_capacity"
+    assert not session.owner.core.has_namespace(other)
+    assert len(session.owner.core._namespaces) == 1
+    publisher = session.owner._publisher
+    assert publisher is not None
+    assert len(publisher._epochs) == 1
     assert _index_stats(session.owner)["published"] == 0
+
+
+@pytest.mark.parametrize("shared_owner", [{"namespaces": 1}], indirect=True)
+def test_metadata_slot_assignment_is_serialized_with_namespace_drop(
+    shared_owner: SharedCacheOwner,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def allow_database(
+        _owner: SharedCacheOwner, _database: str, _now: NonNegativeFloat
+    ) -> None:
+        return None
+
+    monkeypatch.setattr(SharedCacheOwner, "_gate", allow_database)
+    publisher = shared_owner._publisher
+    assert publisher is not None
+    namespace = NamespaceId(_DATABASE, "first")
+    replacement = NamespaceId(_DATABASE, "replacement")
+    request: Message = {
+        "op": "metadata",
+        "ns": [namespace.database, namespace.collection],
+    }
+    with socket.socket() as sock:
+        connection = coordinator._Connection(sock)
+        connection.session = 1
+        first = shared_owner._handle_request(connection, request, time.monotonic())
+        assert first is not None
+        assert first["r"] == "ok"
+        first_slot = first["slot"]
+
+        assignment_started = threading.Event()
+        resume_assignment = threading.Event()
+        original_assign = IndexPublisher.assign
+
+        def pause_assignment(
+            instance: IndexPublisher,
+            assigned_namespace: NamespaceId,
+            epoch: NonNegativeInt,
+        ) -> NamespaceSlot | None:
+            if instance is publisher and assigned_namespace == namespace:
+                assignment_started.set()
+                assert resume_assignment.wait(5)
+            return original_assign(instance, assigned_namespace, epoch)
+
+        monkeypatch.setattr(IndexPublisher, "assign", pause_assignment)
+        metadata_replies: list[Message | None] = []
+        metadata_request = threading.Thread(
+            target=lambda: metadata_replies.append(
+                shared_owner._handle_request(connection, request, time.monotonic())
+            )
+        )
+        metadata_request.start()
+        assert assignment_started.wait(5)
+        state = shared_owner.core._namespaces[namespace]
+        lock_held = state.lock._lock.locked()  # pytriage: TR11 - Snapshot while paused.
+
+        drop_started = threading.Event()
+
+        def drop_namespace() -> None:
+            drop_started.set()
+            shared_owner.core.drop_namespace(namespace)
+
+        drop = threading.Thread(target=drop_namespace)
+        drop.start()
+        assert drop_started.wait(5)
+        resume_assignment.set()
+        metadata_request.join(5)
+        drop.join(5)
+
+        assert lock_held
+        assert not metadata_request.is_alive()
+        assert not drop.is_alive()
+        assert len(metadata_replies) == 1
+        assert metadata_replies[0] is not None
+        assert metadata_replies[0]["r"] == "ok"
+
+        replacement_reply = shared_owner._handle_request(
+            connection,
+            {
+                "op": "metadata",
+                "ns": [replacement.database, replacement.collection],
+            },
+            time.monotonic(),
+        )
+
+    assert replacement_reply is not None
+    assert replacement_reply["r"] == "ok"
+    assert replacement_reply["slot"] == first_slot
 
 
 def test_find_admissions_are_not_published(session: _Session, faker: Faker) -> None:

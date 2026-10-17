@@ -22,6 +22,7 @@ from client_query_cache._core.identity_reads import (
     extract_id_anchor,
     normalize_identity_for_cache_key,
 )
+from client_query_cache._core.namespace_metadata import NamespaceMetadataCache
 from client_query_cache._core.order_sensitive_keys import order_sensitive_key
 from client_query_cache._core.read_classification import _prepare_key, prepare_query_key
 from client_query_cache._core.snapshots import BypassReason
@@ -219,9 +220,8 @@ def _metadata(
 def _select(
     shared: Shared, operation: str, namespace: NamespaceId, **fields: object
 ) -> Message | str:
-    try:
-        metadata = shared._metadata[namespace]
-    except KeyError:
+    metadata = shared._metadata.find(namespace)
+    if metadata is None:
         return METADATA_REFRESH
     return {
         "op": operation,
@@ -282,16 +282,15 @@ def _local_select(view: View, keys: tuple[bytes, bytes] | str) -> object:
     if local is None or isinstance(keys, str):
         return NO_LOCAL_HIT
     namespace = view._namespace()
-    try:
-        database, slot, incarnation = shared._slots[namespace]
-    except KeyError:
+    assignment = shared._slots.find(namespace)
+    if assignment is None:
         return NO_LOCAL_HIT
+    database, slot, incarnation = assignment
     if incarnation != local.incarnation:
         shared._reattach = True
         return NO_LOCAL_HIT
-    try:
-        metadata = shared._metadata[namespace]
-    except KeyError:
+    metadata = shared._metadata.find(namespace)
+    if metadata is None:
         return NO_LOCAL_HIT
     identity_key, shape_key = keys
     payload = local.reader.lookup(
@@ -330,7 +329,7 @@ def _remember_slot(shared: Shared, namespace: NamespaceId, reply: Message) -> No
     except KeyError:
         return
     assert isinstance(slot, list)
-    shared._slots[namespace] = (slot[0], slot[1], shared.endpoint.incarnation)
+    shared._slots.store(namespace, (slot[0], slot[1], shared.endpoint.incarnation))
 
 
 def _reattached(shared: Shared) -> None:
@@ -406,7 +405,7 @@ def _outcome(shared: Shared, namespace: NamespaceId, reply: Message | None) -> s
         return "bypass"
     kind = str(reply["r"])
     if kind == "refresh":
-        shared._metadata[namespace] = _STALE
+        shared._metadata.store(namespace, _STALE)
         shared.observation.record_bypass(METADATA_REFRESH)
     elif kind == "bypass":
         shared.observation.record_bypass(str(reply["reason"]))
@@ -928,10 +927,12 @@ class SharedCacheManager[DocumentType: Mapping[str, Any]]:
         self.max_entry_bytes = endpoint.config.max_entry_bytes
         self.observation = LocalObservation()
         self.keys = KeyCache(_KEY_CACHE_ENTRIES)
-        self._metadata: dict[NamespaceId, CollectionMetadata] = {}
-        self._slots: dict[
-            NamespaceId, tuple[NonNegativeInt, NonNegativeInt, object]
-        ] = {}
+        self._metadata = NamespaceMetadataCache[CollectionMetadata](
+            endpoint.config.max_namespaces
+        )
+        self._slots = NamespaceMetadataCache[
+            tuple[NonNegativeInt, NonNegativeInt, object]
+        ](endpoint.config.max_namespaces)
         self._reattach = False
         self._reattach_after = 0.0
         self._reattaching = threading.Lock()
@@ -987,11 +988,8 @@ class SharedCacheManager[DocumentType: Mapping[str, Any]]:
             and time.monotonic() >= self._reattach_after
         ):
             self._reattach_local(self.local)
-        try:
-            cached = self._metadata[namespace]
-        except KeyError:
-            cached = _STALE
-        if cached is not _STALE:
+        cached = self._metadata.find(namespace)
+        if cached is not None and cached is not _STALE:
             return cached.bypass_reason or (
                 PROTOTYPE_SCOPE if cached.default_collation is not None else None
             )
@@ -1005,7 +1003,7 @@ class SharedCacheManager[DocumentType: Mapping[str, Any]]:
             return metadata
         assert reply is not None
         _remember_slot(self, namespace, reply)
-        self._metadata[namespace] = metadata
+        self._metadata.store(namespace, metadata)
         return metadata.bypass_reason or (
             PROTOTYPE_SCOPE if metadata.default_collation is not None else None
         )
@@ -1013,10 +1011,8 @@ class SharedCacheManager[DocumentType: Mapping[str, Any]]:
     def _default_collation_for(
         self, namespace: NamespaceId
     ) -> Mapping[str, Any] | None:
-        try:
-            return self._metadata[namespace].default_collation
-        except KeyError:
-            return None
+        metadata = self._metadata.find(namespace)
+        return None if metadata is None else metadata.default_collation
 
     def __getitem__(self, name: str) -> SharedCachedDatabase[DocumentType]:
         return SharedCachedDatabase(self, self._client[name])
@@ -1070,10 +1066,12 @@ class AsyncSharedCacheManager[DocumentType: Mapping[str, Any]]:
         self.max_entry_bytes = endpoint.config.max_entry_bytes
         self.observation = LocalObservation()
         self.keys = KeyCache(_KEY_CACHE_ENTRIES)
-        self._metadata: dict[NamespaceId, CollectionMetadata] = {}
-        self._slots: dict[
-            NamespaceId, tuple[NonNegativeInt, NonNegativeInt, object]
-        ] = {}
+        self._metadata = NamespaceMetadataCache[CollectionMetadata](
+            endpoint.config.max_namespaces
+        )
+        self._slots = NamespaceMetadataCache[
+            tuple[NonNegativeInt, NonNegativeInt, object]
+        ](endpoint.config.max_namespaces)
         self._reattach = False
         self._reattach_after = 0.0
         self._reattaching = asyncio.Lock()
@@ -1127,11 +1125,8 @@ class AsyncSharedCacheManager[DocumentType: Mapping[str, Any]]:
             and time.monotonic() >= self._reattach_after
         ):
             await self._reattach_local(self.local)
-        try:
-            cached = self._metadata[namespace]
-        except KeyError:
-            cached = _STALE
-        if cached is not _STALE:
+        cached = self._metadata.find(namespace)
+        if cached is not None and cached is not _STALE:
             return cached.bypass_reason or (
                 PROTOTYPE_SCOPE if cached.default_collation is not None else None
             )
@@ -1145,7 +1140,7 @@ class AsyncSharedCacheManager[DocumentType: Mapping[str, Any]]:
             return metadata
         assert reply is not None
         _remember_slot(self, namespace, reply)
-        self._metadata[namespace] = metadata
+        self._metadata.store(namespace, metadata)
         return metadata.bypass_reason or (
             PROTOTYPE_SCOPE if metadata.default_collation is not None else None
         )
@@ -1153,10 +1148,8 @@ class AsyncSharedCacheManager[DocumentType: Mapping[str, Any]]:
     def _default_collation_for(
         self, namespace: NamespaceId
     ) -> Mapping[str, Any] | None:
-        try:
-            return self._metadata[namespace].default_collation
-        except KeyError:
-            return None
+        metadata = self._metadata.find(namespace)
+        return None if metadata is None else metadata.default_collation
 
     def __getitem__(self, name: str) -> AsyncSharedCachedDatabase[DocumentType]:
         return AsyncSharedCachedDatabase(self, self._client[name])

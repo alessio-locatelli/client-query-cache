@@ -54,8 +54,8 @@ class CacheManager[DocumentType: Mapping[str, Any]]:
         self._coordinator = ChangeStreamCoordinator(
             client, self._cache, max_await_time_ms=max_await_time_ms
         )
-        self._metadata = CollectionMetadataCache()
-        self._unique_keys = UniqueKeyMetadataCache()
+        self._metadata = CollectionMetadataCache(self._cache.max_namespaces)
+        self._unique_keys = UniqueKeyMetadataCache(self._cache.max_namespaces)
 
     @property
     def client(self) -> MongoClient[DocumentType]:
@@ -86,7 +86,9 @@ class CacheManager[DocumentType: Mapping[str, Any]]:
             return BypassReason.STREAM_UNAVAILABLE
         if not self._cache.is_database_available(namespace.database):
             return BypassReason.STREAM_UNAVAILABLE
-        current_epoch = self._cache.current_epoch(namespace)
+        current_epoch = self._cache.try_current_epoch(namespace)
+        if current_epoch is None:
+            return BypassReason.NAMESPACE_CAPACITY
         cached = self._metadata.get(namespace)
         if cached is None or cached.checked_epoch != current_epoch:
             probe_result = collection_probe()
@@ -128,6 +130,8 @@ class CacheManager[DocumentType: Mapping[str, Any]]:
         namespace: NamespaceId,
         list_indexes: Callable[[], Sequence[Mapping[str, Any]] | None] | None = None,
     ) -> tuple[UniqueKeyDefinition, ...] | None:
+        if self._cache.try_current_epoch(namespace) is None:
+            return None
         current_generation = self._cache.current_index_generation(namespace)
         cached = self._unique_keys.get(namespace)
         if cached is None or cached.checked_index_generation != current_generation:

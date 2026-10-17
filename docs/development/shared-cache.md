@@ -25,7 +25,7 @@ These are representational bounds, not recommended allocations or a claim that a
 
 The default 65,536-slot index occupies about 4 MiB in addition to the payload arena. Each attached worker maps shared pages and owns a bounded admission queue; Python/PyMongo objects, decoded documents and transient transport frames add private memory. Summing worker RSS double-counts shared pages: use group PSS or container memory alongside owner and worker measurements.
 
-Workers retain up to 8,192 key encodings. The owner retains up to 1,024 decoded read-shape keys and 256 encoded read-shape keys. These key caches retain only keys encoded in at most 4 KiB; canonical Python objects add overhead. Larger keys remain usable but are not retained in those encoding caches. These capacities do not bound all namespace metadata. Continuous collection-name churn is outside the supported workload; [issue #282](https://github.com/alessio-locatelli/client-query-cache/issues/282) owns bounded metadata support.
+Workers retain up to 8,192 key encodings. The owner retains up to 1,024 decoded read-shape keys and 256 encoded read-shape keys. These key caches retain only keys encoded in at most 4 KiB; canonical Python objects add overhead. Larger keys remain usable but are not retained in those encoding caches. Core state, publisher assignments and worker namespace hints are bounded by the configured `namespaces` capacity. A processed collection drop releases the owner's state and shared slot; reads for other names bypass shared caching while capacity is exhausted.
 
 ## Profile attribution for the public release workload
 

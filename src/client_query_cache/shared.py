@@ -89,6 +89,7 @@ class SharedCacheConfig:
         CacheCoreConfig(
             shared_budget_bytes=self.budget_bytes,
             max_entry_bytes=self.max_entry_bytes,
+            max_namespaces=self.namespaces,
         )
         if self.max_entry_bytes > self.arena_bytes:
             raise CacheConfigurationError("max_entry_bytes must not exceed arena_bytes")
@@ -215,6 +216,7 @@ class SharedCacheServer:
                 max_await_time_ms=self._config.max_await_time_ms,
                 rpc_deadline_seconds=limits.rpc_deadline_seconds,
                 frame_limit=self._config.frame_limit,
+                max_namespaces=config.namespaces,
             )
         )
         try:

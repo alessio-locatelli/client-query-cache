@@ -66,6 +66,7 @@ class AttachmentConfig:
     max_await_time_ms: MaxAwaitTimeMs
     rpc_deadline_seconds: PositiveFloat
     frame_limit: PositiveInt
+    max_namespaces: PositiveInt = 1024
 
     def hello(self, role: str | None = None) -> Message:
         message: Message = {

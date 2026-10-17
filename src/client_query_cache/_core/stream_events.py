@@ -87,7 +87,7 @@ def _route_create(cache: CacheCore, database: str, event: Mapping[str, Any]) -> 
 def _route_drop(cache: CacheCore, database: str, event: Mapping[str, Any]) -> None:
     namespace = _namespace_from_ns(event["ns"])
     if cache.has_namespace(namespace):
-        cache.clear_namespace(namespace)
+        cache.drop_namespace(namespace)
         _record_invalidation(cache, database, event)
 
 
@@ -105,7 +105,7 @@ def _route_rename(cache: CacheCore, database: str, event: Mapping[str, Any]) -> 
     destination = _namespace_from_ns(event["to"])
     invalidated = False
     if cache.has_namespace(source):
-        cache.clear_namespace(source)
+        cache.drop_namespace(source)
         invalidated = True
     if destination.database == database and cache.has_namespace(destination):
         cache.clear_namespace(destination)
@@ -120,7 +120,7 @@ def _route_invalidate(
     cache.set_database_available(database, available=False)
     namespaces = cache.namespaces_for_database(database)
     for namespace in namespaces:
-        cache.clear_namespace(namespace)
+        cache.drop_namespace(namespace)
     if namespaces:
         _record_invalidation(cache, database, event)
 

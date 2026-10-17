@@ -19,6 +19,10 @@ class CacheObserver(Protocol):
 
     def epoch_changed(self, namespace: NamespaceId, epoch: NonNegativeInt) -> None: ...
 
+    def namespace_released(
+        self, namespace: NamespaceId, epoch: NonNegativeInt
+    ) -> None: ...
+
     def availability_changed(self, database: str, *, available: bool) -> None: ...
 
 

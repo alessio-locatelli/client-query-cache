@@ -1,6 +1,7 @@
 import asyncio
 from operator import itemgetter
 from typing import TYPE_CHECKING
+from unittest.mock import AsyncMock
 
 import pytest
 from bson.codec_options import CodecOptions
@@ -9,6 +10,8 @@ from pymongo.asynchronous.database import AsyncDatabase
 
 from client_query_cache._core.keys import NamespaceId
 from client_query_cache._core.lifecycle import CacheLifecycleState
+from client_query_cache._core.manager import CacheCoreConfig
+from client_query_cache._core.snapshots import BypassReason
 from client_query_cache._types import BsonDict
 from client_query_cache.asynchronous import (
     CacheManager,
@@ -84,6 +87,33 @@ async def test_unique_keys_for_rejects_a_probe_racing_a_concurrent_index_change(
         return [{"key": {"email": 1}, "name": "email_1", "unique": True}]
 
     assert await manager._unique_keys_for(namespace, racing_list_indexes) == ()
+
+
+async def test_namespace_capacity_bypasses_collection_metadata_probe(
+    client: AsyncMongoClient[BsonDict], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manager = CacheManager(client, cache_config=CacheCoreConfig(max_namespaces=1))
+    tracked = NamespaceId("example", "tracked")
+    overflow = NamespaceId("example", "overflow")
+    manager.cache_core.try_current_epoch(tracked)
+
+    async def activate_database(_self: object, _database: str) -> object:
+        await asyncio.sleep(0)
+        return object()
+
+    monkeypatch.setattr(
+        type(manager._coordinator), "activate_database", activate_database
+    )
+
+    collection_probe = AsyncMock(return_value=None)
+
+    reason = await manager._cache_ineligibility_reason(overflow, collection_probe)
+
+    assert reason is BypassReason.NAMESPACE_CAPACITY
+    assert await manager._unique_keys_for(overflow) is None
+    collection_probe.assert_not_awaited()
+    assert not manager.cache_core.has_namespace(overflow)
+    await manager.close()
 
 
 @pytest.mark.parametrize(

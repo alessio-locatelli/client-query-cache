@@ -24,6 +24,7 @@ class BypassReason(StrEnum):
     VIEW_COLLECTION = "view_collection"
     TIME_SERIES_COLLECTION = "time_series_collection"
     METADATA_UNAVAILABLE = "metadata_unavailable"
+    NAMESPACE_CAPACITY = "namespace_capacity"
     STREAM_UNAVAILABLE = "stream_unavailable"
     ADMISSION_INVALIDATED = "admission_invalidated"
     UNSPECIFIED = "unspecified"

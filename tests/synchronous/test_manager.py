@@ -8,6 +8,8 @@ from pymongo.synchronous.database import Database
 
 from client_query_cache._core.keys import NamespaceId
 from client_query_cache._core.lifecycle import CacheLifecycleState
+from client_query_cache._core.manager import CacheCoreConfig
+from client_query_cache._core.snapshots import BypassReason
 from client_query_cache._types import BsonDict
 from client_query_cache.synchronous import (
     CacheManager,
@@ -80,6 +82,29 @@ def test_unique_keys_for_rejects_a_probe_racing_a_concurrent_index_change(
         return [{"key": {"email": 1}, "name": "email_1", "unique": True}]
 
     assert manager._unique_keys_for(namespace, racing_list_indexes) == ()
+
+
+def test_namespace_capacity_bypasses_collection_metadata_probe(
+    client: MongoClient[BsonDict], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manager = CacheManager(client, cache_config=CacheCoreConfig(max_namespaces=1))
+    tracked = NamespaceId("example", "tracked")
+    overflow = NamespaceId("example", "overflow")
+    manager.cache_core.try_current_epoch(tracked)
+    monkeypatch.setattr(
+        type(manager._coordinator),
+        "activate_database",
+        lambda _self, _database: object(),
+    )
+
+    reason = manager._cache_ineligibility_reason(
+        overflow, lambda: pytest.fail("capacity overflow must not probe metadata")
+    )
+
+    assert reason is BypassReason.NAMESPACE_CAPACITY
+    assert manager._unique_keys_for(overflow) is None
+    assert not manager.cache_core.has_namespace(overflow)
+    manager.close()
 
 
 @pytest.mark.parametrize(

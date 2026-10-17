@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import threading
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -8,7 +7,8 @@ from typing import TYPE_CHECKING, Any
 from client_query_cache._core.canonical import is_canonicalizable
 from client_query_cache._core.collation import normalize_collation
 from client_query_cache._core.identity_reads import NO_IDENTITY, extract_equality_value
-from client_query_cache._types import NonNegativeInt
+from client_query_cache._core.namespace_metadata import NamespaceMetadataCache
+from client_query_cache._types import NonNegativeInt, PositiveInt
 
 if TYPE_CHECKING:
     from client_query_cache._core.keys import NamespaceId
@@ -115,19 +115,13 @@ class UniqueKeyMetadata:
 
 
 class UniqueKeyMetadataCache:
-    __slots__ = ("_entries", "_lock")
+    __slots__ = ("_entries",)
 
-    def __init__(self) -> None:
-        self._entries: dict[NamespaceId, UniqueKeyMetadata] = {}
-        self._lock = threading.Lock()
+    def __init__(self, max_namespaces: PositiveInt = 1024) -> None:
+        self._entries = NamespaceMetadataCache[UniqueKeyMetadata](max_namespaces)
 
     def get(self, namespace: NamespaceId) -> UniqueKeyMetadata | None:
-        with self._lock:
-            try:
-                return self._entries[namespace]
-            except KeyError:
-                return None
+        return self._entries.find(namespace)
 
     def put(self, namespace: NamespaceId, metadata: UniqueKeyMetadata) -> None:
-        with self._lock:
-            self._entries[namespace] = metadata
+        self._entries.store(namespace, metadata)

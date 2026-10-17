@@ -56,3 +56,4 @@ class NamespaceState:
         default_factory=dict
     )
     identity_generation_watermark: NonNegativeInt = 0
+    tracked: bool = True

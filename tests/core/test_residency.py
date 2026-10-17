@@ -75,6 +75,9 @@ class RecordingObserver:
             locked=self._namespace_locked(namespace),
         )
 
+    def namespace_released(self, namespace: NamespaceId, epoch: NonNegativeInt) -> None:
+        self._record("namespace_released", (namespace, epoch), locked=False)
+
     def availability_changed(self, database: str, *, available: bool) -> None:
         assert self.core is not None
         self._record(
@@ -157,9 +160,7 @@ def _remove_exact(scenario: Scenario) -> list[Event]:
     outcome = scenario.core.admit_namespace_encoded(capture, DISCRIMINATOR, encoded)
     assert outcome is AdmissionOutcome.ADMITTED
     scenario.observer.events.clear()
-    scenario.core.discard_namespace_entry(
-        scenario.namespace, DISCRIMINATOR, capture.generation
-    )
+    scenario.core.discard_namespace_entry(capture, DISCRIMINATOR)
     key = NamespaceCacheKey(scenario.namespace, canonicalize(DISCRIMINATOR))
     return [("removed", (key, encoded))]
 
@@ -225,6 +226,23 @@ def test_observer_sees_each_mutation_inside_its_lock_section(
     expected = mutate(Scenario(core, namespace, faker, observer, monkeypatch))
     assert observer.events == expected
     assert all(observer.locked)
+
+
+def test_namespace_release_notifies_after_the_namespace_lock_is_released(
+    namespace: NamespaceId,
+) -> None:
+    observer = RecordingObserver()
+    core = CacheCore(BUDGET, observer=observer)
+    observer.core = core
+    core.capture_namespace_generation(namespace)
+
+    core.drop_namespace(namespace)
+
+    assert observer.events == [
+        ("epoch_changed", (namespace, 1)),
+        ("namespace_released", (namespace, 1)),
+    ]
+    assert observer.locked == [True, False]
 
 
 @dataclass(eq=False, slots=True)

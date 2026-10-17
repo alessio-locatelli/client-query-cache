@@ -729,9 +729,9 @@ def test_reopens_with_start_after_following_a_database_invalidation_event(
     _wait_until(lambda: len(database.watch_calls) == watch_calls_after_reopen)
     assert database.watch_calls[1]["start_after"] == invalidate_event["_id"]
     assert "resume_after" not in database.watch_calls[1]
-    calls_to_clear = 2
-    assert cache.clear_namespace.call_count == calls_to_clear
-    cache.clear_namespace.assert_any_call(NamespaceId("db", "coll"))
+    assert cache.clear_namespace.call_count == 1
+    cache.clear_namespace.assert_called_once_with(NamespaceId("db", "coll"))
+    cache.drop_namespace.assert_called_once_with(NamespaceId("db", "coll"))
     _wait_until(lambda: supervisor.healthy)
 
 

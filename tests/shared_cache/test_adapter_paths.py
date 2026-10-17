@@ -364,11 +364,13 @@ def test_async_requests_survive_owner_pauses_and_loss(
             await collection.find_one({"_id": 25})
             endpoint = manager.endpoint
             shape = encode_key(collection._find_one_default_shape)
-            namespace = next(iter(manager._metadata))
+            namespace = NamespaceId(seeded_database, COLLECTION)
+            metadata = manager._metadata.find(namespace)
+            assert metadata is not None
             hit_request = {
                 "op": "select-identity",
                 "ns": [seeded_database, COLLECTION],
-                "epoch": manager._metadata[namespace].checked_epoch,
+                "epoch": metadata.checked_epoch,
                 "identity": encode_key(25),
                 "shape": shape,
             }
@@ -843,22 +845,31 @@ def test_unpublished_entries_fall_back_to_owner_hits(
     assert owner.observation()["shared_index"]["published"] == 0
 
 
-def test_namespaces_without_a_slot_read_through_the_owner(
+def test_namespaces_without_a_slot_bypass_with_bounded_owner_state(
     open_reads: Callable[[SharedIndexLimits], tuple[Owner, _SharedReads]],
     client: MongoClient[BsonDict],
     seeded_database: str,
 ) -> None:
     client[seeded_database][_OTHER].insert_one({"_id": 1, "payload": "other"})
     owner, reads = open_reads(replace(_SHARED_INDEX, namespaces=1))
+    view = reads.manager[seeded_database][_OTHER]
+    assert (
+        adapters._local_select(view, (b"identity", b"shape")) is adapters.NO_LOCAL_HIT
+    )
     first = reads.find_one(1, _OTHER)
-    _admitted(owner, 1)
+    assert owner.counters()["admitted"] == 0
     requests = reads.manager.endpoint.counters.requests
 
     second = reads.find_one(1, _OTHER)
 
     assert second == first == {"_id": 1, "payload": "other"}
     assert reads.manager.endpoint.counters.requests == requests + 1
-    assert reads.manager.observation.hits == 1
+    assert reads.manager.observation.hits == 0
+    assert reads.manager.observation.bypasses["namespace_capacity"] == 2
+    assert reads.manager._metadata._capacity == 1
+    assert reads.manager._slots._capacity == 1
+    assert len(reads.manager._metadata) <= 1
+    assert len(reads.manager._slots) <= 1
 
 
 def test_a_namespace_reset_makes_local_reads_refresh_metadata(
@@ -1131,9 +1142,11 @@ def test_slots_of_another_incarnation_are_never_read_locally(
     reads.find_one(1)
     _admitted(owner, 1)
     namespace = NamespaceId(seeded_database, COLLECTION)
-    database, slot, incarnation = reads.manager._slots[namespace]
+    assignment = reads.manager._slots.find(namespace)
+    assert assignment is not None
+    database, slot, incarnation = assignment
     assert isinstance(incarnation, int)
-    reads.manager._slots[namespace] = (database, slot, Int64(incarnation + 1))
+    reads.manager._slots.store(namespace, (database, slot, Int64(incarnation + 1)))
     previous = reads.manager.local  # pytriage: TR5 (before fallback)
     requests = reads.manager.endpoint.counters.requests
 
@@ -1143,4 +1156,6 @@ def test_slots_of_another_incarnation_are_never_read_locally(
     assert fallback == reattached == {"_id": 1, "payload": "value-1", "revision": 0}
     assert reads.manager.endpoint.counters.requests > requests
     assert reads.manager.local is not previous
-    assert reads.manager._slots[namespace][2] == incarnation
+    refreshed_assignment = reads.manager._slots.find(namespace)
+    assert refreshed_assignment is not None
+    assert refreshed_assignment[2] == incarnation

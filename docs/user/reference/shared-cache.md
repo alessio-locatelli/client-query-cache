@@ -47,14 +47,14 @@ Support for caching these other reads across workers is tracked in [issue #295](
 
 `SharedCacheConfig` configures the server, not individual workers. Every field requires a positive built-in integer; booleans and numeric coercions are rejected with `CacheConfigurationError`.
 
-| Field             | Default | Application meaning                                                   |
-| ----------------- | ------- | --------------------------------------------------------------------- |
-| `budget_bytes`    | 64 MiB  | Accounted cached BSON across all configured databases and workers     |
-| `max_entry_bytes` | 1 MiB   | Largest encoded cached value; must not exceed the budget or arena     |
-| `arena_bytes`     | 80 MiB  | Shared storage for encoded values, separate from the accounted budget |
-| `slots`           | 65,536  | Shared index capacity; must be a supported power of two               |
-| `namespaces`      | 1,024   | Capacity for a fixed set of database/collection pairs                 |
-| `connections`     | 256     | Attachment and request connections across workers; at least two       |
+| Field             | Default | Application meaning                                                                                |
+| ----------------- | ------- | -------------------------------------------------------------------------------------------------- |
+| `budget_bytes`    | 64 MiB  | Accounted cached BSON across all configured databases and workers                                  |
+| `max_entry_bytes` | 1 MiB   | Largest encoded cached value; must not exceed the budget or arena                                  |
+| `arena_bytes`     | 80 MiB  | Shared storage for encoded values, separate from the accounted budget                              |
+| `slots`           | 65,536  | Shared index capacity; must be a supported power of two                                            |
+| `namespaces`      | 1,024   | Maximum tracked database/collection pairs; drops free capacity and additional names bypass caching |
+| `connections`     | 256     | Attachment and request connections across workers; at least two                                    |
 
 The arena stores encoded documents. Increasing it adds storage headroom without increasing the accounted cache budget. An entry can fit the budget but fail publication because the index or arena is full. Reads still deliver their result; repeated reads may miss. See [collection-name examples and connection sizing guidance](../operations/shared-cache.md#collection-names-and-capacity) before increasing limits.
 

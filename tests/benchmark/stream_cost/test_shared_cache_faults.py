@@ -547,8 +547,8 @@ def test_local_traffic_prepares_lookup_inputs_once(
 ) -> None:
     namespace = NamespaceId("catalogue", "documents")
     manager = MagicMock()
-    manager._slots = {namespace: (0, 1, "owner")}
-    manager._metadata = {namespace: Mock(checked_epoch=2)}
+    manager._slots.find.return_value = (0, 1, "owner")
+    manager._metadata.find.return_value = Mock(checked_epoch=2)
     manager.keys.encode.return_value = b"shape"
     manager.local.reader.lookup.return_value = b"payload"
     spec = Mock(

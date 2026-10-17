@@ -668,13 +668,15 @@ def test_cancelled_async_selection_releases_its_capture(
 
             ticker = asyncio.create_task(tick())
             owner.request("pause-server", seconds=0.3)
-            namespace = next(iter(manager._metadata))
+            namespace = NamespaceId(seeded_database, COLLECTION)
+            metadata = manager._metadata.find(namespace)
+            assert metadata is not None
             selection = asyncio.create_task(
                 manager.endpoint.request(
                     {
                         "op": "select-identity",
                         "ns": [seeded_database, COLLECTION],
-                        "epoch": manager._metadata[namespace].checked_epoch,
+                        "epoch": metadata.checked_epoch,
                         "identity": encode_key(16),
                         "shape": encode_key(collection._find_one_default_shape),
                     }
@@ -1025,7 +1027,8 @@ def test_a_replacement_owner_serves_only_its_own_index(
         lambda: (
             manager[seeded_database][COLLECTION].find_one({"_id": 1}) is not None
             and manager.local is not previous
-            and NamespaceId(seeded_database, COLLECTION) in manager._slots
+            and manager._slots.find(NamespaceId(seeded_database, COLLECTION))
+            is not None
             and _local_read(manager, seeded_database, 1) is not None
         )
     )

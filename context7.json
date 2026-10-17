@@ -41,7 +41,7 @@
     "Use reference/shared-cache.md#worker-managers-and-reads as the shared-read eligibility contract, including filter, projection, collation, codec and fallback rules.",
     "Check operations/shared-cache.md#security-and-monitoring before distributing a SharedCacheConnection; it defines the worker trust boundary and database access requirements.",
     "Configure SharedCacheConfig using reference/shared-cache.md#configuration. Collection-name and connection sizing guidance is in operations/shared-cache.md#collection-names-and-capacity.",
-    "Follow operations/shared-cache.md#collection-names-and-capacity for supported collection-name patterns and the tracked metadata-churn limitation.",
+    "Follow operations/shared-cache.md#collection-names-and-capacity for namespace sizing; drops release capacity and names beyond the configured limit bypass shared caching.",
     "Use operations/monitoring.md#shared-manager-diagnostics for SharedCacheStatistics fields, scope and telemetry limitations; do not assume process-local diagnostics apply to shared managers.",
     "Follow operations/shared-cache.md#consistency-and-recovery for owner outages and progress expiry, and reference/shared-cache.md#server-and-connection for cache_server.restart().",
     "Close managers before caller-owned clients; await async close. Stop shared workers before closing the parent server. Never reuse clients, managers or servers inherited after fork; pass the connection. Async cleanup finishes before cancellation propagates.",

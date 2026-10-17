@@ -87,7 +87,7 @@ def test_releasing_a_capture_after_close_does_not_recreate_namespace_state(
     capture = core.begin_identity_admission(namespace, "doc-1")
     core.close()
 
-    core.discard_identity_admission(capture)
+    capture.release()
 
     assert namespace not in core._namespaces
 
