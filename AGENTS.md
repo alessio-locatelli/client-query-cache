@@ -79,6 +79,7 @@ For more details or a first time setup see [CONTRIBUTING.md](CONTRIBUTING.md).
 - Follow the editing policy in the HTML comment at the top of the [changelog source](CHANGELOG.md?plain=1).
 - **Single source of truth:** Document each fact, rule, or explanation in one canonical location. Link to it elsewhere instead of duplicating or paraphrasing the content.
 - **User-focused documentation:** Write for developers unfamiliar with the library's internals. Explain usage, configuration, and limitations clearly, with practical examples. Document low-level implementation details separately only when needed to understand non-obvious design decisions, invariants, or maintenance procedures; omit details that are self-evident from the code or serve no practical purpose.
+- Preserve the README's opening value proposition: explain the practical performance benefits, target workloads, and reasons to adopt the library before implementation details. Do not remove useful promotional messaging in the name of conciseness; keep performance claims accurate and supported by benchmarks.
 
 ## References
 
