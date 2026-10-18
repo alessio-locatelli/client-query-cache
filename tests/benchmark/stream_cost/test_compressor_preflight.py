@@ -47,12 +47,12 @@ class _FakeCollection:
     def drop(self) -> None:
         self.dropped += 1
 
-    @staticmethod
-    def insert_many(documents: list[BsonDict]) -> None:
+    # Implements collection operations without using the fake's instance state.
+    def insert_many(self, documents: list[BsonDict]) -> None:  # noqa: PLR6301
         del documents
 
-    @staticmethod
-    def find(query: BsonDict) -> list[object]:
+    # Implements the fake collection's find API without instance state.
+    def find(self, query: BsonDict) -> list[object]:  # noqa: PLR6301
         del query
         return []
 
