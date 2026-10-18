@@ -100,11 +100,45 @@ class EndpointCounters:
     bytes_received: NonNegativeInt = 0
 
 
+@dataclass(slots=True)
+class AdmissionRecovery:
+    awaiting_capacity: bool = False
+    fallback_until: NonNegativeFloat = 0.0
+    generation: NonNegativeInt = 0
+    _lock: threading.Lock = field(
+        default_factory=threading.Lock, repr=False, compare=False
+    )
+
+    def dropped(self) -> None:
+        with self._lock:
+            self.generation += 1
+            self.awaiting_capacity = True
+            self.fallback_until = 0.0
+
+    def enqueued(self, generation: NonNegativeInt) -> bool:
+        with self._lock:
+            if not self.awaiting_capacity or generation != self.generation:
+                return False
+            self.awaiting_capacity = False
+            self.fallback_until = time.monotonic() + _RETRY_SECONDS
+            return True
+
+    @property
+    def active(self) -> bool:
+        with self._lock:
+            if self.fallback_until:
+                if time.monotonic() < self.fallback_until:
+                    return True
+                self.fallback_until = 0.0
+            return False
+
+
 def _one_way_frame(
     message: Message,
     config: AttachmentConfig,
     counters: EndpointCounters,
     reader: ReaderIndex | None,
+    recovery: AdmissionRecovery,
 ) -> tuple[bytes, PositiveInt] | None:
     message["v"] = PROTOCOL_VERSION
     message["id"] = 0
@@ -113,13 +147,15 @@ def _one_way_frame(
     if frame_bytes - LENGTH_BYTES > config.frame_limit:
         counters.dropped_one_way += 1
         return None
-    if reader is not None and reader.enqueue_admission(frame):
-        counters.native_admissions += 1
-        if counters.native_admission_drops:
-            counters.native_admission_recoveries += 1
-        counters.one_way += 1
-        counters.bytes_sent += frame_bytes
-        return None
+    if reader is not None:
+        generation = recovery.generation if recovery.awaiting_capacity else None
+        if reader.enqueue_admission(frame):
+            counters.native_admissions += 1
+            if generation is not None and recovery.enqueued(generation):
+                counters.native_admission_recoveries += 1
+            counters.one_way += 1
+            counters.bytes_sent += frame_bytes
+            return None
     return frame, frame_bytes
 
 
@@ -353,6 +389,7 @@ class SyncEndpoint:
         "_lock",
         "_pid",
         "_retry_after",
+        "admission_recovery",
         "config",
         "counters",
         "incarnation",
@@ -367,6 +404,7 @@ class SyncEndpoint:
         self._retry_after = 0.0
         self._closed = False
         self.counters = EndpointCounters()
+        self.admission_recovery = AdmissionRecovery()
         self.incarnation: object = None
         deadline = (
             _ATTACH_DEADLINE_SECONDS if require_owner else config.rpc_deadline_seconds
@@ -475,7 +513,9 @@ class SyncEndpoint:
             return
         prepared = None
         if reader is not None and reader.admissions_enabled:
-            prepared = _one_way_frame(message, self.config, self.counters, reader)
+            prepared = _one_way_frame(
+                message, self.config, self.counters, reader, self.admission_recovery
+            )
             if prepared is None:
                 return
         connection = self._leased()
@@ -483,9 +523,12 @@ class SyncEndpoint:
             self.counters.dropped_one_way += 1
             if prepared is not None:
                 self.counters.native_admission_drops += 1
+                self.admission_recovery.dropped()
             return
         if prepared is None:
-            prepared = _one_way_frame(message, self.config, self.counters, reader)
+            prepared = _one_way_frame(
+                message, self.config, self.counters, reader, self.admission_recovery
+            )
             if prepared is None:
                 return
         frame, frame_bytes = prepared
@@ -517,6 +560,7 @@ class AsyncEndpoint:
         "_reader_task",
         "_retry_after",
         "_writer",
+        "admission_recovery",
         "config",
         "counters",
         "incarnation",
@@ -535,6 +579,7 @@ class AsyncEndpoint:
         self._reader_task: asyncio.Task[None] | None = None
         self._retry_after = 0.0
         self.counters = EndpointCounters()
+        self.admission_recovery = AdmissionRecovery()
         self.incarnation: object = None
         self.next_id = 1
 
@@ -720,7 +765,9 @@ class AsyncEndpoint:
             return
         prepared = None
         if reader is not None and reader.admissions_enabled:
-            prepared = _one_way_frame(message, self.config, self.counters, reader)
+            prepared = _one_way_frame(
+                message, self.config, self.counters, reader, self.admission_recovery
+            )
             if prepared is None:
                 return
         writer = self._writer
@@ -728,9 +775,12 @@ class AsyncEndpoint:
             self.counters.dropped_one_way += 1
             if prepared is not None:
                 self.counters.native_admission_drops += 1
+                self.admission_recovery.dropped()
             return
         if prepared is None:
-            prepared = _one_way_frame(message, self.config, self.counters, reader)
+            prepared = _one_way_frame(
+                message, self.config, self.counters, reader, self.admission_recovery
+            )
             if prepared is None:
                 return
         frame, frame_bytes = prepared

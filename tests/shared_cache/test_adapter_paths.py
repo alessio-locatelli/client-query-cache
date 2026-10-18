@@ -752,14 +752,20 @@ def test_local_misses_use_the_control_queue_or_reconnect_after_data_channel_loss
 
 
 @pytest.mark.parametrize(
-    ("queue_drop", "recovered"),
-    [(False, False), (True, False), (True, True)],
-    ids=("other-drop", "queue-full", "queue-recovered"),
+    ("queue_drop", "recovered", "expired"),
+    [
+        (False, False, False),
+        (True, False, False),
+        (True, True, False),
+        (True, True, True),
+    ],
+    ids=("other-drop", "queue-full", "queue-recovered", "recovery-expired"),
 )
-def test_only_recovered_native_queues_make_disconnected_misses_reconnect(
+def test_only_active_queue_recovery_makes_disconnected_misses_reconnect(
     open_reads: Callable[[SharedIndexLimits], tuple[Owner, _SharedReads]],
     queue_drop: bool,
     recovered: bool,
+    expired: bool,
 ) -> None:
     owner, reads = open_reads(
         replace(_SHARED_INDEX, local_miss_admission=True, native_admission_queue=True)
@@ -768,23 +774,97 @@ def test_only_recovered_native_queues_make_disconnected_misses_reconnect(
     requests = endpoint.counters.requests
     connects = endpoint.counters.connects
     reads.disconnect_data()
+    time.sleep(_PAST_REATTACH_BACKOFF_SECONDS)
     endpoint.counters.dropped_one_way = 1
-    endpoint.counters.native_admission_drops = int(queue_drop)
-    endpoint.counters.native_admission_recoveries = int(recovered)
+    if queue_drop:
+        endpoint.admission_recovery.dropped()
+    if recovered:
+        assert endpoint.admission_recovery.enqueued(
+            endpoint.admission_recovery.generation
+        )
+    if expired:
+        time.sleep(_PAST_REATTACH_BACKOFF_SECONDS)
+    # Keep diagnostic values independent of policy state.
+    endpoint.counters.native_admission_drops = int(expired)
+    endpoint.counters.native_admission_recoveries = int(expired)
+    reconnect = recovered and not expired
 
     wait_for(
         lambda: (
             reads.find_one(0) is not None
-            and (not recovered or endpoint.counters.connects > connects)
+            and (not reconnect or endpoint.counters.connects > connects)
         )
     )
     _admitted(owner, 1)
 
     assert reads.find_one(0) is not None
-    assert endpoint.counters.requests == requests + int(recovered)
-    assert endpoint.counters.connects == connects + int(recovered)
-    assert endpoint.counters.native_admissions == int(not recovered)
+    assert endpoint.counters.requests == requests + int(reconnect)
+    assert endpoint.counters.connects == connects + int(reconnect)
+    assert endpoint.counters.native_admissions == int(not reconnect)
     assert reads.manager.observation.hits == 1
+    assert not reads.detached
+
+    if reconnect:
+        requests = endpoint.counters.requests
+        assert reads.find_one(1) is not None
+        _admitted(owner, 2)
+        assert endpoint.counters.requests == requests
+        assert endpoint.counters.native_admissions == 1
+
+
+@pytest.fixture(params=("sync", "async"))
+def capacity_reads(
+    request: pytest.FixtureRequest,
+    start_owner: Callable[..., Owner],
+    open_endpoint: Callable[[Owner], SyncEndpoint],
+    mongodb_uri: MongoDbUri,
+    seeded_database: str,
+) -> Iterator[tuple[Owner, _SharedReads]]:
+    owner = start_owner(
+        connections=2,
+        shared_index=replace(
+            _SHARED_INDEX, local_miss_admission=True, native_admission_queue=True
+        ),
+    )
+    reads = _SharedReads(request.param, owner, mongodb_uri, seeded_database)
+    reads.disconnect_data()
+    wait_for(lambda: owner.observation()["connections"] == 1)
+    open_endpoint(owner)
+    wait_for(lambda: owner.observation()["connections"] == 2)
+    time.sleep(_PAST_REATTACH_BACKOFF_SECONDS)
+    yield owner, reads
+    reads.close()
+
+
+def test_recovery_at_owner_connection_capacity_preserves_native_reads(
+    capacity_reads: tuple[Owner, _SharedReads],
+) -> None:
+    owner, reads = capacity_reads
+    endpoint = reads.manager.endpoint
+    endpoint.admission_recovery.dropped()
+    assert endpoint.admission_recovery.enqueued(endpoint.admission_recovery.generation)
+    rejected = owner.counters()["connections_rejected"]
+
+    documents = reads.find_concurrently(0, _CONCURRENT_READS)
+    assert all(document is not None and document["_id"] == 0 for document in documents)
+
+    observation = owner.observation()
+    assert observation["connections"] == 2
+    refusals = observation["counters"]["connections_rejected"] - rejected
+    assert 1 <= refusals <= _CONCURRENT_READS
+    assert endpoint.counters.failures == refusals
+    assert not endpoint.connected
+    assert observation["captures"] == 0
+    time.sleep(_PAST_REATTACH_BACKOFF_SECONDS)
+    assert not endpoint.admission_recovery.active
+    admitted = observation["counters"]["admitted"]
+    hits = reads.manager.observation.hits
+    assert reads.find_one(1) is not None
+    _admitted(owner, admitted + 1)
+    assert reads.find_one(1) is not None
+    assert endpoint.counters.failures == refusals
+    assert owner.observation()["connections"] == 2
+    assert reads.manager.observation.hits == hits + 1
     assert not reads.detached
 
 

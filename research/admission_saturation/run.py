@@ -55,7 +55,11 @@ def install(barrier: Barrier) -> None:
 
 
 def worker(
-    uri: str, connection: SharedCacheConnection, index: NonNegativeInt, mode: str
+    uri: str,
+    connection: SharedCacheConnection,
+    index: NonNegativeInt,
+    mode: str,
+    hot_passes: NonNegativeInt,
 ) -> list[dict[str, object]]:
     observations = []
     with (
@@ -88,12 +92,34 @@ def worker(
             ready.wait(15)
             return manager.endpoint.connected
 
+        if hot_passes:
+            deadline = time.monotonic() + 30
+            while True:
+                before_hits = manager.snapshot().hits
+                for offset in range(_KEYS):
+                    document = view.find_one({"_id": index * _KEYS + offset})
+                    assert document is not None
+                    assert document["revision"] == 0
+                if manager.snapshot().hits - before_hits == _KEYS:
+                    break
+                if time.monotonic() > deadline:
+                    raise TimeoutError("full hot set did not reach cache hits")
+                time.sleep(0.1)
+            manager.endpoint._drop()
+            time.sleep(0.1)
+        phases = (
+            tuple(f"hot-{batch}" for batch in range(hot_passes))
+            if hot_passes
+            else ("cold", "revisit", "recovery")
+        )
+        reads_per_pass = _KEYS * 16 if hot_passes else _KEYS
+        setup_connects = manager.endpoint.counters.connects
         with ThreadPoolExecutor(
             max_workers=_CONCURRENCY, initializer=connect
         ) as threads:
             connected_threads = sum(threads.map(prewarm, range(_CONCURRENCY)))
             assert connected_threads == (_CONCURRENCY if mode == "connected" else 0)
-            for phase in ("cold", "revisit", "recovery"):
+            for phase in phases:
                 _BARRIER.wait(30)
                 _BARRIER.wait(30)
                 before = manager.snapshot()
@@ -101,7 +127,7 @@ def worker(
                 started = time.monotonic()
 
                 def read(offset: NonNegativeInt) -> NonNegativeFloat:
-                    identity = index * _KEYS + offset
+                    identity = index * _KEYS + offset % _KEYS
                     start = time.perf_counter_ns()
                     document = view.find_one({"_id": identity})
                     latency = (time.perf_counter_ns() - start) / 1000
@@ -110,7 +136,28 @@ def worker(
                     assert document["revision"] == 0
                     return latency
 
-                latencies = tuple(threads.map(read, range(_KEYS)))
+                if hot_passes:
+
+                    def chunk(
+                        partition: NonNegativeInt,
+                    ) -> tuple[NonNegativeFloat, ...]:
+                        ready.wait(15)
+                        chunk_size = reads_per_pass // _CONCURRENCY
+                        return tuple(
+                            read(offset)
+                            for offset in range(
+                                partition * chunk_size, (partition + 1) * chunk_size
+                            )
+                        )
+
+                    # Assign equal work to each thread when isolating the hot path.
+                    latencies = tuple(
+                        latency
+                        for batch in threads.map(chunk, range(_CONCURRENCY))
+                        for latency in batch
+                    )
+                else:
+                    latencies = tuple(threads.map(read, range(reads_per_pass)))
                 after = manager.snapshot()
                 sent = manager.endpoint.counters.one_way - counters["one_way"]
                 dropped = (
@@ -125,12 +172,17 @@ def worker(
                     - before.hits
                     - before.misses
                     - before.bypasses
-                    == _KEYS
+                    == reads_per_pass
                 )
+                elapsed = time.monotonic() - started
+                connected_threads = sum(threads.map(prewarm, range(_CONCURRENCY)))
+                if hot_passes:
+                    assert after.hits - before.hits == reads_per_pass
                 observations.append(
                     {
                         "phase": phase,
-                        "elapsed_seconds": time.monotonic() - started,
+                        "elapsed_seconds": elapsed,
+                        "setup_connects": setup_connects,
                         "latencies_us": latencies,
                         "hits": after.hits - before.hits,
                         "misses": after.misses - before.misses,
@@ -164,7 +216,10 @@ def worker(
 
 
 def window(
-    replica: IsolatedReplicaSet, mode: str, payload_bytes: PositiveInt
+    replica: IsolatedReplicaSet,
+    mode: str,
+    payload_bytes: PositiveInt,
+    hot_passes: NonNegativeInt = 0,
 ) -> dict[str, object]:
     with MongoClient[BsonDict](replica.uri) as client:
         collection = client.admission_study.items
@@ -206,11 +261,17 @@ def window(
             assert server._process is not None
             owner = psutil.Process(server._process.pid)
             futures = tuple(
-                pool.submit(worker, replica.uri, server.connection, index, mode)
+                pool.submit(
+                    worker, replica.uri, server.connection, index, mode, hot_passes
+                )
                 for index in range(_WORKERS)
             )
             phases = []
-            for phase in ("cold", "revisit", "recovery"):
+            for phase in (
+                tuple(f"hot-{batch}" for batch in range(hot_passes))
+                if hot_passes
+                else ("cold", "revisit", "recovery")
+            ):
                 barrier.wait(30)
                 cpu = sum(owner.cpu_times()[:2])
                 suspended = mode == "paused" and phase == "cold"
@@ -275,12 +336,24 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--repetitions", type=int, default=3)
+    parser.add_argument(
+        "--modes",
+        nargs="+",
+        choices=("default", "connected", "reduced", "paused"),
+        default=("default", "connected", "reduced", "paused"),
+    )
+    parser.add_argument(
+        "--payloads", nargs="+", type=int, choices=(4096, 65536), default=(4096, 65536)
+    )
+    parser.add_argument("--hot-passes", type=int, default=0)
     arguments = parser.parse_args()
-    if arguments.repetitions <= 0:
-        parser.error("repetitions must be positive")
+    if arguments.repetitions <= 0 or arguments.hot_passes < 0:
+        parser.error("repetitions must be positive and hot passes nonnegative")
     git = shutil.which("git")
     if git is None:
         raise RuntimeError("git is required to record the source revision")
+    if arguments.hot_passes and set(arguments.modes) - {"default", "connected"}:
+        parser.error("hot passes support default and connected modes")
     report = {
         "revision": subprocess.check_output(  # noqa: S603 - Fixed Git arguments record local provenance.
             [git, "rev-parse", "HEAD"], text=True
@@ -300,6 +373,8 @@ def main() -> None:
         "workers": _WORKERS,
         "concurrency_per_worker": _CONCURRENCY,
         "keys_per_worker": _KEYS,
+        "hot_passes": arguments.hot_passes,
+        "hot_dispatch": "four equal chunks",
         "windows": [],
     }
     with (
@@ -307,13 +382,16 @@ def main() -> None:
         IsolatedReplicaSet(ResourceLimits(cpus=2.0, memory="2g")) as replica,
     ):
         for repetition in range(arguments.repetitions):
-            modes = ("default", "connected", "reduced", "paused")
-            for payload in (4096, 65536):
+            modes = tuple(arguments.modes)
+            for payload in arguments.payloads:
                 for mode in (
                     modes[repetition % len(modes) :] + modes[: repetition % len(modes)]
                 ):
                     report["windows"].append(
-                        {"repetition": repetition, **window(replica, mode, payload)}
+                        {
+                            "repetition": repetition,
+                            **window(replica, mode, payload, arguments.hot_passes),
+                        }
                     )
                     output.seek(0)
                     json.dump(report, output, indent=2)
