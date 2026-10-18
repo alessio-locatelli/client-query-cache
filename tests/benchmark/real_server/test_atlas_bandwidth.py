@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import stat
 import sys
-import time
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
 import dns.resolver
@@ -318,7 +318,11 @@ def test_collect_bandwidth_evidence_returns_none_when_the_budget_is_exhausted_ea
     _mock_srv_resolution(monkeypatch)
     monkeypatch.setenv("PATH", str(tmp_path))
     monotonic_values = iter([0.0, 100.0])
-    monkeypatch.setattr(time, "monotonic", lambda: next(monotonic_values))
+    monkeypatch.setattr(
+        atlas_bandwidth,
+        "time",
+        SimpleNamespace(monotonic=lambda: next(monotonic_values)),
+    )
 
     def _fail_if_called(*_args: object, **_kwargs: object) -> str:
         raise AssertionError("atlas CLI must not run once the budget is exhausted")
@@ -334,7 +338,11 @@ def test_collect_bandwidth_evidence_returns_none_when_the_budget_runs_out_betwee
     _mock_srv_resolution(monkeypatch)
     monkeypatch.setenv("PATH", str(tmp_path))
     monotonic_values = iter([0.0, 0.0, 100.0])
-    monkeypatch.setattr(time, "monotonic", lambda: next(monotonic_values))
+    monkeypatch.setattr(
+        atlas_bandwidth,
+        "time",
+        SimpleNamespace(monotonic=lambda: next(monotonic_values)),
+    )
     monkeypatch.setattr(
         atlas_bandwidth, "_primary_process_host_id", lambda *_args, **_kwargs: _HOST_ID
     )

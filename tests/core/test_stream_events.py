@@ -9,6 +9,7 @@ from pymongo.errors import OperationFailure
 
 from client_query_cache._core.keys import NamespaceId
 from client_query_cache._core.manager import CacheCore
+from client_query_cache._core.namespace_metadata import NamespaceMetadataCache
 from client_query_cache._core.stream_events import (
     CHANGE_STREAM_PROJECTION,
     INDEX_OPERATION_TYPES,
@@ -213,6 +214,18 @@ def test_event_for_an_untracked_namespace_does_not_touch_the_cache(
 
     assert must_reopen is False
     getattr(cache, unused_method).assert_not_called()
+    operation_type = event["operationType"]
+    if operation_type in {"create", "drop"}:
+        cache.invalidate_namespace_metadata_probe.assert_called_once_with(
+            NamespaceId("db", "coll")
+        )
+    elif operation_type == "rename":
+        assert cache.invalidate_namespace_metadata_probe.call_args_list == [
+            call(NamespaceId("db", "old_coll")),
+            call(NamespaceId("db", "new_coll")),
+        ]
+    else:
+        cache.invalidate_namespace_metadata_probe.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -257,6 +270,27 @@ def test_rename_event_releases_the_source_and_clears_the_destination() -> None:
     assert must_reopen is False
     cache.drop_namespace.assert_called_once_with(source)
     cache.clear_namespace.assert_called_once_with(destination)
+    assert cache.invalidate_namespace_metadata_probe.call_args_list == [
+        call(source),
+        call(destination),
+    ]
+
+
+@pytest.mark.parametrize("operation_type", ["dropDatabase", "invalidate"])
+def test_database_invalidation_clears_untracked_metadata_probes(
+    operation_type: str,
+) -> None:
+    cache = Mock()
+    cache.namespaces_for_database.return_value = []
+    event = {"operationType": operation_type, "wallTime": _WALL_TIME}
+
+    must_reopen = route_change_event(cache, "db", event)
+
+    assert must_reopen is True
+    cache.invalidate_namespace_metadata_probes_for_database.assert_called_once_with(
+        "db"
+    )
+    cache.set_database_available.assert_called_once_with("db", available=False)
 
 
 def test_rename_event_does_not_clear_a_destination_in_another_database() -> None:
@@ -274,6 +308,68 @@ def test_rename_event_does_not_clear_a_destination_in_another_database() -> None
 
     assert must_reopen is False
     cache.drop_namespace.assert_called_once_with(source)
+
+
+@pytest.mark.parametrize("operation_type", ["create", "drop"])
+def test_collection_lifecycle_events_remove_negative_metadata(
+    operation_type: str,
+) -> None:
+    metadata = NamespaceMetadataCache[str](2)
+    namespace = NamespaceId("db", "coll")
+    metadata.store(namespace, "ineligible")
+    event = {
+        "operationType": operation_type,
+        "ns": {"db": namespace.database, "coll": namespace.collection},
+        "wallTime": _WALL_TIME,
+    }
+
+    route_change_event(CacheCore(), namespace.database, event, metadata_cache=metadata)
+
+    assert metadata.find(namespace) is None
+
+
+def test_rename_event_removes_negative_metadata_for_both_names() -> None:
+    metadata = NamespaceMetadataCache[str](3)
+    source = NamespaceId("db", "source")
+    destination = NamespaceId("db", "destination")
+    unaffected = NamespaceId("db", "unaffected")
+    for namespace in (source, destination, unaffected):
+        metadata.store(namespace, "ineligible")
+
+    route_change_event(
+        CacheCore(),
+        "db",
+        {
+            "operationType": "rename",
+            "ns": {"db": source.database, "coll": source.collection},
+            "to": {"db": destination.database, "coll": destination.collection},
+            "wallTime": _WALL_TIME,
+        },
+        metadata_cache=metadata,
+    )
+
+    assert metadata.find(source) is None
+    assert metadata.find(destination) is None
+    assert metadata.find(unaffected) == "ineligible"
+
+
+def test_database_invalidation_removes_negative_metadata_for_that_database() -> None:
+    metadata = NamespaceMetadataCache[str](3)
+    affected = NamespaceId("db", "view")
+    unaffected = NamespaceId("other_db", "view")
+    metadata.store(affected, "ineligible")
+    metadata.store(unaffected, "ineligible")
+
+    must_reopen = route_change_event(
+        CacheCore(),
+        "db",
+        {"operationType": "invalidate", "wallTime": _WALL_TIME},
+        metadata_cache=metadata,
+    )
+
+    assert must_reopen
+    assert metadata.find(affected) is None
+    assert metadata.find(unaffected) == "ineligible"
 
 
 @pytest.mark.parametrize(
@@ -304,6 +400,7 @@ def test_database_wide_events_release_every_tracked_namespace_immediately(
 
     assert must_reopen is True
     assert cache.mock_calls == [
+        call.invalidate_namespace_metadata_probes_for_database("db"),
         call.set_database_available("db", available=False),
         call.namespaces_for_database("db"),
         call.drop_namespace(first),

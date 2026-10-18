@@ -1052,12 +1052,22 @@ def _read_forever(  # pragma: no cover (killed before coverage is saved)
 
 
 def _shared_metadata(endpoint: SyncEndpoint, database: str) -> Message:
-    request: Message = {"op": "metadata", "ns": [database, COLLECTION]}
-    reply = endpoint.request(dict(request))
-    while reply is None or reply["r"] != "ok":
-        time.sleep(_DETECTION_POLL_SECONDS)
-        reply = endpoint.request(dict(request))
-    return reply
+    namespace = [database, COLLECTION]
+    while True:
+        probe = endpoint.request({"op": "metadata-probe", "ns": namespace})
+        if probe is None or probe["r"] != "probe":
+            time.sleep(_DETECTION_POLL_SECONDS)
+            continue
+        reply = endpoint.request(
+            {
+                "op": "metadata",
+                "ns": namespace,
+                "probe_token": probe["probe_token"],
+            }
+        )
+        if reply is not None and reply["r"] == "ok":
+            return reply
+        time.sleep(_DETECTION_POLL_SECONDS)  # pragma: no cover - retries stale probes.
 
 
 def test_a_worker_killed_mid_read_never_delays_reclamation(

@@ -612,7 +612,16 @@ class FaultTrial:
                 self.registration.raw["database"],
                 self.registration.raw["collection"],
             ]
-            metadata = endpoint.request({"op": "metadata", "ns": namespace})
+            probe = endpoint.request({"op": "metadata-probe", "ns": namespace})
+            assert probe is not None
+            assert probe["r"] == "probe"
+            metadata = endpoint.request(
+                {
+                    "op": "metadata",
+                    "ns": namespace,
+                    "probe_token": probe["probe_token"],
+                }
+            )
             assert metadata is not None
             assert metadata["r"] == "ok"
             keys = tuple(

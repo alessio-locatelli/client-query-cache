@@ -51,10 +51,13 @@ class CacheManager[DocumentType: Mapping[str, Any]]:
         validate_max_await_time_ms(max_await_time_ms)
         self._client = client
         self._cache = CacheCore(cache_config)
-        self._coordinator = ChangeStreamCoordinator(
-            client, self._cache, max_await_time_ms=max_await_time_ms
-        )
         self._metadata = CollectionMetadataCache(self._cache.max_namespaces)
+        self._coordinator = ChangeStreamCoordinator(
+            client,
+            self._cache,
+            metadata_cache=self._metadata,
+            max_await_time_ms=max_await_time_ms,
+        )
         self._unique_keys = UniqueKeyMetadataCache(self._cache.max_namespaces)
 
     @property
@@ -86,26 +89,47 @@ class CacheManager[DocumentType: Mapping[str, Any]]:
             return BypassReason.STREAM_UNAVAILABLE
         if not self._cache.is_database_available(namespace.database):
             return BypassReason.STREAM_UNAVAILABLE
+        cached = self._metadata.get(namespace)
+        if cached is not None and not cached.epoch_bound:
+            assert cached.bypass_reason is not None
+            return cached.bypass_reason
         current_epoch = self._cache.try_current_epoch(namespace)
         if current_epoch is None:
             return BypassReason.NAMESPACE_CAPACITY
-        cached = self._metadata.get(namespace)
         if cached is None or cached.checked_epoch != current_epoch:
+            metadata_version = self._metadata.version  # pytriage: TR5 (before probe)
             probe_result = collection_probe()
-            if probe_result is None:
-                return BypassReason.METADATA_UNAVAILABLE
-            if probe_result.bypass_reason in {
-                BypassReason.MISSING_COLLECTION,
-                BypassReason.METADATA_UNAVAILABLE,
-            }:
-                return probe_result.bypass_reason
+            if (
+                probe_result is None
+                or probe_result.bypass_reason is BypassReason.MISSING_COLLECTION
+            ):
+                self._cache.release_namespace_if_epoch_matches(namespace, current_epoch)
+                return (
+                    BypassReason.METADATA_UNAVAILABLE
+                    if probe_result is None
+                    else probe_result.bypass_reason
+                )
+            if probe_result.bypass_reason is not None:
+                released = self._cache.release_namespace_if_epoch_matches(
+                    namespace, current_epoch
+                )
+                if not released:
+                    return probe_result.bypass_reason
+                cached = CollectionMetadata(
+                    checked_epoch=0,
+                    bypass_reason=probe_result.bypass_reason,
+                    default_collation=probe_result.default_collation,
+                    epoch_bound=False,
+                )
+                self._metadata.put_if_version(namespace, cached, metadata_version)
+                return cached.bypass_reason
             cached = CollectionMetadata(
                 checked_epoch=current_epoch,
-                bypass_reason=probe_result.bypass_reason,
+                bypass_reason=None,
                 default_collation=probe_result.default_collation,
             )
             self._metadata.put(namespace, cached)
-        return cached.bypass_reason
+        return None
 
     def _default_collation_for(
         self, namespace: NamespaceId

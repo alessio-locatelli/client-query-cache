@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import threading
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, Literal, TypedDict, cast
+from typing import TYPE_CHECKING, Any, Literal, TypedDict, cast
 
 import pytest
 from pymongo import AsyncMongoClient, MongoClient
@@ -29,6 +29,7 @@ if TYPE_CHECKING:
     from pymongo.change_stream import DatabaseChangeStream
 
     from client_query_cache._core.manager import CacheCore
+    from client_query_cache._core.namespace_metadata import NamespaceMetadataCache
     from tests.conftest import MongoDbUri
 
 Mode = Literal["sync", "async"]
@@ -109,10 +110,17 @@ class StressRun:
         self.prepare_recovery()
 
     def route(
-        self, core: CacheCore, database: str, event: Mapping[str, object]
+        self,
+        core: CacheCore,
+        database: str,
+        event: Mapping[str, object],
+        *,
+        metadata_cache: NamespaceMetadataCache[Any] | None = None,
     ) -> bool:
         with self.lock:
-            reopen = route_change_event(core, database, event)
+            reopen = route_change_event(
+                core, database, event, metadata_cache=metadata_cache
+            )
             assert database == self.database
             assert event["operationType"] in {
                 "insert",

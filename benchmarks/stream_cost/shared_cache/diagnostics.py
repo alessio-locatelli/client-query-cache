@@ -202,14 +202,27 @@ def _socket_measurements(
         )
     )
     namespace = [database, collection]
-    metadata = cast(
-        "Payload", sync_endpoint.request({"op": "metadata", "ns": namespace})
-    )
+
+    def request_metadata() -> Payload | None:
+        probe = sync_endpoint.request({"op": "metadata-probe", "ns": namespace})
+        if probe is None or probe["r"] != "probe":
+            return probe
+        return sync_endpoint.request(
+            {
+                "op": "metadata",
+                "ns": namespace,
+                "probe_token": probe["probe_token"],
+            }
+        )
+
     deadline = time.monotonic() + 30
-    while metadata["r"] != "ok" and time.monotonic() < deadline:
+    metadata = request_metadata()
+    while (metadata is None or metadata["r"] != "ok") and time.monotonic() < deadline:
         time.sleep(0.05)
-        metadata = cast(
-            "Payload", sync_endpoint.request({"op": "metadata", "ns": namespace})
+        metadata = request_metadata()
+    if metadata is None or metadata["r"] != "ok":
+        raise RuntimeError(  # pragma: no cover - requires a 30-second owner outage.
+            "shared-cache metadata was unavailable during diagnostics"
         )
     epoch = metadata["epoch"]
 
