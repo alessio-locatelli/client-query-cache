@@ -36,9 +36,9 @@ While a stream is unavailable, reads bypass caching. If saved stream history is 
 
 ## Cursor snapshots
 
-With process-local caching, a hit cursor keeps one isolated result snapshot after consumption starts. Later invalidation, stream interruption or manager closure does not replace its remaining documents. Start a new query for a new lookup. Miss results are admitted only after successful complete consumption and only if they remain valid. See [cached cursor contracts](../reference/api.md#cached-read-methods).
+With either manager, a hit cursor keeps one isolated result snapshot after consumption starts. Later invalidation, stream interruption or manager closure does not replace its remaining documents. Start a new query for a new lookup. Miss results are admitted only after successful complete consumption and only if they remain valid. See [cached cursor contracts](../reference/api.md#cached-read-methods) and [shared reads](../reference/shared-cache.md#worker-managers-and-reads).
 
-Hits skip server execution. They cannot reproduce fresh query errors, network errors or query effects; use `.raw` when execution itself matters. Shared managers do not cache cursor results.
+Hits skip server execution. They cannot reproduce fresh query errors, network errors or query effects; use `.raw` when execution itself matters.
 
 ## Freshness and authorization
 
