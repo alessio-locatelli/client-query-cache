@@ -80,6 +80,7 @@ type _CollationIn = Collation | Mapping[str, Any]
 
 class CachedCollection[DocumentType: Mapping[str, Any]]:
     __slots__ = (
+        "_codec_identity",
         "_collection",
         "_database",
         "_find_one_default_shape",
@@ -96,9 +97,8 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
         self._database = database
         self._collection = collection
         self._namespace_id = NamespaceId(database.name, collection.name)
-        default_shape = find_one_read_shape(
-            None, None, None, codec_fingerprint(collection.codec_options)
-        )
+        self._codec_identity = codec_fingerprint(collection.codec_options)
+        default_shape = find_one_read_shape(None, None, None, self._codec_identity)
         try:
             self._find_one_default_shape = canonicalize(default_shape)
         except UnsupportedCacheRequestError:
@@ -156,7 +156,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
                             projection,
                             sort,
                             explicit_collation,
-                            codec_fingerprint(codec_options),
+                            self._codec_identity,
                             remainder,
                         )
                     )
@@ -191,7 +191,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
                     projection,
                     sort,
                     effective_collation,
-                    codec_fingerprint(codec_options),
+                    self._codec_identity,
                     remainder,
                 )
             )
@@ -294,7 +294,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
                 "aggregate",
                 pipeline,
                 collation,
-                codec_fingerprint(codec_options),
+                self._codec_identity,
             )
         )
         discriminator, reason = prepare_pipeline_key(pipeline, discriminator)
@@ -350,7 +350,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
                 "count_documents",
                 filter,
                 *options["cache_options"],
-                codec_fingerprint(codec_options),
+                self._codec_identity,
             )
         )
         reason = self._request_bypass_reason(
@@ -427,7 +427,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
                 key,
                 filter,
                 collation_document(collation),
-                codec_fingerprint(codec_options),
+                self._codec_identity,
             )
         )
         native_options: Mapping[str, Any] = kwargs

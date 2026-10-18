@@ -49,6 +49,7 @@ class NamespaceState:
     generation: NonNegativeInt = 0
     epoch: NonNegativeInt = 0
     index_generation: NonNegativeInt = 0
+    query_generation_key: tuple[NonNegativeInt, NonNegativeInt] = (0, 0)
     identities: dict[Canonical, IdentityState] = field(default_factory=dict)
     aliases: dict[AliasKey, Canonical] = field(default_factory=dict)
     entry_index: dict[CacheEntry, CacheKey] = field(default_factory=dict)

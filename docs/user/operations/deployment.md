@@ -79,4 +79,4 @@ With frequent writes, independent caches can reduce read latency while increasin
 
 ### Shared identity reads
 
-For repeated exact `_id` reads across trusted same-host workers, consider [shared caching](shared-cache.md) and the [Granian example](../examples/fastapi-shared.md). One server avoids duplicate stored values and streams. Broader query results are not shared; compare the [public measurements](../benchmarks/shared-cache.md) before changing managers.
+For repeated eligible collection reads across trusted same-host workers, consider [shared caching](shared-cache.md) and the [Granian example](../examples/fastapi-shared.md). One server avoids duplicate stored values and streams. Compare the [public measurements](../benchmarks/shared-cache.md) before changing managers.

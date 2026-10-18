@@ -60,6 +60,7 @@ CLOSED = re.compile(r"worker (\d+): shared manager closed before client")
 class Product(TypedDict):
     _id: NonEmptyStr
     description: NonEmptyStr
+    tenant_id: NonEmptyStr
 
 
 class DescriptionUpdate(BaseModel):
@@ -154,7 +155,7 @@ async def read_product(
     if worker_pid is not None and worker_pid != os.getpid():
         raise HTTPException(status_code=409, detail="Try another worker")
     owned = resources(request)
-    product = await owned.cached.find_one({"_id": product_id})
+    product = await owned.cached.find_one({"_id": product_id, "tenant_id": "demo"})
     if product is None:
         raise HTTPException(status_code=404, detail="Product not found")
     counts = owned.manager.snapshot()
@@ -174,7 +175,7 @@ async def update_product(
     request: Request,
 ) -> Product:
     product = await resources(request).raw.find_one_and_update(
-        {"_id": product_id},
+        {"_id": product_id, "tenant_id": "demo"},
         {"$set": {"description": update.description}},
         return_document=ReturnDocument.AFTER,
     )
@@ -351,7 +352,13 @@ def self_check() -> None:
         try:
             client[DATABASE_NAME].get_collection(
                 "products", write_concern=WriteConcern(w="majority")
-            ).insert_one({"_id": "book", "description": "original description"})
+            ).insert_one(
+                {
+                    "_id": "book",
+                    "description": "original description",
+                    "tenant_id": "demo",
+                }
+            )
             with socket.socket() as listener:
                 listener.bind(("127.0.0.1", 0))
                 port: PositiveInt = listener.getsockname()[1]

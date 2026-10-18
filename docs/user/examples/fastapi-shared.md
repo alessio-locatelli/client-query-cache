@@ -2,7 +2,7 @@
 
 Run multiple actual HTTP workers that reuse product documents and one MongoDB change stream. One parent starts `SharedCacheServer`; Granian passes its connection to spawned application loaders. Each worker's FastAPI lifespan creates an `AsyncMongoClient` and attaches an asyncio `SharedCacheManager`. The owner stays outside the workers.
 
-Use this example for same-host services dominated by `find_one({"_id": ...})` reads. For cached pages, aggregation or counts, use the process-local [compact application](fastapi-minimal.md) or [tenant-aware catalogue](fastapi.md). See [manager selection](../getting-started/choose-a-manager.md) for the full comparison.
+The product read retains both its `_id` and `tenant_id` predicate across workers. The demonstration uses the fixed tenant `demo`; an application supplies its own trusted tenant context. See [manager selection](../getting-started/choose-a-manager.md) for the full comparison.
 
 ## Run and verify
 
@@ -42,7 +42,7 @@ curl http://127.0.0.1:8000/health
 curl http://127.0.0.1:8000/products/book
 ```
 
-Serve mode leaves existing data intact. Insert a product into `client_query_cache_example_fastapi_shared.products` using your normal MongoDB tools, for example `{_id: "book", description: "A product description"}`; a missing product returns 404. Update it with:
+Serve mode leaves existing data intact. Insert a product into `client_query_cache_example_fastapi_shared.products` using your normal MongoDB tools, for example `{_id: "book", description: "A product description", tenant_id: "demo"}`; a missing product returns 404. Update it with:
 
 ```console
 curl -X PATCH http://127.0.0.1:8000/products/book \

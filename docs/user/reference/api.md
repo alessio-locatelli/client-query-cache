@@ -155,7 +155,7 @@ it safely isn't possible:
 - An aggregation pipeline joins another collection, writes, reports live statistics, or is otherwise
   nondeterministic (for example a `$sample` stage or a `$rand` expression).
 - A `find_one`, `find`, `count_documents`, or `distinct` filter is nondeterministic.
-- A read depends on indexes or on the caller's roles: `$text` and geospatial proximity (`$near`, `$nearSphere`, `$geoNear`) queries, and filters, projections, or pipelines that reference `$$USER_ROLES`. Creating, dropping, hiding, or redefining an index, or changing a user's roles, does not invalidate cached results.
+- A read depends on indexes or on the caller's roles: `$text` and geospatial proximity (`$near`, `$nearSphere`, `$geoNear`) queries, and filters, projections, or pipelines that reference `$$USER_ROLES`. Index creation and deletion refresh cached query results, but index visibility changes and changes to a user's roles do not.
 - A `find_one` or `find` projection uses `$meta`, or computes a changing value with `$rand`, `$function`, `$$NOW`, or `$$CLUSTER_TIME`.
 - The collection is a time-series collection — MongoDB does not provide change streams for time-series collections,
   so caching bypasses unconditionally for them. If a time-series collection is later replaced with an ordinary

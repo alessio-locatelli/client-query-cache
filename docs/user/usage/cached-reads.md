@@ -1,6 +1,6 @@
 # Cached reads
 
-This guide describes process-local `CacheManager` reads. `SharedCacheManager` caches only eligible exact `_id` `find_one()` reads; all its other operations use PyMongo. Start with [manager selection](../getting-started/choose-a-manager.md) or the [shared API reference](../reference/shared-cache.md).
+This guide describes process-local `CacheManager` reads. `SharedCacheManager` shares these read methods across workers with additional eligibility restrictions. Start with [manager selection](../getting-started/choose-a-manager.md) or the [shared API reference](../reference/shared-cache.md).
 
 For short operations paired with observable counters, see the [eligibility exercise](eligibility.md).
 

@@ -14,7 +14,7 @@ Add caching through an explicit [cached collection view](https://alessio-locatel
 - **[Shared caching across application workers](https://alessio-locatelli.github.io/client-query-cache/operations/shared-cache/)** on one [supported Linux host](https://alessio-locatelli.github.io/client-query-cache/getting-started/installation/#requirements) reduces duplicate cached documents and uses one change stream per active database.
 - **[A Rust-backed shared cache](https://alessio-locatelli.github.io/client-query-cache/benchmarks/shared-cache/)** serves eligible warm reads from native shared memory without a MongoDB round trip.
 
-Choose `CacheManager` for the broadest cached-read support in one process, or `SharedCacheManager` for repeated `find_one({"_id": ...})` reads across workers. Both support sync and asyncio. See [which manager to choose](https://alessio-locatelli.github.io/client-query-cache/getting-started/choose-a-manager/).
+Choose `CacheManager` for caching within one process, or `SharedCacheManager` to reuse eligible collection reads across trusted same-host workers. Both support sync and asyncio. See [which manager to choose](https://alessio-locatelli.github.io/client-query-cache/getting-started/choose-a-manager/).
 
 With shared caching, workers look up the same cache and use their own PyMongo clients for misses and bypasses:
 

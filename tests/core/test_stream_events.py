@@ -7,6 +7,7 @@ from unittest.mock import ANY, Mock, call
 import pytest
 from pymongo.errors import OperationFailure
 
+from client_query_cache._core.entries import AdmissionOutcome
 from client_query_cache._core.keys import NamespaceId
 from client_query_cache._core.manager import CacheCore
 from client_query_cache._core.namespace_metadata import NamespaceMetadataCache
@@ -487,7 +488,11 @@ def test_index_event_advances_index_generation_without_touching_document_cache(
     assert must_reopen is False
     assert cache.current_index_generation(namespace) == generation_before + 1
     assert cache.lookup_identity(namespace, "doc-1", "full").hit is True
-    assert cache.lookup_namespace(namespace, "query-shape").hit is True
+    assert cache.lookup_namespace(namespace, "query-shape").hit is False
+    assert (
+        cache.admit_namespace(namespace_capture, "query-shape", [{"v": 2}])
+        is AdmissionOutcome.DECLINED_STALE
+    )
 
 
 @pytest.mark.parametrize(

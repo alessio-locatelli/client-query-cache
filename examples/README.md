@@ -2,7 +2,7 @@
 
 Start with one of the FastAPI applications:
 
-- [Shared workers](https://alessio-locatelli.github.io/client-query-cache/examples/fastapi-shared/): real Granian HTTP processes reuse `_id` documents and one owner stream. The self-check proves the second worker's first read hits without a MongoDB query, verifies invalidation, and checks graceful shutdown.
+- [Shared workers](https://alessio-locatelli.github.io/client-query-cache/examples/fastapi-shared/): real Granian HTTP processes reuse tenant-filtered product documents and one owner stream. The self-check proves the second worker's first read hits without a MongoDB query, verifies invalidation, and checks graceful shutdown.
 - [Compact process-local application](https://alessio-locatelli.github.io/client-query-cache/examples/fastapi-minimal/): one client and `CacheManager` per lifespan, cached GETs, direct PATCH responses and diagnostics.
 - [Process-local catalogue](https://alessio-locatelli.github.io/client-query-cache/examples/fastapi/): tenant filtering, bounded pages and a deployment cache flag. `--serve` runs independent caches under Uvicorn.
 

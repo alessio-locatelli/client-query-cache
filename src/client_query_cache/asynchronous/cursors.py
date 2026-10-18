@@ -13,7 +13,6 @@ from pymongo.asynchronous.aggregation import _CollectionAggregationCommand
 from pymongo.asynchronous.command_cursor import AsyncCommandCursor
 from pymongo.asynchronous.cursor import AsyncCursor
 
-from client_query_cache._core.codec import codec_fingerprint
 from client_query_cache._core.cursor_capture import CursorCapture
 from client_query_cache._core.find_reads import (
     PreparedFindRead,
@@ -80,7 +79,7 @@ class CachedCursor[DocumentType: Mapping[str, Any]](AsyncCursor[DocumentType]):
             self._skip,
             self._limit,
             collation=self._collation,
-            codec=codec_fingerprint(self._codec_options),
+            codec=self._view._codec_identity,
         )
         reason = self._view._request_bypass_reason(
             session=self._session,

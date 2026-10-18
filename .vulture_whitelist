@@ -268,3 +268,7 @@ entry_total_bytes  # unused variable (benchmarks/stream_cost/shared_cache/datase
 __getattr__  # Module exports are resolved dynamically.
 stopped_owner  # Requested dynamically after warming the cache.
 spawned_worker  # Requested dynamically after warming the cache.
+
+unavailable_owner  # Requested dynamically after warming shared collection reads.
+
+unique_index  # Requested by pytest.mark.usefixtures for shared unique-key reads.

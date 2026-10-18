@@ -75,7 +75,7 @@ def _seed_stale_entry(core: CacheCore, namespace: NamespaceId) -> None:
     capture = core.capture_namespace_generation(namespace)
     encoded = encode_value(["stale"])
     entry = CacheEntry(
-        generation_key=(capture.generation,),
+        generation_key=capture.generation_key,
         weight=len(encoded),
         value=encoded,
         namespace=namespace,

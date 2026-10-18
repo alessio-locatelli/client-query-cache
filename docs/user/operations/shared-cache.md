@@ -1,6 +1,6 @@
 # Share a cache across application workers
 
-Use `SharedCacheServer` when [trusted workers](#security-and-monitoring) on one host repeatedly make [eligible `_id` reads](../reference/shared-cache.md#worker-managers-and-reads). The server starts one cache-owner process; workers reuse its values and one change stream per active database. Sync and asyncio workers can share the same server. Each worker still owns a PyMongo client for misses, writes and uncached reads.
+Use `SharedCacheServer` when [trusted workers](#security-and-monitoring) on one host repeatedly make [eligible collection reads](../reference/shared-cache.md#worker-managers-and-reads). The server starts one cache-owner process; workers reuse its values and one change stream per active database. Sync and asyncio workers can share the same server. Each worker still owns a PyMongo client for misses, writes and uncached reads.
 
 Compare [the two managers](../getting-started/choose-a-manager.md) before adopting this model. Sharing supports fewer cached operations and requires an application parent that stays alive until every worker has stopped.
 
@@ -68,7 +68,7 @@ For example, store events from every day in one `events` collection, with the da
 ]
 ```
 
-Then `collection.find({"day": "2026-10-17"})` selects a day's events without creating a new collection. This is a direct PyMongo query; see the [shared-read contract](../reference/shared-cache.md#worker-managers-and-reads) for caching eligibility. MongoDB's [indexing guidance](https://www.mongodb.com/docs/manual/indexes/) explains when an index on the queried field helps.
+Then `collection.find({"day": "2026-10-17"})` selects a day's events without creating a new collection. See the [shared-read contract](../reference/shared-cache.md#worker-managers-and-reads) for caching eligibility. MongoDB's [indexing guidance](https://www.mongodb.com/docs/manual/indexes/) explains when an index on the queried field helps.
 
 Use the [SharedCacheConfig field reference](../reference/shared-cache.md#configuration) for memory and index sizing, and the [memory accounting reference](https://github.com/alessio-locatelli/client-query-cache/blob/main/docs/development/shared-cache.md#memory-outside-the-accounted-budget) when interpreting process measurements.
 

@@ -85,6 +85,7 @@ _ADMISSION_POLL_SECONDS: Final = 0.001
 _ACTIVATION_RETRY_SECONDS: Final = 1.0
 _HISTORY_LOST: Final = 286
 _KEY_CACHE_ENTRIES: Final = 1024
+_HANDLE_ID: Final = struct.Struct("<QQ")
 
 
 @dataclass(frozen=True, slots=True)
@@ -211,7 +212,7 @@ class _Connection:
     queued: NonNegativeInt = 0
     replies: NonNegativeInt = 0
     session: NonNegativeInt | None = None
-    handles: set[NonNegativeInt] = field(default_factory=set)
+    handles: set[bytes] = field(default_factory=set)
     writable: bool = False
     closed: bool = False
     control: bool = False
@@ -325,7 +326,7 @@ class SharedCacheOwner:
         self._activation_lock = threading.Lock()
         self._lease_live: dict[str, bool] = {}
         self._lease_epoch: dict[str, NonNegativeInt] = {}
-        self._handles: dict[NonNegativeInt, _Handle] = {}
+        self._handles: dict[bytes, _Handle] = {}
         self._keys = KeyCache(_KEY_CACHE_ENTRIES)
         self._next_handle = 1
         self._next_session = 1
@@ -423,13 +424,13 @@ class SharedCacheOwner:
         *,
         shape: object = None,
         find_source: FindSource | None = None,
-    ) -> NonNegativeInt | None:
+    ) -> bytes | None:
         assert connection.session is not None
         if len(self._handles) >= self.config.limits.captures:
             self.counters.capture_limit_misses += 1
             _drop_capture(capture)
             return None
-        handle = self._next_handle
+        handle = _HANDLE_ID.pack(self.incarnation, self._next_handle)
         self._next_handle += 1
         self._handles[handle] = _Handle(
             connection.session,
@@ -446,7 +447,7 @@ class SharedCacheOwner:
         )
         return handle
 
-    def _release(self, handle_id: NonNegativeInt) -> _Handle:
+    def _release(self, handle_id: bytes) -> _Handle:
         handle = self._handles.pop(handle_id)
         _drop_capture(handle.capture)
         return handle
@@ -547,7 +548,7 @@ class SharedCacheOwner:
                 return None
             case "discard":
                 handle_id = message["handle"]
-                if isinstance(handle_id, int) and handle_id in connection.handles:
+                if isinstance(handle_id, bytes) and handle_id in connection.handles:
                     connection.handles.discard(handle_id)
                     self._release(handle_id)
                 return None
@@ -635,6 +636,21 @@ class SharedCacheOwner:
                     "handle": self._new_handle(
                         connection, identity_capture, now, shape=shape
                     ),
+                }
+            case "select-namespace":
+                refresh = self._epoch_reply(namespace, message["epoch"])
+                if refresh is not None:
+                    return refresh
+                shape = self._keys.decode(message["shape"])
+                namespace_value = self.core.lookup_namespace_encoded(namespace, shape)
+                if isinstance(namespace_value, bytes):
+                    self.counters.hits += 1
+                    return {"r": "hit", "value": namespace_value}
+                self.counters.misses += 1
+                capture = self.core.capture_namespace_generation(namespace)
+                return {
+                    "r": "miss",
+                    "handle": self._new_handle(connection, capture, now, shape=shape),
                 }
             case "select-find":
                 refresh = self._epoch_reply(namespace, message["epoch"])
@@ -756,7 +772,7 @@ class SharedCacheOwner:
         if not isinstance(value, bytes):
             raise ProtocolError("admission value must be encoded bytes")
         handle_id = message["handle"]
-        if not isinstance(handle_id, int) or handle_id not in connection.handles:
+        if not isinstance(handle_id, bytes) or handle_id not in connection.handles:
             self.counters.rejected_admissions += 1
             return
         connection.handles.discard(handle_id)
