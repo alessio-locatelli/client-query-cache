@@ -20,7 +20,7 @@ from benchmarks.stream_cost.shared_cache.protocol import (
     validation_failure,
 )
 from benchmarks.stream_cost.topology import IsolatedReplicaSet, ResourceLimits
-from client_query_cache._types import BsonDict, JsonDict
+from client_query_cache._types import BsonDict, JsonDict, PositiveInt
 
 if TYPE_CHECKING:
     from collections.abc import Generator, Iterator
@@ -604,8 +604,9 @@ def _tiny_frozen(config: Path) -> None:
 
 
 @pytest.mark.timeout(180)
+@pytest.mark.parametrize("workers", [1, 4], ids=["one-worker", "four-workers"])
 def test_profiled_windows_summarize_owner_and_worker_hot_paths(
-    config: Path, tmp_path: Path
+    config: Path, tmp_path: Path, workers: PositiveInt
 ) -> None:
     _tiny_frozen(config)
     output = tmp_path / "profile.json"
@@ -616,7 +617,7 @@ def test_profiled_windows_summarize_owner_and_worker_hot_paths(
             str(config),
             "--profile",
             "screening",
-            "1",
+            str(workers),
             "async",
             "--output",
             str(output),
@@ -626,7 +627,11 @@ def test_profiled_windows_summarize_owner_and_worker_hot_paths(
     windows = json.loads(output.read_text(encoding="utf-8"))["windows"]
     shared = next(window for window in windows if window["path"] == "shared")
     direct = next(window for window in windows if window["path"] == "direct")
-    assert {"owner", "worker-shared"} <= shared["profiles"].keys()
+    for measured in windows:
+        assert (
+            sum(name.startswith("worker-") for name in measured["profiles"]) == workers
+        )
+    assert sum(name.startswith("owner-") for name in shared["profiles"]) == 1
     assert shared["owner_busy_seconds"] > 0
     assert direct["owner_busy_seconds"] is None
 
