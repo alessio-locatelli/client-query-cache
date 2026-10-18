@@ -193,6 +193,7 @@ class RemoteCursorCapture(CursorCapture):
 class LocalMiss:
     message: Message
     reader: ReaderIndex
+    recover_socket: bool
 
 
 def _admission(
@@ -342,22 +343,10 @@ def _local_select(view: View, keys: tuple[bytes, bytes] | str) -> object:
             return NO_LOCAL_HIT
         if identity_key == b"":
             return NO_LOCAL_HIT
-        # Extra selector locals enlarge hit frames; keep the recovery guard inline.
-        if (
-            (
-                not local.admissions_enabled
-                or shared.endpoint.admission_recovery.fallback_until
-            )
-            and not shared.endpoint.connected
-            and (
-                not local.admissions_enabled
-                or shared.endpoint.admission_recovery.active
-            )
-        ):
+        if not local.admissions_enabled and not shared.endpoint.connected:
             return NO_LOCAL_HIT
         token = local.reader.capture(database, slot, metadata.checked_epoch)
         if token is not None:
-            shared.observation.misses += 1
             return LocalMiss(
                 {
                     "op": "admit-local",
@@ -370,6 +359,11 @@ def _local_select(view: View, keys: tuple[bytes, bytes] | str) -> object:
                     "token": list(token),
                 },
                 local.reader,
+                recover_socket=(
+                    shared.endpoint.admission_recovery.fallback_until > 0
+                    and not shared.endpoint.connected
+                    and shared.endpoint.admission_recovery.active
+                ),
             )
         return NO_LOCAL_HIT
     shared.observation.hits += 1
@@ -527,11 +521,17 @@ def _apply_find_hit(cursor: Cursor, documents: list[Any], limit: int) -> None:
 
 
 def _identity_outcome(
-    view: View, message: Message | str, reply: Message | None
+    view: View,
+    message: Message | str,
+    reply: Message | None,
+    native_miss: LocalMiss | None = None,
 ) -> tuple[str, object]:
     if isinstance(message, str):
         view._shared.observation.record_bypass(message)
         return "bypass", None
+    if reply is None and native_miss is not None:
+        view._shared.observation.misses += 1
+        return "miss", native_miss
     outcome = _outcome(view._shared, view._namespace(), reply)
     if outcome == "hit":
         assert reply is not None
@@ -902,12 +902,18 @@ class SharedCachedCollection[DocumentType: Mapping[str, Any]](
             return document  # type: ignore[return-value]
         endpoint = self._shared.endpoint
         value: object
-        if isinstance(document, LocalMiss):
+        if isinstance(document, LocalMiss) and not document.recover_socket:
+            self._shared.observation.misses += 1
             outcome, value = "miss", document
         else:
             message = _identity_message(self, keys)
             reply = endpoint.request(message) if isinstance(message, dict) else None
-            outcome, value = _identity_outcome(self, message, reply)
+            outcome, value = _identity_outcome(
+                self,
+                message,
+                reply,
+                document if isinstance(document, LocalMiss) else None,
+            )
         if outcome == "hit":
             return value  # type: ignore[return-value]
         if outcome != "miss":
@@ -1209,14 +1215,20 @@ class AsyncSharedCachedCollection[DocumentType: Mapping[str, Any]](
             return document  # type: ignore[return-value]
         endpoint = self._shared.endpoint
         value: object
-        if isinstance(document, LocalMiss):
+        if isinstance(document, LocalMiss) and not document.recover_socket:
+            self._shared.observation.misses += 1
             outcome, value = "miss", document
         else:
             message = _identity_message(self, keys)
             reply = (
                 await endpoint.request(message) if isinstance(message, dict) else None
             )
-            outcome, value = _identity_outcome(self, message, reply)
+            outcome, value = _identity_outcome(
+                self,
+                message,
+                reply,
+                document if isinstance(document, LocalMiss) else None,
+            )
         if outcome == "hit":
             return value  # type: ignore[return-value]
         if outcome != "miss":
