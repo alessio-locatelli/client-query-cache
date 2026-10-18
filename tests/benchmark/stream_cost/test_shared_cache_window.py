@@ -37,8 +37,8 @@ class _SilentControl:
     def send(self, request: object) -> None:
         self.sent.append(request)
 
-    @staticmethod
-    def poll(_timeout: float) -> bool:
+    # Implements the control-pipe API without using instance state.
+    def poll(self, _timeout: float) -> bool:  # noqa: PLR6301
         return False
 
 
@@ -48,8 +48,8 @@ class _BrokenControl:
     def __init__(self) -> None:
         self.closed = False
 
-    @staticmethod
-    def send(_request: object) -> None:
+    # Implements a broken control-pipe send operation for cleanup handling.
+    def send(self, _request: object) -> None:  # noqa: PLR6301
         raise BrokenPipeError
 
     def close(self) -> None:
@@ -62,19 +62,19 @@ class _LingeringProcess:
     def __init__(self) -> None:
         self.joined = False
 
-    @staticmethod
-    def is_alive() -> bool:
+    # Implements process-control methods with fixed test responses.
+    def is_alive(self) -> bool:  # noqa: PLR6301
         return True
 
     def join(self, _timeout: float) -> None:
         self.joined = True
 
-    @staticmethod
-    def terminate() -> None:
+    # Implements process-control operations without instance state.
+    def terminate(self) -> None:  # noqa: PLR6301
         return None
 
-    @staticmethod
-    def kill() -> None:
+    # Implements process-control operations without instance state.
+    def kill(self) -> None:  # noqa: PLR6301
         return None
 
 
@@ -161,8 +161,8 @@ def test_ready_checks_reject_unexpected_stream_ownership(
 class _ShiftedCalibration:
     __slots__ = ()
 
-    @staticmethod
-    def exceeds_drift_tolerance(_tolerance: float) -> bool:
+    # Implements the calibration API with a fixed changed-clock response.
+    def exceeds_drift_tolerance(self, _tolerance: float) -> bool:  # noqa: PLR6301
         return True
 
 
