@@ -19,12 +19,13 @@ from bson.int64 import Int64
 from pymongo import AsyncMongoClient, MongoClient
 from pymongo.asynchronous.collection import AsyncCollection
 from pymongo.errors import OperationFailure
+from pymongo.synchronous.collection import Collection
 
 from client_query_cache._core import canonical
 from client_query_cache._core.collection_metadata import CollectionProbeResult
 from client_query_cache._core.keys import NamespaceId
 from client_query_cache._core.snapshots import BypassReason
-from client_query_cache._shared import adapters
+from client_query_cache._shared import adapters, attachment
 from client_query_cache._shared.adapters import (
     METADATA_REFRESH,
     OWNER_UNAVAILABLE,
@@ -50,6 +51,7 @@ from client_query_cache._shared.wire import (
 )
 from client_query_cache._shared_index import OwnerIndex
 from client_query_cache._types import BsonDict, NonNegativeInt
+from tests.call_counting import count_current_thread_calls
 from tests.codec_helpers import Decimal128ToDecimalDecoder
 from tests.cursor_helpers import materialize
 from tests.polling import wait_until_async
@@ -865,6 +867,46 @@ def test_recovery_at_owner_connection_capacity_preserves_native_reads(
     assert endpoint.counters.failures == refusals
     assert owner.observation()["connections"] == 2
     assert reads.manager.observation.hits == hits + 1
+    assert not reads.detached
+
+
+def test_failed_socket_recovery_admits_during_capacity_refusal_and_cooldown(
+    capacity_reads: tuple[Owner, _SharedReads],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner, reads = capacity_reads
+    endpoint = reads.manager.endpoint
+    # Hold recovery active and keep the refused socket's retry cooldown in effect.
+    clock = Mock(monotonic=Mock(return_value=time.monotonic()))
+    monkeypatch.setattr(attachment, "time", clock)
+    endpoint.admission_recovery.dropped()
+    assert endpoint.admission_recovery.enqueued(endpoint.admission_recovery.generation)
+    database_reads = count_current_thread_calls(
+        monkeypatch,
+        Collection
+        if isinstance(reads.manager, SharedCacheManager)
+        else AsyncCollection,
+        "find_one",
+    )
+    rejected = owner.counters()["connections_rejected"]
+    misses = reads.manager.observation.misses
+
+    for count, key in enumerate((0, 1), start=1):
+        assert reads.find_one(key) is not None
+        _admitted(owner, count)
+        assert endpoint.counters.native_admissions == count
+        assert database_reads.count == count
+        assert reads.manager.observation.misses == misses + count
+        assert reads.find_one(key) is not None
+        assert database_reads.count == count
+        assert endpoint.counters.failures == 1
+        assert endpoint.admission_recovery.active
+
+    observation = owner.observation()
+    assert observation["connections"] == 2
+    assert observation["counters"]["connections_rejected"] == rejected + 1
+    assert observation["captures"] == 0
+    assert reads.manager.observation.bypasses == {}
     assert not reads.detached
 
 
