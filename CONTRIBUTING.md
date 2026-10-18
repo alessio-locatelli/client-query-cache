@@ -126,9 +126,7 @@ Sources: [Prettier CLI options](https://prettier.io/docs/cli) and
 
 Edit published guides and assets in `docs/user/`. Repository-only architecture, maintainer notes, decisions, and research live in `docs/development/`; use its [development index](docs/development/index.md) to find them. Only `docs/user/` is published.
 
-[`context7.json`](context7.json) selects public guides and summarizes usage rules for Context7. It excludes `docs/user/examples/`, whose snippet wrappers require the site build to expand canonical programs and catalogue content. Complete integration examples remain available on the hosted documentation site. Keep its rules aligned with the implementation and canonical guides in `docs/user/`. Update affected rules and guides in the same change as code, including return contracts, eligibility, consistency, lifecycle, and deployment requirements. Review each rule's meaning against the code and guides; JSON validity alone does not establish alignment. See [Context7's library-owner documentation](https://context7.com/docs/library-owners) for configuration fields.
-
-Update existing rules when their instructions become inaccurate or incomplete. Add a new rule only when it prevents a realistic coding-agent mistake not adequately addressed by existing rules. Keep detailed behavior in canonical user documentation, and consolidate or remove overlapping rules rather than accumulating additions.
+For [`context7.json`](context7.json), follow the [maintenance policy](AGENTS.md#context7json) and [documentation selection requirements](openspec/specs/public-library-documentation/spec.md#requirement-context7-selects-public-documentation-sources). See [Context7's library-owner documentation](https://context7.com/docs/library-owners) for configuration fields.
 
 The `check-jsonschema` Prek hook validates `context7.json` against its [official schema](https://context7.com/schema/context7.json), including the 255-character limit for each rule. It runs in the existing CI quality job. Run it directly with `prek run check-jsonschema --files context7.json`.
 
