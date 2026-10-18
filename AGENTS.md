@@ -83,7 +83,7 @@ For more details or a first time setup see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## `context7.json`
 
-Add or modify a Context7 rule only when it prevents a realistic coding-agent mistake that is not adequately prevented by existing rules. Keep implementation details, exhaustive API behavior, exceptions, and operational diagnostics in the documentation instead.
+Update existing Context7 rules when their instructions become inaccurate or incomplete, in the same change as the affected implementation and public guides. Add a new rule only when it prevents a realistic coding-agent mistake not adequately addressed by existing rules. Consolidate or remove overlapping rules rather than accumulating additions. Keep detailed behavior in canonical user documentation.
 
 ## References
 

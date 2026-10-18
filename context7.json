@@ -15,5 +15,24 @@
     "CODE_OF_CONDUCT.md",
     "code_of_conduct.md"
   ],
-  "rules": []
+  "rules": [
+    "Use CacheManager for independent process-local caches; consider SharedCacheManager for repeated reads across trusted same-host workers. Measure latency, CPU and total memory on your workload; sharing adds owner and miss costs.",
+    "Import synchronous managers from client_query_cache for pymongo.MongoClient; import asyncio managers from client_query_cache.asynchronous for pymongo.AsyncMongoClient.",
+    "Create cached views with manager.get_cached_collection(collection) or manager[database][collection]. Supply collections from the manager's own client; retain views for repeated use.",
+    "Use cached views for find_one, find, aggregate, count_documents, estimated_document_count and distinct. Use the original PyMongo collection or .raw for writes, administration and other methods.",
+    "Treat find() and aggregate() results as native cursor subclasses, not lists. With asyncio, await single-result reads and aggregate(), but not find(); use async iteration or await cursor.to_list().",
+    "Fully consume cursors successfully to permit cache admission; close abandoned cursors. Started hit cursors retain their snapshot through invalidation, eviction and manager closure; start a new execution for a new lookup.",
+    "Do not assume a cached read observes a completed write: change-stream invalidation is asynchronous, with no catch-up barrier or guaranteed delay. Eligible misses use primary, majority reads; this does not make hits current.",
+    "Use direct PyMongo reads with suitable sessions and concerns for read-after-write, current authorization or required server execution. Hits skip execution and fresh server errors; direct reads do not refresh cached entries.",
+    "Expect ineligible requests, including sessions, incompatible read options, unsafe queries and unavailable streams, to run through PyMongo. Oversized results are returned without caching. Do not treat a successful response as proof of caching.",
+    "Reuse a long-lived client and manager within each worker, never per request. Each CacheManager has independent data and streams. Close managers before their caller-owned clients; await asyncio close() or use async with.",
+    "Start one SharedCacheServer in the parent and pass only its connection to workers; each worker creates its own client and SharedCacheManager. Do not start a server in each worker lifespan.",
+    "Stop shared workers before closing their parent-owned server. Never reuse clients, managers or server handles inherited after fork; create worker clients and managers after process startup.",
+    "Construct and use asyncio SharedCacheManager in one running event loop. Enter it with async with or await SharedCacheManager.attach(client, connection) before reading; do not await its constructor.",
+    "Check shared-read eligibility: shared caching requires portable keys, standard dict documents, no custom codec registry and simple explicit/default collation; aggregates must stay within one collection. Other requests fall back to PyMongo.",
+    "Preserve all query and authorization predicates when using either manager. Never remove tenant filters or change query semantics to obtain cache hits; credential or role changes alone do not invalidate cached documents.",
+    "Keep SharedCacheConnection private: never log or persist it. Share only among trusted workers using the same MongoDB deployment, credentials and read visibility; holders can read all configured databases and submit cached values.",
+    "Use Linux x86-64 with glibc 2.28+; shared hosts also need Linux 5.1+, memfd sealing and /proc. For caching, use MongoDB 8.0+ replica sets or sharded clusters with collection reads, metadata and database-level changeStream access.",
+    "Size memory from measured peaks across workers and the shared owner; BSON budgets do not cap RSS or container memory. Distinguish capacity eviction from freshness: change streams invalidate data, while LRU eviction frees capacity."
+  ]
 }
