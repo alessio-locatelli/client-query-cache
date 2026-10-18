@@ -33,9 +33,10 @@ from client_query_cache._shared.attachment import (
 )
 from client_query_cache._shared.wire import (
     KeyCache,
+    ProtocolError,
     UnportableKeyError,
 )
-from client_query_cache._types import NonNegativeInt
+from client_query_cache._types import NonNegativeInt, PositiveFloat
 from client_query_cache.asynchronous import collection as async_collection
 from client_query_cache.asynchronous import cursors as async_cursors
 from client_query_cache.asynchronous import database as async_database
@@ -44,7 +45,7 @@ from client_query_cache.synchronous import cursors as sync_cursors
 from client_query_cache.synchronous import database as sync_database
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Awaitable, Callable
 
     from bson.codec_options import CodecOptions
     from pymongo import AsyncMongoClient, MongoClient
@@ -76,6 +77,7 @@ OWNER_UNAVAILABLE = "owner-unavailable"
 NO_LOCAL_HIT = object()
 _KEY_CACHE_ENTRIES = 8192
 _REATTACH_SECONDS = 0.1
+_NEGATIVE_METADATA_TTL_SECONDS: PositiveFloat = 1.0
 
 
 @dataclass(slots=True)
@@ -217,10 +219,31 @@ def _metadata(
     )
 
 
+def _metadata_probe_token(reply: Message) -> NonNegativeInt:
+    token = reply["probe_token"]
+    if type(token) is not int or token < 0:
+        raise ProtocolError("metadata probe token is invalid")
+    return token
+
+
+def _cached_metadata(
+    metadata_cache: NamespaceMetadataCache[CollectionMetadata], namespace: NamespaceId
+) -> CollectionMetadata | None:
+    metadata = metadata_cache.find(namespace)
+    if (
+        metadata is not None
+        and metadata.expires_at is not None
+        and metadata.expires_at <= time.monotonic()
+    ):
+        metadata_cache.remove(namespace)
+        return None
+    return metadata
+
+
 def _select(
     shared: Shared, operation: str, namespace: NamespaceId, **fields: object
 ) -> Message | str:
-    metadata = shared._metadata.find(namespace)
+    metadata = _cached_metadata(shared._metadata, namespace)
     if metadata is None:
         return METADATA_REFRESH
     return {
@@ -289,7 +312,7 @@ def _local_select(view: View, keys: tuple[bytes, bytes] | str) -> object:
     if incarnation != local.incarnation:
         shared._reattach = True
         return NO_LOCAL_HIT
-    metadata = shared._metadata.find(namespace)
+    metadata = _cached_metadata(shared._metadata, namespace)
     if metadata is None:
         return NO_LOCAL_HIT
     identity_key, shape_key = keys
@@ -988,30 +1011,88 @@ class SharedCacheManager[DocumentType: Mapping[str, Any]]:
             and time.monotonic() >= self._reattach_after
         ):
             self._reattach_local(self.local)
-        cached = self._metadata.find(namespace)
+        cached = _cached_metadata(self._metadata, namespace)
         if cached is not None and cached is not _STALE:
             return cached.bypass_reason or (
                 PROTOTYPE_SCOPE if cached.default_collation is not None else None
             )
-        reply = self.endpoint.request(
-            {"op": "metadata", "ns": [namespace.database, namespace.collection]}
+        metadata_version = self._metadata.version
+        capacity = self.endpoint.request(
+            {
+                "op": "metadata-probe",
+                "ns": [namespace.database, namespace.collection],
+            }
         )
-        metadata = _metadata(
-            reply, probe() if reply is not None and reply["r"] == "ok" else None
-        )
-        if not isinstance(metadata, CollectionMetadata):
-            return metadata
-        assert reply is not None
-        _remember_slot(self, namespace, reply)
-        self._metadata.store(namespace, metadata)
-        return metadata.bypass_reason or (
-            PROTOTYPE_SCOPE if metadata.default_collation is not None else None
-        )
+        if capacity is None:
+            return OWNER_UNAVAILABLE
+        if capacity["r"] == "bypass":
+            if capacity["reason"] == "namespace_capacity":
+                self._metadata.put_if_version(
+                    namespace,
+                    CollectionMetadata(
+                        checked_epoch=0,
+                        bypass_reason=BypassReason.NAMESPACE_CAPACITY,
+                        default_collation=None,
+                        epoch_bound=False,
+                        expires_at=(time.monotonic() + _NEGATIVE_METADATA_TTL_SECONDS),
+                    ),
+                    metadata_version,
+                )
+            return str(capacity["reason"])
+        assert capacity["r"] == "probe"
+        probe_token = _metadata_probe_token(capacity)
+        metadata_requested = False
+        try:
+            probe_result = probe()
+            if probe_result is None:
+                return BypassReason.METADATA_UNAVAILABLE
+            probe_reason = probe_result.bypass_reason
+            if probe_reason is BypassReason.MISSING_COLLECTION:
+                return probe_reason
+            if probe_reason is not None:
+                self._metadata.put_if_version(
+                    namespace,
+                    CollectionMetadata(
+                        checked_epoch=0,
+                        bypass_reason=probe_reason,
+                        default_collation=probe_result.default_collation,
+                        epoch_bound=False,
+                        expires_at=(time.monotonic() + _NEGATIVE_METADATA_TTL_SECONDS),
+                    ),
+                    metadata_version,
+                )
+                return probe_reason
+            metadata_requested = True
+            reply = self.endpoint.request(
+                {
+                    "op": "metadata",
+                    "ns": [namespace.database, namespace.collection],
+                    "probe_token": probe_token,
+                }
+            )
+            metadata = _metadata(reply, probe_result)
+            if not isinstance(metadata, CollectionMetadata):
+                return metadata
+            assert reply is not None
+            _remember_slot(self, namespace, reply)
+            self._metadata.store(namespace, metadata)
+            return metadata.bypass_reason or (
+                PROTOTYPE_SCOPE if metadata.default_collation is not None else None
+            )
+        finally:
+            if not metadata_requested:
+                self.endpoint.request(
+                    {
+                        "op": "metadata-cancel",
+                        "ns": [namespace.database, namespace.collection],
+                        "probe_token": probe_token,
+                    }
+                )
 
     def _default_collation_for(
         self, namespace: NamespaceId
     ) -> Mapping[str, Any] | None:
-        metadata = self._metadata.find(namespace)
+        metadata = _cached_metadata(self._metadata, namespace)
         return None if metadata is None else metadata.default_collation
 
     def __getitem__(self, name: str) -> SharedCachedDatabase[DocumentType]:
@@ -1117,7 +1198,7 @@ class AsyncSharedCacheManager[DocumentType: Mapping[str, Any]]:
     async def _cache_ineligibility_reason(
         self,
         namespace: NamespaceId,
-        probe: Callable[[], Any],
+        probe: Callable[[], Awaitable[CollectionProbeResult | None]],
     ) -> BypassReason | str | None:
         if (
             self._reattach
@@ -1125,30 +1206,88 @@ class AsyncSharedCacheManager[DocumentType: Mapping[str, Any]]:
             and time.monotonic() >= self._reattach_after
         ):
             await self._reattach_local(self.local)
-        cached = self._metadata.find(namespace)
+        cached = _cached_metadata(self._metadata, namespace)
         if cached is not None and cached is not _STALE:
             return cached.bypass_reason or (
                 PROTOTYPE_SCOPE if cached.default_collation is not None else None
             )
-        reply = await self.endpoint.request(
-            {"op": "metadata", "ns": [namespace.database, namespace.collection]}
+        metadata_version = self._metadata.version
+        capacity = await self.endpoint.request(
+            {
+                "op": "metadata-probe",
+                "ns": [namespace.database, namespace.collection],
+            }
         )
-        metadata = _metadata(
-            reply, await probe() if reply is not None and reply["r"] == "ok" else None
-        )
-        if not isinstance(metadata, CollectionMetadata):
-            return metadata
-        assert reply is not None
-        _remember_slot(self, namespace, reply)
-        self._metadata.store(namespace, metadata)
-        return metadata.bypass_reason or (
-            PROTOTYPE_SCOPE if metadata.default_collation is not None else None
-        )
+        if capacity is None:
+            return OWNER_UNAVAILABLE
+        if capacity["r"] == "bypass":
+            if capacity["reason"] == "namespace_capacity":
+                self._metadata.put_if_version(
+                    namespace,
+                    CollectionMetadata(
+                        checked_epoch=0,
+                        bypass_reason=BypassReason.NAMESPACE_CAPACITY,
+                        default_collation=None,
+                        epoch_bound=False,
+                        expires_at=(time.monotonic() + _NEGATIVE_METADATA_TTL_SECONDS),
+                    ),
+                    metadata_version,
+                )
+            return str(capacity["reason"])
+        assert capacity["r"] == "probe"
+        probe_token = _metadata_probe_token(capacity)
+        metadata_requested = False
+        try:
+            probe_result = await probe()
+            if probe_result is None:
+                return BypassReason.METADATA_UNAVAILABLE
+            probe_reason = probe_result.bypass_reason
+            if probe_reason is BypassReason.MISSING_COLLECTION:
+                return probe_reason
+            if probe_reason is not None:
+                self._metadata.put_if_version(
+                    namespace,
+                    CollectionMetadata(
+                        checked_epoch=0,
+                        bypass_reason=probe_reason,
+                        default_collation=probe_result.default_collation,
+                        epoch_bound=False,
+                        expires_at=(time.monotonic() + _NEGATIVE_METADATA_TTL_SECONDS),
+                    ),
+                    metadata_version,
+                )
+                return probe_reason
+            metadata_requested = True
+            reply = await self.endpoint.request(
+                {
+                    "op": "metadata",
+                    "ns": [namespace.database, namespace.collection],
+                    "probe_token": probe_token,
+                }
+            )
+            metadata = _metadata(reply, probe_result)
+            if not isinstance(metadata, CollectionMetadata):
+                return metadata
+            assert reply is not None
+            _remember_slot(self, namespace, reply)
+            self._metadata.store(namespace, metadata)
+            return metadata.bypass_reason or (
+                PROTOTYPE_SCOPE if metadata.default_collation is not None else None
+            )
+        finally:
+            if not metadata_requested:
+                await self.endpoint.request(
+                    {
+                        "op": "metadata-cancel",
+                        "ns": [namespace.database, namespace.collection],
+                        "probe_token": probe_token,
+                    }
+                )
 
     def _default_collation_for(
         self, namespace: NamespaceId
     ) -> Mapping[str, Any] | None:
-        metadata = self._metadata.find(namespace)
+        metadata = _cached_metadata(self._metadata, namespace)
         return None if metadata is None else metadata.default_collation
 
     def __getitem__(self, name: str) -> AsyncSharedCachedDatabase[DocumentType]:

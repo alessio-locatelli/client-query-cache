@@ -223,10 +223,7 @@ async def test_public_metadata_reasons_preserve_probe_lifetimes(
         == 2
     )
     assert probe.call_count == (
-        2
-        if reason
-        in {BypassReason.MISSING_COLLECTION, BypassReason.METADATA_UNAVAILABLE}
-        else 1
+        2 if entry is None or isinstance(entry, ConnectionFailure) else 1
     )
 
 

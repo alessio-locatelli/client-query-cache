@@ -6,6 +6,7 @@ from bson.codec_options import CodecOptions
 from pymongo import MongoClient, ReadPreference
 from pymongo.synchronous.database import Database
 
+from client_query_cache._core.collection_metadata import CollectionProbeResult
 from client_query_cache._core.keys import NamespaceId
 from client_query_cache._core.lifecycle import CacheLifecycleState
 from client_query_cache._core.manager import CacheCoreConfig
@@ -104,6 +105,69 @@ def test_namespace_capacity_bypasses_collection_metadata_probe(
     assert reason is BypassReason.NAMESPACE_CAPACITY
     assert manager._unique_keys_for(overflow) is None
     assert not manager.cache_core.has_namespace(overflow)
+    manager.close()
+
+
+@pytest.mark.parametrize(
+    ("probe_result", "expected_reason"),
+    [
+        pytest.param(
+            CollectionProbeResult(BypassReason.MISSING_COLLECTION, None),
+            BypassReason.MISSING_COLLECTION,
+            id="missing",
+        ),
+        pytest.param(
+            CollectionProbeResult(BypassReason.VIEW_COLLECTION, None),
+            BypassReason.VIEW_COLLECTION,
+            id="view",
+        ),
+        pytest.param(
+            CollectionProbeResult(BypassReason.TIME_SERIES_COLLECTION, None),
+            BypassReason.TIME_SERIES_COLLECTION,
+            id="time-series",
+        ),
+        pytest.param(
+            CollectionProbeResult(BypassReason.METADATA_UNAVAILABLE, None),
+            BypassReason.METADATA_UNAVAILABLE,
+            id="unsupported-type",
+        ),
+        pytest.param(None, BypassReason.METADATA_UNAVAILABLE, id="probe-failed"),
+    ],
+)
+def test_ineligible_collection_does_not_consume_namespace_capacity(
+    client: MongoClient[BsonDict],
+    monkeypatch: pytest.MonkeyPatch,
+    probe_result: CollectionProbeResult | None,
+    expected_reason: BypassReason,
+) -> None:
+    manager = CacheManager(client, cache_config=CacheCoreConfig(max_namespaces=1))
+    monkeypatch.setattr(
+        type(manager._coordinator),
+        "activate_database",
+        lambda _self, _database: object(),
+    )
+    unavailable = NamespaceId("example", "unavailable")
+    available = NamespaceId("example", "available")
+
+    reason = manager._cache_ineligibility_reason(unavailable, lambda: probe_result)
+    if probe_result is not None and expected_reason in {
+        BypassReason.METADATA_UNAVAILABLE,
+        BypassReason.VIEW_COLLECTION,
+        BypassReason.TIME_SERIES_COLLECTION,
+    }:
+        repeated_reason = manager._cache_ineligibility_reason(
+            unavailable,
+            lambda: pytest.fail("ineligible collection metadata should be cached"),
+        )
+        assert repeated_reason is expected_reason
+    available_reason = manager._cache_ineligibility_reason(
+        available, lambda: CollectionProbeResult(None, None)
+    )
+
+    assert reason is expected_reason
+    assert not manager.cache_core.has_namespace(unavailable)
+    assert available_reason is None
+    assert manager.cache_core.has_namespace(available)
     manager.close()
 
 

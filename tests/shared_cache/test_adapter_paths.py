@@ -11,6 +11,7 @@ from contextlib import AsyncExitStack
 from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from bson.codec_options import CodecOptions, TypeRegistry
@@ -20,7 +21,9 @@ from pymongo.asynchronous.collection import AsyncCollection
 from pymongo.errors import OperationFailure
 
 from client_query_cache._core import canonical
+from client_query_cache._core.collection_metadata import CollectionProbeResult
 from client_query_cache._core.keys import NamespaceId
+from client_query_cache._core.snapshots import BypassReason
 from client_query_cache._shared import adapters
 from client_query_cache._shared.adapters import (
     METADATA_REFRESH,
@@ -863,13 +866,185 @@ def test_namespaces_without_a_slot_bypass_with_bounded_owner_state(
     second = reads.find_one(1, _OTHER)
 
     assert second == first == {"_id": 1, "payload": "other"}
-    assert reads.manager.endpoint.counters.requests == requests + 1
+    assert reads.manager.endpoint.counters.requests == requests
     assert reads.manager.observation.hits == 0
     assert reads.manager.observation.bypasses["namespace_capacity"] == 2
     assert reads.manager._metadata._capacity == 1
     assert reads.manager._slots._capacity == 1
     assert len(reads.manager._metadata) <= 1
     assert len(reads.manager._slots) <= 1
+    metadata = reads.manager._metadata.find(NamespaceId(seeded_database, _OTHER))
+    assert metadata is not None
+    assert metadata.bypass_reason is BypassReason.NAMESPACE_CAPACITY
+
+
+def test_namespaces_without_a_slot_skip_the_collection_probe(
+    open_reads: Callable[[SharedIndexLimits], tuple[Owner, _SharedReads]],
+    client: MongoClient[BsonDict],
+    seeded_database: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client[seeded_database][_OTHER].insert_one({"_id": 1, "payload": "other"})
+    _owner, reads = open_reads(replace(_SHARED_INDEX, namespaces=1))
+    collection = reads.manager[seeded_database][_OTHER]
+    if isinstance(reads.manager, SharedCacheManager):
+        probe = Mock(wraps=collection._probe_collection)
+    else:
+        probe = AsyncMock(wraps=collection._probe_collection)
+    monkeypatch.setattr(type(collection), "_probe_collection", lambda _self: probe())
+    requests = reads.manager.endpoint.counters.requests
+
+    assert reads.find_one(1, _OTHER) == {"_id": 1, "payload": "other"}
+    assert reads.find_one(1, _OTHER) == {"_id": 1, "payload": "other"}
+
+    assert probe.call_count == 0
+    assert reads.manager.endpoint.counters.requests == requests + 1
+
+
+@pytest.mark.parametrize(
+    ("probe_result", "response_and_expected"),
+    [
+        pytest.param(
+            CollectionProbeResult(None, None),
+            (
+                (
+                    {"r": "probe", "probe_token": 0},
+                    {"r": "bypass", "reason": "namespace_capacity"},
+                ),
+                "namespace_capacity",
+            ),
+            id="capacity-fills-after-probe",
+        ),
+        pytest.param(
+            None,
+            (
+                ({"r": "probe", "probe_token": 0}, {"r": "ok"}),
+                BypassReason.METADATA_UNAVAILABLE,
+            ),
+            id="probe-fails",
+        ),
+    ],
+)
+def test_shared_metadata_probe_handles_capacity_races_and_probe_failures(
+    open_reads: Callable[[SharedIndexLimits], tuple[Owner, _SharedReads]],
+    seeded_database: str,
+    monkeypatch: pytest.MonkeyPatch,
+    probe_result: CollectionProbeResult | None,
+    response_and_expected: tuple[tuple[dict[str, object], ...], BypassReason | str],
+) -> None:
+    _owner, reads = open_reads(_SHARED_INDEX)
+    manager = reads.manager
+    namespace = NamespaceId(seeded_database, "capacity-race")
+    endpoint_type = type(manager.endpoint)
+    owner_replies, expected = response_and_expected
+    replies = iter(owner_replies)
+
+    def request(_endpoint: object, _message: object) -> object:
+        return next(replies)
+
+    if isinstance(manager, SharedCacheManager):
+        monkeypatch.setattr(endpoint_type, "request", request)
+        reason = manager._cache_ineligibility_reason(namespace, lambda: probe_result)
+    else:
+        async_request = AsyncMock(side_effect=lambda _message: next(replies))
+        monkeypatch.setattr(
+            endpoint_type,
+            "request",
+            lambda _endpoint, message: async_request(message),
+        )
+        reason = reads._run(
+            manager._cache_ineligibility_reason(
+                namespace,
+                lambda: asyncio.sleep(0, result=probe_result),
+            )
+        )
+
+    assert reason == expected
+    assert manager._metadata.find(namespace) is None
+
+
+def test_missing_collection_does_not_consume_a_shared_namespace_slot(
+    open_reads: Callable[[SharedIndexLimits], tuple[Owner, _SharedReads]],
+    client: MongoClient[BsonDict],
+    seeded_database: str,
+) -> None:
+    client[seeded_database][_OTHER].insert_one({"_id": 1, "payload": "other"})
+    owner, reads = open_reads(replace(_SHARED_INDEX, namespaces=2))
+
+    assert reads.find_one(0, "not-created") is None
+    first = reads.find_one(1, _OTHER)
+    _admitted(owner, 1)
+    second = reads.find_one(1, _OTHER)
+
+    assert second == first == {"_id": 1, "payload": "other"}
+    assert reads.manager.observation.hits == 1
+    assert len(reads.manager._metadata) == 2
+
+
+def test_view_does_not_consume_a_shared_namespace_slot(
+    open_reads: Callable[[SharedIndexLimits], tuple[Owner, _SharedReads]],
+    client: MongoClient[BsonDict],
+    seeded_database: str,
+) -> None:
+    view_name = "negative_metadata_view"
+    client[seeded_database].command("create", view_name, viewOn=COLLECTION, pipeline=[])
+    _, reads = open_reads(replace(_SHARED_INDEX, namespaces=2))
+    expected = client[seeded_database][COLLECTION].find_one({"_id": 0})
+
+    assert reads.find_one(0, view_name) == expected
+    requests = reads.manager.endpoint.counters.requests
+    assert reads.find_one(0, view_name) == expected
+    assert reads.manager.endpoint.counters.requests == requests
+
+    metadata = reads.manager._metadata.find(NamespaceId(seeded_database, view_name))
+    assert metadata is not None
+    assert metadata.bypass_reason is BypassReason.VIEW_COLLECTION
+    assert not metadata.epoch_bound
+    assert metadata.expires_at is not None
+
+    client[seeded_database][_OTHER].insert_one({"_id": 1, "payload": "other"})
+    wait_for(
+        lambda: (
+            reads.find_one(1, _OTHER) == {"_id": 1, "payload": "other"}
+            and reads.manager._metadata.find(NamespaceId(seeded_database, _OTHER))
+            is not None
+        )
+    )
+    other_metadata = reads.manager._metadata.find(NamespaceId(seeded_database, _OTHER))
+    assert other_metadata is not None
+    assert other_metadata.bypass_reason is None
+
+
+def test_expired_view_metadata_allows_reads_after_collection_replacement(
+    open_reads: Callable[[SharedIndexLimits], tuple[Owner, _SharedReads]],
+    client: MongoClient[BsonDict],
+    seeded_database: str,
+) -> None:
+    view_name = "replaced_negative_metadata_view"
+    client[seeded_database].command("create", view_name, viewOn=COLLECTION, pipeline=[])
+    _owner, reads = open_reads(_SHARED_INDEX)
+    namespace = NamespaceId(seeded_database, view_name)
+    expected_from_view = client[seeded_database][COLLECTION].find_one({"_id": 0})
+
+    assert reads.find_one(0, view_name) == expected_from_view
+    metadata = reads.manager._metadata.find(namespace)
+    assert metadata is not None
+    assert metadata.expires_at is not None
+
+    client[seeded_database].drop_collection(view_name)
+    client[seeded_database].create_collection(view_name).insert_one(
+        {"_id": "replacement", "payload": "regular collection"}
+    )
+    reads.manager._metadata.store(namespace, replace(metadata, expires_at=0))
+
+    assert reads.find_one("replacement", view_name) == {
+        "_id": "replacement",
+        "payload": "regular collection",
+    }
+    refreshed = reads.manager._metadata.find(namespace)
+    assert refreshed is not None
+    assert refreshed.bypass_reason is None
+    assert refreshed.epoch_bound
 
 
 def test_a_namespace_reset_makes_local_reads_refresh_metadata(

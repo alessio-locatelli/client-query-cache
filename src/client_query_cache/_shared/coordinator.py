@@ -33,6 +33,7 @@ from client_query_cache._core.manager import (
     IdentityCapture,
     NamespaceCapture,
 )
+from client_query_cache._core.snapshots import BypassReason
 from client_query_cache._core.stream_cost import LagCaptureWindowConfig
 from client_query_cache._shared.shared_index import (
     ArenaPayloads,
@@ -501,16 +502,20 @@ class SharedCacheOwner:
                     break
 
     def _epoch_reply(self, namespace: NamespaceId, epoch: object) -> Message | None:
-        current = self.core.try_current_epoch(namespace)
-        if current is None:
+        metadata = self.core.registered_namespace_metadata(namespace)
+        if metadata is None:
+            if self.core.can_register_namespace(namespace):
+                self.counters.refreshes += 1
+                return {"r": "refresh", "epoch": 0, "index_generation": 0}
             self.counters.bypasses += 1
             return {"r": "bypass", "reason": "namespace_capacity"}
+        current, index_generation = metadata
         if epoch != current:
             self.counters.refreshes += 1
             return {
                 "r": "refresh",
                 "epoch": current,
-                "index_generation": self.core.current_index_generation(namespace),
+                "index_generation": index_generation,
             }
         return None
 
@@ -549,16 +554,57 @@ class SharedCacheOwner:
             case "observe":
                 return {"r": "ok", **self.observation(now)}
         namespace = _namespace(message["ns"])
+        if operation == "metadata-cancel":
+            try:
+                probe_token = message["probe_token"]
+            except KeyError as error:
+                raise ProtocolError("metadata probe token is invalid") from error
+            if type(probe_token) is not int or probe_token < 0:
+                raise ProtocolError("metadata probe token is invalid")
+            self.core.cancel_namespace_metadata_probe(namespace, probe_token)
+            return {"r": "ok"}
         reason = self._gate(namespace.database, now)
         if reason is not None:
+            if operation == "metadata":
+                try:
+                    probe_token = message["probe_token"]
+                except KeyError:
+                    pass
+                else:
+                    if type(probe_token) is int and probe_token >= 0:
+                        self.core.cancel_namespace_metadata_probe(
+                            namespace, probe_token
+                        )
             self.counters.bypasses += 1
             return {"r": "bypass", "reason": reason}
         match operation:
+            case "metadata-probe":
+                probe_token = self.core.begin_namespace_metadata_probe(namespace)
+                if probe_token is None:
+                    self.counters.bypasses += 1
+                    reason = (
+                        "namespace_capacity"
+                        if not self.core.can_register_namespace(namespace)
+                        else BypassReason.METADATA_UNAVAILABLE.value
+                    )
+                    return {"r": "bypass", "reason": reason}
+                return {"r": "probe", "probe_token": probe_token}
             case "metadata":
-                with self.core.locked_namespace_metadata(namespace) as generations:
+                try:
+                    probe_token = message["probe_token"]
+                except KeyError as error:
+                    raise ProtocolError("metadata probe token is invalid") from error
+                if type(probe_token) is not int or probe_token < 0:
+                    raise ProtocolError("metadata probe token is invalid")
+                with self.core.locked_namespace_metadata_after_probe(
+                    namespace, probe_token
+                ) as generations:
                     if generations is None:
                         self.counters.bypasses += 1
-                        return {"r": "bypass", "reason": "namespace_capacity"}
+                        return {
+                            "r": "bypass",
+                            "reason": BypassReason.METADATA_UNAVAILABLE.value,
+                        }
                     epoch, index_generation = generations
                     metadata: Message = {
                         "r": "ok",

@@ -37,12 +37,21 @@ type Event = tuple[str, object]
 @dataclass(slots=True)
 class RecordingObserver:
     core: CacheCore | None = None
+    close_on_release: bool = False
     events: list[Event] = field(default_factory=list)
     locked: list[bool] = field(default_factory=list)
+    namespaces_locked: list[bool] = field(default_factory=list)
+    registered_metadata: list[object] = field(default_factory=list)
 
     def _record(self, kind: str, subject: object, *, locked: bool) -> None:
         self.events.append((kind, subject))
         self.locked.append(locked)
+
+    def clear(self) -> None:
+        self.events.clear()
+        self.locked.clear()
+        self.namespaces_locked.clear()
+        self.registered_metadata.clear()
 
     def _namespace_locked(self, namespace: NamespaceId) -> bool:
         assert self.core is not None
@@ -76,7 +85,18 @@ class RecordingObserver:
         )
 
     def namespace_released(self, namespace: NamespaceId, epoch: NonNegativeInt) -> None:
-        self._record("namespace_released", (namespace, epoch), locked=False)
+        assert self.core is not None
+        self._record(
+            "namespace_released",
+            (namespace, epoch),
+            locked=self._namespace_locked(namespace),
+        )
+        self.namespaces_locked.append(self.core._namespaces_lock.locked())
+        self.registered_metadata.append(
+            self.core.registered_namespace_metadata(namespace)
+        )
+        if self.close_on_release:
+            self.core.close()
 
     def availability_changed(self, database: str, *, available: bool) -> None:
         assert self.core is not None
@@ -139,7 +159,7 @@ def _displacement(scenario: Scenario) -> list[Event]:
     previous = scenario.document()
     scenario.admit("doc-1", previous)
     scenario.core.record_write(scenario.namespace, "doc-1")
-    scenario.observer.events.clear()
+    scenario.observer.clear()
     current = scenario.document()
     key = scenario.admit("doc-1", current)
     return [("removed", (key, previous)), ("admitted", (key, current))]
@@ -148,7 +168,7 @@ def _displacement(scenario: Scenario) -> list[Event]:
 def _eviction(scenario: Scenario) -> list[Event]:
     oldest = scenario.document(LARGE_CHARACTERS)
     oldest_key = scenario.admit("doc-1", oldest)
-    scenario.observer.events.clear()
+    scenario.observer.clear()
     newest = scenario.document(LARGE_CHARACTERS)
     newest_key = scenario.admit("doc-2", newest)
     return [("removed", (oldest_key, oldest)), ("admitted", (newest_key, newest))]
@@ -159,7 +179,7 @@ def _remove_exact(scenario: Scenario) -> list[Event]:
     encoded = scenario.document()
     outcome = scenario.core.admit_namespace_encoded(capture, DISCRIMINATOR, encoded)
     assert outcome is AdmissionOutcome.ADMITTED
-    scenario.observer.events.clear()
+    scenario.observer.clear()
     scenario.core.discard_namespace_entry(capture, DISCRIMINATOR)
     key = NamespaceCacheKey(scenario.namespace, canonicalize(DISCRIMINATOR))
     return [("removed", (key, encoded))]
@@ -168,14 +188,14 @@ def _remove_exact(scenario: Scenario) -> list[Event]:
 def _clear_all(scenario: Scenario) -> list[Event]:
     encoded = scenario.document()
     key = scenario.admit("doc-1", encoded)
-    scenario.observer.events.clear()
+    scenario.observer.clear()
     scenario.core.close()
     return [("removed", (key, encoded))]
 
 
 def _identity_write(scenario: Scenario) -> list[Event]:
     key = scenario.admit("doc-1", scenario.document())
-    scenario.observer.events.clear()
+    scenario.observer.clear()
     scenario.core.record_write(scenario.namespace, "doc-1")
     return [("identity_written", (scenario.namespace, key.identity))]
 
@@ -183,7 +203,7 @@ def _identity_write(scenario: Scenario) -> list[Event]:
 def _namespace_reset(scenario: Scenario) -> list[Event]:
     encoded = scenario.document()
     key = scenario.admit("doc-1", encoded)
-    scenario.observer.events.clear()
+    scenario.observer.clear()
     scenario.core.clear_namespace(scenario.namespace)
     return [("epoch_changed", (scenario.namespace, 1)), ("removed", (key, encoded))]
 
@@ -225,7 +245,13 @@ def test_observer_sees_each_mutation_inside_its_lock_section(
     observer.core = core
     expected = mutate(Scenario(core, namespace, faker, observer, monkeypatch))
     assert observer.events == expected
-    assert all(observer.locked)
+    assert all(
+        locked
+        for (kind, _subject), locked in zip(
+            observer.events, observer.locked, strict=True
+        )
+        if kind != "namespace_released"
+    )
 
 
 def test_namespace_release_notifies_after_the_namespace_lock_is_released(
@@ -243,6 +269,22 @@ def test_namespace_release_notifies_after_the_namespace_lock_is_released(
         ("namespace_released", (namespace, 1)),
     ]
     assert observer.locked == [True, False]
+    assert observer.namespaces_locked == [False]
+    assert observer.registered_metadata == [None]
+
+
+def test_namespace_release_tolerates_close_clearing_its_registry(
+    namespace: NamespaceId,
+) -> None:
+    observer = RecordingObserver(close_on_release=True)
+    core = CacheCore(BUDGET, observer=observer)
+    observer.core = core
+    core.capture_namespace_generation(namespace)
+
+    core.drop_namespace(namespace)
+
+    assert core.snapshot().lifecycle == "closed"
+    assert not core.has_namespace(namespace)
 
 
 @dataclass(eq=False, slots=True)

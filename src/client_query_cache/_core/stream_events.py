@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from pymongo.errors import OperationFailure
 
     from client_query_cache._core.manager import CacheCore
+    from client_query_cache._core.namespace_metadata import NamespaceMetadataCache
 
 NONRESUMABLE_CHANGE_STREAM_ERROR_LABEL = "NonResumableChangeStreamError"
 CHANGE_STREAM_HISTORY_LOST_CODE = 286
@@ -79,6 +80,7 @@ def _route_write(cache: CacheCore, database: str, event: Mapping[str, Any]) -> N
 
 def _route_create(cache: CacheCore, database: str, event: Mapping[str, Any]) -> None:
     namespace = _namespace_from_ns(event["ns"])
+    cache.invalidate_namespace_metadata_probe(namespace)
     if cache.has_namespace(namespace):
         cache.create_namespace(namespace)
         _record_invalidation(cache, database, event)
@@ -86,6 +88,7 @@ def _route_create(cache: CacheCore, database: str, event: Mapping[str, Any]) -> 
 
 def _route_drop(cache: CacheCore, database: str, event: Mapping[str, Any]) -> None:
     namespace = _namespace_from_ns(event["ns"])
+    cache.invalidate_namespace_metadata_probe(namespace)
     if cache.has_namespace(namespace):
         cache.drop_namespace(namespace)
         _record_invalidation(cache, database, event)
@@ -103,6 +106,8 @@ def _route_index_change(
 def _route_rename(cache: CacheCore, database: str, event: Mapping[str, Any]) -> None:
     source = _namespace_from_ns(event["ns"])
     destination = _namespace_from_ns(event["to"])
+    cache.invalidate_namespace_metadata_probe(source)
+    cache.invalidate_namespace_metadata_probe(destination)
     invalidated = False
     if cache.has_namespace(source):
         cache.drop_namespace(source)
@@ -117,6 +122,7 @@ def _route_rename(cache: CacheCore, database: str, event: Mapping[str, Any]) -> 
 def _route_invalidate(
     cache: CacheCore, database: str, event: Mapping[str, Any]
 ) -> None:
+    cache.invalidate_namespace_metadata_probes_for_database(database)
     cache.set_database_available(database, available=False)
     namespaces = cache.namespaces_for_database(database)
     for namespace in namespaces:
@@ -126,7 +132,11 @@ def _route_invalidate(
 
 
 def route_change_event(
-    cache: CacheCore, database: str, event: Mapping[str, Any]
+    cache: CacheCore,
+    database: str,
+    event: Mapping[str, Any],
+    *,
+    metadata_cache: NamespaceMetadataCache[Any] | None = None,
 ) -> bool:
     operation_type = event["operationType"]
     if operation_type in WRITE_OPERATION_TYPES:
@@ -137,17 +147,28 @@ def route_change_event(
         return False
     if operation_type == "create":
         _route_create(cache, database, event)
+        if metadata_cache is not None:
+            metadata_cache.remove(_namespace_from_ns(event["ns"]))
         return False
     if operation_type == "drop":
         _route_drop(cache, database, event)
+        if metadata_cache is not None:
+            metadata_cache.remove(_namespace_from_ns(event["ns"]))
         return False
     if operation_type == "rename":
         _route_rename(cache, database, event)
+        if metadata_cache is not None:
+            metadata_cache.remove(_namespace_from_ns(event["ns"]))
+            metadata_cache.remove(_namespace_from_ns(event["to"]))
         return False
     if operation_type == "dropDatabase":
         _route_invalidate(cache, database, event)
+        if metadata_cache is not None:
+            metadata_cache.remove_database(database)
         return True
     _route_invalidate(cache, database, event)
+    if metadata_cache is not None:
+        metadata_cache.remove_database(database)
     return True
 
 

@@ -8,6 +8,7 @@ from bson.codec_options import CodecOptions
 from pymongo import AsyncMongoClient, ReadPreference
 from pymongo.asynchronous.database import AsyncDatabase
 
+from client_query_cache._core.collection_metadata import CollectionProbeResult
 from client_query_cache._core.keys import NamespaceId
 from client_query_cache._core.lifecycle import CacheLifecycleState
 from client_query_cache._core.manager import CacheCoreConfig
@@ -113,6 +114,84 @@ async def test_namespace_capacity_bypasses_collection_metadata_probe(
     assert await manager._unique_keys_for(overflow) is None
     collection_probe.assert_not_awaited()
     assert not manager.cache_core.has_namespace(overflow)
+    await manager.close()
+
+
+@pytest.mark.parametrize(
+    ("probe_result", "expected_reason"),
+    [
+        pytest.param(
+            CollectionProbeResult(BypassReason.MISSING_COLLECTION, None),
+            BypassReason.MISSING_COLLECTION,
+            id="missing",
+        ),
+        pytest.param(
+            CollectionProbeResult(BypassReason.VIEW_COLLECTION, None),
+            BypassReason.VIEW_COLLECTION,
+            id="view",
+        ),
+        pytest.param(
+            CollectionProbeResult(BypassReason.TIME_SERIES_COLLECTION, None),
+            BypassReason.TIME_SERIES_COLLECTION,
+            id="time-series",
+        ),
+        pytest.param(
+            CollectionProbeResult(BypassReason.METADATA_UNAVAILABLE, None),
+            BypassReason.METADATA_UNAVAILABLE,
+            id="unsupported-type",
+        ),
+        pytest.param(None, BypassReason.METADATA_UNAVAILABLE, id="probe-failed"),
+    ],
+)
+async def test_ineligible_collection_does_not_consume_namespace_capacity(
+    client: AsyncMongoClient[BsonDict],
+    monkeypatch: pytest.MonkeyPatch,
+    probe_result: CollectionProbeResult | None,
+    expected_reason: BypassReason,
+) -> None:
+    manager = CacheManager(client, cache_config=CacheCoreConfig(max_namespaces=1))
+
+    async def activate_database(_self: object, _database: str) -> object:
+        await asyncio.sleep(0)
+        return object()
+
+    monkeypatch.setattr(
+        type(manager._coordinator), "activate_database", activate_database
+    )
+    unavailable = NamespaceId("example", "unavailable")
+    available = NamespaceId("example", "available")
+
+    probe_calls = 0
+
+    async def unavailable_probe() -> CollectionProbeResult | None:
+        nonlocal probe_calls
+        probe_calls += 1
+        await asyncio.sleep(0)
+        return probe_result
+
+    async def available_probe() -> CollectionProbeResult:
+        await asyncio.sleep(0)
+        return CollectionProbeResult(None, None)
+
+    reason = await manager._cache_ineligibility_reason(unavailable, unavailable_probe)
+    if probe_result is not None and expected_reason in {
+        BypassReason.METADATA_UNAVAILABLE,
+        BypassReason.VIEW_COLLECTION,
+        BypassReason.TIME_SERIES_COLLECTION,
+    }:
+        repeated_reason = await manager._cache_ineligibility_reason(
+            unavailable, unavailable_probe
+        )
+        assert repeated_reason is expected_reason
+        assert probe_calls == 1
+    available_reason = await manager._cache_ineligibility_reason(
+        available, available_probe
+    )
+
+    assert reason is expected_reason
+    assert not manager.cache_core.has_namespace(unavailable)
+    assert available_reason is None
+    assert manager.cache_core.has_namespace(available)
     await manager.close()
 
 

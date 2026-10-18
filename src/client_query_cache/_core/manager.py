@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
@@ -42,7 +43,12 @@ from client_query_cache._core.stream_cost import (
     StreamCostRegistry,
     StreamCostSnapshot,
 )
-from client_query_cache._types import NonNegativeFloat, NonNegativeInt, PositiveInt
+from client_query_cache._types import (
+    NonNegativeFloat,
+    NonNegativeInt,
+    PositiveFloat,
+    PositiveInt,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator
@@ -58,6 +64,7 @@ if TYPE_CHECKING:
 DEFAULT_SHARED_BUDGET_BYTES = 64 * 1024 * 1024
 DEFAULT_MAX_ENTRY_BYTES = 1 * 1024 * 1024
 DEFAULT_MAX_NAMESPACES = 1024
+_NAMESPACE_METADATA_PROBE_TTL_SECONDS: PositiveFloat = 30.0
 
 _NOT_INDEXED = object()
 _DEFAULT_DATABASE_AVAILABILITY = (True, 0)
@@ -130,6 +137,13 @@ class NamespaceCapture:
     state: NamespaceState
 
 
+@dataclass(slots=True)
+class _NamespaceMetadataProbe:
+    token: NonNegativeInt
+    active_requests: PositiveInt
+    expires_at: NonNegativeFloat
+
+
 def _maybe_prune_identity_locked(
     state: NamespaceState, identity: Canonical, identity_state: IdentityState
 ) -> None:
@@ -191,8 +205,10 @@ class _CacheCoreBase:
         "_lifecycle_lock",
         "_lru",
         "_max_namespaces",
+        "_namespace_metadata_probes",
         "_namespaces",
         "_namespaces_lock",
+        "_next_namespace_metadata_probe_token",
         "_observer",
         "_payloads",
         "_statistics",
@@ -221,6 +237,8 @@ class _CacheCoreBase:
         self._namespaces: dict[NamespaceId, NamespaceState] = {}
         self._database_namespaces: dict[str, dict[NamespaceId, None]] = {}
         self._namespaces_lock = threading.Lock()
+        self._namespace_metadata_probes: dict[NamespaceId, _NamespaceMetadataProbe] = {}
+        self._next_namespace_metadata_probe_token: NonNegativeInt = 0
         self._generation: NonNegativeInt = 0
         self._generation_lock = threading.Lock()
         self._max_namespaces = resolved_config.max_namespaces
@@ -344,8 +362,9 @@ class _CacheCoreBase:
             except KeyError:
                 return None
 
-    def _next_generation(self) -> NonNegativeInt:
+    def _next_generation(self, *, greater_than: NonNegativeInt = 0) -> NonNegativeInt:
         with self._generation_lock:
+            self._generation = max(self._generation, greater_than)
             generation = self._generation
             self._generation += 1
             return generation
@@ -434,6 +453,7 @@ class _CacheCoreLifecycle(_CacheCoreBase):
         with self._namespaces_lock:
             self._namespaces.clear()
             self._database_namespaces.clear()
+            self._namespace_metadata_probes.clear()
         logger.info("cache manager closed")
 
     def record_miss(self) -> None:
@@ -480,6 +500,93 @@ class _CacheCoreNamespaceLifecycle(_CacheCoreBase):
         with self._namespaces_lock:
             return namespace in self._namespaces
 
+    def can_register_namespace(self, namespace: NamespaceId) -> bool:
+        with self._namespaces_lock:
+            if self._is_closed():
+                return False
+            if namespace in self._namespaces:
+                return True
+            return len(self._namespaces) < self._max_namespaces
+
+    def _expire_namespace_metadata_probes(self, now: NonNegativeFloat) -> None:
+        while self._namespace_metadata_probes:
+            namespace, probe = next(iter(self._namespace_metadata_probes.items()))
+            if probe.expires_at > now:
+                return
+            del self._namespace_metadata_probes[namespace]
+
+    def begin_namespace_metadata_probe(
+        self, namespace: NamespaceId
+    ) -> NonNegativeInt | None:
+        now = time.monotonic()
+        with self._namespaces_lock:
+            self._expire_namespace_metadata_probes(now)
+            if self._is_closed():
+                return None
+            if namespace not in self._namespaces and len(self._namespaces) >= (
+                self._max_namespaces
+            ):
+                return None
+            try:
+                probe = self._namespace_metadata_probes[namespace]
+            except KeyError:
+                if len(self._namespace_metadata_probes) >= self._max_namespaces:
+                    return None
+                probe = _NamespaceMetadataProbe(
+                    token=self._next_namespace_metadata_probe_token,
+                    active_requests=1,
+                    expires_at=now + _NAMESPACE_METADATA_PROBE_TTL_SECONDS,
+                )
+                self._next_namespace_metadata_probe_token += 1
+            else:
+                probe.active_requests += 1
+                probe.expires_at = now + _NAMESPACE_METADATA_PROBE_TTL_SECONDS
+                del self._namespace_metadata_probes[namespace]
+            self._namespace_metadata_probes[namespace] = probe
+            return probe.token
+
+    def _finish_namespace_metadata_probe(
+        self, namespace: NamespaceId, token: NonNegativeInt
+    ) -> None:
+        with self._namespaces_lock:
+            self._expire_namespace_metadata_probes(time.monotonic())
+            try:
+                probe = self._namespace_metadata_probes[namespace]
+            except KeyError:
+                return
+            if probe.token != token:
+                return
+            if probe.active_requests == 1:
+                del self._namespace_metadata_probes[namespace]
+            else:
+                probe.active_requests -= 1
+
+    def cancel_namespace_metadata_probe(
+        self, namespace: NamespaceId, token: NonNegativeInt
+    ) -> None:
+        self._finish_namespace_metadata_probe(namespace, token)
+
+    def invalidate_namespace_metadata_probe(self, namespace: NamespaceId) -> None:
+        with self._namespaces_lock:
+            self._namespace_metadata_probes.pop(namespace, None)
+
+    def invalidate_namespace_metadata_probes_for_database(self, database: str) -> None:
+        with self._namespaces_lock:
+            for namespace in tuple(self._namespace_metadata_probes):
+                if namespace.database == database:
+                    del self._namespace_metadata_probes[namespace]
+
+    def registered_namespace_metadata(
+        self, namespace: NamespaceId
+    ) -> tuple[NonNegativeInt, NonNegativeInt] | None:
+        state = self._registered_namespace(namespace)
+        if state is None:
+            return None
+        with state.lock:
+            if not state.tracked:
+                return None
+            return state.epoch, state.index_generation
+
     def try_current_epoch(self, namespace: NamespaceId) -> NonNegativeInt | None:
         state = self._namespace(namespace)
         with state.lock:
@@ -488,15 +595,70 @@ class _CacheCoreNamespaceLifecycle(_CacheCoreBase):
             return state.epoch
 
     @contextmanager
-    def locked_namespace_metadata(
-        self, namespace: NamespaceId
+    def locked_namespace_metadata_after_probe(
+        self,
+        namespace: NamespaceId,
+        probe_token: NonNegativeInt,
     ) -> Generator[tuple[NonNegativeInt, NonNegativeInt] | None]:
-        state = self._namespace(namespace)
-        with state.lock:
-            if not state.tracked:
+        state = self._reserve_namespace_for_metadata_probe(namespace, probe_token)
+        try:
+            if state is None:
                 yield None
                 return
-            yield state.epoch, state.index_generation
+            with state.lock:
+                if (
+                    not self._namespace_metadata_probe_is_active(namespace, probe_token)
+                    or not state.tracked
+                ):
+                    yield None
+                    return
+                yield state.epoch, state.index_generation
+        finally:
+            self._finish_namespace_metadata_probe(namespace, probe_token)
+
+    def _reserve_namespace_for_metadata_probe(
+        self, namespace: NamespaceId, token: NonNegativeInt
+    ) -> NamespaceState | None:
+        with self._namespaces_lock:
+            self._expire_namespace_metadata_probes(time.monotonic())
+            if self._is_closed():
+                return None
+            try:
+                probe = self._namespace_metadata_probes[namespace]
+            except KeyError:
+                return None
+            if probe.token != token:
+                return None
+            try:
+                return self._namespaces[namespace]
+            except KeyError:
+                if len(self._namespaces) >= self._max_namespaces:
+                    return None
+                generation = self._next_generation()
+                state = NamespaceState(
+                    namespace=namespace,
+                    lock=NamespaceLock(self._guard),
+                    generation=generation,
+                    epoch=generation,
+                    index_generation=generation,
+                    tracked=True,
+                )
+                self._namespaces[namespace] = state
+                self._database_namespaces.setdefault(namespace.database, {})[
+                    namespace
+                ] = None
+                return state
+
+    def _namespace_metadata_probe_is_active(
+        self, namespace: NamespaceId, token: NonNegativeInt
+    ) -> bool:
+        with self._namespaces_lock:
+            self._expire_namespace_metadata_probes(time.monotonic())
+            try:
+                probe = self._namespace_metadata_probes[namespace]
+            except KeyError:
+                return False
+            return probe.token == token
 
     def current_epoch(self, namespace: NamespaceId) -> NonNegativeInt:
         epoch = self.try_current_epoch(namespace)
@@ -515,22 +677,23 @@ class _CacheCoreNamespaceLifecycle(_CacheCoreBase):
         with state.lock:
             if not _is_registered_state(state):
                 return
-            state.index_generation = self._next_generation()
+            state.index_generation = self._next_generation(
+                greater_than=state.index_generation + 1
+            )
 
     def record_write(self, namespace: NamespaceId, identity: object) -> None:
         self._ensure_active()
         identity = order_sensitive_key(identity)
         state = self._namespace(namespace)
+        observer = self._observer
         with state.lock:
-            if not _is_registered_state(state):
-                return
-            state.generation = self._next_generation()
+            state.generation += 1
             state.find_families.clear()
             if not is_canonicalizable(identity):
                 return
             canonical_identity = canonicalize(identity)
-            if self._observer is not None:
-                self._observer.identity_written(state.namespace, canonical_identity)
+            if observer is not None and state.tracked:
+                observer.identity_written(state.namespace, canonical_identity)
             try:
                 identity_state = state.identities[canonical_identity]
             except KeyError:
@@ -546,22 +709,49 @@ class _CacheCoreNamespaceLifecycle(_CacheCoreBase):
 
     def drop_namespace(self, namespace: NamespaceId) -> None:
         self._ensure_active()
-        if self.has_namespace(namespace):
-            self._bump_epoch_and_reclaim(namespace, release=True)
+        self.invalidate_namespace_metadata_probe(namespace)
+        state = self._registered_namespace(namespace)
+        if state is None:
+            return
+        self._bump_epoch_and_reclaim(namespace, release=True, expected_state=state)
+
+    def release_namespace_if_epoch_matches(
+        self, namespace: NamespaceId, epoch: NonNegativeInt
+    ) -> bool:
+        self._ensure_active()
+        state = self._registered_namespace(namespace)
+        if state is None:
+            return False
+        return self._bump_epoch_and_reclaim(
+            namespace,
+            release=True,
+            expected_state=state,
+            expected_epoch=epoch,
+        )
 
     def create_namespace(self, namespace: NamespaceId) -> None:
         self._ensure_active()
         self._bump_epoch_and_reclaim(namespace)
 
     def _bump_epoch_and_reclaim(
-        self, namespace: NamespaceId, *, release: bool = False
-    ) -> None:
-        state = self._namespace(namespace)
+        self,
+        namespace: NamespaceId,
+        *,
+        release: bool = False,
+        expected_state: NamespaceState | None = None,
+        expected_epoch: NonNegativeInt | None = None,
+    ) -> bool:
+        if expected_epoch is None:
+            self.invalidate_namespace_metadata_probe(namespace)
+        state = self._namespace(namespace) if expected_state is None else expected_state
         released = False
         with state.lock:
             if not _is_registered_state(state):
-                return
-            generation = self._next_generation()
+                return False
+            if expected_epoch is not None and state.epoch != expected_epoch:
+                return False
+            self.invalidate_namespace_metadata_probe(namespace)
+            generation = self._next_generation(greater_than=state.generation + 1)
             state.generation = generation
             state.epoch = generation
             state.index_generation = generation
@@ -580,18 +770,27 @@ class _CacheCoreNamespaceLifecycle(_CacheCoreBase):
                 if not identity_state.is_referenced:
                     del state.identities[identity]
             if release:
-                with self._namespaces_lock:
-                    del self._namespaces[namespace]
-                    state.tracked = False
-                    database_namespaces = self._database_namespaces[namespace.database]
-                    del database_namespaces[namespace]
-                    if not database_namespaces:
-                        del self._database_namespaces[namespace.database]
-                    released = True
-                    if self._observer is not None:
-                        self._observer.namespace_released(namespace, state.epoch)
+                state.tracked = False
         for entry, key in reclaimed:
             self._lru.remove_exact(key, entry)
+        if release:
+            try:
+                if self._observer is not None:
+                    self._observer.namespace_released(namespace, state.epoch)
+            finally:
+                with self._namespaces_lock:
+                    try:
+                        del self._namespaces[namespace]
+                    except KeyError:
+                        pass
+                    else:
+                        database_namespaces = self._database_namespaces[
+                            namespace.database
+                        ]
+                        del database_namespaces[namespace]
+                        if not database_namespaces:
+                            del self._database_namespaces[namespace.database]
+                        released = True
         logger.debug(
             "cache namespace reclaimed",
             extra={
@@ -601,6 +800,7 @@ class _CacheCoreNamespaceLifecycle(_CacheCoreBase):
                 "released": released,
             },
         )
+        return True
 
 
 class _CacheCoreDatabaseAvailability(_CacheCoreBase):

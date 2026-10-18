@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import datetime as dt
 import multiprocessing
 import os
 import secrets
@@ -20,11 +21,14 @@ import pytest
 from benchmarks.stream_cost.shared_cache.window import attachment_for
 from client_query_cache._core.canonical import canonicalize
 from client_query_cache._core.codec import encode_value
+from client_query_cache._core.collection_metadata import CollectionProbeResult
 from client_query_cache._core.keys import IdentityCacheKey, NamespaceId
 from client_query_cache._core.lru import WeightedLru
 from client_query_cache._core.manager import CacheCore, IdentityCapture
 from client_query_cache._core.order_sensitive_keys import order_sensitive_key
-from client_query_cache._shared import coordinator
+from client_query_cache._core.snapshots import BypassReason
+from client_query_cache._core.stream_events import route_change_event
+from client_query_cache._shared import adapters, coordinator
 from client_query_cache._shared.attachment import (
     AsyncEndpoint,
     AttachmentConfigurationError,
@@ -44,6 +48,7 @@ from client_query_cache._shared.shared_index import (
     SharedIndexLimits,
 )
 from client_query_cache._shared.wire import (
+    ProtocolError,
     decode_frame,
     encode_frame,
     encode_key,
@@ -331,8 +336,22 @@ def handshake_listener(socket_directory: Path) -> Iterator[socket.socket]:
     listener.close()
 
 
+def _metadata_for(endpoint: SyncEndpoint, namespace: NamespaceId) -> Message | None:
+    request = {"ns": [namespace.database, namespace.collection]}
+    probe = endpoint.request({"op": "metadata-probe", **request})
+    if probe is None or probe["r"] != "probe":
+        return probe
+    return endpoint.request(
+        {
+            "op": "metadata",
+            **request,
+            "probe_token": probe["probe_token"],
+        }
+    )
+
+
 def _metadata(endpoint: SyncEndpoint) -> Message | None:
-    return endpoint.request({"op": "metadata", "ns": [_DATABASE, "catalogue"]})
+    return _metadata_for(endpoint, NamespaceId(_DATABASE, "catalogue"))
 
 
 def test_failed_stream_activation_bypasses_and_retries(
@@ -409,6 +428,7 @@ def test_selection_reports_unavailable_streams_and_stale_epochs(
     owner: SharedCacheOwner, endpoints: Callable[[SharedCacheOwner], SyncEndpoint]
 ) -> None:
     _activate(owner)
+    assert owner.core.try_current_epoch(NamespaceId(_DATABASE, "catalogue")) is not None
     endpoint = endpoints(owner)
 
     stale = endpoint.request(_select_find(epoch=7))
@@ -419,6 +439,22 @@ def test_selection_reports_unavailable_streams_and_stale_epochs(
     assert stale["r"] == "refresh"
     assert unavailable is not None
     assert unavailable["reason"] == "stream-unavailable"
+
+
+def test_stale_request_does_not_recreate_a_dropped_namespace(session: _Session) -> None:
+    _activate(session.owner)
+    namespace = NamespaceId(_DATABASE, "dropped")
+    old_epoch = session.owner.core.try_current_epoch(namespace)
+    assert old_epoch is not None
+
+    session.owner.core.drop_namespace(namespace)
+    reply = session.endpoint.request(_select_find(ns=list(namespace), epoch=old_epoch))
+
+    assert reply is not None
+    assert reply["r"] == "refresh"
+    assert reply["epoch"] == 0
+    assert reply["index_generation"] == 0
+    assert not session.owner.core.has_namespace(namespace)
 
 
 @pytest.mark.parametrize(
@@ -434,6 +470,7 @@ def test_invalid_requests_after_the_gate_detach_the_peer(
     message: Message,
 ) -> None:
     _activate(owner)
+    assert owner.core.try_current_epoch(NamespaceId(_DATABASE, "catalogue")) is not None
     peer = peers(owner)
 
     peer.sendall(encode_frame({"v": 1, "id": 2, **message}))
@@ -478,6 +515,7 @@ def test_capture_expiry_releases_handles_of_each_session(
     owner: SharedCacheOwner, endpoints: Callable[[SharedCacheOwner], SyncEndpoint]
 ) -> None:
     _activate(owner)
+    assert owner.core.try_current_epoch(NamespaceId(_DATABASE, "catalogue")) is not None
     sessions = [endpoints(owner) for _ in range(2)]
 
     replies = [endpoint.request(_select_find()) for endpoint in sessions]
@@ -493,6 +531,7 @@ def test_a_reply_larger_than_the_send_buffer_is_flushed_in_parts(
     faker: Faker,
 ) -> None:
     _activate(owner)
+    assert owner.core.try_current_epoch(NamespaceId(_DATABASE, "catalogue")) is not None
     peer = peers(owner)
     (connection,) = owner._connections.values()
     connection.sock.setsockopt(
@@ -824,7 +863,7 @@ def test_namespaces_beyond_the_slot_capacity_bypass_without_retention(
     session: _Session,
 ) -> None:
     other = NamespaceId(_DATABASE, "other")
-    metadata = session.endpoint.request({"op": "metadata", "ns": list(other)})
+    metadata = _metadata_for(session.endpoint, other)
     assert metadata is not None
     assert metadata["r"] == "bypass"
     assert metadata["reason"] == "namespace_capacity"
@@ -855,17 +894,40 @@ def test_metadata_slot_assignment_is_serialized_with_namespace_drop(
     assert publisher is not None
     namespace = NamespaceId(_DATABASE, "first")
     replacement = NamespaceId(_DATABASE, "replacement")
-    request: Message = {
-        "op": "metadata",
-        "ns": [namespace.database, namespace.collection],
-    }
     with socket.socket() as sock:
         connection = coordinator._Connection(sock)
         connection.session = 1
+        probe = shared_owner._handle_request(
+            connection,
+            {
+                "op": "metadata-probe",
+                "ns": [namespace.database, namespace.collection],
+            },
+            time.monotonic(),
+        )
+        assert probe is not None
+        assert probe["r"] == "probe"
+        request: Message = {
+            "op": "metadata",
+            "ns": [namespace.database, namespace.collection],
+            "probe_token": probe["probe_token"],
+        }
         first = shared_owner._handle_request(connection, request, time.monotonic())
         assert first is not None
         assert first["r"] == "ok"
         first_slot = first["slot"]
+
+        repeated_probe = shared_owner._handle_request(
+            connection,
+            {
+                "op": "metadata-probe",
+                "ns": [namespace.database, namespace.collection],
+            },
+            time.monotonic(),
+        )
+        assert repeated_probe is not None
+        assert repeated_probe["r"] == "probe"
+        request["probe_token"] = repeated_probe["probe_token"]
 
         assignment_started = threading.Event()
         resume_assignment = threading.Event()
@@ -913,11 +975,22 @@ def test_metadata_slot_assignment_is_serialized_with_namespace_drop(
         assert metadata_replies[0] is not None
         assert metadata_replies[0]["r"] == "ok"
 
+        replacement_probe = shared_owner._handle_request(
+            connection,
+            {
+                "op": "metadata-probe",
+                "ns": [replacement.database, replacement.collection],
+            },
+            time.monotonic(),
+        )
+        assert replacement_probe is not None
+        assert replacement_probe["r"] == "probe"
         replacement_reply = shared_owner._handle_request(
             connection,
             {
                 "op": "metadata",
                 "ns": [replacement.database, replacement.collection],
+                "probe_token": replacement_probe["probe_token"],
             },
             time.monotonic(),
         )
@@ -925,6 +998,429 @@ def test_metadata_slot_assignment_is_serialized_with_namespace_drop(
     assert replacement_reply is not None
     assert replacement_reply["r"] == "ok"
     assert replacement_reply["slot"] == first_slot
+
+
+@pytest.mark.parametrize("shared_owner", [{"namespaces": 1}], indirect=True)
+def test_stale_metadata_probe_cannot_reregister_a_dropped_namespace(
+    shared_owner: SharedCacheOwner,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def allow_database(
+        _owner: SharedCacheOwner, _database: str, _now: NonNegativeFloat
+    ) -> None:
+        return None
+
+    monkeypatch.setattr(SharedCacheOwner, "_gate", allow_database)
+    stale_namespace = NamespaceId(_DATABASE, "stale")
+    active_namespace = NamespaceId(_DATABASE, "active")
+    assert shared_owner.core.try_current_epoch(stale_namespace) is not None
+
+    with socket.socket() as sock:
+        connection = coordinator._Connection(sock)
+        connection.session = 1
+        probe = shared_owner._handle_request(
+            connection,
+            {
+                "op": "metadata-probe",
+                "ns": [stale_namespace.database, stale_namespace.collection],
+            },
+            time.monotonic(),
+        )
+        assert probe is not None
+        assert probe["r"] == "probe"
+
+        shared_owner.core.drop_namespace(stale_namespace)
+        assert shared_owner.core.try_current_epoch(active_namespace) is not None
+        stale_metadata = shared_owner._handle_request(
+            connection,
+            {
+                "op": "metadata",
+                "ns": [stale_namespace.database, stale_namespace.collection],
+                "probe_token": probe["probe_token"],
+            },
+            time.monotonic(),
+        )
+
+    assert stale_metadata == {
+        "r": "bypass",
+        "reason": BypassReason.METADATA_UNAVAILABLE.value,
+    }
+    assert not shared_owner.core.has_namespace(stale_namespace)
+    assert shared_owner.core.has_namespace(active_namespace)
+    assert len(shared_owner.core._namespaces) == 1
+
+
+def test_metadata_cancel_releases_a_probe_reservation(
+    shared_owner: SharedCacheOwner,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def allow_database(
+        _owner: SharedCacheOwner, _database: str, _now: NonNegativeFloat
+    ) -> None:
+        return None
+
+    monkeypatch.setattr(SharedCacheOwner, "_gate", allow_database)
+    abandoned = NamespaceId(_DATABASE, "abandoned")
+    available = NamespaceId(_DATABASE, "available")
+
+    with socket.socket() as sock:
+        connection = coordinator._Connection(sock)
+        connection.session = 1
+        probe = shared_owner._handle_request(
+            connection,
+            {"op": "metadata-probe", "ns": list(abandoned)},
+            time.monotonic(),
+        )
+        assert probe is not None
+        assert probe["r"] == "probe"
+        cancelled = shared_owner._handle_request(
+            connection,
+            {
+                "op": "metadata-cancel",
+                "ns": list(abandoned),
+                "probe_token": probe["probe_token"],
+            },
+            time.monotonic(),
+        )
+        available_probe = shared_owner._handle_request(
+            connection,
+            {"op": "metadata-probe", "ns": list(available)},
+            time.monotonic(),
+        )
+
+    assert cancelled == {"r": "ok"}
+    assert available_probe is not None
+    assert available_probe["r"] == "probe"
+    assert len(shared_owner.core._namespace_metadata_probes) == 1
+    available_token = available_probe["probe_token"]
+    assert isinstance(available_token, int)
+    shared_owner.core.cancel_namespace_metadata_probe(available, available_token)
+
+
+@pytest.mark.parametrize("shared_owner", [{"namespaces": 1}], indirect=True)
+def test_gate_bypass_releases_only_its_metadata_probe_request(
+    shared_owner: SharedCacheOwner,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    gate_open = True
+
+    def toggle_database(
+        _owner: SharedCacheOwner, _database: str, _now: NonNegativeFloat
+    ) -> str | None:
+        return None if gate_open else "stream-unavailable"
+
+    monkeypatch.setattr(SharedCacheOwner, "_gate", toggle_database)
+    namespace = NamespaceId(_DATABASE, "gated-probe")
+    replacement = NamespaceId(_DATABASE, "after-gate-bypass")
+
+    with socket.socket() as sock:
+        connection = coordinator._Connection(sock)
+        connection.session = 1
+        probes = [
+            shared_owner._handle_request(
+                connection,
+                {"op": "metadata-probe", "ns": list(namespace)},
+                time.monotonic(),
+            )
+            for _ in range(2)
+        ]
+        assert all(probe is not None and probe["r"] == "probe" for probe in probes)
+        first_probe, second_probe = probes
+        assert first_probe is not None
+        assert second_probe is not None
+        assert first_probe["probe_token"] == second_probe["probe_token"]
+
+        gate_open = False
+        blocked = shared_owner._handle_request(
+            connection,
+            {
+                "op": "metadata",
+                "ns": list(namespace),
+                "probe_token": first_probe["probe_token"],
+            },
+            time.monotonic(),
+        )
+        missing_token = shared_owner._handle_request(
+            connection,
+            {"op": "metadata", "ns": list(namespace)},
+            time.monotonic(),
+        )
+        invalid_token = shared_owner._handle_request(
+            connection,
+            {"op": "metadata", "ns": list(namespace), "probe_token": True},
+            time.monotonic(),
+        )
+        active_probe = shared_owner.core._namespace_metadata_probes[namespace]
+        assert active_probe.active_requests == 1
+
+        gate_open = True
+        admitted = shared_owner._handle_request(
+            connection,
+            {
+                "op": "metadata",
+                "ns": list(namespace),
+                "probe_token": second_probe["probe_token"],
+            },
+            time.monotonic(),
+        )
+        shared_owner.core.drop_namespace(namespace)
+        replacement_probe = shared_owner._handle_request(
+            connection,
+            {"op": "metadata-probe", "ns": list(replacement)},
+            time.monotonic(),
+        )
+        assert replacement_probe is not None
+        assert replacement_probe["r"] == "probe"
+        replacement_admission = shared_owner._handle_request(
+            connection,
+            {
+                "op": "metadata",
+                "ns": list(replacement),
+                "probe_token": replacement_probe["probe_token"],
+            },
+            time.monotonic(),
+        )
+
+    assert blocked == {"r": "bypass", "reason": "stream-unavailable"}
+    assert missing_token == {"r": "bypass", "reason": "stream-unavailable"}
+    assert invalid_token == {"r": "bypass", "reason": "stream-unavailable"}
+    assert admitted is not None
+    assert admitted["r"] == "ok"
+    assert replacement_admission is not None
+    assert replacement_admission["r"] == "ok"
+    assert shared_owner.core.has_namespace(replacement)
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        pytest.param({}, id="missing"),
+        pytest.param({"probe_token": True}, id="boolean"),
+        pytest.param({"probe_token": -1}, id="negative"),
+    ],
+)
+def test_metadata_cancel_rejects_invalid_probe_tokens(
+    shared_owner: SharedCacheOwner,
+    fields: dict[str, object],
+) -> None:
+    with socket.socket() as sock:
+        connection = coordinator._Connection(sock)
+        connection.session = 1
+        with pytest.raises(ProtocolError, match="metadata probe token"):
+            shared_owner._handle_request(
+                connection,
+                {"op": "metadata-cancel", "ns": [_DATABASE, "cancel"], **fields},
+                time.monotonic(),
+            )
+
+
+@pytest.mark.parametrize("shared_owner", [{"namespaces": 1}], indirect=True)
+def test_drop_of_an_untracked_probe_releases_metadata_probe_capacity(
+    shared_owner: SharedCacheOwner,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def allow_database(
+        _owner: SharedCacheOwner, _database: str, _now: NonNegativeFloat
+    ) -> None:
+        return None
+
+    monkeypatch.setattr(SharedCacheOwner, "_gate", allow_database)
+    stale_namespace = NamespaceId(_DATABASE, "stale-untracked")
+    active_namespace = NamespaceId(_DATABASE, "active-after-drop")
+
+    with socket.socket() as sock:
+        connection = coordinator._Connection(sock)
+        connection.session = 1
+        probe = shared_owner._handle_request(
+            connection,
+            {
+                "op": "metadata-probe",
+                "ns": [stale_namespace.database, stale_namespace.collection],
+            },
+            time.monotonic(),
+        )
+        assert probe is not None
+        assert probe["r"] == "probe"
+
+        route_change_event(
+            shared_owner.core,
+            _DATABASE,
+            {
+                "operationType": "drop",
+                "ns": {
+                    "db": stale_namespace.database,
+                    "coll": stale_namespace.collection,
+                },
+                "wallTime": dt.datetime.now(dt.UTC),
+            },
+        )
+        stale_metadata = shared_owner._handle_request(
+            connection,
+            {
+                "op": "metadata",
+                "ns": [stale_namespace.database, stale_namespace.collection],
+                "probe_token": probe["probe_token"],
+            },
+            time.monotonic(),
+        )
+        active_probe = shared_owner._handle_request(
+            connection,
+            {
+                "op": "metadata-probe",
+                "ns": [active_namespace.database, active_namespace.collection],
+            },
+            time.monotonic(),
+        )
+        assert active_probe is not None
+        assert active_probe["r"] == "probe"
+        active_metadata = shared_owner._handle_request(
+            connection,
+            {
+                "op": "metadata",
+                "ns": [active_namespace.database, active_namespace.collection],
+                "probe_token": active_probe["probe_token"],
+            },
+            time.monotonic(),
+        )
+
+    assert stale_metadata == {
+        "r": "bypass",
+        "reason": BypassReason.METADATA_UNAVAILABLE.value,
+    }
+    assert active_metadata is not None
+    assert active_metadata["r"] == "ok"
+    assert not shared_owner.core.has_namespace(stale_namespace)
+    assert shared_owner.core.has_namespace(active_namespace)
+    assert len(shared_owner.core._namespaces) == 1
+
+
+@pytest.mark.parametrize("shared_owner", [{"namespaces": 2}], indirect=True)
+def test_independent_concurrent_metadata_probes_can_both_be_admitted(
+    shared_owner: SharedCacheOwner,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def allow_database(
+        _owner: SharedCacheOwner, _database: str, _now: NonNegativeFloat
+    ) -> None:
+        return None
+
+    monkeypatch.setattr(SharedCacheOwner, "_gate", allow_database)
+    first_namespace = NamespaceId(_DATABASE, "first-cold")
+    second_namespace = NamespaceId(_DATABASE, "second-cold")
+
+    with socket.socket() as sock:
+        connection = coordinator._Connection(sock)
+        connection.session = 1
+        first_probe = shared_owner._handle_request(
+            connection,
+            {
+                "op": "metadata-probe",
+                "ns": [first_namespace.database, first_namespace.collection],
+            },
+            time.monotonic(),
+        )
+        second_probe = shared_owner._handle_request(
+            connection,
+            {
+                "op": "metadata-probe",
+                "ns": [second_namespace.database, second_namespace.collection],
+            },
+            time.monotonic(),
+        )
+        assert first_probe is not None
+        assert first_probe["r"] == "probe"
+        assert second_probe is not None
+        assert second_probe["r"] == "probe"
+        first_metadata = shared_owner._handle_request(
+            connection,
+            {
+                "op": "metadata",
+                "ns": [first_namespace.database, first_namespace.collection],
+                "probe_token": first_probe["probe_token"],
+            },
+            time.monotonic(),
+        )
+        second_metadata = shared_owner._handle_request(
+            connection,
+            {
+                "op": "metadata",
+                "ns": [second_namespace.database, second_namespace.collection],
+                "probe_token": second_probe["probe_token"],
+            },
+            time.monotonic(),
+        )
+
+    assert first_metadata is not None
+    assert first_metadata["r"] == "ok"
+    assert second_metadata is not None
+    assert second_metadata["r"] == "ok"
+    assert shared_owner.core.has_namespace(first_namespace)
+    assert shared_owner.core.has_namespace(second_namespace)
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        pytest.param({}, id="probe-token-missing"),
+        pytest.param({"probe_token": True}, id="probe-token-bool"),
+        pytest.param({"probe_token": -1}, id="probe-token-negative"),
+    ],
+)
+def test_metadata_request_rejects_invalid_probe_tokens(
+    shared_owner: SharedCacheOwner,
+    monkeypatch: pytest.MonkeyPatch,
+    fields: dict[str, object],
+) -> None:
+    def allow_database(
+        _owner: SharedCacheOwner, _database: str, _now: NonNegativeFloat
+    ) -> None:
+        return None
+
+    monkeypatch.setattr(SharedCacheOwner, "_gate", allow_database)
+    request: Message = {
+        "op": "metadata",
+        "ns": [_DATABASE, "invalid-metadata"],
+    }
+    request.update(fields)
+    with socket.socket() as sock:
+        connection = coordinator._Connection(sock)
+        connection.session = 1
+        with pytest.raises(ProtocolError):
+            shared_owner._handle_request(connection, request, time.monotonic())
+
+
+@pytest.mark.parametrize(
+    ("probe_result", "expected"),
+    [
+        pytest.param(None, BypassReason.METADATA_UNAVAILABLE, id="probe-failed"),
+        pytest.param(
+            CollectionProbeResult(BypassReason.MISSING_COLLECTION, None),
+            BypassReason.MISSING_COLLECTION,
+            id="missing-collection",
+        ),
+    ],
+)
+def test_metadata_uses_collection_probe_bypass_even_when_owner_admits(
+    probe_result: CollectionProbeResult | None,
+    expected: BypassReason,
+) -> None:
+    assert adapters._metadata({"r": "ok"}, probe_result) is expected
+
+
+def test_metadata_reply_translates_owner_unavailability_and_capacity() -> None:
+    assert adapters._metadata(None, None) == adapters.OWNER_UNAVAILABLE
+    assert (
+        adapters._metadata({"r": "bypass", "reason": "namespace_capacity"}, None)
+        == "namespace_capacity"
+    )
+
+
+@pytest.mark.parametrize("token", [True, -1, "0"])
+def test_metadata_probe_token_parser_rejects_invalid_values(
+    token: object,
+) -> None:
+    with pytest.raises(ProtocolError, match="metadata probe token"):
+        adapters._metadata_probe_token({"probe_token": token})
 
 
 def test_find_admissions_are_not_published(session: _Session, faker: Faker) -> None:
@@ -936,6 +1432,37 @@ def test_find_admissions_are_not_published(session: _Session, faker: Faker) -> N
 
     wait_for(lambda: session.owner.counters.admitted == 1)
     assert _index_stats(session.owner)["published"] == 0
+
+
+@pytest.mark.parametrize(
+    "lifecycle_change", ["clear", "create"], ids=["clear", "create"]
+)
+def test_shared_find_admission_after_write_and_lifecycle_change_is_rejected(
+    session: _Session,
+    lifecycle_change: str,
+) -> None:
+    reply = session.endpoint.request(_select_find(epoch=session.epoch))
+    assert reply is not None
+    assert reply["r"] == "miss"
+    rejected_before = session.owner.counters.rejected_admissions
+
+    session.owner.core.record_write(_NAMESPACE, "written")
+    if lifecycle_change == "clear":
+        session.owner.core.clear_namespace(_NAMESPACE)
+    else:
+        session.owner.core.create_namespace(_NAMESPACE)
+
+    session.endpoint.send(
+        {
+            "op": "admit",
+            "handle": reply["handle"],
+            "value": encode_value({"revision": "stale"}),
+        }
+    )
+    wait_for(lambda: session.owner.counters.rejected_admissions > rejected_before)
+
+    assert session.owner.core.snapshot().entry_count == 0
+    assert not session.owner._handles
 
 
 @pytest.mark.parametrize(

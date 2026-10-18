@@ -37,6 +37,7 @@ if TYPE_CHECKING:
     from pymongo.synchronous.database import Database
 
     from client_query_cache._core.manager import CacheCore
+    from client_query_cache._core.namespace_metadata import NamespaceMetadataCache
 
 
 logger = logging.getLogger(__name__)
@@ -51,6 +52,7 @@ class DatabaseStreamSupervisor:
         "_health_lock",
         "_lifecycle_lock",
         "_max_await_time_ms",
+        "_metadata_cache",
         "_resume_token",
         "_stop_event",
         "_stream",
@@ -62,11 +64,13 @@ class DatabaseStreamSupervisor:
         database: Database[Any],
         cache: CacheCore,
         *,
+        metadata_cache: NamespaceMetadataCache[Any] | None = None,
         backoff: RetryBackoff | None = None,
         max_await_time_ms: MaxAwaitTimeMs = DEFAULT_MAX_AWAIT_TIME_MS,
     ) -> None:
         self._database = database
         self._cache = cache
+        self._metadata_cache = metadata_cache
         self._backoff = backoff if backoff is not None else RetryBackoff()
         self._max_await_time_ms = max_await_time_ms
         self._health = StreamHealth.STARTING
@@ -197,7 +201,12 @@ class DatabaseStreamSupervisor:
                 self._handle_stream_failure()
                 continue
             self._resume_token = self._stream.resume_token
-            must_reopen = route_change_event(self._cache, self._database.name, event)
+            must_reopen = route_change_event(
+                self._cache,
+                self._database.name,
+                event,
+                metadata_cache=self._metadata_cache,
+            )
             self._record_logical_event_bytes(event)
             if must_reopen:
                 self._reopen_after_invalidate()
@@ -255,6 +264,8 @@ class DatabaseStreamSupervisor:
                 return
 
     def _clear_namespaces_for_database(self) -> None:
+        if self._metadata_cache is not None:
+            self._metadata_cache.remove_database(self._database.name)
         for namespace in self._cache.namespaces_for_database(self._database.name):
             self._cache.clear_namespace(namespace)
         self._cache.reset_stream_cost_statistics(self._database.name)
@@ -269,6 +280,7 @@ class ChangeStreamCoordinator:
         "_health_registry",
         "_lock",
         "_max_await_time_ms",
+        "_metadata_cache",
         "_shutdown_complete",
         "_supervisors",
     )
@@ -278,11 +290,13 @@ class ChangeStreamCoordinator:
         client: MongoClient[Any],
         cache: CacheCore,
         *,
+        metadata_cache: NamespaceMetadataCache[Any] | None = None,
         max_await_time_ms: MaxAwaitTimeMs = DEFAULT_MAX_AWAIT_TIME_MS,
     ) -> None:
         self._client = client
         self._max_await_time_ms = max_await_time_ms
         self._cache = cache
+        self._metadata_cache = metadata_cache
         self._activations: dict[
             str, StreamActivation[DatabaseStreamSupervisor, threading.Event]
         ] = {}
@@ -311,6 +325,7 @@ class ChangeStreamCoordinator:
             supervisor = DatabaseStreamSupervisor(
                 self._client[name],
                 self._cache,
+                metadata_cache=self._metadata_cache,
                 max_await_time_ms=self._max_await_time_ms,
             )
             if activation is None:

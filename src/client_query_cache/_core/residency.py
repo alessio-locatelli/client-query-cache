@@ -19,9 +19,8 @@ class CacheObserver(Protocol):
 
     def epoch_changed(self, namespace: NamespaceId, epoch: NonNegativeInt) -> None: ...
 
-    def namespace_released(
-        self, namespace: NamespaceId, epoch: NonNegativeInt
-    ) -> None: ...
+    def namespace_released(self, namespace: NamespaceId, epoch: NonNegativeInt) -> None:
+        """Notify without core locks while capacity stays reserved until return."""
 
     def availability_changed(self, database: str, *, available: bool) -> None: ...
 
