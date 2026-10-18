@@ -76,8 +76,10 @@ class _FakeMongoClient:
 class _StubHelloClient(_FakeMongoClient):
     __slots__ = ()
 
-    @staticmethod
-    def command(name: str, *_args: object, **_kwargs: object) -> BsonDict:
+    # Implements the fake client's admin API without reading instance state.
+    def command(  # noqa: PLR6301
+        self, name: str, *_args: object, **_kwargs: object
+    ) -> BsonDict:
         if name == "hello":
             return {"isWritablePrimary": False}
         return {}
@@ -150,12 +152,14 @@ class _FakeDockerContainer:
             raise self._fail_start_exception("start failed")
         return self
 
-    @staticmethod
-    def get_container_host_ip() -> str:
+    # Implements Docker container API methods with fixed test values.
+    def get_container_host_ip(self) -> str:  # noqa: PLR6301
         return "127.0.0.1"
 
-    @staticmethod
-    def get_exposed_port(port: NonNegativeInt) -> NonNegativeInt:
+    # Implements the fake container's port mapping API without instance state.
+    def get_exposed_port(  # noqa: PLR6301
+        self, port: NonNegativeInt
+    ) -> NonNegativeInt:
         return port
 
     def stop(self) -> None:
@@ -472,8 +476,10 @@ def test_await_writable_primary_retries_transient_hello_errors(
 class _UnreachablePingClient(_FakeMongoClient):
     __slots__ = ()
 
-    @staticmethod
-    def command(_name: str, *_args: object, **_kwargs: object) -> BsonDict:
+    # Implements the fake client's admin API for an unreachable server.
+    def command(  # noqa: PLR6301
+        self, _name: str, *_args: object, **_kwargs: object
+    ) -> BsonDict:
         raise PyMongoError("unreachable")
 
 
