@@ -1423,15 +1423,22 @@ def test_metadata_probe_token_parser_rejects_invalid_values(
         adapters._metadata_probe_token({"probe_token": token})
 
 
-def test_find_admissions_are_not_published(session: _Session, faker: Faker) -> None:
-    reply = session.endpoint.request(_select_find())
+@pytest.mark.parametrize(
+    ("limit", "published"),
+    [(0, 0), (-1, 0), (1, 1)],
+    ids=["unbounded", "negative", "bounded"],
+)
+def test_only_positive_limit_find_admissions_are_published(
+    session: _Session, faker: Faker, limit: int, published: NonNegativeInt
+) -> None:
+    reply = session.endpoint.request(_select_find(limit=limit))
     assert reply is not None
     session.endpoint.send(
         {"op": "admit", "handle": reply["handle"], "value": faker.binary(length=64)}
     )
 
     wait_for(lambda: session.owner.counters.admitted == 1)
-    assert _index_stats(session.owner)["published"] == 0
+    assert _index_stats(session.owner)["published"] == published
 
 
 @pytest.mark.parametrize(

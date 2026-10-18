@@ -690,6 +690,8 @@ class _CacheCoreNamespaceLifecycle(_CacheCoreBase):
             state.generation += 1
             state.find_families.clear()
             if not is_canonicalizable(identity):
+                if observer is not None and state.tracked:
+                    observer.namespace_written(state.namespace)
                 return
             canonical_identity = canonicalize(identity)
             if observer is not None and state.tracked:

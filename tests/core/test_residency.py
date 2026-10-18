@@ -77,6 +77,11 @@ class RecordingObserver:
             locked=self._namespace_locked(namespace),
         )
 
+    def namespace_written(self, namespace: NamespaceId) -> None:
+        self._record(
+            "namespace_written", namespace, locked=self._namespace_locked(namespace)
+        )
+
     def epoch_changed(self, namespace: NamespaceId, epoch: NonNegativeInt) -> None:
         self._record(
             "epoch_changed",
@@ -214,6 +219,11 @@ def _untracked_identity_write(scenario: Scenario) -> list[Event]:
     return [("identity_written", (scenario.namespace, canonicalize(identity)))]
 
 
+def _uncanonicalizable_identity_write(scenario: Scenario) -> list[Event]:
+    scenario.core.record_write(scenario.namespace, float("nan"))
+    return [("namespace_written", scenario.namespace)]
+
+
 def _availability_change(scenario: Scenario) -> list[Event]:
     scenario.core.set_database_available(scenario.namespace.database, available=False)
     return [("availability_changed", (scenario.namespace.database, False))]
@@ -230,6 +240,9 @@ def _availability_change(scenario: Scenario) -> list[Event]:
         pytest.param(_clear_all, id="clear-all"),
         pytest.param(_identity_write, id="identity-write"),
         pytest.param(_untracked_identity_write, id="untracked-identity-write"),
+        pytest.param(
+            _uncanonicalizable_identity_write, id="uncanonicalizable-identity-write"
+        ),
         pytest.param(_namespace_reset, id="namespace-reset"),
         pytest.param(_availability_change, id="availability-change"),
     ],

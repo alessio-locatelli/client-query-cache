@@ -63,6 +63,7 @@ class IndexPublisher:
         "_capacity",
         "_databases",
         "_epochs",
+        "_finds",
         "_free_slots",
         "_identities",
         "_index",
@@ -88,8 +89,9 @@ class IndexPublisher:
         self._epochs: dict[NamespaceId, NonNegativeInt] = {}
         self._free_slots: list[NonNegativeInt] = []
         self._next_slot: NonNegativeInt = 0
-        self._published: dict[Payload, tuple[int, NamespaceId, Canonical]] = {}
+        self._published: dict[Payload, tuple[int, CacheKey]] = {}
         self._identities: dict[tuple[NamespaceId, Canonical], set[Payload]] = {}
+        self._finds: dict[NamespaceId, set[Payload]] = {}
         self._tokens: dict[int, CacheKey] = {}
         self._shapes = KeyCache(_SHAPE_KEYS)
         self._lock = threading.Lock()
@@ -140,50 +142,86 @@ class IndexPublisher:
 
     def admitted(self, key: CacheKey, entry: CacheEntry) -> None:
         payload = entry.value
-        if not isinstance(key, IdentityCacheKey) or not isinstance(payload, Payload):
+        if not isinstance(payload, Payload):
+            return
+        if not isinstance(key, IdentityCacheKey) and (
+            entry.find_source is None or entry.find_source.limit <= 0
+        ):
             return
         with self._lock:
             try:
                 namespace = self._namespaces[key.namespace]
             except KeyError:
                 return
+            if isinstance(key, IdentityCacheKey):
+                identity = encode_key(key.identity)
+                shape = self._shapes.encode(key.read_shape)
+            else:
+                identity = b""
+                shape = self._shapes.encode(key.discriminator)
             token = self._index.publish(
                 namespace.database,
                 namespace.namespace,
-                entry.generation_key[0],
-                encode_key(key.identity),
-                self._shapes.encode(key.read_shape),
+                self._epochs[key.namespace],
+                identity,
+                shape,
                 payload,
             )
             if token is None:
                 return
-            self._published[payload] = (token, key.namespace, key.identity)
-            self._identities.setdefault((key.namespace, key.identity), set()).add(
-                payload
-            )
+            self._published[payload] = (token, key)
+            if isinstance(key, IdentityCacheKey):
+                self._identities.setdefault((key.namespace, key.identity), set()).add(
+                    payload
+                )
+            else:
+                self._finds.setdefault(key.namespace, set()).add(payload)
             self._tokens[token] = key
 
-    def _forget(self, payload: Payload) -> tuple[NamespaceId, Canonical] | None:
+    def _forget(self, payload: Payload) -> CacheKey | None:
         try:
-            token, namespace, identity = self._published.pop(payload)
+            token, key = self._published.pop(payload)
         except KeyError:
             return None
         self._index.unpublish(payload)
         del self._tokens[token]
-        return namespace, identity
+        return key
 
     def removed(self, _key: CacheKey, entry: CacheEntry) -> None:
         payload = entry.value
         if not isinstance(payload, Payload):
             return
         with self._lock:
-            identity = self._forget(payload)
-            if identity is None:
+            key = self._forget(payload)
+            if key is None:
                 return
-            members = self._identities[identity]
+            if isinstance(key, IdentityCacheKey):
+                members = self._identities[key.namespace, key.identity]
+            else:
+                members = self._finds[key.namespace]
             members.discard(payload)
             if not members:
-                del self._identities[identity]
+                if isinstance(key, IdentityCacheKey):
+                    del self._identities[key.namespace, key.identity]
+                else:
+                    del self._finds[key.namespace]
+
+    def _invalidate_finds(self, namespace: NamespaceId) -> None:
+        try:
+            payloads = self._finds.pop(namespace)
+        except KeyError:
+            return
+        for payload in payloads:
+            self._forget(payload)
+
+    def namespace_written(self, namespace: NamespaceId) -> None:
+        with self._lock:
+            try:
+                slot = self._namespaces[namespace]
+            except KeyError:
+                return
+            self._index.record_write(slot.namespace)
+            self._invalidate_finds(namespace)
 
     def identity_written(self, namespace: NamespaceId, identity: Canonical) -> None:
         with self._lock:
@@ -192,6 +230,7 @@ class IndexPublisher:
             except KeyError:
                 return
             self._index.record_write(slot.namespace)
+            self._invalidate_finds(namespace)
             try:
                 payloads = self._identities.pop((namespace, identity))
             except KeyError:

@@ -299,7 +299,9 @@ def _identity_message(view: View, keys: tuple[bytes, bytes] | str) -> Message | 
     )
 
 
-def _local_select(view: View, keys: tuple[bytes, bytes] | str) -> object:
+def _local_select(
+    view: View, keys: tuple[bytes, bytes] | str, *, capture_miss: bool = True
+) -> object:
     shared = view._shared
     local = shared.local
     if local is None or isinstance(keys, str):
@@ -322,6 +324,8 @@ def _local_select(view: View, keys: tuple[bytes, bytes] | str) -> object:
     if payload is None:
         if local.reader.detached:
             shared._reattach = True
+            return NO_LOCAL_HIT
+        if not capture_miss:
             return NO_LOCAL_HIT
         if not local.admissions_enabled and not shared.endpoint.connected:
             return NO_LOCAL_HIT
@@ -373,6 +377,21 @@ def _find_message(cursor: Cursor, shape: FindReadShape) -> Message | str:
         family=family,
         limit=shape.limit,
     )
+
+
+def _local_find(cursor: Cursor, shape: FindReadShape) -> bool:
+    if cursor._shared.local is None or shape.limit <= 0:
+        return False
+    try:
+        key = cursor._shared.keys.encode(canonicalize(shape.discriminator))
+    except UnportableKeyError:
+        return False
+    documents = _local_select(cursor._view, (b"", key), capture_miss=False)
+    if documents is NO_LOCAL_HIT:
+        return False
+    assert isinstance(documents, list)
+    _apply_find_hit(cursor, documents, shape.limit)
+    return True
 
 
 def _prepare_find_shape(
@@ -450,12 +469,7 @@ def _apply_find_reply(
             reply["value"],  # type: ignore[arg-type]
             cursor._codec_options,
         )
-        if shape.limit > 0:
-            documents = documents[: shape.limit]
-        cursor._data = deque(documents)
-        cursor._retrieved = len(documents)
-        cursor._id = 0
-        cursor._killed = True
+        _apply_find_hit(cursor, documents, shape.limit)
         return
     if outcome != "miss":
         return
@@ -474,6 +488,15 @@ def _apply_find_reply(
     forced = cursor._view._forced_collection_handle()
     cursor._read_concern = forced.read_concern
     cursor._read_preference = forced.read_preference
+
+
+def _apply_find_hit(cursor: Cursor, documents: list[Any], limit: int) -> None:
+    if limit > 0 and len(documents) > limit:
+        documents = documents[:limit]
+    cursor._data = deque(documents)
+    cursor._retrieved = len(documents)
+    cursor._id = 0
+    cursor._killed = True
 
 
 def _identity_outcome(
@@ -550,6 +573,8 @@ def _default_identity_request(
 class SharedCachedCursor[DocumentType: Mapping[str, Any]](
     sync_cursors.CachedCursor[DocumentType]
 ):
+    _view: SharedCachedCollection[DocumentType]
+
     def __init__(
         self,
         view: SharedCachedCollection[DocumentType],
@@ -567,6 +592,8 @@ class SharedCachedCursor[DocumentType: Mapping[str, Any]](
             reason = self._view._cache_ineligibility_reason()
         if reason is not None:
             self._shared.observation.record_bypass(reason)
+            return
+        if _local_find(self, shape):
             return
         message = _find_message(self, shape)
         if isinstance(message, str):
@@ -586,6 +613,8 @@ class SharedCachedCursor[DocumentType: Mapping[str, Any]](
 class AsyncSharedCachedCursor[DocumentType: Mapping[str, Any]](
     async_cursors.CachedCursor[DocumentType]
 ):
+    _view: AsyncSharedCachedCollection[DocumentType]
+
     def __init__(
         self,
         view: AsyncSharedCachedCollection[DocumentType],
@@ -603,6 +632,8 @@ class AsyncSharedCachedCursor[DocumentType: Mapping[str, Any]](
             reason = await self._view._cache_ineligibility_reason()
         if reason is not None:
             self._shared.observation.record_bypass(reason)
+            return
+        if _local_find(self, shape):
             return
         message = _find_message(self, shape)
         if isinstance(message, str):
