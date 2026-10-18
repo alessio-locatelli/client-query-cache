@@ -144,10 +144,6 @@ class IndexPublisher:
         payload = entry.value
         if not isinstance(payload, Payload):
             return
-        if not isinstance(key, IdentityCacheKey) and (
-            entry.find_source is None or entry.find_source.limit <= 0
-        ):
-            return
         with self._lock:
             try:
                 namespace = self._namespaces[key.namespace]

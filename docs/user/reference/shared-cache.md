@@ -1,6 +1,6 @@
 # Shared cache API
 
-Choose this API for [eligible `_id` reads](#worker-managers-and-reads) across [trusted same-host workers](../operations/shared-cache.md#security-and-monitoring). See [manager selection](../getting-started/choose-a-manager.md) for the comparison and [shared deployment](../operations/shared-cache.md) for lifecycle, security and recovery. The [FastAPI example](../examples/fastapi-shared.md) is executable.
+Choose this API for [eligible collection reads](#worker-managers-and-reads) across [trusted same-host workers](../operations/shared-cache.md#security-and-monitoring). See [manager selection](../getting-started/choose-a-manager.md) for the comparison and [shared deployment](../operations/shared-cache.md) for lifecycle, security and recovery. The [FastAPI example](../examples/fastapi-shared.md) is executable.
 
 ## Server and connection
 
@@ -37,11 +37,13 @@ For asyncio, import `SharedCacheManager` from `client_query_cache.asynchronous` 
 
 Both variants provide `client`, `get_cached_collection(collection)`, `manager[database][collection]` and `close()`. They return `SharedCachedCollection` views with `.raw` for direct PyMongo operations. The supplied collection must belong to the worker's client; foreign-client collections raise `ValueError`. Creating several views is safe; retain one for repeated use. Closing a manager closes its attachments, leaving the client, other workers and server alive. Repeated closes are safe.
 
-Only deterministic `find_one(filter, projection=None, *, collation=None, **kwargs)` reads with an exact `_id` and no other filter predicates can cache. Projections and explicit simple collation are supported, but the collection's default collation must itself be simple (binary). Custom document classes and custom codec registries bypass. Missing documents can be cached. The normal [session, read-profile, query-safety and collection-type bypass rules](api.md#bypass-conditions) also apply.
+Shared views cache the six [cached read methods](api.md#cached-read-methods): deterministic `find_one`, `find`, single-collection `aggregate`, `count_documents`, `estimated_document_count` and `distinct`. Filters, projections, supported sorting and pagination remain part of the request; tenant and authorization predicates must stay intact. Qualifying unique-key filters are eligible, with collection-wide invalidation. Exact `_id` reads retain narrower invalidation.
 
-`find`, `aggregate`, `count_documents`, `estimated_document_count`, `distinct` and broader `find_one` calls execute through PyMongo, without a second process-local cache. `find()` returns a native cursor immediately; await `aggregate()` with asyncio. Use the raw collection for writes and administration. Eligible misses use primary, majority reads and may return before shared admission completes; receiving a value is not proof of admission.
+The [query, option, session, read-profile and collection-type bypass rules](api.md#bypass-conditions) apply. Shared caching additionally requires portable keys, the standard document class and no custom codec registry. Explicit collation and the collection's default collation must be simple (binary). Unsupported calls execute through PyMongo. These restrictions preserve the shared key and metadata contracts; they do not change native query results or errors.
 
-Support for caching these other reads across workers is tracked in [issue #295](https://github.com/alessio-locatelli/client-query-cache/issues/295).
+`find()` returns a native cursor subclass immediately without issuing a query; await `aggregate()` with asyncio before consuming its cursor. Misses use native batching. Only complete, successful consumption can admit a cursor result; close abandoned cursors. Results exceeding `max_entry_bytes` are delivered completely without admission. Hit cursors own isolated snapshots through invalidation, eviction and manager closure. Clone and rewind start another execution using the current cache state. Explicit batching options and modifiers bypass caching as described in the API reference.
+
+Use the raw collection for writes and administration. Eligible misses use primary, majority reads and may return before shared admission completes; receiving a value is not proof of admission. Broader results invalidate on collection writes and relevant schema changes. Shared consistency remains [eventual](../usage/consistency.md), including for authorization changes.
 
 ## Configuration
 

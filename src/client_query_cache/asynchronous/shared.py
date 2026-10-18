@@ -24,7 +24,6 @@ from client_query_cache.asynchronous.streams import _join_cleanup
 if TYPE_CHECKING:
     from pymongo import AsyncMongoClient
     from pymongo.asynchronous.collection import AsyncCollection
-    from pymongo.asynchronous.cursor import AsyncCursor
 
     from client_query_cache.shared import SharedCacheConnection
 
@@ -33,12 +32,6 @@ class SharedCachedCollection[DocumentType: Mapping[str, Any]](
     _SharedCachedCollection[DocumentType]
 ):
     __slots__ = ()
-
-    @override
-    def find(self, *args: Any, **kwargs: Any) -> AsyncCursor[DocumentType]:  # type: ignore[override]
-        self._shared._check_open()
-        self._shared.observation.record_bypass("shared-scope")
-        return self.raw.find(*args, **kwargs)
 
 
 class SharedCacheManager[DocumentType: Mapping[str, Any]](

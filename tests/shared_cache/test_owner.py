@@ -424,16 +424,23 @@ def _read_exactly(peer: socket.socket, size: int) -> bytes:
     return received
 
 
+@pytest.mark.parametrize("operation", ["select-find", "select-namespace"])
 def test_selection_reports_unavailable_streams_and_stale_epochs(
-    owner: SharedCacheOwner, endpoints: Callable[[SharedCacheOwner], SyncEndpoint]
+    owner: SharedCacheOwner,
+    endpoints: Callable[[SharedCacheOwner], SyncEndpoint],
+    operation: str,
 ) -> None:
     _activate(owner)
     assert owner.core.try_current_epoch(NamespaceId(_DATABASE, "catalogue")) is not None
     endpoint = endpoints(owner)
 
-    stale = endpoint.request(_select_find(epoch=7))
+    stale = endpoint.request(
+        _select_find(op=operation, shape=encode_key("shape"), epoch=7)
+    )
     owner.core.set_database_available(_DATABASE, available=False)
-    unavailable = endpoint.request(_select_find())
+    unavailable = endpoint.request(
+        _select_find(op=operation, shape=encode_key("shape"))
+    )
 
     assert stale is not None
     assert stale["r"] == "refresh"
@@ -1424,12 +1431,12 @@ def test_metadata_probe_token_parser_rejects_invalid_values(
 
 
 @pytest.mark.parametrize(
-    ("limit", "published"),
-    [(0, 0), (-1, 0), (1, 1)],
+    "limit",
+    [0, -1, 1],
     ids=["unbounded", "negative", "bounded"],
 )
-def test_only_positive_limit_find_admissions_are_published(
-    session: _Session, faker: Faker, limit: int, published: NonNegativeInt
+def test_all_complete_find_admissions_are_published(
+    session: _Session, faker: Faker, limit: int
 ) -> None:
     reply = session.endpoint.request(_select_find(limit=limit))
     assert reply is not None
@@ -1438,7 +1445,7 @@ def test_only_positive_limit_find_admissions_are_published(
     )
 
     wait_for(lambda: session.owner.counters.admitted == 1)
-    assert _index_stats(session.owner)["published"] == published
+    assert _index_stats(session.owner)["published"] == 1
 
 
 @pytest.mark.parametrize(

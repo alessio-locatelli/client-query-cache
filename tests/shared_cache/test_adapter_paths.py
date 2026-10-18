@@ -246,19 +246,24 @@ def test_exhausted_captures_leave_reads_native(
 
     document = collection.find_one({"_id": 22})
     documents = collection.find({}, **_SORTED, limit=3).to_list()
+    assert collection.count_documents({}) == DOCUMENTS
+    assert len(collection.aggregate([{"$limit": 3}]).to_list()) == 3
 
     async def asynchronous() -> object:
         async with async_shared_manager(owner, mongodb_uri) as async_manager:
-            return await async_manager[seeded_database][COLLECTION].find_one(
-                {"_id": 23}
-            )
+            view = async_manager[seeded_database][COLLECTION]
+            document = await view.find_one({"_id": 23})
+            assert await view.count_documents({}) == DOCUMENTS
+            cursor = await view.aggregate([{"$limit": 3}])
+            assert len(await cursor.to_list()) == 3
+            return document
 
     assert held is not None
     assert held["handle"] is not None
     assert document is not None
     assert len(documents) == 3
     assert asyncio.run(asynchronous()) is not None
-    assert owner.counters()["capture_limit_misses"] == 3
+    assert owner.counters()["capture_limit_misses"] == 7
     assert owner.counters()["admitted"] == 0
 
 
@@ -1334,3 +1339,26 @@ def test_slots_of_another_incarnation_are_never_read_locally(
     refreshed_assignment = reads.manager._slots.find(namespace)
     assert refreshed_assignment is not None
     assert refreshed_assignment[2] == incarnation
+
+
+def test_scalar_read_recovers_natively_when_control_connection_is_lost(
+    open_manager: Callable[..., SharedCacheManager[BsonDict]],
+    client: MongoClient[BsonDict],
+    start_owner: Callable[..., Owner],
+    seeded_database: str,
+    mongodb_uri: MongoDbUri,
+) -> None:
+    owner = start_owner()
+    manager = open_manager(client, owner)
+    ready(manager, seeded_database)
+    manager.endpoint.close()
+    assert manager[seeded_database][COLLECTION].count_documents({}) == DOCUMENTS
+
+    async def asynchronous() -> None:
+        async with async_shared_manager(owner, mongodb_uri) as async_manager:
+            view = async_manager[seeded_database][COLLECTION]
+            await view._cache_ineligibility_reason()
+            await async_manager.endpoint.close()
+            assert await view.count_documents({}) == DOCUMENTS
+
+    asyncio.run(asynchronous())

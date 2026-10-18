@@ -1,21 +1,29 @@
 from __future__ import annotations
 
 import datetime as dt
+import re
 import struct
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
+from uuid import UUID
 
 import bson
 import pytest
 from bson.codec_options import CodecOptions, DatetimeConversion, TypeRegistry
+from bson.datetime_ms import DatetimeMS
+from bson.dbref import DBRef
 from bson.decimal128 import Decimal128
 from bson.int64 import Int64
+from bson.max_key import MaxKey
+from bson.min_key import MinKey
 from bson.objectid import ObjectId
+from bson.timestamp import Timestamp
 from hypothesis import example, given
 from hypothesis import strategies as st
 
 from client_query_cache._core.canonical import canonicalize
 from client_query_cache._core.codec import codec_fingerprint
+from client_query_cache._core.count_reads import count_read_options
 from client_query_cache._core.find_reads import (
     FindReadShape,
     find_discriminator,
@@ -149,6 +157,16 @@ def test_find_shapes_and_codec_profiles_round_trip(
     "value",
     [
         pytest.param(ObjectId(), id="object-id"),
+        pytest.param(dt.datetime(2026, 1, 1, microsecond=1), id="microseconds"),  # noqa: DTZ001 - Exercise naive BSON input.
+        pytest.param(dt.datetime(2026, 1, 1, tzinfo=dt.UTC), id="aware"),
+        pytest.param(Timestamp(1, 2), id="timestamp"),
+        pytest.param(MinKey(), id="minimum-key"),
+        pytest.param(MaxKey(), id="maximum-key"),
+        pytest.param(DBRef("products", ObjectId()), id="reference"),
+        pytest.param(UUID(int=1), id="uuid"),
+        pytest.param(DatetimeMS(2**63 - 1), id="extended-datetime"),
+        pytest.param(re.compile(r"^value-", re.IGNORECASE), id="regex-text"),
+        pytest.param(re.compile(rb"^value-"), id="regex-bytes"),
         pytest.param(Decimal128("1.25"), id="decimal128"),
         pytest.param(
             dt.datetime(2026, 1, 1, 12, 0, 0, 1000),  # noqa: DTZ001 - BSON keys are naive UTC.
@@ -164,11 +182,6 @@ def test_bson_scalars_keep_their_type(value: object) -> None:
     "value",
     [
         pytest.param(2**64, id="int-range"),
-        pytest.param(
-            dt.datetime(2026, 1, 1, microsecond=1),  # noqa: DTZ001 - BSON keys are naive UTC.
-            id="microseconds",
-        ),
-        pytest.param(dt.datetime(2026, 1, 1, tzinfo=dt.UTC), id="aware"),
         pytest.param(Decimal("1.5"), id="native-decimal"),
         pytest.param(frozenset({1}), id="frozenset"),
         pytest.param(
@@ -197,6 +210,16 @@ def test_unportable_keys_are_rejected(value: object) -> None:
         pytest.param({"t": "tzinfo", "p": "local"}, id="tzinfo"),
         pytest.param({"t": "tag", "p": "unknown"}, id="tag"),
         pytest.param({"t": "unknown", "p": 1}, id="node"),
+        pytest.param({"t": "datetime", "p": 1}, id="datetime-type"),
+        pytest.param({"t": "datetime", "p": "bad"}, id="datetime-value"),
+        pytest.param({"t": "uuid", "p": "bad"}, id="uuid-type"),
+        pytest.param({"t": "uuid", "p": b"bad"}, id="uuid-length"),
+        pytest.param({"t": "regex", "p": "bad"}, id="regex-type"),
+        pytest.param({"t": "regex", "p": ["a"]}, id="regex-length"),
+        pytest.param({"t": "regex", "p": [1, 0]}, id="regex-pattern-type"),
+        pytest.param({"t": "regex", "p": ["(", 0]}, id="regex-pattern"),
+        pytest.param({"t": "regex", "p": ["a", int(re.LOCALE)]}, id="regex-flags"),
+        pytest.param({"t": "regex", "p": ["a", 2**40]}, id="regex-flags-overflow"),
     ],
 )
 def test_malformed_canonical_nodes_are_protocol_errors(node: dict[str, object]) -> None:
@@ -285,3 +308,21 @@ def test_malformed_cache_keys_are_protocol_errors(encoded: object) -> None:
 
 def test_identity_keys_decode_without_the_cache() -> None:
     assert decode_key(encode_key(canonicalize({"_id": 1}))) == canonicalize({"_id": 1})
+
+
+def test_omitted_count_options_keep_their_cross_process_key() -> None:
+    options = canonicalize(count_read_options({})["cache_options"])
+    assert _roundtrip(options) == options
+
+
+def test_regex_key_decoding_does_not_print_compile_debug_output(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    pattern = re.compile(r"private-pattern", re.DEBUG)
+    capsys.readouterr()
+    decoded = _roundtrip(pattern)
+    assert isinstance(decoded, re.Pattern)
+    assert decoded.pattern == pattern.pattern
+    assert not decoded.flags & re.DEBUG
+    assert not capsys.readouterr().out
+    assert encode_key(pattern) == encode_key(re.compile(r"private-pattern"))

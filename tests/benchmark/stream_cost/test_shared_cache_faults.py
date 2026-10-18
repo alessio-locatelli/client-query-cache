@@ -383,8 +383,8 @@ def test_first_hit_is_independent_of_readiness(
     cached_hit: Message,
 ) -> None:
     monkeypatch.setattr(
-        "benchmarks.stream_cost.shared_cache.faults.time.monotonic",
-        Mock(side_effect=[2.0, 5.0]),
+        "benchmarks.stream_cost.shared_cache.faults.time",
+        Mock(monotonic=Mock(side_effect=[2.0, 5.0])),
     )
     trial.events["recovery"] = 0.0
     before = {**healthy_owner, "monotonic": 0.0}
@@ -583,8 +583,8 @@ def test_per_read_evidence_retains_unsafe_hits(
     read_evidence: fault_worker.ReadEvidence, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(
-        "benchmarks.stream_cost.shared_cache.fault_worker.time.monotonic",
-        Mock(side_effect=[1.0, 2.0]),
+        "benchmarks.stream_cost.shared_cache.fault_worker.time",
+        Mock(monotonic=Mock(side_effect=[1.0, 2.0])),
     )
     read_evidence.observe(0, 0, eligible=False)
     assert read_evidence.first_hit is None
@@ -612,8 +612,8 @@ def test_sampled_transition_uses_the_actual_ready_window(
         "monotonic": 0.0,
     }
     monkeypatch.setattr(
-        "benchmarks.stream_cost.shared_cache.faults.time.monotonic",
-        Mock(return_value=2.0),
+        "benchmarks.stream_cost.shared_cache.faults.time",
+        Mock(monotonic=Mock(return_value=2.0)),
     )
     assert trial._record_readiness(before, [cached_hit], healthy_owner)
     healthy_owner[window] = 1.5
@@ -637,8 +637,8 @@ def test_owner_evidence_uses_snapshot_time_not_receipt_time(
     }
     monkeypatch.setattr(faults.FaultTrial, "observe", Mock(return_value=observation))
     monkeypatch.setattr(
-        "benchmarks.stream_cost.shared_cache.faults.time.monotonic",
-        Mock(return_value=2.0),
+        "benchmarks.stream_cost.shared_cache.faults.time",
+        Mock(monotonic=Mock(return_value=2.0)),
     )
     after = trial._owner_state()
     assert after["monotonic"] == pytest.approx(0.5)
@@ -683,8 +683,8 @@ def test_safe_hit_precedes_a_later_readiness_observation(
     assert trial.events == {"recovery": 0.0, "first_hit": 1.0}
     cached_hit.update(eligible=True, hit=False)
     monkeypatch.setattr(
-        "benchmarks.stream_cost.shared_cache.faults.time.monotonic",
-        Mock(return_value=2.0),
+        "benchmarks.stream_cost.shared_cache.faults.time",
+        Mock(monotonic=Mock(return_value=2.0)),
     )
     assert trial._record_readiness(before, [cached_hit], healthy_owner)
     assert trial.events == {"recovery": 0.0, "first_hit": 1.0, "readiness": 2.0}

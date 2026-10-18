@@ -1,4 +1,8 @@
-# Shared identity-read workload
+# Shared-cache workloads
+
+The [collection-read comparison](https://github.com/alessio-locatelli/client-query-cache/blob/main/reports/shared-worker-cache/collection-reads.md) covers filtered reads, aggregation, counts and distinct values, including cold misses, larger results and concurrent writes.
+
+## Identity-read workload
 
 The reproducible harness in [`benchmarks/public_shared_cache.py`](https://github.com/alessio-locatelli/client-query-cache/blob/main/benchmarks/public_shared_cache.py) measures the public APIs against direct majority reads and independent process-local caches. It starts a disposable MongoDB replica set and four spawned workers, using 4,096 hot identities and approximately 4 KiB documents. Cold windows use distinct seeded identities per worker.
 
@@ -6,7 +10,7 @@ Each of three repetitions rotates path order. Workers warm before a shared start
 
 ## Release measurements
 
-Measured on 2026-10-15 using the installed 0.8.0 portable wheel, CPython 3.14.7, an Intel Core i3-13100 with eight logical CPUs, Fedora 44 with Linux kernel 7.2.9 and glibc 2.43. MongoDB used the repository's pinned `mongo:9.0.2` image in a disposable replica set limited to two CPUs and 1 GiB. Tests and builds were stopped during measurement. Results below are medians of the three window statistics; each window contains 8,000 reads across four workers. CPU and PSS sum the workers and shared owner, excluding MongoDB and the harness parent.
+Measured on 2026-10-15 using the installed 0.8.0 portable wheel, CPython 3.14.7, an Intel Core i3-13100 with eight logical CPUs, Fedora 44 with Linux kernel 7.2.9 and glibc 2.43. MongoDB used the repository's pinned `mongo:9.0.2` image in a disposable replica set limited to two CPUs and 1 GiB. Tests and builds were stopped during measurement. Results below are medians of the three window statistics; each window contains 8,000 reads across four workers. CPU and PSS sum the workers and shared owner, excluding MongoDB and the harness parent. The measured CPU columns include worker memory sampling.
 
 ### Hot reads
 

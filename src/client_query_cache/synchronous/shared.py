@@ -21,7 +21,6 @@ from client_query_cache._shared.attachment import (
 if TYPE_CHECKING:
     from pymongo import MongoClient
     from pymongo.synchronous.collection import Collection
-    from pymongo.synchronous.cursor import Cursor
 
     from client_query_cache.shared import SharedCacheConnection
 
@@ -30,12 +29,6 @@ class SharedCachedCollection[DocumentType: Mapping[str, Any]](
     _SharedCachedCollection[DocumentType]
 ):
     __slots__ = ()
-
-    @override
-    def find(self, *args: Any, **kwargs: Any) -> Cursor[DocumentType]:  # type: ignore[override]
-        self._shared._check_open()
-        self._shared.observation.record_bypass("shared-scope")
-        return self.raw.find(*args, **kwargs)
 
 
 class SharedCacheManager[DocumentType: Mapping[str, Any]](

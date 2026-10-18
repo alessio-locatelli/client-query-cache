@@ -11,11 +11,16 @@ from typing import TYPE_CHECKING, Any, override
 from pymongo.collation import Collation
 
 from client_query_cache._core.canonical import canonicalize
-from client_query_cache._core.codec import codec_fingerprint, decode_value, encode_value
+from client_query_cache._core.codec import decode_value, encode_value
 from client_query_cache._core.collection_metadata import CollectionMetadata
+from client_query_cache._core.count_reads import count_read_options
 from client_query_cache._core.cursor_capture import CursorCapture
 from client_query_cache._core.errors import CacheClosedError
-from client_query_cache._core.find_one_reads import CollationInput  # noqa: TC001 - Public method annotations resolve with the class type parameters.
+from client_query_cache._core.find_one_reads import (
+    CollationInput,
+    find_one_options_cacheable,
+    normalize_find_one_filter,
+)
 from client_query_cache._core.find_reads import FindReadShape, find_read_shape
 from client_query_cache._core.identity_reads import (
     NO_IDENTITY,
@@ -23,8 +28,15 @@ from client_query_cache._core.identity_reads import (
     normalize_identity_for_cache_key,
 )
 from client_query_cache._core.namespace_metadata import NamespaceMetadataCache
-from client_query_cache._core.order_sensitive_keys import order_sensitive_key
-from client_query_cache._core.read_classification import _prepare_key, prepare_query_key
+from client_query_cache._core.order_sensitive_keys import (
+    order_sensitive_discriminator_key,
+    order_sensitive_key,
+)
+from client_query_cache._core.read_classification import (
+    _prepare_key,
+    prepare_pipeline_key,
+    prepare_query_key,
+)
 from client_query_cache._core.snapshots import BypassReason
 from client_query_cache._shared.attachment import (
     AsyncLocalIndex,
@@ -49,9 +61,13 @@ if TYPE_CHECKING:
 
     from bson.codec_options import CodecOptions
     from pymongo import AsyncMongoClient, MongoClient
+    from pymongo.asynchronous.client_session import AsyncClientSession
     from pymongo.asynchronous.collection import AsyncCollection
+    from pymongo.asynchronous.command_cursor import AsyncCommandCursor
     from pymongo.asynchronous.database import AsyncDatabase
+    from pymongo.client_session import ClientSession
     from pymongo.synchronous.collection import Collection
+    from pymongo.synchronous.command_cursor import CommandCursor
     from pymongo.synchronous.database import Database
 
     from client_query_cache._core.canonical import Canonical
@@ -168,7 +184,8 @@ class RemoteCursorCapture(CursorCapture):
 
     @override
     def abandon(self) -> None:
-        self._remote.discard(self._capture)
+        if self._active:
+            self._remote.discard(self._capture)
         super().abandon()
 
 
@@ -378,7 +395,7 @@ def _find_message(cursor: Cursor, shape: FindReadShape) -> Message | str:
 
 
 def _local_find(cursor: Cursor, shape: FindReadShape) -> bool:
-    if cursor._shared.local is None or shape.limit <= 0:
+    if cursor._shared.local is None:
         return False
     try:
         key = cursor._shared.keys.encode(canonicalize(shape.discriminator))
@@ -394,7 +411,7 @@ def _local_find(cursor: Cursor, shape: FindReadShape) -> bool:
 
 def _prepare_find_shape(
     cursor: Cursor, shape: FindReadShape
-) -> tuple[FindReadShape, BypassReason | None]:
+) -> tuple[FindReadShape, BypassReason | str | None]:
     unsupported = (
         cursor._unsupported
         or cursor._query_flags
@@ -417,10 +434,11 @@ def _prepare_find_shape(
             )
         )
     )
-    reason = cursor._view._request_bypass_reason(
+    reason: BypassReason | str | None = cursor._view._request_bypass_reason(
         session=cursor._session,  # type: ignore[arg-type]
         kwargs={"cursor_options": True} if unsupported else {},
     )
+    reason = reason or _shared_collation_reason(cursor._collation)
     if reason is not None:
         return shape, reason
     family, reason = prepare_query_key(cursor._spec, cursor._projection, shape.family)
@@ -435,7 +453,7 @@ def _shape(cursor: Cursor) -> FindReadShape:
         cursor._skip,
         cursor._limit,
         collation=cursor._collation,
-        codec=codec_fingerprint(cursor._codec_options),
+        codec=cursor._view._codec_identity,
     )
 
 
@@ -516,23 +534,105 @@ def _identity_outcome(
     return outcome, None
 
 
-def _prototype_scope(
-    view: View, filter_query: object, collation: CollationInput | None
-) -> bool:
-    identity, remainder = extract_id_anchor(filter_query)
-    if (
-        identity is not NO_IDENTITY
-        and not remainder
-        and (
-            collation is None
-            or (collation.document if isinstance(collation, Collation) else collation)
-            == {"locale": "simple"}
+def _shared_collation_reason(collation: object) -> str | None:
+    if collation is None or (
+        collation.document if isinstance(collation, Collation) else collation
+    ) == {"locale": "simple"}:
+        return None
+    return PROTOTYPE_SCOPE
+
+
+def _namespace_message(view: View, discriminator: object) -> Message | str:
+    try:
+        key = view._shared.keys.encode(canonicalize(discriminator))
+    except UnportableKeyError:
+        return UNPORTABLE_KEY
+    return _select(view._shared, "select-namespace", view._namespace(), shape=key)
+
+
+def _namespace_local(view: View, message: Message | str) -> object:
+    if isinstance(message, str):
+        return NO_LOCAL_HIT
+    return _local_select(view, (b"", message["shape"]))  # type: ignore[arg-type]
+
+
+def _remote_capture(
+    view: View, handle: object, discriminator: object
+) -> RemoteCursorCapture:
+    return RemoteCursorCapture(
+        _RemoteCaptureCore(
+            view._shared.endpoint.send,
+            view._shared.max_entry_bytes,
+            view._shared.observation,
+        ),
+        handle,
+        discriminator,
+        view.raw.codec_options,
+        find_source=None,
+    )
+
+
+def _scalar_key(
+    view: View,
+    method: str,
+    filter_query: Mapping[str, Any] | None,
+    projection: Mapping[str, Any] | Sequence[str] | None,
+    collation: object,
+    *,
+    options: object,
+    reason: BypassReason | str | None = None,
+) -> tuple[object, BypassReason | str | None]:
+    reason = reason or _shared_collation_reason(collation)
+    if reason is not None:
+        return None, reason
+    discriminator = order_sensitive_discriminator_key(
+        (
+            method,
+            filter_query,
+            projection,
+            (collation.document if isinstance(collation, Collation) else collation),
+            options,
+            view._codec_identity,
         )
-        and (view._shared._default_collation_for(view._namespace()) is None)
-    ):
-        return False
-    view._shared.observation.record_bypass(PROTOTYPE_SCOPE)
-    return True
+    )
+    discriminator, reason = prepare_query_key(filter_query, projection, discriminator)
+    return discriminator, reason
+
+
+def _count_key(
+    view: View,
+    filter_query: Mapping[str, Any],
+    options: tuple[object, object, object, object],
+    *,
+    reason: BypassReason | str | None = None,
+) -> tuple[object, BypassReason | str | None]:
+    reason = reason or _shared_collation_reason(options[2])
+    if reason is not None:
+        return None, reason
+    discriminator = order_sensitive_discriminator_key(
+        (
+            "count_documents",
+            filter_query,
+            *options,
+            view._codec_identity,
+        )
+    )
+    discriminator, reason = prepare_query_key(filter_query, None, discriminator)
+    return discriminator, reason
+
+
+def _publish_scalar(view: View, handle: object, value: object) -> None:
+    if handle is None:
+        return
+    admission = _admission(
+        handle,
+        value,
+        view.raw.codec_options,
+        view._shared.max_entry_bytes,
+        view._shared.observation,
+    )
+    assert admission is not None
+    view._shared.endpoint.send(admission)
 
 
 def _default_identity_request(
@@ -662,6 +762,41 @@ class SharedCachedCollection[DocumentType: Mapping[str, Any]](
         self._shared: SharedCacheManager[DocumentType] = database.shared
         self._default_shape_key = _default_shape_key(self)
 
+    def _read_namespace[Value](
+        self,
+        discriminator: object,
+        reason: BypassReason | str | None,
+        read: Callable[[Collection[DocumentType]], Value],
+    ) -> Value:
+        self._shared._check_open()
+        if reason is None:
+            reason = self._cache_ineligibility_reason()
+        if reason is not None:
+            self._shared.observation.record_bypass(reason)
+            return read(self.raw)
+        message = _namespace_message(self, discriminator)
+        snapshot = _namespace_local(self, message)
+        if snapshot is not NO_LOCAL_HIT:
+            return snapshot  # type: ignore[return-value]
+        reply = (
+            self._shared.endpoint.request(message)
+            if isinstance(message, dict)
+            else None
+        )
+        outcome, handle = _identity_outcome(self, message, reply)
+        if outcome == "hit":
+            return handle  # type: ignore[return-value]
+        if outcome != "miss":
+            return read(self.raw)
+        try:
+            value = read(self._forced_collection_handle())
+        except BaseException:
+            if handle is not None:
+                self._shared.endpoint.send({"op": "discard", "handle": handle})
+            raise
+        _publish_scalar(self, handle, value)
+        return value
+
     @override
     def __getitem__(self, name: str) -> SharedCachedCollection[DocumentType]:
         database = self._database
@@ -691,10 +826,47 @@ class SharedCachedCollection[DocumentType: Mapping[str, Any]](
                     identity, filter_query, projection, shape, sort=None, collation=None
                 )
             self._shared.observation.record_bypass(reason)
-        elif not _prototype_scope(self, filter, collation):
-            return super().find_one(filter, projection, collation=collation, **kwargs)
-        return self._collection.find_one(
-            filter, projection, collation=collation, **kwargs
+        else:
+            anchor, _remainder = extract_id_anchor(filter)
+            if (
+                anchor is not NO_IDENTITY
+                and _shared_collation_reason(collation) is None
+            ):
+                return super().find_one(
+                    filter, projection, collation=collation, **kwargs
+                )
+            return self._generic_find_one(filter, projection, collation, kwargs)
+        return self.raw.find_one(filter, projection, collation=collation, **kwargs)
+
+    def _generic_find_one(
+        self,
+        filter_query: object,
+        projection: Mapping[str, Any] | Sequence[str] | None,
+        collation: CollationInput | None,
+        kwargs: Mapping[str, Any],
+    ) -> DocumentType | None:
+        options = dict(kwargs)
+        session = options.pop("session", None)
+        sort = options.pop("sort", None)
+        filter_query = normalize_find_one_filter(filter_query)
+        reason = self._request_bypass_reason(session=session, kwargs=options)
+        if reason is None and not find_one_options_cacheable(sort, collation):
+            reason = BypassReason.UNSUPPORTED_OPTIONS
+        discriminator, classification = _scalar_key(
+            self,
+            "find_one",
+            filter_query,
+            projection,
+            collation,
+            options=sort,
+            reason=reason,
+        )
+        return self._read_namespace(
+            discriminator,
+            reason or classification,
+            lambda collection: collection.find_one(
+                filter_query, projection, collation=collation, **kwargs
+            ),
         )
 
     @override
@@ -754,28 +926,129 @@ class SharedCachedCollection[DocumentType: Mapping[str, Any]](
         return document
 
     @override
-    def aggregate(self, *args: Any, **kwargs: Any) -> Any:
+    def aggregate(
+        self,
+        pipeline: Sequence[Mapping[str, Any]],
+        session: ClientSession | None = None,
+        let: Mapping[str, Any] | None = None,
+        comment: object = None,
+        **kwargs: object,
+    ) -> CommandCursor[DocumentType]:
         self._shared._check_open()
-        self._shared.observation.record_bypass(PROTOTYPE_SCOPE)
-        return self._collection.aggregate(*args, **kwargs)
+        unsupported = dict(kwargs)
+        collation = unsupported.pop("collation", None)
+        if let is not None:
+            unsupported["let"] = let
+        if comment is not None:
+            unsupported["comment"] = comment
+        reason: BypassReason | str | None = self._request_bypass_reason(
+            session=session, kwargs=unsupported
+        )
+        if reason is not None:
+            self._shared.observation.record_bypass(reason)
+            return self.raw.aggregate(
+                pipeline, session=session, let=let, comment=comment, **kwargs
+            )
+        collation = sync_cursors.prepare_aggregate(self, pipeline, kwargs)
+        reason = _shared_collation_reason(collation)
+        discriminator = order_sensitive_discriminator_key(
+            (
+                "aggregate",
+                pipeline,
+                collation,
+                self._codec_identity,
+            )
+        )
+        discriminator, classification = prepare_pipeline_key(pipeline, discriminator)
+        reason = reason or classification
+        if reason is None:
+            reason = self._cache_ineligibility_reason()
+        if reason is not None:
+            self._shared.observation.record_bypass(reason)
+            return self.raw.aggregate(
+                pipeline, session=session, let=let, comment=comment, **kwargs
+            )
+        message = _namespace_message(self, discriminator)
+        snapshot = _namespace_local(self, message)
+        if snapshot is NO_LOCAL_HIT:
+            reply = (
+                self._shared.endpoint.request(message)
+                if isinstance(message, dict)
+                else None
+            )
+            outcome, handle = _identity_outcome(self, message, reply)
+            if outcome == "hit":
+                snapshot = handle
+            elif outcome == "miss" and handle is not None:
+                capture = _remote_capture(self, handle, discriminator)
+                try:
+                    return sync_cursors.aggregate_miss(self, pipeline, capture, kwargs)
+                except BaseException:
+                    capture.abandon()
+                    raise
+            else:
+                return self.raw.aggregate(
+                    pipeline, session=session, let=let, comment=comment, **kwargs
+                )
+        return sync_cursors.CachedCommandCursor(
+            self.raw, {"id": 0, "firstBatch": snapshot, "ns": self.raw.full_name}, None
+        )
 
     @override
-    def count_documents(self, *args: Any, **kwargs: Any) -> Any:
-        self._shared._check_open()
-        self._shared.observation.record_bypass(PROTOTYPE_SCOPE)
-        return self._collection.count_documents(*args, **kwargs)
+    def count_documents(
+        self,
+        filter: Mapping[str, Any],
+        *,
+        session: ClientSession | None = None,
+        **kwargs: object,
+    ) -> NonNegativeInt:
+        options = count_read_options(kwargs)
+        reason = self._request_bypass_reason(
+            session=session, kwargs=options["extra_options"]
+        )
+        discriminator, classification = _count_key(
+            self, filter, options["cache_options"], reason=reason
+        )
+        return self._read_namespace(
+            discriminator,
+            reason or classification,
+            lambda collection: collection.count_documents(
+                filter, session=session, **kwargs
+            ),
+        )
 
     @override
-    def estimated_document_count(self, **kwargs: Any) -> Any:
-        self._shared._check_open()
-        self._shared.observation.record_bypass(PROTOTYPE_SCOPE)
-        return self._collection.estimated_document_count(**kwargs)
+    def estimated_document_count(self, **kwargs: object) -> NonNegativeInt:
+        reason = self._request_bypass_reason(session=None, kwargs=kwargs)
+        discriminator = canonicalize(("estimated_document_count", self._codec_identity))
+        return self._read_namespace(
+            discriminator,
+            reason,
+            lambda collection: collection.estimated_document_count(**kwargs),
+        )
 
     @override
-    def distinct(self, *args: Any, **kwargs: Any) -> Any:
-        self._shared._check_open()
-        self._shared.observation.record_bypass(PROTOTYPE_SCOPE)
-        return self._collection.distinct(*args, **kwargs)
+    def distinct(
+        self,
+        key: str,
+        filter: Mapping[str, Any] | None = None,
+        *,
+        collation: CollationInput | None = None,
+        session: ClientSession | None = None,
+        **kwargs: object,
+    ) -> list[Any]:
+        reason = self._request_bypass_reason(session=session, kwargs=kwargs)
+        native_options: Mapping[str, Any] = kwargs
+        discriminator, classification = _scalar_key(
+            self, "distinct", filter, None, collation, options=key, reason=reason
+        )
+        return self._read_namespace(
+            discriminator,
+            reason or classification,
+            lambda collection: collection.distinct(
+                key, filter, collation=collation, session=session, **native_options
+            ),
+        )
 
 
 class AsyncSharedCachedCollection[DocumentType: Mapping[str, Any]](
@@ -791,6 +1064,41 @@ class AsyncSharedCachedCollection[DocumentType: Mapping[str, Any]](
         super().__init__(database, collection)
         self._shared: AsyncSharedCacheManager[DocumentType] = database.shared
         self._default_shape_key = _default_shape_key(self)
+
+    async def _read_namespace[Value](
+        self,
+        discriminator: object,
+        reason: BypassReason | str | None,
+        read: Callable[[AsyncCollection[DocumentType]], Awaitable[Value]],
+    ) -> Value:
+        self._shared._check_open()
+        if reason is None:
+            reason = await self._cache_ineligibility_reason()
+        if reason is not None:
+            self._shared.observation.record_bypass(reason)
+            return await read(self.raw)
+        message = _namespace_message(self, discriminator)
+        snapshot = _namespace_local(self, message)
+        if snapshot is not NO_LOCAL_HIT:
+            return snapshot  # type: ignore[return-value]
+        reply = (
+            await self._shared.endpoint.request(message)
+            if isinstance(message, dict)
+            else None
+        )
+        outcome, handle = _identity_outcome(self, message, reply)
+        if outcome == "hit":
+            return handle  # type: ignore[return-value]
+        if outcome != "miss":
+            return await read(self.raw)
+        try:
+            value = await read(self._forced_collection_handle())
+        except BaseException:
+            if handle is not None:
+                self._shared.endpoint.send({"op": "discard", "handle": handle})
+            raise
+        _publish_scalar(self, handle, value)
+        return value
 
     @override
     def __getitem__(self, name: str) -> AsyncSharedCachedCollection[DocumentType]:
@@ -821,12 +1129,49 @@ class AsyncSharedCachedCollection[DocumentType: Mapping[str, Any]](
                     identity, filter_query, projection, shape, sort=None, collation=None
                 )
             self._shared.observation.record_bypass(reason)
-        elif not _prototype_scope(self, filter, collation):
-            return await super().find_one(
-                filter, projection, collation=collation, **kwargs
-            )
-        return await self._collection.find_one(
+        else:
+            anchor, _remainder = extract_id_anchor(filter)
+            if (
+                anchor is not NO_IDENTITY
+                and _shared_collation_reason(collation) is None
+            ):
+                return await super().find_one(
+                    filter, projection, collation=collation, **kwargs
+                )
+            return await self._generic_find_one(filter, projection, collation, kwargs)
+        return await self.raw.find_one(
             filter, projection, collation=collation, **kwargs
+        )
+
+    async def _generic_find_one(
+        self,
+        filter_query: object,
+        projection: Mapping[str, Any] | Sequence[str] | None,
+        collation: CollationInput | None,
+        kwargs: Mapping[str, Any],
+    ) -> DocumentType | None:
+        options = dict(kwargs)
+        session = options.pop("session", None)
+        sort = options.pop("sort", None)
+        filter_query = normalize_find_one_filter(filter_query)
+        reason = self._request_bypass_reason(session=session, kwargs=options)
+        if reason is None and not find_one_options_cacheable(sort, collation):
+            reason = BypassReason.UNSUPPORTED_OPTIONS
+        discriminator, classification = _scalar_key(
+            self,
+            "find_one",
+            filter_query,
+            projection,
+            collation,
+            options=sort,
+            reason=reason,
+        )
+        return await self._read_namespace(
+            discriminator,
+            reason or classification,
+            lambda collection: collection.find_one(
+                filter_query, projection, collation=collation, **kwargs
+            ),
         )
 
     @override
@@ -890,28 +1235,131 @@ class AsyncSharedCachedCollection[DocumentType: Mapping[str, Any]](
         return document
 
     @override
-    async def aggregate(self, *args: Any, **kwargs: Any) -> Any:
+    async def aggregate(
+        self,
+        pipeline: Sequence[Mapping[str, Any]],
+        session: AsyncClientSession | None = None,
+        let: Mapping[str, Any] | None = None,
+        comment: object = None,
+        **kwargs: object,
+    ) -> AsyncCommandCursor[DocumentType]:
         self._shared._check_open()
-        self._shared.observation.record_bypass(PROTOTYPE_SCOPE)
-        return await self._collection.aggregate(*args, **kwargs)
+        unsupported = dict(kwargs)
+        collation = unsupported.pop("collation", None)
+        if let is not None:
+            unsupported["let"] = let
+        if comment is not None:
+            unsupported["comment"] = comment
+        reason: BypassReason | str | None = self._request_bypass_reason(
+            session=session, kwargs=unsupported
+        )
+        if reason is not None:
+            self._shared.observation.record_bypass(reason)
+            return await self.raw.aggregate(
+                pipeline, session=session, let=let, comment=comment, **kwargs
+            )
+        collation = async_cursors.prepare_aggregate(self, pipeline, kwargs)
+        reason = _shared_collation_reason(collation)
+        discriminator = order_sensitive_discriminator_key(
+            (
+                "aggregate",
+                pipeline,
+                collation,
+                self._codec_identity,
+            )
+        )
+        discriminator, classification = prepare_pipeline_key(pipeline, discriminator)
+        reason = reason or classification
+        if reason is None:
+            reason = await self._cache_ineligibility_reason()
+        if reason is not None:
+            self._shared.observation.record_bypass(reason)
+            return await self.raw.aggregate(
+                pipeline, session=session, let=let, comment=comment, **kwargs
+            )
+        message = _namespace_message(self, discriminator)
+        snapshot = _namespace_local(self, message)
+        if snapshot is NO_LOCAL_HIT:
+            reply = (
+                await self._shared.endpoint.request(message)
+                if isinstance(message, dict)
+                else None
+            )
+            outcome, handle = _identity_outcome(self, message, reply)
+            if outcome == "hit":
+                snapshot = handle
+            elif outcome == "miss" and handle is not None:
+                capture = _remote_capture(self, handle, discriminator)
+                try:
+                    return await async_cursors.aggregate_miss(
+                        self, pipeline, capture, kwargs
+                    )
+                except BaseException:
+                    capture.abandon()
+                    raise
+            else:
+                return await self.raw.aggregate(
+                    pipeline, session=session, let=let, comment=comment, **kwargs
+                )
+        return async_cursors.CachedCommandCursor(
+            self.raw, {"id": 0, "firstBatch": snapshot, "ns": self.raw.full_name}, None
+        )
 
     @override
-    async def count_documents(self, *args: Any, **kwargs: Any) -> Any:
-        self._shared._check_open()
-        self._shared.observation.record_bypass(PROTOTYPE_SCOPE)
-        return await self._collection.count_documents(*args, **kwargs)
+    async def count_documents(
+        self,
+        filter: Mapping[str, Any],
+        *,
+        session: AsyncClientSession | None = None,
+        **kwargs: object,
+    ) -> NonNegativeInt:
+        options = count_read_options(kwargs)
+        reason = self._request_bypass_reason(
+            session=session, kwargs=options["extra_options"]
+        )
+        discriminator, classification = _count_key(
+            self, filter, options["cache_options"], reason=reason
+        )
+        return await self._read_namespace(
+            discriminator,
+            reason or classification,
+            lambda collection: collection.count_documents(
+                filter, session=session, **kwargs
+            ),
+        )
 
     @override
-    async def estimated_document_count(self, **kwargs: Any) -> Any:
-        self._shared._check_open()
-        self._shared.observation.record_bypass(PROTOTYPE_SCOPE)
-        return await self._collection.estimated_document_count(**kwargs)
+    async def estimated_document_count(self, **kwargs: object) -> NonNegativeInt:
+        reason = self._request_bypass_reason(session=None, kwargs=kwargs)
+        discriminator = canonicalize(("estimated_document_count", self._codec_identity))
+        return await self._read_namespace(
+            discriminator,
+            reason,
+            lambda collection: collection.estimated_document_count(**kwargs),
+        )
 
     @override
-    async def distinct(self, *args: Any, **kwargs: Any) -> Any:
-        self._shared._check_open()
-        self._shared.observation.record_bypass(PROTOTYPE_SCOPE)
-        return await self._collection.distinct(*args, **kwargs)
+    async def distinct(
+        self,
+        key: str,
+        filter: Mapping[str, Any] | None = None,
+        *,
+        collation: CollationInput | None = None,
+        session: AsyncClientSession | None = None,
+        **kwargs: object,
+    ) -> list[Any]:
+        reason = self._request_bypass_reason(session=session, kwargs=kwargs)
+        native_options: Mapping[str, Any] = kwargs
+        discriminator, classification = _scalar_key(
+            self, "distinct", filter, None, collation, options=key, reason=reason
+        )
+        return await self._read_namespace(
+            discriminator,
+            reason or classification,
+            lambda collection: collection.distinct(
+                key, filter, collation=collation, session=session, **native_options
+            ),
+        )
 
 
 class SharedCachedDatabase[DocumentType: Mapping[str, Any]](

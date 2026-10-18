@@ -1,16 +1,24 @@
 import datetime as dt
+import re
 import struct
 from decimal import Decimal
 from typing import TYPE_CHECKING, Final
+from uuid import UUID
 
 import bson
 from bson.codec_options import CodecOptions, DatetimeConversion
+from bson.datetime_ms import DatetimeMS
+from bson.dbref import DBRef
 from bson.decimal128 import Decimal128
 from bson.errors import BSONError
 from bson.int64 import Int64
+from bson.max_key import MaxKey
+from bson.min_key import MinKey
 from bson.objectid import ObjectId
+from bson.timestamp import Timestamp
 
 from client_query_cache._core import canonical as canonical_tags
+from client_query_cache._core import count_reads as count_tags
 from client_query_cache._core import order_sensitive_keys as order_tags
 from client_query_cache._core import query_filters as filter_tags
 from client_query_cache._core.codec import _TypeRegistryIdentity
@@ -33,10 +41,12 @@ _TAGS: Final[dict[str, object]] = {
     "order-float": order_tags._FLOAT_TAG.canonical,
     "order-int64": order_tags._INT64_TAG.canonical,
     "filter-scalar-predicates": filter_tags._SCALAR_PREDICATES.canonical,
+    "count-omitted": count_tags._OMITTED,
 }
 _TAG_NAMES: Final = {id(tag): name for name, tag in _TAGS.items()}
 _CLASSES: Final[dict[str, type]] = {"dict": dict}
 _CLASS_NAMES: Final = {id(kind): name for name, kind in _CLASSES.items()}
+_REGEX_KEY_FLAGS_MASK: Final = ~int(re.DEBUG)
 _EMPTY_REGISTRY: Final = "empty-registry"
 _UTC: Final = "utc"
 _MAX_CACHED_KEY_BYTES: Final = 4096
@@ -71,7 +81,10 @@ def to_wire(value: object) -> object:
         return {"t": "tuple", "p": [to_wire(item) for item in value]}
     if id(value) in _TAG_NAMES:
         return {"t": "tag", "p": _TAG_NAMES[id(value)]}
-    if value is None or isinstance(value, (bool, str, bytes, ObjectId, Decimal128)):
+    if value is None or isinstance(
+        value,
+        (bool, str, bytes, ObjectId, Decimal128, Timestamp, MinKey, MaxKey, DBRef),
+    ):
         return value
     if isinstance(value, Int64):
         return {"t": "int64", "p": value}
@@ -84,10 +97,15 @@ def to_wire(value: object) -> object:
         return {"t": "int", "p": Int64(value)}
     if isinstance(value, float):
         return value
+    if isinstance(value, re.Pattern):
+        return {"t": "regex", "p": [value.pattern, value.flags & _REGEX_KEY_FLAGS_MASK]}
+    if isinstance(value, UUID):
+        return {"t": "uuid", "p": value.bytes}
+    if isinstance(value, DatetimeMS):
+        return {"t": "datetime-ms", "p": Int64(int(value))}
     if isinstance(value, dt.datetime):
         if value.microsecond % 1000 or value.tzinfo is not None:
-            message = "datetime key requires naive millisecond precision"
-            raise UnportableKeyError(message)
+            return {"t": "datetime", "p": value.isoformat()}
         return value
     if isinstance(value, type) and id(value) in _CLASS_NAMES:
         return {"t": "class", "p": _CLASS_NAMES[id(value)]}
@@ -132,6 +150,36 @@ def from_wire(value: object) -> object:
                 return DatetimeConversion(_integer(payload))
             except ValueError as error:
                 raise ProtocolError("unknown datetime conversion") from error
+        case "regex":
+            if (
+                not isinstance(payload, list)
+                or len(payload) != 2
+                or not isinstance(payload[0], (str, bytes))
+            ):
+                raise ProtocolError("malformed regex node")
+            try:
+                return re.compile(
+                    payload[0], _integer(payload[1]) & _REGEX_KEY_FLAGS_MASK
+                )
+            except re.PatternError as error:
+                raise ProtocolError("malformed regex pattern") from error
+            except ValueError as error:
+                raise ProtocolError("invalid regex flags") from error
+            except OverflowError as error:
+                raise ProtocolError("regex flags exceed the native range") from error
+        case "uuid":
+            if not isinstance(payload, bytes) or len(payload) != 16:
+                raise ProtocolError("malformed UUID node")
+            return UUID(bytes=payload)
+        case "datetime-ms":
+            return DatetimeMS(_integer(payload))
+        case "datetime":
+            if not isinstance(payload, str):
+                raise ProtocolError("malformed datetime node")
+            try:
+                return dt.datetime.fromisoformat(payload)
+            except ValueError as error:
+                raise ProtocolError("invalid datetime key") from error
         case "class":
             try:
                 return _CLASSES[str(payload)]

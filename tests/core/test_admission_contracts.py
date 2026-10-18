@@ -132,7 +132,7 @@ def test_a_racing_fresher_namespace_admission_wins_regardless_of_when_it_lands(
 
     def hook(_key: CacheKey, entry: CacheEntry) -> None:
         nonlocal triggered
-        if triggered or entry.generation_key != (capture_stale.generation,):
+        if triggered or entry.generation_key != capture_stale.generation_key:
             return
         triggered = True
         core.record_write(namespace, "some-doc")

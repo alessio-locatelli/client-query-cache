@@ -8,7 +8,7 @@ Provide an installable cache shared by trusted application workers on one host, 
 
 ### Requirement: Public identity reads
 
-Sync and asyncio shared managers SHALL attach user-owned PyMongo clients and cache deterministic `find_one` reads with an exact `_id`, simple collation and portable codec options. Other reads SHALL execute through PyMongo. Managers SHALL preserve request bypass rules and native document types and SHALL NOT close user clients.
+Sync and asyncio shared managers SHALL attach user-owned PyMongo clients and cache deterministic `find_one`, `find`, `aggregate`, `count_documents`, `estimated_document_count` and `distinct` reads across workers. Eligibility SHALL cover process-local query/options behavior subject to documented shared codec/collation restrictions. Managers SHALL preserve native bypass behavior and document types and SHALL NOT close user clients.
 
 #### Scenario: Shared warm read
 
@@ -17,13 +17,23 @@ Sync and asyncio shared managers SHALL attach user-owned PyMongo clients and cac
 
 #### Scenario: Unsupported read
 
-- **WHEN** a worker requests a sorted multi-document find or uses a session
+- **WHEN** a worker uses a session or an unsafe query including `$$USER_ROLES`
 - **THEN** the request executes directly through its PyMongo collection
 
 #### Scenario: Explicit locale collation
 
-- **WHEN** an identity read supplies a non-simple collation
+- **WHEN** a read supplies a non-simple collation
 - **THEN** it executes through PyMongo without entering shared caching
+
+#### Scenario: Shared collection results
+
+- **WHEN** one worker completes an eligible read and another worker first makes an equivalent request
+- **THEN** the second worker receives the shared result without issuing the MongoDB read command
+
+#### Scenario: Broader membership changes
+
+- **WHEN** a collection write changes a filtered result, ordering or count
+- **THEN** change-stream invalidation prevents reuse of the previous shared result
 
 ### Requirement: Validity and recovery
 
@@ -127,3 +137,22 @@ Version 0.8.0 SHALL include public shared APIs and the native index in one PyPI 
 
 - **WHEN** a supported application installs the release wheel
 - **THEN** it can attach sync and async workers without a Rust toolchain or benchmark package
+
+### Requirement: Shared cursor lifecycle
+
+Shared `find` SHALL remain lazy and asyncio `aggregate` SHALL remain awaitable. Misses SHALL retain native batching and admit only fully consumed bounded snapshots. Partial consumption, close, failure or cancellation SHALL prevent admission. Hits SHALL remain isolated through invalidation, eviction and manager closure. Supported cursor modifiers, clone and rewind SHALL retain process-local behavior.
+
+#### Scenario: Interrupted miss
+
+- **WHEN** a cursor closes or fails after returning only part of its result
+- **THEN** another worker cannot obtain that partial result as a shared hit
+
+#### Scenario: Oversized read
+
+- **WHEN** complete results exceed the shared entry bound
+- **THEN** the caller receives every document without shared admission
+
+#### Scenario: Owned hit snapshot
+
+- **WHEN** a hit cursor exists while its shared entry is invalidated or its manager closes
+- **THEN** consumption returns its own unmodified snapshot

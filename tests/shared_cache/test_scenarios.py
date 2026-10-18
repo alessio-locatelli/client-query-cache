@@ -31,10 +31,10 @@ from benchmarks.stream_cost.shared_cache.safety import (
     raw_connection as _raw_connection,
 )
 from client_query_cache._core.keys import NamespaceId
+from client_query_cache._core.snapshots import BypassReason
 from client_query_cache._shared.adapters import (
     METADATA_REFRESH,
     OWNER_UNAVAILABLE,
-    PROTOTYPE_SCOPE,
     UNPORTABLE_KEY,
     AsyncSharedCacheManager,
     SharedCacheManager,
@@ -813,7 +813,7 @@ def test_inherited_attachments_are_rejected_before_use(
             operation()
 
 
-def test_unportable_and_out_of_scope_reads_execute_natively(
+def test_portable_reads_cache_and_unsupported_reads_execute_natively(
     sync_manager: tuple[SharedCacheManager[BsonDict], Owner],
     seeded_database: str,
     client: MongoClient[BsonDict],
@@ -837,7 +837,8 @@ def test_unportable_and_out_of_scope_reads_execute_natively(
     assert len(collection.aggregate([{"$match": {}}]).to_list()) == DOCUMENTS
     assert len(collection.find({}, hint=[("_id", 1)]).to_list()) == DOCUMENTS
     assert manager.observation.bypasses[UNPORTABLE_KEY] == 1
-    assert manager.observation.bypasses[PROTOTYPE_SCOPE] == 5
+    assert manager.observation.misses == 5
+    assert manager.observation.bypasses[BypassReason.UNSUPPORTED_OPTIONS.value] == 1
 
 
 def test_collection_metadata_failures_bypass_shared_selection(

@@ -419,7 +419,8 @@ async def test_identity_forms_preserve_shared_scope(
     before = manager.snapshot()
     assert await _read(view, filter_query) is not None
     assert manager.snapshot().hits == before.hits + int(shared_hit)
-    assert manager.snapshot().bypasses == before.bypasses + int(not shared_hit)
+    assert manager.snapshot().bypasses == before.bypasses
+    assert manager.snapshot().misses == before.misses + int(not shared_hit)
 
 
 async def test_default_identity_reads_with_a_hint_use_the_driver(
@@ -785,7 +786,7 @@ async def test_custom_decoding_that_cannot_form_a_key_uses_the_driver(
     assert manager.snapshot().hits == before.hits
 
 
-async def test_bson_timestamps_outside_the_wire_key_types_use_the_driver(
+async def test_bson_timestamps_are_portable_shared_keys(
     manager: SharedCacheManager[BsonDict] | AsyncSharedCacheManager[BsonDict],
     seeded_database: DatabaseName,
     faker: Faker,
@@ -798,8 +799,8 @@ async def test_bson_timestamps_outside_the_wire_key_types_use_the_driver(
     assert await _read(view, {"_id": identity}) is None
 
     assert manager.snapshot().hits == before.hits
-    assert manager.snapshot().bypasses == before.bypasses + 1
-    assert manager.observation.bypasses[adapters.UNPORTABLE_KEY] == 1
+    assert manager.snapshot().bypasses == before.bypasses
+    assert manager.snapshot().misses == before.misses + 1
 
 
 def test_server_rejects_unsupported_architecture(

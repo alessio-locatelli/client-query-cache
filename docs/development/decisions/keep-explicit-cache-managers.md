@@ -2,9 +2,9 @@
 
 ## Context
 
-Applications choose between broad cached-read coverage within one process and a narrower identity-read cache shared by workers. Shared caching requires a parent-owned server, a common trust boundary, and a different shutdown order. Process-local caching requires only a caller-owned PyMongo client.
+Applications choose between a cache within one process and a cache shared by trusted same-host workers. Shared caching requires a parent-owned server, a common trust boundary, and a different shutdown order. Process-local caching requires only a caller-owned PyMongo client.
 
-The [shared-cache delivery design](../../../openspec/changes/archive/2026-10-15-ship-shared-worker-cache/design.md) deliberately exposes an explicit owner and identity-read scope. The [public measurements](../../user/benchmarks/shared-cache.md) show that sharing is a workload choice: it reduces duplicated streams and values but has owner and miss costs.
+The shared API deliberately exposes an explicit owner. The [public measurements](../../user/benchmarks/shared-cache.md) show that sharing is a workload choice: it reduces duplicated streams and values but has owner and miss costs.
 
 ## Decision
 
@@ -18,6 +18,6 @@ A constructor that starts or discovers an owner automatically would simplify som
 
 ## Consequences
 
-Users must make one explicit choice. A comparison near getting started and links from examples and API references make it discoverable. Shared caching remains intentionally narrower; applications must preserve query predicates and use direct reads where freshness matters.
+Users must make one explicit choice. A comparison near getting started and links from examples and API references make it discoverable. Shared caching has stricter codec and collation requirements; applications must preserve query predicates and use direct reads where freshness matters.
 
 A unified interface can be reconsidered if cached-operation coverage and diagnostics converge and a proposed lifecycle preserves explicit parent ownership without implicit election or per-worker servers. This decision introduces no API migration or implementation requirement.
