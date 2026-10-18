@@ -5,7 +5,7 @@ import threading
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, override
 
 from pymongo.errors import PyMongoError
 from pymongo.monitoring import TopologyListener
@@ -300,8 +300,8 @@ class TopologyChangeListener(TopologyListener):
         with self._lock:
             self._primary_changed = False
 
-    @staticmethod
-    def opened(_event: TopologyOpenedEvent) -> None:
+    @override
+    def opened(self, _event: TopologyOpenedEvent) -> None:
         return None
 
     def description_changed(self, event: TopologyDescriptionChangedEvent) -> None:
@@ -319,8 +319,8 @@ class TopologyChangeListener(TopologyListener):
                 self._primary_changed = True
             self._current_primary = new_primary
 
-    @staticmethod
-    def closed(_event: TopologyClosedEvent) -> None:
+    @override
+    def closed(self, _event: TopologyClosedEvent) -> None:
         return None
 
 
