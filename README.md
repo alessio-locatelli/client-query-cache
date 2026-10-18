@@ -5,7 +5,9 @@
 [![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen)](https://github.com/alessio-locatelli/client-query-cache/actions/workflows/test.yml)
 [![Typing](https://img.shields.io/pypi/types/client-query-cache)](https://pypi.org/project/client-query-cache/)
 
-`client-query-cache` adds transparent caching to PyMongo read calls through an explicit [cached collection view](https://alessio-locatelli.github.io/client-query-cache/usage/cached-reads/). Keep your MongoDB queries and use PyMongo for writes.
+**Speed up read-heavy, high-throughput Python applications.** `client-query-cache` serves eligible repeated PyMongo reads from memory, reducing read latency and avoiding MongoDB round trips on cache hits.
+
+Add caching through an explicit [cached collection view](https://alessio-locatelli.github.io/client-query-cache/usage/cached-reads/). Keep your existing MongoDB queries and use PyMongo for writes.
 
 - **[Synchronous](https://alessio-locatelli.github.io/client-query-cache/getting-started/synchronous/) and [asyncio](https://alessio-locatelli.github.io/client-query-cache/getting-started/asyncio/) APIs** for long-lived Python applications.
 - **[MongoDB change streams](https://alessio-locatelli.github.io/client-query-cache/usage/consistency/)** invalidate affected results, including writes from other applications.
