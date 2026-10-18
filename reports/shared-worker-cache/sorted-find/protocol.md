@@ -6,7 +6,7 @@ This is an exploratory follow-up to [v15](../v15/results.md) for [#290](https://
 
 The v15 report records six sorted-find sensitivity failures, while supported identity workloads passed. Its raw measurements and profiles are unavailable. The v15 diagnostics attribute identity costs, not sorted-result costs, so they cannot establish a sorted-find speedup. The earlier [v5 cost-floor study](../v5/registration.md#floor-results) selects local-index access over owner coordination; its measurements concern single documents and justify investigating that existing family, not predicting sorted-result costs.
 
-The candidate publishes already captured, positive-limit result payloads and reads exact shapes locally. It changes no native layout, codec, cursor capture, miss admission or public wrapper. Alternatives and correctness boundaries are in the active `optimize-shared-sorted-find` design.
+The candidate publishes already captured, positive-limit result payloads and reads exact shapes locally. It changes no native layout, codec, cursor capture, miss admission or public wrapper. Alternatives and correctness boundaries are in [the design](../../../openspec/changes/archive/2026-10-18-optimize-shared-sorted-find/design.md).
 
 ## Bounded measurements
 
