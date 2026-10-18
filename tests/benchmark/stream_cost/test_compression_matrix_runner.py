@@ -146,20 +146,20 @@ class _FakeCacheCore:
         return self._active_databases
 
 
-class _StaticCacheManager:
+class _ZeroSnapshotCacheManager:
     __slots__ = ("cache_core",)
 
     def __init__(self) -> None:
         self.cache_core = self
 
-    @staticmethod
-    def snapshot() -> _FakeSnapshot:
+    # Implements the manager API with a fixed snapshot and no instance state.
+    def snapshot(self) -> _FakeSnapshot:  # noqa: PLR6301
         return _FakeSnapshot(hits=0, misses=0)
 
 
 def test_issue_cache_reads_rejects_a_primed_read_that_was_not_a_hit() -> None:
     collection: Any = _RecordingCachedCollection()
-    manager: Any = _StaticCacheManager()
+    manager: Any = _ZeroSnapshotCacheManager()
     with pytest.raises(BenchmarkSetupError, match="was not a hit"):
         _issue_cache_reads(collection, manager, ["missing_id"], latencies=[])
 
@@ -167,8 +167,8 @@ def test_issue_cache_reads_rejects_a_primed_read_that_was_not_a_hit() -> None:
 class _FakeCachedCollection:
     __slots__ = ()
 
-    @staticmethod
-    def find_one(query: BsonDict) -> None:
+    # Implements the collection API without using the fake's instance state.
+    def find_one(self, query: BsonDict) -> None:  # noqa: PLR6301
         del query
 
 
