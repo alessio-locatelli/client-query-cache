@@ -305,10 +305,10 @@ def test_socket_option_failure_closes_both_connections(
             # Keep the client socket out of the failure injection.
             client.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             assert client.recv(1) == b""
-        assert len(attempted) == fail_at
-        assert all(sock.fileno() == -1 for sock in attempted)
-        assert proxy._sockets == []
-        assert proxy._connection_threads == []
+    assert len(attempted) == fail_at
+    assert all(sock.fileno() == -1 for sock in attempted)
+    assert proxy._sockets == []
+    assert proxy._connection_threads == []
 
 
 def test_exit_force_closes_and_joins_still_active_connections(
