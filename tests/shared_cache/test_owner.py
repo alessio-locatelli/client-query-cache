@@ -1914,3 +1914,7 @@ async def test_full_native_queues_use_bounded_fallback_or_skip_admission(
     admission_endpoint.send(local_miss, reader)
     assert admission_endpoint.counters.native_admissions == 1
     assert admission_endpoint.counters.native_admission_recoveries == int(not connected)
+    assert not admission_endpoint.admission_recovery.awaiting_capacity
+    assert len(ring.drain_admissions()) == 1
+    admission_endpoint.send(local_miss, reader)
+    assert admission_endpoint.counters.native_admission_recoveries == int(not connected)

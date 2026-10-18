@@ -72,7 +72,7 @@ Then `collection.find({"day": "2026-10-17"})` selects a day's events without cre
 
 Use the [SharedCacheConfig field reference](../reference/shared-cache.md#configuration) for memory and index sizing, and the [memory accounting reference](https://github.com/alessio-locatelli/client-query-cache/blob/main/docs/development/shared-cache.md#memory-outside-the-accounted-budget) when interpreting process measurements.
 
-Connection capacity must cover each worker's control and request connections; synchronous request threads can need additional connections. Size the owner's MongoDB pool for one concurrent stream poll per active database, and worker pools for their own traffic. Precise native layout bounds and memory accounting are in the [maintainer reference](https://github.com/alessio-locatelli/client-query-cache/blob/main/docs/development/shared-cache.md).
+Connection capacity must cover each worker's control and request connections; synchronous request threads can need additional connections. If a needed connection cannot be opened, the read falls back to MongoDB with bounded retry cooldowns. Size the owner's MongoDB pool for one concurrent stream poll per active database, and worker pools for their own traffic. Precise native layout bounds and memory accounting are in the [maintainer reference](https://github.com/alessio-locatelli/client-query-cache/blob/main/docs/development/shared-cache.md).
 
 ## Consistency and recovery
 

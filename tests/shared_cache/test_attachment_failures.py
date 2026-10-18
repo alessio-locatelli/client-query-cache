@@ -14,6 +14,7 @@ import pytest
 
 from benchmarks.stream_cost.shared_cache.protocol import Registration
 from benchmarks.stream_cost.shared_cache.window import attachment_for, owner_config
+from client_query_cache._shared import attachment
 from client_query_cache._shared.attachment import (
     AsyncEndpoint,
     EndpointCounters,
@@ -194,3 +195,41 @@ async def test_incompatible_handshake_is_a_hard_error(
     else:
         with pytest.raises(ProtocolError, match="version"):
             SyncEndpoint(incompatible_peer, require_owner=False)
+
+
+def test_admission_recovery_expires_without_changing_diagnostic_counters(
+    endpoint: AsyncEndpoint, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Advance across the endpoint's 100 ms recovery window.
+    clock = Mock(side_effect=(1.0, 1.05, 1.11))
+    monkeypatch.setattr(attachment, "time", Mock(monotonic=clock))
+    recovery = endpoint.admission_recovery
+    recovery.dropped()
+    active_before_enqueue = recovery.active
+    assert not active_before_enqueue
+    assert recovery.enqueued(recovery.generation)
+    assert not recovery.awaiting_capacity
+    assert not recovery.enqueued(recovery.generation)
+    active_after_enqueue = recovery.active
+    assert active_after_enqueue
+    active_after_expiry = recovery.active
+    assert not active_after_expiry
+    assert recovery.fallback_until == 0
+    assert not recovery.active
+    assert clock.call_count == 3
+    assert endpoint.counters.native_admission_recoveries == 0
+
+
+def test_enqueue_started_before_a_new_drop_cannot_reopen_recovery(
+    endpoint: AsyncEndpoint,
+) -> None:
+    recovery = endpoint.admission_recovery
+    recovery.dropped()
+    in_flight_generation = recovery.generation
+    recovery.dropped()
+
+    assert not recovery.enqueued(in_flight_generation)
+    assert recovery.awaiting_capacity
+    assert recovery.fallback_until == 0
+    assert recovery.enqueued(recovery.generation)
+    assert not recovery.enqueued(in_flight_generation)
