@@ -109,6 +109,17 @@ def _cpu_usage_unreadable(error: Exception) -> BenchmarkSetupError:
     return BenchmarkSetupError(message)
 
 
+def _parse_cpu_usage_nanoseconds(stats: object) -> NonNegativeInt:
+    if not isinstance(stats, dict):
+        message = "stats(stream=False) unexpectedly returned an iterator"
+        raise TypeError(message)
+    usage_nanoseconds = int(stats["cpu_stats"]["cpu_usage"]["total_usage"])
+    if usage_nanoseconds < 0:
+        message = f"total_usage ({usage_nanoseconds}) must not be negative"
+        raise ValueError(message)
+    return usage_nanoseconds
+
+
 class IsolatedReplicaSet:
     __slots__ = ("_container", "_limits", "_uri")
 
@@ -274,7 +285,7 @@ class IsolatedReplicaSet:
 
     def container_cpu_usage_seconds(self) -> NonNegativeFloat:
         try:
-            usage_nanoseconds = self._parse_cpu_usage_nanoseconds(self._stats())
+            usage_nanoseconds = _parse_cpu_usage_nanoseconds(self._stats())
         except DockerException as error:
             raise _cpu_usage_unreadable(error) from None
         except KeyError as error:
@@ -297,14 +308,3 @@ class IsolatedReplicaSet:
             "dict[str, NonNegativeInt]", cast("JsonDict", stats)["memory_stats"]
         )
         return int(memory_stats["usage"])
-
-    @staticmethod
-    def _parse_cpu_usage_nanoseconds(stats: object) -> NonNegativeInt:
-        if not isinstance(stats, dict):
-            message = "stats(stream=False) unexpectedly returned an iterator"
-            raise TypeError(message)
-        usage_nanoseconds = int(stats["cpu_stats"]["cpu_usage"]["total_usage"])
-        if usage_nanoseconds < 0:
-            message = f"total_usage ({usage_nanoseconds}) must not be negative"
-            raise ValueError(message)
-        return usage_nanoseconds
