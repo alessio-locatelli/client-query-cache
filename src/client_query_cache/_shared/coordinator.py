@@ -908,7 +908,7 @@ class SharedCacheOwner:
             )
         return True
 
-    @staticmethod
+    @staticmethod  # Avoid module-global lookup on every owner send.
     def _send(connection: _Connection, view: memoryview) -> int:
         handover = connection.handover
         if handover is None:
