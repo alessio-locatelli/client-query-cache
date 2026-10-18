@@ -309,8 +309,7 @@ def profile_windows(
                         "completed": record["completed"],
                         "owner_busy_seconds": _owner_busy(record),
                         "profiles": {
-                            profile.stem.rsplit("-", 1)[0]: summarize(profile)
-                            for profile in profiles
+                            profile.stem: summarize(profile) for profile in profiles
                         },
                     }
                 )

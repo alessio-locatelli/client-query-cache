@@ -275,7 +275,6 @@ class LocalCapture(TypedDict):
 class _SharedIndexMachine(RuleBasedStateMachine):
     captures = Bundle("captures")
     local_captures = Bundle("local_captures")
-    find_captures = Bundle("find_captures")
 
     def __init__(self) -> None:
         super().__init__()
@@ -365,19 +364,6 @@ class _SharedIndexMachine(RuleBasedStateMachine):
             capture, shape, self._document(seed, characters)
         )
 
-    @rule(target=find_captures, namespace=st.sampled_from(_NAMESPACES))
-    def capture_find(self, namespace: NamespaceId) -> NamespaceCapture:
-        return self.core.capture_namespace_generation(namespace)
-
-    @rule(capture=consumes(find_captures), shape=st.sampled_from(_FIND_SHAPES))
-    def admit_find(self, capture: NamespaceCapture, shape: FindReadShape) -> None:
-        self.core.admit_namespace(
-            capture,
-            shape.discriminator,
-            [{"name": self.faker.name()}],
-            find_source=shape.source,
-        )
-
     @rule(
         namespace=st.sampled_from(_NAMESPACES),
         identity=st.sampled_from(_IDENTITIES),
@@ -414,19 +400,6 @@ class _SharedIndexMachine(RuleBasedStateMachine):
     def local_values_match_the_core(self) -> None:
         for namespace, slot in self.slots.items():
             assert slot is not None
-            for find_shape in _FIND_SHAPES:
-                for epoch in self.epochs[namespace]:
-                    local = self.reader.lookup(
-                        slot.database,
-                        slot.namespace,
-                        epoch,
-                        b"",
-                        encode_key(canonicalize(find_shape.discriminator)),
-                    )
-                    if local is not None:
-                        assert local == self.core.lookup_find_encoded(
-                            namespace, find_shape
-                        )
             for identity in _IDENTITIES:
                 canonical = encode_key(canonicalize(order_sensitive_key(identity)))
                 for shape in _SHAPES:
@@ -448,3 +421,42 @@ class _SharedIndexMachine(RuleBasedStateMachine):
 
 def test_local_reads_never_disagree_with_the_core() -> None:
     run_state_machine_as_test(_SharedIndexMachine)  # type: ignore[no-untyped-call]
+
+
+class _SharedFindIndexMachine(_SharedIndexMachine):
+    find_captures = Bundle("find_captures")
+
+    @rule(target=find_captures, namespace=st.sampled_from(_NAMESPACES))
+    def capture_find(self, namespace: NamespaceId) -> NamespaceCapture:
+        return self.core.capture_namespace_generation(namespace)
+
+    @rule(capture=consumes(find_captures), shape=st.sampled_from(_FIND_SHAPES))
+    def admit_find(self, capture: NamespaceCapture, shape: FindReadShape) -> None:
+        self.core.admit_namespace(
+            capture,
+            shape.discriminator,
+            [{"name": self.faker.name()}],
+            find_source=shape.source,
+        )
+
+    @invariant()
+    def local_find_values_match_the_core(self) -> None:
+        for namespace, slot in self.slots.items():
+            assert slot is not None
+            for find_shape in _FIND_SHAPES:
+                for epoch in self.epochs[namespace]:
+                    local = self.reader.lookup(
+                        slot.database,
+                        slot.namespace,
+                        epoch,
+                        b"",
+                        encode_key(canonicalize(find_shape.discriminator)),
+                    )
+                    if local is not None:
+                        assert local == self.core.lookup_find_encoded(
+                            namespace, find_shape
+                        )
+
+
+def test_local_find_reads_never_disagree_with_the_core() -> None:
+    run_state_machine_as_test(_SharedFindIndexMachine)  # type: ignore[no-untyped-call]

@@ -299,9 +299,7 @@ def _identity_message(view: View, keys: tuple[bytes, bytes] | str) -> Message | 
     )
 
 
-def _local_select(
-    view: View, keys: tuple[bytes, bytes] | str, *, capture_miss: bool = True
-) -> object:
+def _local_select(view: View, keys: tuple[bytes, bytes] | str) -> object:
     shared = view._shared
     local = shared.local
     if local is None or isinstance(keys, str):
@@ -325,7 +323,7 @@ def _local_select(
         if local.reader.detached:
             shared._reattach = True
             return NO_LOCAL_HIT
-        if not capture_miss:
+        if identity_key == b"":
             return NO_LOCAL_HIT
         if not local.admissions_enabled and not shared.endpoint.connected:
             return NO_LOCAL_HIT
@@ -386,7 +384,7 @@ def _local_find(cursor: Cursor, shape: FindReadShape) -> bool:
         key = cursor._shared.keys.encode(canonicalize(shape.discriminator))
     except UnportableKeyError:
         return False
-    documents = _local_select(cursor._view, (b"", key), capture_miss=False)
+    documents = _local_select(cursor._view, (b"", key))
     if documents is NO_LOCAL_HIT:
         return False
     assert isinstance(documents, list)
