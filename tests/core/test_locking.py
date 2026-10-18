@@ -113,8 +113,8 @@ def test_exceptions_release_reusable_sections(
 class _InterruptedAcquire:
     __slots__ = ()
 
-    @staticmethod
-    def acquire() -> NoReturn:
+    # Implements a lock-like API that interrupts its acquire call.
+    def acquire(self) -> NoReturn:  # noqa: PLR6301
         raise KeyboardInterrupt
 
 
