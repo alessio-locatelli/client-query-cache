@@ -15,36 +15,5 @@
     "CODE_OF_CONDUCT.md",
     "code_of_conduct.md"
   ],
-  "rules": [
-    "Choose CacheManager for process-local cached reads; choose SharedCacheManager for repeated eligible collection reads across trusted same-host workers. See getting-started/choose-a-manager.md.",
-    "Synchronous managers wrap pymongo.MongoClient and are imported from client_query_cache. Asyncio managers wrap pymongo.AsyncMongoClient and are imported from client_query_cache.asynchronous.",
-    "Rust-backed sharing reuses encoded documents and one stream per active database across workers. Process-local managers are independent. Sharing adds owner and miss costs; consult benchmarks/shared-cache.md before assuming speed or memory savings.",
-    "Check getting-started/installation.md#requirements for supported Python, PyMongo, operating system, shared-host capabilities and MongoDB prerequisites.",
-    "Create client_query_cache.CacheManager(client) or the asyncio equivalent for process-local caching. Reuse one manager per long-lived client per process; create both inside each worker, never before forking or per request.",
-    "Obtain a cached view with manager.get_cached_collection(collection) or manager[database][collection]. The collection must belong to that manager client; .raw preserves the original PyMongo collection and options.",
-    "Both managers provide find_one, find, aggregate, count_documents, estimated_document_count and distinct. Writes and administration use the original PyMongo collection or .raw.",
-    "Cached find() and aggregate() return native cursor subclasses. Materialize with list(cursor) or cursor.to_list() synchronously, or await cursor.to_list() with asyncio. Async find() returns immediately; await aggregate() to get its cursor.",
-    "Only complete successful cursor consumption can admit a bounded result. Close abandoned cursors. Started hit cursors keep an isolated snapshot through invalidation or closure; use a new execution for a new lookup.",
-    "Positive integer find limits can reuse complete results with larger positive or unlimited integer-zero/omitted limits when all other inputs match. Smaller sources cannot cover larger requests. Unlimited, negative and boolean requests use exact lookup.",
-    "Cached find() matches scalar-equality permutations in plain dicts: exact str fields not starting with $, and None or exact bool/int/float/str values. Other forms retain ordered matching and existing eligibility; native filters stay unchanged.",
-    "Use reference/api.md#single-document-reads for invalidation scope and reference/shared-cache.md#worker-managers-and-reads for shared eligibility. Never remove authorization predicates to obtain a cache hit.",
-    "Invalidation is asynchronous and has no per-write catch-up barrier or guaranteed delay. For read-after-write and current authorization, use direct PyMongo reads with suitable sessions and concerns. Direct reads do not refresh cached entries.",
-    "Eligible misses use primary, majority read concern even when unspecified. Secondary and non-majority read profiles bypass. Hits skip server execution and cannot reproduce fresh server errors or query effects.",
-    "Sessions, including session.bind(), bypass caching. Unsafe queries, views, time-series collections, missing collections, unsupported options and unavailable streams bypass; PyMongo operations can still fail.",
-    "Cursor-only find, $changeStream, Search/Vector Search, $text/$near/$nearSphere/$geoNear, $$USER_ROLES and nondeterministic reads bypass. Explicit find batching and aggregate batchSize at invocation bypass. See the API reference for precise query rules.",
-    "Configure CacheCoreConfig using reference/api.md#configuration and reference/api.md#limits. Consult operations/deployment.md#memory-beyond-the-cache-budget when sizing process memory.",
-    "The lag-window fields and validation rules are defined in reference/api.md#configuration; monitoring guidance is in operations/monitoring.md#observability.",
-    "Process-local snapshot(), stream_health_snapshot(name) and stream_cost_snapshot(name) do not start streams. Failed startup warns and retries on reads after cooldown, capped at 30 seconds. Established streams reconnect; healthy does not mean caught up.",
-    "Start SharedCacheServer once in the parent. Pass its private picklable connection to workers; each creates its own client and SharedCacheManager(client, connection). Never start a server in each FastAPI lifespan. See reference/shared-cache.md.",
-    "Run examples/fastapi_shared_example.py for FastAPI/Granian with actual spawned HTTP workers, cross-process hits, invalidation and graceful shutdown. Its reads retain a tenant predicate across workers.",
-    "Async SharedCacheManager requires async with or await SharedCacheManager.attach(client, connection). Construct and use it in one event loop.",
-    "Use reference/shared-cache.md#worker-managers-and-reads as the shared-read eligibility contract, including filter, projection, collation, codec and fallback rules.",
-    "Check operations/shared-cache.md#security-and-monitoring before distributing a SharedCacheConnection; it defines the worker trust boundary and database access requirements.",
-    "Configure SharedCacheConfig using reference/shared-cache.md#configuration. Collection-name and connection sizing guidance is in operations/shared-cache.md#collection-names-and-capacity.",
-    "Follow operations/shared-cache.md#collection-names-and-capacity for namespace sizing; drops release capacity and names beyond the configured limit bypass shared caching.",
-    "Use operations/monitoring.md#shared-manager-diagnostics for SharedCacheStatistics fields, scope and telemetry limitations; do not assume process-local diagnostics apply to shared managers.",
-    "Follow operations/shared-cache.md#consistency-and-recovery for owner outages and progress expiry, and reference/shared-cache.md#server-and-connection for cache_server.restart().",
-    "Close managers before caller-owned clients; await async close. Stop shared workers before closing the parent server. Never reuse clients, managers or servers inherited after fork; pass the connection. Async cleanup finishes before cancellation propagates.",
-    "Use operations/deployment.md#memory-beyond-the-cache-budget for process-local memory sizing and reference/shared-cache.md#configuration for shared capacity accounting."
-  ]
+  "rules": []
 }
