@@ -342,7 +342,10 @@ def _local_select(view: View, keys: tuple[bytes, bytes] | str) -> object:
             return NO_LOCAL_HIT
         if identity_key == b"":
             return NO_LOCAL_HIT
-        if not local.admissions_enabled and not shared.endpoint.connected:
+        if (
+            not local.admissions_enabled
+            or shared.endpoint.counters.native_admission_recoveries
+        ) and not shared.endpoint.connected:
             return NO_LOCAL_HIT
         token = local.reader.capture(database, slot, metadata.checked_epoch)
         if token is not None:

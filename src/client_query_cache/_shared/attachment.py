@@ -93,6 +93,8 @@ class EndpointCounters:
     late_replies: NonNegativeInt = 0
     one_way: NonNegativeInt = 0
     native_admissions: NonNegativeInt = 0
+    native_admission_drops: NonNegativeInt = 0
+    native_admission_recoveries: NonNegativeInt = 0
     dropped_one_way: NonNegativeInt = 0
     bytes_sent: NonNegativeInt = 0
     bytes_received: NonNegativeInt = 0
@@ -113,6 +115,8 @@ def _one_way_frame(
         return None
     if reader is not None and reader.enqueue_admission(frame):
         counters.native_admissions += 1
+        if counters.native_admission_drops:
+            counters.native_admission_recoveries += 1
         counters.one_way += 1
         counters.bytes_sent += frame_bytes
         return None
@@ -477,6 +481,8 @@ class SyncEndpoint:
         connection = self._leased()
         if connection is None:
             self.counters.dropped_one_way += 1
+            if prepared is not None:
+                self.counters.native_admission_drops += 1
             return
         if prepared is None:
             prepared = _one_way_frame(message, self.config, self.counters, reader)
@@ -720,6 +726,8 @@ class AsyncEndpoint:
         writer = self._writer
         if writer is None:
             self.counters.dropped_one_way += 1
+            if prepared is not None:
+                self.counters.native_admission_drops += 1
             return
         if prepared is None:
             prepared = _one_way_frame(message, self.config, self.counters, reader)
