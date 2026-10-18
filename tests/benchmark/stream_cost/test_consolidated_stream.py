@@ -320,8 +320,8 @@ def test_unrelated_write_workload_fails_when_timestamp_capacity_is_exhausted(
 
 @dataclass(slots=True)
 class _FailingInsertCollection:
-    @staticmethod
-    def insert_one(document: BsonDict) -> None:
+    # Implements the collection API with an intentional insert failure.
+    def insert_one(self, document: BsonDict) -> None:  # noqa: PLR6301
         del document
         message = "simulated insert failure"
         raise ConnectionFailure(message)
