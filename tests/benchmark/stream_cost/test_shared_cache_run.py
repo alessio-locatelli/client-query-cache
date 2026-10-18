@@ -1295,8 +1295,8 @@ class _RecordingClient:
     def __init__(self) -> None:
         self.collection = _RecordingCollection()
 
-    @staticmethod
-    def drop_database(_name: str) -> None:
+    # Implements the fake client's database-drop API without using its state.
+    def drop_database(self, _name: str) -> None:  # noqa: PLR6301
         return None
 
     def __getitem__(self, _name: str) -> dict[str, _RecordingCollection]:
