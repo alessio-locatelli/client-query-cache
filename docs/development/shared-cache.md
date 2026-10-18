@@ -8,9 +8,15 @@ The parent starts a spawned owner with its own MongoDB client. Workers attach re
 
 Native readers check owner incarnation, namespace generation, database availability and upstream progress before serving a hit. Local misses capture validity tokens before reading MongoDB. The owner starts authoritative core capture before validating those tokens; reversing that order leaves a write race. Restart replaces mappings and workers discard cached attachment metadata. Preserve the lock-order and publication fences when changing this path.
 
-The [delivery design](../../openspec/changes/archive/2026-10-15-ship-shared-worker-cache/design.md) and [miss-path design](../../openspec/changes/archive/2026-10-17-reduce-shared-cache-miss-cost/design.md) record the mechanisms and invariants. The [manager decision](decisions/keep-explicit-cache-managers.md) explains the public API boundary. Prototype cursor support in research adapters is not part of the public shared manager's cached-read scope.
+The [delivery design](../../openspec/changes/archive/2026-10-15-ship-shared-worker-cache/design.md) and [miss-path design](../../openspec/changes/archive/2026-10-17-reduce-shared-cache-miss-cost/design.md) record the mechanisms and invariants. The [manager decision](decisions/keep-explicit-cache-managers.md) explains the public API boundary.
 
 Shared adapters publish complete namespace results under their exact query discriminator, including scalar reads and unlimited cursors. Local hits reuse identity-reader validity checks; misses and compatible larger-limit find hits retain owner selection and authoritative capture. Publication uses the namespace's metadata epoch, while writes remove every published namespace result without removing unrelated identity results. This includes writes whose identity cannot be canonicalized. Unique-key filters use namespace entries rather than identity aliases. The [sorted-find investigation](../../reports/shared-worker-cache/sorted-find/results.md) records the predecessor workload; the [public contract](../user/reference/shared-cache.md#worker-managers-and-reads) defines supported reads.
+
+## Admission saturation
+
+Workers without a data socket initially use the native admission queue. A full queue preserves the MongoDB result and records a native admission drop. After a subsequent enqueue succeeds, future disconnected identity misses use owner selection to establish a bounded data channel. This makes socket fallback available for later full queues, while a queue that remains full does not itself cause repeated connection attempts. Existing capture, progress and invalidation fences still apply.
+
+The [targeted saturation assessment](../../reports/shared-worker-cache/admission-saturation/results.md) records the workload, losses, hit rates, CPU and latency tradeoffs. Full queues remain a best-effort admission boundary; cache capacity does not guarantee that every successful read is admitted.
 
 ## Native capacity limits
 

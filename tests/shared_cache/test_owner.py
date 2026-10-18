@@ -66,6 +66,7 @@ if TYPE_CHECKING:
 
     from client_query_cache._core.entries import AdmissionOutcome
     from client_query_cache._shared.attachment import Message
+    from client_query_cache._shared_index import SessionRing
 
 pytestmark = pytest.mark.unit
 
@@ -1850,7 +1851,7 @@ def test_a_namespace_without_a_slot_cannot_admit_local_captures(
 @pytest.fixture
 def full_admission_queue(
     session: _Session, local_miss: Message
-) -> Iterator[ReaderIndex]:
+) -> Iterator[tuple[ReaderIndex, SessionRing]]:
     index = session.owner._index
     assert index is not None
     frame = encode_frame({**local_miss, "v": 1, "id": 0})
@@ -1863,7 +1864,7 @@ def full_admission_queue(
     finally:
         os.close(descriptor)
     assert reader.enqueue_admission(frame)
-    yield reader
+    yield reader, ring
     ring.close_descriptor()
 
 
@@ -1887,11 +1888,12 @@ async def admission_endpoint(
 async def test_full_native_queues_use_bounded_fallback_or_skip_admission(
     session: _Session,
     local_miss: Message,
-    full_admission_queue: ReaderIndex,
+    full_admission_queue: tuple[ReaderIndex, SessionRing],
     admission_endpoint: SyncEndpoint | AsyncEndpoint,
     connected: bool,
 ) -> None:
-    admission_endpoint.send(local_miss, full_admission_queue)
+    reader, ring = full_admission_queue
+    admission_endpoint.send(local_miss, reader)
     if connected:
         reply = (
             await admission_endpoint.request({"op": "observe"})
@@ -1900,8 +1902,15 @@ async def test_full_native_queues_use_bounded_fallback_or_skip_admission(
         )
         assert reply is not None
     assert admission_endpoint.counters.native_admissions == 0
+    assert admission_endpoint.counters.native_admission_drops == int(not connected)
+    assert admission_endpoint.counters.native_admission_recoveries == 0
     assert admission_endpoint.counters.one_way == int(connected)
     assert admission_endpoint.counters.dropped_one_way == int(not connected)
     assert session.owner.counters.admitted == int(connected)
     assert session.local(0) == (local_miss["value"] if connected else None)
     assert not session.owner._handles
+
+    assert len(ring.drain_admissions()) == 1
+    admission_endpoint.send(local_miss, reader)
+    assert admission_endpoint.counters.native_admissions == 1
+    assert admission_endpoint.counters.native_admission_recoveries == int(not connected)

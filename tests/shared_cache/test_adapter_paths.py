@@ -751,6 +751,43 @@ def test_local_misses_use_the_control_queue_or_reconnect_after_data_channel_loss
     assert not reads.detached
 
 
+@pytest.mark.parametrize(
+    ("queue_drop", "recovered"),
+    [(False, False), (True, False), (True, True)],
+    ids=("other-drop", "queue-full", "queue-recovered"),
+)
+def test_only_recovered_native_queues_make_disconnected_misses_reconnect(
+    open_reads: Callable[[SharedIndexLimits], tuple[Owner, _SharedReads]],
+    queue_drop: bool,
+    recovered: bool,
+) -> None:
+    owner, reads = open_reads(
+        replace(_SHARED_INDEX, local_miss_admission=True, native_admission_queue=True)
+    )
+    endpoint = reads.manager.endpoint
+    requests = endpoint.counters.requests
+    connects = endpoint.counters.connects
+    reads.disconnect_data()
+    endpoint.counters.dropped_one_way = 1
+    endpoint.counters.native_admission_drops = int(queue_drop)
+    endpoint.counters.native_admission_recoveries = int(recovered)
+
+    wait_for(
+        lambda: (
+            reads.find_one(0) is not None
+            and (not recovered or endpoint.counters.connects > connects)
+        )
+    )
+    _admitted(owner, 1)
+
+    assert reads.find_one(0) is not None
+    assert endpoint.counters.requests == requests + int(recovered)
+    assert endpoint.counters.connects == connects + int(recovered)
+    assert endpoint.counters.native_admissions == int(not recovered)
+    assert reads.manager.observation.hits == 1
+    assert not reads.detached
+
+
 def test_closed_endpoints_drop_native_admissions(
     open_reads: Callable[[SharedIndexLimits], tuple[Owner, _SharedReads]],
 ) -> None:
