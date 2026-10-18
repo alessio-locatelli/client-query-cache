@@ -571,8 +571,8 @@ def test_send_hello_uses_the_primary_read_preference() -> None:
     calls: list[dict[str, object]] = []
 
     class _StubAdmin:
-        @staticmethod
-        def command(name: str, **kwargs: object) -> BsonDict:
+        # Implements the admin API using the enclosing test's call recorder.
+        def command(self, name: str, **kwargs: object) -> BsonDict:  # noqa: PLR6301
             calls.append({"name": name, **kwargs})
             return {"ok": 1.0}
 
