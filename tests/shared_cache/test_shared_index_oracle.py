@@ -19,6 +19,7 @@ from hypothesis.stateful import (
 from client_query_cache._core.canonical import canonicalize
 from client_query_cache._core.codec import encode_value
 from client_query_cache._core.entries import AdmissionOutcome
+from client_query_cache._core.find_reads import FindReadShape
 from client_query_cache._core.keys import NamespaceId
 from client_query_cache._core.manager import (
     CacheCore,
@@ -52,6 +53,10 @@ _SLOTS = 64
 _ARENA_BYTES = 64 * 1024
 _RING_TOKENS = 4_096
 _STALE_PROGRESS_NS = 1
+_BOUNDED_FIND_SHAPE = FindReadShape(("find", "sorted"), 8)
+_FIND_SHAPES = tuple(
+    FindReadShape(("find", name), limit) for name in _SHAPES for limit in (1, 3)
+)
 
 
 @pytest.fixture
@@ -148,6 +153,7 @@ def test_unassigned_namespace_lifecycle_events_do_not_publish_to_the_index(
         is AdmissionOutcome.ADMITTED
     )
     core.record_write(namespace, 1)
+    core.record_write(namespace, float("nan"))
     core.clear_namespace(namespace)
     core.drop_namespace(namespace)
 
@@ -197,6 +203,69 @@ def test_namespace_churn_reuses_owner_state_and_shared_slot(
     assert publisher._free_slots == [0]
 
 
+@pytest.mark.parametrize(
+    "identity",
+    [42, float("nan"), {1, 2}],
+    ids=["ordinary", "non-reflexive", "unhashable"],
+)
+def test_every_write_removes_find_publication_without_removing_other_identities(
+    bounded_shared_index: tuple[CacheCore, IndexPublisher, OwnerIndex, ReaderIndex],
+    identity: object,
+) -> None:
+    core, publisher, index, reader = bounded_shared_index
+    namespace = NamespaceId("oracle", "first")
+    epoch = core.current_epoch(namespace)
+    slot = publisher.assign(namespace, epoch)
+    assert slot is not None
+    core.admit_identity(core.begin_identity_admission(namespace, 1), "full", {"_id": 1})
+    for _ in range(2):
+        capture = core.capture_namespace_generation(namespace)
+        assert (
+            core.admit_namespace(
+                capture,
+                _BOUNDED_FIND_SHAPE.discriminator,
+                [],
+                find_source=_BOUNDED_FIND_SHAPE.source,
+            )
+            is AdmissionOutcome.ADMITTED
+        )
+        assert (
+            reader.lookup(
+                0,
+                slot.namespace,
+                epoch,
+                b"",
+                encode_key(canonicalize(_BOUNDED_FIND_SHAPE.discriminator)),
+            )
+            is not None
+        )
+        core.record_write(namespace, identity)
+        assert (
+            reader.lookup(
+                0,
+                slot.namespace,
+                epoch,
+                b"",
+                encode_key(canonicalize(_BOUNDED_FIND_SHAPE.discriminator)),
+            )
+            is None
+        )
+        assert (
+            reader.lookup(0, slot.namespace, epoch, encode_key(1), encode_key("full"))
+            is not None
+        )
+        assert index.published() == 1
+        assert (
+            core.admit_namespace(
+                capture,
+                _BOUNDED_FIND_SHAPE.discriminator,
+                [],
+                find_source=_BOUNDED_FIND_SHAPE.source,
+            )
+            is AdmissionOutcome.DECLINED_STALE
+        )
+
+
 class LocalCapture(TypedDict):
     core: NamespaceCapture
     epoch: NonNegativeInt
@@ -206,6 +275,7 @@ class LocalCapture(TypedDict):
 class _SharedIndexMachine(RuleBasedStateMachine):
     captures = Bundle("captures")
     local_captures = Bundle("local_captures")
+    find_captures = Bundle("find_captures")
 
     def __init__(self) -> None:
         super().__init__()
@@ -295,6 +365,19 @@ class _SharedIndexMachine(RuleBasedStateMachine):
             capture, shape, self._document(seed, characters)
         )
 
+    @rule(target=find_captures, namespace=st.sampled_from(_NAMESPACES))
+    def capture_find(self, namespace: NamespaceId) -> NamespaceCapture:
+        return self.core.capture_namespace_generation(namespace)
+
+    @rule(capture=consumes(find_captures), shape=st.sampled_from(_FIND_SHAPES))
+    def admit_find(self, capture: NamespaceCapture, shape: FindReadShape) -> None:
+        self.core.admit_namespace(
+            capture,
+            shape.discriminator,
+            [{"name": self.faker.name()}],
+            find_source=shape.source,
+        )
+
     @rule(
         namespace=st.sampled_from(_NAMESPACES),
         identity=st.sampled_from(_IDENTITIES),
@@ -331,6 +414,19 @@ class _SharedIndexMachine(RuleBasedStateMachine):
     def local_values_match_the_core(self) -> None:
         for namespace, slot in self.slots.items():
             assert slot is not None
+            for find_shape in _FIND_SHAPES:
+                for epoch in self.epochs[namespace]:
+                    local = self.reader.lookup(
+                        slot.database,
+                        slot.namespace,
+                        epoch,
+                        b"",
+                        encode_key(canonicalize(find_shape.discriminator)),
+                    )
+                    if local is not None:
+                        assert local == self.core.lookup_find_encoded(
+                            namespace, find_shape
+                        )
             for identity in _IDENTITIES:
                 canonical = encode_key(canonicalize(order_sensitive_key(identity)))
                 for shape in _SHAPES:
