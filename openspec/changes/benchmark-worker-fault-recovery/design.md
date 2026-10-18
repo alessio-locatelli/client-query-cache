@@ -5,9 +5,11 @@
 After `benchmark-concurrent-worker-workload`, the harness in `benchmarks/stream_cost/shared_cache/` is registration-driven and runs `direct` and `independent` worker groups under a frozen steady-state workload (`reports/concurrent-worker-workload/v1/`). The existing fault tooling is limited:
 
 - `FaultableProxy` in `owner.py` can pause, resume or sever the TCP connections of one process's proxy.
-- `SharedCacheOwner.lose_history` in `coordinator.py` makes the next stream reopening fail with `ChangeStreamHistoryLost` (code 286) by patching the supervisor's `_open_stream` once, the same injection pattern used by `tests/stress/helpers.py`.
+- `SharedCacheOwner.lose_history` in `src/client_query_cache/_shared/coordinator.py` makes the next stream reopening fail with `ChangeStreamHistoryLost` (code 286) by patching the supervisor's `_open_stream` once, the same injection pattern used by `tests/stress/helpers.py`.
 - `IsolatedReplicaSet` in `topology.py` starts a single member, and clients use `directConnection=true`, so failover is impossible.
-- Worker samples keep latencies but not the time at which each request completed, so results can't be split into the intervals before, during and after a fault.
+- Steady-state worker samples keep latencies but not the time at which each request completed, so results can't be split into the intervals before, during and after a fault.
+
+The existing `fault` phase in `protocol.py`, `run.py`, `faults.py` and `analysis.py` serves shared-cache registrations. Its planner requires two synchronous and two asyncio workers and excludes direct and independent paths. Its scripted readiness and rewarming measurements do not implement the open-loop recovery criterion below. Extend dispatch by registration scope, reusing transport controls and process lifecycle handling where applicable, while preserving the existing shared-cache registrations and result format.
 
 ## Goals / Non-Goals
 
@@ -40,9 +42,9 @@ After `benchmark-concurrent-worker-workload`, the harness in `benchmarks/stream_
 
 The window has a fixed length because open-loop schedules must be identical across paths and repetitions. A window that ended a set time after recovery would offer each path a different number of requests. The 10 s gap between the deadline and the window end ensures that any recovered trial has a complete after-interval, and the after-interval is never truncated.
 
-The 2 × P99 factor and the 1 s buckets are chosen so that ordinary scheduling jitter doesn't register as unrecovered. A tighter factor would make recovery depend on noise. Before freezing, task 3.1 runs a null-fault check: it applies the recovery detector to the calibration's fault-free validation windows at an arbitrary injection offset, and every one must count as recovered in its first bucket. If any fails, the factor is revised before freezing, because no trial has run yet. After freezing, changing these values requires a new registration version.
+The 2 × P99 factor and the 1 s buckets are chosen so that ordinary scheduling jitter doesn't register as unrecovered. A tighter factor would make recovery depend on noise. Before freezing, task 3.1 runs a null-fault check: it explicitly opts this registration's fault-free calibration validation windows into the same per-request timeline instrumentation as fault windows, then applies the recovery detector at an arbitrary injection offset, and every one must count as recovered in its first bucket. If any fails, the factor is revised before freezing, because no trial has run yet. After freezing, changing these values requires a new registration version.
 
-The registration's smoke section lists every case at the `smoke` profile, with 5 s before injection, 30 s after it and a 20 s recovery deadline. It is labelled as smoke and is excluded from evidence. It exercises injection, timeline accounting, recovery detection and the post-recovery check for each case.
+The registration's smoke section lists every case at the `smoke` profile, with 5 s before injection, 30 s after it and a 20 s recovery deadline. It is labelled as smoke and is excluded from evidence. It exercises injection, timeline accounting, recovery detection and the post-recovery check for each case. For this registration, `--smoke --phase fault` is a supported combination and accepts `pending-calibration` status. Timed evidence via `--phase fault` without `--smoke` still requires a frozen registration.
 
 ### Cases and injection
 
@@ -61,7 +63,7 @@ Alternatives for connection loss and history loss:
 | Server `failCommand` failpoints (`closeConnection`, `errorCode: 286`) | Server-produced errors                                                                                           | Needs `enableTestCommands`, which changes the measured server configuration; filtering stream resumes from reads relies on `appName` and timing | Whether a failpoint can target only the resume `aggregate` without hitting the initial stream open |
 | Real oplog rollover                                                   | Fully real history loss                                                                                          | The minimum oplog size (990 MB) makes rollover slow and dominated by write volume                                                               | Time to roll over on a 2 GiB member                                                                |
 
-Unknown: whether the one-shot reopening failure, which so far has run only inside the shared-cache owner, behaves the same when it is armed inside a worker's own manager. Task 1.3 verifies it. The shared history-loss helper moves to `benchmarks/stream_cost/faults.py`, where the shared-cache owner and the worker processes both call it, so the injection isn't duplicated.
+Task 1.3 verifies the one-shot reopening failure inside an independent worker's manager. Reuse the injection semantics of `SharedCacheOwner.lose_history` in benchmark-side worker controls. Keep the library independent of benchmark modules; do not move its implementation into `benchmarks/`. If sharing the implementation requires a library refactor, keep the helper within the library and preserve the owner method and its safety tests.
 
 ### Restart accounting
 
@@ -125,7 +127,7 @@ If task 1.1 shows that host networking drops resource limits, the fallback is a 
 
 ### Timelines and sampling
 
-Fault windows make each worker record, for every request, the scheduled offset, the completion offset and the error type, using the window's shared monotonic start. Cached workers also sample their manager snapshot every 250 ms, recording hits, misses, bypass reasons, entry count and stream health. Steady-state windows keep their current, smaller record, so steady-state results and run cost stay unchanged.
+Fault windows make each worker record, for every request, the scheduled offset, the completion offset and the error type, using the window's shared monotonic start. Cached workers also sample their manager snapshot every 250 ms, recording hits, misses, bypass reasons, entry count and stream health. This registration's calibration validation windows explicitly opt into the same instrumentation for the null-fault check. Ordinary calibration and steady-state windows keep their current, smaller records and instrumentation cost.
 
 Recording every request takes about 24 bytes for each of roughly 80,000 requests per worker per window, so memory isn't a concern. The CPU and event-loop cost is unknown, though. Recording each request, serializing chunks and sending them over the worker's pipe all run on the worker's own event loop, and v4's PSS sampling ran in the harness, so its negligible overhead says nothing about this cost.
 
