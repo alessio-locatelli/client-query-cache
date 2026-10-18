@@ -273,19 +273,37 @@ def test_socket_option_failure_closes_both_connections(
     monkeypatch: pytest.MonkeyPatch,
     fail_at: NonNegativeInt,
 ) -> None:
+    proxy = DirectPathByteProxy(_proxy_config(bound_socket.getsockname()[1]))
     original = socket.socket.setsockopt
+    proxy_port: NonNegativeInt | None = None
     attempted: list[socket.socket] = []
 
     def set_option(sock: socket.socket, level: int, option: int, value: int) -> None:
-        if level == socket.IPPROTO_TCP and option == socket.TCP_NODELAY:
-            attempted.append(sock)
-            if len(attempted) == fail_at:
-                raise OSError("socket option rejected")
+        if (
+            level == socket.IPPROTO_TCP
+            and option == socket.TCP_NODELAY
+            and proxy_port is not None
+        ):
+            try:
+                is_proxy_socket = (
+                    sock.getsockname() == ("127.0.0.1", proxy_port)
+                    or sock.getpeername() == bound_socket.getsockname()
+                )
+            except OSError:  # pragma: no cover
+                # Another thread may configure an unrelated unconnected socket.
+                is_proxy_socket = False
+            if is_proxy_socket:
+                attempted.append(sock)
+                if len(attempted) == fail_at:
+                    raise OSError("socket option rejected")
         original(sock, level, option, value)
 
     monkeypatch.setattr(socket.socket, "setsockopt", set_option)
-    with DirectPathByteProxy(_proxy_config(bound_socket.getsockname()[1])) as proxy:
+    with proxy:
+        proxy_port = proxy.local_port
         with socket.create_connection(("127.0.0.1", proxy.local_port)) as client:
+            # Keep the client socket out of the failure injection.
+            client.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             assert client.recv(1) == b""
         assert len(attempted) == fail_at
         assert all(sock.fileno() == -1 for sock in attempted)
