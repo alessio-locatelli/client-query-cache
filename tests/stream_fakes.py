@@ -19,6 +19,18 @@ if TYPE_CHECKING:
 SUPPORTED_SERVER_VERSION: list[NonNegativeInt] = [*MINIMUM_SERVER_VERSION, 0]
 
 
+def _make_server_info(
+    version_array: list[NonNegativeInt],
+) -> Callable[[], object]:
+    async def server_info() -> BsonDict:  # noqa: RUF029 - Satisfy the awaited callback interface.
+        return {
+            "version": ".".join(str(part) for part in version_array),
+            "versionArray": version_array,
+        }
+
+    return server_info
+
+
 class ScriptedStream:
     __slots__ = ("_close_error", "_closed_event", "_events", "closed", "resume_token")
 
@@ -153,25 +165,11 @@ class AsyncScriptedDatabase:
         self.name = name
         self.codec_options: CodecOptions[Any] = CodecOptions()
         self.client = SimpleNamespace(
-            server_info=self._make_server_info(
-                version_array or SUPPORTED_SERVER_VERSION
-            )
+            server_info=_make_server_info(version_array or SUPPORTED_SERVER_VERSION)
         )
         self._script = list(script)
         self.watch_calls: list[dict[str, object]] = []
         self._before_watch = before_watch
-
-    @staticmethod
-    def _make_server_info(
-        version_array: list[NonNegativeInt],
-    ) -> Callable[[], object]:
-        async def server_info() -> BsonDict:  # noqa: RUF029 - Satisfy the awaited callback interface.
-            return {
-                "version": ".".join(str(part) for part in version_array),
-                "versionArray": version_array,
-            }
-
-        return server_info
 
     async def watch(self, _pipeline: object, **kwargs: object) -> object:
         index = len(self.watch_calls)
