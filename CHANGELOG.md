@@ -13,6 +13,8 @@ bodies or OpenSpec. An empty Unreleased section is valid.
 
 ## Unreleased
 
+## [0.9.0] - 2026-10-18
+
 ### Features
 
 - Share eligible filtered reads, cursor results, aggregations, counts and distinct values across sync and asyncio workers with `SharedCacheManager`.
