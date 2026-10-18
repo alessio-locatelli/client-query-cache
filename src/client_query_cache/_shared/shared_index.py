@@ -89,10 +89,10 @@ class IndexPublisher:
         self._epochs: dict[NamespaceId, NonNegativeInt] = {}
         self._free_slots: list[NonNegativeInt] = []
         self._next_slot: NonNegativeInt = 0
-        self._published: dict[Payload, tuple[int, CacheKey]] = {}
+        self._published: dict[Payload, tuple[NonNegativeInt, CacheKey]] = {}
         self._identities: dict[tuple[NamespaceId, Canonical], set[Payload]] = {}
         self._finds: dict[NamespaceId, set[Payload]] = {}
-        self._tokens: dict[int, CacheKey] = {}
+        self._tokens: dict[NonNegativeInt, CacheKey] = {}
         self._shapes = KeyCache(_SHAPE_KEYS)
         self._lock = threading.Lock()
         for slot in self._databases.values():
@@ -133,7 +133,7 @@ class IndexPublisher:
     def progress(self, database: str) -> None:
         self._index.set_progress(self._databases[database], time.monotonic_ns())
 
-    def key(self, token: int) -> CacheKey | None:
+    def key(self, token: NonNegativeInt) -> CacheKey | None:
         with self._lock:
             try:
                 return self._tokens[token]
