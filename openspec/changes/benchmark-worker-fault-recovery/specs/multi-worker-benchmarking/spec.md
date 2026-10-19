@@ -2,35 +2,62 @@
 
 ## ADDED Requirements
 
-### Requirement: Fault trials freeze their protocol
+### Requirement: Fault trials preregister their settings
 
-Before any timed trial runs, fault trials SHALL preregister:
+Before any timed trial runs, its registration SHALL specify the fault cases, topology for each case, injection time, observation intervals, recovery criterion, repetition count, and offered workload.
 
-- the fault cases;
-- the topology for each case;
-- the injection time and observation intervals;
-- the recovery criterion;
-- the number of repetitions;
-- the offered workload.
+#### Scenario: A trial is planned from its registration
 
-A change after trials start SHALL require a new registration version, and earlier outcomes SHALL stay recorded.
+- **WHEN** the runner plans a timed fault trial
+- **THEN** the case's topology, injection time, observation intervals, recovery criterion, repetition count, and offered workload come from its registration
 
-The registration SHALL specify the recovery bucket duration, minimum completion fraction, request P99 multiplier and backlog grace multiplier. A request scheduled before a bucket ends SHALL be resolved by that bucket's end plus the registered backlog grace multiplied by the before-interval P99.
+### Requirement: Registration changes preserve earlier outcomes
+
+Changing any registered setting after timed trials start SHALL require a new registration version. Earlier outcomes SHALL remain recorded under the version that produced them.
 
 #### Scenario: The recovery criterion is tightened after a trial
 
 - **WHEN** the recovery criterion changes after any timed trial has run
 - **THEN** a new registration version repeats every affected trial, and the earlier results remain in the report
 
-### Requirement: Fault trials inject real failures into real worker processes
+### Requirement: Recovery criteria bound unresolved requests
 
-Each trial SHALL run a group of separate worker processes against a disposable replica set. Trials SHALL use real transport and server events for:
+The registration SHALL specify the recovery bucket duration, minimum completion fraction, request P99 multiplier, and backlog grace multiplier. Recovery analysis SHALL mark a bucket's backlog clear only when every request scheduled before that bucket ends is resolved by the bucket end plus the registered backlog grace multiplied by the before-interval P99.
 
-- connection loss (severed TCP connections);
-- primary failover (stepdown of the primary, followed by an election);
-- worker restart (a killed process replaced by a new one).
+#### Scenario: An overdue request keeps a recovery bucket uncleared
 
-Unavailable resume history SHALL be injected at the stream's reopening, so that the manager runs its real recovery path.
+- **WHEN** a request scheduled before a bucket ends remains unresolved past the registered backlog grace
+- **THEN** that bucket's backlog is not clear and the bucket cannot satisfy the recovery criterion
+
+### Requirement: Fault trials use separate workers and a disposable replica set
+
+Each trial SHALL run a group of separate worker processes against a disposable replica set.
+
+#### Scenario: A fault trial starts separate workers
+
+- **WHEN** a registered timed trial starts
+- **THEN** it runs its worker group as separate processes against the disposable replica set
+
+### Requirement: Fault trials inject real transport and server events
+
+Trials SHALL inject connection loss by severing TCP connections, primary failover by stepping down the primary and allowing an election, and worker restart by killing and replacing a process. Unavailable resume history SHALL be injected when a stream reopens, so the manager runs its real recovery path.
+
+#### Scenario: A connection-loss fault severs worker TCP connections
+
+- **WHEN** a trial reaches its registered connection-loss injection time
+- **THEN** the harness severs the worker's TCP connections through its faultable proxy
+
+#### Scenario: A history-loss fault reaches the manager on stream reopening
+
+- **WHEN** an independent worker reopens its change stream after history-loss injection
+- **THEN** the worker's real manager handles the unavailable resume history
+
+#### Scenario: A restart fault replaces the killed process
+
+- **WHEN** a worker is killed at the registered restart injection time
+- **THEN** the harness starts a replacement worker with the remaining scheduled requests
+
+### Requirement: Fault trials timestamp the first injection action
 
 The actual injection offset SHALL use the first worker-side action timestamp for a multi-worker control fault, or the timestamp immediately before the replica-set stepdown command is issued.
 
@@ -39,10 +66,9 @@ The actual injection offset SHALL use the first worker-side action timestamp for
 - **WHEN** dispatch to a worker is delayed before its proxy or stream-history action
 - **THEN** the trial records the action's monotonic timestamp as the actual injection offset and checks it against the registered schedule tolerance
 
-#### Scenario: A stepdown trial elects no new primary
+### Requirement: Fault trials declare path applicability
 
-- **WHEN** the replica set reports no new writable primary within the registered deadline after a stepdown
-- **THEN** the trial is recorded as a failed setup and is not used as recovery evidence
+Each fault case SHALL run only on paths to which its mechanism applies. Reports SHALL mark excluded paths as not applicable and SHALL NOT report a measurement for them.
 
 #### Scenario: A fault does not apply to direct reads
 
@@ -130,6 +156,11 @@ A trial SHALL be a failed setup when, before injection, it observes a failed com
 
 - **WHEN** a primary election is observed in a case other than stepdown
 - **THEN** the trial is recorded as a failed setup
+
+#### Scenario: A stepdown trial elects no new primary
+
+- **WHEN** the replica set reports no new writable primary within the registered deadline after a stepdown
+- **THEN** the trial is recorded as a failed setup and is not used as recovery evidence
 
 #### Scenario: A stepdown leaves no writable primary during calibration
 
