@@ -4,7 +4,7 @@ import os
 import tempfile
 import uuid
 from collections.abc import Generator  # noqa: TC003 (pluggy evaluates hook annotations)
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 from copy import copy
 from datetime import datetime
 from decimal import Decimal
@@ -16,7 +16,7 @@ import pytest
 from bson import Decimal128
 from docker.errors import DockerException, ImageNotFound
 from filelock import FileLock
-from pymongo import MongoClient
+from pymongo import MongoClient, timeout
 from pymongo.errors import AutoReconnect
 from testcontainers.core.container import DockerContainer
 from testcontainers.core.docker_client import DockerClient
@@ -32,6 +32,9 @@ if TYPE_CHECKING:
 MongoDbUri = NewType("MongoDbUri", str)
 DatabaseName = NewType("DatabaseName", str)
 CollectionName = NewType("CollectionName", str)
+
+_MONGODB_SESSION = pytest.StashKey[pytest.CallInfo[MongoDbUri]]()
+_MONGODB_RESOURCES = pytest.StashKey[ExitStack]()
 
 logger = logging.getLogger(__name__)
 
@@ -121,6 +124,31 @@ def _wait_for_mongodb_ping(client: MongoClient[BsonDict]) -> None:
     )
 
 
+def _prepare_mongodb(config: pytest.Config) -> pytest.CallInfo[MongoDbUri]:
+    try:
+        return config.stash[_MONGODB_SESSION]
+    except KeyError:
+        resources = ExitStack()
+        config.stash[_MONGODB_RESOURCES] = resources
+        config.add_cleanup(resources.close)
+        startup = pytest.CallInfo.from_call(
+            lambda: resources.enter_context(_mongodb_replica_set(config)),
+            when="setup",
+            reraise=(KeyboardInterrupt, pytest.exit.Exception),
+        )
+        config.stash[_MONGODB_SESSION] = startup
+        return startup
+
+
+@pytest.hookimpl(wrapper=True, tryfirst=True)
+def pytest_runtest_protocol(item: pytest.Item) -> Generator[None, bool, bool]:
+    # Prepare only a worker's assigned resource, before pytest-timeout starts
+    # timing fixture setup, the test body, and teardown.
+    if isinstance(item, pytest.Function) and "_mongodb_session" in item.fixturenames:
+        _prepare_mongodb(item.config)
+    return (yield)
+
+
 @pytest.fixture(autouse=True)
 def log_when_test_starts(request: pytest.FixtureRequest) -> None:
     cls_ = f"{request.cls}." if request.cls else ""
@@ -144,10 +172,24 @@ def nonpersistent_collection_name() -> CollectionName:
 
 
 @pytest.fixture(scope="session")
-def mongodb_uri(request: pytest.FixtureRequest) -> Iterator[MongoDbUri]:
+def mongodb_uri(_mongodb_session: MongoDbUri) -> MongoDbUri:
+    return _mongodb_session
+
+
+@pytest.fixture(scope="session")
+def _mongodb_session(request: pytest.FixtureRequest) -> Iterator[MongoDbUri]:
+    startup = _prepare_mongodb(request.config)
+    with request.config.stash[_MONGODB_RESOURCES]:
+        if startup.excinfo is not None:  # pragma: lax no cover (CLI failure verified)
+            raise startup.excinfo.value
+        yield startup.result
+
+
+@contextmanager
+def _mongodb_replica_set(config: pytest.Config) -> Generator[MongoDbUri]:
     with ExitStack() as resources:
         try:
-            container = DockerContainer(_mongodb_image(request.config))
+            container = DockerContainer(_mongodb_image(config))
             # MongoDB: https://www.mongodb.com/docs/manual/reference/program/mongod/
             # --replSet: The default is no replica set. We override it because the
             # disposable runtime must support change streams.
@@ -172,7 +214,12 @@ def mongodb_uri(request: pytest.FixtureRequest) -> Iterator[MongoDbUri]:
 
         # serverSelectionTimeoutMS: The default is 30000 ms. We override it because
         # bounded startup polling needs short connection attempts.
-        with MongoClient[BsonDict](uri, serverSelectionTimeoutMS=1_000) as client:
+        # PyMongo timeout(): The default is no operation deadline. Bound the two
+        # readiness phases together, including command I/O, outside test timing.
+        with (
+            MongoClient[BsonDict](uri, serverSelectionTimeoutMS=1_000) as client,
+            timeout(2 * _MONGODB_STARTUP_TIMEOUT_SECONDS),
+        ):
             _wait_for_mongodb_ping(client)
 
             client.admin.command(
@@ -187,14 +234,15 @@ def mongodb_uri(request: pytest.FixtureRequest) -> Iterator[MongoDbUri]:
             while monotonic() < deadline:
                 try:
                     if client.admin.command("hello")["isWritablePrimary"]:
-                        yield uri
-                        return
+                        break
                 except AutoReconnect:  # pragma: lax no cover (election timing varies)
                     pass
                 sleep(_MONGODB_POLL_INTERVAL_SECONDS)
-            pytest.fail(  # pragma: no cover (hard timeout; requires a stuck container)
-                "MongoDB did not elect a writable primary within 30 seconds."
-            )
+            else:
+                pytest.fail(  # pragma: no cover (requires a stuck container)
+                    "MongoDB did not elect a writable primary within 30 seconds."
+                )
+        yield uri
 
 
 @pytest.fixture
