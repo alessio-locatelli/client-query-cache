@@ -1,8 +1,11 @@
 # Parallel test execution
 
-Ordinary pytest commands use automatic parallelism with at most four workers. Tests in each file
-stay on one worker (`--dist=loadfile`), so they reuse module fixtures such as disposable MongoDB
-replica sets and proxies. Workers that need MongoDB own separate session replica sets.
+Ordinary pytest commands use automatic parallelism with at most four workers. The
+[`worksteal` scheduler](https://pytest-xdist.readthedocs.io/en/stable/distribution.html)
+redistributes pending tests when workers run out of work, allowing slow tests in the same file
+to run on different workers. Module fixtures can therefore be instantiated on multiple workers.
+Workers that need MongoDB own separate session replica sets. MongoDB startup uses
+bounded readiness checks before the first requesting test's timeout begins.
 
 Choose a worker count for the available resources:
 

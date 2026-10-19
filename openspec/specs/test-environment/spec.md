@@ -182,14 +182,19 @@ Ordinary pytest runs SHALL select workers automatically with at most four worker
 - **WHEN** a contributor explicitly requests eight workers
 - **THEN** the runner uses eight workers without requiring a second option to raise a maximum
 
-### Requirement: Default scheduling preserves test-file ownership
+### Requirement: Default scheduling rebalances pending tests
 
-Parallel runs SHALL keep every test in a file on the same worker by default. This grouping SHALL preserve reuse of file-scoped fixtures without requiring tests to depend on execution order.
+Parallel runs SHALL use pytest-xdist's built-in work-stealing scheduler by default so pending tests can move between workers, including tests from the same file. Module-scoped fixtures SHALL be instantiated independently on each worker that needs them, with reuse within that worker. Tests SHALL NOT depend on execution order or fixture sharing between workers.
+
+#### Scenario: A worker runs out of tests
+
+- **WHEN** a parallel worker runs low on pending tests while another worker has tests available to steal
+- **THEN** pending tests can be redistributed between workers without preserving file ownership
 
 #### Scenario: A file shares a disposable replica set and proxy
 
-- **WHEN** a parallel run executes parametrized tests using file-scoped replica-set and proxy fixtures
-- **THEN** all tests in that file execute on one worker and reuse those fixtures
+- **WHEN** a parallel run distributes parametrized tests using module-scoped replica-set and proxy fixtures across workers
+- **THEN** each worker independently creates, reuses, and cleans up its own fixtures
 
 ### Requirement: Parallel logs do not share writable files
 

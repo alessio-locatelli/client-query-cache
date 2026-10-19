@@ -194,14 +194,16 @@ test_discriminator_measurements[aggregate-sync]
 test_discriminator_measurements[aggregate-async]
 ```
 
-Keep one disposable server alive while alternating the two commands. The existing
-fixture supplies the replica set and its cleanup; the benchmark's optional URI
-override makes both worktrees use that same instance.
+Keep one disposable server alive while alternating the two commands. Run the
+controller from the prepared implementation worktree so it uses the pinned
+generator fixture for replica-set setup and cleanup. The benchmark's optional
+URI override makes both worktrees use that same instance.
 
 ```bash
 bash <<'RUN'
 set -euo pipefail
 source scripts/testcontainers-bridge.sh
+cd "$READ_DISCRIMINATOR_WORKSPACE/implementation"
 uv run --group docs -- python - <<'MEASURE'
 import os
 from pathlib import Path
