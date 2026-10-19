@@ -29,7 +29,7 @@ None.
   - `benchmarks/stream_cost/shared_cache/` gains a fault phase, worker-side injection controls and per-request timelines.
   - Independent workers gain a one-shot history-loss injection without making library code depend on benchmark modules.
   - Tests are added under `tests/benchmark/stream_cost/`.
-- Registration: new `reports/worker-fault-recovery/v1/`.
+- Registration: versioned configs and outcome records under `reports/worker-fault-recovery/`.
 - Docs:
   - a fault section in `docs/development/research/concurrent-worker-workload.md`;
   - recovery figures in `docs/user/operations/deployment.md` or `docs/user/operations/monitoring.md`, where they refine existing guidance;

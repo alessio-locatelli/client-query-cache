@@ -223,6 +223,10 @@ class WireCommands(CommandListener):
         self._collections = frozenset(collections)
         self._lock = threading.Lock()
         self._counts: dict[str, NonNegativeInt] = {}
+        self._failures: dict[str, NonNegativeInt] = {}
+        self._stream_aggregate_requests: dict[int, bool] = {}
+        self._stream_operation_times: list[tuple[NonNegativeInt, NonNegativeInt]] = []
+        self._stream_openings: NonNegativeInt = 0
         self.streams = 0
         self._event_wall_seconds: list[NonNegativeFloat] = []
         self._poll_seconds: list[NonNegativeFloat] = []
@@ -240,11 +244,36 @@ class WireCommands(CommandListener):
         if event.command_name == "aggregate" and any(
             "$changeStream" in stage for stage in event.command["pipeline"]
         ):
+            stages = event.command["pipeline"]
+            resumed = False
+            for stage in stages:
+                if "$changeStream" not in stage:
+                    continue
+                change_stream = stage["$changeStream"]
+                if isinstance(change_stream, dict) and any(
+                    key in change_stream for key in ("resumeAfter", "startAfter")
+                ):
+                    resumed = True
+                    break
             with self._lock:
                 self.streams += 1
+                self._stream_aggregate_requests[event.request_id] = resumed
 
     def succeeded(self, event: CommandSucceededEvent) -> None:
         self._record(event.command_name, "completed")
+        if event.command_name == "aggregate":
+            with self._lock:
+                if event.request_id in self._stream_aggregate_requests:
+                    resumed = self._stream_aggregate_requests.pop(event.request_id)
+                    self._stream_openings += 1
+                    try:
+                        operation_time = event.reply["operationTime"]
+                    except KeyError:
+                        operation_time = None
+                    if operation_time is not None and not resumed:
+                        self._stream_operation_times.append(
+                            (operation_time.time, operation_time.inc)
+                        )
         if event.command_name in {"aggregate", "getMore"}:
             cursor = event.reply["cursor"]
             try:
@@ -264,10 +293,62 @@ class WireCommands(CommandListener):
 
     def failed(self, event: CommandFailedEvent) -> None:
         self._record(event.command_name, "failed")
+        failure = event.failure
+        if isinstance(failure, dict):
+            try:
+                code = failure["code"]
+            except KeyError:
+                code = None
+            try:
+                code_name = failure["codeName"]
+            except KeyError:
+                code_name = None
+            try:
+                error_labels = failure["errorLabels"]
+            except KeyError:
+                error_labels = None
+            try:
+                error_type = failure["errtype"]
+            except KeyError:
+                error_type = None
+            labels = (
+                ",".join(error_labels)
+                if isinstance(error_labels, list)
+                and all(isinstance(label, str) for label in error_labels)
+                else ""
+            )
+            label = f"{event.command_name}:{code_name}:{code}"
+            if isinstance(error_type, str):
+                label = f"{label}:{error_type}"
+            if labels:
+                label = f"{label}:{labels}"
+        else:
+            label = f"{event.command_name}:{type(failure).__name__}"
+        with self._lock:
+            if event.command_name == "aggregate":
+                self._stream_aggregate_requests.pop(event.request_id, None)
+            try:
+                self._failures[label] += 1
+            except KeyError:
+                self._failures[label] = 1
 
     def snapshot(self) -> dict[str, NonNegativeInt]:
         with self._lock:
             return self._counts.copy()
+
+    def failures(self) -> dict[str, NonNegativeInt]:
+        with self._lock:
+            return self._failures.copy()
+
+    def stream_operation_times(
+        self,
+    ) -> tuple[tuple[NonNegativeInt, NonNegativeInt], ...]:
+        with self._lock:
+            return tuple(self._stream_operation_times)
+
+    def stream_openings(self) -> NonNegativeInt:
+        with self._lock:
+            return self._stream_openings
 
     def event_wall_seconds(self) -> tuple[NonNegativeFloat, ...]:
         with self._lock:

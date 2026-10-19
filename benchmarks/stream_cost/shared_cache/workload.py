@@ -51,8 +51,11 @@ class Assignment:
     keys: tuple[NonNegativeInt, ...]
     offset: NonNegativeInt = 0
     key_assignment: KeyAssignment = "partitioned"
+    scheduled_ordinals: tuple[NonNegativeInt, ...] | None = None
 
-    def ordinals(self) -> range:
+    def ordinals(self) -> range | tuple[NonNegativeInt, ...]:
+        if self.scheduled_ordinals is not None:
+            return self.scheduled_ordinals
         return range(self.worker, self.requests, self.workers)
 
     def key(self, ordinal: NonNegativeInt) -> NonNegativeInt:
@@ -73,6 +76,7 @@ def assignment_for(
     key_assignment: KeyAssignment,
     *,
     warmup: bool,
+    scheduled_ordinals: tuple[NonNegativeInt, ...] | None = None,
 ) -> Assignment:
     seconds = cell.warmup_seconds if warmup else cell.window_seconds
     requests = (
@@ -90,6 +94,7 @@ def assignment_for(
         keys=keys,
         offset=len(keys) // 2 if warmup else 0,
         key_assignment=key_assignment,
+        scheduled_ordinals=scheduled_ordinals,
     )
 
 
@@ -170,6 +175,7 @@ def open_loop_sync(
     outstanding_limit: PositiveInt,
     drain_seconds: PositiveFloat,
     record: bool,
+    timeline: Callable[[JsonDict], None] | None = None,
 ) -> LoopResult:
     loop_result = LoopResult()
     pending: queue.SimpleQueue[tuple[NonNegativeInt, NonNegativeFloat]] = (
@@ -184,14 +190,47 @@ def open_loop_sync(
             ordinal, due = pending.get()
             if ordinal == _STOP:
                 return
+            issued = time.monotonic()
+            if timeline is not None:
+                timeline(
+                    {
+                        "state": "started",
+                        "ordinal": ordinal,
+                        "scheduled_offset": due - start,
+                        "issued_offset": issued - start,
+                    }
+                )
             try:
                 read(assignment.key(ordinal))
             except Exception as error:  # noqa: BLE001 - Every failed read is reported.
+                finished = time.monotonic()
+                if timeline is not None:
+                    timeline(
+                        {
+                            "state": "failed",
+                            "ordinal": ordinal,
+                            "scheduled_offset": due - start,
+                            "issued_offset": issued - start,
+                            "completed_offset": finished - start,
+                            "error": type(error).__name__,
+                        }
+                    )
                 with lock:
                     outstanding -= 1
                     loop_result.record_error(error)
                 continue
             finished = time.monotonic()
+            if timeline is not None:
+                timeline(
+                    {
+                        "state": "completed",
+                        "ordinal": ordinal,
+                        "scheduled_offset": due - start,
+                        "issued_offset": issued - start,
+                        "completed_offset": finished - start,
+                        "error": None,
+                    }
+                )
             with lock:
                 outstanding -= 1
                 loop_result.completed += 1
@@ -239,6 +278,7 @@ async def open_loop_async(
     outstanding_limit: PositiveInt,
     drain_seconds: PositiveFloat,
     record: bool,
+    timeline: Callable[[JsonDict], None] | None = None,
 ) -> LoopResult:
     loop_result = LoopResult()
     pending: asyncio.Queue[tuple[NonNegativeInt, NonNegativeFloat]] = asyncio.Queue()
@@ -250,16 +290,50 @@ async def open_loop_async(
             ordinal, due = await pending.get()
             if ordinal == _STOP:
                 return
+            issued = time.monotonic()
+            if timeline is not None:
+                timeline(
+                    {
+                        "state": "started",
+                        "ordinal": ordinal,
+                        "scheduled_offset": due - start,
+                        "issued_offset": issued - start,
+                    }
+                )
             try:
                 await read(assignment.key(ordinal))
             except Exception as error:  # noqa: BLE001 - Every failed read is reported.
+                finished = time.monotonic()
+                if timeline is not None:
+                    timeline(
+                        {
+                            "state": "failed",
+                            "ordinal": ordinal,
+                            "scheduled_offset": due - start,
+                            "issued_offset": issued - start,
+                            "completed_offset": finished - start,
+                            "error": type(error).__name__,
+                        }
+                    )
                 outstanding -= 1
                 loop_result.record_error(error)
                 continue
             outstanding -= 1
             loop_result.completed += 1
+            finished = time.monotonic()
+            if timeline is not None:
+                timeline(
+                    {
+                        "state": "completed",
+                        "ordinal": ordinal,
+                        "scheduled_offset": due - start,
+                        "issued_offset": issued - start,
+                        "completed_offset": finished - start,
+                        "error": None,
+                    }
+                )
             if record:
-                loop_result.latencies.append(time.monotonic() - due)
+                loop_result.latencies.append(finished - due)
 
     executors = tuple(asyncio.create_task(execute()) for _ in range(concurrency))
     for ordinal in assignment.ordinals():

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import multiprocessing
+import time
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -8,6 +10,7 @@ from typing import TYPE_CHECKING, cast
 
 import psutil
 import pytest
+from pymongo import MongoClient
 from pymongo.errors import OperationFailure
 from pymongo.synchronous.collection import Collection
 
@@ -19,13 +22,17 @@ from benchmarks.stream_cost.shared_cache.protocol import (
     smoke_cells,
     validation_failure,
 )
+from benchmarks.stream_cost.shared_cache.window import ProcessGroup
 from benchmarks.stream_cost.topology import IsolatedReplicaSet, ResourceLimits
-from client_query_cache._types import BsonDict, JsonDict, PositiveInt
+from client_query_cache._types import (
+    BsonDict,
+    JsonDict,
+    NonNegativeFloat,
+    PositiveInt,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Generator, Iterator
-
-    from pymongo import MongoClient
 
     from benchmarks.stream_cost.shared_cache.protocol import Cell
 
@@ -136,13 +143,17 @@ def test_smoke_windows_identify_every_owner(
         registration = Registration.load(v5_config)
     cell = _cell(registration, workload, path)
 
-    record = window.run_window(replica, registration, cell)
+    timeline_enabled = workload == "hot" and path == "direct"
+    record = window.run_window(
+        replica, registration, cell, timeline_enabled=timeline_enabled
+    )
 
     workers = cast("list[JsonDict]", record["workers_measured"])
     assert record["healthy"] is True
     assert record["completed"] == record["offered"]
     assert len(workers) == cell.workers
     assert record["harness_includes"] == window.HARNESS_INCLUDES
+    assert ("fault_timeline" in record) is timeline_enabled
     assert cast("int", record["server_memory_bytes"]) > 0
     memory = cast("JsonDict", record["memory"])
     assert cast("int", memory["samples"]) > 0
@@ -169,6 +180,79 @@ def test_smoke_windows_identify_every_owner(
     if workload == "cold" and path != "direct":
         assert validation_failure(record, registration) is None
     assert _no_children()
+
+
+@pytest.mark.timeout(120)
+def test_sync_worker_control_channel_probes_and_collects_timeline(
+    replica: IsolatedReplicaSet,
+    registration: Registration,
+) -> None:
+    cell = _cell(registration, "hot", "direct")
+    workload = window._workload(registration, cell)
+    database = cast("str", registration.raw["database"])
+    collection = cast("str", registration.raw["collection"])
+
+    with (
+        MongoClient[BsonDict](replica.uri) as writer,
+        ProcessGroup(
+            multiprocessing.get_context("spawn"),
+            registration.number("shutdown_seconds"),
+        ) as group,
+    ):
+        seed_catalogue(
+            writer,
+            database=database,
+            collection=collection,
+            seed=cast("int", registration.raw["seed"]),
+            profile=registration.profile(cell.profile),  # type: ignore[arg-type]
+            categories=registration.categories,
+        )
+        spec = window._spec(
+            registration,
+            cell,
+            workload,
+            replica.uri,
+            index=0,
+            attachment=None,
+            timeline_enabled=True,
+        )
+        group.start_worker(replace(spec, controls_enabled=True))
+        ready = group.collect_worker(
+            0,
+            "ready",
+            time.monotonic() + registration.number("startup_seconds"),
+        )
+        snapshot = group.control_worker(0, "snapshot")
+        probe = group.control_worker(
+            0,
+            "probe",
+            keys=[workload.keys[0]],
+            revision=0,
+        )
+        stale_probe = group.control_worker(
+            0,
+            "probe",
+            keys=[workload.keys[0]],
+            revision=1,
+        )
+        group.connections[0].send(time.monotonic() + 0.1)
+        sample = group.collect_worker(
+            0,
+            "sample",
+            time.monotonic()
+            + cell.warmup_seconds
+            + cell.window_seconds
+            + registration.number("drain_seconds")
+            + 10.0,
+        )
+        timelines = group.received_timeline(0)
+
+    assert ready["kind"] == "ready"
+    assert snapshot["kind"] == "control"
+    assert probe["probe_ok"] is True
+    assert stale_probe["probe_ok"] is False
+    assert sample["kind"] == "sample"
+    assert timelines
 
 
 @pytest.mark.timeout(120)
@@ -327,11 +411,13 @@ def test_missing_memory_metrics_fail_the_window(
         window.run_window(replica, registration, _cell(registration, "hot", "direct"))
 
 
-_ORIGINAL_WAIT = window._wait
+_ORIGINAL_WAIT_WITH_TIMELINE = window._wait_with_timeline
 
 
-def _late_wait(deadline: float) -> None:
-    _ORIGINAL_WAIT(deadline + 1.5)
+def _late_wait_with_timeline(
+    group: window.ProcessGroup, deadline: NonNegativeFloat
+) -> None:
+    _ORIGINAL_WAIT_WITH_TIMELINE(group, deadline + 1.5)
 
 
 def _failing_update(*_args: object, **_kwargs: object) -> None:
@@ -351,7 +437,12 @@ class _WriteFailure:
     "failure",
     [
         pytest.param(
-            _WriteFailure(window, "_wait", _late_wait, "write schedule exceeded"),
+            _WriteFailure(
+                window,
+                "_wait_with_timeline",
+                _late_wait_with_timeline,
+                "write schedule exceeded",
+            ),
             id="late-write",
         ),
         pytest.param(
@@ -560,9 +651,10 @@ def test_calibration_and_freeze_commands(
     )
     output = tmp_path / "calibration.json"
 
-    run.main(
-        ["--calibrate-baselines", "--config", str(config), "--output", str(output)]
-    )
+    with pytest.raises(BenchmarkSetupError, match="calibration was not validated"):
+        run.main(
+            ["--calibrate-baselines", "--config", str(config), "--output", str(output)]
+        )
 
     report = json.loads(output.read_text(encoding="utf-8"))
     assert report["calibration"]["outcome"] == "inconclusive"

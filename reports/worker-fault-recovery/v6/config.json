@@ -1,0 +1,203 @@
+{
+  "schema_version": 1,
+  "registration": 6,
+  "status": "pending-calibration",
+  "seed": 197,
+  "topology": {
+    "cpus": 2,
+    "memory": "2g"
+  },
+  "client_options": {
+    "directConnection": true,
+    "serverSelectionTimeoutMS": 10000
+  },
+  "start_method": "spawn",
+  "max_await_time_ms": 1000,
+  "database": "concurrent_worker_workload",
+  "collection": "catalogue",
+  "paths": ["direct", "independent"],
+  "key_assignment": "shared",
+  "hot_keys": 1024,
+  "categories": 64,
+  "profiles": {
+    "primary": {
+      "documents": 16384,
+      "payload_bytes": 4096,
+      "read": "find_one"
+    },
+    "smoke": {
+      "documents": 256,
+      "payload_bytes": 4096,
+      "read": "find_one"
+    }
+  },
+  "budget_bytes": 100663296,
+  "max_entry_bytes": 1048576,
+  "concurrency_per_worker": 4,
+  "outstanding_per_worker": 256,
+  "warmup_seconds": 10,
+  "startup_seconds": 120,
+  "drain_seconds": 10,
+  "shutdown_seconds": 15,
+  "schedule_tolerance_seconds": 0.25,
+  "memory_sample_seconds": 0.2,
+  "calibration_seconds": 0.05,
+  "clock_tolerance_seconds": 0.005,
+  "calibration": {
+    "probe_windows": 3,
+    "probe_seconds": 15,
+    "selected_fraction": 0.25,
+    "caps": {
+      "steady": 6000,
+      "stepdown": 6000
+    },
+    "validation_repetitions": 3,
+    "minimum_completion": 0.99,
+    "rate_attempts": 3,
+    "sample_floor": 10000,
+    "window_cap_seconds": 120,
+    "families": {
+      "steady": {
+        "probe_workload": "hot",
+        "cells": [
+          ["active", "async", 1],
+          ["active", "async", 4]
+        ]
+      },
+      "stepdown": {
+        "probe_workload": "hot",
+        "topology": "three-member",
+        "cells": [["active", "async", 4]]
+      }
+    }
+  },
+  "frozen": {
+    "rates": {
+      "steady": null,
+      "stepdown": null
+    },
+    "window_seconds": {
+      "active": null
+    },
+    "calibration_summary": {}
+  },
+  "nominal_seconds": {
+    "active": 60
+  },
+  "active": {
+    "reads_per_write": 20,
+    "write_keys": "hot",
+    "lag_capture": {
+      "windows": 10,
+      "events": 100,
+      "separation": 0
+    }
+  },
+  "phases": {
+    "smoke": {
+      "window_seconds": 3,
+      "warmup_seconds": 1,
+      "rate": 200,
+      "cells": [
+        ["active", "async", 1],
+        ["active", "async", 4]
+      ]
+    },
+    "steady": {
+      "blocks": 12,
+      "cells": [
+        ["active", "async", 1],
+        ["active", "async", 4]
+      ]
+    }
+  },
+  "inference": {
+    "draws": 200000,
+    "seeds": [197],
+    "confidence": 0.95,
+    "lag_event_floor": 200
+  },
+  "analysis": {
+    "pairs": [["independent", "direct"]],
+    "measures": [
+      "throughput",
+      "request_p50",
+      "request_p95",
+      "request_p99",
+      "server_cpu_seconds",
+      "worker_cpu_per_request",
+      "harness_cpu_seconds",
+      "steady_pss",
+      "peak_pss"
+    ]
+  },
+  "fault_recovery": {
+    "cases": ["connection-loss", "stepdown", "history-loss", "worker-restart"],
+    "repetitions": 5,
+    "before_seconds": 20,
+    "after_seconds": 120,
+    "before_interval_seconds": 10,
+    "recovery_deadline_seconds": 110,
+    "timeline_cadence_seconds": 0.25,
+    "rate_families": {
+      "single-member": "steady",
+      "three-member": "stepdown"
+    },
+    "error_classes": {
+      "connection-loss": [
+        "AutoReconnect",
+        "ConnectionFailure",
+        "NetworkTimeout",
+        "ServerSelectionTimeoutError",
+        "CursorNotFound",
+        "CursorKilled",
+        "ResumableChangeStreamError"
+      ],
+      "stepdown": [
+        "AutoReconnect",
+        "ConnectionFailure",
+        "NetworkTimeout",
+        "ServerSelectionTimeoutError",
+        "NotWritablePrimary",
+        "NotPrimaryError",
+        "InterruptedDueToReplStateChange",
+        "PrimarySteppedDown",
+        "CursorNotFound",
+        "CursorKilled",
+        "ResumableChangeStreamError",
+        "NotPrimaryNoSecondaryOk"
+      ],
+      "history-loss": [
+        "AutoReconnect",
+        "ConnectionFailure",
+        "NetworkTimeout",
+        "ServerSelectionTimeoutError",
+        "CursorNotFound",
+        "CursorKilled",
+        "ChangeStreamHistoryLost",
+        "ResumableChangeStreamError"
+      ],
+      "worker-restart": [
+        "AutoReconnect",
+        "ConnectionFailure",
+        "NetworkTimeout",
+        "ServerSelectionTimeoutError",
+        "CursorNotFound",
+        "CursorKilled",
+        "ResumableChangeStreamError"
+      ]
+    },
+    "smoke": {
+      "rate": 100,
+      "before_seconds": 10,
+      "after_seconds": 30,
+      "recovery_deadline_seconds": 20
+    },
+    "recovery_criterion": {
+      "bucket_seconds": 1,
+      "minimum_completion_fraction": 0.99,
+      "request_p99_multiple": 2,
+      "backlog_grace_p99_multiple": 2
+    }
+  }
+}

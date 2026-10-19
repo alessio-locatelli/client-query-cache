@@ -32,6 +32,7 @@ if TYPE_CHECKING:
     from pymongo.topology_description import TopologyDescription
 
 _QUANTIZATION_ALLOWANCE_SECONDS = 0.001
+_NON_WRITABLE_PRIMARY_MESSAGE = "hello response is not from a writable primary"
 
 
 def _bson_datetime_to_epoch_seconds(value: datetime) -> float:
@@ -328,6 +329,7 @@ class PeriodicCalibrationSampler:
     __slots__ = (
         "_cadence_seconds",
         "_error",
+        "_ignore_non_primary",
         "_lock",
         "_points",
         "_rounds",
@@ -342,6 +344,7 @@ class PeriodicCalibrationSampler:
         *,
         cadence_seconds: PositiveFloat,
         rounds: PositiveInt,
+        ignore_non_primary: bool = False,
     ) -> None:
         if cadence_seconds <= 0:
             message = "cadence_seconds must be positive"
@@ -349,6 +352,7 @@ class PeriodicCalibrationSampler:
         self._send_hello = send_hello
         self._cadence_seconds = cadence_seconds
         self._rounds = rounds
+        self._ignore_non_primary = ignore_non_primary
         self._points: list[CalibrationPoint] = []
         self._error: BenchmarkConfigurationError | PyMongoError | None = None
         self._lock = threading.Lock()
@@ -378,8 +382,12 @@ class PeriodicCalibrationSampler:
             try:
                 self.sample_now()
             except BenchmarkConfigurationError as error:
-                self._record_error(error)
-                return
+                if not (
+                    self._ignore_non_primary
+                    and str(error) == _NON_WRITABLE_PRIMARY_MESSAGE
+                ):
+                    self._record_error(error)
+                    return
             except PyMongoError as error:
                 self._record_error(error)
                 return
