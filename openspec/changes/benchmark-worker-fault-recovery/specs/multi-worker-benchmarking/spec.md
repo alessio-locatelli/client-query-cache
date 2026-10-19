@@ -15,6 +15,8 @@ Before any timed trial runs, fault trials SHALL preregister:
 
 A change after trials start SHALL require a new registration version, and earlier outcomes SHALL stay recorded.
 
+The registration SHALL specify the recovery bucket duration, minimum completion fraction, request P99 multiplier and backlog grace multiplier. A request scheduled before a bucket ends SHALL be resolved by that bucket's end plus the registered backlog grace multiplied by the before-interval P99.
+
 #### Scenario: The recovery criterion is tightened after a trial
 
 - **WHEN** the recovery criterion changes after any timed trial has run
@@ -29,6 +31,13 @@ Each trial SHALL run a group of separate worker processes against a disposable r
 - worker restart (a killed process replaced by a new one).
 
 Unavailable resume history SHALL be injected at the stream's reopening, so that the manager runs its real recovery path.
+
+The actual injection offset SHALL use the first worker-side action timestamp for a multi-worker control fault, or the timestamp immediately before the replica-set stepdown command is issued.
+
+#### Scenario: Worker control dispatch is delayed
+
+- **WHEN** dispatch to a worker is delayed before its proxy or stream-history action
+- **THEN** the trial records the action's monotonic timestamp as the actual injection offset and checks it against the registered schedule tolerance
 
 #### Scenario: A stepdown trial elects no new primary
 
@@ -51,6 +60,16 @@ For each case and path, the report SHALL include:
 
 For cached workers, the report SHALL also include the time until stream health and cache hits resume. For worker restart, it SHALL include the replacement's time to readiness and its repriming misses.
 
+#### Scenario: A request crosses a bucket boundary within the registered grace
+
+- **WHEN** a request scheduled before a recovery bucket ends completes within the registered grace after that boundary
+- **THEN** the boundary crossing alone does not prevent the bucket from meeting the recovery criterion
+
+#### Scenario: A stalled request exceeds the registered grace
+
+- **WHEN** a request scheduled before a recovery bucket ends remains unresolved beyond the registered grace
+- **THEN** the bucket does not meet the recovery criterion even if its P99 and completion fraction pass
+
 #### Scenario: Cached workers bypass during failover
 
 - **WHEN** cached workers record stream-unavailable bypasses after a stepdown
@@ -65,6 +84,11 @@ For cached workers, the report SHALL also include the time until stream health a
 
 - **WHEN** a trial meets the recovery criterion only after the registered deadline, or never meets it
 - **THEN** the trial is reported as not recovered, and its after-fault interval is reported as unavailable rather than truncated
+
+#### Scenario: A later bucket has a latency spike
+
+- **WHEN** a bucket meets the registered recovery criterion before the deadline and a later bucket fails that criterion
+- **THEN** recovery remains recorded at the first passing bucket, and the later bucket failure remains visible in the timeline
 
 ### Requirement: Fault trials account for every scheduled request
 
@@ -106,6 +130,11 @@ A trial SHALL be a failed setup when, before injection, it observes a failed com
 
 - **WHEN** a primary election is observed in a case other than stepdown
 - **THEN** the trial is recorded as a failed setup
+
+#### Scenario: A stepdown leaves no writable primary during calibration
+
+- **WHEN** a periodic clock sample during the planned stepdown election reports no writable primary
+- **THEN** the sampler skips that sample and resumes on its next cadence, while other sampling errors still fail setup
 
 ### Requirement: Fault trials record harness write outcomes
 
