@@ -33,8 +33,8 @@ lint:
     uv run -- mypy --install-types
     just typecheck-examples
     just --fmt --check
-    # OpenSpec 1.14.0 validate --help: The default is strict=false. We override it
-    # because specification warnings must fail lint.
+    # `validate --help` says strict defaults to false. We override it because
+    # specification warnings must fail lint.
     npm exec -- openspec validate --all --strict
 
 typecheck-examples:
