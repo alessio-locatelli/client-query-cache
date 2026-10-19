@@ -4,6 +4,7 @@ import math
 import time
 from contextlib import closing
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, cast
 
 import pytest
@@ -194,11 +195,9 @@ def test_replay_write_schedule_records_offsets_within_tolerance(
 ) -> None:
     readings = iter([0.0, 0.05, 0.1, 0.16])
     monkeypatch.setattr(
-        "benchmarks.stream_cost.consolidated_stream.time.monotonic",
-        lambda: next(readings),
-    )
-    monkeypatch.setattr(
-        "benchmarks.stream_cost.consolidated_stream.time.sleep", lambda _seconds: None
+        consolidated_stream,
+        "time",
+        SimpleNamespace(monotonic=lambda: next(readings), sleep=lambda _seconds: None),
     )
     issued: list[None] = []
     actual_offsets = replay_write_schedule(
@@ -215,13 +214,11 @@ def test_replay_write_schedule_sleeps_until_a_writes_scheduled_offset(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     readings = iter([0.02, 0.1])
-    monkeypatch.setattr(
-        "benchmarks.stream_cost.consolidated_stream.time.monotonic",
-        lambda: next(readings),
-    )
     sleep_calls: list[NonNegativeFloat] = []
     monkeypatch.setattr(
-        "benchmarks.stream_cost.consolidated_stream.time.sleep", sleep_calls.append
+        consolidated_stream,
+        "time",
+        SimpleNamespace(monotonic=lambda: next(readings), sleep=sleep_calls.append),
     )
     replay_write_schedule(
         lambda: None, (0.1,), start_monotonic=0.0, tolerance_seconds=0.01
@@ -234,11 +231,9 @@ def test_replay_write_schedule_fails_a_write_outside_tolerance(
 ) -> None:
     readings = iter([0.0, 5.0])
     monkeypatch.setattr(
-        "benchmarks.stream_cost.consolidated_stream.time.monotonic",
-        lambda: next(readings),
-    )
-    monkeypatch.setattr(
-        "benchmarks.stream_cost.consolidated_stream.time.sleep", lambda _seconds: None
+        consolidated_stream,
+        "time",
+        SimpleNamespace(monotonic=lambda: next(readings), sleep=lambda _seconds: None),
     )
     with pytest.raises(BenchmarkSetupError, match="deviates"):
         replay_write_schedule(
