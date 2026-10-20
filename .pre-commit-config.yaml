@@ -21,7 +21,7 @@ repos:
       - id: destroyed-symlinks
       - id: end-of-file-fixer
         # Preserve Google's downloaded verification file unchanged.
-        exclude: ^google5a37145ea1915a18\.html$
+        exclude: ^docs/site/google5a37145ea1915a18\.html$
       - id: mixed-line-ending
         # v6.0.0: https://github.com/pre-commit/pre-commit-hooks/blob/v6.0.0/pre_commit_hooks/mixed_line_ending.py
         # The default is auto. We override it because every contributor platform must produce LF line endings.

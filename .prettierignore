@@ -6,4 +6,4 @@ site/
 /.docs-previous-*/
 
 # Preserve Google's downloaded verification file unchanged.
-/google5a37145ea1915a18.html
+/docs/site/google5a37145ea1915a18.html
