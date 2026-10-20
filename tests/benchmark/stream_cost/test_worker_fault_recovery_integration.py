@@ -53,7 +53,8 @@ def test_tcp_connection_loss_recovers_real_workers(
         if path == "direct":
             assert all(_number(state, "streams") == 0 for state in before)
         for index in range(2):
-            workers.request(index, "sever")
+            severed = workers.request(index, "sever")
+            assert _number(severed, "severed_sockets") > 0
         _update(replica_set.uri, database, collection, revision=1)
 
         for index, initial in enumerate(before):
@@ -61,7 +62,11 @@ def test_tcp_connection_loss_recovers_real_workers(
                 workers,
                 index,
                 revision=1,
-                predicate=_path_recovered(path, initial),
+                predicate=_path_recovered(
+                    path,
+                    initial,
+                    require_stream_reopen=path == "independent",
+                ),
             )
             if path == "direct":
                 assert _number(recovered, "streams") == 0
@@ -84,22 +89,44 @@ def test_lost_stream_history_clears_cache_and_reads_latest_document(
     with WorkerProcesses(configs) as workers:
         before = [workers.request(index, "snapshot") for index in range(2)]
         assert all(state["entries"] == 1 for state in before)
-        for index in range(2):
-            workers.request(index, "lose-history")
-        _update(replica_set.uri, database, collection, revision=1)
 
+        _update(replica_set.uri, database, collection, revision=1)
+        primed: list[Payload] = []
         for index, initial in enumerate(before):
-            cleared = wait_for(
+            recovered = _await_read(
                 workers,
                 index,
-                _history_cleared(initial),
+                revision=1,
+                predicate=_path_recovered("independent", initial),
             )
-            assert _number(cleared, "invalidations") >= _number(
-                initial, "invalidations"
+            assert _number(recovered, "entries") == 1
+            primed.append(recovered)
+
+        for index in range(2):
+            injected = workers.request(index, "lose-history")
+            assert _number(injected, "history_fault_code") == 286
+
+        recovered_after_history_loss: list[Payload] = []
+        for index, previous in enumerate(primed):
+            wait_for(
+                workers,
+                index,
+                _history_cleared(previous),
             )
             latest = workers.request(index, "read")
             assert latest["revision"] == 1
-            assert _number(latest, "misses") > _number(initial, "misses")
+            assert _number(latest, "misses") > _number(previous, "misses")
+            recovered_after_history_loss.append(latest)
+
+        _update(replica_set.uri, database, collection, revision=2)
+        for index, previous in enumerate(recovered_after_history_loss):
+            latest = _await_read(
+                workers,
+                index,
+                revision=2,
+                predicate=_path_recovered("independent", previous),
+            )
+            assert _number(latest, "invalidations") > _number(previous, "invalidations")
 
 
 @pytest.mark.timeout(180)
@@ -112,10 +139,9 @@ def test_killed_worker_replacement_reads_from_mongodb(
     _insert(replica_set.uri, database, collection, revision=0)
 
     with WorkerProcesses(configs) as workers:
-        before = workers.request(0, "snapshot")
-        workers.request(1, "snapshot")
+        before = [workers.request(index, "snapshot") for index in range(2)]
         if path == "direct":
-            assert _number(before, "streams") == 0
+            assert _number(before[0], "streams") == 0
         _update(replica_set.uri, database, collection, revision=1)
         _await_read(
             workers,
@@ -123,13 +149,13 @@ def test_killed_worker_replacement_reads_from_mongodb(
             revision=1,
             predicate=lambda state: (
                 path == "direct"
-                or _number(state, "invalidations") > _number(before, "invalidations")
+                or _number(state, "invalidations") > _number(before[1], "invalidations")
             ),
         )
 
         replacement = workers.restart(0)
 
-        assert _number(replacement, "pid") != _number(before, "pid")
+        assert _number(replacement, "pid") != _number(before[0], "pid")
         assert _number(replacement, "entries") == int(path == "independent")
         if path == "direct":
             assert _number(replacement, "streams") == 0
@@ -236,7 +262,9 @@ def _await_read(
             continue
         if last["revision"] == revision and predicate(last):
             return last
-        time.sleep(_POLL_SECONDS)
+        time.sleep(
+            _POLL_SECONDS
+        )  # pragma: lax no cover (the first read may already show recovery).
     message = (  # pragma: no cover (the recovery deadline fails the test).
         f"worker {index} did not read revision {revision}: {last}"
     )
@@ -251,9 +279,20 @@ def _stream_recovered(state: Payload, previous: Payload) -> bool:
     )
 
 
-def _path_recovered(path: WorkerPath, previous: Payload) -> Callable[[Payload], bool]:
+def _path_recovered(
+    path: WorkerPath,
+    previous: Payload,
+    *,
+    require_stream_reopen: bool = False,
+) -> Callable[[Payload], bool]:
     def predicate(state: Payload) -> bool:
-        return path == "direct" or _stream_recovered(state, previous)
+        return path == "direct" or (
+            _stream_recovered(state, previous)
+            and (
+                not require_stream_reopen
+                or _number(state, "streams") > _number(previous, "streams")
+            )
+        )
 
     return predicate
 

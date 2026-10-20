@@ -168,10 +168,12 @@ class WorkerRequestError(AssertionError):
 
 async def _lose_async_stream_history(
     manager: CacheManager[BsonDict], database: str
-) -> None:
+) -> NonNegativeInt:
     supervisor = manager._coordinator._supervisors[database]
+    assert supervisor._resume_token is not None
     supervisor_type = type(supervisor)
     original = supervisor_type._open_stream
+    injected = asyncio.Event()
 
     async def unresumable(
         _instance: AsyncDatabaseStreamSupervisor,
@@ -179,8 +181,10 @@ async def _lose_async_stream_history(
         resume_token: Mapping[str, object] | None,
         use_start_after: bool,
     ) -> None:
-        del resume_token, use_start_after
+        del use_start_after
+        assert resume_token is not None
         supervisor_type._open_stream = original  # type: ignore[method-assign]
+        injected.set()
         await asyncio.sleep(0)
         raise OperationFailure("history lost", code=_HISTORY_LOST)
 
@@ -188,6 +192,18 @@ async def _lose_async_stream_history(
     stream = supervisor._stream
     assert stream is not None
     await stream.close()
+    await asyncio.wait_for(injected.wait(), timeout=_WORKER_TIMEOUT_SECONDS)
+    deadline = time.monotonic() + _WORKER_TIMEOUT_SECONDS
+    while (
+        manager.snapshot().entry_count != 0
+        or manager.stream_health_snapshot(database).status.value != "healthy"
+    ):
+        if time.monotonic() >= deadline:
+            raise TimeoutError(  # pragma: no cover (recovery timeout fails the test).
+                "history-loss recovery did not clear and reopen the stream"
+            )
+        await asyncio.sleep(_POLL_SECONDS)
+    return _HISTORY_LOST
 
 
 def _worker_main(config: WorkerConfig, control: Connection) -> None:
@@ -286,13 +302,33 @@ async def _handle_operation(
     if operation == "sever":
         proxy = runtime.proxy
         assert proxy is not None
-        proxy.sever()
-        return _state("result", manager, config, listener)
+        severed_sockets = _sever_established_proxy_sockets(proxy)
+        state = _state("result", manager, config, listener)
+        state["severed_sockets"] = severed_sockets
+        return state
     if operation == "lose-history":
         assert manager is not None
-        await _lose_async_stream_history(manager, config.database)
-        return _state("result", manager, config, listener)
+        error_code = await _lose_async_stream_history(manager, config.database)
+        state = _state("result", manager, config, listener)
+        state["history_fault_code"] = error_code
+        return state
     assert_never(operation)
+
+
+def _sever_established_proxy_sockets(proxy: FaultableProxy) -> NonNegativeInt:
+    with proxy._lock:
+        sockets = tuple(sock for sock in proxy._sockets if sock.fileno() >= 0)
+    if not sockets:
+        raise AssertionError("worker has no established MongoDB TCP sockets to sever")
+    proxy.sever()
+    deadline = time.monotonic() + _SHUTDOWN_SECONDS
+    while any(sock.fileno() >= 0 for sock in sockets):
+        if time.monotonic() >= deadline:
+            raise TimeoutError(  # pragma: no cover (socket timeout fails the test).
+                "severed MongoDB TCP sockets did not close"
+            )
+        time.sleep(_POLL_SECONDS)
+    return len(sockets)
 
 
 async def _send_state(
