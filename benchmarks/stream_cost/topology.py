@@ -170,13 +170,27 @@ class IsolatedReplicaSet:
             # mapped port.
             self._uri = f"mongodb://{host}:{port}/?directConnection=true"
             self._await_writable_primary()
-        except Exception:
+        except Exception as error:
             try:
-                container.stop()
-            except DockerException:
-                pass
-            self._container = None
-            self._uri = None
+                try:
+                    wrapped = container.get_wrapped_container()
+                    wrapped.reload()
+                    error.add_note(f"MongoDB container state: {wrapped.attrs['State']}")
+                    stdout, stderr = container.get_logs()
+                except (DockerException, RequestsConnectionError) as log_error:
+                    error.add_note(f"MongoDB startup logs unavailable: {log_error}")
+                else:
+                    logs = b"\n".join((stdout + b"\n" + stderr).splitlines()[-20:])
+                    error.add_note(
+                        f"MongoDB startup logs:\n{logs.decode(errors='replace')}"
+                    )
+            finally:
+                try:
+                    container.stop()
+                except DockerException:
+                    pass
+                self._container = None
+                self._uri = None
             raise
         return self
 
@@ -234,19 +248,21 @@ class IsolatedReplicaSet:
             self.uri,
             serverSelectionTimeoutMS=1_000,
         ) as client:
+            last_ping_error: PyMongoError | None = None
             deadline = monotonic() + _ELECTION_TIMEOUT_SECONDS
             while monotonic() < deadline:
                 try:
                     client.admin.command("ping")
                     break
-                except PyMongoError:
+                except PyMongoError as error:
+                    last_ping_error = error
                     sleep(_ELECTION_POLL_INTERVAL_SECONDS)
             else:
                 message = (
                     f"MongoDB did not become reachable within "
                     f"{_ELECTION_TIMEOUT_SECONDS:.0f} seconds."
                 )
-                raise BenchmarkSetupError(message)
+                raise BenchmarkSetupError(message) from last_ping_error
 
             client.admin.command(
                 "replSetInitiate",
