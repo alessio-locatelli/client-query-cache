@@ -126,17 +126,19 @@ def test_isolated_replica_set_wraps_docker_startup_failure() -> None:
 
 
 class _FakeDockerContainer:
-    __slots__ = ("_fail_start_exception", "_fail_stop", "stopped")
+    __slots__ = ("_fail_start_exception", "_fail_stop", "_log_error", "stopped")
 
     def __init__(
         self,
         *,
         fail_start_exception: type[Exception] | None = None,
         fail_stop: bool = False,
+        log_error: type[Exception] | None = None,
     ) -> None:
         self.stopped = False
         self._fail_start_exception = fail_start_exception
         self._fail_stop = fail_stop
+        self._log_error = log_error
 
     def with_command(self, _command: object) -> _FakeDockerContainer:
         return self
@@ -162,6 +164,20 @@ class _FakeDockerContainer:
     ) -> NonNegativeInt:
         return port
 
+    attrs: ClassVar[BsonDict] = {"State": {"Status": "running"}}
+
+    def get_wrapped_container(self) -> Self:
+        return self
+
+    # Implements the Docker API refresh operation for a fixed fake state.
+    def reload(self) -> None:
+        pass
+
+    def get_logs(self) -> tuple[bytes, bytes]:
+        if self._log_error is not None:
+            raise self._log_error("runtime unavailable")
+        return b"startup stdout", b"startup stderr"
+
     def stop(self) -> None:
         self.stopped = True
         if self._fail_stop:
@@ -173,13 +189,17 @@ def _raise_setup_error(_self: IsolatedReplicaSet) -> None:
 
 
 @pytest.mark.parametrize(
-    "fail_stop",
-    [pytest.param(False, id="stop_succeeds"), pytest.param(True, id="stop_also_fails")],
+    ("fail_stop", "log_error"),
+    [
+        pytest.param(False, None, id="logs-available"),
+        pytest.param(True, DockerException, id="runtime-unavailable"),
+        pytest.param(False, RequestsConnectionError, id="transport-unavailable"),
+    ],
 )
 def test_enter_stops_container_when_post_start_setup_fails(
-    monkeypatch: pytest.MonkeyPatch, fail_stop: bool
+    monkeypatch: pytest.MonkeyPatch, fail_stop: bool, log_error: type[Exception] | None
 ) -> None:
-    fake_container = _FakeDockerContainer(fail_stop=fail_stop)
+    fake_container = _FakeDockerContainer(fail_stop=fail_stop, log_error=log_error)
     monkeypatch.setattr(
         "benchmarks.stream_cost.topology.DockerContainer",
         lambda _image: fake_container,
@@ -188,8 +208,11 @@ def test_enter_stops_container_when_post_start_setup_fails(
         IsolatedReplicaSet, "_await_writable_primary", _raise_setup_error
     )
     replica_set = IsolatedReplicaSet(ResourceLimits(cpus=1.0, memory="512m"))
-    with pytest.raises(BenchmarkSetupError, match="boom"):
+    with pytest.raises(BenchmarkSetupError, match="boom") as failure:
         replica_set.__enter__()
+    assert "running" in failure.value.__notes__[0]
+    expected_note = "startup stdout" if log_error is None else "unavailable"
+    assert any(expected_note in note for note in failure.value.__notes__)
     assert fake_container.stopped is True
     with pytest.raises(BenchmarkSetupError, match="has not been started"):
         _ = replica_set.uri
@@ -508,8 +531,11 @@ def test_await_writable_primary_times_out(
     monkeypatch.setattr("benchmarks.stream_cost.topology.MongoClient", client_class)
     replica_set = IsolatedReplicaSet(ResourceLimits(cpus=1.0, memory="512m"))
     replica_set._uri = "mongodb://stub/"
-    with pytest.raises(BenchmarkSetupError, match=match):
+    with pytest.raises(BenchmarkSetupError, match=match) as failure:
         replica_set._await_writable_primary()
+    if client_class is _UnreachablePingClient:
+        assert isinstance(failure.value.__cause__, PyMongoError)
+        assert str(failure.value.__cause__) == "unreachable"
 
 
 def _client_topology(**overrides: object) -> BenchmarkClientTopologyConfig:

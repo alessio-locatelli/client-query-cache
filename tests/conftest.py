@@ -110,18 +110,21 @@ def pytest_configure(config: pytest.Config) -> None:
 
 
 def _wait_for_mongodb_ping(client: MongoClient[BsonDict]) -> None:
+    last_ping_error: AutoReconnect | None = None
     deadline = monotonic() + _MONGODB_STARTUP_TIMEOUT_SECONDS
     while monotonic() < deadline:
         try:
             client.admin.command("ping")
-        except AutoReconnect:  # pragma: lax no cover (container startup timing varies)
+        except AutoReconnect as error:  # pragma: lax no cover (startup varies)
+            last_ping_error = error
             sleep(_MONGODB_POLL_INTERVAL_SECONDS)
         else:
             return
-    pytest.fail(  # pragma: no cover (hard timeout; requires an unreachable container)
+    message = (  # pragma: no cover (requires an unreachable container)
         f"MongoDB did not become reachable within "
         f"{_MONGODB_STARTUP_TIMEOUT_SECONDS:.0f} seconds after container start."
     )
+    raise pytest.fail.Exception(message) from last_ping_error  # pragma: no cover
 
 
 def _prepare_mongodb(config: pytest.Config) -> pytest.CallInfo[MongoDbUri]:
