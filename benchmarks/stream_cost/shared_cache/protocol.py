@@ -16,7 +16,6 @@ from client_query_cache._types import (
     NonNegativeInt,
     PositiveFloat,
     PositiveInt,
-    Probability,
 )
 
 if TYPE_CHECKING:
@@ -29,24 +28,7 @@ type Model = Literal["sync", "async", "mixed"]
 type Workload = Literal["hot", "active", "cold"]
 type Loop = Literal["open", "closed"]
 type KeyAssignment = Literal["partitioned", "shared"]
-type FaultTopology = Literal["single-member", "three-member"]
 type CellSpec = tuple[str, Model, PositiveInt]
-
-
-@dataclass(frozen=True, slots=True)
-class RecoveryCriterion:
-    bucket_seconds: PositiveFloat
-    minimum_completion_fraction: Probability
-    request_p99_multiple: PositiveFloat
-    backlog_grace_p99_multiple: NonNegativeFloat
-
-
-_LEGACY_RECOVERY_CRITERION = RecoveryCriterion(
-    bucket_seconds=1.0,
-    minimum_completion_fraction=0.99,
-    request_p99_multiple=2.0,
-    backlog_grace_p99_multiple=0.0,
-)
 
 BASELINES: tuple[PathKind, ...] = ("direct", "independent")
 FAULT_TIMINGS = ("detection", "readiness", "first_hit", "rewarming")
@@ -95,82 +77,6 @@ class Registration:
         self._validate_plan()
         self._validate_cold_routing()
         self._validate_hot_set()
-        self._validate_recovery_criterion()
-
-    def _validate_recovery_criterion(self) -> None:
-        try:
-            settings = self.raw["fault_recovery"]
-        except KeyError:
-            return
-        if not isinstance(settings, dict):
-            raise BenchmarkConfigurationError("fault recovery settings are invalid")
-        try:
-            registration_number = self.raw["registration"]
-        except KeyError:
-            registration_number = 1
-        if (
-            not isinstance(registration_number, int)
-            or isinstance(registration_number, bool)
-            or registration_number < 1
-        ):
-            raise BenchmarkConfigurationError(
-                "fault recovery registration number is invalid"
-            )
-        try:
-            criterion = settings["recovery_criterion"]
-        except KeyError:
-            if registration_number > 1:
-                raise BenchmarkConfigurationError(
-                    "fault recovery registration lacks its recovery criterion"
-                ) from None
-            return
-        if not isinstance(criterion, dict) or set(criterion) != {
-            "bucket_seconds",
-            "minimum_completion_fraction",
-            "request_p99_multiple",
-            "backlog_grace_p99_multiple",
-        }:
-            raise BenchmarkConfigurationError(
-                "fault recovery recovery criterion is invalid"
-            )
-        bucket = criterion["bucket_seconds"]
-        completion = criterion["minimum_completion_fraction"]
-        p99_multiple = criterion["request_p99_multiple"]
-        backlog_multiple = criterion["backlog_grace_p99_multiple"]
-        if (
-            not all(
-                isinstance(value, (int, float))
-                and not isinstance(value, bool)
-                and math.isfinite(value)
-                for value in (bucket, completion, p99_multiple, backlog_multiple)
-            )
-            or bucket <= 0
-            or not 0 < completion <= 1
-            or p99_multiple <= 0
-            or backlog_multiple < 0
-        ):
-            raise BenchmarkConfigurationError(
-                "fault recovery recovery criterion is invalid"
-            )
-
-    def recovery_criterion(self) -> RecoveryCriterion:
-        try:
-            raw_criterion = self.section("fault_recovery")["recovery_criterion"]
-        except KeyError:
-            return _LEGACY_RECOVERY_CRITERION
-        criterion = cast("JsonDict", raw_criterion)
-        return RecoveryCriterion(
-            bucket_seconds=cast("PositiveFloat", criterion["bucket_seconds"]),
-            minimum_completion_fraction=cast(
-                "Probability", criterion["minimum_completion_fraction"]
-            ),
-            request_p99_multiple=cast(
-                "PositiveFloat", criterion["request_p99_multiple"]
-            ),
-            backlog_grace_p99_multiple=cast(
-                "NonNegativeFloat", criterion["backlog_grace_p99_multiple"]
-            ),
-        )
 
     def _cell_kinds(self, *, smoke: bool) -> set[str]:
         phases = cast("dict[str, JsonDict]", self.section("phases"))
@@ -369,7 +275,6 @@ class CalibrationFamily:
     name: str
     cells: tuple[CellSpec, ...]
     probe_workload: Workload | None
-    topology: FaultTopology = "single-member"
 
 
 @dataclass(frozen=True, slots=True)
@@ -395,173 +300,8 @@ class Cell:
 
 
 @dataclass(frozen=True, slots=True)
-class CalibrationTopologyCell(Cell):
-    topology: FaultTopology = field(kw_only=True)
-
-
-@dataclass(frozen=True, slots=True)
 class FaultCell(Cell):
     fault_case: str = field(kw_only=True)
-
-
-@dataclass(frozen=True, slots=True)
-class RecoveryFaultCell(Cell):
-    fault_case: str = field(kw_only=True)
-    injection_offset_seconds: PositiveFloat = field(kw_only=True)
-    recovery_deadline_seconds: PositiveFloat = field(kw_only=True)
-    topology: FaultTopology = field(kw_only=True)
-    smoke: bool = False
-
-
-_RECOVERY_FAULT_CASES = (
-    "connection-loss",
-    "stepdown",
-    "history-loss",
-    "worker-restart",
-)
-_RECOVERY_PATHS: dict[str, tuple[PathKind, ...]] = {
-    "connection-loss": BASELINES,
-    "stepdown": BASELINES,
-    "history-loss": ("independent",),
-    "worker-restart": BASELINES,
-}
-
-
-def is_worker_fault_registration(registration: Registration) -> bool:
-    try:
-        registration.raw["fault_recovery"]
-    except KeyError:
-        return False
-    return True
-
-
-def _fault_recovery_cases(registration: Registration) -> tuple[str, ...]:
-    settings = registration.section("fault_recovery")
-    cases = settings["cases"]
-    if (
-        not isinstance(cases, list)
-        or not cases
-        or any(not isinstance(case, str) for case in cases)
-        or len(set(cases)) != len(cases)
-        or not set(cases) <= set(_RECOVERY_FAULT_CASES)
-    ):
-        raise BenchmarkConfigurationError(
-            "fault recovery cases must be unique supported worker faults"
-        )
-    return tuple(cases)
-
-
-def fault_recovery_cells(
-    registration: Registration,
-    paths: tuple[PathKind, ...] | None = None,
-    *,
-    smoke: bool = False,
-) -> tuple[RecoveryFaultCell, ...]:
-    settings = registration.section("fault_recovery")
-    cases = _fault_recovery_cases(registration)
-    selected_paths = registration.paths if paths is None else paths
-    if smoke:
-        timings = cast("JsonDict", settings["smoke"])
-        repetitions = 1
-        registered_rate: PositiveFloat | None = cast("PositiveFloat", timings["rate"])
-    else:
-        if not registration.frozen:
-            raise BenchmarkConfigurationError(
-                "worker fault evidence requires a frozen registration"
-            )
-        timings = settings
-        repetitions = cast("PositiveInt", settings["repetitions"])
-        registered_rate = None
-    before = cast("PositiveFloat", timings["before_seconds"])
-    after = cast("PositiveFloat", timings["after_seconds"])
-    recovery_deadline = cast("PositiveFloat", timings["recovery_deadline_seconds"])
-    if (
-        not _positive(repetitions)
-        or not all(
-            isinstance(value, (int, float)) and value > 0
-            for value in (before, after, recovery_deadline)
-        )
-        or recovery_deadline > after
-    ):
-        raise BenchmarkConfigurationError("fault recovery timings are invalid")
-    concurrency = cast("PositiveInt", registration.raw["concurrency_per_worker"])
-    rate_families: JsonDict = {}
-    if not smoke:
-        try:
-            rate_families = cast("JsonDict", settings["rate_families"])
-        except KeyError:
-            rate_families = {
-                "single-member": settings["rate_family"],
-                "three-member": settings["rate_family"],
-            }
-        available_families = {family.name: family for family in families(registration)}
-    before_interval = cast("PositiveFloat", settings["before_interval_seconds"])
-    if not isinstance(before_interval, (int, float)) or before_interval <= 0:
-        raise BenchmarkConfigurationError("fault recovery before interval is invalid")
-    error_classes = cast("JsonDict", settings["error_classes"])
-    if (
-        not isinstance(error_classes, dict)
-        or set(error_classes) != set(cases)
-        or any(
-            not isinstance(value, list)
-            or not value
-            or any(not isinstance(error, str) for error in value)
-            for value in error_classes.values()
-        )
-    ):
-        raise BenchmarkConfigurationError("fault recovery error classes are invalid")
-    timeline_cadence = cast("PositiveFloat", settings["timeline_cadence_seconds"])
-    if not isinstance(timeline_cadence, (int, float)) or timeline_cadence <= 0:
-        raise BenchmarkConfigurationError("fault recovery timeline cadence is invalid")
-    cells: list[RecoveryFaultCell] = []
-    for block in range(repetitions):
-        for case in cases:
-            topology: FaultTopology = (
-                "three-member" if case == "stepdown" else "single-member"
-            )
-            if registered_rate is None:
-                family_name = cast("str", rate_families[topology])
-                try:
-                    calibration_family = available_families[family_name]
-                except KeyError:
-                    message = (
-                        "fault recovery references missing calibration family "
-                        f"{family_name}"
-                    )
-                    raise BenchmarkConfigurationError(message) from None
-                if calibration_family.topology != topology:
-                    raise BenchmarkConfigurationError(
-                        "fault recovery calibration family topology differs from case"
-                    )
-                rate = registration.rate(family_name)
-            else:
-                rate = registered_rate
-            applicable = tuple(
-                path for path in _RECOVERY_PATHS[case] if path in selected_paths
-            )
-            cells.extend(
-                RecoveryFaultCell(
-                    phase="fault",
-                    block=block,
-                    workload="active",
-                    profile="smoke" if smoke else "primary",
-                    model="async",
-                    workers=4,
-                    path=path,
-                    loop="open",
-                    concurrency=concurrency,
-                    window_seconds=before + after,
-                    warmup_seconds=0,
-                    rate=rate,
-                    fault_case=case,
-                    injection_offset_seconds=before,
-                    recovery_deadline_seconds=recovery_deadline,
-                    topology=topology,
-                    smoke=smoke,
-                )
-                for path in path_order(block, applicable)
-            )
-    return tuple(cells)
 
 
 def fault_applicability(registration: Registration) -> dict[str, dict[str, bool]]:
@@ -754,17 +494,6 @@ def _family(name: str, value: object) -> CalibrationFamily:
     match value:
         case list():
             return CalibrationFamily(name, _cell_specs(value, owner), None)
-        case {
-            "cells": entries,
-            "probe_workload": "hot" | "active" | "cold" as probe,
-            "topology": topology,
-        } if topology in {"single-member", "three-member"}:
-            return CalibrationFamily(
-                name,
-                _cell_specs(entries, owner),
-                cast("Workload", probe),
-                cast("FaultTopology", topology),
-            )
         case {"cells": entries, "probe_workload": "hot" | "active" | "cold" as probe}:
             return CalibrationFamily(name, _cell_specs(entries, owner), probe)
     message = f"{owner} is malformed"  # pytriage: TR5 (EM102 needs a variable)
@@ -886,24 +615,21 @@ def family_probe_cells(
     warmup = registration.number("warmup_seconds")
     concurrency = cast("int", registration.raw["concurrency_per_worker"])
     return tuple(
-        _calibration_topology_cell(
-            Cell(
-                phase="probe",
-                block=window,
-                workload=workload,
-                profile=_profile_for(kind),
-                model=model,
-                workers=workers,
-                path=path,
-                loop="closed",
-                concurrency=concurrency,
-                window_seconds=seconds,
-                warmup_seconds=0 if workload == "cold" else warmup,
-                identities=cast("int", calibration["cold_probe_identities"])
-                if workload == "cold"
-                else None,
-            ),
-            family.topology,
+        Cell(
+            phase="probe",
+            block=window,
+            workload=workload,
+            profile=_profile_for(kind),
+            model=model,
+            workers=workers,
+            path=path,
+            loop="closed",
+            concurrency=concurrency,
+            window_seconds=seconds,
+            warmup_seconds=0 if workload == "cold" else warmup,
+            identities=cast("int", calibration["cold_probe_identities"])
+            if workload == "cold"
+            else None,
         )
         for kind, model, workers in family.cells
         for workload in (family.probe_workload or _FAMILY_WORKLOADS[kind],)
@@ -929,48 +655,21 @@ def validation_cells(
     repetitions = cast(
         "int", registration.section("calibration")["validation_repetitions"]
     )
-    topology = next(
-        item.topology for item in families(registration) if item.name == family
-    )
     return tuple(
-        _calibration_topology_cell(
-            fixed_cell(
-                registration,
-                phase="validation",
-                block=repetition,
-                kind=kind,
-                model=model,
-                workers=workers,
-                path=path,
-                rate=rate,
-                durations=durations,
-            ),
-            topology,
+        fixed_cell(
+            registration,
+            phase="validation",
+            block=repetition,
+            kind=kind,
+            model=model,
+            workers=workers,
+            path=path,
+            rate=rate,
+            durations=durations,
         )
         for repetition in range(repetitions)
         for kind, model, workers in family_cells(registration, family)
         for path in _ordered(BASELINES, repetition)
-    )
-
-
-def _calibration_topology_cell(cell: Cell, topology: FaultTopology) -> Cell:
-    if topology == "single-member":
-        return cell
-    return CalibrationTopologyCell(
-        phase=cell.phase,
-        block=cell.block,
-        workload=cell.workload,
-        profile=cell.profile,
-        model=cell.model,
-        workers=cell.workers,
-        path=cell.path,
-        loop=cell.loop,
-        concurrency=cell.concurrency,
-        window_seconds=cell.window_seconds,
-        warmup_seconds=cell.warmup_seconds,
-        rate=cell.rate,
-        identities=cell.identities,
-        topology=topology,
     )
 
 

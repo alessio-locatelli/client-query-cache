@@ -741,28 +741,3 @@ def test_periodic_calibration_sampler_propagates_a_background_failure(
         BenchmarkSetupError, match="periodic calibration sampling failed"
     ):
         sampler.stop()
-
-
-def test_periodic_calibration_sampler_skips_non_primary_during_election() -> None:
-    call_count = 0
-
-    def send_hello() -> BsonDict:
-        nonlocal call_count
-        call_count += 1
-        if call_count == 2:
-            return _non_primary_hello()
-        return _stub_send_hello()
-
-    sampler = PeriodicCalibrationSampler(
-        send_hello,
-        cadence_seconds=0.02,
-        rounds=1,
-        ignore_non_primary=True,
-    )
-    sampler.start()
-    time.sleep(0.1)
-
-    points = sampler.stop()
-
-    assert len(points) >= 2
-    assert call_count > len(points)

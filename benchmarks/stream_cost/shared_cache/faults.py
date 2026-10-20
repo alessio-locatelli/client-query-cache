@@ -339,9 +339,25 @@ class FaultTrial:
         )
 
     def replace_worker(self, index: NonNegativeInt) -> None:
+        process = self.group.processes[index]
+        process.kill()
+        process.join(max(0.0, self.deadline - time.monotonic()))
+        _require(not process.is_alive(), "killed worker failed to exit")
+        self.group.connections[index].close()
+        self.group.processes.pop(index)
+        self.group.connections.pop(index)
         self.events["recovery"] = time.monotonic()
-        self.group.kill_and_replace(index)
-        receive(self.group.connections[index], self.deadline, "attached")
+        self.group.start_worker(
+            _spec(
+                self.registration,
+                self.cell,
+                _workload(self.registration, self.cell),
+                self.uri,
+                index=index,
+                attachment=self.attachment,
+            )
+        )
+        receive(self.group.connections[-1], self.deadline, "attached")
 
     def inject(self) -> None:
         case = self.cell.fault_case
