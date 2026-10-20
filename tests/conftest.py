@@ -21,6 +21,7 @@ from pymongo.errors import AutoReconnect
 from testcontainers.core.container import DockerContainer
 from testcontainers.core.docker_client import DockerClient
 
+from benchmarks.mongodb_diagnostics import note_mongodb_startup_failure
 from benchmarks.mongodb_image import MONGODB_IMAGE, compose_mongodb_image
 from client_query_cache._types import BsonDict, NonNegativeInt
 
@@ -199,6 +200,9 @@ def _mongodb_replica_set(config: pytest.Config) -> Generator[MongoDbUri]:
             container.with_command(["--replSet", "rs0"])
             container.with_exposed_ports(27017)
             resources.enter_context(container)
+            resources.push(
+                lambda _type, error, _tb: note_mongodb_startup_failure(container, error)
+            )
         except DockerException as error:  # pragma: no cover (requires a broken runtime)
             message = (
                 "A Docker-compatible container runtime is required for integration "
