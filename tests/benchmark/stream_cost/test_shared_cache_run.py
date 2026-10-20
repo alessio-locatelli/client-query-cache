@@ -49,7 +49,7 @@ from benchmarks.stream_cost.shared_cache.workload import (
     open_loop_sync,
     worker_keys,
 )
-from client_query_cache._types import BsonDict, JsonDict, NonNegativeInt
+from client_query_cache._types import BsonDict, JsonDict, NonNegativeInt, PositiveInt
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -576,9 +576,7 @@ def test_calibration_treats_setup_failures_as_inconclusive(
     assert outcome["outcome"] == "inconclusive"
 
 
-def test_freeze_writes_validated_values_and_rejects_others(
-    tmp_path: Path, registration: Registration
-) -> None:
+def test_freeze_writes_validated_values_and_rejects_others(tmp_path: Path) -> None:
     config = tmp_path / "config.json"
     config.write_text(_CONFIG.read_text(encoding="utf-8"), encoding="utf-8")
     report = tmp_path / "calibration.json"
@@ -588,7 +586,11 @@ def test_freeze_writes_validated_values_and_rejects_others(
         "window_seconds": _FROZEN_WINDOWS,
         "cold_seconds": 10.0,
     }
-    environment = {"revision": "abc", "configuration_sha256": registration.digest}
+    environment = {
+        "revision": "abc",
+        "configuration_sha256": Registration.load(config).digest,
+        "dirty_tree": False,
+    }
     report.write_text(
         json.dumps({"environment": environment, "calibration": calibration})
     )
@@ -1250,7 +1252,11 @@ def test_freeze_command_updates_the_registration(
     report.write_text(
         json.dumps(
             {
-                "environment": {"revision": "abc", "configuration_sha256": "def"},
+                "environment": {
+                    "revision": "abc",
+                    "configuration_sha256": Registration.load(config).digest,
+                    "dirty_tree": False,
+                },
                 "calibration": {
                     "outcome": "validated",
                     "rates": _FROZEN_RATES,
@@ -1339,15 +1345,44 @@ def test_reused_probes_keep_only_healthy_probe_windows(
         json.dumps(
             {
                 "phase": "calibration",
+                "environment": {
+                    "revision": "abc",
+                    "configuration_sha256": registration.digest,
+                    "dirty_tree": False,
+                },
                 "cells": [healthy, _record(probe, healthy=False), _record(validation)],
             }
         )
     )
 
-    assert run.reused_probes(report) == [healthy]
+    reused = run.reused_probes(report, registration)
+    assert reused == [
+        {
+            **healthy,
+            "probe_environment": {
+                "revision": "abc",
+                "configuration_sha256": registration.digest,
+                "dirty_tree": False,
+            },
+        }
+    ]
+    report.write_text(
+        json.dumps(
+            {
+                "phase": "calibration",
+                "environment": {
+                    "revision": "def",
+                    "configuration_sha256": registration.digest,
+                    "dirty_tree": False,
+                },
+                "cells": reused,
+            }
+        )
+    )
+    assert run.reused_probes(report, registration) == reused
     report.write_text(json.dumps({"phase": "smoke", "cells": [healthy]}))
     with pytest.raises(BenchmarkSetupError, match="healthy probes"):
-        run.reused_probes(report)
+        run.reused_probes(report, registration)
 
 
 def _checksum(value: object) -> int:
@@ -1450,7 +1485,17 @@ def test_v4_freezing_keeps_its_frozen_block_layout(
     config = tmp_path / "config.json"
     config.write_bytes(_CONFIG.read_bytes())
     report = tmp_path / "calibration.json"
-    report.write_text(json.dumps({"calibration": outcome}))
+    report.write_text(
+        json.dumps(
+            {
+                "environment": {
+                    "configuration_sha256": Registration.load(config).digest,
+                    "dirty_tree": False,
+                },
+                "calibration": outcome,
+            }
+        )
+    )
 
     run.freeze(config, report)
 
@@ -1468,12 +1513,16 @@ def test_v4_freezing_keeps_its_frozen_block_layout(
     report.write_text(
         json.dumps(
             {
+                "environment": {
+                    "configuration_sha256": Registration.load(config).digest,
+                    "dirty_tree": False,
+                },
                 "calibration": {
                     "outcome": "validated",
                     "rates": frozen["rates"],
                     "window_seconds": frozen["window_seconds"],
                     "cold_seconds": summary["cold_seconds"],
-                }
+                },
             }
         )
     )
@@ -1703,7 +1752,17 @@ def test_registered_family_freezes_only_its_rate_and_window(
     config = tmp_path / "config.json"
     config.write_text(json.dumps(concurrent.raw, indent=2))
     report = tmp_path / "calibration.json"
-    report.write_text(json.dumps({"calibration": outcome}))
+    report.write_text(
+        json.dumps(
+            {
+                "environment": {
+                    "configuration_sha256": Registration.load(config).digest,
+                    "dirty_tree": False,
+                },
+                "calibration": outcome,
+            }
+        )
+    )
 
     run.freeze(config, report)
 
@@ -2452,3 +2511,121 @@ def test_descriptive_registrations_require_a_lag_floor(
 
     with pytest.raises(BenchmarkConfigurationError, match="lag_event_floor"):
         Registration(raw, concurrent.digest)
+
+
+@pytest.mark.parametrize(
+    "provenance",
+    [
+        None,
+        {},
+        {"configuration_sha256": "unrelated", "dirty_tree": False},
+        {"dirty_tree": True},
+        {"dirty_tree": None},
+    ],
+    ids=["missing", "empty", "different-registration", "dirty", "unknown-cleanliness"],
+)
+def test_freeze_rejects_invalid_provenance_without_writing(
+    tmp_path: Path, provenance: JsonDict | None
+) -> None:
+    config = tmp_path / "config.json"
+    original = _CONFIG.read_bytes()
+    config.write_bytes(original)
+    calibration: JsonDict = {"calibration": {"outcome": "validated"}}
+    if provenance is not None:
+        if "configuration_sha256" not in provenance and provenance:
+            provenance = {
+                **provenance,
+                "configuration_sha256": Registration.load(config).digest,
+            }
+        calibration["environment"] = provenance
+    report = tmp_path / "calibration.json"
+    report.write_text(json.dumps(calibration))
+
+    with pytest.raises(BenchmarkSetupError, match="calibration"):
+        run.freeze(config, report)
+
+    assert config.read_bytes() == original
+
+
+@pytest.mark.parametrize(
+    ("source_version", "target_version"),
+    [(2, 3), (3, 2), (2, 4)],
+    ids=["documented-reuse", "reverse", "changed-probes"],
+)
+def test_probe_reuse_registration_exception(
+    tmp_path: Path, source_version: PositiveInt, target_version: PositiveInt
+) -> None:
+    source = Registration.load(
+        Path(f"reports/shared-worker-cache/v{source_version}/config.json")
+    )
+    target = Registration.load(
+        Path(f"reports/shared-worker-cache/v{target_version}/config.json")
+    )
+    report = tmp_path / "probes.json"
+    provenance = {
+        "revision": "abc",
+        "configuration_sha256": source.digest,
+        "dirty_tree": False,
+    }
+    probe = _record(probe_cells(source)[0])
+    report.write_text(
+        json.dumps(
+            {"phase": "calibration", "environment": provenance, "cells": [probe]}
+        )
+    )
+    if (source_version, target_version) == (2, 3):
+        assert run.reused_probes(report, target) == [
+            {**probe, "probe_environment": provenance}
+        ]
+    else:
+        with pytest.raises(BenchmarkSetupError, match="configuration"):
+            run.reused_probes(report, target)
+
+
+@pytest.mark.parametrize(
+    "nested", [False, True], ids=["source-report", "reused-origin"]
+)
+@pytest.mark.parametrize(
+    "fault", ["dirty", "missing", "mismatch"], ids=["dirty", "missing", "mismatch"]
+)
+def test_probe_reuse_rejects_invalid_origin(
+    tmp_path: Path, registration: Registration, nested: bool, fault: str
+) -> None:
+    clean: JsonDict = {
+        "revision": "abc",
+        "configuration_sha256": registration.digest,
+        "dirty_tree": False,
+    }
+    invalid = (
+        {**clean, "dirty_tree": True}
+        if fault == "dirty"
+        else {}
+        if fault == "missing"
+        else {**clean, "configuration_sha256": "unrelated"}
+    )
+    probe = _record(probe_cells(registration)[0])
+    if nested:
+        probe["probe_environment"] = invalid
+    report = tmp_path / "probes.json"
+    report.write_text(
+        json.dumps(
+            {
+                "phase": "calibration",
+                "environment": clean if nested else invalid,
+                "cells": [probe],
+            }
+        )
+    )
+    with pytest.raises(BenchmarkSetupError, match="probe"):
+        run.reused_probes(report, registration)
+
+
+def test_probe_reuse_rejects_report_without_environment(
+    tmp_path: Path, registration: Registration
+) -> None:
+    probe = _record(probe_cells(registration)[0])
+    report = tmp_path / "probes.json"
+    report.write_text(json.dumps({"phase": "calibration", "cells": [probe]}))
+
+    with pytest.raises(BenchmarkSetupError, match="reused probe provenance is missing"):
+        run.reused_probes(report, registration)

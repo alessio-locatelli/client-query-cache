@@ -204,7 +204,35 @@ def resumed_cells(
     return cast("list[JsonDict]", report["cells"])
 
 
-def reused_probes(path: Path) -> list[JsonDict]:
+# The v3 registration documents why v2 probes are unaffected by its tolerance change.
+# Pin both files so later edits cannot silently inherit that exception.
+_UNAFFECTED_PROBE_REGISTRATIONS = (
+    # pragma: allowlist nextline secret
+    "af560945f2aa9291278b9ed364fb1684c0bbd80530cbf523308b4e5c3407d9e7",
+    # pragma: allowlist nextline secret
+    "fcaba260601630f032811c364cf2acafd9f56c938a46b42fa863c8d9c2fd6b92",
+)
+
+
+def validate_probe_source(source: JsonDict, registration: Registration) -> None:
+    try:
+        clean = source["dirty_tree"] is False
+        digest = source["configuration_sha256"]
+        revision = source["revision"]
+    except KeyError as error:
+        raise BenchmarkSetupError("reused probe provenance is missing") from error
+    if not clean or not revision:
+        raise BenchmarkSetupError("reused probes require a clean recorded revision")
+    if (
+        digest != registration.digest
+        and (digest, registration.digest) != _UNAFFECTED_PROBE_REGISTRATIONS
+    ):
+        raise BenchmarkSetupError(
+            "reused probe configuration does not match registration"
+        )
+
+
+def reused_probes(path: Path, registration: Registration) -> list[JsonDict]:
     report = json.loads(path.read_text(encoding="utf-8"))
     probes = [
         record
@@ -214,7 +242,20 @@ def reused_probes(path: Path) -> list[JsonDict]:
     if report["phase"] != "calibration" or not probes:
         message = "reused probes need a calibration report with healthy probes"
         raise BenchmarkSetupError(message)
-    return probes
+    try:
+        source = cast("JsonDict", report["environment"])
+    except KeyError as error:
+        raise BenchmarkSetupError("reused probe provenance is missing") from error
+    validate_probe_source(source, registration)
+    traced: list[JsonDict] = []
+    for record in probes:
+        try:
+            origin = cast("JsonDict", record["probe_environment"])
+        except KeyError:
+            origin = source
+        validate_probe_source(origin, registration)
+        traced.append({**record, "probe_environment": origin})
+    return traced
 
 
 def select_rate(
@@ -343,7 +384,20 @@ def freeze(registration_path: Path, calibration_path: Path) -> None:
     if validated["outcome"] != "validated":
         message = "only validated baseline calibration can be frozen"
         raise BenchmarkSetupError(message)
-    text = registration_path.read_text(encoding="utf-8")
+    content = registration_path.read_bytes()
+    text = content.decode("utf-8")
+    try:
+        provenance = calibration["environment"]
+        matching = provenance["configuration_sha256"] == sha256(content).hexdigest()
+        clean = provenance["dirty_tree"] is False
+    except KeyError as error:
+        raise BenchmarkSetupError("calibration provenance is missing") from error
+    if not matching:
+        raise BenchmarkSetupError(
+            "calibration configuration does not match registration"
+        )
+    if not clean:
+        raise BenchmarkSetupError("calibration requires a clean source tree")
     summary: JsonDict = {}
     try:
         summary["cold_seconds"] = validated["cold_seconds"]
@@ -446,7 +500,7 @@ def main(argv: list[str] | None = None) -> None:
         registration,
         resumed_cells(arguments.resume, phase, registration, exploratory)
         if arguments.resume is not None
-        else reused_probes(arguments.reuse_probes)
+        else reused_probes(arguments.reuse_probes, registration)
         if arguments.reuse_probes is not None
         else [],
     )
