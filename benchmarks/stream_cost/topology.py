@@ -12,6 +12,7 @@ from pymongo.errors import PyMongoError
 from requests.exceptions import ConnectionError as RequestsConnectionError
 from testcontainers.core.container import DockerContainer
 
+from benchmarks.mongodb_diagnostics import note_mongodb_startup_failure
 from benchmarks.mongodb_image import MONGODB_IMAGE
 from benchmarks.stream_cost.client import (
     BenchmarkClientTopologyConfig,
@@ -172,18 +173,7 @@ class IsolatedReplicaSet:
             self._await_writable_primary()
         except Exception as error:
             try:
-                try:
-                    wrapped = container.get_wrapped_container()
-                    wrapped.reload()
-                    error.add_note(f"MongoDB container state: {wrapped.attrs['State']}")
-                    stdout, stderr = container.get_logs()
-                except (DockerException, RequestsConnectionError) as log_error:
-                    error.add_note(f"MongoDB startup logs unavailable: {log_error}")
-                else:
-                    logs = b"\n".join((stdout + b"\n" + stderr).splitlines()[-20:])
-                    error.add_note(
-                        f"MongoDB startup logs:\n{logs.decode(errors='replace')}"
-                    )
+                note_mongodb_startup_failure(container, error)
             finally:
                 try:
                     container.stop()

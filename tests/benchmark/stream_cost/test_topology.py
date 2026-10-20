@@ -7,6 +7,7 @@ import pytest
 from docker.errors import DockerException
 from pymongo.errors import PyMongoError
 from requests.exceptions import ConnectionError as RequestsConnectionError
+from requests.exceptions import Timeout as RequestsTimeout
 
 from benchmarks.stream_cost.client import BenchmarkClientTopologyConfig, WireCompressor
 from benchmarks.stream_cost.errors import (
@@ -194,6 +195,8 @@ def _raise_setup_error(_self: IsolatedReplicaSet) -> None:
         pytest.param(False, None, id="logs-available"),
         pytest.param(True, DockerException, id="runtime-unavailable"),
         pytest.param(False, RequestsConnectionError, id="transport-unavailable"),
+        pytest.param(False, RequestsTimeout, id="inspect-timeout"),
+        pytest.param(False, ValueError, id="malformed-response"),
     ],
 )
 def test_enter_stops_container_when_post_start_setup_fails(
