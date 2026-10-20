@@ -8,9 +8,9 @@ import threading
 import time
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import ExitStack
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, Self, cast
+from typing import TYPE_CHECKING, Self, cast
 
 import psutil
 from pymongo import MongoClient
@@ -30,13 +30,10 @@ from benchmarks.stream_cost.multiprocess_run import (
     stop_workers,
 )
 from benchmarks.stream_cost.shared_cache.dataset import seed_catalogue
-from benchmarks.stream_cost.shared_cache.fault_timeline import merge_chunks
 from benchmarks.stream_cost.shared_cache.owner import owner_main, proxy_for
 from benchmarks.stream_cost.shared_cache.profiling import enabled as profiling_enabled
 from benchmarks.stream_cost.shared_cache.protocol import (
     BASELINES,
-    CalibrationTopologyCell,
-    RecoveryFaultCell,
     profile_keys,
     write_count,
 )
@@ -48,7 +45,6 @@ from benchmarks.stream_cost.shared_cache.workload import (
     warm_key,
     worker_keys,
 )
-from benchmarks.stream_cost.topology import ReplicaSetTopology
 from client_query_cache._core.manager import DEFAULT_MAX_NAMESPACES
 from client_query_cache._shared.attachment import AttachmentConfig
 from client_query_cache._shared.coordinator import OwnerConfig
@@ -60,7 +56,6 @@ from client_query_cache._types import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
     from multiprocessing.connection import Connection
     from multiprocessing.context import SpawnContext
     from multiprocessing.process import BaseProcess
@@ -141,6 +136,11 @@ class GroupMemorySampler:
             "peak_group_pss_bytes": max(totals),
             "steady_owner_pss_bytes": owner,
         }
+
+
+def _wait(deadline: NonNegativeFloat) -> None:
+    while (remaining := deadline - time.monotonic()) > 0:
+        time.sleep(min(remaining, 1.0))
 
 
 def _count(record: Payload, *keys: str) -> int:
@@ -247,29 +247,21 @@ class ProcessGroup:
         "_context",
         "_directory",
         "_owner_config",
-        "_specs",
         "connections",
-        "control_connections",
         "owner",
         "owner_control",
         "owner_pid",
         "processes",
         "shutdown_seconds",
-        "timeline_chunks",
-        "timeline_connections",
     )
 
     def __init__(self, context: SpawnContext, shutdown_seconds: PositiveFloat) -> None:
         self._context = context
         self._directory: str | None = None
         self._owner_config: OwnerConfig | None = None
-        self._specs: list[WorkerSpec] = []
         self.shutdown_seconds = shutdown_seconds
         self.processes: list[BaseProcess] = []
         self.connections: list[Connection] = []
-        self.control_connections: list[Connection | None] = []
-        self.timeline_connections: list[Connection | None] = []
-        self.timeline_chunks: list[list[Payload]] = []
         self.owner: BaseProcess | None = None
         self.owner_control: Connection | None = None
         self.owner_pid: NonNegativeInt | None = None
@@ -302,179 +294,12 @@ class ProcessGroup:
         return attachment_for(config)
 
     def start_worker(self, spec: WorkerSpec) -> None:
-        process, parent, control, timeline = self._launch_worker(spec)
-        self._specs.append(spec)
-        self.processes.append(process)
-        self.connections.append(parent)
-        self.control_connections.append(control)
-        self.timeline_connections.append(timeline)
-        self.timeline_chunks.append([])
-
-    def _launch_worker(
-        self, spec: WorkerSpec
-    ) -> tuple[BaseProcess, Connection, Connection | None, Connection | None]:
         parent, child = self._context.Pipe()
-        control_parent: Connection | None = None
-        control_child: Connection | None = None
-        timeline_parent: Connection | None = None
-        timeline_child: Connection | None = None
-        if spec.controls_enabled:
-            control_parent, control_child = self._context.Pipe()
-        if spec.timeline_enabled:
-            timeline_parent, timeline_child = self._context.Pipe(duplex=False)
-        process = self._context.Process(
-            target=worker_main,
-            args=(child, spec, control_child, timeline_child),
-        )
+        process = self._context.Process(target=worker_main, args=(child, spec))
         process.start()
         child.close()
-        if control_child is not None:
-            control_child.close()
-        if timeline_child is not None:
-            timeline_child.close()
-        return process, parent, control_parent, timeline_parent
-
-    def drain_timeline_chunks(self, index: NonNegativeInt | None = None) -> None:
-        indexes = range(len(self.timeline_connections)) if index is None else (index,)
-        for worker_index in indexes:
-            timeline = self.timeline_connections[worker_index]
-            if timeline is None or timeline.closed:
-                continue
-            while timeline.poll():
-                try:
-                    chunk = cast("Payload", timeline.recv())
-                except EOFError:
-                    break
-                except OSError:
-                    if not self.processes[worker_index].is_alive():
-                        break
-                    raise
-                if chunk["kind"] != "timeline_chunk":
-                    raise BenchmarkSetupError(
-                        "worker returned an invalid timeline chunk"
-                    )
-                self.timeline_chunks[worker_index].append(chunk)
-
-    def received_timeline(self, index: NonNegativeInt) -> list[Payload]:
-        self.drain_timeline_chunks(index)
-        return self.timeline_chunks[index]
-
-    def control_worker(
-        self,
-        index: NonNegativeInt,
-        operation: Literal["sever", "lose-history", "snapshot", "probe"],
-        **fields: object,
-    ) -> Payload:
-        control = self.control_connections[index]
-        if control is None:
-            raise BenchmarkSetupError("worker controls are not enabled")
-        control.send({"op": operation, **fields})
-        if not control.poll(_CONTROL_GRACE_SECONDS):
-            raise BenchmarkSetupError("worker control did not answer in time")
-        response = cast("Payload", control.recv())
-        if response["kind"] != "control" or response["operation"] != operation:
-            raise BenchmarkSetupError("worker returned an unexpected control response")
-        return response
-
-    def control_workers(
-        self,
-        operation: Literal["sever", "lose-history", "snapshot", "probe"],
-        **fields: object,
-    ) -> list[Payload]:
-        controls = self.control_connections
-        if any(control is None for control in controls):
-            raise BenchmarkSetupError(
-                "worker controls are not enabled for every worker"
-            )
-        deadline = time.monotonic() + _CONTROL_GRACE_SECONDS
-        for control in controls:
-            assert control is not None
-            control.send({"op": operation, **fields})
-        responses: list[Payload] = []
-        for control in controls:
-            assert control is not None
-            remaining = deadline - time.monotonic()
-            if remaining <= 0 or not control.poll(remaining):
-                raise BenchmarkSetupError("worker control did not answer in time")
-            response = cast("Payload", control.recv())
-            if response["kind"] != "control" or response["operation"] != operation:
-                raise BenchmarkSetupError(
-                    "worker returned an unexpected control response"
-                )
-            responses.append(response)
-        return responses
-
-    def collect_worker(
-        self,
-        index: NonNegativeInt,
-        kind: str,
-        deadline: NonNegativeFloat,
-        *,
-        drain_timelines: bool = True,
-    ) -> Payload:
-        connection = self.connections[index]
-        while True:
-            if drain_timelines:
-                self.drain_timeline_chunks()
-            remaining = deadline - time.monotonic()
-            if remaining <= 0 or not connection.poll(remaining):
-                message = f"worker {kind} deadline exceeded"
-                raise BenchmarkSetupError(message)
-            response = cast("Payload", connection.recv())
-            if response["kind"] == "failure":
-                raise BenchmarkSetupError(str(response["error"]))
-            if response["kind"] != kind:
-                message_text = f"unexpected worker message at {kind}"
-                raise BenchmarkSetupError(message_text)
-            return response
-
-    def kill_and_replace(
-        self,
-        index: NonNegativeInt,
-        spec: WorkerSpec | None = None,
-        *,
-        spec_factory: Callable[[NonNegativeFloat], WorkerSpec] | None = None,
-        before_kill: Callable[[NonNegativeFloat], None] | None = None,
-    ) -> None:
-        if spec is not None and spec_factory is not None:
-            raise BenchmarkSetupError(
-                "replacement worker accepts a spec or a spec factory, not both"
-            )
-        if spec is not None and spec.index != index:
-            raise BenchmarkSetupError("replacement spec has another worker index")
-        process = self.processes[index]
-        killed_at = time.monotonic()
-        if before_kill is not None:
-            before_kill(killed_at)
-        process.kill()
-        process.join(self.shutdown_seconds)
-        if process.is_alive():
-            raise BenchmarkSetupError("killed worker failed to exit")
-        self.drain_timeline_chunks(index)
-        self.connections[index].close()
-        control = self.control_connections[index]
-        if control is not None:
-            control.close()
-        timeline = self.timeline_connections[index]
-        if timeline is not None:
-            timeline.close()
-        current_spec = self._specs[index]
-        replacement_spec = current_spec if spec is None else spec
-        if spec_factory is not None:
-            replacement_spec = spec_factory(killed_at)
-        if replacement_spec.index != index:
-            raise BenchmarkSetupError("replacement spec has another worker index")
-        self._specs[index] = replace(
-            replacement_spec,
-            timeline_generation=current_spec.timeline_generation + 1,
-        )
-        replacement, connection, replacement_control, replacement_timeline = (
-            self._launch_worker(self._specs[index])
-        )
-        self.processes[index] = replacement
-        self.connections[index] = connection
-        self.control_connections[index] = replacement_control
-        self.timeline_connections[index] = replacement_timeline
+        self.processes.append(process)
+        self.connections.append(parent)
 
     def owner_request(self, request: Payload, deadline: NonNegativeFloat) -> Payload:
         control = self.owner_control
@@ -486,46 +311,13 @@ class ProcessGroup:
         return cast("Payload", control.recv())
 
     def collect(self, kind: str, deadline: NonNegativeFloat) -> list[Payload]:
-        records: list[Payload] = []
-        for connection in self.connections:
-            while True:
-                self.drain_timeline_chunks()
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    message_text = f"worker {kind} deadline exceeded"
-                    raise BenchmarkSetupError(message_text)
-                wait = min(remaining, _OWNER_POLL_SECONDS)
-                if not connection.poll(wait):
-                    continue
-                message = cast("Payload", connection.recv())
-                if message["kind"] == "failure":
-                    raise BenchmarkSetupError(str(message["error"]))
-                if message["kind"] != kind:
-                    message_text = f"unexpected worker message at {kind}"
-                    raise BenchmarkSetupError(message_text)
-                records.append(message)
-                break
-        self.drain_timeline_chunks()
-        return records
+        return [receive(connection, deadline, kind) for connection in self.connections]
 
     def stop(self) -> None:
-        for control in self.control_connections:
-            if control is not None:
-                try:
-                    control.send({"op": "close"})
-                except BrokenPipeError:
-                    pass
-        for connection in self.connections:
-            try:
-                connection.send("close")
-            except BrokenPipeError:
-                pass
         deadline = time.monotonic() + self.shutdown_seconds
+        for connection in self.connections:
+            connection.send("close")
         stop_workers(tuple(self.processes), max(0.0, deadline - time.monotonic()))
-        self.drain_timeline_chunks()
-        for timeline in self.timeline_connections:
-            if timeline is not None:
-                timeline.close()
         if self.owner_control is not None:
             assert self.owner is not None
             self.owner_control.send("close")
@@ -536,28 +328,10 @@ class ProcessGroup:
         return self
 
     def __exit__(self, *_exc_info: object) -> None:
-        for control in self.control_connections:
-            if control is not None:
-                try:
-                    control.send({"op": "close"})
-                except BrokenPipeError:
-                    pass
-        for connection in self.connections:
-            try:
-                connection.send("close")
-            except BrokenPipeError:
-                pass
+        deadline = time.monotonic() + self.shutdown_seconds
         for connection in self.connections:
             connection.close()
-        for control in self.control_connections:
-            if control is not None:
-                control.close()
-        deadline = time.monotonic() + self.shutdown_seconds
         reclaim_workers(tuple(self.processes), deadline, graceful=True)
-        self.drain_timeline_chunks()
-        for timeline in self.timeline_connections:
-            if timeline is not None:
-                timeline.close()
         if self.owner is not None:
             assert self.owner_control is not None
             if self.owner.is_alive():
@@ -569,13 +343,6 @@ class ProcessGroup:
             reclaim_workers((self.owner,), deadline, graceful=True)
         if self._directory is not None:
             shutil.rmtree(self._directory, ignore_errors=True)
-
-
-def _wait_with_timeline(group: ProcessGroup, deadline: NonNegativeFloat) -> None:
-    while (remaining := deadline - time.monotonic()) > 0:
-        group.drain_timeline_chunks()
-        time.sleep(min(remaining, _OWNER_POLL_SECONDS))
-    group.drain_timeline_chunks()
 
 
 def _assigned_keys(
@@ -615,17 +382,8 @@ def _spec(
     *,
     index: NonNegativeInt,
     attachment: AttachmentConfig | None,
-    timeline_enabled: bool = False,
-    timeline_cadence_seconds: PositiveFloat = 0.25,
-    scheduled_ordinals: tuple[NonNegativeInt, ...] | None = None,
 ) -> WorkerSpec:
     keys = _assigned_keys(registration, workload, index)
-    fault_case = cell.fault_case if isinstance(cell, RecoveryFaultCell) else None
-    topology = (
-        cell.topology
-        if isinstance(cell, (RecoveryFaultCell, CalibrationTopologyCell))
-        else "single-member"
-    )
     return WorkerSpec(
         cell=cell,
         index=index,
@@ -648,17 +406,9 @@ def _spec(
         attachment=attachment,
         outstanding=cast("int", registration.raw["outstanding_per_worker"]),
         drain_seconds=registration.number("drain_seconds"),
-        expected_invalidations=(
-            workload.expected_invalidations
-            if cell.path == "independent" and not isinstance(cell, RecoveryFaultCell)
-            else 0
-        ),
-        controls_enabled=fault_case is not None,
-        timeline_enabled=timeline_enabled
-        or (cell.phase == "fault" and cell.path in BASELINES),
-        timeline_cadence_seconds=timeline_cadence_seconds,
-        scheduled_ordinals=scheduled_ordinals,
-        topology=topology,
+        expected_invalidations=workload.expected_invalidations
+        if cell.path == "independent"
+        else 0,
     )
 
 
@@ -771,88 +521,31 @@ def _process_cpu() -> float:
     return times.user + times.system
 
 
-def _server_cpu_usage(replica: IsolatedReplicaSet | ReplicaSetTopology) -> float:
-    if isinstance(replica, ReplicaSetTopology):
-        return sum(replica.container_cpu_usage_seconds(index) for index in range(3))
-    return replica.container_cpu_usage_seconds()
-
-
-def _server_memory_usage(
-    replica: IsolatedReplicaSet | ReplicaSetTopology,
-) -> NonNegativeInt:
-    if isinstance(replica, ReplicaSetTopology):
-        return sum(replica.container_memory_usage_bytes(index) for index in range(3))
-    return replica.container_memory_usage_bytes()
-
-
-def _client_options(
-    replica: IsolatedReplicaSet | ReplicaSetTopology, options: dict[str, object]
-) -> dict[str, object]:
-    if isinstance(replica, ReplicaSetTopology):
-        options["directConnection"] = False
-    return options
-
-
 def run_window(
-    replica: IsolatedReplicaSet | ReplicaSetTopology,
-    registration: Registration,
-    cell: Cell,
-    *,
-    timeline_enabled: bool = False,
-    timeline_cadence_seconds: PositiveFloat = 0.25,
+    replica: IsolatedReplicaSet, registration: Registration, cell: Cell
 ) -> Payload:
-    if isinstance(cell, RecoveryFaultCell):
-        from benchmarks.stream_cost.shared_cache.fault_recovery import (  # noqa: PLC0415 - Recovery faults use the shared worker lifecycle defined here.
-            run_recovery_fault_window,
-        )
-
-        return run_recovery_fault_window(replica, registration, cell)
     if cell.phase == "fault":
         from benchmarks.stream_cost.shared_cache.faults import run_fault_window  # noqa: PLC0415 - Fault driver reuses window process lifecycle.
 
-        if isinstance(replica, ReplicaSetTopology):
-            raise BenchmarkSetupError(
-                "shared-cache fault windows require a single-member replica set"
-            )
         return run_fault_window(replica, registration, cell)
     database = cast("str", registration.raw["database"])
     collection = cast("str", registration.raw["collection"])
-    client_options = _client_options(
-        replica, dict(registration.section("client_options"))
-    )
+    client_options = registration.section("client_options")
     workload = _workload(registration, cell)
     with ExitStack() as resources:
-        writer_proxy = (
-            None
-            if isinstance(replica, ReplicaSetTopology)
-            else resources.enter_context(proxy_for(replica.uri))
-        )
-        observer_proxy = (
-            None
-            if isinstance(replica, ReplicaSetTopology)
-            else resources.enter_context(proxy_for(replica.uri))
-        )
+        writer_proxy = resources.enter_context(proxy_for(replica.uri))
+        observer_proxy = resources.enter_context(proxy_for(replica.uri))
         writer_listener = WireCommands((collection,))
-        writer_uri = (
-            replica.uri
-            if writer_proxy is None
-            else f"mongodb://127.0.0.1:{writer_proxy.local_port}"
-        )
-        observer_uri = (
-            replica.uri
-            if observer_proxy is None
-            else f"mongodb://127.0.0.1:{observer_proxy.local_port}"
-        )
         writer = resources.enter_context(
             MongoClient[BsonDict](
-                writer_uri,
+                f"mongodb://127.0.0.1:{writer_proxy.local_port}",
                 event_listeners=[writer_listener],
                 **client_options,  # type: ignore[arg-type]
             )
         )
         observer = resources.enter_context(
             MongoClient[BsonDict](
-                observer_uri,
+                f"mongodb://127.0.0.1:{observer_proxy.local_port}",
                 **client_options,  # type: ignore[arg-type]
             )
         )
@@ -892,8 +585,6 @@ def run_window(
                     replica.uri,
                     index=index,
                     attachment=attachment,
-                    timeline_enabled=timeline_enabled,
-                    timeline_cadence_seconds=timeline_cadence_seconds,
                 )
             )
         ready = group.collect("ready", startup_deadline)
@@ -905,18 +596,14 @@ def run_window(
         for connection in group.connections:
             connection.send(start)
         window_start = start + cell.warmup_seconds
-        window_end = window_start + cell.window_seconds
-        _wait_with_timeline(group, window_start - 0.05)
+        window_end = window_start + cell.window_seconds  # pytriage: TR11 (schedule)
+        _wait(window_start - 0.05)
         harness_before = _process_cpu()  # pytriage: TR11 (metric boundary)
         # Sample at the measurement window start.
-        server_before = _server_cpu_usage(replica)  # pytriage: TR11
+        server_before = replica.container_cpu_usage_seconds()  # pytriage: TR11
         commands_before = writer_listener.snapshot()  # pytriage: TR11 (metric boundary)
-        writer_sent = (  # pytriage: TR11 (metric boundary)
-            0 if writer_proxy is None else writer_proxy.bytes_sent
-        )
-        writer_received = (  # pytriage: TR11 (metric boundary)
-            0 if writer_proxy is None else writer_proxy.bytes_received
-        )
+        writer_sent = writer_proxy.bytes_sent  # pytriage: TR11 (metric boundary)
+        writer_received = writer_proxy.bytes_received  # pytriage: TR11 (window start)
         owner_before = (
             group.owner_request({"op": "sample"}, window_end)
             if group.owner_control is not None
@@ -935,7 +622,7 @@ def run_window(
         ):
             for offset, target in workload.writes:
                 due = window_start + offset
-                _wait_with_timeline(group, due)
+                _wait(due)
                 issued = time.monotonic()
                 if cell.loop == "open" and issued - due > registration.number(
                     "schedule_tolerance_seconds"
@@ -946,15 +633,15 @@ def run_window(
                 pending.append(
                     writes.submit(_timed_write, writer[database][collection], target)
                 )
-            _wait_with_timeline(group, window_end)
+            _wait(window_end)
         try:
             write_seconds = [future.result() for future in pending]
         except PyMongoError as error:
             raise BenchmarkSetupError("harness MongoDB write failed") from error
         if owner_before is not None and profiling_enabled():
             group.owner_request({"op": "profile-stop"}, window_end + 5)
-        server_end = _server_cpu_usage(replica)
-        server_memory = _server_memory_usage(replica)
+        server_end = replica.container_cpu_usage_seconds()
+        server_memory = replica.container_memory_usage_bytes()
         drain_deadline = (
             window_end + registration.number("drain_seconds") + _CONTROL_GRACE_SECONDS
         )
@@ -972,36 +659,25 @@ def run_window(
             if owner_end is not None
             else None
         )
+        server_drained = replica.container_cpu_usage_seconds()
+        harness_after = _process_cpu()
         calibration = CalibrationSeries(sampler.stop())
         _check_clock(registration, cell, calibration)
-        timelines: list[Payload] | None = None
-        if timeline_enabled:
-            timelines = []
-            for index in range(cell.workers):
-                events, snapshots = merge_chunks(group.received_timeline(index))
-                timelines.append(
-                    {"index": index, "events": events, "snapshots": snapshots}
-                )
-        server_drain_cpu_seconds = _server_cpu_usage(replica) - server_end
-        harness_cpu_seconds = _process_cpu() - harness_before
+        group.stop()
         record: Payload = {
             **asdict(cell),
             "healthy": True,
             "dataset": dataset,
             "ready": ready,
             "server_cpu_seconds": server_end - server_before,
-            "server_drain_cpu_seconds": server_drain_cpu_seconds,
+            "server_drain_cpu_seconds": server_drained - server_end,
             "server_memory_bytes": server_memory,
             "server_memory_scope": SERVER_MEMORY_SCOPE,
-            "harness_cpu_seconds": harness_cpu_seconds,
+            "harness_cpu_seconds": harness_after - harness_before,
             "harness_includes": HARNESS_INCLUDES,
             "writer": {
-                "sent": None
-                if writer_proxy is None
-                else writer_proxy.bytes_sent - writer_sent,
-                "received": None
-                if writer_proxy is None
-                else writer_proxy.bytes_received - writer_received,
+                "sent": writer_proxy.bytes_sent - writer_sent,
+                "received": writer_proxy.bytes_received - writer_received,
                 "commands": command_delta(commands_before, writer_listener.snapshot()),
                 "offsets": write_offsets,
                 "max_lateness_seconds": write_lateness,
@@ -1029,7 +705,4 @@ def run_window(
             assert owner_end is not None
             assert owner_drained is not None
             record["owner"] = _owner_record(owner_before, owner_end, owner_drained)
-        if timelines is not None:
-            record["fault_timeline"] = timelines
-        group.stop()
         return record

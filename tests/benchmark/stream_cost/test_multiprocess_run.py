@@ -7,20 +7,13 @@ import signal
 import time
 from contextlib import nullcontext
 from dataclasses import replace
-from datetime import timedelta
 from functools import partial
 from typing import TYPE_CHECKING, cast
 from unittest.mock import AsyncMock, Mock
 
 import psutil
 import pytest
-from bson import Timestamp
 from pymongo.errors import ConnectionFailure
-from pymongo.monitoring import (
-    CommandFailedEvent,
-    CommandStartedEvent,
-    CommandSucceededEvent,
-)
 
 from benchmarks.stream_cost import multiprocess_run
 from benchmarks.stream_cost.errors import BenchmarkSetupError
@@ -80,123 +73,6 @@ def _advance_clock(
     clock: Mock, lateness: NonNegativeFloat, delay: NonNegativeFloat
 ) -> None:
     clock.monotonic.return_value += delay + lateness
-
-
-def test_stream_openings_include_successful_resumes_but_not_failed_aggregates() -> None:
-    connection = ("localhost", 27017)
-    listener = multiprocess_run.WireCommands(())
-    initial_command = {
-        "aggregate": "collection",
-        "pipeline": [{"$changeStream": {}}],
-        "cursor": {},
-    }
-    resumed_command = {
-        "aggregate": "collection",
-        "pipeline": [{"$changeStream": {"resumeAfter": {"token": 1}}}],
-        "cursor": {},
-    }
-
-    for request_id, command in ((1, initial_command), (2, resumed_command)):
-        listener.started(
-            CommandStartedEvent(command, "database", request_id, connection, None)
-        )
-        listener.succeeded(
-            CommandSucceededEvent(
-                timedelta(milliseconds=1),
-                {
-                    "operationTime": Timestamp(request_id, 1),
-                    "cursor": {"firstBatch": []},
-                },
-                "aggregate",
-                request_id,
-                connection,
-                None,
-            )
-        )
-
-    listener.started(
-        CommandStartedEvent(resumed_command, "database", 3, connection, None)
-    )
-    listener.failed(
-        CommandFailedEvent(
-            timedelta(milliseconds=1), {}, "aggregate", 3, connection, None
-        )
-    )
-
-    assert listener.stream_openings() == 2
-    assert listener.stream_operation_times() == ((1, 1),)
-
-
-def test_command_failures_keep_server_error_labels() -> None:
-    listener = multiprocess_run.WireCommands(())
-
-    listener.failed(
-        CommandFailedEvent(
-            timedelta(milliseconds=1),
-            {
-                "errtype": "AutoReconnect",
-                "errorLabels": ["ResumableChangeStreamError"],
-            },
-            "getMore",
-            1,
-            ("localhost", 27017),
-            None,
-        )
-    )
-
-    assert listener.failures() == {
-        "getMore:None:None:AutoReconnect:ResumableChangeStreamError": 1
-    }
-
-
-def test_stream_aggregate_without_operation_time_is_not_a_new_lifetime() -> None:
-    connection = ("localhost", 27017)
-    listener = multiprocess_run.WireCommands(())
-    command = {
-        "aggregate": "collection",
-        "pipeline": [{"$changeStream": {}}],
-        "cursor": {},
-    }
-    listener.started(CommandStartedEvent(command, "database", 1, connection, None))
-    listener.succeeded(
-        CommandSucceededEvent(
-            timedelta(milliseconds=1),
-            {"cursor": {"firstBatch": []}},
-            "aggregate",
-            1,
-            connection,
-            None,
-        )
-    )
-    listener.succeeded(
-        CommandSucceededEvent(
-            timedelta(milliseconds=1),
-            {"cursor": {"firstBatch": []}},
-            "aggregate",
-            2,
-            connection,
-            None,
-        )
-    )
-
-    assert listener.stream_openings() == 1
-    assert listener.stream_operation_times() == ()
-
-
-def test_command_failures_accept_non_document_errors() -> None:
-    listener = multiprocess_run.WireCommands(())
-    listener.failed(
-        CommandFailedEvent(
-            timedelta(milliseconds=1),
-            ConnectionFailure("connection closed"),  # type: ignore[arg-type]
-            "getMore",
-            1,
-            ("localhost", 27017),
-            None,
-        )
-    )
-
-    assert listener.failures() == {"getMore:ConnectionFailure": 1}
 
 
 @pytest.fixture

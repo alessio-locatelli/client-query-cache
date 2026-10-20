@@ -364,13 +364,10 @@ class IsolatedReplicaSet:
 
 
 class ReplicaSetTopology:
-    __slots__ = ("_containers", "_limits", "_member_ports", "_uri")
+    __slots__ = ("_containers", "_member_ports", "_uri")
 
     def __init__(self) -> None:
         self._containers: tuple[DockerContainer, ...] = ()
-        self._limits = ResourceLimits(
-            cpus=_REPLICA_SET_CPUS, memory=_REPLICA_SET_MEMORY
-        )
         self._member_ports: tuple[PositiveInt, ...] = ()
         self._uri: str | None = None
 
@@ -399,8 +396,8 @@ class ReplicaSetTopology:
                 # Each member is charged the same declared CPU and memory limit.
                 container.with_kwargs(
                     network_mode="host",
-                    nano_cpus=int(self._limits.cpus * _NANOCPUS_PER_CPU),
-                    mem_limit=self._limits.memory,
+                    nano_cpus=int(_REPLICA_SET_CPUS * _NANOCPUS_PER_CPU),
+                    mem_limit=_REPLICA_SET_MEMORY,
                 )
                 container.start()
         except DockerException as error:
@@ -446,75 +443,46 @@ class ReplicaSetTopology:
             raise BenchmarkSetupError(message)
         return self._uri
 
-    @property
-    def member_containers(self) -> tuple[DockerContainer, ...]:
-        if len(self._containers) != _REPLICA_SET_MEMBER_COUNT:
-            message = "ReplicaSetTopology has not been started"
-            raise BenchmarkSetupError(message)
-        return self._containers
-
-    @property
-    def member_ports(self) -> tuple[PositiveInt, ...]:
-        if len(self._member_ports) != _REPLICA_SET_MEMBER_COUNT:
-            message = "ReplicaSetTopology has not been started"
-            raise BenchmarkSetupError(message)
-        return self._member_ports
-
-    def container_cpu_usage_seconds(
-        self, member_index: NonNegativeInt
-    ) -> NonNegativeFloat:
-        try:
-            stats = self._container_stats(member_index)
-            usage_nanoseconds = _parse_cpu_usage_nanoseconds(stats)
-        except DockerException as error:
-            raise _cpu_usage_unreadable(error) from None
-        except KeyError as error:
-            raise _cpu_usage_unreadable(error) from None
-        except TypeError as error:
-            raise _cpu_usage_unreadable(error) from None
-        except ValueError as error:
-            raise _cpu_usage_unreadable(error) from None
-        except OverflowError as error:
-            raise _cpu_usage_unreadable(error) from None
-        return usage_nanoseconds / _NANOSECONDS_PER_SECOND
-
-    def container_memory_usage_bytes(
-        self, member_index: NonNegativeInt
-    ) -> NonNegativeInt:
-        try:
-            stats = cast(
-                "dict[str, NonNegativeInt]",
-                cast("JsonDict", self._container_stats(member_index))["memory_stats"],
-            )
-        except DockerException as error:
-            message = f"Could not read MongoDB container memory usage: {error}"
-            raise BenchmarkSetupError(message) from None
-        return int(stats["usage"])
-
     def primary_identity(self) -> NonEmptyStr:
         with MongoClient[BsonDict](self.uri, serverSelectionTimeoutMS=1_000) as client:
             hello = client.admin.command("hello")
-        return cast("NonEmptyStr", hello["primary"])
+        return cast("NonEmptyStr", hello["me"])
 
-    def step_down_primary(self) -> NonNegativeFloat:
+    def await_writable_primary(self) -> NonEmptyStr:
+        deadline = monotonic() + _ELECTION_TIMEOUT_SECONDS
+        with MongoClient[BsonDict](self.uri, serverSelectionTimeoutMS=1_000) as client:
+            while monotonic() < deadline:
+                try:
+                    hello = client.admin.command("hello")
+                    if hello["isWritablePrimary"]:
+                        return cast("NonEmptyStr", hello["me"])
+                except PyMongoError:
+                    pass
+                sleep(_ELECTION_POLL_INTERVAL_SECONDS)
+        message = (
+            f"MongoDB did not elect a writable primary within "
+            f"{_ELECTION_TIMEOUT_SECONDS:.0f} seconds."
+        )
+        raise BenchmarkSetupError(message)
+
+    def step_down_primary(self) -> NonEmptyStr:
         primary_identity = self.primary_identity()
         with MongoClient[BsonDict](
             f"mongodb://{primary_identity}/?directConnection=true",
             serverSelectionTimeoutMS=1_000,
         ) as client:
-            stepdown_started = monotonic()
             try:
                 client.admin.command("replSetStepDown", 60)
             except AutoReconnect:
                 # A successful stepdown closes the primary connection during election.
                 pass
-        return stepdown_started
+        return primary_identity
 
     def _await_writable_primary(self) -> None:
-        for port in self.member_ports:
+        for port in self._member_ports:
             _await_member_reachable(port)
 
-        first_port = self.member_ports[0]
+        first_port = self._member_ports[0]
         with MongoClient[BsonDict](
             f"mongodb://127.0.0.1:{first_port}/?directConnection=true",
             serverSelectionTimeoutMS=1_000,
@@ -525,40 +493,12 @@ class ReplicaSetTopology:
                     "_id": _REPLICA_SET_NAME,
                     "members": [
                         {"_id": member_index, "host": f"127.0.0.1:{port}"}
-                        for member_index, port in enumerate(self.member_ports)
+                        for member_index, port in enumerate(self._member_ports)
                     ],
                 },
             )
 
-        deadline = monotonic() + _ELECTION_TIMEOUT_SECONDS
-        with MongoClient[BsonDict](self.uri, serverSelectionTimeoutMS=1_000) as client:
-            while monotonic() < deadline:
-                try:
-                    hello = client.admin.command("hello")
-                    if hello["isWritablePrimary"]:
-                        return
-                except PyMongoError:
-                    pass
-                sleep(_ELECTION_POLL_INTERVAL_SECONDS)
-        message = (
-            f"MongoDB did not elect a writable primary within "
-            f"{_ELECTION_TIMEOUT_SECONDS:.0f} seconds."
-        )
-        raise BenchmarkSetupError(message)
-
-    def _container_stats(self, member_index: NonNegativeInt) -> object:
-        if member_index >= len(self._containers):
-            message = f"MongoDB member index {member_index} is not available"
-            raise BenchmarkSetupError(message)
-        wrapped = self._containers[member_index].get_wrapped_container()
-        attempts = _STATS_ATTEMPTS
-        while True:
-            try:
-                return wrapped.stats(stream=False, one_shot=True)
-            except RequestsConnectionError as error:
-                attempts -= 1
-                if not attempts:
-                    raise DockerException(str(error)) from error
+        self.await_writable_primary()
 
     def _clear(self) -> None:
         self._containers = ()
@@ -575,7 +515,9 @@ def _available_loopback_ports() -> tuple[PositiveInt, ...]:
             listeners.append(listener)
             listener.bind(("127.0.0.1", 0))
             port = listener.getsockname()[1]
-            if port <= 0:
+            if (
+                port <= 0
+            ):  # pragma: lax no cover (the OS allocates a positive ephemeral port).
                 message = f"The OS allocated an invalid MongoDB member port: {port}"
                 raise BenchmarkSetupError(message)
             ports.append(cast("PositiveInt", port))

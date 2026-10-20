@@ -2,15 +2,28 @@
 
 ## Why
 
-The steady-state evidence from `benchmark-concurrent-worker-workload` doesn't show how worker groups behave while a dependency fails. The [concurrency stress tests](../../../docs/development/concurrency-stress-tests.md) check that a single manager stays correct when its stream disconnects or loses its resume history, but they set no timing and don't cover several worker processes. The [timed shared-cache fault trials](../../../docs/development/research/shared-worker-cache-feasibility.md#timed-fault-trials-version-6) cover shared-cache safety and readiness under a scripted workload, rather than direct and independent workers under the registered steady-state load. Without timed evidence for real failures, operators can't tell how long cached and direct workers take to recover, what bypasses they record meanwhile, or whether invalidation resumes afterwards.
+Current stress tests cover stream recovery within a manager, but do not verify
+that separate direct and cached worker processes continue to read correct data
+through MongoDB failover, TCP loss, stream-history loss or process replacement.
+This change provides real container-backed regression coverage for those
+behaviors.
+
+The quantitative study remains unfinished. Its V8 observer-overhead result and
+stop rule are recorded in
+[`reports/worker-fault-recovery/research-outcome.md`](../../../reports/worker-fault-recovery/research-outcome.md).
 
 ## What Changes
 
-- Add a disposable three-member replica set to the benchmark topologies, so that primary failover produces a real election.
-- Run preregistered, timed fault trials against direct and independent worker groups under the registered steady-state workload. The trials cover connection loss, primary stepdown, unavailable resume history, and killing and replacing a worker. Cases, timing and the recovery criterion are in [design.md](design.md#fault-registration).
-- Report fault outcomes for each case, separately from steady-state throughput and latency, and add them to the concurrent worker research report and the public recovery guidance.
+- Add a disposable three-member replica-set topology and a small test-only
+  process-control harness.
+- Add multi-process integration coverage for primary stepdown, TCP connection
+  loss, stream-history loss and worker kill/replacement, preserving the direct
+  and independent-cache distinctions where applicable.
+- Keep the quantitative recovery study pending in this OpenSpec change; this PR
+  makes no recovery-time or performance claims.
 
-This change depends on the harness generalization, the registration layout and the `multi-worker-benchmarking` capability that `benchmark-concurrent-worker-workload` introduces. That prerequisite is satisfied by the archived `2026-10-11-benchmark-concurrent-worker-workload` change.
+The change depends on the archived
+`2026-10-11-benchmark-concurrent-worker-workload` capability.
 
 ## Capabilities
 
@@ -20,18 +33,14 @@ None.
 
 ### Modified Capabilities
 
-- `multi-worker-benchmarking`: Adds requirements for timed fault trials and their reporting.
+- `multi-worker-benchmarking`: Defines real multi-process fault-recovery
+  regression coverage.
 
 ## Impact
 
-- Code:
-  - `benchmarks/stream_cost/topology.py` gains a three-member replica set.
-  - `benchmarks/stream_cost/shared_cache/` gains a fault phase, worker-side injection controls and per-request timelines.
-  - Independent workers gain a one-shot history-loss injection without making library code depend on benchmark modules.
-  - Tests are added under `tests/benchmark/stream_cost/`.
-- Registration: versioned configs and outcome records under `reports/worker-fault-recovery/`.
-- Docs:
-  - a fault section in `docs/development/research/concurrent-worker-workload.md`;
-  - recovery figures in `docs/user/operations/deployment.md` or `docs/user/operations/monitoring.md`, where they refine existing guidance;
-  - `context7.json` rules if that guidance changes.
-- The library's public interfaces don't change.
+- Code and tests: `benchmarks/stream_cost/topology.py` and
+  `tests/benchmark/stream_cost/`.
+- Research history: the concise V1–V8 outcome is retained at
+  `reports/worker-fault-recovery/research-outcome.md`.
+- The library's public interfaces and user-facing performance guidance do not
+  change.

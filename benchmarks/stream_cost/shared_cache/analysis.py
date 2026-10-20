@@ -8,7 +8,6 @@ from collections import Counter
 from dataclasses import asdict, dataclass
 from functools import partial
 from pathlib import Path
-from statistics import median
 from typing import TYPE_CHECKING, Literal, cast
 
 from benchmarks.stream_cost.bootstrap import ConfidenceInterval
@@ -16,24 +15,14 @@ from benchmarks.stream_cost.errors import (
     BenchmarkConfigurationError,
     BenchmarkSetupError,
 )
-from benchmarks.stream_cost.shared_cache.fault_timeline import (
-    classify_requests,
-    detect_recovery,
-    stream_reopening_counts,
-    timeline_generations,
-    validate_request_counts,
-)
 from benchmarks.stream_cost.shared_cache.protocol import (
     BASELINES,
     FaultCell,
-    RecoveryFaultCell,
     Registration,
     capacity_cells,
     comparison_cells,
     fault_applicability,
     fault_cells,
-    fault_recovery_cells,
-    is_worker_fault_registration,
     measurement_environment,
     phase_blocks,
     throughput,
@@ -41,7 +30,6 @@ from benchmarks.stream_cost.shared_cache.protocol import (
 )
 from client_query_cache._types import (
     JsonDict,
-    NonNegativeFloat,
     NonNegativeInt,
     PositiveFloat,
     PositiveInt,
@@ -907,369 +895,6 @@ def _fault_repetition(
     }
 
 
-def _reconstruct_worker_fault(
-    record: JsonDict, cell: RecoveryFaultCell, registration: Registration
-) -> tuple[list[JsonDict], JsonDict]:
-    request_record = cast("JsonDict", record["requests"])
-    timelines = cast("list[JsonDict]", request_record["timeline"])
-    requests: list[JsonDict] = []
-    rate = cast("PositiveFloat", cell.rate)
-    offered = round(rate * cell.window_seconds)
-    for timeline in timelines:
-        events = cast("list[JsonDict]", timeline["events"])
-        ordinals = cast("list[NonNegativeInt]", timeline["scheduled_ordinals"])
-        killed_at = cast("float | None", timeline["killed_at"])
-        requests.extend(
-            classify_requests(
-                ordinals,
-                events,
-                rate=rate,
-                killed_at=killed_at,
-            )
-        )
-    counts = validate_request_counts(requests, offered)
-    if counts != request_record["counts"]:
-        raise BenchmarkSetupError("reported fault request counts differ from timeline")
-    replacement_ready_offset = cast(
-        "float | None",
-        cast("JsonDict", record["worker_details"])["replacement_ready_offset"],
-    )
-    injection = cast(
-        "float", cast("JsonDict", record["injection"])["actual_offset_seconds"]
-    )
-    criterion = registration.recovery_criterion()
-    recovery = detect_recovery(
-        requests,
-        injection_offset=injection,
-        deadline=injection + cell.recovery_deadline_seconds,
-        window_end=cell.window_seconds,
-        before_seconds=cast(
-            "PositiveFloat",
-            registration.section("fault_recovery")["before_interval_seconds"],
-        ),
-        replacement_ready_offset=replacement_ready_offset,
-        bucket_seconds=criterion.bucket_seconds,
-        minimum_completion_fraction=criterion.minimum_completion_fraction,
-        request_p99_multiple=criterion.request_p99_multiple,
-        backlog_grace_p99_multiple=criterion.backlog_grace_p99_multiple,
-    )
-    reported_recovery = cast("JsonDict", record["recovery"])
-    if (
-        recovery["recovered"] != reported_recovery["recovered"]
-        or recovery["recovery_offset"] != reported_recovery["recovery_offset"]
-    ):
-        raise BenchmarkSetupError("reported fault recovery differs from its timeline")
-    return requests, recovery
-
-
-def _fault_snapshots(
-    record: JsonDict,
-    *,
-    injection: NonNegativeFloat,
-    fault_interval_end: NonNegativeFloat,
-    window_end: NonNegativeFloat,
-) -> JsonDict:
-    worker_record = cast("JsonDict", record["worker_details"])
-    timelines = cast("list[JsonDict]", cast("JsonDict", record["requests"])["timeline"])
-    bypasses: Counter[str] = Counter()
-    health_times: list[NonNegativeFloat] = []
-    hit_times: list[NonNegativeFloat] = []
-    stream_reopenings = stream_reopening_counts(
-        timelines,
-        injection_offset=injection,
-        window_end=window_end,
-    )
-    replacement_misses: NonNegativeInt | None = None
-    for timeline in timelines:
-        snapshots = cast("list[JsonDict]", timeline["snapshots"])
-        generations = timeline_generations(snapshots)
-        ordered = sorted(
-            snapshots, key=lambda snapshot: cast("float", snapshot["offset"])
-        )
-        if not ordered:
-            raise BenchmarkSetupError("fault worker timeline has no snapshots")
-        through_window = [
-            sample
-            for sample in ordered
-            if injection <= cast("float", sample["offset"]) <= window_end
-        ]
-        for generation in generations:
-            generation_before = [
-                sample
-                for sample in generation
-                if cast("float", sample["offset"]) <= injection
-            ]
-            generation_fault = [
-                sample
-                for sample in generation
-                if injection <= cast("float", sample["offset"]) <= fault_interval_end
-            ]
-            if generation_fault:
-                initial_reasons = (
-                    cast("dict[str, int]", generation_before[-1]["bypass_reasons"])
-                    if generation_before
-                    else {}
-                )
-                final_reasons = cast(
-                    "dict[str, int]", generation_fault[-1]["bypass_reasons"]
-                )
-                for reason, count in final_reasons.items():
-                    try:
-                        previous = initial_reasons[reason]
-                    except KeyError:
-                        previous = 0
-                    if count > previous:
-                        bypasses[reason] += count - previous
-            initial_hits = (
-                cast("int", generation_before[-1]["hits"]) if generation_before else 0
-            )
-            generation_window = [
-                sample
-                for sample in generation
-                if injection <= cast("float", sample["offset"]) <= window_end
-            ]
-            for sample in generation_window:
-                if cast("int", sample["hits"]) > initial_hits:
-                    hit_times.append(cast("float", sample["offset"]) - injection)
-                    break
-        observed_unhealthy = False
-        killed_at = cast("float | None", timeline["killed_at"])
-        for sample in through_window:
-            offset = cast("float", sample["offset"])
-            if killed_at is not None and offset >= killed_at:
-                observed_unhealthy = True
-            health = sample["health"]
-            if health is not None and health != "healthy":
-                observed_unhealthy = True
-            elif health == "healthy" and observed_unhealthy:
-                health_times.append(offset - injection)
-                break
-        ready_value = timeline["replacement_ready_offset"]
-        if ready_value is None:
-            continue
-        ready_offset = cast("float", ready_value)
-        replacement_generation = generations[-1]
-        replacement_snapshots = [
-            sample
-            for sample in replacement_generation
-            if cast("float", sample["offset"]) <= window_end
-        ]
-        ready_samples = [
-            sample
-            for sample in replacement_generation
-            if cast("float", sample["offset"]) <= ready_offset
-        ]
-        replacement_ready = cast("JsonDict", worker_record["replacement_ready"])
-        priming_misses = cast("int", replacement_ready["priming_misses"])
-        replacement_misses = priming_misses
-        if replacement_snapshots:
-            ready_misses = (
-                cast("int", ready_samples[-1]["misses"])
-                if ready_samples
-                else priming_misses
-            )
-            replacement_misses += max(
-                0,
-                cast("int", replacement_snapshots[-1]["misses"]) - ready_misses,
-            )
-    return {
-        "bypasses_by_reason": dict(sorted(bypasses.items())),
-        "time_to_stream_health_seconds": min(health_times) if health_times else None,
-        "time_to_cache_hit_seconds": min(hit_times) if hit_times else None,
-        "stream_reopenings": sum(stream_reopenings),
-        "stream_reopenings_by_worker": stream_reopenings,
-        "replacement_repriming_misses": replacement_misses,
-    }
-
-
-def _fault_range(values: list[float]) -> JsonDict | None:
-    if not values:
-        return None
-    return {"median": median(values), "min": min(values), "max": max(values)}
-
-
-def _fault_repetition_passed(repetition: JsonDict) -> bool:
-    if repetition["healthy"] is not True:
-        return False
-    try:
-        recovery = cast("JsonDict", repetition["recovery"])
-        correctness = cast("JsonDict", repetition["correctness"])
-    except KeyError:
-        return False
-    return recovery["recovered"] is True and correctness["passed"] is True
-
-
-def analyze_worker_faults(
-    records: list[JsonDict], registration: Registration
-) -> JsonDict:
-    expected = {
-        (cell.fault_case, cell.path, cell.block): cell
-        for cell in fault_recovery_cells(registration)
-        if isinstance(cell, RecoveryFaultCell)
-    }
-    measured: dict[tuple[str, str, NonNegativeInt], JsonDict] = {}
-    for record in records:
-        key = (
-            str(record["fault_case"]),
-            str(record["path"]),
-            cast("int", record["block"]),
-        )
-        if key in measured or key not in expected:
-            message = f"duplicate or unregistered worker fault trial {key}"
-            raise BenchmarkSetupError(message)
-        cell = expected[key]
-        mismatches = [
-            field for field, value in asdict(cell).items() if record[field] != value
-        ]
-        if mismatches:
-            message = (
-                f"worker fault trial differs from registration {key}: {mismatches}"
-            )
-            raise BenchmarkSetupError(message)
-        measured[key] = record
-
-    cases: list[JsonDict] = []
-    groups = dict.fromkeys((case, path) for case, path, _block in sorted(expected))
-    for case, path in groups:
-        case_cell = next(
-            cell for key, cell in expected.items() if key[:2] == (case, path)
-        )
-        repetitions: list[JsonDict] = []
-        for key in sorted(key for key in expected if key[:2] == (case, path)):
-            cell = expected[key]
-            try:
-                measured_record: JsonDict | None = measured[key]
-            except KeyError:
-                measured_record = None
-            if measured_record is None:
-                repetitions.append(
-                    {"block": key[2], "healthy": False, "failure": "missing trial"}
-                )
-                continue
-            if not measured_record["healthy"]:
-                repetitions.append(
-                    {
-                        "block": key[2],
-                        "healthy": False,
-                        "failure": measured_record["failure"],
-                    }
-                )
-                continue
-            requests, recovery = _reconstruct_worker_fault(
-                measured_record, cell, registration
-            )
-            injection = cast(
-                "float",
-                cast("JsonDict", measured_record["injection"])["actual_offset_seconds"],
-            )
-            recovery_offset = cast("float | None", recovery["recovery_offset"])
-            observation_end = (
-                recovery_offset if recovery_offset is not None else cell.window_seconds
-            )
-            timeline_metrics = _fault_snapshots(
-                measured_record,
-                injection=injection,
-                fault_interval_end=observation_end,
-                window_end=cell.window_seconds,
-            )
-            request_data = cast("JsonDict", measured_record["requests"])
-            counts = cast("JsonDict", request_data["counts"])
-            correctness = cast("JsonDict", measured_record["correctness"])
-            replacement_ready = cast(
-                "float | None",
-                cast("JsonDict", measured_record["worker_details"])[
-                    "replacement_ready_offset"
-                ],
-            )
-            replacement_ready_seconds = (
-                None if replacement_ready is None else replacement_ready - injection
-            )
-            latencies = cast("JsonDict", request_data["latencies"])
-            row: JsonDict = {
-                "block": key[2],
-                "healthy": True,
-                "outcome": measured_record["outcome"],
-                "injection_offset_seconds": injection,
-                "recovery": recovery,
-                "request_counts": counts,
-                "failed_reads": counts["failed"],
-                "latencies": latencies,
-                **timeline_metrics,
-                "replacement_ready_seconds": replacement_ready_seconds,
-                "correctness": correctness,
-                "write_failures": cast("JsonDict", measured_record["writes"])["failed"],
-                "unknown_writes": cast("JsonDict", measured_record["writes"])[
-                    "unknown"
-                ],
-                "command_failures": measured_record["command_failures"],
-                "worker_cpu_seconds": measured_record["worker_cpu_seconds"],
-                "server_cpu_seconds": measured_record["server_cpu_seconds"],
-                "requests_classified": len(requests),
-            }
-            repetitions.append(row)
-        recovery_measure_names: list[str] = []
-        if path == "independent":
-            recovery_measure_names.extend(
-                ("time_to_stream_health_seconds", "time_to_cache_hit_seconds")
-            )
-        if case == "worker-restart":
-            recovery_measure_names.append("replacement_ready_seconds")
-        measures: dict[str, list[float]] = {name: [] for name in recovery_measure_names}
-        for repetition in repetitions:
-            if not repetition["healthy"]:
-                continue
-            recovery = cast("JsonDict", repetition["recovery"])
-            if recovery["recovered"]:
-                measures.setdefault("time_to_recovery_seconds", []).append(
-                    cast("float", recovery["time_to_recovery_seconds"])
-                )
-            for name in (
-                "failed_reads",
-                "worker_cpu_seconds",
-                "server_cpu_seconds",
-                "stream_reopenings",
-                "replacement_repriming_misses",
-                "write_failures",
-                "unknown_writes",
-            ):
-                value = cast("float", repetition[name])
-                measures.setdefault(name, []).append(value)
-            for name in recovery_measure_names:
-                measure_value = repetition[name]
-                if measure_value is not None:
-                    measures[name].append(cast("float", measure_value))
-            for interval, distribution in cast(
-                "JsonDict", repetition["latencies"]
-            ).items():
-                if distribution is None:
-                    continue
-                for percentile_name, percentile_value in cast(
-                    "JsonDict", distribution
-                ).items():
-                    measures.setdefault(
-                        f"{interval}_{percentile_name}_seconds", []
-                    ).append(cast("float", percentile_value))
-        cases.append(
-            {
-                "case": case,
-                "path": path,
-                "topology": case_cell.topology,
-                "repetitions": repetitions,
-                "median_and_range": {
-                    name: _fault_range(values)
-                    for name, values in sorted(measures.items())
-                },
-                "pass": all(_fault_repetition_passed(row) for row in repetitions),
-            }
-        )
-    return {
-        "phase": "fault",
-        "complete": len(measured) == len(expected),
-        "pass": len(measured) == len(expected) and all(case["pass"] for case in cases),
-        "cases": cases,
-    }
-
-
 def analyze_faults(records: list[JsonDict], registration: Registration) -> JsonDict:
     declarations = fault_applicability(registration)
     expected = {
@@ -1343,9 +968,7 @@ def main(argv: list[str] | None = None) -> None:
         parser.error("--blocks is required outside the fault phase")
     records = load_records(arguments.reports, registration, arguments.phase)
     output: JsonDict = (
-        analyze_worker_faults(records, registration)
-        if arguments.phase == "fault" and is_worker_fault_registration(registration)
-        else analyze_faults(records, registration)
+        analyze_faults(records, registration)
         if arguments.phase == "fault"
         else {"descriptive": descriptive(records)}
         if arguments.describe
