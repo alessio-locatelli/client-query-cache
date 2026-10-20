@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import errno
 import os
 import signal
 import socket
@@ -838,14 +839,29 @@ def capacity_reads(
     reads.close()
 
 
+@pytest.mark.parametrize(
+    "pre_accept_refusal", [False, True], ids=("owner", "pre-accept-eagain")
+)
 def test_recovery_at_owner_connection_capacity_preserves_native_reads(
     capacity_reads: tuple[Owner, _SharedReads],
+    monkeypatch: pytest.MonkeyPatch,
+    pre_accept_refusal: bool,
 ) -> None:
     owner, reads = capacity_reads
     endpoint = reads.manager.endpoint
+    if pre_accept_refusal:
+        # Simulate EAGAIN from a full listener backlog before owner acceptance.
+        refusal = BlockingIOError(errno.EAGAIN, "attachment backlog is full")
+        if isinstance(endpoint, SyncEndpoint):
+            monkeypatch.setattr(SyncEndpoint, "_handshake", Mock(side_effect=refusal))
+        else:
+            monkeypatch.setattr(
+                asyncio, "open_unix_connection", AsyncMock(side_effect=refusal)
+            )
     endpoint.admission_recovery.dropped()
     assert endpoint.admission_recovery.enqueued(endpoint.admission_recovery.generation)
     rejected = owner.counters()["connections_rejected"]
+    failures_before = endpoint.counters.failures
 
     documents = reads.find_concurrently(0, _CONCURRENT_READS)
     assert all(document is not None and document["_id"] == 0 for document in documents)
@@ -853,8 +869,12 @@ def test_recovery_at_owner_connection_capacity_preserves_native_reads(
     observation = owner.observation()
     assert observation["connections"] == 2
     refusals = observation["counters"]["connections_rejected"] - rejected
-    assert 1 <= refusals <= _CONCURRENT_READS
-    assert endpoint.counters.failures == refusals
+    failures = endpoint.counters.failures
+    assert 1 <= failures - failures_before <= _CONCURRENT_READS
+    # A full Unix socket backlog can reject connect() before the owner accepts it.
+    assert 0 <= refusals <= failures - failures_before
+    if pre_accept_refusal:
+        assert refusals == 0
     assert not endpoint.connected
     assert observation["captures"] == 0
     time.sleep(_PAST_REATTACH_BACKOFF_SECONDS)
@@ -864,7 +884,7 @@ def test_recovery_at_owner_connection_capacity_preserves_native_reads(
     assert reads.find_one(1) is not None
     _admitted(owner, admitted + 1)
     assert reads.find_one(1) is not None
-    assert endpoint.counters.failures == refusals
+    assert endpoint.counters.failures == failures
     assert owner.observation()["connections"] == 2
     assert reads.manager.observation.hits == hits + 1
     assert not reads.detached
