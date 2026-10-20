@@ -81,3 +81,11 @@ just pytest -- -n 0 tests/benchmark/real_server/test_cache_benefit.py
 
 That benchmark remains part of ordinary full-suite selection when configured, where it competes
 with other workers. Full-suite timings are not isolated evidence of the library's performance.
+
+## CI host compatibility
+
+MongoDB 9.0.4 includes the Ubuntu kernel startup fix tracked in
+[SERVER-131779](https://jira.mongodb.org/browse/SERVER-131779). The minimum-server
+job uses Ubuntu 22.04 because its pinned MongoDB release lacks that fix and can
+refuse startup on newer Ubuntu kernels. See the upstream
+[kernel compatibility matrix](https://jira.mongodb.org/browse/SERVER-125742).
