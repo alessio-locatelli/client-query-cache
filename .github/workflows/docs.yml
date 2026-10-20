@@ -12,6 +12,7 @@ on: # zizmor: ignore[dangerous-triggers] Trusted main only; no triggering-run co
     branches: [main]
     paths:
       - "docs/user/**"
+      - "google5a37145ea1915a18.html"
       - "examples/README.md"
       - "examples/*.py"
       - "zensical.toml"
@@ -66,6 +67,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: just docs-build-editions
+
+      - run: cp google5a37145ea1915a18.html site/
 
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
