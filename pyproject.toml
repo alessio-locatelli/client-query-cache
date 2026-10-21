@@ -38,6 +38,7 @@ dev = [
 build = ["maturin[zig]>=1.15.0,<2.0"]
 benchmark = [
   "faker>=40.38.0",
+  "pyyaml>=6.0.3",
   "testcontainers[mongodb]>=4.15.0",
   "jsonschema>=4.26.0",
   "psutil>=7.2.2",
@@ -57,7 +58,6 @@ test = [
   "opentelemetry-sdk>=1.45.0",
   "pytest-xdist[psutil]>=3.8.0",
   "pytest-cov>=7.1.0",
-  "pyyaml>=6.0.3",
   "tomli-w>=1.2.0",
 ]
 test-tools = ["mypy>=2.3.1", "slotscheck>=0.21.0"]

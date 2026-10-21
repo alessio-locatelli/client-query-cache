@@ -236,6 +236,7 @@ benchmark = [
     { name = "jsonschema" },
     { name = "psutil" },
     { name = "python-snappy" },
+    { name = "pyyaml" },
     { name = "testcontainers", extra = ["mongodb"] },
 ]
 build = [
@@ -381,6 +382,7 @@ benchmark = [
     { name = "jsonschema", specifier = ">=4.26.0" },
     { name = "psutil", specifier = ">=7.2.2" },
     { name = "python-snappy", specifier = ">=0.7.3" },
+    { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "testcontainers", extras = ["mongodb"], specifier = ">=4.15.0" },
 ]
 build = [{ name = "maturin", extras = ["zig"], specifier = ">=1.15.0,<2.0" }]
