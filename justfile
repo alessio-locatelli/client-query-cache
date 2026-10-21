@@ -77,8 +77,9 @@ build:
     # --compatibility: The default is the lowest detected tag, possibly linux. We
     # override it because PyPI requires a portable wheel for our glibc 2.28 target.
     # --locked: The default permits lock updates. We override it for reproducibility.
-    # CARGO_ZIGBUILD_PYTHON_PATH: The default is automatic Zig discovery. We override it because
-    # the release linker needs the argument fix documented in scripts/zig-linker.sh.
+    # cargo-zigbuild python_path: https://github.com/rust-cross/cargo-zigbuild/blob/main/src/zig/locate.rs
+    # CARGO_ZIGBUILD_PYTHON_PATH: The default is python3, used to invoke ziglang.
+    # We override it because the release linker needs the argument fix in scripts/zig-linker.sh.
     CARGO_ZIGBUILD_PYTHON_PATH="{{ justfile_directory() }}/scripts/zig-linker.sh" uv run -- maturin build --release --sdist --zig --compatibility manylinux_2_28 --locked --out dist
 
 docs-serve:

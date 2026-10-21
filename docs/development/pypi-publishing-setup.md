@@ -13,4 +13,5 @@ Before the first release, the repository owner completes two one-time steps outs
 The release build uses `scripts/zig-linker.sh` to omit Rust’s ignored linker
 optimization argument while preserving linker diagnostics. This applies the
 [cargo-zigbuild fix](https://github.com/rust-cross/cargo-zigbuild/pull/486)
-that is absent from Maturin 1.15.
+that is absent from Maturin 1.15. Removal is tracked in
+[issue #325](https://github.com/alessio-locatelli/client-query-cache/issues/325).
