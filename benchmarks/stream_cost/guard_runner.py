@@ -5,6 +5,7 @@ import json
 import shutil
 import subprocess
 from dataclasses import dataclass
+from importlib.metadata import version
 from typing import TYPE_CHECKING
 
 from benchmarks.stream_cost.errors import BenchmarkSetupError
@@ -115,13 +116,26 @@ def prepare_environment(
             # resolution. We override it because this standalone command must validate
             # the committed lockfile.
             # --no-default-groups: The default includes dev. We override it because
-            # the timed subprocess needs only the installed library and PyMongo.
+            # the timed subprocess needs the library plus the shared generator below.
             "--locked",
             "--no-default-groups",
             "--python",
             python_version,
         ]
         _run(command, cwd=worktree_dir)
+        # Both revisions run the same generator with the controller's locked Faker.
+        # Install it separately because older revision manifests lack benchmark groups.
+        _run(
+            [
+                uv_path,
+                "pip",
+                "install",
+                "--python",
+                str(worktree_dir / ".venv" / "bin" / "python"),
+                f"faker=={version('faker')}",
+            ],
+            cwd=worktree_dir,
+        )
     except subprocess.CalledProcessError as error:
         message = (
             f"could not sync locked dependencies for revision {resolved}: "

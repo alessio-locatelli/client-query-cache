@@ -37,6 +37,7 @@ dev = [
 ]
 build = ["maturin[zig]>=1.15.0,<2.0"]
 benchmark = [
+  "faker>=40.38.0",
   "testcontainers[mongodb]>=4.15.0",
   "jsonschema>=4.26.0",
   "psutil>=7.2.2",
@@ -47,7 +48,6 @@ benchmark = [
 test = [
   { include-group = "benchmark" },
   "covdefaults>=2.3.0",
-  "faker>=40.38.0",
   "hypothesis>=6.168.0",
   "pytest>=9.1.1",
   "pytest-asyncio>=1.4.0",
