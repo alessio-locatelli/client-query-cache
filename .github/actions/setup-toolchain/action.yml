@@ -15,6 +15,9 @@ runs:
         # https://github.com/astral-sh/setup-uv/blob/20cfd1bf945f4377ade1205e4dbc17946fc9a30d/action.yml
         # The default is auto (disabled for tag pushes and workflow_run/release events). We override it because locked download caches should also be reused by release/documentation jobs.
         enable-cache: true
+        # The default is no cache suffix. We override it because jobs synchronize
+        # different dependency groups and must not race to reserve one cache key.
+        cache-suffix: ${{ github.workflow }}-${{ github.job }}
         # The default is the action's recursive requirements/constraints/pyproject/lock globs. We override it because this shared project environment uses root uv.lock and Python selection, independently of example script environments.
         cache-dependency-glob: |
           uv.lock
