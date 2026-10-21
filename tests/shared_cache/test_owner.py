@@ -655,11 +655,18 @@ class _Session:
         return reply
 
     def admit(self, key: int, value: bytes) -> None:
-        processed = self.owner.counters.admissions
+        processed = (
+            self.owner.counters.admitted + self.owner.counters.rejected_admissions
+        )
         reply = self.select(key)
         assert reply["r"] == "miss"
         self.endpoint.send({"op": "admit", "handle": reply["handle"], "value": value})
-        wait_for(lambda: self.owner.counters.admissions > processed)
+        wait_for(
+            lambda: (
+                self.owner.counters.admitted + self.owner.counters.rejected_admissions
+                > processed
+            )
+        )
 
     def local(self, key: int) -> bytes | None:
         database, namespace = self.slot
