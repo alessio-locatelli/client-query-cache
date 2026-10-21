@@ -43,6 +43,8 @@ def free_port() -> int:
         return int(listener.getsockname()[1])
 
 
+# uv --locked defaults to the inherited UV_LOCKED. These PEP 723 scripts resolve
+# independently of the project lockfile, just like typecheck-examples in justfile.
 @pytest.fixture
 def served_catalogue(
     mongodb_uri: MongoDbUri, free_port: int
@@ -59,7 +61,12 @@ def served_catalogue(
             str(free_port),
         ),
         cwd=REPOSITORY,
-        env={**os.environ, "MONGODB_URI": mongodb_uri, "CONTENT_CACHE_ENABLED": "true"},
+        env={
+            **os.environ,
+            "MONGODB_URI": mongodb_uri,
+            "CONTENT_CACHE_ENABLED": "true",
+            "UV_LOCKED": "0",
+        },
         stdout=subprocess.PIPE,
         text=True,
     )
@@ -96,7 +103,7 @@ def test_example_runs(name: str, mongodb_uri: MongoDbUri) -> None:
     completed = subprocess.run(  # noqa: S603 - Example names come from the fixed parametrized test cases; no shell is used.
         (_uv(), "run", f"examples/{name}"),
         cwd=REPOSITORY,
-        env={**os.environ, "MONGODB_URI": mongodb_uri},
+        env={**os.environ, "MONGODB_URI": mongodb_uri, "UV_LOCKED": "0"},
         capture_output=True,
         text=True,
         check=False,

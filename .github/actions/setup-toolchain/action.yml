@@ -10,7 +10,7 @@ runs:
   steps:
     - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
       with:
-        version: "0.12.20"
+        version: "0.13.4"
         python-version: ${{ inputs.python-version }}
         # https://github.com/astral-sh/setup-uv/blob/20cfd1bf945f4377ade1205e4dbc17946fc9a30d/action.yml
         # The default is auto (disabled for tag pushes and workflow_run/release events). We override it because locked download caches should also be reused by release/documentation jobs.
