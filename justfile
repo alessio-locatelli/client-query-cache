@@ -77,7 +77,9 @@ build:
     # --compatibility: The default is the lowest detected tag, possibly linux. We
     # override it because PyPI requires a portable wheel for our glibc 2.28 target.
     # --locked: The default permits lock updates. We override it for reproducibility.
-    uv run -- maturin build --release --sdist --zig --compatibility manylinux_2_28 --locked --out dist
+    # CARGO_ZIGBUILD_PYTHON_PATH: The default is automatic Zig discovery. We override it because
+    # the release linker needs the argument fix documented in scripts/zig-linker.sh.
+    CARGO_ZIGBUILD_PYTHON_PATH="{{ justfile_directory() }}/scripts/zig-linker.sh" uv run -- maturin build --release --sdist --zig --compatibility manylinux_2_28 --locked --out dist
 
 docs-serve:
     # uv 0.12.9 locally / 0.12.19 in CI --only-group docs in docs-serve/docs-build/docs-build-editions:
@@ -148,8 +150,9 @@ verify-release tag='': build
         # The default is normal user-site/environment/script-path loading. We override
         # it because local packages must not satisfy artifact imports.
         # The default is the exported UV_LOCKED=1. We override it because --no-project
-        # ignores it and emits a warning.
-        unset UV_LOCKED && uv run --isolated --no-project --python "${UV_PYTHON:-$(cat .python-version)}" --with "${artifact}" -- \
+        # ignores it and emits a warning. Clear UV_NO_SYNC too so CI’s narrowed
+        # project environment cannot prevent installation of the isolated artifact.
+        unset UV_LOCKED UV_NO_SYNC && uv run --isolated --no-project --python "${UV_PYTHON:-$(cat .python-version)}" --with "${artifact}" -- \
             python -I "{{ justfile_directory() }}/scripts/verify_release_artifacts.py"
     done
 

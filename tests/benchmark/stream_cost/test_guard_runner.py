@@ -79,7 +79,7 @@ def _revision_command(
     if Path(command[0]).name == "uv":
         if fault == "uv_sync_failure":
             raise subprocess.CalledProcessError(1, command, stderr="sync failed")
-        expected_command = ["/usr/bin/uv", "sync", "--locked", "--all-groups"]
+        expected_command = ["/usr/bin/uv", "sync", "--locked", "--no-default-groups"]
         expected_command.extend(("--python", selected_python))
         assert command == expected_command
         return ""

@@ -21,6 +21,8 @@ jobs:
     # timeout-minutes for benchmark (30m): The default is 360. We override it because
     # stalled jobs must stop within their assigned validation/publication budgets.
     timeout-minutes: 30
+    env:
+      UV_NO_SYNC: "true"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -36,11 +38,13 @@ jobs:
       # --locked: The default is inherited UV_LOCKED, otherwise unlocked resolution. We
       # override it because this standalone CI command must validate the committed
       # lockfile.
-      # --all-groups: The default is project default groups (dev). We override it
-      # because these validation environments need documentation tools too.
+      # --no-default-groups --group: The default includes dev. We override it
+      # because this job needs only the benchmark tools.
+      # UV_NO_SYNC: The default is false. We override it because uv run must
+      # reuse the explicitly synchronized environment without adding dev.
       # The root package builds its native index with the runner image's preinstalled
       # Cargo (https://github.com/actions/runner-images/blob/bdac7c6000c3501174076ad6d6a06ce46871fa71/images/ubuntu/Ubuntu2404-Readme.md#rust-tools).
-      - run: uv sync --locked --all-groups
+      - run: uv sync --locked --no-default-groups --group benchmark
 
       - run: uv run -- python -m benchmarks.stream_cost.run --output-dir benchmark-reports
 

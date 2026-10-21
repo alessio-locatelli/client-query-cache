@@ -30,13 +30,15 @@ env:
 # fetch-depth in scope and guard: The default is 1. We override it because revision
 # comparisons need earlier history.
 # uv 0.12.20: https://docs.astral.sh/uv/reference/cli/
-# uv sync --locked in prek, package, integration-e2e, pymongo-min, mongodb-min, memory, guard
+# uv sync --locked in package, integration-e2e, pymongo-min, mongodb-min, memory, guard
 # and benchmark-startup: The default is inherited UV_LOCKED, otherwise unlocked resolution.
 # We override it because these standalone commands must validate the committed lockfile.
-# uv sync --all-groups in prek, package, integration-e2e, pymongo-min, mongodb-min, guard and
-# benchmark-startup:
-# The default is project default groups (dev). We override it because these validation
-# environments need documentation tools too.
+# uv sync --no-default-groups --group: The default includes dev. We override it
+# because each job selects only its build, typing, test, compatibility, or benchmark
+# tools; full coverage also exercises the real documentation tools.
+# UV_NO_SYNC in package, integration-e2e, pymongo-min, mongodb-min, memory, guard,
+# and benchmark-startup: The default is false. We override it because uv run must
+# reuse each job's explicitly synchronized environment without adding dev.
 # Every uv sync above builds the root package's bundled native index with the
 # Cargo preinstalled in the ubuntu-24.04 image
 # (Rust Tools in image 20261004.327.1: Cargo 1.99.0, https://github.com/actions/runner-images/blob/bdac7c6000c3501174076ad6d6a06ce46871fa71/images/ubuntu/Ubuntu2404-Readme.md#rust-tools).
@@ -117,8 +119,6 @@ jobs:
           key: prek-results-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml', 'lychee.toml', 'pyproject.toml') }}-${{ github.sha }}
           restore-keys: |
             prek-results-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml', 'lychee.toml', 'pyproject.toml') }}-
-
-      - run: uv sync --locked --all-groups
 
       - run: |
           uv tool install "prek==${PREK_VERSION}"
@@ -211,6 +211,8 @@ jobs:
       fail-fast: false
       matrix:
         python: ${{ fromJSON(needs.scope.outputs.python-versions) }}
+    env:
+      UV_NO_SYNC: "true"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -220,7 +222,7 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
 
-      - run: uv sync --locked --all-groups
+      - run: uv sync --locked --no-default-groups --group typing --group build
 
       - run: cargo test --manifest-path native/shared-index/Cargo.toml
 
@@ -259,6 +261,8 @@ jobs:
       fail-fast: false
       matrix:
         python: ${{ fromJSON(needs.scope.outputs.python-versions) }}
+    env:
+      UV_NO_SYNC: "true"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -268,7 +272,7 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
 
-      - run: uv sync --locked --all-groups
+      - run: uv sync --locked --no-default-groups --group test --group test-tools --group docs
 
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -297,6 +301,8 @@ jobs:
     if: needs.scope.outputs.python == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    env:
+      UV_NO_SYNC: "true"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -304,7 +310,7 @@ jobs:
 
       - uses: $/.github/actions/setup-toolchain
 
-      - run: uv sync --locked --all-groups
+      - run: uv sync --locked --no-default-groups --group compatibility
 
       - run: just test-pymongo-min
 
@@ -325,6 +331,8 @@ jobs:
     # MongoDB kernel compatibility: docs/development/parallel-test-execution.md#ci-host-compatibility
     runs-on: ubuntu-22.04
     timeout-minutes: 20
+    env:
+      UV_NO_SYNC: "true"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -332,7 +340,7 @@ jobs:
 
       - uses: $/.github/actions/setup-toolchain
 
-      - run: uv sync --locked --all-groups
+      - run: uv sync --locked --no-default-groups --group test
 
       - run: just test-mongodb-min
 
@@ -386,6 +394,8 @@ jobs:
     if: needs.scope.outputs.python == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    env:
+      UV_NO_SYNC: "true"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -393,7 +403,7 @@ jobs:
 
       - uses: $/.github/actions/setup-toolchain
 
-      - run: uv sync --locked --group memory
+      - run: uv sync --locked --no-default-groups --group test --group memory
 
       - run: just test-memory
 
@@ -411,6 +421,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
+      UV_NO_SYNC: "true"
       BASE_REVISION: ${{ github.event.pull_request.base.sha }}
       HEAD_REVISION: ${{ github.sha }}
     steps:
@@ -436,7 +447,7 @@ jobs:
         uses: $/.github/actions/setup-toolchain
 
       - if: steps.scope.outputs.requires_guard == 'true'
-        run: uv sync --locked --all-groups
+        run: uv sync --locked --no-default-groups --group benchmark
 
       - if: steps.scope.outputs.requires_guard == 'true'
         run: |
@@ -480,6 +491,8 @@ jobs:
     if: needs.scope.outputs.benchmark == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    env:
+      UV_NO_SYNC: "true"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -487,7 +500,7 @@ jobs:
 
       - uses: $/.github/actions/setup-toolchain
 
-      - run: uv sync --locked --all-groups
+      - run: uv sync --locked --no-default-groups --group test
 
       # pytest 9.1.1 / pytest-timeout 2.4.0:
       # https://docs.pytest.org/en/stable/reference/reference.html
