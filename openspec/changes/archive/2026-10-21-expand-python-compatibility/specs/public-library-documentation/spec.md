@@ -15,7 +15,7 @@ Public guidance SHALL state that caching requires MongoDB 8.0+ on a replica set 
 
 ### Requirement: Python support badge follows published metadata
 
-The README SHALL display a PyPI-backed supported-Python-versions badge with descriptive alternative text and a link to the package's PyPI page. Its lowest displayed release line SHALL agree with the published package's minimum. Installation guidance SHALL state its edition's declared minimum; contributor guidance SHALL explain the distinction between installation eligibility, tested release lines, and the stable development pin.
+The README SHALL display a PyPI-backed supported-Python-versions badge with descriptive alternative text and a link to the installation guide. Its lowest displayed release line SHALL agree with the published package's minimum. Installation guidance SHALL state its edition's declared minimum; contributor guidance SHALL explain the distinction between installation eligibility, tested release lines, and the stable development pin.
 
 #### Scenario: A release publishes the expanded support declaration
 

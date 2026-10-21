@@ -75,17 +75,12 @@ development line. Lines already represented by either exact request need no
 floating request; other lines use major/minor requests. Only identical requests
 are deduplicated.
 
-With the current declarations, CI selects `3.14.0`, `3.15`, and `3.14.6`. The
-floating request permits early candidate testing and selects stable Python when
+Floating requests permit early candidate testing and select stable Python when
 the toolchain provides it. The stable `Python compatibility` check blocks merging
 if any applicable packaging or test lane fails. Publishing advertised support
 also requires the [stable-release acceptance procedure](../../CONTRIBUTING.md#per-release-steps).
 The README badge reflects published PyPI classifiers, so it can differ from
 development declarations until publication.
-Verification of the badge after publishing classifiers is tracked in
-[issue #205](https://github.com/alessio-locatelli/client-query-cache/issues/205),
-owned by @alessio-locatelli and delegated to the next coding agent completing
-the change's post-publication verification task.
 
 ## Repository validation
 
