@@ -31,39 +31,50 @@ otel = ["opentelemetry-api>=1.45.0"]
 
 [dependency-groups]
 dev = [
-  "maturin[zig]>=1.15.0,<2.0",
+  { include-group = "build" },
+  { include-group = "typing" },
+  { include-group = "compatibility" },
+]
+build = ["maturin[zig]>=1.15.0,<2.0"]
+benchmark = [
+  "testcontainers[mongodb]>=4.15.0",
+  "jsonschema>=4.26.0",
+  "psutil>=7.2.2",
+  "dnspython>=2.8.0",
+  "python-snappy>=0.7.3",
+  "filelock>=4.1.0",
+]
+test = [
+  { include-group = "benchmark" },
   "covdefaults>=2.3.0",
-  "mypy>=2.3.1",
+  "faker>=40.38.0",
+  "hypothesis>=6.168.0",
+  "pytest>=9.1.1",
+  "pytest-asyncio>=1.4.0",
+  "pytest-timeout>=2.4.0",
+  "strict-no-cover>=0.1.1",
+  "opentelemetry-api>=1.45.0",
+  "opentelemetry-sdk>=1.45.0",
+  "pytest-xdist[psutil]>=3.8.0",
+  "pytest-cov>=7.1.0",
+  "pyyaml>=6.0.3",
+  "tomli-w>=1.2.0",
+]
+test-tools = ["mypy>=2.3.1", "slotscheck>=0.21.0"]
+typing = [
+  { include-group = "test" },
+  { include-group = "test-tools" },
   "types-docker>=7.2.0.20260827",
   "types-paramiko>=5.0.0.20260724",
   "types-pexpect>=4.9.0.20260518",
   "types-pygments>=2.21.0.20260819",
   "types-pysocks>=1.7.1.20260518",
   "types-simplejson>=4.1.0.20260724",
-  "faker>=40.38.0",
-  "hypothesis>=6.168.0",
-  "pytest>=9.1.1",
-  "pytest-asyncio>=1.4.0",
-  "pytest-timeout>=2.4.0",
-  "slotscheck>=0.21.0",
-  "strict-no-cover>=0.1.1",
-  "testcontainers[mongodb]>=4.15.0",
-  "tox>=4.63.0",
-  "tox-uv>=1.36.0",
-  "jsonschema>=4.26.0",
   "types-jsonschema>=4.26.0.20260518",
-  "opentelemetry-api>=1.45.0",
-  "opentelemetry-sdk>=1.45.0",
   "types-psutil>=7.2.2.20260906",
-  "psutil>=7.2.2",
-  "dnspython>=2.8.0",
-  "python-snappy>=0.7.3",
-  "pytest-xdist[psutil]>=3.8.0",
-  "pytest-cov>=7.1.0",
-  "pyyaml>=6.0.3",
   "types-pyyaml>=6.0.12.20260906",
-  "filelock>=4.1.0",
 ]
+compatibility = [{ include-group = "test" }, "tox>=4.63.0", "tox-uv>=1.36.0"]
 docs = ["mike", "tomli-w>=1.2.0", "zensical>=0.0.68"]
 memory = ["pytest-memray>=1.11.0"]
 

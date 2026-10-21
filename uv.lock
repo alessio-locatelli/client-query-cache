@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.14"
 resolution-markers = [
     "python_full_version >= '3.15' and sys_platform == 'linux'",
@@ -229,6 +229,40 @@ otel = [
 ]
 
 [package.dev-dependencies]
+benchmark = [
+    { name = "dnspython" },
+    { name = "filelock" },
+    { name = "jsonschema" },
+    { name = "psutil" },
+    { name = "python-snappy" },
+    { name = "testcontainers", extra = ["mongodb"] },
+]
+build = [
+    { name = "maturin", extra = ["zig"] },
+]
+compatibility = [
+    { name = "covdefaults" },
+    { name = "dnspython" },
+    { name = "faker" },
+    { name = "filelock" },
+    { name = "hypothesis" },
+    { name = "jsonschema" },
+    { name = "opentelemetry-api" },
+    { name = "opentelemetry-sdk" },
+    { name = "psutil" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-cov" },
+    { name = "pytest-timeout" },
+    { name = "pytest-xdist", extra = ["psutil"] },
+    { name = "python-snappy" },
+    { name = "pyyaml" },
+    { name = "strict-no-cover" },
+    { name = "testcontainers", extra = ["mongodb"] },
+    { name = "tomli-w" },
+    { name = "tox" },
+    { name = "tox-uv" },
+]
 dev = [
     { name = "covdefaults" },
     { name = "dnspython" },
@@ -251,6 +285,7 @@ dev = [
     { name = "slotscheck" },
     { name = "strict-no-cover" },
     { name = "testcontainers", extra = ["mongodb"] },
+    { name = "tomli-w" },
     { name = "tox" },
     { name = "tox-uv" },
     { name = "types-docker" },
@@ -271,6 +306,63 @@ docs = [
 memory = [
     { name = "pytest-memray" },
 ]
+test = [
+    { name = "covdefaults" },
+    { name = "dnspython" },
+    { name = "faker" },
+    { name = "filelock" },
+    { name = "hypothesis" },
+    { name = "jsonschema" },
+    { name = "opentelemetry-api" },
+    { name = "opentelemetry-sdk" },
+    { name = "psutil" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-cov" },
+    { name = "pytest-timeout" },
+    { name = "pytest-xdist", extra = ["psutil"] },
+    { name = "python-snappy" },
+    { name = "pyyaml" },
+    { name = "strict-no-cover" },
+    { name = "testcontainers", extra = ["mongodb"] },
+    { name = "tomli-w" },
+]
+test-tools = [
+    { name = "mypy" },
+    { name = "slotscheck" },
+]
+typing = [
+    { name = "covdefaults" },
+    { name = "dnspython" },
+    { name = "faker" },
+    { name = "filelock" },
+    { name = "hypothesis" },
+    { name = "jsonschema" },
+    { name = "mypy" },
+    { name = "opentelemetry-api" },
+    { name = "opentelemetry-sdk" },
+    { name = "psutil" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-cov" },
+    { name = "pytest-timeout" },
+    { name = "pytest-xdist", extra = ["psutil"] },
+    { name = "python-snappy" },
+    { name = "pyyaml" },
+    { name = "slotscheck" },
+    { name = "strict-no-cover" },
+    { name = "testcontainers", extra = ["mongodb"] },
+    { name = "tomli-w" },
+    { name = "types-docker" },
+    { name = "types-jsonschema" },
+    { name = "types-paramiko" },
+    { name = "types-pexpect" },
+    { name = "types-psutil" },
+    { name = "types-pygments" },
+    { name = "types-pysocks" },
+    { name = "types-pyyaml" },
+    { name = "types-simplejson" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -281,6 +373,38 @@ requires-dist = [
 provides-extras = ["otel"]
 
 [package.metadata.requires-dev]
+benchmark = [
+    { name = "dnspython", specifier = ">=2.8.0" },
+    { name = "filelock", specifier = ">=4.1.0" },
+    { name = "jsonschema", specifier = ">=4.26.0" },
+    { name = "psutil", specifier = ">=7.2.2" },
+    { name = "python-snappy", specifier = ">=0.7.3" },
+    { name = "testcontainers", extras = ["mongodb"], specifier = ">=4.15.0" },
+]
+build = [{ name = "maturin", extras = ["zig"], specifier = ">=1.15.0,<2.0" }]
+compatibility = [
+    { name = "covdefaults", specifier = ">=2.3.0" },
+    { name = "dnspython", specifier = ">=2.8.0" },
+    { name = "faker", specifier = ">=40.38.0" },
+    { name = "filelock", specifier = ">=4.1.0" },
+    { name = "hypothesis", specifier = ">=6.168.0" },
+    { name = "jsonschema", specifier = ">=4.26.0" },
+    { name = "opentelemetry-api", specifier = ">=1.45.0" },
+    { name = "opentelemetry-sdk", specifier = ">=1.45.0" },
+    { name = "psutil", specifier = ">=7.2.2" },
+    { name = "pytest", specifier = ">=9.1.1" },
+    { name = "pytest-asyncio", specifier = ">=1.4.0" },
+    { name = "pytest-cov", specifier = ">=7.1.0" },
+    { name = "pytest-timeout", specifier = ">=2.4.0" },
+    { name = "pytest-xdist", extras = ["psutil"], specifier = ">=3.8.0" },
+    { name = "python-snappy", specifier = ">=0.7.3" },
+    { name = "pyyaml", specifier = ">=6.0.3" },
+    { name = "strict-no-cover", specifier = ">=0.1.1" },
+    { name = "testcontainers", extras = ["mongodb"], specifier = ">=4.15.0" },
+    { name = "tomli-w", specifier = ">=1.2.0" },
+    { name = "tox", specifier = ">=4.63.0" },
+    { name = "tox-uv", specifier = ">=1.36.0" },
+]
 dev = [
     { name = "covdefaults", specifier = ">=2.3.0" },
     { name = "dnspython", specifier = ">=2.8.0" },
@@ -303,6 +427,7 @@ dev = [
     { name = "slotscheck", specifier = ">=0.21.0" },
     { name = "strict-no-cover", specifier = ">=0.1.1" },
     { name = "testcontainers", extras = ["mongodb"], specifier = ">=4.15.0" },
+    { name = "tomli-w", specifier = ">=1.2.0" },
     { name = "tox", specifier = ">=4.63.0" },
     { name = "tox-uv", specifier = ">=1.36.0" },
     { name = "types-docker", specifier = ">=7.2.0.20260827" },
@@ -321,6 +446,63 @@ docs = [
     { name = "zensical", specifier = ">=0.0.68" },
 ]
 memory = [{ name = "pytest-memray", specifier = ">=1.11.0" }]
+test = [
+    { name = "covdefaults", specifier = ">=2.3.0" },
+    { name = "dnspython", specifier = ">=2.8.0" },
+    { name = "faker", specifier = ">=40.38.0" },
+    { name = "filelock", specifier = ">=4.1.0" },
+    { name = "hypothesis", specifier = ">=6.168.0" },
+    { name = "jsonschema", specifier = ">=4.26.0" },
+    { name = "opentelemetry-api", specifier = ">=1.45.0" },
+    { name = "opentelemetry-sdk", specifier = ">=1.45.0" },
+    { name = "psutil", specifier = ">=7.2.2" },
+    { name = "pytest", specifier = ">=9.1.1" },
+    { name = "pytest-asyncio", specifier = ">=1.4.0" },
+    { name = "pytest-cov", specifier = ">=7.1.0" },
+    { name = "pytest-timeout", specifier = ">=2.4.0" },
+    { name = "pytest-xdist", extras = ["psutil"], specifier = ">=3.8.0" },
+    { name = "python-snappy", specifier = ">=0.7.3" },
+    { name = "pyyaml", specifier = ">=6.0.3" },
+    { name = "strict-no-cover", specifier = ">=0.1.1" },
+    { name = "testcontainers", extras = ["mongodb"], specifier = ">=4.15.0" },
+    { name = "tomli-w", specifier = ">=1.2.0" },
+]
+test-tools = [
+    { name = "mypy", specifier = ">=2.3.1" },
+    { name = "slotscheck", specifier = ">=0.21.0" },
+]
+typing = [
+    { name = "covdefaults", specifier = ">=2.3.0" },
+    { name = "dnspython", specifier = ">=2.8.0" },
+    { name = "faker", specifier = ">=40.38.0" },
+    { name = "filelock", specifier = ">=4.1.0" },
+    { name = "hypothesis", specifier = ">=6.168.0" },
+    { name = "jsonschema", specifier = ">=4.26.0" },
+    { name = "mypy", specifier = ">=2.3.1" },
+    { name = "opentelemetry-api", specifier = ">=1.45.0" },
+    { name = "opentelemetry-sdk", specifier = ">=1.45.0" },
+    { name = "psutil", specifier = ">=7.2.2" },
+    { name = "pytest", specifier = ">=9.1.1" },
+    { name = "pytest-asyncio", specifier = ">=1.4.0" },
+    { name = "pytest-cov", specifier = ">=7.1.0" },
+    { name = "pytest-timeout", specifier = ">=2.4.0" },
+    { name = "pytest-xdist", extras = ["psutil"], specifier = ">=3.8.0" },
+    { name = "python-snappy", specifier = ">=0.7.3" },
+    { name = "pyyaml", specifier = ">=6.0.3" },
+    { name = "slotscheck", specifier = ">=0.21.0" },
+    { name = "strict-no-cover", specifier = ">=0.1.1" },
+    { name = "testcontainers", extras = ["mongodb"], specifier = ">=4.15.0" },
+    { name = "tomli-w", specifier = ">=1.2.0" },
+    { name = "types-docker", specifier = ">=7.2.0.20260827" },
+    { name = "types-jsonschema", specifier = ">=4.26.0.20260518" },
+    { name = "types-paramiko", specifier = ">=5.0.0.20260724" },
+    { name = "types-pexpect", specifier = ">=4.9.0.20260518" },
+    { name = "types-psutil", specifier = ">=7.2.2.20260906" },
+    { name = "types-pygments", specifier = ">=2.21.0.20260819" },
+    { name = "types-pysocks", specifier = ">=1.7.1.20260518" },
+    { name = "types-pyyaml", specifier = ">=6.0.12.20260906" },
+    { name = "types-simplejson", specifier = ">=4.1.0.20260724" },
+]
 
 [[package]]
 name = "colorama"

@@ -114,10 +114,10 @@ def prepare_environment(
             # --locked: The default is inherited UV_LOCKED, otherwise unlocked
             # resolution. We override it because this standalone command must validate
             # the committed lockfile.
-            # --all-groups: The default is project default groups (dev). We override it
-            # because revision validation needs documentation tools too.
+            # --no-default-groups: The default includes dev. We override it because
+            # the timed subprocess needs only the installed library and PyMongo.
             "--locked",
-            "--all-groups",
+            "--no-default-groups",
             "--python",
             python_version,
         ]
