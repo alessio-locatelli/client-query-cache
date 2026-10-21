@@ -77,6 +77,12 @@ def _revision_command(
             raise subprocess.CalledProcessError(1, command, stderr="add failed")
         return ""
     if Path(command[0]).name == "uv":
+        if command[1:3] == ["pip", "install"]:
+            if fault == "faker_install_failure":
+                raise subprocess.CalledProcessError(1, command, stderr="install failed")
+            assert command[-1].startswith("faker==")
+            assert command[-2] == str(worktree_dir / ".venv" / "bin" / "python")
+            return ""
         if fault == "uv_sync_failure":
             raise subprocess.CalledProcessError(1, command, stderr="sync failed")
         expected_command = ["/usr/bin/uv", "sync", "--locked", "--no-default-groups"]
@@ -179,6 +185,7 @@ def test_prepare_environment_copies_base_workload_source(
         ("worktree_add_failure", "could not add a worktree"),
         ("missing_uv", "uv is required"),
         ("uv_sync_failure", "could not sync locked dependencies"),
+        ("faker_install_failure", "install failed"),
         ("missing_workload_definition", "does not exist on this revision"),
         ("missing_interpreter", "no interpreter was created"),
     ],
@@ -187,6 +194,7 @@ def test_prepare_environment_copies_base_workload_source(
         "worktree-failure",
         "missing-uv",
         "sync-failure",
+        "faker-install-failure",
         "missing-workload",
         "missing-interpreter",
     ],

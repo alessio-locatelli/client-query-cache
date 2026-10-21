@@ -231,6 +231,7 @@ otel = [
 [package.dev-dependencies]
 benchmark = [
     { name = "dnspython" },
+    { name = "faker" },
     { name = "filelock" },
     { name = "jsonschema" },
     { name = "psutil" },
@@ -375,6 +376,7 @@ provides-extras = ["otel"]
 [package.metadata.requires-dev]
 benchmark = [
     { name = "dnspython", specifier = ">=2.8.0" },
+    { name = "faker", specifier = ">=40.38.0" },
     { name = "filelock", specifier = ">=4.1.0" },
     { name = "jsonschema", specifier = ">=4.26.0" },
     { name = "psutil", specifier = ">=7.2.2" },
