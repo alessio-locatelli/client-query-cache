@@ -23,6 +23,7 @@ from aiohttp_client_cache.backends.mongodb import (
 from aiohttp_client_cache.session import CachedSession
 from pymongo import AsyncMongoClient
 
+from client_query_cache._types import NonNegativeInt
 from client_query_cache.asynchronous import CacheManager
 
 if TYPE_CHECKING:
@@ -101,10 +102,25 @@ async def request_item(session: CachedSession, origin: Origin) -> None:
             raise SystemExit("response did not match the current origin hit count")
 
 
+async def wait_for_stored_response(
+    manager: CacheManager[dict[str, Any]], invalidations_before: NonNegativeInt
+) -> None:
+    started = monotonic()
+    while (
+        manager.stream_cost_snapshot(DATABASE_NAME).invalidations
+        <= invalidations_before
+    ):
+        if monotonic() - started >= 5:
+            raise SystemExit("the stored response's change event was not applied")
+        await asyncio.sleep(0.05)
+
+
 async def run_scenario(
     session: CachedSession, origin: Origin, manager: CacheManager[dict[str, Any]]
 ) -> None:
+    invalidations_before = manager.stream_cost_snapshot(DATABASE_NAME).invalidations
     await request_item(session, origin)
+    await wait_for_stored_response(manager, invalidations_before)
     hits_before = manager.snapshot().hits
     for _ in range(5):
         await request_item(session, origin)
@@ -135,6 +151,7 @@ async def main() -> None:
     mongodb_uri = os.getenv("MONGODB_URI", DEFAULT_MONGODB_URI)
     async with AsyncMongoClient[dict[str, Any]](mongodb_uri) as client:
         await client.drop_database(DATABASE_NAME)
+        await client[DATABASE_NAME].create_collection("responses")
         async with (
             CacheManager(client) as manager,
             local_origin() as origin,
