@@ -396,10 +396,18 @@ jobs:
     timeout-minutes: 10
     env:
       UV_NO_SYNC: "true"
+      # uv 0.13.4: https://docs.astral.sh/uv/reference/cli/#uv-sync--no-managed-python
+      # The default allows uv-managed Python. We override it because this profiler
+      # lane uses the shared Python build explained in the memory test guide.
+      UV_NO_MANAGED_PYTHON: "true"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
+      # setup-python v7 reads .python-version when no version input is supplied:
+      # https://github.com/actions/setup-python/tree/5fda3b95a4ea91299a34e894583c3862153e4b97
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
 
       - uses: $/.github/actions/setup-toolchain
 

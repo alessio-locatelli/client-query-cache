@@ -141,7 +141,10 @@ The injected wrapper was removed; it is not part of the tests.
 The `Cache memory regression guard` job in `.github/workflows/test.yml` runs on Ubuntu 24.04 when the
 existing Python-validation scope selects a pull request. It waits for Prek and formatting checks and
 has a ten-minute timeout. Unrelated documentation changes do not start the workload. CI runs the same
-`just test-memory` command and derives no threshold from a cache or previous run.
+`just test-memory` command and derives no threshold from a cache or previous run. The lane uses the
+shared Python build supplied by `actions/setup-python` at the repository's selected version.
+Memray corrects allocator symbol addresses on the uv-managed standalone build and logs warnings;
+the shared build avoids those corrections without suppressing profiler diagnostics.
 
 On failure, the job keeps `memory-reports/` as a seven-day artifact, including binary allocation traces
 and exact peak metadata. All payloads are synthetic. The original command failure stays visible in
