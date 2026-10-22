@@ -27,6 +27,7 @@ from client_query_cache._core.stream_options import (
     DEFAULT_MAX_AWAIT_TIME_MS,
     ensure_supported_server,
 )
+from client_query_cache._core.stream_startup import stream_startup_failure_message
 from client_query_cache._types import MaxAwaitTimeMs
 
 if TYPE_CHECKING:
@@ -106,9 +107,7 @@ class DatabaseStreamSupervisor:
             raise
         except PyMongoError as exc:
             self._set_health(StreamHealth.CLOSED)
-            message = (
-                f"failed to open change stream for database {self._database.name!r}"
-            )
+            message = stream_startup_failure_message(self._database.name, exc)
             raise StreamStartupError(message) from exc
         with self._lifecycle_lock:
             stopped = self._stop_event.is_set()

@@ -10,6 +10,7 @@ nav = [
     { "Should you use this?" = "getting-started/should-you-use-this.md" },
     { "Choose a manager" = "getting-started/choose-a-manager.md" },
     { "Installation" = "getting-started/installation.md" },
+    { "MongoDB in CI" = "getting-started/mongodb-ci.md" },
     { "Synchronous" = "getting-started/synchronous.md" },
     { "Asyncio" = "getting-started/asyncio.md" },
   ] },

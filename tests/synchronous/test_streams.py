@@ -12,7 +12,11 @@ from unittest.mock import Mock
 import pytest
 from bson.binary import UuidRepresentation
 from bson.codec_options import CodecOptions
-from pymongo.errors import ConnectionFailure, OperationFailure
+from pymongo.errors import (
+    ConnectionFailure,
+    OperationFailure,
+    ServerSelectionTimeoutError,
+)
 
 from client_query_cache import StreamHealthStatus
 from client_query_cache._core import stream_activation
@@ -194,14 +198,36 @@ def make_coordinator() -> Iterator[Callable[..., ChangeStreamCoordinator]]:
 
 
 @pytest.mark.parametrize(
-    ("version_array", "script", "expected_watch_calls"),
+    ("version_array", "script", "expected_watch_calls", "has_setup_hint"),
     [
-        pytest.param([5, 0, 9], [], 0, id="server_below_minimum_version"),
+        pytest.param([5, 0, 9], [], 0, False, id="server_below_minimum_version"),
         pytest.param(
             SUPPORTED_SERVER_VERSION,
             [OperationFailure("showExpandedEvents rejected")],
             1,
+            False,
             id="server_rejects_expanded_events",
+        ),
+        pytest.param(
+            SUPPORTED_SERVER_VERSION,
+            [OperationFailure("standalone server", code=40573)],
+            1,
+            True,
+            id="standalone-server",
+        ),
+        pytest.param(
+            SUPPORTED_SERVER_VERSION,
+            [OperationFailure("not authorized", code=13)],
+            1,
+            False,
+            id="permission-denied",
+        ),
+        pytest.param(
+            SUPPORTED_SERVER_VERSION,
+            [ServerSelectionTimeoutError("connection refused")],
+            1,
+            False,
+            id="server-unavailable",
         ),
     ],
 )
@@ -210,13 +236,17 @@ def test_start_fails_closed(
     version_array: list[NonNegativeInt],
     script: list[object],
     expected_watch_calls: NonNegativeInt,
+    has_setup_hint: bool,
 ) -> None:
     database = ScriptedDatabase("db", script, version_array=version_array)
     supervisor = make_supervisor(as_database(database), _mock_cache())
 
-    with pytest.raises(StreamStartupError):
+    with pytest.raises(StreamStartupError) as failure:
         supervisor.start()
 
+    assert failure.value.__cause__ is (script[0] if script else None)
+    assert ("replica set or sharded cluster" in str(failure.value)) is has_setup_hint
+    assert ("installation/#local-mongodb" in str(failure.value)) is has_setup_hint
     assert len(database.watch_calls) == expected_watch_calls
     assert supervisor.healthy is False
 
@@ -773,17 +803,26 @@ def test_coordinator_starts_one_independent_stream_per_active_database(
     assert _is_healthy(second) is False
 
 
+@pytest.mark.parametrize("standalone", [False, True], ids=["old-server", "standalone"])
 def test_activate_database_bypasses_when_startup_is_unsupported(
     make_coordinator: Callable[..., ChangeStreamCoordinator],
+    caplog: pytest.LogCaptureFixture,
+    standalone: bool,
 ) -> None:
-    database = ScriptedDatabase("db", [], version_array=[5, 0, 9])
+    database = ScriptedDatabase(
+        "db",
+        [OperationFailure("standalone server", code=40573)] if standalone else [],
+        version_array=SUPPORTED_SERVER_VERSION if standalone else [5, 0, 9],
+    )
     client = Mock()
     client.__getitem__ = Mock(return_value=as_database(database))
     cache = CacheCore()
     coordinator = make_coordinator(client, cache)
 
-    coordinator.activate_database("db")
+    assert coordinator.activate_database("db") is None
 
+    assert "will bypass the cache" in caplog.text
+    assert ("installation/#local-mongodb" in caplog.text) is standalone
     assert _attempt_admission(cache, "db") is AdmissionOutcome.DECLINED_UNAVAILABLE
     assert (
         coordinator.stream_health_snapshot("db").status
