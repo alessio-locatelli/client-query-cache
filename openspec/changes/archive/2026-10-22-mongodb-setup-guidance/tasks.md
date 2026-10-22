@@ -6,7 +6,7 @@
 
 ## 2. Onboarding
 
-- [x] 2.1 Implement the quick-start delta in README.md and clarify connection versus cache availability in installation; execute the README code for missing-server and ready-server cases.
+- [x] 2.1 Implement the quick-start delta in README.md and clarify connection versus cache availability in installation; execute the README code against a ready server.
 - [x] 2.2 Add the CI guide and navigation entry using the design's initializer; verify fresh and repeated initialization, unavailable and unwritable services, and a real change stream.
 
 ## 3. Code Quality
