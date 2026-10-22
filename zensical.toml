@@ -6,6 +6,7 @@ repo_url = "https://github.com/alessio-locatelli/client-query-cache"
 docs_dir = "docs/user"
 nav = [
   { "Home" = "index.md" },
+  { "Use cases" = "use-cases.md" },
   { "Getting started" = [
     { "Should you use this?" = "getting-started/should-you-use-this.md" },
     { "Choose a manager" = "getting-started/choose-a-manager.md" },
@@ -93,6 +94,7 @@ full_output = "llms-full.txt"
 
 [project.plugins.llmstxt.sections]
 "Home / overview" = ["index.md"]
+"Use cases" = ["use-cases.md"]
 "Getting started" = ["getting-started/*.md"]
 "Usage" = ["usage/*.md"]
 "Examples" = ["examples/*.md"]

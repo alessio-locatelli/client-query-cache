@@ -9,11 +9,13 @@ Sharing has an owner process and admission costs. The [measured comparisons](ben
 ## Install and start
 
 1. [Check whether caching fits](getting-started/should-you-use-this.md) your consistency and workload needs.
-2. [Choose a manager](getting-started/choose-a-manager.md): broad reads within a process, or shared `_id` reads across workers.
+2. [Choose a manager](getting-started/choose-a-manager.md) for independent process-local caching or shared reads across workers.
 3. [Check the requirements and install](getting-started/installation.md).
 4. Follow the [synchronous](getting-started/synchronous.md) or [asyncio](getting-started/asyncio.md) quick start, or run the [shared FastAPI application](examples/fastapi-shared.md).
 
 Before using cached reads, review the [consistency guarantees](usage/consistency.md) and plan direct PyMongo reads where freshness is required.
+
+For hypothetical travel, retail, logistics, and reporting workflows, read [Use cases](use-cases.md).
 
 ## Operate the application
 
