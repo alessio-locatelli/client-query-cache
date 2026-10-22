@@ -43,10 +43,18 @@ uv add client-query-cache
 
 Or use `pip install client-query-cache`.
 
+Start a MongoDB server before running this example. For local development, follow the [single-member replica-set setup](https://alessio-locatelli.github.io/client-query-cache/getting-started/installation/#local-mongodb).
+
 ```python
 from pymongo import MongoClient
+from pymongo.errors import ServerSelectionTimeoutError
 
 from client_query_cache import CacheManager
+
+
+class MongoDBSetupError(RuntimeError):
+    pass
+
 
 with (
     MongoClient("mongodb://localhost:27017") as client,
@@ -54,9 +62,17 @@ with (
 ):
     collection = client["client_query_cache_tutorial"]["items"]
     cached_collection = cache_manager.get_cached_collection(collection)
-    collection.replace_one(
-        {"_id": "example"}, {"_id": "example", "value": 42}, upsert=True
-    )
+    try:
+        collection.replace_one(
+            {"_id": "example"}, {"_id": "example", "value": 42}, upsert=True
+        )
+    except ServerSelectionTimeoutError as exc:
+        raise MongoDBSetupError(
+            "MongoDB is unavailable at localhost:27017. Start a local server "
+            "or update the connection URI. Setup: "
+            "https://alessio-locatelli.github.io/client-query-cache/"
+            "getting-started/installation/#local-mongodb"
+        ) from exc
     cached_collection.find_one({"_id": "example"})
     cached_collection.find_one({"_id": "example"})  # Repeated reads can hit the cache.
 ```

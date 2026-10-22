@@ -15,7 +15,7 @@ Binary wheels include the Rust native module. Source builds require [Rust and Ca
 
 For shared caching, also review the [owner and worker security requirements](../operations/shared-cache.md#security-and-monitoring).
 
-On standalone MongoDB servers or versions below the minimum, reads run through PyMongo without caching. The manager logs a warning when it cannot establish a database change stream; see [stream health](../operations/monitoring.md#bypass-reasons-and-stream-health).
+On reachable standalone MongoDB servers or versions below the minimum, reads run through PyMongo without caching. The manager logs a warning when it cannot establish a database change stream; see [stream health](../operations/monitoring.md#bypass-reasons-and-stream-health). Uncached reads still require a reachable server that can serve the operation; a missing server can raise PyMongo's `ServerSelectionTimeoutError`.
 
 ## Install
 
@@ -58,3 +58,5 @@ docker compose down
 ```
 
 See the [official Docker Compose documentation](https://docs.docker.com/compose/) for tool installation and usage.
+
+For disposable test databases in GitLab CI or GitHub Actions, see [MongoDB in CI](mongodb-ci.md).
