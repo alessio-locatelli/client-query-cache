@@ -83,21 +83,6 @@ def _run_program(
 
 
 @pytest.mark.unit
-def test_readme_reports_missing_server_with_chained_setup_error(
-    readme_program: NonEmptyStr, unavailable_uri: MongoDbUri
-) -> None:
-    completed = _run_program(
-        readme_program.replace("mongodb://localhost:27017", unavailable_uri),
-        unavailable_uri,
-    )
-    assert completed.returncode != 0
-    assert "ServerSelectionTimeoutError" in completed.stderr
-    assert "The above exception was the direct cause" in completed.stderr
-    assert "MongoDBSetupError: MongoDB is unavailable" in completed.stderr
-    assert "installation/#local-mongodb" in completed.stderr
-
-
-@pytest.mark.unit
 def test_initializer_fails_within_deadline_when_server_is_missing(
     initializer_program: NonEmptyStr, unavailable_uri: MongoDbUri
 ) -> None:

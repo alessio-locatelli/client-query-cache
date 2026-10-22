@@ -1,13 +1,13 @@
 ## ADDED Requirements
 
-### Requirement: Quick start connection failures link to setup
+### Requirement: Quick start links local MongoDB setup
 
-The README SHALL link local MongoDB setup before its executable example. Its first write SHALL wrap server-selection timeouts in an example-local setup exception with that link, preserving the original exception as its cause. The message SHALL NOT infer that every timeout means replication is disabled.
+The README SHALL link local MongoDB setup before its executable example. The example SHALL use native PyMongo operations without custom connection-error handling.
 
-#### Scenario: No local MongoDB is running
+#### Scenario: A reader prepares the quick start
 
-- **WHEN** a reader runs the README example without a server
-- **THEN** the failure identifies MongoDB availability, links setup guidance, and retains the PyMongo timeout traceback
+- **WHEN** a reader reaches the README example
+- **THEN** they can follow the single-member replica-set setup before running it
 
 ### Requirement: CI adopters can initialize disposable replica sets
 

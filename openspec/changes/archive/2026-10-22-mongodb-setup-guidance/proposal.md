@@ -2,7 +2,7 @@
 
 ## Why
 
-The README's first write fails with a raw server-selection timeout when MongoDB is absent. Adopters also lack CI examples for starting the replica set that caching requires.
+Adopters need setup guidance before running the README example and CI examples for starting the replica set that caching requires.
 
 ## What Changes
 
