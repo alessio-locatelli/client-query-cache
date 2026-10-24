@@ -87,3 +87,44 @@ fn stop_releases_paused_forwarding_without_sending() {
     assert_eq!(relay.sent(), 0);
     assert_eq!(relay.received(), 0);
 }
+
+fn reset_peer() -> TcpStream {
+    use std::os::fd::AsRawFd;
+
+    let (peer, connection) = pair();
+    let linger = libc::linger {
+        l_onoff: 1,
+        l_linger: 0,
+    };
+    assert_eq!(
+        unsafe {
+            libc::setsockopt(
+                peer.as_raw_fd(),
+                libc::SOL_SOCKET,
+                libc::SO_LINGER,
+                (&raw const linger).cast(),
+                std::mem::size_of_val(&linger) as libc::socklen_t,
+            )
+        },
+        0
+    );
+    drop(peer);
+    connection
+}
+
+#[test]
+fn socket_resets_stop_forwarding_without_counting_rejected_bytes() {
+    for reset_source in [true, false] {
+        let relay = Relay::new();
+        let (mut sender, source) = pair();
+        let (_receiver, destination) = pair();
+        sender.write_all(b"unsent").unwrap();
+        sender.shutdown(Shutdown::Write).unwrap();
+        if reset_source {
+            relay.pump(reset_peer(), destination, &relay.0.sent);
+        } else {
+            relay.pump(source, reset_peer(), &relay.0.sent);
+        }
+        assert_eq!(relay.sent(), 0);
+    }
+}

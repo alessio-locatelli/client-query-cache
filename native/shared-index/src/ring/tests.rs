@@ -54,6 +54,7 @@ fn attaches_to_a_created_ring() {
 
 #[test]
 fn rejects_undersized_memory() {
+    assert!(Ring::<std::sync::Arc<[AtomicU64]>>::words_for(0).is_none());
     assert!(Ring::create(zeroed(HEADER_WORDS + 1), 2).is_none());
     assert!(Ring::create(zeroed(HEADER_WORDS), 0).is_none());
 }

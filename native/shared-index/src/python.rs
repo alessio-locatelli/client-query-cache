@@ -4,7 +4,7 @@ use std::os::unix::net::UnixListener;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use pyo3::exceptions::{PyOSError, PyValueError};
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 
@@ -88,11 +88,10 @@ impl OwnerIndex {
             namespaces,
         )
         .ok_or_else(|| invalid("invalid index layout"))?;
-        let (mapping, descriptor) = Mapping::memfd(c"client-query-cache-index", layout.words())
-            .map_err(PyOSError::new_err)?;
+        let (mapping, descriptor) = Mapping::memfd(c"client-query-cache-index", layout.words())?;
         let index = Index::create(Arc::new(mapping), layout, incarnation, expiry_ns)
-            .ok_or_else(|| invalid("invalid index layout"))?;
-        seal(&descriptor).map_err(PyOSError::new_err)?;
+            .expect("index mapping matches the validated layout");
+        seal(&descriptor)?;
         Ok(Self {
             writer: Mutex::new(Writer::new(index.clone())),
             index,
@@ -103,7 +102,7 @@ impl OwnerIndex {
     fn reader_descriptor(&self) -> PyResult<RawFd> {
         reopen_read_only(&self.descriptor)
             .map(IntoRawFd::into_raw_fd)
-            .map_err(PyOSError::new_err)
+            .map_err(PyErr::from)
     }
 
     fn store(&self, payload: &[u8]) -> Option<Payload> {
@@ -218,18 +217,18 @@ impl OwnerIndex {
                 )
                 .ok_or_else(|| invalid("invalid admission capacity"))?
         };
-        let (mapping, descriptor) =
-            Mapping::memfd(c"client-query-cache-ring", words).map_err(PyOSError::new_err)?;
+        let (mapping, descriptor) = Mapping::memfd(c"client-query-cache-ring", words)?;
         let memory = Arc::new(mapping);
         let admissions = if admission_bytes == 0 {
             None
         } else {
             Some(Mutex::new(
                 Frames::create(memory.clone(), ring_words, admission_bytes)
-                    .ok_or_else(|| invalid("invalid admission capacity"))?,
+                    .expect("admission mapping matches the validated capacity"),
             ))
         };
-        let ring = Ring::create(memory, tokens).ok_or_else(|| invalid("invalid ring capacity"))?;
+        let ring =
+            Ring::create(memory, tokens).expect("ring mapping matches the validated capacity");
         Ok(SessionRing {
             ring,
             admissions,
@@ -238,8 +237,8 @@ impl OwnerIndex {
     }
 
     fn serve(&self, path: &str) -> PyResult<EchoOwner> {
-        let listener = UnixListener::bind(path).map_err(PyOSError::new_err)?;
-        let echo = Echo::start(self.index.clone(), listener).map_err(PyOSError::new_err)?;
+        let listener = UnixListener::bind(path)?;
+        let echo = Echo::start(self.index.clone(), listener)?;
         Ok(EchoOwner {
             echo: Mutex::new(echo),
         })
@@ -312,12 +311,10 @@ struct ReaderIndex {
 impl ReaderIndex {
     #[new]
     fn new(index_descriptor: RawFd, ring_descriptor: RawFd) -> PyResult<Self> {
-        let mapping = Mapping::from_descriptor(borrowed(index_descriptor)?, ReadOnly)
-            .map_err(PyOSError::new_err)?;
+        let mapping = Mapping::from_descriptor(borrowed(index_descriptor)?, ReadOnly)?;
         let index = Index::attach(Arc::new(mapping))
             .ok_or_else(|| invalid("the descriptor holds no index"))?;
-        let ring_mapping = Mapping::from_descriptor(borrowed(ring_descriptor)?, Writable)
-            .map_err(PyOSError::new_err)?;
+        let ring_mapping = Mapping::from_descriptor(borrowed(ring_descriptor)?, Writable)?;
         let memory = Arc::new(ring_mapping);
         let ring =
             Ring::attach(memory.clone()).ok_or_else(|| invalid("the descriptor holds no ring"))?;
@@ -480,7 +477,7 @@ impl ByteRelay {
         let client = duplicate_tcp(client)?;
         let upstream = duplicate_tcp(upstream)?;
         py.detach(|| self.relay.forward(client, upstream))
-            .map_err(PyOSError::new_err)
+            .map_err(PyErr::from)
     }
 }
 

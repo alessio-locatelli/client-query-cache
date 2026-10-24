@@ -44,7 +44,10 @@ uv export --quiet --locked --only-group test --no-emit-project --output-file "${
 uv pip install --quiet --python "${measurement_dir}/venv/bin/python" --link-mode copy --requirement "${measurement_dir}/requirements.txt" "${measurement_dir}"/wheels/*.whl
 # -n 0: pytest.ini selects auto workers. We override it to keep this bounded suite
 # in one process, including its native background-thread profile counters.
-"${measurement_dir}/venv/bin/python" -m pytest tests/shared_cache -m unit -n 0 -q --log-file "${measurement_dir}/pytest.log"
+# tempfile TMPDIR: https://docs.python.org/3/library/tempfile.html#tempfile.gettempdir
+# The default inherits the caller's temporary directory. We override it so test
+# artifacts remain under this measurement's /tmp/agents directory.
+TMPDIR="${measurement_dir}" "${measurement_dir}/venv/bin/python" -m pytest tests/shared_cache -m unit -n 0 -q --log-file "${measurement_dir}/pytest.log"
 # --fail-under-*: The default accepts any coverage. We override it because the
 # production gate requires every line and function (cargo-llvm-cov report --help).
 # LLVM may warn on stderr without a failing exit status; preserve those

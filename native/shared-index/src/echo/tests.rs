@@ -163,14 +163,34 @@ fn buffers_at_most_one_frame_of_unanswered_input() {
     writer.join().unwrap();
 }
 
-#[test]
-fn serves_frames_split_across_reads_over_a_socket() {
-    let directory = std::env::temp_dir().join(format!("shared-index-echo-{}", std::process::id()));
+struct EchoSocket {
+    echo: Echo,
+    directory: std::path::PathBuf,
+}
+
+impl Drop for EchoSocket {
+    fn drop(&mut self) {
+        self.echo.stop();
+        std::fs::remove_dir_all(&self.directory).unwrap();
+    }
+}
+
+fn echo_socket() -> (EchoSocket, UnixStream) {
+    let directory = std::env::temp_dir().join("agents").join(format!(
+        "shared-index-echo-{}-{}",
+        std::process::id(),
+        monotonic_ns()
+    ));
     std::fs::create_dir_all(&directory).unwrap();
     let path = directory.join("echo.sock");
-    let _ = std::fs::remove_file(&path);
-    let mut echo = Echo::start(published(), UnixListener::bind(&path).unwrap()).unwrap();
-    let mut client = UnixStream::connect(&path).unwrap();
+    let echo = Echo::start(published(), UnixListener::bind(&path).unwrap()).unwrap();
+    let client = UnixStream::connect(&path).unwrap();
+    (EchoSocket { echo, directory }, client)
+}
+
+#[test]
+fn serves_frames_split_across_reads_over_a_socket() {
+    let (_server, mut client) = echo_socket();
     let mut frames = request(1, &[b"present", b"absent"]);
     frames.extend_from_slice(&request(2, &[b"present", b"absent"]));
     let (first, second) = frames.split_at(10);
@@ -182,6 +202,45 @@ fn serves_frames_split_across_reads_over_a_socket() {
     let mut reply = vec![0; expected.len()];
     client.read_exact(&mut reply).unwrap();
     assert_eq!(reply, expected);
-    echo.stop();
-    std::fs::remove_dir_all(&directory).unwrap();
+}
+
+#[test]
+fn backpressure_preserves_unsent_reply_bytes() {
+    let (mut connection, mut peer) = connection();
+    let poller = Poller::new().unwrap();
+    poller
+        .control(
+            libc::EPOLL_CTL_ADD,
+            connection.stream.as_raw_fd(),
+            FIRST_CONNECTION,
+            libc::EPOLLIN,
+        )
+        .unwrap();
+    let expected = vec![b'r'; 2 * FRAME_LIMIT];
+    connection.outbox.clone_from(&expected);
+    let mut received = Vec::new();
+    assert!(connection.flush(&poller, FIRST_CONNECTION));
+    assert!(connection.writable);
+    assert!(connection.sent > 0 && connection.sent < expected.len());
+    while !connection.outbox.is_empty() {
+        let sent = connection.sent;
+        let start = received.len();
+        received.resize(sent, 0);
+        peer.read_exact(&mut received[start..]).unwrap();
+        assert!(connection.flush(&poller, FIRST_CONNECTION));
+    }
+    let start = received.len();
+    received.resize(expected.len(), 0);
+    peer.read_exact(&mut received[start..]).unwrap();
+    assert_eq!(received, expected);
+    assert!(!connection.writable);
+    assert_eq!(connection.sent, 0);
+}
+
+#[test]
+fn closed_peer_rejects_pending_replies() {
+    let (mut connection, peer) = connection();
+    drop(peer);
+    connection.outbox.extend_from_slice(b"reply");
+    assert!(!connection.flush(&Poller::new().unwrap(), FIRST_CONNECTION));
 }

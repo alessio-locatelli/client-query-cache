@@ -438,3 +438,10 @@ fn attaches_only_to_a_complete_layout() {
     assert!(Index::attach(truncated).is_none());
     assert!(Index::attach(zeroed(HEADER_WORDS)).is_none());
 }
+
+#[test]
+fn rejects_a_descriptor_with_an_invalid_published_layout() {
+    let (index, _writer) = fixture();
+    index.word(H_SLOTS).store(0, Ordering::Release);
+    assert!(Index::attach(index.memory).is_none());
+}

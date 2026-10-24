@@ -11,5 +11,5 @@
 
 ## 3. Code Quality
 
-- [ ] 3.1 Scan the entire file for edited or added tests (including pre-existing tests within the file) and ensure the Writing Tests guidelines from AGENTS.md are applied, including test parametrization.
+- [x] 3.1 Scan the entire file for edited or added tests (including pre-existing tests within the file) and ensure the Writing Tests guidelines from AGENTS.md are applied, including test parametrization.
 - [x] 3.2 Confirm no new prose was added to code if using Claude Code. Inapplicable: planning by OpenAI Codex.
