@@ -27,6 +27,7 @@ from client_query_cache._shared.wire import (
     ProtocolError,
     encode_frame,
 )
+from client_query_cache._shared_index import ReaderIndex
 
 pytestmark = pytest.mark.unit
 
@@ -233,3 +234,49 @@ def test_enqueue_started_before_a_new_drop_cannot_reopen_recovery(
     assert recovery.fallback_until == 0
     assert recovery.enqueued(recovery.generation)
     assert not recovery.enqueued(in_flight_generation)
+
+
+@pytest.fixture
+async def blocked_endpoint(endpoint: AsyncEndpoint) -> AsyncGenerator[AsyncEndpoint]:
+    sender, peer = socket.socketpair()
+    sender.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 4096)
+    endpoint.config = replace(endpoint.config, frame_limit=512 * 1024)
+    _stream, writer = await asyncio.open_unix_connection(sock=sender)
+    endpoint._writer = writer
+    with peer:
+        try:
+            yield endpoint
+        finally:
+            writer.transport.abort()
+            await endpoint.close()
+            await writer.wait_closed()
+
+
+@pytest.mark.parametrize(
+    "native_overflow", [False, True], ids=["socket", "native-full"]
+)
+async def test_async_admissions_bound_socket_buffer(
+    blocked_endpoint: AsyncEndpoint, native_overflow: bool
+) -> None:
+    reader = Mock(spec=ReaderIndex) if native_overflow else None
+    if reader is not None:
+        reader.admissions_enabled = True
+        reader.enqueue_admission.return_value = False
+    message: Message = {"op": "admit", "payload": b"x" * (256 * 1024)}
+    writer = blocked_endpoint._writer
+    assert writer is not None
+
+    for _ in range(128):
+        blocked_endpoint.send(message.copy(), reader)
+    await asyncio.sleep(0)
+
+    assert (
+        0
+        < writer.transport.get_write_buffer_size()
+        <= (blocked_endpoint.config.frame_limit + LENGTH_BYTES)
+    )
+    assert blocked_endpoint.counters.dropped_one_way > 0
+    assert blocked_endpoint.counters.native_admission_drops == (
+        blocked_endpoint.counters.dropped_one_way if native_overflow else 0
+    )
+    assert blocked_endpoint.admission_recovery.awaiting_capacity is native_overflow
