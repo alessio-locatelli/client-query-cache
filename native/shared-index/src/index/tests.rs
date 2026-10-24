@@ -625,17 +625,34 @@ fn stale_owner_handles_cannot_unpublish_after_wire_token_wrap() {
 
 #[test]
 fn foreign_allocation_handles_cannot_release_a_different_extent() {
-    let (_left_index, mut left) = fixture();
-    left.store(&[1; 40]).unwrap();
-    let foreign = left.store(&[2; 8]).unwrap();
-    let (_right_index, mut right) = fixture();
-    right.store(&[3; 8]).unwrap();
-    right.release(foreign);
-    let local = right.store(&[4; 8]).unwrap();
-    assert_eq!(local.version, foreign.version);
-    assert_ne!(local.at, foreign.at);
-    right.release(foreign);
-    assert_eq!(right.snapshot_copy(local), Some(vec![4; 8]));
+    for left_length in [40, 8] {
+        let (_left_index, mut left) = fixture();
+        left.store(&vec![1; left_length]).unwrap();
+        let foreign = left.store(&[2; 8]).unwrap();
+        let (right_index, mut right) = fixture();
+        right.store(&[3; 8]).unwrap();
+        right.release(foreign);
+        let local = right.store(&[4; 8]).unwrap();
+        assert_eq!(local.version, foreign.version);
+        if left_length == 8 {
+            assert_eq!(local.token(), foreign.token());
+        } else {
+            assert_ne!(local.at, foreign.at);
+        }
+        right.publish(&query(b"local"), local).unwrap();
+        assert!(!right.unpublish(foreign));
+        assert_eq!(
+            right.publish(&query(b"foreign"), foreign),
+            Err(Refusal::Dead)
+        );
+        assert_eq!(right.snapshot_copy(foreign), None);
+        right.release(foreign);
+        assert_eq!(right.snapshot_copy(local), Some(vec![4; 8]));
+        assert_eq!(
+            read(&right_index, &query(b"local")),
+            Ok((vec![4; 8], local.token()))
+        );
+    }
 }
 
 #[test]
