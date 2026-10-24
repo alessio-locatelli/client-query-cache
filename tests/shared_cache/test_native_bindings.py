@@ -7,9 +7,11 @@ import socket
 import struct
 import sys
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from time import monotonic, monotonic_ns
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import pytest
 
@@ -18,15 +20,15 @@ from client_query_cache._shared_index import ByteRelay, OwnerIndex, ReaderIndex
 from client_query_cache._types import NonEmptyStr, NonNegativeInt, PositiveInt
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
+    from collections.abc import Callable, Generator, Iterator
     from concurrent.futures import Future
     from multiprocessing.process import BaseProcess
-    from pathlib import Path
-    from typing import Literal
 
     from faker import Faker
 
     from client_query_cache._shared_index import SessionRing
+
+type DescriptorOperation = Literal["owner", "ring", "descriptor", "echo"]
 
 pytestmark = pytest.mark.unit
 
@@ -403,34 +405,51 @@ def test_unrepresentable_mapping_sizes_fail_before_allocation(
         operation(native_owner)
 
 
-def _descriptor_allocation_failure(
-    operation: Literal["owner", "ring", "descriptor"],
-) -> None:
-    owner = OwnerIndex(8, 4096, 1, 1, _INCARNATION, _EXPIRY_NS)
-    operations: dict[Literal["owner", "ring", "descriptor"], Callable[[], object]] = {
-        "owner": lambda: OwnerIndex(8, 4096, 1, 1, _INCARNATION, _EXPIRY_NS),
-        "ring": lambda: owner.session_ring(8),
-        "descriptor": owner.reader_descriptor,
-    }
+@contextmanager
+def _descriptor_budget(free_slots: NonNegativeInt) -> Generator[None]:
     limits = resource.getrlimit(resource.RLIMIT_NOFILE)
+    probes = [os.open(os.devnull, os.O_RDONLY) for _ in range(free_slots)]
+    soft_limit = probes[-1] + 1 if probes else 0
+    for descriptor in probes:
+        os.close(descriptor)
     try:
-        resource.setrlimit(resource.RLIMIT_NOFILE, (0, limits[1]))
-        with pytest.raises(OSError, match="Too many open files"):
-            operations[operation]()
+        resource.setrlimit(resource.RLIMIT_NOFILE, (soft_limit, limits[1]))
+        yield
     finally:
         resource.setrlimit(resource.RLIMIT_NOFILE, limits)
 
 
+def _descriptor_allocation_failure(
+    operation: DescriptorOperation, temporary_parent: Path
+) -> None:
+    owner = OwnerIndex(8, 4096, 1, 1, _INCARNATION, _EXPIRY_NS)
+    if operation == "echo":
+        with (
+            TemporaryDirectory(dir=temporary_parent) as directory,
+            _descriptor_budget(1),
+            pytest.raises(OSError, match="Too many open files"),
+        ):
+            owner.serve(str(Path(directory) / "echo.sock"))
+        return
+    operations: dict[DescriptorOperation, Callable[[], object]] = {
+        "owner": lambda: OwnerIndex(8, 4096, 1, 1, _INCARNATION, _EXPIRY_NS),
+        "ring": lambda: owner.session_ring(8),
+        "descriptor": owner.reader_descriptor,
+    }
+    with _descriptor_budget(0), pytest.raises(OSError, match="Too many open files"):
+        operations[operation]()
+
+
 @pytest.fixture
-def descriptor_failure_process() -> Iterator[
-    Callable[[Literal["owner", "ring", "descriptor"]], BaseProcess]
-]:
+def descriptor_failure_process(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> Iterator[Callable[[DescriptorOperation], BaseProcess]]:
     processes: list[BaseProcess] = []
 
-    def start(operation: Literal["owner", "ring", "descriptor"]) -> BaseProcess:
+    def start(operation: DescriptorOperation) -> BaseProcess:
         process = multiprocessing.get_context("spawn").Process(
             target=_descriptor_allocation_failure,
-            args=(operation,),
+            args=(operation, tmp_path_factory.getbasetemp()),
         )
         process.start()
         processes.append(process)
@@ -441,13 +460,13 @@ def descriptor_failure_process() -> Iterator[
 
 
 @pytest.mark.parametrize(
-    "operation", ["owner", "ring", "descriptor"], ids=("owner", "ring", "descriptor")
+    "operation",
+    ["owner", "ring", "descriptor", "echo"],
+    ids=("owner", "ring", "descriptor", "echo"),
 )
 def test_descriptor_exhaustion_is_reported(
-    descriptor_failure_process: Callable[
-        [Literal["owner", "ring", "descriptor"]], BaseProcess
-    ],
-    operation: Literal["owner", "ring", "descriptor"],
+    descriptor_failure_process: Callable[[DescriptorOperation], BaseProcess],
+    operation: DescriptorOperation,
 ) -> None:
     process = descriptor_failure_process(operation)
     process.join(timeout=10)
