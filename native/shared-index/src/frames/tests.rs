@@ -68,3 +68,10 @@ fn damaged_positions_and_lengths_fail_closed() {
     queue.word(TAIL).store(u64::MAX, Ordering::Relaxed);
     assert!(!queue.push(b"overflow"));
 }
+
+#[test]
+fn producer_rejects_a_consumer_position_ahead_of_publication() {
+    let queue = frames(32);
+    queue.word(HEAD).store(1, Ordering::Relaxed);
+    assert!(!queue.push(b"frame"));
+}

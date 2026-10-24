@@ -15,11 +15,14 @@ pub(crate) struct Ring<M> {
 
 impl<M: Words> Ring<M> {
     pub(crate) fn words_for(capacity: usize) -> Option<usize> {
+        if capacity == 0 {
+            return None;
+        }
         capacity.checked_add(HEADER_WORDS)
     }
 
     pub(crate) fn create(memory: M, capacity: usize) -> Option<Self> {
-        if capacity == 0 || memory.words().len() < Self::words_for(capacity)? {
+        if memory.words().len() < Self::words_for(capacity)? {
             return None;
         }
         memory.words()[R_CAPACITY].store(capacity as u64, Ordering::Release);
@@ -29,7 +32,7 @@ impl<M: Words> Ring<M> {
     pub(crate) fn attach(memory: M) -> Option<Self> {
         let words = memory.words();
         let capacity = usize::try_from(words.get(R_CAPACITY)?.load(Ordering::Acquire)).ok()?;
-        if capacity == 0 || words.len() < Self::words_for(capacity)? {
+        if words.len() < Self::words_for(capacity)? {
             return None;
         }
         Some(Self { memory, capacity })

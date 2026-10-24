@@ -94,9 +94,24 @@ execute `from coverage_repro import Answer; a = Answer(); assert a.value == 42;
 assert a.read() == 42` in Python before reporting. The native report records
 both bodies as called but both generated wrappers as zero; its aggregate
 function coverage is 80%. Instrumenting PyO3 itself produces the same result.
+Inspection of emitted LLVM IR shows that each wrapper's only counter is on the
+error return from receiver extraction, rather than its successful entry. A zero
+count therefore does not establish that the wrapper was never called.
 
 Related upstream reports are [PyO3 #3989](https://github.com/PyO3/pyo3/issues/3989)
 and [PyO3 #5492](https://github.com/PyO3/pyo3/issues/5492); those closed reports do
 not establish a fix for this reproduction. No generated wrapper exception is
-applied by the command. A measurement solution must preserve coverage of all
+applied by the command, and reports are not post-processed.
+
+An upstream fix candidate is to mark the generated helper `impl` in PyO3's
+`pyo3-macros-backend/src/pyimpl.rs` as `#[automatically_derived]`. The handwritten
+method implementation remains separate. In a disposable source copy this uses
+Rust's standard treatment of generated implementations to produce 100% line and
+function coverage for the reproduction. Adding a registered but uncalled
+handwritten function drops function coverage to 80%, so the missing user code
+remains visible. This candidate has not been adopted as a dependency patch or
+fork; it needs upstream review. The related reports above do not track this
+specific candidate. Until an upstream solution is available, the native gate
+remains blocked under issue #328, including remediation of the remaining native
+error and invariant paths. A measurement solution must preserve coverage of all
 handwritten binding bodies before the CI gate can be enabled.
