@@ -445,3 +445,126 @@ fn rejects_a_descriptor_with_an_invalid_published_layout() {
     index.word(H_SLOTS).store(0, Ordering::Release);
     assert!(Index::attach(index.memory).is_none());
 }
+
+#[test]
+fn rejects_an_undersized_owner_mapping_before_publishing_a_header() {
+    let layout = Layout::new(8, 64, 1, 1).unwrap();
+    let memory = zeroed(layout.words() - 1);
+    assert!(Index::create(memory.clone(), layout, INCARNATION, EXPIRY_NS).is_none());
+    assert!(memory.iter().all(|word| word.load(Ordering::Relaxed) == 0));
+}
+
+#[test]
+fn a_location_from_a_larger_index_cannot_copy_outside_a_smaller_mapping() {
+    let (large, mut writer) = sized_fixture(8, 1024);
+    writer.store(&[0; 2048]).unwrap();
+    publish(&mut writer, b"identity", b"payload");
+    let located = large.locate(&query(b"identity")).unwrap();
+    let (small, _) = sized_fixture(8, 64);
+    let mut destination = [0xa5; 7];
+    assert!(!small.copy_payload(&located, &mut destination));
+    assert_eq!(destination, [0xa5; 7]);
+}
+
+#[test]
+fn snapshot_bounds_are_checked_before_copying() {
+    let (index, mut writer) = fixture();
+    let block = writer.store(b"payload").unwrap();
+    index
+        .arena(block.at + B_LENGTH)
+        .store(u64::MAX, Ordering::Release);
+    assert!(index.snapshot_length(block).is_none());
+    let mut destination = vec![0xa5; index.layout.arena_words * WORD_BYTES];
+    assert!(!index.snapshot_into(block, &mut destination));
+    assert!(destination.iter().all(|byte| *byte == 0xa5));
+}
+
+#[test]
+fn a_release_after_snapshot_sizing_invalidates_the_copy() {
+    let (index, mut writer) = fixture();
+    let block = writer.store(b"payload").unwrap();
+    let length = index.snapshot_length(block).unwrap();
+    writer.release(block);
+    assert!(!index.snapshot_into(block, &mut vec![0; length]));
+}
+
+#[test]
+fn equal_hashes_do_not_replace_or_return_a_different_identity() {
+    // Each pair has the same full hash in namespace 1, including unequal-length keys.
+    const COLLISIONS: [(&[u8], &[u8]); 2] = [
+        (
+            &[0; 16],
+            &[
+                1, 0, 0, 0, 0, 0, 0, 0, 0xae, 0x52, 0x43, 0x1c, 0xe5, 0xca, 0xe9, 0x37,
+            ],
+        ),
+        (
+            &[0; 8],
+            &[
+                0, 0, 0, 0, 0, 0, 0, 0, 0xbf, 0xcc, 0x1e, 0x61, 0x33, 0xe7, 0xf5, 0xc7,
+            ],
+        ),
+    ];
+    for (first_identity, second_identity) in COLLISIONS {
+        let first = query(first_identity);
+        let second = query(second_identity);
+        assert_eq!(first.hash(), second.hash());
+        assert_ne!(first.identity, second.identity);
+        let (index, mut writer) = fixture();
+        let first_block = publish(&mut writer, first.identity, b"first");
+        let second_block = publish(&mut writer, second.identity, b"second");
+        assert_eq!(writer.published(), 2);
+        assert_eq!(
+            read(&index, &first),
+            Ok((b"first".to_vec(), first_block.token()))
+        );
+        assert_eq!(
+            read(&index, &second),
+            Ok((b"second".to_vec(), second_block.token()))
+        );
+        writer.release(first_block);
+        assert_eq!(read(&index, &first), Err(Miss::Absent));
+        assert_eq!(
+            read(&index, &second),
+            Ok((b"second".to_vec(), second_block.token()))
+        );
+    }
+}
+
+#[cfg(target_pointer_width = "64")]
+#[test]
+fn refuses_payloads_larger_than_the_encoded_length_without_reading_them() {
+    use crate::memory::Mapping;
+
+    let length = usize::try_from(LENGTH_MASK + 1).unwrap();
+    let (mapping, _descriptor) = Mapping::memfd(c"oversized-payload", length / WORD_BYTES).unwrap();
+    // The sparse mapping is initialized by the kernel and has no writers.
+    let payload =
+        unsafe { std::slice::from_raw_parts(mapping.words().as_ptr().cast::<u8>(), length) };
+    let (_index, mut writer) = fixture();
+    assert_eq!(writer.store(payload), None);
+    let resident = writer.store(b"resident").unwrap();
+    let oversized_key = Query {
+        identity: payload,
+        shape: &[],
+        ..query(&[])
+    };
+    assert_eq!(
+        writer.publish(&oversized_key, resident),
+        Err(Refusal::Entry)
+    );
+    assert_eq!(writer.published(), 0);
+}
+
+#[test]
+fn publication_outside_the_namespace_layout_is_refused() {
+    let (index, mut writer) = fixture();
+    let payload = writer.store(b"payload").unwrap();
+    let outside = Query {
+        namespace: index.layout.namespaces,
+        ..query(b"identity")
+    };
+    assert_eq!(writer.publish(&outside, payload), Err(Refusal::Entry));
+    assert_eq!(writer.published(), 0);
+    assert!(index.is_live(payload));
+}

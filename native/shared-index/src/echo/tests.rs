@@ -244,3 +244,60 @@ fn closed_peer_rejects_pending_replies() {
     connection.outbox.extend_from_slice(b"reply");
     assert!(!connection.flush(&Poller::new().unwrap(), FIRST_CONNECTION));
 }
+
+#[test]
+fn peer_reset_closes_the_connection() {
+    let (mut connection, peer) = connection();
+    connection.stream.write_all(b"unread reply").unwrap();
+    drop(peer);
+    assert!(!connection.receive(&mut [0; 64]));
+}
+
+struct IgnoredUserSignal(libc::sigaction);
+
+extern "C" fn ignore_user_signal(_signal: libc::c_int) {}
+
+impl IgnoredUserSignal {
+    fn install() -> Self {
+        let mut action = unsafe { std::mem::zeroed::<libc::sigaction>() };
+        action.sa_sigaction = ignore_user_signal as *const () as usize;
+        assert_eq!(unsafe { libc::sigemptyset(&raw mut action.sa_mask) }, 0);
+        let mut previous = unsafe { std::mem::zeroed::<libc::sigaction>() };
+        assert_eq!(
+            unsafe { libc::sigaction(libc::SIGUSR1, &raw const action, &raw mut previous) },
+            0
+        );
+        Self(previous)
+    }
+}
+
+impl Drop for IgnoredUserSignal {
+    fn drop(&mut self) {
+        assert_eq!(
+            unsafe { libc::sigaction(libc::SIGUSR1, &raw const self.0, std::ptr::null_mut()) },
+            0
+        );
+    }
+}
+
+#[test]
+fn signals_do_not_stop_the_echo_server() {
+    use std::os::unix::thread::JoinHandleExt;
+    use std::time::Duration;
+
+    let _handler = IgnoredUserSignal::install();
+    let (server, mut client) = echo_socket();
+    client
+        .set_read_timeout(Some(Duration::from_secs(3)))
+        .unwrap();
+    let thread = server.echo.thread.as_ref().unwrap().as_pthread_t();
+    for request_id in 0..8 {
+        std::thread::sleep(Duration::from_millis(1));
+        assert_eq!(unsafe { libc::pthread_kill(thread, libc::SIGUSR1) }, 0);
+        let frame = request(request_id, &[]);
+        client.write_all(&frame).unwrap();
+        let mut reply = vec![0; frame.len()];
+        client.read_exact(&mut reply).unwrap();
+        assert_eq!(reply, frame);
+    }
+}
