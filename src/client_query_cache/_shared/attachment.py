@@ -784,6 +784,15 @@ class AsyncEndpoint:
             if prepared is None:
                 return
         frame, frame_bytes = prepared
+        if (
+            writer.transport.get_write_buffer_size() + frame_bytes
+            > self.config.frame_limit + LENGTH_BYTES
+        ):
+            self.counters.dropped_one_way += 1
+            if reader is not None and reader.admissions_enabled:
+                self.counters.native_admission_drops += 1
+                self.admission_recovery.dropped()
+            return
         writer.write(frame)
         self.counters.one_way += 1
         self.counters.bytes_sent += frame_bytes
