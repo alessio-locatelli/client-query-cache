@@ -18,8 +18,22 @@ dev_container := "client-query-cache-dev"
 # uv 0.12.9 locally / 0.12.19 in CI: https://docs.astral.sh/uv/reference/environment/#uv_locked
 # The default is inherited from the caller, otherwise unset. We override it because project recipes must reject a stale lockfile.
 export UV_LOCKED := "1"
+# Project-local Cargo tools take precedence over unrelated global installations.
+export PATH := justfile_directory() / ".rust-tools/bin" + ":" + env("PATH")
+# Cargo check/test and cargo-shear/cargo-deny metadata:
+# https://doc.rust-lang.org/cargo/commands/cargo-test.html#manifest-options
+# --locked in rust-lint, rust-tests, and rust-models: The default permits updating
+# Cargo.lock. We override it because validation must reject stale locked metadata.
+# RUSTFLAGS in rust-lint/rust-models: The default inherits the caller's flags,
+# otherwise none. We override it because those commands select Loom's model atomics.
+
+# renovate: datasource=crate depName=cargo-shear
+shear_version := "1.14.0"
+# renovate: datasource=crate depName=cargo-deny
+deny_version := "0.19.9"
 
 setup:
+    just setup-rust
     uv sync
     npm ci --silent
     prek install
@@ -66,8 +80,57 @@ ci-lint:
     ZIZMOR_OFFLINE=true zizmor --fix=all -q --persona=auditor .github
 
 format:
+    cargo fmt --manifest-path native/shared-index/Cargo.toml
     npm run format --silent
     just --fmt
+
+setup-rust:
+    uv python install
+    cargo fmt --version
+    cargo clippy --version
+    # Cargo install: https://doc.rust-lang.org/cargo/commands/cargo-install.html
+    # --locked: The default resolves dependencies anew. We override it because
+    # tool builds must use each release's committed dependency lockfile.
+    cargo install --locked --root .rust-tools cargo-shear --version '={{ shear_version }}'
+    cargo install --locked --root .rust-tools cargo-deny --version '={{ deny_version }}'
+
+rust-fmt-check:
+    # rustfmt: https://github.com/rust-lang/rustfmt#checking-style-on-a-ci-server
+    # --check: The default edits files. We override it because validation must reject drift.
+    cargo fmt --manifest-path native/shared-index/Cargo.toml --check
+
+rust-lint: rust-fmt-check
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export PYO3_PYTHON="$(uv python find)"
+    # Clippy: https://doc.rust-lang.org/clippy/usage.html
+    # --all-targets/--all-features: The defaults select default targets/features. We
+    # override them because checks must include tests and the shipped Python bindings.
+    # -D warnings: The default reports warnings. We override it because warnings,
+    # including unused production code, must fail the gate.
+    cargo clippy --locked --manifest-path native/shared-index/Cargo.toml --all-targets --all-features -- -D warnings
+    # --cfg loom selects model synchronization instead of production atomics.
+    RUSTFLAGS='--cfg loom' cargo clippy --locked --manifest-path native/shared-index/Cargo.toml --all-targets -- -D warnings
+    # cargo-shear: https://github.com/Boshen/cargo-shear#usage
+    # --deny-warnings: The default allows warnings. We override it because unused
+    # optional dependencies and unlinked source files must fail validation too.
+    cargo shear --locked --deny-warnings native/shared-index
+    # cargo-deny: https://embarkstudios.github.io/cargo-deny/cli/check.html
+    # --all-features: The default selects default features. We override it because
+    # dependency policy must include optional Python bindings.
+    # --deny warnings: The default permits warnings. We override it because every
+    # dependency-policy diagnostic must fail validation.
+    cargo deny --locked --manifest-path native/shared-index/Cargo.toml --all-features check --deny warnings
+
+rust-models:
+    # Cargo test: https://doc.rust-lang.org/cargo/commands/cargo-test.html
+    # --release: The default is unoptimized. We override it because exhaustive
+    # bounded Loom exploration must finish within the validation budget.
+    RUSTFLAGS='--cfg loom' cargo test --locked --release --manifest-path native/shared-index/Cargo.toml --quiet
+
+rust-tests:
+    cargo test --locked --manifest-path native/shared-index/Cargo.toml --quiet
+    just rust-models
 
 build:
     # Maturin 1.15: https://www.maturin.rs/distribution

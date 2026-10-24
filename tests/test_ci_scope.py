@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from typing import Literal
 
 import pytest
+
+from client_query_cache._types import NonEmptyStr
 
 pytestmark = pytest.mark.unit
 
@@ -296,6 +299,37 @@ def test_ci_scope_selects_validation_tiers(
     benchmark: bool,
     documentation: bool,
 ) -> None:
+    selected = _selected_tiers(changed_paths)
+    assert selected == {
+        "python": str(python).lower(),
+        "format": str(formatting).lower(),
+        "container": str(container).lower(),
+        "benchmark": str(benchmark).lower(),
+        "documentation": str(documentation).lower(),
+        "rust": str(python or container).lower(),
+    }
+
+
+@pytest.mark.parametrize(
+    ("path", "expected"),
+    [
+        ("native/shared-index/deny.toml", "true"),
+        ("native/shared-index/Cargo.lock", "true"),
+        ("native/shared-index/src/python.rs", "true"),
+        (".pre-commit-config.yaml", "true"),
+        ("justfile", "true"),
+        ("tests/shared_cache/test_owner.py", "true"),
+        ("docs/development/native-quality.md", "false"),
+    ],
+    ids=["policy", "lock", "bindings", "hooks", "recipes", "binding-tests", "guide"],
+)
+def test_ci_scope_selects_native_inputs(
+    path: NonEmptyStr, expected: Literal["true", "false"]
+) -> None:
+    assert _selected_tiers((path,))["rust"] == expected
+
+
+def _selected_tiers(changed_paths: tuple[str, ...]) -> dict[str, str]:
     completed = subprocess.run(
         (sys.executable, "-m", "scripts.ci_scope"),
         input=b"\0".join(path.encode() for path in changed_paths) + b"\0",
@@ -303,11 +337,4 @@ def test_ci_scope_selects_validation_tiers(
         check=True,
     )
 
-    selected = dict(line.split("=") for line in completed.stdout.decode().splitlines())
-    assert selected == {
-        "python": str(python).lower(),
-        "format": str(formatting).lower(),
-        "container": str(container).lower(),
-        "benchmark": str(benchmark).lower(),
-        "documentation": str(documentation).lower(),
-    }
+    return dict(line.split("=") for line in completed.stdout.decode().splitlines())

@@ -75,6 +75,7 @@ jobs:
       container: ${{ steps.paths.outputs.container }}
       benchmark: ${{ steps.paths.outputs.benchmark }}
       python: ${{ steps.paths.outputs.python }}
+      rust: ${{ steps.paths.outputs.rust }}
       format: ${{ steps.paths.outputs.format }}
       documentation: ${{ steps.paths.outputs.documentation }}
       python-versions: ${{ steps.python.outputs.versions }}
@@ -127,9 +128,9 @@ jobs:
       # Prek hook skipping:
       # https://prek.j178.dev/quickstart/#temporarily-disabling-hooks
       # SKIP: The default is no skipped hooks. We override it because slotscheck and
-      # formatting have dedicated lanes, while Lychee runs separately with its
+      # formatting and Rust have dedicated lanes, while Lychee runs separately with its
       # step-scoped GitHub token.
-      - run: SKIP=slotscheck,prettier,lychee prek run --all-files
+      - run: SKIP=slotscheck,prettier,lychee,rust-format,rust-lint prek run --all-files
 
       - run: prek run lychee --all-files
         env:
@@ -201,9 +202,58 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: just docs-build-editions
 
+  rust-static:
+    name: Rust static checks
+    needs: [scope, prek, prettier]
+    runs-on: ubuntu-24.04
+    # The default is 360 minutes. We override it because tool builds and static
+    # checks must stop within a bounded validation budget.
+    timeout-minutes: 15
+    steps:
+      - if: needs.scope.outputs.rust == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The default is true. We override it because native tooling needs no credentials.
+          persist-credentials: false
+
+      - if: needs.scope.outputs.rust == 'true'
+        uses: $/.github/actions/setup-toolchain
+
+      - if: needs.scope.outputs.rust == 'true'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .rust-tools
+          key: rust-tools-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('justfile') }}
+
+      - if: needs.scope.outputs.rust == 'true'
+        run: just setup-rust
+
+      - if: needs.scope.outputs.rust == 'true'
+        run: just rust-lint
+
+  rust-tests:
+    name: Rust tests and concurrency models
+    needs: [scope, rust-static]
+    runs-on: ubuntu-24.04
+    # The default is 360 minutes. We override it because a stalled native test
+    # or model must stop within the test budget.
+    timeout-minutes: 15
+    steps:
+      - if: needs.scope.outputs.rust == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The default is true. We override it because tests need no credentials.
+          persist-credentials: false
+
+      - if: needs.scope.outputs.rust == 'true'
+        uses: $/.github/actions/setup-toolchain
+
+      - if: needs.scope.outputs.rust == 'true'
+        run: just rust-tests
+
   package:
     name: Static checks, packaging, and isolated install (${{ matrix.python }})
-    needs: [scope, prek, prettier]
+    needs: [scope, prek, prettier, rust-static]
     if: needs.scope.outputs.python == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -223,15 +273,6 @@ jobs:
           python-version: ${{ matrix.python }}
 
       - run: uv sync --locked --no-default-groups --group typing --group build
-
-      - run: cargo test --manifest-path native/shared-index/Cargo.toml
-
-      # Cargo 1.99 cargo test: https://doc.rust-lang.org/cargo/commands/cargo-test.html
-      # --release: The default is the unoptimized test profile. We override it because the
-      # loom models explore every bounded interleaving and must finish within the job budget.
-      - env:
-          RUSTFLAGS: --cfg loom
-        run: cargo test --release --manifest-path native/shared-index/Cargo.toml
 
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -253,7 +294,7 @@ jobs:
 
   integration-e2e:
     name: Docker-backed integration, end-to-end, and coverage (${{ matrix.python }})
-    needs: [scope, prek, prettier]
+    needs: [scope, prek, prettier, rust-static]
     if: needs.scope.outputs.python == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -297,7 +338,7 @@ jobs:
 
   pymongo-min:
     name: Minimum PyMongo behavioral compatibility
-    needs: [scope, prek, prettier]
+    needs: [scope, prek, prettier, rust-static]
     if: needs.scope.outputs.python == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -326,7 +367,7 @@ jobs:
 
   mongodb-min:
     name: Minimum MongoDB server compatibility
-    needs: [scope, prek, prettier]
+    needs: [scope, prek, prettier, rust-static]
     if: needs.scope.outputs.python == 'true'
     # MongoDB kernel compatibility: docs/development/parallel-test-execution.md#ci-host-compatibility
     runs-on: ubuntu-22.04
@@ -390,7 +431,7 @@ jobs:
 
   memory:
     name: Cache memory regression guard
-    needs: [scope, prek, prettier]
+    needs: [scope, prek, prettier, rust-static]
     if: needs.scope.outputs.python == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -485,7 +526,7 @@ jobs:
 
   container:
     name: Development container build and tools
-    needs: [scope, prek, prettier]
+    needs: [scope, prek, prettier, rust-static]
     if: needs.scope.outputs.container == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -498,7 +539,7 @@ jobs:
 
   benchmark-startup:
     name: Isolated benchmark replica-set startup
-    needs: [scope, prek, prettier]
+    needs: [scope, prek, prettier, rust-static]
     if: needs.scope.outputs.benchmark == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10

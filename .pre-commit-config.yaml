@@ -100,6 +100,21 @@ repos:
 
   - repo: local
     hooks:
+      # Prek 0.5.4: https://prek.j178.dev/configuration/#pass_filenames
+      # pass_filenames for rust-format/rust-lint: The default is true. We override
+      # it because the recipes validate the whole crate rather than file operands.
+      - id: rust-format
+        name: Rust formatting
+        entry: just rust-fmt-check
+        language: system
+        files: ^native/.*\.rs$
+        pass_filenames: false
+      - id: rust-lint
+        name: Rust lint and dependency policy
+        entry: just rust-lint
+        language: system
+        files: ^(native/|justfile$|\.pre-commit-config\.yaml$)
+        pass_filenames: false
       - id: prettier
         name: Prettier
         entry: npm run format:check --

@@ -1,4 +1,13 @@
-#![cfg_attr(not(feature = "python"), allow(dead_code, unused_imports))]
+// Loom builds omit the Python consumers and OS-backed modules. Production linting
+// enables `python` and retains all dead-code and unused-import diagnostics.
+#![cfg_attr(
+    any(loom, all(test, not(feature = "python"))),
+    allow(
+        dead_code,
+        unused_imports,
+        reason = "native harnesses omit Python consumers; Loom also omits OS-backed modules"
+    )
+)]
 
 #[cfg(not(loom))]
 mod clock;

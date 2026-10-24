@@ -12,7 +12,7 @@ tools on `PATH`.
 ## Environment
 
 The image pins its base digest, Python, and tools installed outside DNF. DNF selects
-`bash`, `cargo`, `gh`, `just`, `rust`, `uv`, and the Node.js/npm packages from the Fedora 44 repositories
+`bash`, `cargo`, `clippy`, `gh`, `just`, `rust`, `rustfmt`, `uv`, and the Node.js/npm packages from the Fedora 44 repositories
 at build time. Renovate maintains `.node-version`; CI reads that file and the
 container selects the same Node.js major track. A Node.js update must pass the
 container build and tool checks before it can merge. These RPM versions are
@@ -85,6 +85,9 @@ For a specific path, node ID, or other pytest argument, run `just pytest -- <arg
 include the leading `--`, mirroring `just podman -- <arguments>` below, since some pytest flags
 (such as `-q` or `-v`) share a letter with `just`'s own short flags. Run `just lint` and
 `just format` for repository quality checks, and run `just ci-lint` after changing GitHub Actions.
+
+See [native Rust quality checks](docs/development/native-quality.md) for the native
+lint, dependency-policy, and concurrency-model gates.
 
 Run `just examples` to run every program in [`examples/`](examples/README.md) against a disposable replica set. The first run downloads each example's libraries.
 

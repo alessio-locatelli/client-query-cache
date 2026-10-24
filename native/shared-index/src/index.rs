@@ -1311,7 +1311,9 @@ mod models {
         }
     }
 
-    fn fixture() -> (Index<Arc<[AtomicU64]>>, Writer<Arc<[AtomicU64]>>) {
+    type Memory = Arc<[AtomicU64]>;
+
+    fn fixture() -> (Index<Memory>, Writer<Memory>) {
         let layout = Layout::new(2, 16, 1, 1).unwrap();
         let index = Index::create(zeroed(layout.words()), layout, 1, u64::MAX).unwrap();
         index.set_available(0, true);

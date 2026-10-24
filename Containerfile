@@ -29,11 +29,13 @@ RUN NODE_TOOL_VERSION="$(cat /tmp/node-version)" \
     && dnf install --assumeyes \
         bash \
         cargo \
+        clippy \
         gh \
         just \
         "nodejs${NODE_MAJOR}" \
         "nodejs${NODE_MAJOR}-npm" \
         rust \
+        rustfmt \
         uv \
     && dnf clean all \
     && PYTHON_TOOL_VERSION="$(cat /tmp/python-version)" \
