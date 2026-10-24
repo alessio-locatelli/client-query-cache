@@ -2046,3 +2046,28 @@ async def test_saturated_capture_messages_release_owner_reservations(
     assert isinstance(replacement["handle"], bytes)
     endpoint.send({"op": "discard", "handle": replacement["handle"]})
     await asyncio.to_thread(wait_for, lambda: not session.owner._handles)
+
+
+@pytest.fixture(params=[False, True], ids=["watching", "watcher-finished"])
+async def async_local_to_close(
+    shared_owner: SharedCacheOwner, request: pytest.FixtureRequest
+) -> AsyncIterator[AsyncLocalIndex]:
+    local = await AsyncLocalIndex.attach(attachment_for(shared_owner.config))
+    try:
+        if request.param:
+            local._sock.shutdown(socket.SHUT_RD)
+            await local._watcher
+        else:
+            assert not local._watcher.done()
+        yield local
+    finally:
+        await local.close()
+
+
+async def test_async_local_close_releases_descriptor_before_returning(
+    async_local_to_close: AsyncLocalIndex,
+) -> None:
+    await async_local_to_close.close()
+
+    assert async_local_to_close.descriptor == -1
+    assert async_local_to_close not in attachment._LOCAL_INDEXES
