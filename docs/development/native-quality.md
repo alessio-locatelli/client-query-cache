@@ -26,9 +26,9 @@ Dead-code analysis does not prove that every runtime path is used; DRY and unsaf
 code safety still require review.
 
 CI runs **Rust static checks** once, followed by **Rust tests and concurrency models**.
-Configure both as required checks, together with **Prek** and
-**Prettier, Markdownlint, and OpenSpec**: a skipped dependent job cannot substitute
-for its failed prerequisite. Python compatibility jobs retain their interpreter
+The `main` ruleset requires both checks from GitHub Actions, together with **Prek**
+and **Prettier, Markdownlint, and OpenSpec**. A skipped dependent job cannot
+substitute for its failed prerequisite. Python compatibility jobs retain their interpreter
 matrix without repeating the interpreter-independent Cargo suite.
 
 Python coverage does not measure native instructions. Native coverage enforcement
