@@ -13,6 +13,12 @@ bodies or OpenSpec. An empty Unreleased section is valid.
 
 ## Unreleased
 
+## [0.9.1] - 2026-10-24
+
+### Bug fixes
+
+Fix shared-cache memory growth under slow owners, cache-capacity exhaustion as document sizes change, and resource leaks or descriptor corruption during shutdown and fork.
+
 ## [0.9.0] - 2026-10-18
 
 ### Features
