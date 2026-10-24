@@ -803,6 +803,9 @@ class AsyncEndpoint:
             if reader is not None and reader.admissions_enabled:
                 self.counters.native_admission_drops += 1
                 self.admission_recovery.dropped()
+            if "handle" in message:
+                writer.transport.abort()
+                self._abandon(writer)
             return
         writer.write(frame)
         self.counters.one_way += 1
