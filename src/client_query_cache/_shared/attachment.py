@@ -226,6 +226,11 @@ def control_handshake(config: AttachmentConfig) -> ControlAttachment:
 _LOCAL_INDEXES: Final[weakref.WeakSet[LocalIndex | AsyncLocalIndex]] = weakref.WeakSet()
 
 
+def _unregister_closed(local: LocalIndex | AsyncLocalIndex) -> None:
+    if local.descriptor < 0:
+        _LOCAL_INDEXES.discard(local)
+
+
 # Fork callbacks run before coverage resumes in the child.
 def _detach_inherited() -> None:  # pragma: lax no cover
     for local in tuple(_LOCAL_INDEXES):
@@ -278,13 +283,17 @@ class LocalIndex:
             self.reader.detach()
 
     def close(self) -> None:
-        _LOCAL_INDEXES.discard(self)
         try:
-            self._sock.shutdown(socket.SHUT_RDWR)
-        except OSError:  # pragma: lax no cover (owner exit timing)
-            pass
-        self._watcher.join()
-        self._sock.close()
+            try:
+                self._sock.shutdown(socket.SHUT_RDWR)
+            except OSError:  # pragma: lax no cover (owner exit timing)
+                pass
+            self._watcher.join()
+        finally:
+            try:
+                self._sock.close()
+            finally:
+                _unregister_closed(self)
 
 
 class AsyncLocalIndex:
@@ -353,7 +362,7 @@ class AsyncLocalIndex:
             try:
                 await self._writer.wait_closed()
             finally:
-                _LOCAL_INDEXES.discard(self)
+                _unregister_closed(self)
 
 
 class _SyncConnection:

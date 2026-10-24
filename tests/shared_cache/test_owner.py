@@ -2071,3 +2071,59 @@ async def test_async_local_close_releases_descriptor_before_returning(
 
     assert async_local_to_close.descriptor == -1
     assert async_local_to_close not in attachment._LOCAL_INDEXES
+
+
+@pytest.fixture
+def local_waiting_to_close(
+    shared_owner: SharedCacheOwner, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[LocalIndex]:
+    local = LocalIndex.attach(attachment_for(shared_owner.config))
+    joining, resume = threading.Event(), threading.Event()
+    join = local._watcher.join
+
+    def held_join() -> None:
+        joining.set()
+        assert resume.wait(10)
+        join()
+
+    monkeypatch.setattr(local._watcher, "join", held_join)
+    closer = threading.Thread(target=local.close)
+    closer.start()
+    try:
+        assert joining.wait(10)
+        yield local
+    finally:
+        resume.set()
+        closer.join(10)
+        assert not closer.is_alive()
+
+
+@pytest.mark.filterwarnings("ignore:This process .* is multi-threaded")
+def test_fork_during_sync_close_detaches_the_still_open_socket(
+    local_waiting_to_close: LocalIndex,
+) -> None:
+    assert local_waiting_to_close.descriptor >= 0
+    child = multiprocessing.get_context("fork").Process(
+        target=_exit_unless_detached, args=(local_waiting_to_close,)
+    )
+    child.start()
+    child.join(10)
+    assert child.exitcode == 0
+
+
+def test_interrupted_sync_join_closes_and_unregisters_the_socket(
+    local_index: LocalIndex, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    join = local_index._watcher.join
+
+    def interrupted_join() -> None:
+        join()
+        raise KeyboardInterrupt
+
+    with monkeypatch.context() as patch:
+        patch.setattr(local_index._watcher, "join", interrupted_join)
+        with pytest.raises(KeyboardInterrupt):
+            local_index.close()
+
+    assert local_index.descriptor == -1
+    assert local_index not in attachment._LOCAL_INDEXES
