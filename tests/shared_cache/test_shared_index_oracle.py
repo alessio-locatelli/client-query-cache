@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, TypedDict
 
 import pytest
 from faker import Faker
+from hypothesis import given
 from hypothesis import strategies as st
 from hypothesis.stateful import (
     Bundle,
@@ -460,3 +461,19 @@ class _SharedFindIndexMachine(_SharedIndexMachine):
 
 def test_local_find_reads_never_disagree_with_the_core() -> None:
     run_state_machine_as_test(_SharedFindIndexMachine)  # type: ignore[no-untyped-call]
+
+
+@given(
+    lengths=st.lists(st.integers(min_value=0, max_value=3000), min_size=1, max_size=50)
+)
+def test_released_arena_capacity_supports_changing_payload_sizes(
+    lengths: list[NonNegativeInt],
+) -> None:
+    index = OwnerIndex(8, 4096, 1, 1, 1, _EXPIRY_NS)
+    for length in lengths:
+        encoded = bytes(length)
+        payload = index.store(encoded)
+        assert payload is not None
+        assert index.snapshot(payload) == encoded
+        index.release(payload)
+        assert index.snapshot(payload) is None

@@ -64,7 +64,7 @@ fn reads_a_published_entry() {
 
 #[test]
 fn stored_fragments_preserve_word_boundaries_and_reuse() {
-    let (index, mut writer) = fixture();
+    let (_index, mut writer) = fixture();
     for first_length in 0..=WORD_BYTES * 2 + 1 {
         for second_length in 0..=WORD_BYTES * 2 + 1 {
             let first = vec![0x11; first_length];
@@ -76,7 +76,7 @@ fn stored_fragments_preserve_word_boundaries_and_reuse() {
                 block.at + BLOCK_HEADER_WORDS,
                 &[&first, &[], &second, &third],
             );
-            assert_eq!(index.snapshot(block), Some(expected));
+            assert_eq!(writer.snapshot_copy(block), Some(expected));
             writer.release(block);
         }
     }
@@ -360,15 +360,19 @@ fn freed_blocks_are_reused_by_their_size_class() {
 
 #[test]
 fn snapshots_detect_free_and_reuse() {
-    let (index, mut writer) = fixture();
+    let (_index, mut writer) = fixture();
     let first = writer.store(b"first payload").unwrap();
-    assert_eq!(index.snapshot(first), Some(b"first payload".to_vec()));
+    assert_eq!(writer.snapshot_copy(first), Some(b"first payload".to_vec()));
     writer.release(first);
-    assert_eq!(index.snapshot(first), None);
+    assert_eq!(writer.snapshot_copy(first), None);
     let reused = writer.store(b"other payload").unwrap();
     assert_eq!(reused.at, first.at);
-    assert_eq!(index.snapshot(first), None);
-    assert_eq!(index.snapshot(reused), Some(b"other payload".to_vec()));
+    assert_eq!(writer.snapshot_copy(first), None);
+    writer.release(first);
+    assert_eq!(
+        writer.snapshot_copy(reused),
+        Some(b"other payload".to_vec())
+    );
 }
 
 #[test]
@@ -385,7 +389,7 @@ fn exhausted_capacity_is_reported() {
         writer.publish(&query(b"seventh"), blocks[6]),
         Err(Refusal::Slots)
     );
-    let (_index, mut writer) = sized_fixture(8, 6);
+    let (_index, mut writer) = sized_fixture(8, 4);
     let block = writer.store(b"payload").unwrap();
     assert_eq!(
         writer.publish(&query(b"identity"), block),
@@ -467,25 +471,12 @@ fn a_location_from_a_larger_index_cannot_copy_outside_a_smaller_mapping() {
 }
 
 #[test]
-fn snapshot_bounds_are_checked_before_copying() {
-    let (index, mut writer) = fixture();
-    let block = writer.store(b"payload").unwrap();
-    index
-        .arena(block.at + B_LENGTH)
-        .store(u64::MAX, Ordering::Release);
-    assert!(index.snapshot_length(block).is_none());
-    let mut destination = vec![0xa5; index.layout.arena_words * WORD_BYTES];
-    assert!(!index.snapshot_into(block, &mut destination));
-    assert!(destination.iter().all(|byte| *byte == 0xa5));
-}
-
-#[test]
 fn a_release_after_snapshot_sizing_invalidates_the_copy() {
-    let (index, mut writer) = fixture();
+    let (_index, mut writer) = fixture();
     let block = writer.store(b"payload").unwrap();
-    let length = index.snapshot_length(block).unwrap();
+    assert!(writer.snapshot(block).is_some());
     writer.release(block);
-    assert!(!index.snapshot_into(block, &mut vec![0; length]));
+    assert!(writer.snapshot(block).is_none());
 }
 
 #[test]
@@ -566,5 +557,120 @@ fn publication_outside_the_namespace_layout_is_refused() {
     };
     assert_eq!(writer.publish(&outside, payload), Err(Refusal::Entry));
     assert_eq!(writer.published(), 0);
-    assert!(index.is_live(payload));
+    assert!(writer.is_live(payload));
+}
+
+#[test]
+fn released_capacity_survives_changing_size_classes() {
+    let (_index, mut writer) = sized_fixture(8, 4096 / WORD_BYTES);
+    for length in [1000, 900, 800, 700, 400, 200, 3000, 100] {
+        let payload = vec![0x42; length];
+        let block = writer.store(&payload).expect("released arena capacity");
+        assert_eq!(writer.snapshot_copy(block), Some(payload));
+        writer.release(block);
+    }
+}
+
+#[test]
+fn adjacent_free_blocks_can_satisfy_a_larger_request() {
+    for order in [[0, 1, 2], [0, 2, 1], [2, 0, 1]] {
+        let (_index, mut writer) = sized_fixture(8, 64);
+        let blocks: Vec<Block> = (0..4)
+            .map(|value| writer.store(&[value; 120]).unwrap())
+            .collect();
+        for offset in order {
+            writer.release(blocks[offset]);
+        }
+        let combined = writer.store(&[4; 368]).expect("adjacent released blocks");
+        assert_eq!(writer.snapshot_copy(combined), Some(vec![4; 368]));
+        assert_eq!(writer.snapshot_copy(blocks[3]), Some(vec![3; 120]));
+    }
+}
+
+#[test]
+fn merged_payload_bytes_cannot_revive_an_obsolete_block() {
+    let (_index, mut writer) = sized_fixture(8, 64);
+    let first = writer.store(&[1; 112]).unwrap();
+    let second = writer.store(&[2; 112]).unwrap();
+    writer.release(first);
+    writer.release(second);
+    let mut payload = vec![0; 240];
+    let offset = (second.at - BLOCK_HEADER_WORDS) * WORD_BYTES;
+    payload[offset..offset + WORD_BYTES].copy_from_slice(&second.version.to_ne_bytes());
+    let combined = writer.store(&payload).unwrap();
+    assert_eq!(writer.snapshot_copy(second), None);
+    assert_eq!(
+        writer.publish(&query(b"obsolete"), second),
+        Err(Refusal::Dead)
+    );
+    writer.release(second);
+    assert_eq!(writer.snapshot_copy(combined), Some(payload));
+}
+
+#[test]
+fn stale_owner_handles_cannot_unpublish_after_wire_token_wrap() {
+    let (index, mut writer) = fixture();
+    let first = publish(&mut writer, b"first", b"old");
+    writer.release(first);
+    writer.next_version = (1_u64 << HIGH_SHIFT) + first.version;
+    let replacement = publish(&mut writer, b"replacement", b"new");
+    assert_eq!(first.token(), replacement.token());
+    assert!(!writer.unpublish(first));
+    writer.release(first);
+    assert_eq!(
+        read(&index, &query(b"replacement")),
+        Ok((b"new".to_vec(), replacement.token()))
+    );
+}
+
+#[test]
+fn foreign_allocation_handles_cannot_release_a_different_extent() {
+    let (_left_index, mut left) = fixture();
+    left.store(&[1; 40]).unwrap();
+    let foreign = left.store(&[2; 8]).unwrap();
+    let (_right_index, mut right) = fixture();
+    right.store(&[3; 8]).unwrap();
+    right.release(foreign);
+    let local = right.store(&[4; 8]).unwrap();
+    assert_eq!(local.version, foreign.version);
+    assert_ne!(local.at, foreign.at);
+    right.release(foreign);
+    assert_eq!(right.snapshot_copy(local), Some(vec![4; 8]));
+}
+
+#[test]
+fn a_large_free_bin_splits_without_disturbing_live_neighbors() {
+    for original_length in [32_768, 3 * 1024 * 1024] {
+        let (index, mut writer) = sized_fixture(8, block_words(original_length) + 256);
+        let original = writer.store(&vec![1; original_length]).unwrap();
+        let keeper = publish(&mut writer, b"keeper", &[2; 120]);
+        writer.release(original);
+        for length in [200, 20_000] {
+            let payload = vec![3; length];
+            let reused = writer.store(&payload).unwrap();
+            assert_eq!(reused.at, original.at);
+            assert_eq!(writer.snapshot_copy(reused), Some(payload));
+            assert_eq!(writer.snapshot_copy(original), None);
+            assert_eq!(
+                read(&index, &query(b"keeper")),
+                Ok((vec![2; 120], keeper.token()))
+            );
+            writer.release(reused);
+        }
+    }
+}
+
+#[test]
+fn reusing_a_bin_head_preserves_the_other_free_extents() {
+    let (_index, mut writer) = sized_fixture(8, 64);
+    let blocks: Vec<Block> = (0..4)
+        .map(|value| writer.store(&[value; 120]).unwrap())
+        .collect();
+    writer.release(blocks[0]);
+    writer.release(blocks[2]);
+    let first = writer.store(&[4; 120]).unwrap();
+    let second = writer.store(&[5; 120]).unwrap();
+    assert_eq!(writer.snapshot_copy(first), Some(vec![4; 120]));
+    assert_eq!(writer.snapshot_copy(second), Some(vec![5; 120]));
+    assert!(writer.store(b"overflow").is_none());
 }

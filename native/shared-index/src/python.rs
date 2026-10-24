@@ -114,14 +114,13 @@ impl OwnerIndex {
     }
 
     fn snapshot<'py>(&self, py: Python<'py>, payload: &Payload) -> Option<Bound<'py, PyBytes>> {
-        let length = self.index.snapshot_length(payload.block)?;
-        let mut intact = false;
-        let copy = PyBytes::new_with(py, length, |buffer| {
-            intact = self.index.snapshot_into(payload.block, buffer);
+        let writer = self.writer();
+        let snapshot = writer.snapshot(payload.block)?;
+        PyBytes::new_with(py, snapshot.length, |buffer| {
+            snapshot.copy_into(buffer);
             Ok(())
         })
-        .ok()?;
-        intact.then_some(copy)
+        .ok()
     }
 
     fn publish(
