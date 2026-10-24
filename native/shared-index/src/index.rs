@@ -177,6 +177,7 @@ pub(crate) struct Block {
     pub(crate) at: usize,
     pub(crate) version: u64,
     allocation: usize,
+    writer_id: u64,
 }
 
 impl Block {
@@ -585,6 +586,8 @@ impl Snapshot<'_> {
 
 type NodeId = NonZeroU32;
 const FREE_BINS: usize = 256;
+// Identity allocation is independent of the arena's synchronization model.
+static NEXT_WRITER_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
 struct Allocation {
     at: u32,
@@ -622,6 +625,7 @@ fn free_bin(words: usize) -> usize {
 }
 
 pub(crate) struct Writer<M> {
+    id: u64,
     index: Index<M>,
     tail: usize,
     last: Option<NodeId>,
@@ -636,6 +640,7 @@ pub(crate) struct Writer<M> {
 impl<M: Words> Writer<M> {
     pub(crate) fn new(index: Index<M>) -> Self {
         Self {
+            id: NEXT_WRITER_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             index,
             tail: 0,
             last: None,
@@ -775,15 +780,12 @@ impl<M: Words> Writer<M> {
             at,
             version,
             allocation,
+            writer_id: self.id,
         })
     }
 
     fn is_live(&self, block: Block) -> bool {
-        self.allocations
-            .get(block.allocation)
-            .is_some_and(|allocation| {
-                allocation.version == block.version && allocation.at as usize == block.at
-            })
+        self.id == block.writer_id && self.allocations[block.allocation].version == block.version
     }
 
     pub(crate) fn snapshot(&self, block: Block) -> Option<Snapshot<'_>> {
@@ -954,6 +956,7 @@ impl<M: Words> Writer<M> {
             at,
             version,
             allocation,
+            writer_id: self.id,
         });
     }
 
