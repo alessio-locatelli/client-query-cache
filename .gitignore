@@ -61,6 +61,7 @@ docs/_build/
 # PyBuilder
 .pybuilder/
 target/
+.rust-tools/
 
 # IPython
 profile_default/

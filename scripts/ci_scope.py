@@ -82,6 +82,8 @@ def main() -> None:
     print(f"benchmark={str(benchmark).lower()}")
     print(f"python={str(python).lower()}")
     print(f"format={str(formatting).lower()}")
+    rust = python or container or ".pre-commit-config.yaml" in paths
+    print(f"rust={str(rust).lower()}")
 
 
 if __name__ == "__main__":

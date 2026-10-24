@@ -1,0 +1,16 @@
+# cargo-deny 0.19.9: https://embarkstudios.github.io/cargo-deny/checks/licenses/cfg.html
+# The default license allowlist is empty. We override it because these permissive
+# licenses cover the resolved native dependency graph and permit distribution.
+[licenses]
+allow = ["Apache-2.0", "Apache-2.0 WITH LLVM-exception", "MIT", "Unicode-3.0"]
+
+[bans]
+# The default is warn. We override it because duplicate versions must be resolved.
+multiple-versions = "deny"
+# The default is allow. We override it because unbounded dependencies hinder review.
+wildcards = "deny"
+
+[sources]
+# Both defaults are warn. We override them because only crates.io is approved.
+unknown-registry = "deny"
+unknown-git = "deny"
