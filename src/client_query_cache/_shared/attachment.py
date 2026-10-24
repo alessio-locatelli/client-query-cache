@@ -341,14 +341,19 @@ class AsyncLocalIndex:
             self.reader.detach()
 
     async def close(self) -> None:
-        _LOCAL_INDEXES.discard(self)
         self.reader.detach()
         self._writer.close()
         self._watcher.cancel()
         try:
-            await self._watcher
-        except asyncio.CancelledError:
-            pass
+            try:
+                await self._watcher
+            except asyncio.CancelledError:
+                pass
+        finally:
+            try:
+                await self._writer.wait_closed()
+            finally:
+                _LOCAL_INDEXES.discard(self)
 
 
 class _SyncConnection:
