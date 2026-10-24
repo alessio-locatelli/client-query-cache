@@ -31,6 +31,8 @@ export PATH := justfile_directory() / ".rust-tools/bin" + ":" + env("PATH")
 shear_version := "1.14.0"
 # renovate: datasource=crate depName=cargo-deny
 deny_version := "0.19.9"
+# renovate: datasource=crate depName=cargo-llvm-cov
+llvm_cov_version := "0.9.1"
 
 setup:
     just setup-rust
@@ -93,6 +95,8 @@ setup-rust:
     # tool builds must use each release's committed dependency lockfile.
     cargo install --locked --root .rust-tools cargo-shear --version '={{ shear_version }}'
     cargo install --locked --root .rust-tools cargo-deny --version '={{ deny_version }}'
+    cargo install --locked --root .rust-tools cargo-llvm-cov --version '={{ llvm_cov_version }}'
+    rustup component add llvm-tools-preview
 
 rust-fmt-check:
     # rustfmt: https://github.com/rust-lang/rustfmt#checking-style-on-a-ci-server
@@ -127,6 +131,9 @@ rust-models:
     # --release: The default is unoptimized. We override it because exhaustive
     # bounded Loom exploration must finish within the validation budget.
     RUSTFLAGS='--cfg loom' cargo test --locked --release --manifest-path native/shared-index/Cargo.toml --quiet
+
+rust-coverage:
+    bash scripts/native-coverage.sh
 
 rust-tests:
     cargo test --locked --manifest-path native/shared-index/Cargo.toml --quiet
