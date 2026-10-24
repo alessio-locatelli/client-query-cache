@@ -109,6 +109,45 @@ def test_namespace_capacity_bypasses_collection_metadata_probe(
 
 
 @pytest.mark.parametrize(
+    "reason",
+    [
+        pytest.param(BypassReason.VIEW_COLLECTION, id="view"),
+        pytest.param(BypassReason.TIME_SERIES_COLLECTION, id="time-series"),
+    ],
+)
+def test_ineligibility_probe_cannot_cache_metadata_for_a_recreated_namespace(
+    client: MongoClient[BsonDict],
+    monkeypatch: pytest.MonkeyPatch,
+    reason: BypassReason,
+) -> None:
+    with CacheManager(client) as manager:
+        namespace = NamespaceId("example", "widgets")
+        monkeypatch.setattr(
+            type(manager._coordinator),
+            "activate_database",
+            lambda _self, _database: object(),
+        )
+
+        def recreate_during_probe() -> CollectionProbeResult:
+            manager.cache_core.drop_namespace(namespace)
+            assert manager.cache_core.try_current_epoch(namespace) is not None
+            return CollectionProbeResult(reason, None)
+
+        assert (
+            manager._cache_ineligibility_reason(namespace, recreate_during_probe)
+            is reason
+        )
+        assert manager.cache_core.has_namespace(namespace)
+        assert manager._metadata.get(namespace) is None
+        assert (
+            manager._cache_ineligibility_reason(
+                namespace, lambda: CollectionProbeResult(None, None)
+            )
+            is None
+        )
+
+
+@pytest.mark.parametrize(
     ("probe_result", "expected_reason"),
     [
         pytest.param(
