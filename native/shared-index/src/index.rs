@@ -195,9 +195,15 @@ fn word_of(bytes: &[u8]) -> u64 {
 }
 
 fn copy_words(source: &[AtomicU64], destination: &mut [u8]) {
-    for (chunk, word) in destination.chunks_mut(WORD_BYTES).zip(source) {
-        let bytes = word.load(Ordering::Relaxed).to_ne_bytes();
-        chunk.copy_from_slice(&bytes[..chunk.len()]);
+    let complete_words = destination.len() / WORD_BYTES;
+    let mut chunks = destination.chunks_exact_mut(WORD_BYTES);
+    for (chunk, word) in chunks.by_ref().zip(source) {
+        chunk.copy_from_slice(&word.load(Ordering::Relaxed).to_ne_bytes());
+    }
+    let remainder = chunks.into_remainder();
+    if !remainder.is_empty() {
+        let bytes = source[complete_words].load(Ordering::Relaxed).to_ne_bytes();
+        remainder.copy_from_slice(&bytes[..remainder.len()]);
     }
 }
 
