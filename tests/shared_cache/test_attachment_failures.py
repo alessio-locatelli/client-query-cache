@@ -280,3 +280,43 @@ async def test_async_admissions_bound_socket_buffer(
         blocked_endpoint.counters.dropped_one_way if native_overflow else 0
     )
     assert blocked_endpoint.admission_recovery.awaiting_capacity is native_overflow
+
+
+@pytest.fixture
+async def buffered_local_index() -> AsyncGenerator[attachment.AsyncLocalIndex]:
+    sender, peer = socket.socketpair()
+    sender.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 4096)
+    stream, writer = await asyncio.open_unix_connection(sock=sender)
+
+    local = attachment.AsyncLocalIndex(Mock(spec=ReaderIndex), stream, writer, sender)
+    writer.write(bytes(262_144))
+    with peer:
+        try:
+            yield local
+        finally:
+            writer.transport.abort()
+            await asyncio.sleep(0)
+            try:
+                await local.close()
+            except asyncio.CancelledError:
+                pass
+
+
+async def test_cancelled_async_close_retains_registration_while_socket_is_open(
+    buffered_local_index: attachment.AsyncLocalIndex,
+) -> None:
+    local = buffered_local_index
+    assert local._writer.transport.get_write_buffer_size() > 0
+    closing = asyncio.create_task(local.close())
+    with pytest.raises(asyncio.CancelledError):
+        await local._watcher
+    await asyncio.sleep(0)
+    assert not closing.done()
+    assert local.descriptor >= 0
+
+    closing.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await closing
+
+    assert local.descriptor >= 0
+    assert local in attachment._LOCAL_INDEXES
