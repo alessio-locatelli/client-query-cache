@@ -2,7 +2,7 @@
 
 ## 1. Native production measurement
 
-- [ ] 1.1 Implement the isolated combined-measurement flow in design.md using a pinned cargo-llvm-cov tool; document prerequisites and measured scope. Verify the report includes every production Rust module and Python binding bodies, uses fresh profiles, emits no aggregation warnings, and leaves the ordinary project installation unchanged.
+- [x] 1.1 Implement the isolated combined-measurement flow in design.md using a pinned cargo-llvm-cov tool; document prerequisites and measured scope. Verify the report includes every production Rust module and Python binding bodies, uses fresh profiles, emits no aggregation warnings, and leaves the ordinary project installation unchanged.
 - [ ] 1.2 Reproduce every uncovered path from the established report; add behavior tests, remove proven dead code, or document a technically justified generated/platform exception at its source. Include the boundary and lifecycle cases listed in design.md, retain existing tests, and compare affected runtime metrics with main if production code changes. Verify 100% production line/function coverage without broad exclusions.
 
 ## 2. Coverage gate integration

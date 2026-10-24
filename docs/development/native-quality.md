@@ -7,16 +7,18 @@ uses Cargo's existing-install detection and does not install OS packages.
 The contributor image supplies Rust formatting and Clippy. Outside that image,
 use the official [Rust installation guide](https://rust-lang.org/tools/install)
 and [rustup components guide](https://rust-lang.github.io/rustup/concepts/components.html)
-for `rustfmt` and `clippy`. Missing prerequisites fail visibly.
+for `rustfmt`, `clippy`, and `llvm-tools-preview` (the LLVM tools matching rustc).
+Missing prerequisites fail visibly.
 The pinned quality tools require Rust 1.95 or newer; this does not raise the
 native library's declared minimum compiler version.
 
-| Command            | Enforcement                                                                                                                                    |
-| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `just rust-lint`   | Formatting, Clippy/compiler warnings, unused dependencies and unlinked files, dependency advisories, licenses, duplicate versions, and sources |
-| `just format`      | Repairs Rust formatting alongside repository formatting                                                                                        |
-| `just rust-tests`  | Native unit tests and bounded Loom concurrency models                                                                                          |
-| `just rust-models` | Bounded Loom concurrency models alone                                                                                                          |
+| Command              | Enforcement                                                                                                                                    |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `just rust-lint`     | Formatting, Clippy/compiler warnings, unused dependencies and unlinked files, dependency advisories, licenses, duplicate versions, and sources |
+| `just format`        | Repairs Rust formatting alongside repository formatting                                                                                        |
+| `just rust-tests`    | Native unit tests and bounded Loom concurrency models                                                                                          |
+| `just rust-coverage` | Combined production line/function coverage from native and Python tests                                                                        |
+| `just rust-models`   | Bounded Loom concurrency models alone                                                                                                          |
 
 The local hooks run native static checks, and `just lint` includes them through
 Prek. Native dependency policy lives in `native/shared-index/deny.toml`. Compiler
@@ -33,3 +35,68 @@ matrix without repeating the interpreter-independent Cargo suite.
 
 Python coverage does not measure native instructions. Native coverage enforcement
 is tracked separately in [issue #328](https://github.com/alessio-locatelli/client-query-cache/issues/328).
+
+## Native coverage
+
+`just rust-coverage` requires the tools installed by `just setup-rust`. It combines
+Rust unit tests and container-free shared-cache Python tests against an
+instrumented wheel. Only the wheel enables the Python feature, so the module
+initialization export is measured once. The command clears previous profiles and crate artifacts before each run,
+while retaining compiled dependencies. It enforces 100% line and function
+coverage and prints missing lines. Loom remains a separate correctness check.
+
+The measured production modules are `clock`, `echo`, `frames`, `hash`, `index`,
+`memory`, `python`, `relay`, and `ring`, including the Python binding bodies.
+`lib` and `sync` contain only module declarations and imports. Test bodies and
+helpers live in test-only files excluded by cargo-llvm-cov's
+[standard source selection](https://github.com/taiki-e/cargo-llvm-cov#exclude-file-from-coverage);
+no production file is excluded. Stable instrumentation does not measure branch
+coverage.
+
+The wheel and locked test dependencies are installed in a fresh virtual
+environment under `/tmp/agents/`. Its Python runs pytest directly, leaving the
+ordinary editable installation unchanged. The command prints the temporary
+artifact directory, including the Python test log, for diagnosis.
+
+### Generated wrapper measurement
+
+Coverage remediation belongs to [issue #328](https://github.com/alessio-locatelli/client-query-cache/issues/328).
+With rustc 1.99.1, cargo-llvm-cov 0.9.1, and PyO3 0.29.3, Python can execute a
+getter and a no-argument method while LLVM reports their generated
+`___pymethod_*` wrappers as uncovered. The method bodies themselves receive
+execution counts. This reproduces with a standalone `cdylib` using PyO3's
+`abi3-py314` feature:
+
+```rust
+use pyo3::prelude::*;
+
+#[pyclass]
+struct Answer;
+
+#[pymethods]
+impl Answer {
+    #[new]
+    fn new() -> Self { Self }
+    #[getter]
+    fn value(&self) -> u64 { 42 }
+    fn read(&self) -> u64 { 42 }
+}
+
+#[pymodule]
+fn coverage_repro(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<Answer>()
+}
+```
+
+Use cargo-llvm-cov's [external-tests workflow](https://github.com/taiki-e/cargo-llvm-cov#get-coverage-of-external-tests)
+to build the crate, expose the resulting library as `coverage_repro.so`, then
+execute `from coverage_repro import Answer; a = Answer(); assert a.value == 42;
+assert a.read() == 42` in Python before reporting. The native report records
+both bodies as called but both generated wrappers as zero; its aggregate
+function coverage is 80%. Instrumenting PyO3 itself produces the same result.
+
+Related upstream reports are [PyO3 #3989](https://github.com/PyO3/pyo3/issues/3989)
+and [PyO3 #5492](https://github.com/PyO3/pyo3/issues/5492); those closed reports do
+not establish a fix for this reproduction. No generated wrapper exception is
+applied by the command. A measurement solution must preserve coverage of all
+handwritten binding bodies before the CI gate can be enabled.
