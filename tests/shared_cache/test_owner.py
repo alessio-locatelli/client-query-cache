@@ -28,9 +28,10 @@ from client_query_cache._core.manager import CacheCore, IdentityCapture
 from client_query_cache._core.order_sensitive_keys import order_sensitive_key
 from client_query_cache._core.snapshots import BypassReason
 from client_query_cache._core.stream_events import route_change_event
-from client_query_cache._shared import adapters, coordinator
+from client_query_cache._shared import adapters, attachment, coordinator
 from client_query_cache._shared.attachment import (
     AsyncEndpoint,
+    AsyncLocalIndex,
     AttachmentConfigurationError,
     ControlAttachment,
     EndpointCounters,
@@ -1925,3 +1926,50 @@ async def test_full_native_queues_use_bounded_fallback_or_skip_admission(
     assert len(ring.drain_admissions()) == 1
     admission_endpoint.send(local_miss, reader)
     assert admission_endpoint.counters.native_admission_recoveries == int(not connected)
+
+
+def _exit_unless_zero(descriptor: NonNegativeInt) -> None:
+    raise SystemExit(int(os.read(descriptor, 1) != b"\x00"))
+
+
+@pytest.fixture(params=["sync", "async"])
+def closed_local_descriptor(
+    request: pytest.FixtureRequest, shared_owner: SharedCacheOwner
+) -> Iterator[NonNegativeInt]:
+    with Path("/dev/zero").open("rb") as replacement:
+        config = attachment_for(shared_owner.config)
+        local: LocalIndex | AsyncLocalIndex
+        if request.param == "sync":
+            local = LocalIndex.attach(config)
+            descriptor = local.descriptor
+            local.close()
+        else:
+
+            async def close_async() -> tuple[AsyncLocalIndex, int]:
+                local = await AsyncLocalIndex.attach(config)
+                descriptor = local.descriptor
+                await local.close()
+                return local, descriptor
+
+            local, descriptor = asyncio.run(close_async())
+        assert descriptor >= 0
+        assert local.descriptor == -1
+        assert local not in attachment._LOCAL_INDEXES
+        os.dup2(replacement.fileno(), descriptor)
+        try:
+            yield descriptor
+        finally:
+            os.close(descriptor)
+
+
+@pytest.mark.filterwarnings("ignore:This process .* is multi-threaded")
+def test_closed_attachments_do_not_replace_reused_descriptors_after_fork(
+    closed_local_descriptor: NonNegativeInt,
+) -> None:
+    assert os.read(closed_local_descriptor, 1) == b"\x00"
+    child = multiprocessing.get_context("fork").Process(
+        target=_exit_unless_zero, args=(closed_local_descriptor,)
+    )
+    child.start()
+    child.join(10)
+    assert child.exitcode == 0

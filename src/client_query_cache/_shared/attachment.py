@@ -230,8 +230,11 @@ _LOCAL_INDEXES: Final[weakref.WeakSet[LocalIndex | AsyncLocalIndex]] = weakref.W
 def _detach_inherited() -> None:  # pragma: lax no cover
     for local in tuple(_LOCAL_INDEXES):
         local.reader.detach()
+        descriptor = local.descriptor
+        if descriptor < 0:
+            continue
         placeholder = os.open(os.devnull, os.O_RDONLY | os.O_CLOEXEC)
-        os.dup2(placeholder, local.descriptor)
+        os.dup2(placeholder, descriptor)
         os.close(placeholder)
 
 
@@ -244,7 +247,6 @@ class LocalIndex:
         "_sock",
         "_watcher",
         "admissions_enabled",
-        "descriptor",
         "incarnation",
         "reader",
     )
@@ -253,12 +255,15 @@ class LocalIndex:
         self.reader = control.reader
         self.admissions_enabled = control.reader.admissions_enabled
         self.incarnation = control.reader.incarnation
-        self.descriptor = control.sock.fileno()
         self._sock = control.sock
         self._sock.settimeout(None)
         self._watcher = threading.Thread(target=self._watch, daemon=True)
         _LOCAL_INDEXES.add(self)
         self._watcher.start()
+
+    @property
+    def descriptor(self) -> int:
+        return self._sock.fileno()
 
     @classmethod
     def attach(cls, config: AttachmentConfig) -> LocalIndex:
@@ -273,6 +278,7 @@ class LocalIndex:
             self.reader.detach()
 
     def close(self) -> None:
+        _LOCAL_INDEXES.discard(self)
         try:
             self._sock.shutdown(socket.SHUT_RDWR)
         except OSError:  # pragma: lax no cover (owner exit timing)
@@ -284,10 +290,10 @@ class LocalIndex:
 class AsyncLocalIndex:
     __slots__ = (
         "__weakref__",
+        "_sock",
         "_watcher",
         "_writer",
         "admissions_enabled",
-        "descriptor",
         "incarnation",
         "reader",
     )
@@ -297,15 +303,19 @@ class AsyncLocalIndex:
         reader: ReaderIndex,
         stream: asyncio.StreamReader,
         writer: asyncio.StreamWriter,
-        descriptor: NonNegativeInt,
+        sock: socket.socket,
     ) -> None:
         self.reader = reader
         self.admissions_enabled = reader.admissions_enabled
         self.incarnation = reader.incarnation
-        self.descriptor = descriptor
+        self._sock = sock
         self._writer = writer
         self._watcher = asyncio.create_task(self._watch(stream))
         _LOCAL_INDEXES.add(self)
+
+    @property
+    def descriptor(self) -> int:
+        return self._sock.fileno()
 
     @classmethod
     async def attach(cls, config: AttachmentConfig) -> AsyncLocalIndex:
@@ -320,7 +330,7 @@ class AsyncLocalIndex:
         except BaseException:
             control.sock.close()
             raise
-        return cls(control.reader, stream, writer, control.sock.fileno())
+        return cls(control.reader, stream, writer, control.sock)
 
     async def _watch(self, stream: asyncio.StreamReader) -> None:
         try:
@@ -331,6 +341,7 @@ class AsyncLocalIndex:
             self.reader.detach()
 
     async def close(self) -> None:
+        _LOCAL_INDEXES.discard(self)
         self.reader.detach()
         self._writer.close()
         self._watcher.cancel()
