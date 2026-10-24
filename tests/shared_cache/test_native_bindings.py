@@ -9,7 +9,7 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack, contextmanager
 from pathlib import Path
-from tempfile import TemporaryDirectory
+from tempfile import TemporaryDirectory, TemporaryFile
 from time import monotonic, monotonic_ns
 from typing import TYPE_CHECKING, Literal
 
@@ -84,12 +84,12 @@ def native_reader(
 
 
 @pytest.fixture
-def mapped_descriptor() -> Iterator[Callable[[bytes], NonNegativeInt]]:
+def mapped_descriptor(tmp_path: Path) -> Iterator[Callable[[bytes], NonNegativeInt]]:
     with ExitStack() as resources:
 
         def create(contents: bytes) -> NonNegativeInt:
-            descriptor = os.memfd_create("native-binding-test")
-            resources.callback(os.close, descriptor)
+            temporary_file = resources.enter_context(TemporaryFile(dir=tmp_path))
+            descriptor = temporary_file.fileno()
             os.write(descriptor, contents)
             return descriptor
 
