@@ -44,9 +44,10 @@ env:
 # (Rust Tools in image 20261004.327.1: Cargo 1.99.0, https://github.com/actions/runner-images/blob/bdac7c6000c3501174076ad6d6a06ce46871fa71/images/ubuntu/Ubuntu2404-Readme.md#rust-tools).
 # cache v6.1.0:
 # https://github.com/actions/cache/blob/55cc8345863c7cc4c66a329aec7e433d2d1c52a9/action.yml
-# restore-keys for prek-results (prek), prettier (prettier), mypy (package) and
-# pytest-hypothesis (integration-e2e): The default is no prefix fallback. We override it
-# because compatible environment/dependency keys allow reuse across commits.
+# restore-keys for prek-results (prek), prettier (prettier), rust-tools (rust-static),
+# mypy (package) and pytest-hypothesis (integration-e2e): The default is no prefix
+# fallback. We override it because compatible environment/dependency keys allow
+# reuse across commits.
 # strategy.fail-fast in package and integration-e2e: The default is true. We override
 # it because every supported Python lane must report even when another lane fails.
 # upload-artifact v7.0.1:
@@ -130,7 +131,7 @@ jobs:
       # SKIP: The default is no skipped hooks. We override it because slotscheck and
       # formatting and Rust have dedicated lanes, while Lychee runs separately with its
       # step-scoped GitHub token.
-      - run: SKIP=slotscheck,prettier,lychee,rust-format,rust-lint prek run --all-files
+      - run: SKIP=slotscheck,prettier,lychee,rust-lint prek run --all-files
 
       - run: prek run lychee --all-files
         env:
@@ -224,6 +225,8 @@ jobs:
         with:
           path: .rust-tools
           key: rust-tools-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('justfile') }}
+          restore-keys: |
+            rust-tools-${{ runner.os }}-${{ runner.arch }}-
 
       - if: needs.scope.outputs.rust == 'true'
         run: just setup-rust
