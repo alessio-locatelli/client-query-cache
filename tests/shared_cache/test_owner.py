@@ -90,7 +90,6 @@ _HOUR_NS = 3_600 * 10**9
 _PARTIAL_SEND_BYTES = 5
 _SMALL_RING = 4
 _OVERFLOWING_HITS = 32
-_ADDRESS_MASK = 0xFFFF_FFFF
 _PAUSE_SECONDS = 1.0
 _SWEEP_GAP_SECONDS = 0.2
 _POLL_QUIET_MS = 50
@@ -828,7 +827,7 @@ def test_an_rpc_hit_never_returns_a_reused_block(
 
     assert core._lru.peek(key) is None
     assert reused[0] is not None
-    assert reused[0].token & _ADDRESS_MASK == original.token & _ADDRESS_MASK
+    assert index.snapshot(original) is None
     assert reply["r"] == "miss" or reply["value"] == value
 
 

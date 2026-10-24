@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::num::NonZeroU32;
 
 use crate::hash;
 use crate::memory::{WORD_BYTES, Words};
@@ -52,9 +53,8 @@ const NAMESPACE_SHIFT: u32 = 32;
 const LENGTH_MASK: u64 = 0xffff_ffff;
 const HIGH_SHIFT: u32 = 32;
 
-const B_VERSION: usize = 0;
-const B_LENGTH: usize = 1;
-const BLOCK_HEADER_WORDS: usize = 2;
+const B_ALLOCATION: usize = 0;
+const BLOCK_HEADER_WORDS: usize = 1;
 const EXACT_CLASS_WORDS: usize = 16;
 const CLASSES_PER_DOUBLING: usize = 8;
 
@@ -176,6 +176,7 @@ pub(crate) struct Located {
 pub(crate) struct Block {
     pub(crate) at: usize,
     pub(crate) version: u64,
+    allocation: usize,
 }
 
 impl Block {
@@ -533,42 +534,6 @@ impl<M: Words> Index<M> {
         }
         Err(Miss::Contended)
     }
-
-    fn block_version(&self, block: Block) -> Option<&AtomicU64> {
-        self.arena_range(block.at as u64, BLOCK_HEADER_WORDS)
-            .map(|header| &header[B_VERSION])
-    }
-
-    pub(crate) fn is_live(&self, block: Block) -> bool {
-        self.block_version(block)
-            .is_some_and(|version| version.load(Ordering::Acquire) == block.version)
-    }
-
-    pub(crate) fn snapshot_length(&self, block: Block) -> Option<usize> {
-        let header = self.arena_range(block.at as u64, BLOCK_HEADER_WORDS)?;
-        if header[B_VERSION].load(Ordering::Acquire) != block.version {
-            return None;
-        }
-        let length = to_usize(header[B_LENGTH].load(Ordering::Relaxed))?;
-        self.arena_range(
-            (block.at + BLOCK_HEADER_WORDS) as u64,
-            length.div_ceil(WORD_BYTES),
-        )?;
-        Some(length)
-    }
-
-    pub(crate) fn snapshot_into(&self, block: Block, destination: &mut [u8]) -> bool {
-        let Some(source) = self.arena_range(
-            (block.at + BLOCK_HEADER_WORDS) as u64,
-            destination.len().div_ceil(WORD_BYTES),
-        ) else {
-            return false;
-        };
-        copy_words(source, destination);
-        fence(Ordering::Acquire);
-        self.block_version(block)
-            .is_some_and(|version| version.load(Ordering::Relaxed) == block.version)
-    }
 }
 
 struct Slot {
@@ -591,10 +556,80 @@ const EMPTY_SLOT: Slot = Slot {
     token: 0,
 };
 
+// Owner snapshots borrow the writer while copying. Arena coalescing may overwrite
+// old in-arena headers, so only the writer's live allocation metadata is authoritative.
+pub(crate) struct Snapshot<'a> {
+    source: &'a [AtomicU64],
+    pub(crate) length: usize,
+}
+
+impl Snapshot<'_> {
+    pub(crate) fn copy_into(&self, destination: &mut [u8]) {
+        #[cfg(not(loom))]
+        {
+            // SAFETY: the snapshot borrows the sole arena writer through the copy.
+            // Owner mutation needs its exclusive borrow (and Python's writer mutex),
+            // and worker mappings are read-only. No atomic write can overlap this
+            // byte view. AtomicU64 has the same representation as u64; source covers
+            // ceil(length / WORD_BYTES) initialized words, including an empty value.
+            let bytes = unsafe {
+                std::slice::from_raw_parts(self.source.as_ptr().cast::<u8>(), self.length)
+            };
+            destination.copy_from_slice(bytes);
+        }
+        // Loom atomics have a different representation and must track each read.
+        #[cfg(loom)]
+        copy_words(self.source, destination);
+    }
+}
+
+type NodeId = NonZeroU32;
+const FREE_BINS: usize = 256;
+
+struct Allocation {
+    at: u32,
+    words: u32,
+    length: u32,
+    version: u64,
+    previous: Option<NodeId>,
+    next: Option<NodeId>,
+    free_previous: Option<NodeId>,
+    free_next: Option<NodeId>,
+}
+
+impl Allocation {
+    fn index(id: NodeId) -> usize {
+        id.get() as usize - 1
+    }
+
+    fn id(index: usize) -> NodeId {
+        NonZeroU32::new(index as u32 + 1).expect("node count fits the arena")
+    }
+}
+
+// Rounded requests fit every extent in their bin. Arbitrary free sizes round
+// down, so a bin search never selects an extent smaller than the request.
+fn free_bin(words: usize) -> usize {
+    if words <= EXACT_CLASS_WORDS {
+        return words - 1;
+    }
+    let exponent = words.ilog2();
+    let step = (1_usize << exponent) / CLASSES_PER_DOUBLING;
+    EXACT_CLASS_WORDS
+        + (exponent - EXACT_CLASS_WORDS.ilog2()) as usize * CLASSES_PER_DOUBLING
+        + (words - (1_usize << exponent)) / step
+        - 1
+}
+
 pub(crate) struct Writer<M> {
     index: Index<M>,
-    cursor: usize,
-    free: HashMap<usize, Vec<usize>>,
+    tail: usize,
+    last: Option<NodeId>,
+    bins: [Option<NodeId>; FREE_BINS],
+    occupied_bins: [u64; FREE_BINS / u64::BITS as usize],
+    allocations: Vec<Allocation>,
+    free_allocations: Vec<usize>,
+    next_version: u64,
     published: HashMap<u64, usize>,
 }
 
@@ -602,8 +637,13 @@ impl<M: Words> Writer<M> {
     pub(crate) fn new(index: Index<M>) -> Self {
         Self {
             index,
-            cursor: 0,
-            free: HashMap::new(),
+            tail: 0,
+            last: None,
+            bins: [None; FREE_BINS],
+            occupied_bins: [0; FREE_BINS / u64::BITS as usize],
+            allocations: Vec::new(),
+            free_allocations: Vec::new(),
+            next_version: 1,
             published: HashMap::new(),
         }
     }
@@ -612,44 +652,211 @@ impl<M: Words> Writer<M> {
         self.published.len()
     }
 
+    fn node(
+        &mut self,
+        at: usize,
+        words: usize,
+        previous: Option<NodeId>,
+        next: Option<NodeId>,
+    ) -> usize {
+        let allocation = Allocation {
+            at: at as u32,
+            words: words as u32,
+            length: 0,
+            version: 0,
+            previous,
+            next,
+            free_previous: None,
+            free_next: None,
+        };
+        if let Some(index) = self.free_allocations.pop() {
+            self.allocations[index] = allocation;
+            index
+        } else {
+            let index = self.allocations.len();
+            self.allocations.push(allocation);
+            index
+        }
+    }
+
+    fn fitting_bin(&self, words: usize) -> Option<usize> {
+        let bin = free_bin(words);
+        let word = bin / u64::BITS as usize;
+        let bits = self.occupied_bins[word] & (u64::MAX << (bin % u64::BITS as usize));
+        if bits != 0 {
+            return Some(word * u64::BITS as usize + bits.trailing_zeros() as usize);
+        }
+        for word in word + 1..self.occupied_bins.len() {
+            let bits = self.occupied_bins[word];
+            if bits != 0 {
+                return Some(word * u64::BITS as usize + bits.trailing_zeros() as usize);
+            }
+        }
+        None
+    }
+
+    fn insert_free(&mut self, index: usize) {
+        let bin = free_bin(self.allocations[index].words as usize);
+        let next = self.bins[bin];
+        let id = Allocation::id(index);
+        self.allocations[index].free_previous = None;
+        self.allocations[index].free_next = next;
+        if let Some(next) = next {
+            self.allocations[Allocation::index(next)].free_previous = Some(id);
+        }
+        self.bins[bin] = Some(id);
+        self.occupied_bins[bin / u64::BITS as usize] |= 1 << (bin % u64::BITS as usize);
+    }
+
+    fn remove_free(&mut self, index: usize) {
+        let allocation = &self.allocations[index];
+        let previous = allocation.free_previous;
+        let next = allocation.free_next;
+        if let Some(previous) = previous {
+            self.allocations[Allocation::index(previous)].free_next = next;
+        } else {
+            let bin = free_bin(allocation.words as usize);
+            self.bins[bin] = next;
+            if next.is_none() {
+                self.occupied_bins[bin / u64::BITS as usize] &= !(1 << (bin % u64::BITS as usize));
+            }
+        }
+        if let Some(next) = next {
+            self.allocations[Allocation::index(next)].free_previous = previous;
+        }
+    }
+
     fn allocate(&mut self, length: usize) -> Option<Block> {
         let words = block_words(length);
-        let at = match self.free.get_mut(&words).and_then(Vec::pop) {
-            Some(at) => at,
-            None => {
-                let end = self.cursor.checked_add(words)?;
-                if end > self.index.layout.arena_words {
-                    return None;
-                }
-                let at = self.cursor;
-                self.cursor = end;
-                at
+        let allocation = if let Some(bin) = self.fitting_bin(words) {
+            let index = Allocation::index(self.bins[bin].unwrap());
+            self.remove_free(index);
+            let node = &self.allocations[index];
+            let at = node.at as usize;
+            let available = node.words as usize;
+            if available > words {
+                let next = node.next.expect("free extents precede a live block");
+                let remainder = self.node(
+                    at + words,
+                    available - words,
+                    Some(Allocation::id(index)),
+                    Some(next),
+                );
+                let remainder_id = Allocation::id(remainder);
+                self.allocations[Allocation::index(next)].previous = Some(remainder_id);
+                self.allocations[index].next = Some(remainder_id);
+                self.insert_free(remainder);
+                self.allocations[index].words = words as u32;
             }
+            index
+        } else {
+            let end = self.tail.checked_add(words)?;
+            if end > self.index.layout.arena_words {
+                return None;
+            }
+            let index = self.node(self.tail, words, self.last, None);
+            if let Some(last) = self.last {
+                self.allocations[Allocation::index(last)].next = Some(Allocation::id(index));
+            }
+            self.tail = end;
+            self.last = Some(Allocation::id(index));
+            index
         };
-        let version_word = self.index.arena(at + B_VERSION);
-        let version = version_word.load(Ordering::Relaxed) + 1;
-        version_word.store(version, Ordering::Relaxed);
+        let version = self.next_version;
+        self.next_version += 2;
+        let node = &mut self.allocations[allocation];
+        node.version = version;
+        node.length = length as u32;
+        let at = node.at as usize;
         self.index
-            .arena(at + B_LENGTH)
-            .store(length as u64, Ordering::Relaxed);
-        fence(Ordering::Release);
-        Some(Block { at, version })
+            .arena(at + B_ALLOCATION)
+            .store(allocation as u64, Ordering::Relaxed);
+        Some(Block {
+            at,
+            version,
+            allocation,
+        })
+    }
+
+    fn is_live(&self, block: Block) -> bool {
+        self.allocations
+            .get(block.allocation)
+            .is_some_and(|allocation| {
+                allocation.version == block.version && allocation.at as usize == block.at
+            })
+    }
+
+    pub(crate) fn snapshot(&self, block: Block) -> Option<Snapshot<'_>> {
+        if !self.is_live(block) {
+            return None;
+        }
+        let length = self.allocations[block.allocation].length as usize;
+        let source = self
+            .index
+            .arena_range(
+                (block.at + BLOCK_HEADER_WORDS) as u64,
+                length.div_ceil(WORD_BYTES),
+            )
+            .expect("live allocation fits the arena");
+        Some(Snapshot { source, length })
     }
 
     fn free_block(&mut self, block: Block) {
-        let version = self.index.arena(block.at + B_VERSION);
-        if version.load(Ordering::Relaxed) != block.version {
-            return;
+        let index = block.allocation;
+        let node = &self.allocations[index];
+        let mut at = node.at;
+        let mut words = node.words;
+        let original_previous = node.previous;
+        let original_next = node.next;
+        let mut previous = original_previous;
+        let mut next = original_next;
+        if let Some(left) = previous {
+            let left = Allocation::index(left);
+            if self.allocations[left].version == 0 {
+                self.remove_free(left);
+                let node = &self.allocations[left];
+                at = node.at;
+                words += node.words;
+                previous = node.previous;
+                self.free_allocations.push(left);
+            }
         }
-        version.store(block.version + 1, Ordering::Relaxed);
-        let length = self
-            .index
-            .arena(block.at + B_LENGTH)
-            .load(Ordering::Relaxed) as usize;
-        self.free
-            .entry(block_words(length))
-            .or_default()
-            .push(block.at);
+        if let Some(right) = next {
+            let right = Allocation::index(right);
+            if self.allocations[right].version == 0 {
+                self.remove_free(right);
+                let node = &self.allocations[right];
+                words += node.words;
+                next = node.next;
+                self.free_allocations.push(right);
+            }
+        }
+        self.allocations[index].version = 0;
+        if let Some(next) = next {
+            if previous != original_previous || Some(next) != original_next {
+                self.allocations[index].at = at;
+                self.allocations[index].words = words;
+                self.allocations[index].previous = previous;
+                self.allocations[index].next = Some(next);
+            }
+            if Some(next) != original_next {
+                self.allocations[Allocation::index(next)].previous = Some(Allocation::id(index));
+            }
+            if previous != original_previous {
+                if let Some(previous) = previous {
+                    self.allocations[Allocation::index(previous)].next =
+                        Some(Allocation::id(index));
+                }
+            }
+            self.insert_free(index);
+        } else {
+            self.tail = at as usize;
+            self.last = previous;
+            if let Some(previous) = previous {
+                self.allocations[Allocation::index(previous)].next = None;
+            }
+            self.free_allocations.push(index);
+        }
     }
 
     fn write_bytes(&self, at: usize, parts: &[&[u8]]) {
@@ -700,8 +907,10 @@ impl<M: Words> Writer<M> {
     }
 
     pub(crate) fn release(&mut self, block: Block) {
-        self.unpublish(block);
-        self.free_block(block);
+        if self.is_live(block) {
+            self.unpublish_live(block);
+            self.free_block(block);
+        }
     }
 
     fn write_slot(&self, slot: usize, fields: &Slot) {
@@ -739,8 +948,13 @@ impl<M: Words> Writer<M> {
 
     fn free_key(&mut self, slot: &Slot) {
         let at = slot.key_at as usize - BLOCK_HEADER_WORDS;
-        let version = self.index.arena(at + B_VERSION).load(Ordering::Relaxed);
-        self.free_block(Block { at, version });
+        let allocation = self.index.arena(at + B_ALLOCATION).load(Ordering::Relaxed) as usize;
+        let version = self.allocations[allocation].version;
+        self.free_block(Block {
+            at,
+            version,
+            allocation,
+        });
     }
 
     fn find_slot(&self, hash: u64, query: &Query<'_>) -> Option<usize> {
@@ -770,7 +984,7 @@ impl<M: Words> Writer<M> {
         if key_len as u64 > LENGTH_MASK || query.namespace >= self.index.layout.namespaces {
             return Err(Refusal::Entry);
         }
-        if !self.index.is_live(payload) {
+        if !self.is_live(payload) {
             return Err(Refusal::Dead);
         }
         let token = payload.token();
@@ -784,10 +998,7 @@ impl<M: Words> Writer<M> {
         let slot = self.find_slot(hash, query).ok_or(Refusal::Slots)?;
         let key = self.allocate(key_len).ok_or(Refusal::Arena)?;
         self.write_bytes(key.at + BLOCK_HEADER_WORDS, &[query.identity, query.shape]);
-        let payload_len = self
-            .index
-            .arena(payload.at + B_LENGTH)
-            .load(Ordering::Relaxed);
+        let payload_len = self.allocations[payload.allocation].length as u64;
         let previous = self.read_slot(slot);
         if previous.state & STATE_MASK == OCCUPIED {
             self.published.remove(&previous.token);
@@ -810,6 +1021,10 @@ impl<M: Words> Writer<M> {
     }
 
     pub(crate) fn unpublish(&mut self, payload: Block) -> bool {
+        self.is_live(payload) && self.unpublish_live(payload)
+    }
+
+    fn unpublish_live(&mut self, payload: Block) -> bool {
         let Some(slot) = self.published.remove(&payload.token()) else {
             return false;
         };
@@ -913,11 +1128,15 @@ mod models {
     #[test]
     fn snapshots_never_return_a_reused_block() {
         model(|| {
-            let (index, mut writer) = fixture();
+            let (_index, mut writer) = fixture();
             let first = writer.store(&[1; 16]).unwrap();
-            let reader = loom::thread::spawn(move || index.snapshot(first));
-            writer.release(first);
-            writer.store(&[2; 16]).unwrap();
+            let writer = loom::sync::Arc::new(loom::sync::Mutex::new(writer));
+            let attached = writer.clone();
+            let reader = loom::thread::spawn(move || attached.lock().unwrap().snapshot_copy(first));
+            let mut owner = writer.lock().unwrap();
+            owner.release(first);
+            owner.store(&[2; 16]).unwrap();
+            drop(owner);
             if let Some(payload) = reader.join().unwrap() {
                 assert_eq!(payload, [1; 16]);
             }
