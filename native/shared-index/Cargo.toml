@@ -20,7 +20,7 @@ python = ["dep:pyo3"]
 
 [dependencies]
 libc = "0.2.190"
-pyo3 = { version = "0.29.3", features = ["abi3-py314"], optional = true }
+pyo3 = { version = "0.30.1", features = ["abi3-py314"], optional = true }
 
 [target.'cfg(loom)'.dependencies]
 loom = "0.7.2"

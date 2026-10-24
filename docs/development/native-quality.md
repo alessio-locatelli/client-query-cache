@@ -60,58 +60,8 @@ artifact directory, including the Python test log, for diagnosis.
 
 ### Generated wrapper measurement
 
-Coverage remediation belongs to [issue #328](https://github.com/alessio-locatelli/client-query-cache/issues/328).
-With rustc 1.99.1, cargo-llvm-cov 0.9.1, and PyO3 0.29.3, Python can execute a
-getter and a no-argument method while LLVM reports their generated
-`___pymethod_*` wrappers as uncovered. The method bodies themselves receive
-execution counts. This reproduces with a standalone `cdylib` using PyO3's
-`abi3-py314` feature:
-
-```rust
-use pyo3::prelude::*;
-
-#[pyclass]
-struct Answer;
-
-#[pymethods]
-impl Answer {
-    #[new]
-    fn new() -> Self { Self }
-    #[getter]
-    fn value(&self) -> u64 { 42 }
-    fn read(&self) -> u64 { 42 }
-}
-
-#[pymodule]
-fn coverage_repro(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_class::<Answer>()
-}
-```
-
-Use cargo-llvm-cov's [external-tests workflow](https://github.com/taiki-e/cargo-llvm-cov#get-coverage-of-external-tests)
-to build the crate, expose the resulting library as `coverage_repro.so`, then
-execute `from coverage_repro import Answer; a = Answer(); assert a.value == 42;
-assert a.read() == 42` in Python before reporting. The native report records
-both bodies as called but both generated wrappers as zero; its aggregate
-function coverage is 80%. Instrumenting PyO3 itself produces the same result.
-Inspection of emitted LLVM IR shows that each wrapper's only counter is on the
-error return from receiver extraction, rather than its successful entry. A zero
-count therefore does not establish that the wrapper was never called.
-
-Related upstream reports are [PyO3 #3989](https://github.com/PyO3/pyo3/issues/3989)
-and [PyO3 #5492](https://github.com/PyO3/pyo3/issues/5492); those closed reports do
-not establish a fix for this reproduction. No generated wrapper exception is
-applied by the command, and reports are not post-processed.
-
-An upstream fix candidate is to mark the generated helper `impl` in PyO3's
-`pyo3-macros-backend/src/pyimpl.rs` as `#[automatically_derived]`. The handwritten
-method implementation remains separate. In a disposable source copy this uses
-Rust's standard treatment of generated implementations to produce 100% line and
-function coverage for the reproduction. Adding a registered but uncalled
-handwritten function drops function coverage to 80%, so the missing user code
-remains visible. This candidate has not been adopted as a dependency patch or
-fork; it needs upstream review. The related reports above do not track this
-specific candidate. Until an upstream solution is available, the native gate
-remains blocked under issue #328, including remediation of the remaining native
-error and invariant paths. A measurement solution must preserve coverage of all
-handwritten binding bodies before the CI gate can be enabled.
+[PyO3 #6545](https://github.com/PyO3/pyo3/issues/6545) tracks misleading coverage
+entries for generated `#[pymethods]` helpers. The issue contains the minimal
+reproduction, verified versions, diagnostic evidence, and upstream fix candidate.
+The native coverage command uses the unmodified cargo-llvm-cov report and applies
+no generated-wrapper exception.
