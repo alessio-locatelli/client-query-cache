@@ -14,7 +14,7 @@ import threading
 import time
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal, TypedDict
 
 import pytest
 
@@ -49,6 +49,7 @@ from client_query_cache._shared.shared_index import (
     SharedIndexLimits,
 )
 from client_query_cache._shared.wire import (
+    PROTOCOL_VERSION,
     ProtocolError,
     decode_frame,
     encode_frame,
@@ -1972,3 +1973,76 @@ def test_closed_attachments_do_not_replace_reused_descriptors_after_fork(
     child.start()
     child.join(10)
     assert child.exitcode == 0
+
+
+class _AsyncCapture(TypedDict):
+    endpoint: AsyncEndpoint
+    selection: Message
+    handle: bytes
+
+
+@pytest.fixture
+async def captured_async_endpoint(
+    session: _Session,
+) -> AsyncIterator[_AsyncCapture]:
+    endpoint = await AsyncEndpoint.attach(attachment_for(session.owner.config))
+    selection: Message = {
+        "op": "select-identity",
+        "ns": [_DATABASE, _COLLECTION],
+        "epoch": session.epoch,
+        "identity": _identity(1),
+        "shape": encode_key(_SHAPE),
+    }
+    try:
+        reply = await endpoint.request(selection)
+        assert reply is not None
+        assert isinstance(reply["handle"], bytes)
+        yield {"endpoint": endpoint, "selection": selection, "handle": reply["handle"]}
+    finally:
+        await endpoint.close()
+
+
+@pytest.mark.parametrize("operation", ["discard", "admit"], ids=["discard", "admit"])
+async def test_saturated_capture_messages_release_owner_reservations(
+    session: _Session,
+    captured_async_endpoint: _AsyncCapture,
+    operation: Literal["discard", "admit"],
+) -> None:
+    endpoint = captured_async_endpoint["endpoint"]
+    writer = endpoint._writer
+    assert writer is not None
+    writer.get_extra_info("socket").setsockopt(
+        socket.SOL_SOCKET, socket.SO_SNDBUF, 4096
+    )
+    session.owner.pause(_PAUSE_SECONDS)
+    pending = asyncio.create_task(endpoint.request({"op": "observe"}))
+    await asyncio.sleep(0)
+    filler = encode_frame(
+        {
+            "v": PROTOCOL_VERSION,
+            "id": 0,
+            "op": "observe",
+            "padding": bytes(endpoint.config.frame_limit // 2),
+        }
+    )
+    for _ in range(4):
+        writer.write(filler)
+    assert writer.transport.get_write_buffer_size() > endpoint.config.frame_limit
+
+    endpoint.send(
+        {
+            "op": operation,
+            "handle": captured_async_endpoint["handle"],
+            "value": b"value",
+        }
+    )
+
+    assert endpoint._writer is None
+    assert writer.transport.get_write_buffer_size() == 0
+    assert await pending is None
+    await asyncio.to_thread(wait_for, lambda: not session.owner._handles)
+    replacement = await endpoint.request(captured_async_endpoint["selection"])
+    assert replacement is not None
+    assert isinstance(replacement["handle"], bytes)
+    endpoint.send({"op": "discard", "handle": replacement["handle"]})
+    await asyncio.to_thread(wait_for, lambda: not session.owner._handles)
