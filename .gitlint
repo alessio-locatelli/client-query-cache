@@ -15,3 +15,6 @@ line-length=100
 # https://jorisroovers.com/gitlint/latest/rules/builtin_rules/#b5-body-min-length
 # The default is 20. We override it because small mechanical changes can have concise bodies.
 min-length=3
+
+[body-match-regex]
+regex=(?ims)\A(?!.*^[ \t]*Co-Authored-By[ \t]*:)
