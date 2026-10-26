@@ -32,6 +32,22 @@ election. The three-member topology uses host networking and loopback member
 addresses so both the test process and replica-set discovery can reach each
 member.
 
+For independent workers, cut the existing sockets immediately and keep the
+fault armed until a `getMore` fails. If the cut does not interrupt a poll,
+sever the proxy sockets from the next `getMore` command-start callback, after
+PyMongo has checked out its connection. Assert that a poll fails as well as
+that a stream reopens. The callback only shuts down sockets; the async fault
+operation waits for socket closure after the poll fails. Cutting sockets
+between polls can leave the server cursor usable through a new connection,
+so a TCP cut alone does not establish that a stream must reopen. This path
+was reproduced against real MongoDB while investigating
+[issue #342](https://github.com/alessio-locatelli/client-query-cache/issues/342).
+
+Exercise the next-poll callback deterministically with a control operation
+that omits the immediate cut. Require one callback cut and a failed poll in
+each worker before checking recovery. This uses the same real TCP proxy and
+recovery assertions as the immediate-cut cases.
+
 ### Regression cases
 
 Run two real workers per applicable path:

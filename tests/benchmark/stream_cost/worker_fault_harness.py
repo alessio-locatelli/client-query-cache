@@ -6,23 +6,31 @@ import os
 import time
 from contextlib import nullcontext
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal, Self, assert_never, cast
+from typing import TYPE_CHECKING, Literal, Self, assert_never, cast, override
 
 from pymongo import AsyncMongoClient
 from pymongo.errors import OperationFailure, PyMongoError
 
 from benchmarks.stream_cost.multiprocess_run import WireCommands
 from benchmarks.stream_cost.shared_cache.owner import proxy_for
-from client_query_cache._types import BsonDict, NonNegativeInt, PositiveFloat
+from client_query_cache._types import (
+    BsonDict,
+    NonEmpty,
+    NonEmptyStr,
+    NonNegativeInt,
+    PositiveFloat,
+)
 from client_query_cache.asynchronous.manager import CacheManager
 
 if TYPE_CHECKING:
+    import socket
     from collections.abc import Callable, Mapping
     from multiprocessing.connection import Connection
     from multiprocessing.context import SpawnContext
     from multiprocessing.process import BaseProcess
 
     from pymongo.asynchronous.collection import AsyncCollection
+    from pymongo.monitoring import CommandFailedEvent, CommandStartedEvent
 
     from benchmarks.stream_cost.shared_cache.owner import FaultableProxy
     from client_query_cache.asynchronous.collection import CachedCollection
@@ -34,13 +42,54 @@ if TYPE_CHECKING:
 
 type Payload = dict[str, object]
 type WorkerPath = Literal["direct", "independent"]
-type Operation = Literal["close", "lose-history", "read", "sever", "snapshot"]
-type WorkerOperation = Literal["lose-history", "read", "sever", "snapshot"]
+type TcpFault = Literal["sever", "sever-on-poll"]
+type WorkerOperation = Literal["lose-history", "read", "snapshot"] | TcpFault
+type Operation = Literal["close"] | WorkerOperation
 
 _HISTORY_LOST = 286
 _POLL_SECONDS = 0.05
 _WORKER_TIMEOUT_SECONDS = 30.0
 _SHUTDOWN_SECONDS = 5.0
+
+
+class WorkerCommands(WireCommands):
+    def __init__(self, collections: tuple[NonEmptyStr, ...]) -> None:
+        super().__init__(collections)
+        self._pending_sever: tuple[FaultableProxy, asyncio.Future[None]] | None = None
+        self._severed_sockets: tuple[socket.socket, ...] = ()
+        self.poll_cuts: NonNegativeInt = 0
+
+    async def sever_during_poll(
+        self, proxy: FaultableProxy, *, cut_immediately: bool
+    ) -> NonNegativeInt:
+        severed: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+        self._severed_sockets = ()
+        self.poll_cuts = 0
+        self._pending_sever = (proxy, severed)
+        try:
+            if cut_immediately:
+                self._severed_sockets = _sever_established_proxy_sockets(proxy)
+            await asyncio.wait_for(asyncio.shield(severed), _SHUTDOWN_SECONDS)
+            return await _await_socket_closure(self._severed_sockets)
+        finally:
+            self._pending_sever = None
+
+    @override
+    def started(self, event: CommandStartedEvent) -> None:
+        super().started(event)
+        if event.command_name == "getMore" and self._pending_sever is not None:
+            proxy, _ = self._pending_sever
+            # The driver has checked out this poll's socket but has not sent it.
+            self._severed_sockets += _sever_established_proxy_sockets(proxy)
+            self.poll_cuts += 1
+
+    @override
+    def failed(self, event: CommandFailedEvent) -> None:
+        super().failed(event)
+        if event.command_name == "getMore" and self._pending_sever is not None:
+            _, severed = self._pending_sever
+            self._pending_sever = None
+            severed.set_result(None)
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,7 +107,7 @@ class WorkerRuntime:
     manager: CacheManager[BsonDict] | None
     collection: WorkerCollection
     config: WorkerConfig
-    listener: WireCommands
+    listener: WorkerCommands
     proxy: FaultableProxy | None
 
 
@@ -216,7 +265,7 @@ async def _run_worker(config: WorkerConfig, control: Connection) -> None:
         uri = config.uri
         if proxy is not None:
             uri = f"mongodb://127.0.0.1:{proxy.local_port}/?directConnection=true"
-        listener = WireCommands((config.collection,))
+        listener = WorkerCommands((config.collection,))
         client = AsyncMongoClient[BsonDict](
             uri, serverSelectionTimeoutMS=1_000, event_listeners=[listener]
         )
@@ -292,42 +341,58 @@ async def _handle_operation(
     manager = runtime.manager
     config = runtime.config
     listener = runtime.listener
-    if operation == "snapshot":
-        return _state("result", manager, config, listener)
-    if operation == "read":
-        document = await runtime.collection.find_one({"_id": config.identity})
-        state = _state("result", manager, config, listener)
-        state["revision"] = None if document is None else document["revision"]
-        return state
-    if operation == "sever":
-        proxy = runtime.proxy
-        assert proxy is not None
-        severed_sockets = _sever_established_proxy_sockets(proxy)
-        state = _state("result", manager, config, listener)
-        state["severed_sockets"] = severed_sockets
-        return state
-    if operation == "lose-history":
-        assert manager is not None
-        error_code = await _lose_async_stream_history(manager, config.database)
-        state = _state("result", manager, config, listener)
-        state["history_fault_code"] = error_code
-        return state
+    match operation:
+        case "snapshot":
+            return _state("result", manager, config, listener)
+        case "read":
+            document = await runtime.collection.find_one({"_id": config.identity})
+            state = _state("result", manager, config, listener)
+            state["revision"] = None if document is None else document["revision"]
+            return state
+        case "sever" | "sever-on-poll":
+            proxy = runtime.proxy
+            assert proxy is not None
+            severed_sockets = (
+                await _await_socket_closure(_sever_established_proxy_sockets(proxy))
+                if manager is None
+                else await listener.sever_during_poll(
+                    proxy, cut_immediately=operation == "sever"
+                )
+            )
+            state = _state("result", manager, config, listener)
+            state["severed_sockets"] = severed_sockets
+            state["poll_cuts"] = listener.poll_cuts
+            return state
+        case "lose-history":
+            assert manager is not None
+            error_code = await _lose_async_stream_history(manager, config.database)
+            state = _state("result", manager, config, listener)
+            state["history_fault_code"] = error_code
+            return state
     assert_never(operation)
 
 
-def _sever_established_proxy_sockets(proxy: FaultableProxy) -> NonNegativeInt:
+def _sever_established_proxy_sockets(
+    proxy: FaultableProxy,
+) -> NonEmpty[tuple[socket.socket, ...]]:
     with proxy._lock:
         sockets = tuple(sock for sock in proxy._sockets if sock.fileno() >= 0)
     if not sockets:
         raise AssertionError("worker has no established MongoDB TCP sockets to sever")
     proxy.sever()
+    return sockets
+
+
+async def _await_socket_closure(
+    sockets: NonEmpty[tuple[socket.socket, ...]],
+) -> NonNegativeInt:
     deadline = time.monotonic() + _SHUTDOWN_SECONDS
     while any(sock.fileno() >= 0 for sock in sockets):
         if time.monotonic() >= deadline:
             raise TimeoutError(  # pragma: no cover (socket timeout fails the test).
                 "severed MongoDB TCP sockets did not close"
             )
-        time.sleep(_POLL_SECONDS)
+        await asyncio.sleep(_POLL_SECONDS)
     return len(sockets)
 
 
@@ -336,7 +401,7 @@ async def _send_state(
     kind: str,
     manager: CacheManager[BsonDict] | None,
     config: WorkerConfig,
-    listener: WireCommands,
+    listener: WorkerCommands,
 ) -> None:
     await asyncio.to_thread(control.send, _state(kind, manager, config, listener))
 
@@ -351,8 +416,12 @@ def _state(
     kind: str,
     manager: CacheManager[BsonDict] | None,
     config: WorkerConfig,
-    listener: WireCommands,
+    listener: WorkerCommands,
 ) -> Payload:
+    try:
+        failed_polls = listener.snapshot()["getMore:failed"]
+    except KeyError:
+        failed_polls = 0
     if manager is None:
         return {
             "kind": kind,
@@ -363,6 +432,7 @@ def _state(
             "invalidations": 0,
             "health": None,
             "streams": listener.streams,
+            "failed_polls": failed_polls,
         }
     snapshot = manager.snapshot()
     telemetry = manager.stream_cost_snapshot(config.database)
@@ -375,6 +445,7 @@ def _state(
         "invalidations": telemetry.invalidations,
         "health": manager.stream_health_snapshot(config.database).status.value,
         "streams": listener.streams,
+        "failed_polls": failed_polls,
     }
 
 

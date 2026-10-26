@@ -15,6 +15,7 @@ from benchmarks.stream_cost.topology import (
 from client_query_cache._types import BsonDict, NonNegativeInt
 from tests.benchmark.stream_cost.worker_fault_harness import (
     Payload,
+    TcpFault,
     WorkerConfig,
     WorkerPath,
     WorkerProcesses,
@@ -40,9 +41,16 @@ def replica_set() -> Iterator[IsolatedReplicaSet]:
 
 
 @pytest.mark.timeout(180)
-@pytest.mark.parametrize("path", ["direct", "independent"])
+@pytest.mark.parametrize(
+    ("path", "fault"),
+    [
+        pytest.param("direct", "sever", id="direct"),
+        pytest.param("independent", "sever", id="independent"),
+        pytest.param("independent", "sever-on-poll", id="independent-callback"),
+    ],
+)
 def test_tcp_connection_loss_recovers_real_workers(
-    replica_set: IsolatedReplicaSet, path: WorkerPath
+    replica_set: IsolatedReplicaSet, path: WorkerPath, fault: TcpFault
 ) -> None:
     database, collection = _new_collection(replica_set.uri)
     configs = _configs(replica_set.uri, database, collection, (path, path), proxy=True)
@@ -53,8 +61,13 @@ def test_tcp_connection_loss_recovers_real_workers(
         if path == "direct":
             assert all(_number(state, "streams") == 0 for state in before)
         for index in range(2):
-            severed = workers.request(index, "sever")
+            severed = workers.request(index, fault)
             assert _number(severed, "severed_sockets") > 0
+            if fault == "sever-on-poll":
+                assert _number(severed, "poll_cuts") == 1
+                assert _number(severed, "failed_polls") > _number(
+                    before[index], "failed_polls"
+                )
         _update(replica_set.uri, database, collection, revision=1)
 
         for index, initial in enumerate(before):
@@ -70,6 +83,10 @@ def test_tcp_connection_loss_recovers_real_workers(
             )
             if path == "direct":
                 assert _number(recovered, "streams") == 0
+            else:
+                assert _number(recovered, "failed_polls") > _number(
+                    initial, "failed_polls"
+                )
 
 
 @pytest.mark.timeout(180)

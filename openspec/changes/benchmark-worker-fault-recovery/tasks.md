@@ -13,6 +13,11 @@ remains unfinished.
       independently cached workers.
 - [x] 1.3 Cover stepdown, TCP connection loss, independent stream-history loss
       and cache clearing, and worker kill/replacement with observable reads.
+- [x] 1.4 Synchronize independent workers' TCP cuts with a checked-out stream
+      poll connection and assert a failed poll before accepting recovery.
+- [x] 1.5 Keep socket-closure waits outside synchronous command callbacks.
+- [x] 1.6 Force the next-poll callback path in the existing real-worker test
+      and verify its cut, failed poll, and recovery without coverage exclusions.
 
 ## 2. Quantitative study still pending
 
