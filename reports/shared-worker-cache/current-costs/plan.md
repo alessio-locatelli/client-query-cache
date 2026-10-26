@@ -331,7 +331,7 @@ unbalanced timing cohort for acceptance; keep both cohorts and stop there.
 The separate phase attribution remains evidence, not an uninstrumented timing
 replacement.
 
-### Final review correction and acceptance stop
+### Final review correction and acceptance
 
 The final review found that equal plain `int` and BSON `Int64` limits can alias
 in the paired cache despite having different wire bytes. Keep the ordinary
@@ -341,8 +341,10 @@ encoding floor against main in exactly five alternating pairs, after all
 builds and tests finish. Preserve the preceding end-to-end source boundaries;
 these floors do not requalify those windows or resolve their memory result.
 
-The repeatable sorted group PSS increase remains unaccepted. Stop promotion,
-leave task 3.1 open, and present a draft PR with the evidence for a concrete
-resource decision. The ten permitted independent review calls are exhausted;
-record that the final correction has no subsequent independent review rather
-than claiming a clean review or archiving the change.
+The repeatable sorted group PSS increase initially blocks acceptance and is
+presented in draft PR #343. On 2026-10-26, the user accepts the measured memory
+tradeoff and uncertain async results, and authorizes one additional final
+review beyond the ten-call cap. Record that approval in the report; preserve
+all negative results and source boundaries. Complete the existing OpenSpec
+change only after the additional review passes. No further architecture
+variant or measurement campaign is part of this approval.
