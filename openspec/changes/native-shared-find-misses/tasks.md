@@ -3,7 +3,7 @@
 ## 1. Native key preparation
 
 - [x] 1.1 Implement the native paired-key encoder and binding; compare its exact bytes and errors against the existing wire encoder over generated canonical families, all supported scalar profiles, signed/Int64 limits and large keys. Restore the main generic index implementation and remove rejected family state, local-find admission and obsolete floor code.
-- [x] 1.2 Integrate bounded paired-key reuse in the worker key cache; verify hits, eviction, combined retained-size boundaries and unretained large pairs in `tests/shared_cache/test_wire.py`. Preserve the existing generic encoding path.
+- [x] 1.2 Integrate bounded paired-key reuse in the worker key cache; verify hits, eviction, per-key retained-size boundaries and unretained large pairs in `tests/shared_cache/test_wire.py`. Preserve the existing generic encoding path.
 
 ## 2. Shared cursor integration
 

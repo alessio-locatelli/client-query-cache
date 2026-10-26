@@ -384,21 +384,32 @@ def test_find_and_generic_keys_share_the_retention_budget(
                 encode_key(family),
                 encode_key(find_discriminator(family, 16)),
             )
-            assert cache.find(family, 16) is encoded
+            assert (cache.find(family, 16) is encoded) is (capacity >= 2)
         else:
             assert cache.encode(value) == encode_key(value)
         assert len(cache._encoded) + len(cache._finds) <= capacity
 
 
-@pytest.mark.parametrize("extra", [0, 2], ids=["at-bound", "above-bound"])
-def test_find_key_pairs_apply_the_combined_size_bound(extra: NonNegativeInt) -> None:
+@pytest.mark.parametrize("extra", [0, 1], ids=["at-bound", "above-bound"])
+def test_find_key_pairs_apply_the_per_key_size_bound(extra: NonNegativeInt) -> None:
     cache = KeyCache(2)
-    overhead = sum(map(len, cache.find("", 16)))
-    family = "x" * ((_MAX_CACHED_KEY_BYTES - overhead) // 2 + extra // 2)
+    overhead = len(cache.find("", 16)[1])
+    family = "x" * (_MAX_CACHED_KEY_BYTES - overhead + extra)
     keys = cache.find(family, 16)
-    assert sum(map(len, keys)) == _MAX_CACHED_KEY_BYTES + extra
+    assert len(keys[1]) == _MAX_CACHED_KEY_BYTES + extra
     assert keys == (encode_key(family), encode_key(find_discriminator(family, 16)))
     assert (canonicalize((family, 16)) in cache._finds) is (extra == 0)
+    assert cache.find(family, 16)[0] is keys[0]
+
+
+def test_oversized_find_families_remain_usable_without_retention() -> None:
+    cache = KeyCache(2)
+    family = "x" * _MAX_CACHED_KEY_BYTES
+    keys = cache.find(family, 16)
+    assert keys == (encode_key(family), encode_key(find_discriminator(family, 16)))
+    assert cache.find(family, 16) == keys
+    assert not cache._encoded
+    assert not cache._finds
 
 
 def test_native_find_keys_preserve_unicode_encoding_errors() -> None:
@@ -426,3 +437,24 @@ def test_native_find_encoder_visits_specialized_family_scalars_once(
     encoder = FindKeyEncoder(wire._TAG_NAMES, wire.encode_key)
     assert encoder.encode(family, 16) == expected
     assert scalars.count == 2
+
+
+def test_find_limits_reuse_the_encoded_family(faker: Faker) -> None:
+    cache = KeyCache(8)
+    family = canonicalize({"field": faker.pystr()})
+    first = cache.find(family, 16)
+    second = cache.find(family, 8)
+    assert first[0] is second[0]
+    assert first[1] != second[1]
+    assert len(cache._encoded) == 1
+    assert len(cache._finds) == 2
+
+
+@pytest.mark.parametrize(
+    "encoded",
+    [b"", b"short", bson.encode({"wrong": 1}), b"\x08\x00\x00\x00\x0ak\x00\xff"],
+    ids=["empty", "short", "field-name", "terminator"],
+)
+def test_native_find_wrapping_rejects_invalid_envelopes(encoded: bytes) -> None:
+    with pytest.raises(ValueError, match="invalid encoded key envelope"):
+        _FIND_ENCODER.wrap(encoded, 16)

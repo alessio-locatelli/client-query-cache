@@ -2,7 +2,7 @@
 //! scalar representations stay with the Python wire codec and PyMongo's encoder.
 use std::collections::HashMap;
 
-use pyo3::exceptions::PyOverflowError;
+use pyo3::exceptions::{PyOverflowError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyBytes, PyDict, PyFloat, PyInt, PyString, PyTuple};
 
@@ -24,6 +24,18 @@ impl Recursion {
 impl Drop for Recursion {
     fn drop(&mut self) {
         unsafe { pyo3::ffi::Py_LeaveRecursiveCall() };
+    }
+}
+
+fn encoded_value(encoded: &[u8]) -> PyResult<(u8, &[u8])> {
+    match encoded {
+        [a, b, c, d, kind, b'k', 0, payload @ .., 0]
+            if usize::try_from(i32::from_le_bytes([*a, *b, *c, *d])).ok()
+                == Some(encoded.len()) =>
+        {
+            Ok((*kind, payload))
+        }
+        _ => Err(PyValueError::new_err("invalid encoded key envelope")),
     }
 }
 
@@ -135,8 +147,9 @@ impl FindKeyEncoder {
         let bytes = encoded.bind(value.py()).cast::<PyBytes>()?.as_bytes();
         // The existing encoder returns one BSON element named "k". Reuse its
         // complete value, including BSON subtype and specialized tagged nodes.
-        header(buffer, bytes[4], name);
-        buffer.extend_from_slice(&bytes[7..bytes.len() - 1]);
+        let (kind, payload) = encoded_value(bytes)?;
+        header(buffer, kind, name);
+        buffer.extend_from_slice(payload);
         Ok(())
     }
 }
@@ -166,6 +179,16 @@ impl FindKeyEncoder {
         self.node(&mut family_bytes, "k", family)?;
         finish(&mut family_bytes, root)?;
 
+        let exact = self.wrap(py, &family_bytes, limit)?;
+        Ok((PyBytes::new(py, &family_bytes), exact))
+    }
+
+    fn wrap<'py>(
+        &self,
+        py: Python<'py>,
+        family_bytes: &[u8],
+        limit: &Bound<'py, PyAny>,
+    ) -> PyResult<Bound<'py, PyBytes>> {
         let mut exact = Vec::with_capacity(family_bytes.len() + 128);
         let root = start(&mut exact);
         let outer = tuple(&mut exact, "k")?;
@@ -173,12 +196,13 @@ impl FindKeyEncoder {
         string(&mut exact, "p", "canonical-seq")?;
         finish(&mut exact, tag)?;
         let pair = tuple(&mut exact, "1")?;
-        header(&mut exact, family_bytes[4], "0");
-        exact.extend_from_slice(&family_bytes[7..family_bytes.len() - 1]);
+        let (kind, payload) = encoded_value(family_bytes)?;
+        header(&mut exact, kind, "0");
+        exact.extend_from_slice(payload);
         self.node(&mut exact, "1", limit)?;
         finish_tuple(&mut exact, pair)?;
         finish_tuple(&mut exact, outer)?;
         finish(&mut exact, root)?;
-        Ok((PyBytes::new(py, &family_bytes), PyBytes::new(py, &exact)))
+        Ok(PyBytes::new(py, &exact))
     }
 }
