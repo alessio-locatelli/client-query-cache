@@ -36,7 +36,7 @@ Merge local find lookup and miss message construction so the keys survive the lo
 - A different byte representation could break equality or portability. Differential tests compare exact bytes with the existing encoder over real canonical keys and generated values, including specialized scalars, signed and Int64 limits, Unicode, large keys and errors.
 - Retaining two keys could increase memory. Share the existing bounded entry budget and preserve the per-key retained-size bound; measure live group PSS.
 - Python callbacks remain for specialized scalar types. Count actual native/fallback calls separately from timing; do not claim every scalar is encoded entirely in Rust.
-- A local improvement may not improve the closed-loop workload. Follow the finite registered comparison; retain negative results and prevent promotion on an unexplained reproducible regression without explicit user approval. The [Rust comparison report](../../../reports/shared-worker-cache/current-costs/rust-encoding.md) records the measured tradeoffs and approval.
+- A local improvement may not improve the closed-loop workload. Follow the finite registered comparison; retain negative results and prevent promotion on an unexplained reproducible regression without explicit user approval. The [Rust comparison report](../../../../reports/shared-worker-cache/current-costs/rust-encoding.md) records the measured tradeoffs and approval.
 
 ## Migration Plan
 
