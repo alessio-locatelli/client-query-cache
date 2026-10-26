@@ -83,3 +83,40 @@ approval and OpenSpec before implementation. Any approved implementation stays
 under #341 through matched main/candidate measurement and validation. If the
 bounded evidence supports no runtime change, publish that decision and its
 limits without inventing a performance guarantee or an untracked follow-up.
+
+## Native find implementation comparison
+
+The initial acquisition identified cold sorted-find selection as a repeatable
+cost. The user selected a native find miss design over key reuse within the
+existing protocol. The resulting OpenSpec change is
+`native-shared-find-misses`; its detailed design requires approval before
+implementation. This extension is registered before candidate acquisition.
+
+Use the original identity and sorted workloads with shared paths only, comparing
+clean main and candidate installed release builds. Three alternating revision
+pairs, both models and hot/cold make 48 windows. Reverse revision order in the
+second pair and rotate the starting model between pairs. Retain the initial
+direct/independent measurements as workload controls, without treating their
+older windows as candidate comparisons. This is a scoped implementation check,
+not general capacity or historical confidence-bound qualification.
+
+Before integration, measure native exact hits, compatible hits, misses and
+publication/removal at 1, 8 and 64 limits per family in five alternating batches
+per build, using 4 KiB encoded payloads and 10,000 operations per read batch.
+Keep setup outside timing and measure mutation batches separately. Reject an
+approach whose exact-hit cost or maintenance scaling shows a reproducible
+regression; a beneficial cold-read median cannot excuse it.
+
+Use the four diagnostic-window allowance for current and candidate sorted cold
+reads in both models. Record worker/owner CPU separately, selection and admission
+counts, IPC bytes and publication refusals through existing counters. A separate
+small-capacity correctness diagnostic must retain owner reuse when either entry
+or directory publication fails, and must show bounded metadata after release.
+These instrumented observations are excluded from timing tables.
+
+Acceptance requires expected cache outcomes, no correctness failure, reduced
+cold sorted selection work, and no reproducible regression in latency, reader
+CPU, memory, affected identity reads or existing-test duration. Use the same
+median/range uncertainty rules and at most 12 additional timing windows for one
+declared unresolved comparison. If a design fails, retain that result and seek
+approval for a consequential replacement rather than expanding indefinitely.
