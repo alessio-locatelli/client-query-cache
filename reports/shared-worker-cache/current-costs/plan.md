@@ -154,3 +154,19 @@ identity-tail control was not started for the rejected build; reserve the same
 finite twelve-window allowance for one specific uncertainty in the replacement,
 declaring its question and schedule before running it. No campaign runs alongside
 builds or tests.
+
+### Final counter-write refinement
+
+The preliminary replacement at `4d6aa936` completed its 48 workload windows.
+Inspection found that filter increments/decrements still used locked atomic
+read-modify-write operations despite exclusive ownership of all filter writes.
+Replace them with atomic load/release-store updates under the same writer
+exclusion, verify the ordering models, and freeze a new clean release build.
+Repeat the same bounded 48-window comparison, five alternating native-floor
+batches and three existing-test pairs for that final build; keep the preliminary
+results as evidence rather than substituting them for the final comparison.
+Add one identical generic identity lookup batch to each native-floor invocation
+to investigate the preliminary identity-tail finding without MongoDB or timing
+instrumentation. The same twelve-window uncertainty allowance remains available
+for one explicitly declared finding after this final comparison. No further
+counter or family-filter variants are planned.

@@ -125,6 +125,21 @@ def _batch(variants: PositiveInt, *, candidate: bool) -> dict[str, object]:
     return observations
 
 
+def _identity_floor() -> dict[str, object]:
+    with _mapping() as (owner, reader):
+        payload = owner.store(_PAYLOAD)
+        assert payload is not None
+        assert owner.publish(0, 0, 0, b"identity", b"shape", payload) is not None
+
+        def read() -> object:
+            return reader.lookup(0, 0, 0, b"identity", b"shape")
+
+        assert read() == _PAYLOAD
+        cpu = _cpu_per_call(read, _READS)
+        owner.release(payload)
+        return {"identity_exact_cpu_ns": cpu}
+
+
 def _saturation(families: PositiveInt) -> dict[str, object]:
     encoded_families = tuple(
         encode_key(("family", ordinal)) for ordinal in range(families)
@@ -176,6 +191,7 @@ def main() -> None:
                 "candidate": arguments.candidate,
                 "read_calls": _READS,
                 "mutation_cycles": _MUTATIONS,
+                "identity": [_identity_floor() for _ in range(arguments.repetitions)],
                 "batches": [
                     {
                         "repetition": repetition,
