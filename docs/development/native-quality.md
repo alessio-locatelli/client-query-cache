@@ -27,6 +27,9 @@ Python consumers retain a narrowly scoped, explained unused-code exception.
 Dead-code analysis does not prove that every runtime path is used; DRY and unsafe
 code safety still require review.
 
+The locked dependency graph's yanked-release warning is tracked in
+[#345](https://github.com/alessio-locatelli/client-query-cache/issues/345).
+
 CI runs **Rust static checks** once, followed by **Rust tests and concurrency models**.
 The `main` ruleset requires both checks from GitHub Actions, together with **Prek**
 and **Prettier, Markdownlint, and OpenSpec**. A skipped dependent job cannot
@@ -46,7 +49,7 @@ while retaining compiled dependencies. It enforces 100% line and function
 coverage and prints missing lines. Loom remains a separate correctness check.
 
 The measured production modules are `clock`, `echo`, `frames`, `hash`, `index`,
-`memory`, `python`, `relay`, and `ring`, including the Python binding bodies.
+`key_encoder`, `memory`, `python`, `relay`, and `ring`, including the Python binding bodies.
 `lib` and `sync` contain only module declarations and imports. Test bodies and
 helpers live in test-only files excluded by cargo-llvm-cov's
 [standard source selection](https://github.com/taiki-e/cargo-llvm-cov#exclude-file-from-coverage);

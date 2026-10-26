@@ -864,12 +864,16 @@ async def test_parent_loss_stops_owner_and_removes_endpoint(
 ) -> None:
     assert abrupt_parent.poll(10)
     path, pid = abrupt_parent.recv()
+    owner = psutil.Process(pid)
     abrupt_parent.send("exit")
     deadline = time.monotonic() + 10
-    owner = psutil.Process(pid)
-    while Path(path).parent.exists() or (
-        owner.is_running() and owner.status() != psutil.STATUS_ZOMBIE
-    ):
+    while True:
+        try:
+            owner_running = owner.status() != psutil.STATUS_ZOMBIE
+        except psutil.NoSuchProcess:  # pragma: lax no cover - Init may reap the orphan.
+            owner_running = False
+        if not Path(path).parent.exists() and not owner_running:
+            break
         assert time.monotonic() < deadline
         await asyncio.sleep(0.02)
 
