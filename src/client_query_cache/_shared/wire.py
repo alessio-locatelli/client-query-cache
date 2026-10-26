@@ -256,12 +256,12 @@ class KeyCache:
         return encoded
 
     def find(self, family: object, limit: int) -> tuple[bytes, bytes]:
-        discriminator = canonical_tags.canonicalize((family, limit))
+        canonical_limit = canonical_tags.canonicalize(limit)
+        cache_key = (family, canonical_limit)
         try:
-            return self._finds[discriminator]
+            return self._finds[cache_key]
         except KeyError:
             pass
-        canonical_limit = canonical_tags.canonicalize(limit)
         encoder = _find_encoder()
         try:
             family_bytes = self._encoded[family]
@@ -283,7 +283,7 @@ class KeyCache:
             if new_family:
                 self._encoded[family] = family_bytes
             if retain_pair:
-                self._finds[discriminator] = encoded
+                self._finds[cache_key] = encoded
         return encoded
 
     def decode(self, encoded: object) -> object:

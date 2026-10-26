@@ -271,3 +271,30 @@ import resource probes per build before/after the correction to examine startup
 CPU and PSS; they are separate from read timing. The twelve-window control
 allowance remains reserved for a specific remaining read finding. No further
 speculative architecture variants are part of this correction.
+
+### Cache-key allocation correction and identity-hit controls
+
+The initialization-corrected cohort (`5bfff311`) has mixed existing-test timing
+directions, but sorted PSS remains higher. Inspection identifies one retained
+canonical-sequence wrapper that is unnecessary for the private paired-key cache:
+the serializer itself constructs the exact canonical wire envelope. Use the
+already canonical family and limit directly as the private cache key. This
+removes a retained tuple per query and repeated wrapper construction without
+changing encoded bytes, the native binary, the owner protocol or generic reads.
+
+Freeze that allocation correction and acquire exactly 24 matched sorted windows:
+three main/candidate revision pairs, both models, hot/cold, with the same
+populations/counts and ordering. Repeat the four sorted diagnostics, four
+profiles, five encoding-floor pairs and three 279-case existing-test pairs.
+The preceding 48-window cohort remains evidence for the structurally unchanged
+generic paths; record the source boundary rather than attributing its timings
+to the new wheel.
+
+Use the reserved twelve-window allowance for async identity hot P50, higher in
+all three preceding pairs despite overlapping ranges: six alternating revision
+pairs, shared only, async only, 1,024 warm keys and 8,192 calls per worker. Keep
+all results, expected hits, zero bypasses/owner requests and one stream. Add two
+separate 256-call identity-hot worker-profile windows (one per build) to verify
+the unchanged path and absence of encoder use. Instrumented durations remain
+excluded from timing tables. Stop at these caps; no speculative architecture
+variant is authorized by this correction.
