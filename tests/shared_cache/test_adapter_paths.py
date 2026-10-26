@@ -70,8 +70,10 @@ if TYPE_CHECKING:
 
     from faker import Faker
 
+    from client_query_cache._core.find_reads import FindReadShape
     from client_query_cache._shared.adapters import (
         AsyncSharedCachedCollection,
+        Cursor,
         SharedCachedCollection,
     )
     from tests.conftest import MongoDbUri
@@ -466,7 +468,11 @@ async def shared_find_view(
         yield view, owner
 
 
-@pytest.mark.parametrize("hit_limit", [8, 4], ids=["exact", "compatible"])
+@pytest.mark.parametrize(
+    ("stored_limit", "hit_limit"),
+    [(8, 8), (8, 4), (-8, -8)],
+    ids=["exact", "compatible", "negative-exact"],
+)
 async def test_shared_find_reuses_prepared_family(
     shared_find_view: tuple[
         SharedCachedCollection[BsonDict] | AsyncSharedCachedCollection[BsonDict],
@@ -474,7 +480,8 @@ async def test_shared_find_reuses_prepared_family(
     ],
     raw_key_traversals: list[NonNegativeInt],
     monkeypatch: pytest.MonkeyPatch,
-    hit_limit: NonNegativeInt,
+    stored_limit: int,
+    hit_limit: int,
 ) -> None:
     view, owner = shared_find_view
     monkeypatch.setattr(adapters, "canonicalize", canonical.canonicalize)
@@ -484,14 +491,14 @@ async def test_shared_find_reuses_prepared_family(
     hits = view._shared.observation.hits
     misses = view._shared.observation.misses
 
-    complete = await materialize(view.find(query, **_SORTED, limit=8))
+    complete = await materialize(view.find(query, **_SORTED, limit=stored_limit))
     wait_for(lambda: owner.counters()["admitted"] == admitted + 1)
     hit = await materialize(view.find(query, **_SORTED, limit=hit_limit))
 
     assert view._shared.observation.hits == hits + 1
     assert view._shared.observation.misses == misses + 1
     assert [document["_id"] for document in complete] == list(range(8))
-    assert [document["_id"] for document in hit] == list(range(hit_limit))
+    assert [document["_id"] for document in hit] == list(range(abs(hit_limit)))
     assert raw_key_traversals == [1, 1]
 
 
@@ -561,6 +568,24 @@ class _SharedReads:
             )
 
         return self._run(gather())
+
+    def find(self, minimum: NonNegativeInt) -> list[BsonDict]:
+        manager = self.manager
+        if isinstance(manager, SharedCacheManager):
+            return (
+                manager[self._database][COLLECTION]
+                .find({"_id": {"$gte": minimum}})
+                .sort("_id", 1)
+                .limit(8)
+                .to_list()
+            )
+        return self._run(
+            manager[self._database][COLLECTION]
+            .find({"_id": {"$gte": minimum}})
+            .sort("_id", 1)
+            .limit(8)
+            .to_list()
+        )
 
     def reattach_from(self, local: object) -> None:
         manager = self.manager
@@ -635,6 +660,76 @@ def open_reads(
 
 def _admitted(owner: Owner, count: int) -> None:
     wait_for(lambda: owner.counters()["admitted"] == count)
+
+
+@pytest.mark.parametrize(
+    "state",
+    ["slot", "incarnation", "metadata", "detached"],
+    ids=["slot-evicted", "owner-replaced", "metadata-evicted", "detached"],
+)
+def test_native_find_falls_back_when_local_hints_change_after_classification(
+    open_reads: Callable[[SharedIndexLimits], tuple[Owner, _SharedReads]],
+    monkeypatch: pytest.MonkeyPatch,
+    state: str,
+) -> None:
+    owner, reads = open_reads(
+        replace(_SHARED_INDEX, local_miss_admission=True, native_admission_queue=True)
+    )
+    expected = reads.find(0)
+    _admitted(owner, 1)
+    manager = reads.manager
+    original = adapters._native_find
+
+    def changed(cursor: Cursor, shape: FindReadShape, family: bytes) -> bool:
+        namespace = cursor._view._namespace()
+        local = manager.local
+        assert local is not None
+        if state == "slot":
+            manager._slots.clear()
+        elif state == "incarnation":
+            assignment = manager._slots.find(namespace)
+            assert assignment is not None
+            manager._slots.store(namespace, (*assignment[:2], local.incarnation + 1))
+        elif state == "metadata":
+            manager._metadata.clear()
+        else:
+            local.reader.detach()
+        return original(cursor, shape, family)
+
+    monkeypatch.setattr(adapters, "_native_find", changed)
+    assert reads.find(0) == expected
+
+
+@pytest.mark.parametrize(
+    ("native_queue", "recovery"),
+    [(False, False), (True, False), (True, True)],
+    ids=["socket", "queue", "queue-recovery"],
+)
+def test_native_find_disconnected_misses_obey_admission_recovery(
+    open_reads: Callable[[SharedIndexLimits], tuple[Owner, _SharedReads]],
+    native_queue: bool,
+    recovery: bool,
+) -> None:
+    owner, reads = open_reads(
+        replace(
+            _SHARED_INDEX,
+            local_miss_admission=True,
+            native_admission_queue=native_queue,
+        )
+    )
+    reads.disconnect_data()
+    time.sleep(_PAST_REATTACH_BACKOFF_SECONDS)
+    endpoint = reads.manager.endpoint
+    before = endpoint.counters.requests
+    if recovery:
+        endpoint.admission_recovery.dropped()
+        assert endpoint.admission_recovery.enqueued(
+            endpoint.admission_recovery.generation
+        )
+    assert len(reads.find(0)) == 8
+    _admitted(owner, 1)
+    assert endpoint.counters.requests == before + int(not native_queue or recovery)
+    assert owner.observation()["captures"] == 0
 
 
 def test_admitted_identity_hits_are_served_locally(

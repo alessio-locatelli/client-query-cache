@@ -22,9 +22,14 @@ from benchmarks.stream_cost.shared_cache.window import attachment_for
 from client_query_cache._core.canonical import canonicalize
 from client_query_cache._core.codec import encode_value
 from client_query_cache._core.collection_metadata import CollectionProbeResult
+from client_query_cache._core.find_reads import FindReadShape
 from client_query_cache._core.keys import IdentityCacheKey, NamespaceId
 from client_query_cache._core.lru import WeightedLru
-from client_query_cache._core.manager import CacheCore, IdentityCapture
+from client_query_cache._core.manager import (
+    CacheCore,
+    IdentityCapture,
+    NamespaceCapture,
+)
 from client_query_cache._core.order_sensitive_keys import order_sensitive_key
 from client_query_cache._core.snapshots import BypassReason
 from client_query_cache._core.stream_events import route_change_event
@@ -67,6 +72,7 @@ if TYPE_CHECKING:
     from faker import Faker
 
     from client_query_cache._core.entries import AdmissionOutcome
+    from client_query_cache._core.find_reads import FindSource
     from client_query_cache._shared.attachment import Message
     from client_query_cache._shared_index import SessionRing
 
@@ -1579,6 +1585,16 @@ def local_miss(session: _Session, faker: Faker) -> Message:
     }
 
 
+@pytest.fixture
+def local_find_miss(local_miss: Message, faker: Faker) -> Message:
+    return {
+        **{field: value for field, value in local_miss.items() if field != "identity"},
+        "op": "admit-find-local",
+        "limit": 8,
+        "value": encode_value([{"_id": 0, "name": faker.name()}]),
+    }
+
+
 @pytest.mark.parametrize(
     "shared_owner",
     [{}, {"local_miss_admission": True, "native_admission_queue": True}],
@@ -1708,6 +1724,18 @@ def test_obsolete_local_misses_cannot_populate_the_owner(
     session: _Session, local_miss: Message, mutation: str
 ) -> None:
     owner = session.owner
+    _invalidate_local_capture(owner, local_miss, mutation)
+    owner._admit_local(local_miss)
+    assert owner.counters.rejected_admissions == 1
+    assert owner.core.snapshot().entry_count == 0
+    assert not owner._handles
+    assert not owner.core._namespaces[_NAMESPACE].identities
+    assert session.local(0) is None
+
+
+def _invalidate_local_capture(
+    owner: SharedCacheOwner, local_miss: Message, mutation: str
+) -> None:
     assert owner._index is not None
     match mutation:
         case "write":
@@ -1731,12 +1759,76 @@ def test_obsolete_local_misses_cannot_populate_the_owner(
             local_miss["slot"] = [0, 1]
         case _:
             owner.progress.observed[_DATABASE] = 0.0
-    owner._admit_local(local_miss)
-    assert owner.counters.rejected_admissions == 1
-    assert owner.core.snapshot().entry_count == 0
-    assert not owner._handles
-    assert not owner.core._namespaces[_NAMESPACE].identities
-    assert session.local(0) is None
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ["write", "reset", "availability", "progress", "expired", "incarnation"],
+    ids=["write", "reset", "availability", "progress", "expired", "incarnation"],
+)
+def test_obsolete_local_find_misses_cannot_populate_the_owner(
+    session: _Session, local_find_miss: Message, mutation: str
+) -> None:
+    _invalidate_local_capture(session.owner, local_find_miss, mutation)
+    session.owner._admit_local(local_find_miss)
+    assert session.owner.counters.rejected_admissions == 1
+    assert session.owner.core.snapshot().entry_count == 0
+    assert not session.owner._handles
+
+
+@pytest.mark.parametrize(
+    "mutation", ["write", "availability"], ids=["write", "availability"]
+)
+def test_local_find_commit_rechecks_core_generation(
+    session: _Session,
+    local_find_miss: Message,
+    monkeypatch: pytest.MonkeyPatch,
+    mutation: str,
+) -> None:
+    original = CacheCore.admit_namespace_encoded
+
+    def mutate(
+        core: CacheCore,
+        capture: NamespaceCapture,
+        discriminator: object,
+        encoded: bytes,
+        *,
+        find_source: FindSource | None = None,
+    ) -> AdmissionOutcome:
+        _invalidate_local_capture(session.owner, local_find_miss, mutation)
+        return original(core, capture, discriminator, encoded, find_source=find_source)
+
+    monkeypatch.setattr(CacheCore, "admit_namespace_encoded", mutate)
+    session.owner._admit_local(local_find_miss)
+    assert session.owner.counters.rejected_admissions == 1
+    assert session.owner.core.snapshot().entry_count == 0
+
+
+def test_local_find_admission_publishes_without_an_owner_handle(
+    session: _Session, local_find_miss: Message
+) -> None:
+    session.endpoint.send(local_find_miss, session.control.reader)
+    wait_for(lambda: session.owner.counters.admitted == 1)
+    assert (
+        session.owner.core.lookup_find_encoded(_NAMESPACE, FindReadShape(_SHAPE, 4))
+        == local_find_miss["value"]
+    )
+    assert not session.owner._handles
+
+
+@pytest.mark.parametrize(
+    ("field", "invalid"),
+    [("limit", -1), ("limit", True), ("limit", "8"), ("op", [])],
+    ids=["negative-limit", "boolean-limit", "text-limit", "operation-type"],
+)
+def test_malformed_local_find_admissions_detach_the_peer(
+    session: _Session, local_find_miss: Message, field: str, invalid: object
+) -> None:
+    local_find_miss[field] = invalid
+    session.endpoint.send(local_find_miss)
+    assert session.endpoint.request({"op": "observe"}) is None
+    assert session.owner.counters.protocol_errors == 1
+    assert not session.owner._handles
 
 
 @pytest.mark.parametrize(

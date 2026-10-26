@@ -5,8 +5,11 @@ use crate::hash;
 use crate::memory::{WORD_BYTES, Words};
 use crate::sync::{AtomicU64, Ordering, fence};
 
+mod find;
+use find::FindPublications;
+
 const MAGIC: u64 = u64::from_le_bytes(*b"cqcsidx3");
-const LAYOUT_VERSION: u64 = 3;
+const LAYOUT_VERSION: u64 = 4;
 
 const H_MAGIC: usize = 0;
 const H_VERSION: usize = 1;
@@ -25,7 +28,8 @@ const D_FENCE: usize = 2;
 const DATABASE_WORDS: usize = 3;
 const N_EPOCH: usize = 0;
 const N_MUTATION: usize = 1;
-const NAMESPACE_WORDS: usize = 2;
+const N_FIND_COMPLETE: usize = 2;
+const NAMESPACE_WORDS: usize = 3;
 
 const S_VERSION: usize = 0;
 const S_HASH: usize = 1;
@@ -635,6 +639,7 @@ pub(crate) struct Writer<M> {
     free_allocations: Vec<usize>,
     next_version: u64,
     published: HashMap<u64, usize>,
+    finds: FindPublications,
 }
 
 impl<M: Words> Writer<M> {
@@ -650,11 +655,12 @@ impl<M: Words> Writer<M> {
             free_allocations: Vec::new(),
             next_version: 1,
             published: HashMap::new(),
+            finds: FindPublications::new(),
         }
     }
 
     pub(crate) fn published(&self) -> usize {
-        self.published.len()
+        self.published.len() - self.finds.directories
     }
 
     fn node(
@@ -910,17 +916,22 @@ impl<M: Words> Writer<M> {
 
     pub(crate) fn release(&mut self, block: Block) {
         if self.is_live(block) {
-            self.unpublish_live(block);
+            self.unpublish(block);
             self.free_block(block);
         }
     }
 
     fn write_slot(&self, slot: usize, fields: &Slot) {
+        self.write_slot_with(slot, fields, || {});
+    }
+
+    fn write_slot_with(&self, slot: usize, fields: &Slot, write_payload: impl FnOnce()) {
         let index = &self.index;
         let version = index.slot_word(slot, S_VERSION);
         let previous = version.load(Ordering::Relaxed);
         version.store(previous + 1, Ordering::Relaxed);
         fence(Ordering::Release);
+        write_payload();
         for (field, value) in SLOT_FIELDS.into_iter().zip([
             fields.hash,
             fields.state,
@@ -1024,7 +1035,11 @@ impl<M: Words> Writer<M> {
     }
 
     pub(crate) fn unpublish(&mut self, payload: Block) -> bool {
-        self.is_live(payload) && self.unpublish_live(payload)
+        if !self.is_live(payload) {
+            return false;
+        }
+        self.unpublish_find(payload)
+            .unwrap_or_else(|| self.unpublish_live(payload))
     }
 
     fn unpublish_live(&mut self, payload: Block) -> bool {
@@ -1125,6 +1140,46 @@ mod models {
             if let Some((payload, _token)) = reader.join().unwrap() {
                 assert!(payload == [1; 16] || payload == [2; 16]);
             }
+        });
+    }
+
+    #[test]
+    fn find_directories_and_payloads_reject_concurrent_reuse() {
+        model(|| {
+            let layout = Layout::new(8, 128, 1, 1).unwrap();
+            let index = Index::create(zeroed(layout.words()), layout, 1, u64::MAX).unwrap();
+            index.set_available(0, true);
+            index.set_progress(0, 1);
+            index.set_epoch(0, EPOCH);
+            let mut writer = Writer::new(index.clone());
+            let family = Query {
+                shape: b"family",
+                ..query(b"")
+            };
+            let first = writer.store(&[1; 8]).unwrap();
+            let second = writer.store(&[2; 8]).unwrap();
+            writer.publish_find(&family, 8, first).unwrap();
+            writer.publish_find(&family, 16, second).unwrap();
+            let reader = loom::thread::spawn(move || {
+                let family = Query {
+                    shape: b"family",
+                    ..query(b"")
+                };
+                index.read_find(1, &family, 4, 1, |located| {
+                    let mut bytes = vec![0; located.payload_len];
+                    index.copy_payload(located, &mut bytes).then_some(bytes)
+                })
+            });
+            writer.release(first);
+            let foreign = writer.store(&[9; 8]).unwrap();
+            writer.publish(&query(b"foreign"), foreign).unwrap();
+            match reader.join().unwrap() {
+                Ok((bytes, _)) => assert!(bytes == [1; 8] || bytes == [2; 8]),
+                Err(miss) => assert!(matches!(miss, Miss::Absent | Miss::Contended)),
+            }
+            writer.release(second);
+            writer.release(foreign);
+            assert_eq!(writer.published(), 0);
         });
     }
 
