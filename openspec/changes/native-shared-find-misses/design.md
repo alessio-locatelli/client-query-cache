@@ -18,7 +18,7 @@ Encode the family once and reuse its encoded value when forming the exact discri
 
 ### Bounded paired keys and existing selection
 
-The worker key cache retains the paired bytes by canonical family/limit under its existing entry and retained-byte-size limits. Generic and find encodings share the entry budget; oversized pairs remain usable for the current call without retention. A hot find requires one cache lookup. A miss carries the already prepared family bytes in the existing family/limit request, so outgoing frame sizes and limit representations remain identical to main. The owner retains exact, covering and unlimited selection and authoritative capture. Workers without a local index use the existing single-family encoding, avoiding unnecessary preparation.
+The worker key cache retains the paired bytes by canonical family/limit under its existing entry and per-key retained-byte-size limits. The family occupies one ordinary entry, shared across limits; each exact key occupies one further entry. Oversized keys remain usable for the current call without retention. A hot find requires one cache lookup. A miss carries the already prepared family bytes in the existing family/limit request, so outgoing frame sizes and limit representations remain identical to main. The owner retains exact, covering and unlimited selection and authoritative capture. Workers without a local index use the existing single-family encoding, avoiding unnecessary preparation.
 
 Merge local find lookup and miss message construction so the keys survive the local lookup without being recomputed. Remote cursor capture does not reconstruct metadata that its core ignores; the owner already owns that information. Keep the native index layout, allocator, generic lookup and identity admission code from main. Reuse namespace publication sets without constructing a disposable empty set on every admission.
 
@@ -34,7 +34,7 @@ Merge local find lookup and miss message construction so the keys survive the lo
 ## Risks / Trade-offs
 
 - A different byte representation could break equality or portability. Differential tests compare exact bytes with the existing encoder over real canonical keys and generated values, including specialized scalars, signed and Int64 limits, Unicode, large keys and errors.
-- Retaining two keys could increase memory. Share the existing bounded entry budget and apply the retained-size bound to the combined pair; measure live group PSS.
+- Retaining two keys could increase memory. Share the existing bounded entry budget and preserve the per-key retained-size bound; measure live group PSS.
 - Python callbacks remain for specialized scalar types. Count actual native/fallback calls separately from timing; do not claim every scalar is encoded entirely in Rust.
 - A local improvement may not improve the closed-loop workload. Follow the finite registered comparison; retain negative results and prevent promotion on any unexplained reproducible regression.
 

@@ -256,12 +256,27 @@ class KeyCache:
             return self._finds[discriminator]
         except KeyError:
             pass
-        encoded = _FIND_ENCODER.encode(family, canonical_tags.canonicalize(limit))
-        if len(encoded[0]) + len(encoded[1]) <= _MAX_CACHED_KEY_BYTES:
-            if len(self._encoded) + len(self._finds) >= self._limit:
+        canonical_limit = canonical_tags.canonicalize(limit)
+        try:
+            family_bytes = self._encoded[family]
+        except KeyError:
+            family_bytes, exact = _FIND_ENCODER.encode(family, canonical_limit)
+            new_family = True
+        else:
+            exact = _FIND_ENCODER.wrap(family_bytes, canonical_limit)
+            new_family = False
+        encoded = (family_bytes, exact)
+        if len(family_bytes) <= _MAX_CACHED_KEY_BYTES:
+            retain_pair = self._limit >= 2 and len(exact) <= _MAX_CACHED_KEY_BYTES
+            required = int(new_family) + int(retain_pair)
+            if len(self._encoded) + len(self._finds) + required > self._limit:
                 self._encoded.clear()
                 self._finds.clear()
-            self._finds[discriminator] = encoded
+                new_family = True
+            if new_family:
+                self._encoded[family] = family_bytes
+            if retain_pair:
+                self._finds[discriminator] = encoded
         return encoded
 
     def decode(self, encoded: object) -> object:
