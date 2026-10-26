@@ -5,9 +5,9 @@ The [plan](plan.md) was recorded before acquisition. The current-release baselin
 identifies duplicate query serialization and synchronous owner selection on cold
 sorted finds. Two implemented native approaches were evaluated and withheld
 from promotion; their complete evidence is in [native trials](native-trials.md).
-The remaining design choice is prepared-key reuse within the existing owner
-protocol, rather than accepting the native candidates' failed resource or
-identity-tail gates. That replacement is proposed, not yet implemented.
+The user subsequently directed moving measured slow work into Rust. The current
+correction encodes shared find keys in Rust and reuses one query traversal;
+its fresh comparison is pending and the native trials do not qualify it.
 
 ## Source and conditions
 

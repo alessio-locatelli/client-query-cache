@@ -1,14 +1,12 @@
 use std::collections::HashMap;
-use std::num::{NonZeroU32, NonZeroU64};
+use std::num::NonZeroU32;
 
 use crate::hash;
 use crate::memory::{WORD_BYTES, Words};
 use crate::sync::{AtomicU64, Ordering, fence};
 
-mod find;
-
 const MAGIC: u64 = u64::from_le_bytes(*b"cqcsidx3");
-const LAYOUT_VERSION: u64 = 5;
+const LAYOUT_VERSION: u64 = 3;
 
 const H_MAGIC: usize = 0;
 const H_VERSION: usize = 1;
@@ -27,8 +25,7 @@ const D_FENCE: usize = 2;
 const DATABASE_WORDS: usize = 3;
 const N_EPOCH: usize = 0;
 const N_MUTATION: usize = 1;
-const N_FIND_COMPLETE: usize = 2;
-const NAMESPACE_WORDS: usize = 3;
+const NAMESPACE_WORDS: usize = 2;
 
 const S_VERSION: usize = 0;
 const S_HASH: usize = 1;
@@ -93,7 +90,6 @@ impl Layout {
             .checked_mul(SLOT_WORDS)?
             .checked_add(slots_start)?
             .checked_add(arena_words)?
-            .checked_add(slots)?
             .checked_mul(WORD_BYTES)?;
         Some(Self {
             slots,
@@ -121,12 +117,8 @@ impl Layout {
         self.slot_at(self.slots)
     }
 
-    fn filter_start(&self) -> usize {
-        self.arena_start() + self.arena_words
-    }
-
     pub(crate) fn words(&self) -> usize {
-        self.filter_start() + self.slots
+        self.arena_start() + self.arena_words
     }
 
     fn max_published(&self) -> usize {
@@ -143,7 +135,6 @@ pub(crate) enum Miss {
     Epoch,
     Absent,
     Contended,
-    PossibleFamily,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -446,12 +437,8 @@ impl<M: Words> Index<M> {
             .all(|(word, chunk)| word.load(Ordering::Relaxed) == word_of(chunk))
     }
 
-    #[cfg(all(test, not(loom)))]
     fn locate(&self, query: &Query<'_>) -> Result<Located, Miss> {
-        self.locate_hashed(query, query.hash())
-    }
-
-    fn locate_hashed(&self, query: &Query<'_>, hash: u64) -> Result<Located, Miss> {
+        let hash = query.hash();
         let key_len = query.key_len();
         let mask = self.layout.slots - 1;
         let mut contended = false;
@@ -532,20 +519,11 @@ impl<M: Words> Index<M> {
         incarnation: u64,
         query: &Query<'_>,
         now_ns: u64,
-        copy: impl FnMut(&Located) -> Option<T>,
-    ) -> Result<(T, u64), Miss> {
-        self.check(incarnation, query, now_ns)?;
-        self.read_hashed(query, query.hash(), copy)
-    }
-
-    fn read_hashed<T>(
-        &self,
-        query: &Query<'_>,
-        hash: u64,
         mut copy: impl FnMut(&Located) -> Option<T>,
     ) -> Result<(T, u64), Miss> {
+        self.check(incarnation, query, now_ns)?;
         for _ in 0..READ_ATTEMPTS {
-            let located = match self.locate_hashed(query, hash) {
+            let located = match self.locate(query) {
                 Ok(located) => located,
                 Err(Miss::Contended) => continue,
                 Err(miss) => return Err(miss),
@@ -623,20 +601,6 @@ struct Allocation {
 }
 
 impl Allocation {
-    // Free-list links are unused while live; reuse their word for filter membership.
-    fn take_find_hash(&mut self) -> Option<NonZeroU64> {
-        let hash = u64::from(self.free_previous.map_or(0, NonZeroU32::get))
-            | (u64::from(self.free_next.map_or(0, NonZeroU32::get)) << 32);
-        self.free_previous = None;
-        self.free_next = None;
-        NonZeroU64::new(hash)
-    }
-
-    fn set_find_hash(&mut self, hash: NonZeroU64) {
-        self.free_previous = NonZeroU32::new(hash.get() as u32);
-        self.free_next = NonZeroU32::new((hash.get() >> 32) as u32);
-    }
-
     fn index(id: NodeId) -> usize {
         id.get() as usize - 1
     }
@@ -808,8 +772,6 @@ impl<M: Words> Writer<M> {
         let node = &mut self.allocations[allocation];
         node.version = version;
         node.length = length as u32;
-        node.free_previous = None;
-        node.free_next = None;
         let at = node.at as usize;
         self.index
             .arena(at + B_ALLOCATION)
@@ -948,7 +910,7 @@ impl<M: Words> Writer<M> {
 
     pub(crate) fn release(&mut self, block: Block) {
         if self.is_live(block) {
-            self.unpublish(block);
+            self.unpublish_live(block);
             self.free_block(block);
         }
     }
@@ -1021,15 +983,6 @@ impl<M: Words> Writer<M> {
     }
 
     pub(crate) fn publish(&mut self, query: &Query<'_>, payload: Block) -> Result<u64, Refusal> {
-        self.publish_hashed(query, payload, || (query.hash(), None))
-    }
-
-    fn publish_hashed(
-        &mut self,
-        query: &Query<'_>,
-        payload: Block,
-        hash: impl FnOnce() -> (u64, Option<NonZeroU64>),
-    ) -> Result<u64, Refusal> {
         let key_len = query.key_len();
         if key_len as u64 > LENGTH_MASK || query.namespace >= self.index.layout.namespaces {
             return Err(Refusal::Entry);
@@ -1044,7 +997,7 @@ impl<M: Words> Writer<M> {
         if self.published.len() >= self.index.layout.max_published() {
             return Err(Refusal::Slots);
         }
-        let (hash, find_hash) = hash();
+        let hash = query.hash();
         let slot = self.find_slot(hash, query).ok_or(Refusal::Slots)?;
         let key = self.allocate(key_len).ok_or(Refusal::Arena)?;
         self.write_bytes(key.at + BLOCK_HEADER_WORDS, &[query.identity, query.shape]);
@@ -1053,9 +1006,6 @@ impl<M: Words> Writer<M> {
         if previous.state & STATE_MASK == OCCUPIED {
             self.published.remove(&previous.token);
             self.free_key(&previous);
-        }
-        if let Some(hash) = find_hash {
-            self.update_filter(hash, true);
         }
         self.write_slot(
             slot,
@@ -1069,21 +1019,12 @@ impl<M: Words> Writer<M> {
                 token,
             },
         );
-        if previous.state & STATE_MASK == OCCUPIED {
-            self.remove_find(&previous);
-        }
-        if let Some(hash) = find_hash {
-            self.allocations[payload.allocation].set_find_hash(hash);
-        }
         self.published.insert(token, slot);
         Ok(token)
     }
 
     pub(crate) fn unpublish(&mut self, payload: Block) -> bool {
-        if !self.is_live(payload) {
-            return false;
-        }
-        self.unpublish_live(payload)
+        self.is_live(payload) && self.unpublish_live(payload)
     }
 
     fn unpublish_live(&mut self, payload: Block) -> bool {
@@ -1092,7 +1033,6 @@ impl<M: Words> Writer<M> {
         };
         let removed = self.read_slot(slot);
         self.delete(slot);
-        self.remove_find(&removed);
         self.free_key(&removed);
         true
     }
@@ -1185,50 +1125,6 @@ mod models {
             if let Some((payload, _token)) = reader.join().unwrap() {
                 assert!(payload == [1; 16] || payload == [2; 16]);
             }
-        });
-    }
-
-    #[test]
-    fn find_filter_and_payloads_reject_concurrent_reuse() {
-        model(|| {
-            let layout = Layout::new(8, 128, 1, 1).unwrap();
-            let index = Index::create(zeroed(layout.words()), layout, 1, u64::MAX).unwrap();
-            index.set_available(0, true);
-            index.set_progress(0, 1);
-            index.set_epoch(0, EPOCH);
-            let mut writer = Writer::new(index.clone());
-            let family = Query {
-                shape: b"family",
-                ..query(b"")
-            };
-            let first = writer.store(&[1; 8]).unwrap();
-            let second = writer.store(&[2; 8]).unwrap();
-            writer.publish_find(&family, 8, first).unwrap();
-            writer.publish_find(&family, 16, second).unwrap();
-            let reader = loom::thread::spawn(move || {
-                let family = Query {
-                    shape: b"family",
-                    ..query(b"")
-                };
-                assert!(matches!(
-                    index.read_find(1, &family, 4, 1, |_| Some(())),
-                    Err(Miss::PossibleFamily | Miss::Contended)
-                ));
-                index.read_find(1, &family, 8, 1, |located| {
-                    let mut bytes = vec![0; located.payload_len];
-                    index.copy_payload(located, &mut bytes).then_some(bytes)
-                })
-            });
-            writer.release(first);
-            let foreign = writer.store(&[9; 8]).unwrap();
-            writer.publish(&query(b"foreign"), foreign).unwrap();
-            match reader.join().unwrap() {
-                Ok((bytes, _)) => assert!(bytes == [1; 8]),
-                Err(miss) => assert!(matches!(miss, Miss::PossibleFamily | Miss::Contended)),
-            }
-            writer.release(second);
-            writer.release(foreign);
-            assert_eq!(writer.published(), 0);
         });
     }
 

@@ -73,7 +73,6 @@ class IndexPublisher:
         "_published",
         "_shapes",
         "_tokens",
-        "_unpublished_finds",
     )
 
     def __init__(
@@ -93,7 +92,6 @@ class IndexPublisher:
         self._published: dict[Payload, tuple[NonNegativeInt, CacheKey]] = {}
         self._identities: dict[tuple[NamespaceId, Canonical], set[Payload]] = {}
         self._finds: dict[NamespaceId, set[Payload]] = {}
-        self._unpublished_finds: dict[NamespaceId, set[CacheEntry]] = {}
         self._tokens: dict[NonNegativeInt, CacheKey] = {}
         self._shapes = KeyCache(_SHAPE_KEYS)
         self._lock = threading.Lock()
@@ -120,9 +118,6 @@ class IndexPublisher:
                 self._epochs[namespace] = epoch
             self._raise_epoch(namespace, epoch)
             self._index.set_epoch(slot.namespace, self._epochs[namespace])
-            self._index.set_find_complete(
-                slot.namespace, namespace not in self._unpublished_finds
-            )
         return slot
 
     def assigned(self, namespace: NamespaceId) -> NamespaceSlot | None:
@@ -147,39 +142,16 @@ class IndexPublisher:
 
     def admitted(self, key: CacheKey, entry: CacheEntry) -> None:
         payload = entry.value
+        if not isinstance(payload, Payload):
+            return
         with self._lock:
-            if not isinstance(payload, Payload):
-                if entry.find_source is not None:
-                    self._find_unpublished(key.namespace, entry)
-                return
             try:
                 namespace = self._namespaces[key.namespace]
             except KeyError:
-                if entry.find_source is not None:
-                    self._find_unpublished(key.namespace, entry)
                 return
             if isinstance(key, IdentityCacheKey):
                 identity = encode_key(key.identity)
                 shape = self._shapes.encode(key.read_shape)
-            elif entry.find_source is not None:
-                discriminator = key.discriminator
-                assert isinstance(discriminator, tuple)
-                parts = discriminator[1]
-                assert isinstance(parts, tuple)
-                family = self._shapes.encode(parts[0])
-                token = self._index.publish_find(
-                    namespace.database,
-                    namespace.namespace,
-                    self._epochs[key.namespace],
-                    family,
-                    entry.find_source.limit,
-                    payload,
-                )
-                if token is None:
-                    self._find_unpublished(key.namespace, entry)
-                    return
-                self._remember_publication(key, payload, token)
-                return
             else:
                 identity = b""
                 shape = self._shapes.encode(key.discriminator)
@@ -193,53 +165,18 @@ class IndexPublisher:
             )
             if token is None:
                 return
-            self._remember_publication(key, payload, token)
-
-    def _remember_publication(
-        self, key: CacheKey, payload: Payload, token: NonNegativeInt
-    ) -> None:
-        self._published[payload] = (token, key)
-        if isinstance(key, IdentityCacheKey):
-            self._identities.setdefault((key.namespace, key.identity), set()).add(
-                payload
-            )
-        else:
-            try:
-                members = self._finds[key.namespace]
-            except KeyError:
-                members = self._finds[key.namespace] = set()
-            members.add(payload)
-        self._tokens[token] = key
-
-    def _find_unpublished(self, namespace: NamespaceId, entry: CacheEntry) -> None:
-        try:
-            unpublished = self._unpublished_finds[namespace]
-        except KeyError:
-            unpublished = self._unpublished_finds[namespace] = set()
-        unpublished.add(entry)
-        try:
-            slot = self._namespaces[namespace]
-        except KeyError:
-            return
-        self._index.set_find_complete(slot.namespace, complete=False)
-
-    def _forget_unpublished(
-        self, namespace: NamespaceId, entry: CacheEntry | None = None
-    ) -> None:
-        try:
-            unpublished = self._unpublished_finds[namespace]
-        except KeyError:
-            return
-        if entry is not None:
-            unpublished.discard(entry)
-            if unpublished:
-                return
-        del self._unpublished_finds[namespace]
-        try:
-            slot = self._namespaces[namespace]
-        except KeyError:
-            return
-        self._index.set_find_complete(slot.namespace, complete=True)
+            self._published[payload] = (token, key)
+            if isinstance(key, IdentityCacheKey):
+                self._identities.setdefault((key.namespace, key.identity), set()).add(
+                    payload
+                )
+            else:
+                try:
+                    members = self._finds[key.namespace]
+                except KeyError:
+                    members = self._finds[key.namespace] = set()
+                members.add(payload)
+            self._tokens[token] = key
 
     def _forget(self, payload: Payload) -> CacheKey | None:
         try:
@@ -252,10 +189,9 @@ class IndexPublisher:
 
     def removed(self, _key: CacheKey, entry: CacheEntry) -> None:
         payload = entry.value
+        if not isinstance(payload, Payload):
+            return
         with self._lock:
-            self._forget_unpublished(_key.namespace, entry)
-            if not isinstance(payload, Payload):
-                return
             key = self._forget(payload)
             if key is None:
                 return
@@ -271,7 +207,6 @@ class IndexPublisher:
                     del self._finds[key.namespace]
 
     def _invalidate_finds(self, namespace: NamespaceId) -> None:
-        self._forget_unpublished(namespace)
         try:
             payloads = self._finds.pop(namespace)
         except KeyError:
@@ -281,7 +216,6 @@ class IndexPublisher:
 
     def namespace_written(self, namespace: NamespaceId) -> None:
         with self._lock:
-            self._forget_unpublished(namespace)
             try:
                 slot = self._namespaces[namespace]
             except KeyError:
@@ -291,7 +225,6 @@ class IndexPublisher:
 
     def identity_written(self, namespace: NamespaceId, identity: Canonical) -> None:
         with self._lock:
-            self._forget_unpublished(namespace)
             try:
                 slot = self._namespaces[namespace]
             except KeyError:
@@ -311,7 +244,6 @@ class IndexPublisher:
                 slot = self._namespaces[namespace]
             except KeyError:
                 return
-            self._invalidate_finds(namespace)
             self._raise_epoch(namespace, epoch)
             self._index.set_epoch(slot.namespace, self._epochs[namespace])
 
@@ -323,7 +255,6 @@ class IndexPublisher:
                 return
             if assigned_epoch != epoch:
                 return
-            self._invalidate_finds(namespace)
             slot = self._namespaces[namespace]
             del self._namespaces[namespace]
             del self._epochs[namespace]

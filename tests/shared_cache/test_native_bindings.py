@@ -135,9 +135,8 @@ def test_rejects_invalid_layout(
         lambda owner: owner.set_progress(1, monotonic_ns()),
         lambda owner: owner.set_epoch(1, _EPOCH),
         lambda owner: owner.record_write(1),
-        lambda owner: owner.set_find_complete(1, complete=True),
     ],
-    ids=("available", "progress", "epoch", "write", "find-completeness"),
+    ids=("available", "progress", "epoch", "write"),
 )
 def test_rejects_out_of_range_updates(
     native_owner: OwnerIndex,
@@ -232,7 +231,6 @@ def test_detached_reader_never_reads_or_enqueues(native_reader: ReaderIndex) -> 
     assert (native_reader.detached,) == (False,)
     assert native_reader.capture(0, 0, _EPOCH) is not None
     native_reader.detach()
-    assert native_reader.lookup_find(0, 0, _EPOCH, b"family", 4) is None
     native_reader.detach()
     assert native_reader.detached
     assert native_reader.lookup(0, 0, _EPOCH, b"identity", b"shape") is None
@@ -249,34 +247,6 @@ def test_ring_without_admissions_reports_an_empty_queue(
     assert not reader.admissions_enabled
     assert not reader.enqueue_admission(b"frame")
     assert ring.drain_admissions() == []
-
-
-@pytest.mark.parametrize("limit", [0, 4, 8], ids=["unlimited", "covering", "exact"])
-def test_find_selection_returns_bytes_or_a_fenced_local_capture(
-    native_owner: OwnerIndex,
-    native_reader: ReaderIndex,
-    limit: NonNegativeInt,
-    faker: Faker,
-) -> None:
-    snapshot = faker.binary(length=32)
-    payload = native_owner.store(snapshot)
-    assert payload is not None
-    assert native_owner.publish_find(0, 0, _EPOCH, b"family", 8, payload) is not None
-    native_owner.set_find_complete(0, complete=False)
-    if limit == 8:
-        assert native_reader.lookup_find(0, 0, _EPOCH, b"family", limit) == snapshot
-    else:
-        assert native_reader.lookup_find(0, 0, _EPOCH, b"family", limit) is None
-    native_owner.release(payload)
-    assert native_reader.lookup_find(0, 0, _EPOCH, b"family", limit) is None
-    native_owner.set_find_complete(0, complete=True)
-    token = native_reader.lookup_find(0, 0, _EPOCH, b"family", limit)
-    assert isinstance(token, tuple)
-    assert native_owner.validate_capture(0, 0, _EPOCH, _INCARNATION, token, _EXPIRY_NS)
-    native_owner.record_write(0)
-    assert not native_owner.validate_capture(
-        0, 0, _EPOCH, _INCARNATION, token, _EXPIRY_NS
-    )
 
 
 @pytest.mark.parametrize(

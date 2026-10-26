@@ -70,10 +70,8 @@ if TYPE_CHECKING:
 
     from faker import Faker
 
-    from client_query_cache._core.find_reads import FindReadShape
     from client_query_cache._shared.adapters import (
         AsyncSharedCachedCollection,
-        Cursor,
         SharedCachedCollection,
     )
     from tests.conftest import MongoDbUri
@@ -432,7 +430,7 @@ def test_connections_of_finished_threads_are_released(
     assert endpoint.counters.failures == 0
 
 
-@pytest.fixture(params=("sync", "async"))
+@pytest.fixture(params=("sync", "async", "sync-native-key", "async-native-key"))
 async def shared_find_view(
     request: pytest.FixtureRequest,
     client: MongoClient[BsonDict],
@@ -445,17 +443,22 @@ async def shared_find_view(
         Owner,
     ]
 ]:
-    owner = start_owner()
+    local = request.param.endswith("native-key")
+    owner = start_owner(shared_index=_SHARED_INDEX if local else None)
     async with AsyncExitStack() as stack:
-        if request.param == "sync":
-            manager = SharedCacheManager(client, SyncEndpoint(owner.attachment()))
+        if request.param.startswith("sync"):
+            manager = SharedCacheManager(
+                client,
+                SyncEndpoint(owner.attachment()),
+                LocalIndex.attach(owner.attachment()) if local else None,
+            )
             stack.callback(manager.close)
             view: (
                 SharedCachedCollection[BsonDict] | AsyncSharedCachedCollection[BsonDict]
             ) = manager[seeded_database][COLLECTION]
         else:
             async_manager = await stack.enter_async_context(
-                async_shared_manager(owner, mongodb_uri)
+                async_shared_manager(owner, mongodb_uri, local=local)
             )
             view = async_manager[seeded_database][COLLECTION]
 
@@ -470,8 +473,15 @@ async def shared_find_view(
 
 @pytest.mark.parametrize(
     ("stored_limit", "hit_limit"),
-    [(8, 8), (8, 4), (-8, -8)],
-    ids=["exact", "compatible", "negative-exact"],
+    [(8, 8), (8, 4), (0, 4), (0, 0), (Int64(8), Int64(4)), (-8, -8)],
+    ids=[
+        "exact",
+        "compatible",
+        "native-key-unlimited-covering",
+        "native-key-unlimited",
+        "native-key-int64",
+        "native-key-negative",
+    ],
 )
 async def test_shared_find_reuses_prepared_family(
     shared_find_view: tuple[
@@ -497,8 +507,12 @@ async def test_shared_find_reuses_prepared_family(
 
     assert view._shared.observation.hits == hits + 1
     assert view._shared.observation.misses == misses + 1
-    assert [document["_id"] for document in complete] == list(range(8))
-    assert [document["_id"] for document in hit] == list(range(abs(hit_limit)))
+    assert [document["_id"] for document in complete] == list(
+        range(abs(stored_limit) or DOCUMENTS)
+    )
+    assert [document["_id"] for document in hit] == list(
+        range(abs(hit_limit) or DOCUMENTS)
+    )
     assert raw_key_traversals == [1, 1]
 
 
@@ -568,24 +582,6 @@ class _SharedReads:
             )
 
         return self._run(gather())
-
-    def find(self, minimum: NonNegativeInt) -> list[BsonDict]:
-        manager = self.manager
-        if isinstance(manager, SharedCacheManager):
-            return (
-                manager[self._database][COLLECTION]
-                .find({"_id": {"$gte": minimum}})
-                .sort("_id", 1)
-                .limit(8)
-                .to_list()
-            )
-        return self._run(
-            manager[self._database][COLLECTION]
-            .find({"_id": {"$gte": minimum}})
-            .sort("_id", 1)
-            .limit(8)
-            .to_list()
-        )
 
     def reattach_from(self, local: object) -> None:
         manager = self.manager
@@ -660,122 +656,6 @@ def open_reads(
 
 def _admitted(owner: Owner, count: int) -> None:
     wait_for(lambda: owner.counters()["admitted"] == count)
-
-
-@pytest.mark.parametrize(
-    "state",
-    ["slot", "incarnation", "metadata", "detached"],
-    ids=["slot-evicted", "owner-replaced", "metadata-evicted", "detached"],
-)
-def test_native_find_falls_back_when_local_hints_change_after_classification(
-    open_reads: Callable[[SharedIndexLimits], tuple[Owner, _SharedReads]],
-    monkeypatch: pytest.MonkeyPatch,
-    state: str,
-) -> None:
-    owner, reads = open_reads(
-        replace(_SHARED_INDEX, local_miss_admission=True, native_admission_queue=True)
-    )
-    expected = reads.find(0)
-    _admitted(owner, 1)
-    manager = reads.manager
-    original = adapters._native_find
-
-    def changed(cursor: Cursor, shape: FindReadShape, family: bytes) -> bool:
-        namespace = cursor._view._namespace()
-        local = manager.local
-        assert local is not None
-        if state == "slot":
-            manager._slots.clear()
-        elif state == "incarnation":
-            assignment = manager._slots.find(namespace)
-            assert assignment is not None
-            manager._slots.store(namespace, (*assignment[:2], local.incarnation + 1))
-        elif state == "metadata":
-            manager._metadata.clear()
-        else:
-            local.reader.detach()
-        return original(cursor, shape, family)
-
-    monkeypatch.setattr(adapters, "_native_find", changed)
-    assert reads.find(0) == expected
-
-
-@pytest.mark.parametrize(
-    ("native_queue", "recovery"),
-    [(False, False), (True, False), (True, True)],
-    ids=["socket", "queue", "queue-recovery"],
-)
-def test_native_find_disconnected_misses_obey_admission_recovery(
-    open_reads: Callable[[SharedIndexLimits], tuple[Owner, _SharedReads]],
-    native_queue: bool,
-    recovery: bool,
-) -> None:
-    owner, reads = open_reads(
-        replace(
-            _SHARED_INDEX,
-            local_miss_admission=True,
-            native_admission_queue=native_queue,
-        )
-    )
-    reads.disconnect_data()
-    time.sleep(_PAST_REATTACH_BACKOFF_SECONDS)
-    endpoint = reads.manager.endpoint
-    before = endpoint.counters.requests
-    if recovery:
-        endpoint.admission_recovery.dropped()
-        assert endpoint.admission_recovery.enqueued(
-            endpoint.admission_recovery.generation
-        )
-    assert len(reads.find(0)) == 8
-    _admitted(owner, 1)
-    assert endpoint.counters.requests == before + 1
-    assert owner.observation()["captures"] == 0
-
-
-@pytest.fixture
-def interrupted_find_admission(
-    open_reads: Callable[[SharedIndexLimits], tuple[Owner, _SharedReads]],
-    monkeypatch: pytest.MonkeyPatch,
-) -> Iterator[tuple[Owner, _SharedReads]]:
-    owner, reads = open_reads(
-        replace(_SHARED_INDEX, local_miss_admission=True, native_admission_queue=True)
-    )
-    capture = adapters._capture_find
-    writer: asyncio.StreamWriter | None = None
-
-    def disconnect(cursor: Cursor, handle: object) -> None:
-        nonlocal writer
-        assert isinstance(handle, adapters.LocalMiss)
-        capture(cursor, handle)
-        monkeypatch.setattr(adapters, "_capture_find", capture)
-        endpoint = reads.manager.endpoint
-        if isinstance(endpoint, SyncEndpoint):
-            endpoint._drop()
-        else:
-            writer = endpoint._writer
-            assert writer is not None
-            endpoint._abandon(writer)
-
-    monkeypatch.setattr(adapters, "_capture_find", disconnect)
-    yield owner, reads
-    if writer is not None:
-        reads._run(writer.wait_closed())
-
-
-def test_native_find_recovers_after_socket_loss_during_capture(
-    interrupted_find_admission: tuple[Owner, _SharedReads],
-) -> None:
-    owner, reads = interrupted_find_admission
-    before = reads.manager.endpoint.counters.requests
-    assert len(reads.find(0)) == 8
-    assert reads.manager.endpoint.counters.requests == before
-    assert owner.counters()["admitted"] == 0
-    assert reads.manager.endpoint.counters.native_admissions == 0
-    time.sleep(_PAST_REATTACH_BACKOFF_SECONDS)
-    assert len(reads.find(0)) == 8
-    _admitted(owner, 1)
-    assert reads.manager.endpoint.counters.requests == before + 1
-    assert owner.observation()["captures"] == 0
 
 
 def test_admitted_identity_hits_are_served_locally(

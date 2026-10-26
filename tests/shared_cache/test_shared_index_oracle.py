@@ -56,18 +56,18 @@ _RING_TOKENS = 4_096
 _STALE_PROGRESS_NS = 1
 _BOUNDED_FIND_SHAPE = FindReadShape(("find", "sorted"), 8)
 _FIND_SHAPES = tuple(
-    FindReadShape(("find", name), limit) for name in _SHAPES for limit in (0, 1, 3)
+    FindReadShape(("find", name), limit) for name in _SHAPES for limit in (1, 3)
 )
 
 
 @pytest.fixture
-def bounded_shared_index(
-    request: pytest.FixtureRequest,
-) -> Iterator[tuple[CacheCore, IndexPublisher, OwnerIndex, ReaderIndex]]:
-    index = OwnerIndex(4, 4096, 1, 1, 1, _EXPIRY_NS)
+def bounded_shared_index() -> Iterator[
+    tuple[CacheCore, IndexPublisher, OwnerIndex, ReaderIndex]
+]:
+    index = OwnerIndex(8, 4096, 1, 1, 1, _EXPIRY_NS)
     publisher = IndexPublisher(index, (_DATABASE,), 1)
     core = CacheCore(
-        getattr(request, "param", CacheCoreConfig(max_namespaces=1)),
+        CacheCoreConfig(max_namespaces=1),
         observer=publisher,
         payloads=ArenaPayloads(index),
     )
@@ -231,23 +231,23 @@ def test_every_write_removes_find_publication_without_removing_other_identities(
             is AdmissionOutcome.ADMITTED
         )
         assert (
-            reader.lookup_find(
+            reader.lookup(
                 0,
                 slot.namespace,
                 epoch,
-                encode_key(canonicalize(_BOUNDED_FIND_SHAPE.family)),
-                _BOUNDED_FIND_SHAPE.limit,
+                b"",
+                encode_key(canonicalize(_BOUNDED_FIND_SHAPE.discriminator)),
             )
             is not None
         )
         core.record_write(namespace, identity)
         assert (
-            reader.lookup_find(
+            reader.lookup(
                 0,
                 slot.namespace,
                 epoch,
-                encode_key(canonicalize(_BOUNDED_FIND_SHAPE.family)),
-                _BOUNDED_FIND_SHAPE.limit,
+                b"",
+                encode_key(canonicalize(_BOUNDED_FIND_SHAPE.discriminator)),
             )
             is None
         )
@@ -446,155 +446,21 @@ class _SharedFindIndexMachine(_SharedIndexMachine):
             assert slot is not None
             for find_shape in _FIND_SHAPES:
                 for epoch in self.epochs[namespace]:
-                    local = self.reader.lookup_find(
+                    local = self.reader.lookup(
                         slot.database,
                         slot.namespace,
                         epoch,
-                        encode_key(canonicalize(find_shape.family)),
-                        find_shape.limit,
+                        b"",
+                        encode_key(canonicalize(find_shape.discriminator)),
                     )
-                    if isinstance(local, bytes):
+                    if local is not None:
                         assert local == self.core.lookup_find_encoded(
                             namespace, find_shape
-                        )
-                    elif isinstance(local, tuple):
-                        assert (
-                            self.core.lookup_find_encoded(namespace, find_shape) is None
                         )
 
 
 def test_local_find_reads_never_disagree_with_the_core() -> None:
     run_state_machine_as_test(_SharedFindIndexMachine)  # type: ignore[no-untyped-call]
-
-
-@pytest.mark.parametrize("payload_characters", [0, 2048], ids=["slots", "arena"])
-def test_incomplete_find_publication_retains_owner_reuse_and_reclaims_state(
-    bounded_shared_index: tuple[CacheCore, IndexPublisher, OwnerIndex, ReaderIndex],
-    payload_characters: NonNegativeInt,
-) -> None:
-    core, publisher, index, reader = bounded_shared_index
-    index.enable_capture(enabled=True)
-    namespace = _NAMESPACES[0]
-    slot = publisher.assign(namespace, core.current_epoch(namespace))
-    assert slot is not None
-    for ordinal in range(8):
-        shape = FindReadShape(("find", ordinal), 8)
-        assert (
-            core.admit_namespace(
-                core.capture_namespace_generation(namespace),
-                shape.discriminator,
-                [{"payload": "x" * payload_characters}],
-                find_source=shape.source,
-            )
-            is AdmissionOutcome.ADMITTED
-        )
-    assert publisher._unpublished_finds[namespace]
-    assert len(publisher._unpublished_finds[namespace]) <= core.snapshot().entry_count
-    assert core.lookup_find_encoded(namespace, shape) is not None
-    assert (
-        reader.lookup_find(
-            slot.database,
-            slot.namespace,
-            core.current_epoch(namespace),
-            encode_key(canonicalize(shape.family)),
-            4,
-        )
-        is None
-    )
-    core.clear_namespace(namespace)
-    assert publisher._unpublished_finds == {}
-    assert index.published() == 0
-    assert isinstance(
-        reader.lookup_find(
-            slot.database,
-            slot.namespace,
-            core.current_epoch(namespace),
-            encode_key("absent"),
-            4,
-        ),
-        tuple,
-    )
-    core.drop_namespace(namespace)
-    assert publisher._finds == {}
-    assert publisher._unpublished_finds == {}
-
-
-def test_unassigned_find_state_does_not_survive_a_write(
-    bounded_shared_index: tuple[CacheCore, IndexPublisher, OwnerIndex, ReaderIndex],
-) -> None:
-    core, publisher, index, reader = bounded_shared_index
-    index.enable_capture(enabled=True)
-    namespace = _NAMESPACES[0]
-    shape = _BOUNDED_FIND_SHAPE
-    assert (
-        core.admit_namespace(
-            core.capture_namespace_generation(namespace),
-            shape.discriminator,
-            [],
-            find_source=shape.source,
-        )
-        is AdmissionOutcome.ADMITTED
-    )
-    assert publisher._unpublished_finds[namespace]
-    core.record_write(namespace, 0)
-    assert publisher._unpublished_finds == {}
-    epoch = core.current_epoch(namespace)
-    slot = publisher.assign(namespace, epoch)
-    assert slot is not None
-    assert isinstance(
-        reader.lookup_find(
-            slot.database,
-            slot.namespace,
-            epoch,
-            encode_key(canonicalize(shape.family)),
-            4,
-        ),
-        tuple,
-    )
-
-
-@pytest.mark.parametrize("bounded_shared_index", [_EVICTING_BUDGET], indirect=True)
-def test_eviction_removes_individual_unpublished_find_references(
-    bounded_shared_index: tuple[CacheCore, IndexPublisher, OwnerIndex, ReaderIndex],
-) -> None:
-    core, publisher, index, reader = bounded_shared_index
-    index.enable_capture(enabled=True)
-    namespace = _NAMESPACES[0]
-    epoch = core.current_epoch(namespace)
-    slot = publisher.assign(namespace, epoch)
-    assert slot is not None
-    for ordinal in range(6):
-        shape = FindReadShape(("find", ordinal), 8)
-        assert (
-            core.admit_namespace(
-                core.capture_namespace_generation(namespace),
-                shape.discriminator,
-                [{"payload": "small"}],
-                find_source=shape.source,
-            )
-            is AdmissionOutcome.ADMITTED
-        )
-    assert len(publisher._unpublished_finds[namespace]) > 1
-    for ordinal in range(4):
-        assert (
-            core.admit_identity(
-                core.begin_identity_admission(namespace, ordinal),
-                "full",
-                {"payload": "x" * 350},
-            )
-            is AdmissionOutcome.ADMITTED
-        )
-    assert publisher._unpublished_finds == {}
-    assert isinstance(
-        reader.lookup_find(
-            slot.database,
-            slot.namespace,
-            epoch,
-            encode_key("absent"),
-            4,
-        ),
-        tuple,
-    )
 
 
 @given(

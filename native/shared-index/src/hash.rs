@@ -24,9 +24,5 @@ pub(crate) fn key(namespace: u64, identity: &[u8], shape: &[u8]) -> u64 {
     state ^ (state >> 33)
 }
 
-pub(crate) fn find_limit(family: u64, limit: u64) -> u64 {
-    mix(family, limit)
-}
-
 #[cfg(test)]
 mod tests;

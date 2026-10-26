@@ -2,116 +2,42 @@
 
 ## Context
 
-See proposal.md for motivation and the report for the rejected directory
-candidate's measurements. The replacement removes compatible-limit directories
-and retains the owner's compatible-result authority. A native miss decision
-needs only evidence that no reusable family member can exist; it does not need
-to enumerate that family's limits.
+See the proposal for motivation. Main already uses a Rust exact-key index, while Python recursively constructs tagged BSON key trees. A find needs the canonical family for owner selection and the family/limit discriminator for local lookup. They contain the same query. The current wire representation distinguishes integer types, canonical tags and codec identities.
 
 ## Goals / Non-Goals
 
-The delta specs define the contracts. This design keeps native exact hits and
-local miss capture, with bounded authoritative owner admission. It does not move
-cache policy, result decoding, metadata or invalidation semantics into Rust.
-Process-local metadata and selective invalidation remain under issues #337 and
-#339. It introduces no public option or dependency.
+The delta specs define the behavior contracts. This correction targets measured key preparation. Public query classification, cursor snapshots, policy, owner handles, invalidation and generic identity reads retain their existing paths. The rejected membership state and local-find admission protocol are removed, rather than carried as inactive alternatives.
 
 ## Decisions
 
-### Exact hash lookup plus a bounded counting family filter
+### Rust encoding with one family traversal
 
-Retain the generic 64-byte exact-key slot and lookup algorithm. Find exact keys
-use the encoded canonical family and nonnegative limit in the existing reserved
-non-BSON identity domain. No second family slot, directory payload, BTreeMap or
-per-family writer map is maintained.
+Add a native encoder beside the existing PyO3 bindings. It walks canonical tuples, registered tags and common scalar types and writes the existing BSON key representation. For specialized scalar types, reuse the existing Python wire encoder and official BSON implementation; retain their exact representations and errors. Native integer handling distinguishes exact Python integers from subclasses such as BSON Int64 and datetime-conversion enums. Use CPython's native stack guard across tuple recursion; Python 3.14 checks native stack space separately from its Python recursion limit.
 
-Add one global counting filter whose cell count equals the configured native
-slot count. Each cell is one atomic word. Hash the namespace slot, epoch and
-encoded family; use two derived cell indices. If both indices are equal, update
-that cell once. A published find contributes one count to each cell. Store its
-filter hash in the existing allocation bookkeeping, using a tagged field that
-cannot confuse hash zero with an ordinary payload. Its lifetime is the payload's
-publication lifetime, not the Python Payload object's lifetime.
+Encode the family once and reuse its encoded value when forming the exact discriminator. The two byte strings must match the existing encoder byte for byte. The native writer implements only the tagged-key envelope and common scalar grammar from the [BSON specification](https://bsonspec.org/spec.html); it is not a new general-purpose BSON codec. No parser, query engine or dependency is added.
 
-Validate capacity and allocate key storage before incrementing; increment
-before making the exact publication visible. Refusal leaves counts unchanged. Remove counts only after the exact publication is no longer visible.
-Re-publication and replacement must not double count; unpublish clears the
-allocation's membership, and later release is a no-op for the filter. Counters
-cannot overflow because live contributions are bounded by the native published
-slot limit. Publication failures retained by the core still make the namespace
-incomplete through the existing bounded unpublished-entry accounting.
+### Bounded paired keys and existing selection
 
-After an exact miss, a reader checks native liveness/epoch and namespace
-completeness. If either filter cell is zero, no published member of that family
-can exist, so it returns the existing local capture token. Otherwise it returns
-owner fallback. Collisions and hash equality can only add fallback requests;
-filter membership never authorizes a hit or hides an unpublished core entry.
-The owner retains exact/covering/unlimited selection under its existing policy.
-A concurrent insertion may precede or follow a reader's absent observation; a
-concurrent removal cannot produce false absence for any other live contributor.
-Token validation and core generation fencing remain authoritative at admission.
+The worker key cache retains the paired bytes by canonical family/limit under its existing entry and retained-byte-size limits. Generic and find encodings share the entry budget; oversized pairs remain usable for the current call without retention. A hot find requires one cache lookup. A miss carries the already prepared family bytes in the existing family/limit request, so outgoing frame sizes and limit representations remain identical to main. The owner retains exact, covering and unlimited selection and authoritative capture. Workers without a local index use the existing single-family encoding, avoiding unnecessary preparation.
 
-The filter uses 8 bytes per slot (128 KiB for the measured 16,384 slots), and reuses the native allocator's free-list word while an allocation is live; it adds no allocation-metadata word. Only touched pages become resident.
-It is shared across namespaces so large configured namespace limits do not
-multiply its allocation. Epoch participates in the family hash; removal/reset
-must balance every contribution before namespace-slot reuse. Bump the native
-layout version. Neither filter saturation nor collisions affect correctness;
-they reduce the proportion of misses avoiding owner selection. Task 1.1 measures
-this scaling at fixed capacity and verifies balance after eviction and reset.
-
-### Socket admission for locally captured finds
-
-Preserve the current local miss envelope and admission fences, but send completed
-find results through the existing bounded socket transport. Exact identity
-admissions retain their existing native-queue path. This avoids making previously
-untouched per-worker admission queues resident just because find misses changed.
-Reuse encoded frames and existing send deadlines, capacity and recovery rules;
-do not add a transport or initialize additional per-worker resources. A local
-find miss requires a connected leased socket. If disconnected, fall back to
-owner selection, which performs the existing reconnect/recovery path. A socket
-that disconnects during admission retains the existing bounded-send/drop
-behavior; the next miss detects disconnection and attempts owner recovery.
-Exact local hits continue without a socket. Cover both disconnect boundaries
-in sync/async tests so local misses cannot loop forever without reconnecting.
-
-The worker prepares the family once and reuses it for exact lookup, filter
-lookup, local admission or owner selection. Native selection hashes the family
-once and derives the exact-limit hash and filter indices from that result;
-it must not traverse the family twice to maintain the filter. A filter collision must not trigger
-a second query traversal. Partial close/error/cancellation clears snapshots and
-needs no owner discard handle. The owner captures the core namespace generation
-before validating the native token under progress/availability exclusion; the
-core generation check rejects a write after token validation.
+Merge local find lookup and miss message construction so the keys survive the local lookup without being recomputed. Remote cursor capture does not reconstruct metadata that its core ignores; the owner already owns that information. Keep the native index layout, allocator, generic lookup and identity admission code from main. Reuse namespace publication sets without constructing a disposable empty set on every admission.
 
 ### Alternatives
 
-| Alternative                                                 | Benefits                                                                                                 | Costs / unknowns                                                                                                                          | Decision                                                                    |
-| ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| Native compatible-limit directories                         | Local exact and covering hits                                                                            | Rejected candidate adds 4.41–6.44 MiB group PSS and about 1.2 µs per native publication/removal entry; some memory is transport residency | Rejected by the user; preserve measurements, no further directory tuning    |
-| Counting family filter with owner compatible selection      | Constant bounded membership updates; no family allocation/rebuild; native exact hits and definite misses | False positives add owner requests; performance and resource benefit require measurement                                                  | Approved replacement; tasks 1.1–3.2 cover unknowns before acceptance        |
-| Reuse the prepared key but keep selection RPC on every miss | Small change; no new membership state                                                                    | Retains the cold selection boundary identified by profiling                                                                               | Viable fallback if replacement fails; no implementation without user choice |
-| Native full cache or inline family tree                     | Could consolidate ownership and lookup                                                                   | Requires a wider policy/storage rewrite; current measurements do not establish its costs                                                  | Reject for this boundary; no additional research required                   |
-| Native queue admission for local finds                      | Existing fast queue transport                                                                            | Touches up to four 1.06 MiB queues in this workload; resource tradeoff was rejected                                                       | Use existing socket path; remeasurement is required by task 3.1             |
+| Alternative                         | Benefit                                                                         | Cost or unknown                                                                                            | Decision                                            |
+| ----------------------------------- | ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| Rust paired key encoding            | Removes Python recursion and duplicate query traversal without new shared state | Byte compatibility and end-to-end benefit require tasks 1.1–3.2                                            | Selected by the user's Rust direction               |
+| Python prepared-key request         | Removes one worker traversal                                                    | Retains Python recursion; larger envelope needs a size fallback                                            | Superseded; no further research required            |
+| Native directories or family filter | Removes most miss-selection requests                                            | Rejected directory resource costs; filter retains unexplained identity-tail increases                      | Keep frozen negative evidence; no further tuning    |
+| Full native cache or owner rewrite  | Could remove more Python work                                                   | Current attribution does not establish a benefit sufficient to justify the larger policy/lifecycle rewrite | No additional research required for this correction |
 
 ## Risks / Trade-offs
 
-- A saturated filter can send most misses to the owner. Measure actual selection
-  counts and retain that limitation; never resize it invisibly or discard live
-  counts to improve timing.
-- Publication/removal order must prevent a false negative. Test duplicate
-  publication, replacement, collisions, refused publication, unpublish/release,
-  invalidation and namespace reuse; model the atomic ordering with Loom.
-- The filter has a finite memory cost. Compare live
-  group PSS and native mutation floors against main; no reproducible regression
-  is acceptable without explicit approval.
-- Socket admission may cost more CPU than native queue admission. Compare both
-  total reader CPU and owner requests against main, retain rejected-candidate
-  evidence, and stop if the revised design fails its registered requirements.
+- A different byte representation could break equality or portability. Differential tests compare exact bytes with the existing encoder over real canonical keys and generated values, including specialized scalars, signed and Int64 limits, Unicode, large keys and errors.
+- Retaining two keys could increase memory. Share the existing bounded entry budget and apply the retained-size bound to the combined pair; measure live group PSS.
+- Python callbacks remain for specialized scalar types. Count actual native/fallback calls separately from timing; do not claim every scalar is encoded entirely in Rust.
+- A local improvement may not improve the closed-loop workload. Follow the finite registered comparison; retain negative results and prevent promotion on any unexplained reproducible regression.
 
 ## Migration Plan
 
-Build a version-matched owner and workers together. A layout mismatch retains the
-existing attachment rejection; no persisted mapping or user data is migrated.
-Rollback deploys the previous wheel to the whole group. The evidence plan uses
-clean installed wheels and retains rejected measurements without claiming they
-qualify the replacement.
+Deploy matching owner and worker wheels under the existing lifecycle contract. Key bytes and the private protocol remain identical. Rollback installs the preceding wheel; no stored mapping or user data requires migration.
