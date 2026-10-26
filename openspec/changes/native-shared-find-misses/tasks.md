@@ -12,7 +12,7 @@
 ## 3. Current-release evidence
 
 - [ ] 3.1 Execute the finite Rust correction comparison registered in `reports/shared-worker-cache/current-costs/plan.md`, including separate attribution. Record source/binary identities, resource and cache outcomes, all negative results and reproducible commands; resolve every reproducible regression before acceptance.
-- [ ] 3.2 Compare the registered unchanged existing-test selection against main in three alternating pairs, separately from new cases, and retain warning-free timing evidence.
+- [x] 3.2 Compare the registered unchanged existing-test selection against main in three alternating pairs, separately from new cases, and retain warning-free timing evidence.
 
 ## 4. Code Quality
 

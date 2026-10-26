@@ -298,3 +298,51 @@ separate 256-call identity-hot worker-profile windows (one per build) to verify
 the unchanged path and absence of encoder use. Instrumented durations remain
 excluded from timing tables. Stop at these caps; no speculative architecture
 variant is authorized by this correction.
+
+### Final attribution of test duration and hot async throughput
+
+The final allocation correction lowers isolated key-preparation CPU by about
+75%, and the twelve identity controls have mixed P50 directions. However, its
+three existing-test pairs are 0.52–1.06 seconds longer. Async sorted hot
+throughput is also lower in all three pairs while latency/CPU directions vary.
+Resolve these specific findings with exactly two instrumented existing-test
+runs (one per build) using the same 279 cases and `--durations=0
+--durations-min=0`, and two separate async sorted hot worker-profile windows
+(one per build, 256 calls per worker). Inspect setup/call/teardown distributions
+and all four worker profiles, including whether encoding unexpectedly occurs
+on hits. Exclude instrumented durations from acceptance timing tables. Stop
+at these four acquisitions; they authorize neither another architecture variant
+nor silently accepting a reproducible slowdown.
+
+### Equalize existing-test startup state
+
+The first candidate timing writes 483 `.pyc` files; every baseline timing and the
+later candidate timings write none. Its external-minus-pytest time is 1.19
+seconds, versus 0.48–0.53 seconds in the other five runs. This first pair does
+not have equivalent interpreter-cache startup state. Retain it as negative
+acquisition evidence, rather than assigning its overhead to the library.
+
+Before the replacement comparison, run the same selected cases with
+`--collect-only -n 0` once in each installed environment to warm plugin/test
+imports equally. Then run exactly three alternating main/candidate timing pairs
+of the original 279 cases, without profiling or per-test duration output. Audit
+selection counts, startup deltas and warnings. These six runs replace the
+unbalanced timing cohort for acceptance; keep both cohorts and stop there.
+The separate phase attribution remains evidence, not an uninstrumented timing
+replacement.
+
+### Final review correction and acceptance stop
+
+The final review found that equal plain `int` and BSON `Int64` limits can alias
+in the paired cache despite having different wire bytes. Keep the ordinary
+integer pair unchanged, distinguish specialized limit types, and test both
+call orders and subsequent hits in one cache. Compare the corrected source's
+encoding floor against main in exactly five alternating pairs, after all
+builds and tests finish. Preserve the preceding end-to-end source boundaries;
+these floors do not requalify those windows or resolve their memory result.
+
+The repeatable sorted group PSS increase remains unaccepted. Stop promotion,
+leave task 3.1 open, and present a draft PR with the evidence for a concrete
+resource decision. The ten permitted independent review calls are exhausted;
+record that the final correction has no subsequent independent review rather
+than claiming a clean review or archiving the change.

@@ -13,6 +13,10 @@ bodies or OpenSpec. An empty Unreleased section is valid.
 
 ## Unreleased
 
+### Performance
+
+- Reduce CPU spent preparing shared `find()` queries.
+
 ## [0.9.1] - 2026-10-24
 
 ### Bug fixes

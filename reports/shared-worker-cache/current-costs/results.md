@@ -5,10 +5,10 @@ The [plan](plan.md) was recorded before acquisition. The current-release baselin
 identifies duplicate query serialization and synchronous owner selection on cold
 sorted finds. Two implemented native selection approaches were evaluated and withheld
 from promotion; their complete evidence is in [native trials](native-trials.md).
-The user subsequently directed moving measured slow work into Rust. The current
-correction encodes shared find keys in Rust and reuses one query traversal;
-its [current comparison](rust-encoding.md) retains the initial results and the
-registered initialization correction. The native trials do not qualify it.
+The user subsequently directed moving measured slow work into Rust. The
+[Rust encoding comparison](rust-encoding.md) records the implemented correction,
+its preparation CPU benefit, memory cost and end-to-end uncertainty. The native
+selection trials do not qualify that correction.
 
 ## Source and conditions
 
