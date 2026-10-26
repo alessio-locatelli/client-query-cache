@@ -1,5 +1,5 @@
 # ruff: noqa: PLC2701 - Exercise installed native/internal paths without a MongoDB collector.
-"""Measure native find selection and directory maintenance outside MongoDB timing."""
+"""Measure native find lookup and family-filter maintenance."""
 
 from __future__ import annotations
 
@@ -106,8 +106,10 @@ def _batch(variants: PositiveInt, *, candidate: bool) -> dict[str, object]:
             def compatible() -> object:
                 return reader.lookup_find(0, 0, 0, encoded_family, 1)
 
-            assert compatible() == _PAYLOAD
-            observations["compatible_cpu_ns"] = _cpu_per_call(compatible, _READS)
+            assert compatible() is None
+            observations["compatible_fallback_cpu_ns"] = _cpu_per_call(
+                compatible, _READS
+            )
             absent_family = encode_key("unpublished family")
 
             def absent() -> object:
@@ -123,13 +125,51 @@ def _batch(variants: PositiveInt, *, candidate: bool) -> dict[str, object]:
     return observations
 
 
+def _saturation(families: PositiveInt) -> dict[str, object]:
+    encoded_families = tuple(
+        encode_key(("family", ordinal)) for ordinal in range(families)
+    )
+    blocks: list[Payload] = []
+    with _mapping() as (owner, reader):
+        for family in encoded_families:
+            payload = owner.store(b"x")
+            assert payload is not None
+            assert owner.publish_find(0, 0, 0, family, 8, payload) is not None
+            blocks.append(payload)
+        for family in encoded_families:
+            assert reader.lookup_find(0, 0, 0, family, 8) == b"x"
+            assert reader.lookup_find(0, 0, 0, family, 4) is None
+        false_positives = 0
+        probes = 4096
+        for ordinal in range(probes):
+            selection = reader.lookup_find(0, 0, 0, encode_key(("absent", ordinal)), 4)
+            if selection is None:
+                false_positives += 1
+            else:
+                assert isinstance(selection, tuple)
+        for payload in blocks:
+            owner.release(payload)
+        assert owner.published() == 0
+        for family in encoded_families:
+            assert isinstance(reader.lookup_find(0, 0, 0, family, 4), tuple)
+    return {"families": families, "probes": probes, "false_positives": false_positives}
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--candidate", action="store_true")
+    parser.add_argument("--saturation", action="store_true")
     parser.add_argument("--repetitions", type=int, default=5)
     arguments = parser.parse_args()
     if arguments.repetitions <= 0:
         parser.error("repetitions must be positive")
+    if arguments.saturation:
+        if not arguments.candidate:
+            parser.error("--saturation requires --candidate")
+        print(
+            json.dumps([_saturation(count) for count in (1, 128, 512, 2048)], indent=2)
+        )
+        return
     print(
         json.dumps(
             {

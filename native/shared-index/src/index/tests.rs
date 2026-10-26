@@ -77,8 +77,18 @@ fn read_find(index: &Index<Memory>, family: &[u8], limit: u64) -> Result<(Vec<u8
     })
 }
 
+fn filter_total(index: &Index<Memory>) -> u64 {
+    (0..index.layout.slots)
+        .map(|cell| {
+            index
+                .word(index.layout.filter_start() + cell)
+                .load(Ordering::Acquire)
+        })
+        .sum()
+}
+
 #[test]
-fn find_directories_choose_exact_then_smallest_covering_limit() {
+fn finds_keep_exact_hits_and_defer_compatible_limits() {
     let (index, mut writer) = sized_fixture(32, 2048);
     let mut blocks = Vec::new();
     for (limit, bytes) in [(0, b"all".as_slice()), (8, b"eight"), (16, b"sixteen")] {
@@ -86,63 +96,97 @@ fn find_directories_choose_exact_then_smallest_covering_limit() {
         writer
             .publish_find(&find_query(b"family"), limit, block)
             .unwrap();
+        assert_eq!(read_find(&index, b"family", limit).unwrap().0, bytes);
         blocks.push(block);
     }
-    for (limit, expected) in [
-        (0, b"all".as_slice()),
-        (4, b"eight"),
-        (8, b"eight"),
-        (9, b"sixteen"),
-        (16, b"sixteen"),
-        (17, b"all"),
-    ] {
-        assert_eq!(read_find(&index, b"family", limit).unwrap().0, expected);
+    for limit in [4, 9, 17] {
+        assert_eq!(
+            read_find(&index, b"family", limit),
+            Err(Miss::PossibleFamily)
+        );
     }
-    assert_eq!(read_find(&index, b"different", 4), Err(Miss::Absent));
-    writer.release(blocks[1]);
-    assert_eq!(read_find(&index, b"family", 4).unwrap().0, b"sixteen");
-    writer.release(blocks[2]);
-    assert_eq!(read_find(&index, b"family", 4).unwrap().0, b"all");
-    writer.release(blocks[0]);
+    for block in blocks {
+        writer.release(block);
+    }
     assert_eq!(read_find(&index, b"family", 4), Err(Miss::Absent));
+    assert_eq!(filter_total(&index), 0);
     assert_eq!(writer.published(), 0);
-    assert!(index.find_complete(1));
 }
 
 #[test]
-fn missing_directories_and_core_entries_have_independent_completeness() {
-    let (index, mut writer) = sized_fixture(4, 2048);
+fn filter_collisions_only_add_fallback_and_removal_is_balanced() {
+    let (index, mut writer) = sized_fixture(8, 512);
     let first = writer.store(b"first").unwrap();
+    writer
+        .publish_find(&find_query(b"family"), 8, first)
+        .unwrap();
+    let collision = (0_u64..)
+        .map(u64::to_le_bytes)
+        .find(|family| read_find(&index, family, 4) == Err(Miss::PossibleFamily))
+        .unwrap();
+    assert_eq!(read_find(&index, &collision, 8), Err(Miss::PossibleFamily));
     let second = writer.store(b"second").unwrap();
     writer
-        .publish_find(&find_query(b"first"), 8, first)
+        .publish_find(&find_query(&collision), 8, second)
         .unwrap();
-    writer
-        .publish_find(&find_query(b"second"), 8, second)
-        .unwrap();
-    assert!(!index.find_complete(1));
-    assert_eq!(read_find(&index, b"second", 8).unwrap().0, b"second");
-    assert_eq!(read_find(&index, b"second", 4), Err(Miss::Absent));
-    assert!(index.set_find_complete(1, false));
     writer.release(first);
-    let third = writer.store(b"third").unwrap();
+    assert_eq!(read_find(&index, &collision, 4), Err(Miss::PossibleFamily));
+    assert_eq!(read_find(&index, &collision, 8).unwrap().0, b"second");
+    assert!(writer.unpublish(second));
+    assert!(!writer.unpublish(second));
+    writer.release(second);
+    assert_eq!(filter_total(&index), 0);
+}
+
+#[test]
+fn replacement_republication_and_refusal_preserve_filter_counts() {
+    let (index, mut writer) = sized_fixture(4, 512);
+    let first = writer.store(b"first").unwrap();
     writer
-        .publish_find(&find_query(b"second"), 16, third)
+        .publish_find(&find_query(b"family"), 8, first)
         .unwrap();
+    let contributions = filter_total(&index);
+    writer
+        .publish_find(&find_query(b"family"), 8, first)
+        .unwrap();
+    assert_eq!(filter_total(&index), contributions);
+    let replacement = writer.store(b"replacement").unwrap();
+    writer
+        .publish_find(&find_query(b"family"), 8, replacement)
+        .unwrap();
+    writer.release(first);
+    assert_eq!(filter_total(&index), contributions);
+    assert!(writer.unpublish(replacement));
+    writer
+        .publish_find(&find_query(b"family"), 8, replacement)
+        .unwrap();
+    assert_eq!(filter_total(&index), contributions);
+    let second = publish(&mut writer, b"two", b"two");
+    let third = publish(&mut writer, b"three", b"three");
+    let refused = writer.store(b"refused").unwrap();
+    assert_eq!(
+        writer.publish_find(&find_query(b"refused"), 8, refused),
+        Err(Refusal::Slots)
+    );
+    assert_eq!(filter_total(&index), contributions);
+    for block in [replacement, second, third, refused] {
+        writer.release(block);
+    }
+    assert_eq!(filter_total(&index), 0);
+    assert_eq!(
+        writer.publish_find(&find_query(b"dead"), 8, first),
+        Err(Refusal::Dead)
+    );
+    assert!(index.set_find_complete(1, false));
     assert!(!index.find_complete(1));
     assert!(index.set_find_complete(1, true));
     assert!(index.find_complete(1));
-    assert_eq!(read_find(&index, b"second", 4).unwrap().0, b"second");
-    writer.release(second);
-    writer.release(third);
-    assert!(index.find_complete(1));
-    assert_eq!(writer.published(), 0);
     assert!(!index.set_find_complete(2, true));
     assert!(!index.find_complete(2));
 }
 
 #[test]
-fn find_publications_reclaim_directories_and_never_alias_namespace_entries() {
+fn find_publications_reclaim_counts_and_never_alias_namespace_entries() {
     let (index, mut writer) = sized_fixture(8, 256);
     for generation in 0..1000_u64 {
         let bytes = generation.to_le_bytes();
@@ -150,10 +194,11 @@ fn find_publications_reclaim_directories_and_never_alias_namespace_entries() {
         writer
             .publish_find(&find_query(b"family"), 8, block)
             .unwrap();
-        assert_eq!(read_find(&index, b"family", 4).unwrap().0, bytes);
+        assert_eq!(read_find(&index, b"family", 8).unwrap().0, bytes);
         assert_eq!(read(&index, &find_query(b"family")), Err(Miss::Absent));
         writer.release(block);
         assert_eq!(writer.published(), 0);
+        assert_eq!(filter_total(&index), 0);
     }
 }
 

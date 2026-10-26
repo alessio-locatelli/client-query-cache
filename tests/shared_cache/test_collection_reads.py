@@ -427,7 +427,7 @@ async def _has_evicted(view: View) -> bool:
     [(8, 8), (8, 4), (0, 4), (0, 0), (Int64(8), Int64(4))],
     ids=("exact", "covering", "unlimited-covering", "unlimited-exact", "int64"),
 )
-async def test_native_find_captures_and_hits_without_selection(
+async def test_native_find_captures_locally_and_reuses_results(
     view: View,
     stored_limit: NonNegativeInt,
     requested_limit: NonNegativeInt,
@@ -441,6 +441,10 @@ async def test_native_find_captures_and_hits_without_selection(
     complete = await materialize(view.find(query).sort("_id", 1).limit(stored_limit))
     assert endpoint.counters.requests == before
     assert serializations.count == 1
+    pending = endpoint.request({"op": "observe"})
+    if isinstance(pending, Awaitable):
+        await pending
+    before = endpoint.counters.requests
     expected = complete[:requested_limit] if requested_limit else complete
 
     async def hit() -> bool:
@@ -452,7 +456,15 @@ async def test_native_find_captures_and_hits_without_selection(
         return view._shared.snapshot().hits > hits
 
     await wait_until_async(hit)
-    assert endpoint.counters.requests == before
+    if stored_limit == requested_limit:
+        requests = endpoint.counters.requests
+        assert (
+            await materialize(view.find(query).sort("_id", 1).limit(requested_limit))
+            == expected
+        )
+        assert endpoint.counters.requests == requests
+    else:
+        assert endpoint.counters.requests > before
 
 
 async def test_negative_find_limits_reuse_only_exact_results(view: View) -> None:

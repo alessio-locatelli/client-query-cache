@@ -440,14 +440,7 @@ def _native_find(cursor: Cursor, shape: FindReadShape, family: bytes) -> bool:
         if local.reader.detached:
             shared._reattach = True
         return False
-    if not local.admissions_enabled and not shared.endpoint.connected:
-        return False
-    recovery = shared.endpoint.admission_recovery
-    if (
-        recovery.fallback_until > 0
-        and not shared.endpoint.connected
-        and recovery.active
-    ):
+    if not shared.endpoint.connected:
         return False
     handle = LocalMiss(
         {
@@ -575,7 +568,6 @@ def _capture_find(cursor: Cursor, handle: object) -> None:
             shared.endpoint.send,
             shared.max_entry_bytes,
             shared.observation,
-            handle.reader if isinstance(handle, LocalMiss) else None,
         ),
         handle,
         None,

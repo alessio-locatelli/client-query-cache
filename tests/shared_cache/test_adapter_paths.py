@@ -728,7 +728,53 @@ def test_native_find_disconnected_misses_obey_admission_recovery(
         )
     assert len(reads.find(0)) == 8
     _admitted(owner, 1)
-    assert endpoint.counters.requests == before + int(not native_queue or recovery)
+    assert endpoint.counters.requests == before + 1
+    assert owner.observation()["captures"] == 0
+
+
+@pytest.fixture
+def interrupted_find_admission(
+    open_reads: Callable[[SharedIndexLimits], tuple[Owner, _SharedReads]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> Iterator[tuple[Owner, _SharedReads]]:
+    owner, reads = open_reads(
+        replace(_SHARED_INDEX, local_miss_admission=True, native_admission_queue=True)
+    )
+    capture = adapters._capture_find
+    writer: asyncio.StreamWriter | None = None
+
+    def disconnect(cursor: Cursor, handle: object) -> None:
+        nonlocal writer
+        assert isinstance(handle, adapters.LocalMiss)
+        capture(cursor, handle)
+        monkeypatch.setattr(adapters, "_capture_find", capture)
+        endpoint = reads.manager.endpoint
+        if isinstance(endpoint, SyncEndpoint):
+            endpoint._drop()
+        else:
+            writer = endpoint._writer
+            assert writer is not None
+            endpoint._abandon(writer)
+
+    monkeypatch.setattr(adapters, "_capture_find", disconnect)
+    yield owner, reads
+    if writer is not None:
+        reads._run(writer.wait_closed())
+
+
+def test_native_find_recovers_after_socket_loss_during_capture(
+    interrupted_find_admission: tuple[Owner, _SharedReads],
+) -> None:
+    owner, reads = interrupted_find_admission
+    before = reads.manager.endpoint.counters.requests
+    assert len(reads.find(0)) == 8
+    assert reads.manager.endpoint.counters.requests == before
+    assert owner.counters()["admitted"] == 0
+    assert reads.manager.endpoint.counters.native_admissions == 0
+    time.sleep(_PAST_REATTACH_BACKOFF_SECONDS)
+    assert len(reads.find(0)) == 8
+    _admitted(owner, 1)
+    assert reads.manager.endpoint.counters.requests == before + 1
     assert owner.observation()["captures"] == 0
 
 

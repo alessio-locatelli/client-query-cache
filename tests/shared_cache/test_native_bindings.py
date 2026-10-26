@@ -263,7 +263,7 @@ def test_find_selection_returns_bytes_or_a_fenced_local_capture(
     assert payload is not None
     assert native_owner.publish_find(0, 0, _EPOCH, b"family", 8, payload) is not None
     native_owner.set_find_complete(0, complete=False)
-    if limit:
+    if limit == 8:
         assert native_reader.lookup_find(0, 0, _EPOCH, b"family", limit) == snapshot
     else:
         assert native_reader.lookup_find(0, 0, _EPOCH, b"family", limit) is None
