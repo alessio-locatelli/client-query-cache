@@ -1,0 +1,32 @@
+## MODIFIED Requirements
+
+### Requirement: Miss optimization evidence repeats the complete protocol
+
+Miss optimization evidence SHALL preregister matched current baseline/candidate workloads covering affected hits, misses, resource use, saturation and failure fences. Repeated timing SHALL be separate from profiling and retain uncertainty and negative results. Reproducible regressions SHALL prevent promotion without user approval. A scoped optimization SHALL NOT claim requalification of historical full-protocol results.
+
+#### Scenario: Cold misses pass but capacity fails
+
+- **WHEN** fresh cold comparisons meet their limit but any required capacity window fails
+- **THEN** the report retains that failure and withholds promotion
+
+#### Scenario: A scoped native selection change
+
+- **WHEN** profiling identifies shared find selection as an avoidable boundary
+- **THEN** fresh matched comparisons cover that path, existing identity paths, compatible limits and publication saturation
+- **AND** historical measurements are retained without claiming their full protocol was repeated
+
+## ADDED Requirements
+
+### Requirement: Native find selection has independent validity checks
+
+Native compatible-find selection SHALL verify the full query family and limit policy after hashing, validate copied family metadata and result bytes independently, and preserve existing exact-key selection costs structurally. Local miss authorization SHALL account for every resident reusable result not represented by valid native publication.
+
+#### Scenario: Family lookup encounters concurrent removal
+
+- **WHEN** a directory or selected payload is removed and its storage reused during a read
+- **THEN** the reader returns a validated matching result or falls back, without decoding reclaimed data
+
+#### Scenario: Families collide
+
+- **WHEN** different families share an index hash or probe chain
+- **THEN** equality checks prevent cross-family reuse and limit selection remains correct
