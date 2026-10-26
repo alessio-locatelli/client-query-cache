@@ -123,17 +123,15 @@ class SharedCacheStatistics:
 
 
 class _RemoteCaptureCore:
-    __slots__ = ("_reader", "_send", "max_entry_bytes", "observation")
+    __slots__ = ("_send", "max_entry_bytes", "observation")
 
     def __init__(
         self,
-        send: Callable[[Message, ReaderIndex | None], None],
+        send: Callable[[Message], None],
         max_entry_bytes: NonNegativeInt,
         observation: LocalObservation,
-        reader: ReaderIndex | None = None,
     ) -> None:
         self._send = send
-        self._reader = reader
         self.max_entry_bytes = max_entry_bytes
         self.observation = observation
 
@@ -142,7 +140,7 @@ class _RemoteCaptureCore:
 
     def discard(self, handle: object) -> None:
         if not isinstance(handle, LocalMiss):
-            self._send({"op": "discard", "handle": handle}, None)
+            self._send({"op": "discard", "handle": handle})
 
     def admit_namespace(
         self,
@@ -161,7 +159,7 @@ class _RemoteCaptureCore:
             self.observation,
         )
         if admission is not None:
-            self._send(admission, self._reader)
+            self._send(admission)
 
 
 class RemoteCursorCapture(CursorCapture):
@@ -195,7 +193,7 @@ class RemoteCursorCapture(CursorCapture):
 @dataclass(frozen=True, slots=True)
 class LocalMiss:
     message: Message
-    reader: ReaderIndex
+    reader: ReaderIndex | None
     recover_socket: bool
 
 
@@ -453,7 +451,7 @@ def _native_find(cursor: Cursor, shape: FindReadShape, family: bytes) -> bool:
             "limit": shape.limit,
             "token": list(selection),
         },
-        local.reader,
+        None,
         recover_socket=False,
     )
     shared.observation.misses += 1

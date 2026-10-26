@@ -70,18 +70,18 @@ impl<M: Words> Index<M> {
 }
 
 impl<M: Words> Writer<M> {
-    pub(super) fn update_filter(&self, hash: NonZeroU64, insert: bool) {
+    pub(super) fn update_filter(&mut self, hash: NonZeroU64, insert: bool) {
         let [first, second] = self.index.filter_cells(hash);
         for cell in [Some(first), (second != first).then_some(second)]
             .into_iter()
             .flatten()
         {
             let word = self.index.filter_word(cell);
-            if insert {
-                word.fetch_add(1, Ordering::Release);
-            } else {
-                word.fetch_sub(1, Ordering::Release);
-            }
+            let count = word.load(Ordering::Relaxed);
+            word.store(
+                if insert { count + 1 } else { count - 1 },
+                Ordering::Release,
+            );
         }
     }
 

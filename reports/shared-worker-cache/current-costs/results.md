@@ -305,6 +305,89 @@ elapsed medians [ranges] are 71.49 [71.31, 71.78] seconds for main and
 −0.16 seconds. Overlapping ranges and mixed directions leave this uncertain;
 it does not establish an accepted test-time regression.
 
+## Approved filter replacement
+
+The user rejected the directory candidate's resource costs and approved the
+replacement design before implementation. Its clean release source is
+[`4d6aa936c8e29a5164e7601de3ec886aad5e8b16`](https://github.com/alessio-locatelli/client-query-cache/commit/4d6aa936c8e29a5164e7601de3ec886aad5e8b16);
+the native SHA-256 is `29e76bd3c6fd5d2d89f6b1894eafef8288c3b234b4822ebe286cc45043f5fa92`.
+Installed Python and locked benchmark dependency versions match main. Exact
+find hits remain native. A bounded counting family filter authorizes definite
+misses; possible family membership retains owner compatible-limit selection.
+Find admissions use the existing socket transport. The allocator reuses its
+free-list word while a payload is live, avoiding a larger allocation record or
+per-family maps. The filter itself adds one atomic word per configured native
+slot (128 KiB at the measured 16,384 slots).
+
+### Replacement native floors and saturation
+
+Five alternating main/replacement batches use the same diagnostic and conditions
+as the earlier floors. Compatible lookup now returns owner fallback, so its
+column measures that decision rather than copying a compatible result.
+All values are CPU ns per operation, median [minimum, maximum].
+
+| Limits | Build       |          Exact | Compatible fallback | Absent capture | Publish/remove per entry |
+| -----: | ----------- | -------------: | ------------------: | -------------: | -----------------------: |
+|      1 | main        | 755 [748, 773] |                   — |              — |           975 [972, 988] |
+|      1 | replacement | 671 [668, 688] |      248 [245, 288] | 137 [134, 141] |          928 [921, 1356] |
+|      8 | main        | 756 [750, 760] |                   — |              — |           854 [850, 863] |
+|      8 | replacement | 673 [669, 709] |      244 [243, 255] | 135 [131, 136] |           805 [802, 830] |
+|     64 | main        | 752 [745, 766] |                   — |              — |          827 [821, 1230] |
+|     64 | replacement | 687 [669, 739] |      245 [242, 252] | 134 [134, 182] |           777 [773, 813] |
+
+Publication/removal medians are 4.9–6.1% lower than main; exact-hit medians are
+8.7–11.2% lower. The one-limit replacement mutation batch has one high outlier,
+retained in the range; four of five pairs are lower, so it does not establish a
+repeatable regression. Removing directory allocations and membership maps,
+reusing allocator metadata and sharing the family's hash computation remove
+the rejected maintenance cost. These isolated floors do not imply equivalent
+end-to-end percentages.
+
+A separate fixed-capacity diagnostic uses 4,096 slots, one-byte payloads and
+4,096 absent-family probes per load level. Every resident exact result is
+validated; every resident family requiring a different limit falls back rather
+than authorizing local capture. Releasing every payload restores definite
+absence for all original families, with zero published entries.
+
+| Resident families | Absent-family owner fallbacks | False-positive rate |
+| ----------------: | ----------------------------: | ------------------: |
+|                 1 |                      0 / 4096 |               0.00% |
+|               128 |                     18 / 4096 |               0.44% |
+|               512 |                    214 / 4096 |               5.22% |
+|              2048 |                   1707 / 4096 |              41.67% |
+
+The high-load result is a retained limitation: the filter does not promise to
+eliminate every miss-selection request at capacity. Collisions cost owner
+selection, while exact hits and authoritative compatible reuse remain intact.
+
+The preliminary 48-window comparison at `4d6aa936` completed with expected
+cache outcomes. Sorted cold P50 medians fell from 821 to 654 µs (sync) and
+949 to 786 µs (async); group PSS fell in every sorted pair, by 0.13–1.80 MiB.
+This removed the rejected directory candidate's measured memory increase.
+However, hot measurements remained noisy. Async sorted P50 was 48.46
+[47.15, 54.86] µs for main versus 84.02 [48.61, 84.39] for the replacement;
+sync identity hot P50 was 6.44 [5.22, 7.34] versus 7.58 [6.03, 7.62]. These
+ranges overlap, so neither apparent slowdown is established by this batch.
+Sync identity cold P99 did have separated ranges: 975 [882, 1117] versus
+1151 [1128, 1504] µs. That finding needs investigation rather than acceptance.
+
+Preliminary existing-test elapsed medians [ranges] were 70.68 [70.56, 71.24]
+seconds for main and 71.78 [71.12, 72.00] for the replacement. Native queues
+were unused for measured find admissions, and no acquisition/test warning or
+failure was observed. These preliminary results do not qualify the final build.
+
+Inspection also found avoidable locked atomic increments in owner-exclusive
+filter updates. The final refinement uses atomic loads/release stores under
+exclusive writer access. The registered final comparison repeats all 48
+windows, native floors and existing-test pairs, adding a generic native identity
+lookup diagnostic to investigate the tail finding without MongoDB.
+
+A separate verbose link-check audit reproduces existing missing-input warnings
+for files that exist, tracked in
+[#323](https://github.com/alessio-locatelli/client-query-cache/issues/323).
+They are outside this runtime change; successful benchmark acquisitions and
+runtime tests do not erase that development-tool warning.
+
 ## Reproduce
 
 Use this report's source revision for the initial acquisition. Follow
