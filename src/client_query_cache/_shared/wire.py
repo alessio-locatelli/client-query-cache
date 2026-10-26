@@ -2,6 +2,7 @@ import datetime as dt
 import re
 import struct
 from decimal import Decimal
+from functools import cache
 from typing import TYPE_CHECKING, Final
 from uuid import UUID
 
@@ -22,11 +23,13 @@ from client_query_cache._core import count_reads as count_tags
 from client_query_cache._core import order_sensitive_keys as order_tags
 from client_query_cache._core import query_filters as filter_tags
 from client_query_cache._core.codec import _TypeRegistryIdentity
-from client_query_cache._shared_index import FindKeyEncoder
+from client_query_cache._shared_index import find_key_encoder
 from client_query_cache._types import NonNegativeInt, PositiveInt
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
+
+    from client_query_cache._shared_index import FindKeyEncoder
 
 PROTOCOL_VERSION: Final = 1
 _LENGTH = struct.Struct("<I")
@@ -225,7 +228,9 @@ def decode_key(encoded: object) -> object:
     return from_wire(node)
 
 
-_FIND_ENCODER: Final = FindKeyEncoder(_TAG_NAMES, encode_key)
+@cache
+def _find_encoder() -> FindKeyEncoder:
+    return find_key_encoder(_TAG_NAMES)
 
 
 class KeyCache:
@@ -257,15 +262,17 @@ class KeyCache:
         except KeyError:
             pass
         canonical_limit = canonical_tags.canonicalize(limit)
+        encoder = _find_encoder()
         try:
             family_bytes = self._encoded[family]
         except KeyError:
-            family_bytes, exact = _FIND_ENCODER.encode(family, canonical_limit)
+            encoded = encoder.encode(family, canonical_limit, encode_key)
+            family_bytes, exact = encoded
             new_family = True
         else:
-            exact = _FIND_ENCODER.wrap(family_bytes, canonical_limit)
+            exact = encoder.wrap(family_bytes, canonical_limit, encode_key)
+            encoded = (family_bytes, exact)
             new_family = False
-        encoded = (family_bytes, exact)
         if len(family_bytes) <= _MAX_CACHED_KEY_BYTES:
             retain_pair = self._limit >= 2 and len(exact) <= _MAX_CACHED_KEY_BYTES
             required = int(new_family) + int(retain_pair)

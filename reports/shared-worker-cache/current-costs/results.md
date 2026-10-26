@@ -3,11 +3,12 @@
 This investigation addresses [#341](https://github.com/alessio-locatelli/client-query-cache/issues/341).
 The [plan](plan.md) was recorded before acquisition. The current-release baseline
 identifies duplicate query serialization and synchronous owner selection on cold
-sorted finds. Two implemented native approaches were evaluated and withheld
+sorted finds. Two implemented native selection approaches were evaluated and withheld
 from promotion; their complete evidence is in [native trials](native-trials.md).
 The user subsequently directed moving measured slow work into Rust. The current
 correction encodes shared find keys in Rust and reuses one query traversal;
-its fresh comparison is pending and the native trials do not qualify it.
+its [current comparison](rust-encoding.md) retains the initial results and the
+registered initialization correction. The native trials do not qualify it.
 
 ## Source and conditions
 

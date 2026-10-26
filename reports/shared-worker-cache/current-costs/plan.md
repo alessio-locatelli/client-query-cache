@@ -247,3 +247,27 @@ unprofiled windows (six alternating pairs) solely for that finding. Retain all
 controls and stop at that cap. Further instrumentation must answer a specific
 remaining attribution question; it does not authorize speculative variants or
 acceptance of a regression.
+
+### Initialization correction after the first Rust comparison
+
+The first Rust cohort (`39ea08d7`) lowers isolated key-preparation CPU by about
+71%, but all twelve sorted pairs have higher group PSS and all three existing-test
+pairs take longer (0.22–0.56 seconds). Sync identity hot throughput is lower in
+all three pairs with overlapping ranges; cold identity tails do not repeat the
+rejected filter's regression. Retain this cohort without accepting it.
+
+Inspection finds eager construction of the encoder and its native type on every
+import, including identity-only workers, owners and the collector. Defer that
+construction until a find actually needs encoding, use the fixed small tag
+registry without a per-process hash table, and reuse the native returned pair
+instead of allocating a second tuple. These are concrete unnecessary
+initialization/allocation costs; their individual shares of the measured PSS
+and test-time differences remain unisolated.
+
+Freeze this one correction and repeat the registered 48 windows, four diagnostics,
+four profiles, five encoding-floor pairs and three existing-test pairs. Keep the
+same cohort ordering and conditions. Use at most three alternating fresh-process
+import resource probes per build before/after the correction to examine startup
+CPU and PSS; they are separate from read timing. The twelve-window control
+allowance remains reserved for a specific remaining read finding. No further
+speculative architecture variants are part of this correction.
