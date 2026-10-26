@@ -64,7 +64,7 @@ _FIND_SHAPES = tuple(
 def bounded_shared_index(
     request: pytest.FixtureRequest,
 ) -> Iterator[tuple[CacheCore, IndexPublisher, OwnerIndex, ReaderIndex]]:
-    index = OwnerIndex(8, 4096, 1, 1, 1, _EXPIRY_NS)
+    index = OwnerIndex(4, 4096, 1, 1, 1, _EXPIRY_NS)
     publisher = IndexPublisher(index, (_DATABASE,), 1)
     core = CacheCore(
         getattr(request, "param", CacheCoreConfig(max_namespaces=1)),

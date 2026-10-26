@@ -19,14 +19,14 @@ Miss optimization evidence SHALL preregister matched current baseline/candidate 
 
 ### Requirement: Native find selection has independent validity checks
 
-Native compatible-find selection SHALL verify the full query family and limit policy after hashing, validate copied family metadata and result bytes independently, and preserve existing exact-key selection costs structurally. Local miss authorization SHALL account for every resident reusable result not represented by valid native publication.
+Native exact-find selection SHALL verify the full key and validate result bytes. Local miss authorization SHALL require a definite family absence and account for resident reusable entries not represented by native publication. Filter collisions SHALL only cause owner fallback. Existing exact-key lookup costs SHALL be preserved structurally.
 
 #### Scenario: Family lookup encounters concurrent removal
 
-- **WHEN** a directory or selected payload is removed and its storage reused during a read
+- **WHEN** a filter contribution or selected payload is removed and its storage reused during a read
 - **THEN** the reader returns a validated matching result or falls back, without decoding reclaimed data
 
 #### Scenario: Families collide
 
 - **WHEN** different families share an index hash or probe chain
-- **THEN** equality checks prevent cross-family reuse and limit selection remains correct
+- **THEN** equality checks prevent cross-family reuse and filter collisions can only add owner requests

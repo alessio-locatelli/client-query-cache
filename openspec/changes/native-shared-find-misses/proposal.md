@@ -2,11 +2,11 @@
 
 ## Why
 
-The current-release investigation for [#341](https://github.com/alessio-locatelli/client-query-cache/issues/341) identifies a repeatable cold sorted-find cost: every read prepares two wire keys and selects through the owner before MongoDB. Native family selection and locally fenced capture can remove that control exchange; the measured baseline and attribution belong in `reports/shared-worker-cache/current-costs/results.md`.
+The current-release investigation for [#341](https://github.com/alessio-locatelli/client-query-cache/issues/341) identifies a repeatable cold sorted-find cost: every read prepares two wire keys and selects through the owner before MongoDB. Native family absence checks and locally fenced capture can remove that control exchange; the measured baseline and attribution belong in `reports/shared-worker-cache/current-costs/results.md`.
 
 ## What Changes
 
-- Extend native selection to exact and compatible nonnegative find limits and locally captured misses.
+- Retain native exact find hits and authorize definite misses through a bounded family filter; retain owner selection for compatible limits.
 - Preserve authoritative owner admission and fallback when native publication is incomplete.
 - Use focused, preregistered current-release comparisons for this scoped miss optimization; do not claim historical protocol requalification.
 

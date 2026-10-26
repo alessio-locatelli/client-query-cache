@@ -1,15 +1,14 @@
 use std::collections::HashMap;
-use std::num::NonZeroU32;
+use std::num::{NonZeroU32, NonZeroU64};
 
 use crate::hash;
 use crate::memory::{WORD_BYTES, Words};
 use crate::sync::{AtomicU64, Ordering, fence};
 
 mod find;
-use find::FindPublications;
 
 const MAGIC: u64 = u64::from_le_bytes(*b"cqcsidx3");
-const LAYOUT_VERSION: u64 = 4;
+const LAYOUT_VERSION: u64 = 5;
 
 const H_MAGIC: usize = 0;
 const H_VERSION: usize = 1;
@@ -94,6 +93,7 @@ impl Layout {
             .checked_mul(SLOT_WORDS)?
             .checked_add(slots_start)?
             .checked_add(arena_words)?
+            .checked_add(slots)?
             .checked_mul(WORD_BYTES)?;
         Some(Self {
             slots,
@@ -121,8 +121,12 @@ impl Layout {
         self.slot_at(self.slots)
     }
 
-    pub(crate) fn words(&self) -> usize {
+    fn filter_start(&self) -> usize {
         self.arena_start() + self.arena_words
+    }
+
+    pub(crate) fn words(&self) -> usize {
+        self.filter_start() + self.slots
     }
 
     fn max_published(&self) -> usize {
@@ -139,6 +143,7 @@ pub(crate) enum Miss {
     Epoch,
     Absent,
     Contended,
+    PossibleFamily,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -441,8 +446,12 @@ impl<M: Words> Index<M> {
             .all(|(word, chunk)| word.load(Ordering::Relaxed) == word_of(chunk))
     }
 
+    #[cfg(all(test, not(loom)))]
     fn locate(&self, query: &Query<'_>) -> Result<Located, Miss> {
-        let hash = query.hash();
+        self.locate_hashed(query, query.hash())
+    }
+
+    fn locate_hashed(&self, query: &Query<'_>, hash: u64) -> Result<Located, Miss> {
         let key_len = query.key_len();
         let mask = self.layout.slots - 1;
         let mut contended = false;
@@ -523,11 +532,20 @@ impl<M: Words> Index<M> {
         incarnation: u64,
         query: &Query<'_>,
         now_ns: u64,
-        mut copy: impl FnMut(&Located) -> Option<T>,
+        copy: impl FnMut(&Located) -> Option<T>,
     ) -> Result<(T, u64), Miss> {
         self.check(incarnation, query, now_ns)?;
+        self.read_hashed(query, query.hash(), copy)
+    }
+
+    fn read_hashed<T>(
+        &self,
+        query: &Query<'_>,
+        hash: u64,
+        mut copy: impl FnMut(&Located) -> Option<T>,
+    ) -> Result<(T, u64), Miss> {
         for _ in 0..READ_ATTEMPTS {
-            let located = match self.locate(query) {
+            let located = match self.locate_hashed(query, hash) {
                 Ok(located) => located,
                 Err(Miss::Contended) => continue,
                 Err(miss) => return Err(miss),
@@ -605,6 +623,20 @@ struct Allocation {
 }
 
 impl Allocation {
+    // Free-list links are unused while live; reuse their word for filter membership.
+    fn take_find_hash(&mut self) -> Option<NonZeroU64> {
+        let hash = u64::from(self.free_previous.map_or(0, NonZeroU32::get))
+            | (u64::from(self.free_next.map_or(0, NonZeroU32::get)) << 32);
+        self.free_previous = None;
+        self.free_next = None;
+        NonZeroU64::new(hash)
+    }
+
+    fn set_find_hash(&mut self, hash: NonZeroU64) {
+        self.free_previous = NonZeroU32::new(hash.get() as u32);
+        self.free_next = NonZeroU32::new((hash.get() >> 32) as u32);
+    }
+
     fn index(id: NodeId) -> usize {
         id.get() as usize - 1
     }
@@ -639,7 +671,6 @@ pub(crate) struct Writer<M> {
     free_allocations: Vec<usize>,
     next_version: u64,
     published: HashMap<u64, usize>,
-    finds: FindPublications,
 }
 
 impl<M: Words> Writer<M> {
@@ -655,12 +686,11 @@ impl<M: Words> Writer<M> {
             free_allocations: Vec::new(),
             next_version: 1,
             published: HashMap::new(),
-            finds: FindPublications::new(),
         }
     }
 
     pub(crate) fn published(&self) -> usize {
-        self.published.len() - self.finds.directories
+        self.published.len()
     }
 
     fn node(
@@ -778,6 +808,8 @@ impl<M: Words> Writer<M> {
         let node = &mut self.allocations[allocation];
         node.version = version;
         node.length = length as u32;
+        node.free_previous = None;
+        node.free_next = None;
         let at = node.at as usize;
         self.index
             .arena(at + B_ALLOCATION)
@@ -922,16 +954,11 @@ impl<M: Words> Writer<M> {
     }
 
     fn write_slot(&self, slot: usize, fields: &Slot) {
-        self.write_slot_with(slot, fields, || {});
-    }
-
-    fn write_slot_with(&self, slot: usize, fields: &Slot, write_payload: impl FnOnce()) {
         let index = &self.index;
         let version = index.slot_word(slot, S_VERSION);
         let previous = version.load(Ordering::Relaxed);
         version.store(previous + 1, Ordering::Relaxed);
         fence(Ordering::Release);
-        write_payload();
         for (field, value) in SLOT_FIELDS.into_iter().zip([
             fields.hash,
             fields.state,
@@ -994,6 +1021,15 @@ impl<M: Words> Writer<M> {
     }
 
     pub(crate) fn publish(&mut self, query: &Query<'_>, payload: Block) -> Result<u64, Refusal> {
+        self.publish_hashed(query, payload, || (query.hash(), None))
+    }
+
+    fn publish_hashed(
+        &mut self,
+        query: &Query<'_>,
+        payload: Block,
+        hash: impl FnOnce() -> (u64, Option<NonZeroU64>),
+    ) -> Result<u64, Refusal> {
         let key_len = query.key_len();
         if key_len as u64 > LENGTH_MASK || query.namespace >= self.index.layout.namespaces {
             return Err(Refusal::Entry);
@@ -1008,7 +1044,7 @@ impl<M: Words> Writer<M> {
         if self.published.len() >= self.index.layout.max_published() {
             return Err(Refusal::Slots);
         }
-        let hash = query.hash();
+        let (hash, find_hash) = hash();
         let slot = self.find_slot(hash, query).ok_or(Refusal::Slots)?;
         let key = self.allocate(key_len).ok_or(Refusal::Arena)?;
         self.write_bytes(key.at + BLOCK_HEADER_WORDS, &[query.identity, query.shape]);
@@ -1017,6 +1053,9 @@ impl<M: Words> Writer<M> {
         if previous.state & STATE_MASK == OCCUPIED {
             self.published.remove(&previous.token);
             self.free_key(&previous);
+        }
+        if let Some(hash) = find_hash {
+            self.update_filter(hash, true);
         }
         self.write_slot(
             slot,
@@ -1030,6 +1069,12 @@ impl<M: Words> Writer<M> {
                 token,
             },
         );
+        if previous.state & STATE_MASK == OCCUPIED {
+            self.remove_find(&previous);
+        }
+        if let Some(hash) = find_hash {
+            self.allocations[payload.allocation].set_find_hash(hash);
+        }
         self.published.insert(token, slot);
         Ok(token)
     }
@@ -1038,8 +1083,7 @@ impl<M: Words> Writer<M> {
         if !self.is_live(payload) {
             return false;
         }
-        self.unpublish_find(payload)
-            .unwrap_or_else(|| self.unpublish_live(payload))
+        self.unpublish_live(payload)
     }
 
     fn unpublish_live(&mut self, payload: Block) -> bool {
@@ -1048,6 +1092,7 @@ impl<M: Words> Writer<M> {
         };
         let removed = self.read_slot(slot);
         self.delete(slot);
+        self.remove_find(&removed);
         self.free_key(&removed);
         true
     }
@@ -1144,7 +1189,7 @@ mod models {
     }
 
     #[test]
-    fn find_directories_and_payloads_reject_concurrent_reuse() {
+    fn find_filter_and_payloads_reject_concurrent_reuse() {
         model(|| {
             let layout = Layout::new(8, 128, 1, 1).unwrap();
             let index = Index::create(zeroed(layout.words()), layout, 1, u64::MAX).unwrap();
@@ -1165,7 +1210,11 @@ mod models {
                     shape: b"family",
                     ..query(b"")
                 };
-                index.read_find(1, &family, 4, 1, |located| {
+                assert!(matches!(
+                    index.read_find(1, &family, 4, 1, |_| Some(())),
+                    Err(Miss::PossibleFamily | Miss::Contended)
+                ));
+                index.read_find(1, &family, 8, 1, |located| {
                     let mut bytes = vec![0; located.payload_len];
                     index.copy_payload(located, &mut bytes).then_some(bytes)
                 })
@@ -1174,8 +1223,8 @@ mod models {
             let foreign = writer.store(&[9; 8]).unwrap();
             writer.publish(&query(b"foreign"), foreign).unwrap();
             match reader.join().unwrap() {
-                Ok((bytes, _)) => assert!(bytes == [1; 8] || bytes == [2; 8]),
-                Err(miss) => assert!(matches!(miss, Miss::Absent | Miss::Contended)),
+                Ok((bytes, _)) => assert!(bytes == [1; 8]),
+                Err(miss) => assert!(matches!(miss, Miss::PossibleFamily | Miss::Contended)),
             }
             writer.release(second);
             writer.release(foreign);

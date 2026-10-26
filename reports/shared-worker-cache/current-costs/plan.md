@@ -127,3 +127,30 @@ CPU, memory, affected identity reads or existing-test duration. Use the same
 median/range uncertainty rules and at most 12 additional timing windows for one
 declared unresolved comparison. If a design fails, retain that result and seek
 approval for a consequential replacement rather than expanding indefinitely.
+
+### Registered identity-tail control
+
+The first three implementation pairs show higher candidate asyncio identity
+cold P99 in all pairs, with overlapping ranges and mixed reader-CPU directions.
+Use the twelve-window allowance only for this question: six more main/candidate
+pairs of the unchanged asyncio identity cold workload (1,024 calls per worker,
+1,024 warm keys, shared only). Alternate main/candidate order in odd pairs and
+candidate/main in even pairs. Run after test timings finish; do not run builds
+or tests concurrently. Retain all twelve windows and stop there, reporting
+uncertainty if the combined results do not establish a repeatable difference.
+
+### Approved replacement after rejected resource costs
+
+The directory candidate is retained as rejected evidence. The user approved the
+counting family filter and socket-find-admission design in the active change.
+Repeat the same 48-window alternating main/replacement comparison, five native
+floor batches per build and four separate cold sorted diagnostic windows, using
+clean installed wheels and the same collector. Native floors now report owner
+fallback rather than compatible native selection. Retain mutation, exact-hit,
+resource and existing-test requirements. Add a fixed-capacity filter saturation
+correctness diagnostic; collisions must never hide a resident result. Repeat
+three alternating existing-test pairs separately. The earlier registered
+identity-tail control was not started for the rejected build; reserve the same
+finite twelve-window allowance for one specific uncertainty in the replacement,
+declaring its question and schedule before running it. No campaign runs alongside
+builds or tests.
