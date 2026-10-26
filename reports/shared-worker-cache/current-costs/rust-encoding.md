@@ -96,19 +96,21 @@ The replacement comparison warms plugin/test imports with the same collection-on
 
 ### Scope of the correction
 
-The implementation removes demonstrated duplicate serialization and lowers preparation CPU. It retains authoritative selection, cursor behavior and consistency fences. The report preserves the memory cost and uncertain end-to-end results; the isolated CPU gain does not qualify historical full protocols or promise every workload improves. The final review withholds acceptance because the repeatable PSS increase remains unresolved.
+The implementation removes demonstrated duplicate serialization and lowers preparation CPU. It retains authoritative selection, cursor behavior and consistency fences. The report preserves the memory cost and uncertain end-to-end results; the isolated CPU gain does not qualify historical full protocols or promise every workload improves. Acceptance uses the explicit user approval recorded below.
 
-## Final review correction and draft status
+## Final review correction and acceptance
 
 The final review also found that plain `int` and BSON `Int64` limits compare equal in a Python dictionary despite having different wire keys. Source [`61d0ab56105a81174a6a93e9ef7ab2ed512b5e8f`](https://github.com/alessio-locatelli/client-query-cache/commit/61d0ab56105a81174a6a93e9ef7ab2ed512b5e8f) distinguishes specialized limit types in the private cache key. The ordinary integer pair remains unchanged and avoids a redundant canonicalization call. Generated same-cache tests reproduce the defect in both call orders before the fix and pass after it, including repeated hits.
 
 The corrected clean release has identical native bytes and matched installed dependencies/import origins. Five fresh alternating floor pairs spend 25.63 [24.82, 26.44] µs/query on main and 6.47 [6.18, 6.95] on the candidate, about 75% less preparation CPU. All builds and tests finish before floor timing. These measurements qualify only the corrected preparation path; the end-to-end, resource and existing-test timing tables above remain attributed to their frozen sources.
 
-Task 3.1 remains open. The draft PR is blocked on resolving the repeatable memory increase or obtaining explicit user acceptance under AGENTS.md. The ten-call independent review limit has been reached; the limit correction and these report additions have no subsequent independent review. The change remains active and unarchived, without a claim of clean final review or performance acceptance.
+On 2026-10-26, the user explicitly accepted the measured 0.12–0.49 MiB worker-group memory increase (at most 0.23%) and uncertain async performance results in exchange for the preparation CPU reduction. This approval applies to the Rust encoding correction; the rejected native selection trials remain withheld. The user also authorized one additional final review beyond the ten-call cap, covering the limit correction, CI/test fixes and final artifacts. Main-spec synchronization and archival require that review to pass.
 
 ## Validation boundary
 
 The Python coverage gate reaches 100% with strict-no-cover. Native wire-byte, specialized scalar, stack-guard, budget and cursor cases are exercised; this does not claim complete native coverage ([#328](https://github.com/alessio-locatelli/client-query-cache/issues/328)). One earlier full-suite TCP recovery timeout passed in isolation and on the complete rerun; the unresolved intermittent behavior is tracked in [#342](https://github.com/alessio-locatelli/client-query-cache/issues/342). Existing Lychee missing-input warnings remain tracked in [#323](https://github.com/alessio-locatelli/client-query-cache/issues/323). Acquisition and existing-test timing logs have no failures or warnings.
+
+The [hosted runtime validation](https://github.com/alessio-locatelli/client-query-cache/actions/runs/40374447408) at `588383c1` passes full coverage and strict-no-cover on CPython 3.14.0, 3.14.7 and 3.15. Subsequent edits affect documentation and planning artifacts only. Its parent-loss lifecycle test accepts a process already reaped between status checks while retaining the endpoint-removal assertion and shutdown deadline.
 
 ## Reproduce
 
