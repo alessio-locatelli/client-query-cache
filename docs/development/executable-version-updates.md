@@ -95,6 +95,9 @@ Fresh Renovate hook installations can emit upstream dependency deprecation
 warnings; [#344](https://github.com/alessio-locatelli/client-query-cache/issues/344)
 tracks their removal through a supported hook update.
 
+Hosted Python CodeQL extraction environment warnings are tracked in
+[#346](https://github.com/alessio-locatelli/client-query-cache/issues/346).
+
 For inventory inspection, use the [official Renovate CLI](https://docs.renovatebot.com/getting-started/running/)
 and its [local dry-run interface](https://docs.renovatebot.com/modules/platform/local/):
 
