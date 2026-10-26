@@ -91,6 +91,10 @@ The existing Prek job runs the official configuration validator. To run it local
 prek run renovate-config-validator --files renovate.json5
 ```
 
+Fresh Renovate hook installations can emit upstream dependency deprecation
+warnings; [#344](https://github.com/alessio-locatelli/client-query-cache/issues/344)
+tracks their removal through a supported hook update.
+
 For inventory inspection, use the [official Renovate CLI](https://docs.renovatebot.com/getting-started/running/)
 and its [local dry-run interface](https://docs.renovatebot.com/modules/platform/local/):
 
