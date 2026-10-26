@@ -52,6 +52,10 @@ Serial runs retain the selected path, and `/dev/null` disables file output in ei
 Choose separate destinations for simultaneous pytest invocations. The database-backed CI job
 retains controller and worker logs on failure for seven days.
 
+Compression-window tests reject writes outside their registered schedule
+tolerance. Hosted-run rejections of that gate are tracked in
+[issue #348](https://github.com/alessio-locatelli/client-query-cache/issues/348).
+
 ## Serial debugging and measurements
 
 Run interactive debugging and live output serially because distributed workers do not support
