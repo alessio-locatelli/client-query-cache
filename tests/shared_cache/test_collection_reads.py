@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Literal
 import pytest
 from bson.codec_options import CodecOptions
 from bson.errors import InvalidDocument
+from bson.int64 import Int64
 from bson.tz_util import FixedOffset
 from pymongo import AsyncMongoClient, MongoClient
 from pymongo.asynchronous.command_cursor import AsyncCommandCursor
@@ -26,6 +27,8 @@ from client_query_cache import (
     SharedCacheManager,
     SharedCacheServer,
 )
+from client_query_cache._core.codec import encode_document, encode_value
+from client_query_cache._shared import wire
 from client_query_cache._shared.adapters import (
     AsyncSharedCachedCollection,
     SharedCachedCollection,
@@ -34,6 +37,7 @@ from client_query_cache._types import BsonDict, NonNegativeInt
 from client_query_cache.asynchronous import (
     SharedCacheManager as AsyncSharedCacheManager,
 )
+from tests.call_counting import count_current_thread_calls
 from tests.cursor_helpers import advance, close_cursor, materialize, resolve_cursor
 from tests.polling import wait_until_async
 
@@ -396,13 +400,7 @@ async def test_cursor_hit_snapshot_survives_eviction_write_and_manager_close(
     first["payload"] = "caller-mutated"
     for offset in range(1, 9):
         await materialize(view.find({"_id": {"$gte": offset}}).sort("_id", 1).limit(8))
-    observed = view._shared.endpoint.request({"op": "observe"})
-    if isinstance(observed, Awaitable):
-        observed = await observed
-    assert observed is not None
-    cache = observed["cache"]
-    assert isinstance(cache, dict)
-    assert cache["evictions"] > 0
+    await wait_until_async(lambda: _has_evicted(view))
     with MongoClient[BsonDict](mongodb_uri) as writer:
         writer[view.raw.database.name][view.name].delete_many({})
     closed = view._shared.close()
@@ -410,6 +408,109 @@ async def test_cursor_hit_snapshot_survives_eviction_write_and_manager_close(
         await closed
     assert isinstance(expected, list)
     assert await materialize(cursor) == expected[1:]
+
+
+async def _has_evicted(view: View) -> bool:
+    observed = view._shared.endpoint.request({"op": "observe"})
+    if isinstance(observed, Awaitable):
+        observed = await observed
+    assert observed is not None
+    cache = observed["cache"]
+    assert isinstance(cache, dict)
+    evictions = cache["evictions"]
+    assert isinstance(evictions, int)
+    return evictions > 0
+
+
+@pytest.mark.parametrize(
+    ("stored_limit", "requested_limit"),
+    [(8, 8), (8, 4), (0, 4), (0, 0), (Int64(8), Int64(4))],
+    ids=("exact", "covering", "unlimited-covering", "unlimited-exact", "int64"),
+)
+async def test_native_find_captures_and_hits_without_selection(
+    view: View,
+    stored_limit: NonNegativeInt,
+    requested_limit: NonNegativeInt,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await _warm(view, "empty_find")
+    endpoint = view._shared.endpoint
+    before = endpoint.counters.requests
+    serializations = count_current_thread_calls(monkeypatch, wire, "encode_key")
+    query = {"revision": {"$gte": 0}}
+    complete = await materialize(view.find(query).sort("_id", 1).limit(stored_limit))
+    assert endpoint.counters.requests == before
+    assert serializations.count == 1
+    expected = complete[:requested_limit] if requested_limit else complete
+
+    async def hit() -> bool:
+        hits = view._shared.snapshot().hits
+        assert (
+            await materialize(view.find(query).sort("_id", 1).limit(requested_limit))
+            == expected
+        )
+        return view._shared.snapshot().hits > hits
+
+    await wait_until_async(hit)
+    assert endpoint.counters.requests == before
+
+
+async def test_negative_find_limits_reuse_only_exact_results(view: View) -> None:
+    await _warm(view, "empty_find")
+    query = {"revision": {"$gte": 0}}
+    complete = await materialize(view.find(query).sort("_id", 1).limit(-8))
+    assert len(complete) == 8
+
+    async def hit() -> bool:
+        hits = view._shared.snapshot().hits
+        assert await materialize(view.find(query).sort("_id", 1).limit(-8)) == complete
+        return view._shared.snapshot().hits > hits
+
+    await wait_until_async(hit)
+    requests = view._shared.endpoint.counters.requests
+    assert await materialize(view.find(query).sort("_id", 1).limit(-8)) == complete
+    assert view._shared.endpoint.counters.requests == requests
+
+
+@pytest.mark.parametrize("limit", [8, -8], ids=["positive", "negative"])
+async def test_unportable_integer_find_keys_preserve_native_errors(
+    view: View, limit: int
+) -> None:
+    await _warm(view, "empty_find")
+    query = {"_id": {"$in": [1 << 80]}}
+    with pytest.raises(OverflowError) as native:
+        await materialize(view.raw.find(query).limit(limit))
+    before = view._shared.snapshot().bypasses
+    with pytest.raises(OverflowError, match=re.escape(str(native.value))):
+        await materialize(view.find(query).limit(limit))
+    assert view._shared.snapshot().bypasses == before + 1
+
+
+@pytest.mark.parametrize("server", [128], indirect=True)
+async def test_local_find_envelope_can_exceed_the_document_snapshot_bound(
+    view: View,
+) -> None:
+    await _warm(view, "empty_find")
+    query = {"revision": 0}
+    projection = {"_id": 1}
+    expected = await materialize(
+        view.raw.find(query, projection).sort("_id", 1).limit(8)
+    )
+    assert (
+        sum(
+            len(encode_document(document, view.raw.codec_options))
+            for document in expected
+        )
+        <= 128
+    )
+    assert len(encode_value(expected)) > 128
+    before = view._shared.snapshot()
+    assert (
+        await materialize(view.find(query, projection).sort("_id", 1).limit(8))
+        == expected
+    )
+    assert view._shared.snapshot().misses == before.misses + 1
+    assert view._shared.observation.bypasses["oversized"] == 1
 
 
 @pytest.mark.parametrize("method", ["find", "aggregate", "find_one", "distinct"])

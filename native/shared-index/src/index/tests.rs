@@ -62,6 +62,101 @@ fn reads_a_published_entry() {
     assert_eq!(read(&index, &query(b"other")), Err(Miss::Absent));
 }
 
+fn find_query<'q>(family: &'q [u8]) -> Query<'q> {
+    Query {
+        shape: family,
+        identity: &[],
+        ..query(b"")
+    }
+}
+
+fn read_find(index: &Index<Memory>, family: &[u8], limit: u64) -> Result<(Vec<u8>, u64), Miss> {
+    index.read_find(INCARNATION, &find_query(family), limit, NOW_NS, |located| {
+        let mut copy = vec![0; located.payload_len];
+        index.copy_payload(located, &mut copy).then_some(copy)
+    })
+}
+
+#[test]
+fn find_directories_choose_exact_then_smallest_covering_limit() {
+    let (index, mut writer) = sized_fixture(32, 2048);
+    let mut blocks = Vec::new();
+    for (limit, bytes) in [(0, b"all".as_slice()), (8, b"eight"), (16, b"sixteen")] {
+        let block = writer.store(bytes).unwrap();
+        writer
+            .publish_find(&find_query(b"family"), limit, block)
+            .unwrap();
+        blocks.push(block);
+    }
+    for (limit, expected) in [
+        (0, b"all".as_slice()),
+        (4, b"eight"),
+        (8, b"eight"),
+        (9, b"sixteen"),
+        (16, b"sixteen"),
+        (17, b"all"),
+    ] {
+        assert_eq!(read_find(&index, b"family", limit).unwrap().0, expected);
+    }
+    assert_eq!(read_find(&index, b"different", 4), Err(Miss::Absent));
+    writer.release(blocks[1]);
+    assert_eq!(read_find(&index, b"family", 4).unwrap().0, b"sixteen");
+    writer.release(blocks[2]);
+    assert_eq!(read_find(&index, b"family", 4).unwrap().0, b"all");
+    writer.release(blocks[0]);
+    assert_eq!(read_find(&index, b"family", 4), Err(Miss::Absent));
+    assert_eq!(writer.published(), 0);
+    assert!(index.find_complete(1));
+}
+
+#[test]
+fn missing_directories_and_core_entries_have_independent_completeness() {
+    let (index, mut writer) = sized_fixture(4, 2048);
+    let first = writer.store(b"first").unwrap();
+    let second = writer.store(b"second").unwrap();
+    writer
+        .publish_find(&find_query(b"first"), 8, first)
+        .unwrap();
+    writer
+        .publish_find(&find_query(b"second"), 8, second)
+        .unwrap();
+    assert!(!index.find_complete(1));
+    assert_eq!(read_find(&index, b"second", 8).unwrap().0, b"second");
+    assert_eq!(read_find(&index, b"second", 4), Err(Miss::Absent));
+    assert!(index.set_find_complete(1, false));
+    writer.release(first);
+    let third = writer.store(b"third").unwrap();
+    writer
+        .publish_find(&find_query(b"second"), 16, third)
+        .unwrap();
+    assert!(!index.find_complete(1));
+    assert!(index.set_find_complete(1, true));
+    assert!(index.find_complete(1));
+    assert_eq!(read_find(&index, b"second", 4).unwrap().0, b"second");
+    writer.release(second);
+    writer.release(third);
+    assert!(index.find_complete(1));
+    assert_eq!(writer.published(), 0);
+    assert!(!index.set_find_complete(2, true));
+    assert!(!index.find_complete(2));
+}
+
+#[test]
+fn find_publications_reclaim_directories_and_never_alias_namespace_entries() {
+    let (index, mut writer) = sized_fixture(8, 256);
+    for generation in 0..1000_u64 {
+        let bytes = generation.to_le_bytes();
+        let block = writer.store(&bytes).unwrap();
+        writer
+            .publish_find(&find_query(b"family"), 8, block)
+            .unwrap();
+        assert_eq!(read_find(&index, b"family", 4).unwrap().0, bytes);
+        assert_eq!(read(&index, &find_query(b"family")), Err(Miss::Absent));
+        writer.release(block);
+        assert_eq!(writer.published(), 0);
+    }
+}
+
 #[test]
 fn stored_fragments_preserve_word_boundaries_and_reuse() {
     let (_index, mut writer) = fixture();

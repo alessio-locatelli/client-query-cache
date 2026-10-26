@@ -15,7 +15,7 @@ import threading
 import time
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from contextlib import AsyncExitStack, ExitStack, contextmanager
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, field
 from importlib.metadata import version
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
@@ -75,6 +75,8 @@ class Observation:
     cache_hits: NonNegativeInt = 0
     cache_misses: NonNegativeInt = 0
     cache_bypasses: NonNegativeInt = 0
+    endpoint_counts: dict[str, NonNegativeInt] = field(default_factory=dict)
+    owner_requests: NonNegativeInt = 0
 
 
 def _install_barriers(start: Barrier, finish: Barrier) -> None:
@@ -92,6 +94,8 @@ def _collect(
     cache_hits: NonNegativeInt = 0,
     cache_misses: NonNegativeInt = 0,
     cache_bypasses: NonNegativeInt = 0,
+    endpoint_counts: dict[str, NonNegativeInt] | None = None,
+    owner_requests: NonNegativeInt = 0,
 ) -> Observation:
     cpu_finished = time.process_time()
     _FINISH.wait(30)
@@ -107,6 +111,8 @@ def _collect(
         cache_hits,
         cache_misses,
         cache_bypasses,
+        {} if endpoint_counts is None else endpoint_counts,
+        owner_requests,
     )
 
 
@@ -124,6 +130,15 @@ class Window:
     hot_keys: PositiveInt = _HOT_KEYS
     result_documents: PositiveInt = 1
     read_rate: NonNegativeFloat = 0
+    diagnostics: bool = False
+
+
+def _endpoint_snapshot(window: Window, manager: object) -> dict[str, NonNegativeInt]:
+    if window.diagnostics and isinstance(
+        manager, (SharedCacheManager, AsyncSharedCacheManager)
+    ):
+        return asdict(manager.endpoint.counters)
+    return {}
 
 
 @contextmanager
@@ -270,6 +285,12 @@ def _measure_sync(window: Window) -> Observation:
                 if time.monotonic() > deadline:
                     raise TimeoutError("cache warmup did not reach hits")
                 time.sleep(0.02)
+        requests_before = (
+            manager.endpoint.counters.requests if window.path == "shared" else 0
+        )
+        endpoint_before = _endpoint_snapshot(
+            window, manager if window.path == "shared" else None
+        )
         _START.wait(30)
         _START.wait(30)
         measured_cpu_started = time.process_time()
@@ -316,6 +337,15 @@ def _measure_sync(window: Window) -> Observation:
             cache_hits=after_counts.hits - before_counts.hits,
             cache_misses=after_counts.misses - before_counts.misses,
             cache_bypasses=after_counts.bypasses - before_counts.bypasses,
+            endpoint_counts={
+                name: count - endpoint_before[name]
+                for name, count in _endpoint_snapshot(
+                    window, manager if window.path == "shared" else None
+                ).items()
+            },
+            owner_requests=manager.endpoint.counters.requests - requests_before
+            if window.path == "shared"
+            else 0,
         )
 
 
@@ -368,6 +398,12 @@ async def _measure_async(
                 if time.monotonic() > deadline:
                     raise TimeoutError("cache warmup did not reach hits")
                 await asyncio.sleep(0.02)
+        requests_before = (
+            manager.endpoint.counters.requests if window.path == "shared" else 0
+        )
+        endpoint_before = _endpoint_snapshot(
+            window, manager if window.path == "shared" else None
+        )
         _START.wait(30)
         _START.wait(30)
         measured_cpu_started = time.process_time()
@@ -414,6 +450,15 @@ async def _measure_async(
             cache_hits=after_counts.hits - before_counts.hits,
             cache_misses=after_counts.misses - before_counts.misses,
             cache_bypasses=after_counts.bypasses - before_counts.bypasses,
+            endpoint_counts={
+                name: count - endpoint_before[name]
+                for name, count in _endpoint_snapshot(
+                    window, manager if window.path == "shared" else None
+                ).items()
+            },
+            owner_requests=manager.endpoint.counters.requests - requests_before
+            if window.path == "shared"
+            else 0,
         )
 
 
@@ -438,6 +483,7 @@ def _run_window(
     result_documents: PositiveInt = 1,
     write_interval: NonNegativeFloat = 0,
     read_rate: NonNegativeFloat = 0,
+    diagnostics: bool = False,
 ) -> dict[str, object]:
     context = multiprocessing.get_context("spawn")
     start, finish = context.Barrier(_WORKERS + 1), context.Barrier(_WORKERS + 1)
@@ -502,12 +548,20 @@ def _run_window(
                     hot_keys,
                     result_documents,
                     read_rate,
+                    diagnostics,
                 ),
             )
             for worker in range(_WORKERS)
         )
         start.wait(30)
         owner = None
+        endpoint = None
+        owner_before = None
+        if server is not None and diagnostics:
+            endpoint = SyncEndpoint(server.connection._attachment)
+            resources.callback(endpoint.close)
+            owner_before = endpoint.request({"op": "observe"})
+            assert owner_before is not None
         owner_cpu_before = 0.0
         if server is not None:
             assert server._process is not None
@@ -537,16 +591,16 @@ def _run_window(
             owner_cpu = sum(owner.cpu_times()[:2])
             owner_pss = owner.memory_full_info().pss
         owner_streams = 0
+        owner_after = None
         if server is not None:
-            endpoint = SyncEndpoint(server.connection._attachment)
-            try:
-                observation = endpoint.request({"op": "observe"})
-                assert observation is not None
-                commands = observation["upstream_commands"]
-                assert isinstance(commands, dict)
-                owner_streams = commands["aggregate:requested"]
-            finally:
-                endpoint.close()
+            if endpoint is None:
+                endpoint = SyncEndpoint(server.connection._attachment)
+                resources.callback(endpoint.close)
+            owner_after = endpoint.request({"op": "observe"})
+            assert owner_after is not None
+            commands = owner_after["upstream_commands"]
+            assert isinstance(commands, dict)
+            owner_streams = commands["aggregate:requested"]
         finish.wait(30)
         observations = tuple(future.result() for future in futures)
         latencies = sorted(
@@ -582,6 +636,21 @@ def _run_window(
             )
             + owner_cpu
             - owner_cpu_before,
+            "measured_worker_cpu_seconds": sum(
+                observation.measured_cpu_seconds for observation in observations
+            ),
+            "measured_owner_cpu_seconds": owner_cpu - owner_cpu_before,
+            "worker_endpoint_counters": {
+                name: sum(
+                    observation.endpoint_counts[name] for observation in observations
+                )
+                for name in observations[0].endpoint_counts
+            },
+            "owner_requests": sum(
+                observation.owner_requests for observation in observations
+            ),
+            "owner_before": owner_before,
+            "owner_after": owner_after if diagnostics else None,
             "shared_hits": sum(observation.hits for observation in observations),
             "cache_hits": sum(observation.cache_hits for observation in observations),
             "cache_misses": sum(
@@ -599,6 +668,9 @@ def _seed(
     client: MongoClient[BsonDict], arguments: argparse.Namespace, workload: str
 ) -> None:
     client.drop_database("public_shared_cache")
+    groups = arguments.hot_keys + (
+        _WORKERS * arguments.samples if workload == "cold" else 0
+    )
     client.public_shared_cache.items.insert_many(
         {
             "_id": identity * arguments.result_documents + ordinal,
@@ -606,7 +678,7 @@ def _seed(
             "ordinal": ordinal,
             "payload": f"{ordinal}:" + "x" * arguments.document_bytes,
         }
-        for identity in range(arguments.hot_keys + _WORKERS * arguments.samples)
+        for identity in range(groups)
         for ordinal in range(arguments.result_documents)
     )
     client.public_shared_cache.items.create_index([("group", 1), ("ordinal", 1)])
@@ -626,6 +698,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--profile-dir", type=Path)
+    parser.add_argument(
+        "--diagnostics",
+        action="store_true",
+        help="Include worker and owner transport counters for attribution.",
+    )
     parser.add_argument("--samples", type=int, default=2000)
     parser.add_argument("--repetitions", type=int, default=3)
     parser.add_argument(
@@ -708,6 +785,7 @@ def main() -> None:
                                     result_documents=arguments.result_documents,
                                     write_interval=arguments.write_interval,
                                     read_rate=arguments.read_rate,
+                                    diagnostics=arguments.diagnostics,
                                     profile_directory=None
                                     if arguments.profile_dir is None
                                     else arguments.profile_dir / str(repetition),

@@ -100,6 +100,13 @@ direct/independent measurements as workload controls, without treating their
 older windows as candidate comparisons. This is a scoped implementation check,
 not general capacity or historical confidence-bound qualification.
 
+For this comparison the collector seeds only the warm catalogue in hot windows,
+avoiding the unread cold keys seeded by the discovery collector. Apply this
+setup change identically to main and candidate. The timed hot query population
+is unchanged and must remain all hits.
+Record worker owner-request counts in every window to distinguish local hits
+from owner-served hits; diagnostic windows additionally retain transport bytes.
+
 Before integration, measure native exact hits, compatible hits, misses and
 publication/removal at 1, 8 and 64 limits per family in five alternating batches
 per build, using 4 KiB encoded payloads and 10,000 operations per read batch.

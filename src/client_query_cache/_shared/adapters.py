@@ -123,15 +123,17 @@ class SharedCacheStatistics:
 
 
 class _RemoteCaptureCore:
-    __slots__ = ("_send", "max_entry_bytes", "observation")
+    __slots__ = ("_reader", "_send", "max_entry_bytes", "observation")
 
     def __init__(
         self,
-        send: Callable[[Message], None],
+        send: Callable[[Message, ReaderIndex | None], None],
         max_entry_bytes: NonNegativeInt,
         observation: LocalObservation,
+        reader: ReaderIndex | None = None,
     ) -> None:
         self._send = send
+        self._reader = reader
         self.max_entry_bytes = max_entry_bytes
         self.observation = observation
 
@@ -139,7 +141,8 @@ class _RemoteCaptureCore:
         self.observation.record_oversized_bypass()
 
     def discard(self, handle: object) -> None:
-        self._send({"op": "discard", "handle": handle})
+        if not isinstance(handle, LocalMiss):
+            self._send({"op": "discard", "handle": handle}, None)
 
     def admit_namespace(
         self,
@@ -157,8 +160,8 @@ class _RemoteCaptureCore:
             self.max_entry_bytes,
             self.observation,
         )
-        assert admission is not None
-        self._send(admission)
+        if admission is not None:
+            self._send(admission, self._reader)
 
 
 class RemoteCursorCapture(CursorCapture):
@@ -385,11 +388,20 @@ def _reattached(shared: Shared) -> None:
     shared._metadata.clear()
 
 
-def _find_message(cursor: Cursor, shape: FindReadShape) -> Message | str:
+def _find_message(cursor: Cursor, shape: FindReadShape) -> Message | str | None:
+    native_limit = type(shape.limit) is not bool and 0 <= shape.limit < 1 << 63
+    if not native_limit:
+        local = _local_find(cursor, shape)
+        if local is True:
+            return None
+        if isinstance(local, str):
+            return local
     try:
-        family = cursor._shared.keys.encode(canonicalize(shape.family))
+        family = cursor._shared.keys.encode(shape.family)
     except UnportableKeyError:
         return UNPORTABLE_KEY
+    if native_limit and _native_find(cursor, shape, family):
+        return None
     return _select(
         cursor._shared,
         "select-find",
@@ -399,13 +411,70 @@ def _find_message(cursor: Cursor, shape: FindReadShape) -> Message | str:
     )
 
 
-def _local_find(cursor: Cursor, shape: FindReadShape) -> bool:
+def _native_find(cursor: Cursor, shape: FindReadShape, family: bytes) -> bool:
+    shared = cursor._shared
+    local = shared.local
+    if local is None:
+        return False
+    namespace = cursor._view._namespace()
+    assignment = shared._slots.find(namespace)
+    if assignment is None:
+        return False
+    database, slot, incarnation = assignment
+    if incarnation != local.incarnation:
+        shared._reattach = True
+        return False
+    metadata = _cached_metadata(shared._metadata, namespace)
+    if metadata is None:
+        return False
+    selection = local.reader.lookup_find(
+        database, slot, metadata.checked_epoch, family, shape.limit
+    )
+    if isinstance(selection, bytes):
+        shared.observation.hits += 1
+        documents = decode_value(selection, cursor._codec_options)
+        assert isinstance(documents, list)
+        _apply_find_hit(cursor, documents, shape.limit)
+        return True
+    if selection is None:
+        if local.reader.detached:
+            shared._reattach = True
+        return False
+    if not local.admissions_enabled and not shared.endpoint.connected:
+        return False
+    recovery = shared.endpoint.admission_recovery
+    if (
+        recovery.fallback_until > 0
+        and not shared.endpoint.connected
+        and recovery.active
+    ):
+        return False
+    handle = LocalMiss(
+        {
+            "op": "admit-find-local",
+            "ns": [namespace.database, namespace.collection],
+            "slot": [database, slot],
+            "epoch": metadata.checked_epoch,
+            "incarnation": incarnation,
+            "shape": family,
+            "limit": shape.limit,
+            "token": list(selection),
+        },
+        local.reader,
+        recover_socket=False,
+    )
+    shared.observation.misses += 1
+    _capture_find(cursor, handle)
+    return True
+
+
+def _local_find(cursor: Cursor, shape: FindReadShape) -> bool | str:
     if cursor._shared.local is None:
         return False
     try:
         key = cursor._shared.keys.encode(canonicalize(shape.discriminator))
     except UnportableKeyError:
-        return False
+        return UNPORTABLE_KEY
     documents = _local_select(cursor._view, (b"", key))
     if documents is NO_LOCAL_HIT:
         return False
@@ -482,8 +551,7 @@ def _outcome(shared: Shared, namespace: NamespaceId, reply: Message | None) -> s
 def _apply_find_reply(
     cursor: Cursor, reply: Message | None, shape: FindReadShape
 ) -> None:
-    shared = cursor._shared
-    outcome = _outcome(shared, cursor._view._namespace(), reply)
+    outcome = _outcome(cursor._shared, cursor._view._namespace(), reply)
     if outcome == "hit":
         assert reply is not None
         documents: list[Any] = decode_value(  # type: ignore[assignment]
@@ -497,14 +565,22 @@ def _apply_find_reply(
     assert reply is not None
     if reply["handle"] is None:
         return
+    _capture_find(cursor, reply["handle"])
+
+
+def _capture_find(cursor: Cursor, handle: object) -> None:
+    shared = cursor._shared
     cursor._capture = RemoteCursorCapture(
         _RemoteCaptureCore(
-            shared.endpoint.send, shared.max_entry_bytes, shared.observation
+            shared.endpoint.send,
+            shared.max_entry_bytes,
+            shared.observation,
+            handle.reader if isinstance(handle, LocalMiss) else None,
         ),
-        reply["handle"],
-        canonicalize(shape.discriminator),
+        handle,
+        None,
         cursor._codec_options,
-        find_source=shape.source,
+        find_source=None,
     )
     forced = cursor._view._forced_collection_handle()
     cursor._read_concern = forced.read_concern
@@ -702,9 +778,9 @@ class SharedCachedCursor[DocumentType: Mapping[str, Any]](
         if reason is not None:
             self._shared.observation.record_bypass(reason)
             return
-        if _local_find(self, shape):
-            return
         message = _find_message(self, shape)
+        if message is None:
+            return
         if isinstance(message, str):
             self._shared.observation.record_bypass(message)
             return
@@ -742,9 +818,9 @@ class AsyncSharedCachedCursor[DocumentType: Mapping[str, Any]](
         if reason is not None:
             self._shared.observation.record_bypass(reason)
             return
-        if _local_find(self, shape):
-            return
         message = _find_message(self, shape)
+        if message is None:
+            return
         if isinstance(message, str):
             self._shared.observation.record_bypass(message)
             return

@@ -529,18 +529,22 @@ class SharedCacheOwner:
         queued: bool = False,
     ) -> Message | None:
         operation = message["op"]
+        if not isinstance(operation, str):
+            raise ProtocolError("operation must be a string")
         if connection.session is None:
             if operation != "hello":
                 self.counters.unauthorized += 1
                 raise ProtocolError("attachment must authenticate first")
             return self._hello(connection, message)
         if connection.control and not (
-            queued and operation == "admit-local" and message["id"] == 0
+            queued
+            and operation in {"admit-local", "admit-find-local"}
+            and message["id"] == 0
         ):
             raise ProtocolError("control connections carry no requests")
         self.counters.requests += 1
         match operation:
-            case "admit-local":
+            case "admit-local" | "admit-find-local":
                 self._admit_local(message)
                 return None
             case "admit":
@@ -744,9 +748,15 @@ class SharedCacheOwner:
             token = _capture_words(message["token"], 3)
             epoch = _capture_word(message["epoch"])
             incarnation = _capture_word(message["incarnation"])
-            identity = decode_key(message["identity"])
             shape = self._keys.decode(message["shape"])
-            capture = self.core.begin_identity_admission(namespace, identity)
+            capture: IdentityCapture | NamespaceCapture
+            if message["op"] == "admit-find-local":
+                limit = _capture_word(message["limit"])
+                find_shape = FindReadShape(shape, limit)
+                capture = self.core.capture_namespace_generation(namespace)
+            else:
+                identity = decode_key(message["identity"])
+                capture = self.core.begin_identity_admission(namespace, identity)
             if not index.validate_capture(
                 assigned.database,
                 assigned.namespace,
@@ -755,10 +765,19 @@ class SharedCacheOwner:
                 (token[0], token[1], token[2]),
                 round(self.config.limits.capture_seconds * 1e9),
             ):
-                capture.release()
+                if isinstance(capture, IdentityCapture):
+                    capture.release()
                 self.counters.rejected_admissions += 1
                 return
-            outcome = self.core.admit_identity_encoded(capture, shape, value)
+            if isinstance(capture, IdentityCapture):
+                outcome = self.core.admit_identity_encoded(capture, shape, value)
+            else:
+                outcome = self.core.admit_namespace_encoded(
+                    capture,
+                    find_shape.discriminator,
+                    value,
+                    find_source=find_shape.source,
+                )
         if outcome is AdmissionOutcome.ADMITTED:
             self.counters.admitted += 1
         else:

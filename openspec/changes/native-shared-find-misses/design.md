@@ -25,12 +25,12 @@ metadata budget changes remain under
 
 ## Decisions
 
-### Exact table plus immutable family directories
+### Exact table plus versioned family directories
 
 Keep the existing exact lookup algorithm for identity and scalar entries.
 Represent native find entries using a reserved non-BSON identity domain,
 nonnegative limit and the encoded canonical family. Use distinct domain keys
-for immutable family directories. Neither can alias encoded MongoDB identities
+for versioned family directories. Neither can alias encoded MongoDB identities
 or existing namespace entries; full key equality remains mandatory after hash
 matching. Do not enlarge the 64-byte slot or change the generic lookup loop.
 
@@ -43,7 +43,10 @@ cannot turn into an unchecked payload reference. The selected payload uses the
 existing copy/version validation and alone emits a recency token.
 
 The native writer maintains directories as find entries are published and
-removed. Directory snapshots occupy the existing arena and table capacity;
+removed. It reuses directory storage while capacity fits, marking the slot
+version unstable before changing any payload word and stable only after its
+length and contents agree. Geometric growth/shrink avoids reallocating and
+rehashing an unchanged family on every mutation. Directory snapshots occupy the existing arena and table capacity;
 writer bookkeeping is bounded by published find entries. Empty families release
 their directory and bookkeeping. Invalidating a namespace removes both find
 entries and directories before their storage is reused. Bump the mapping layout
