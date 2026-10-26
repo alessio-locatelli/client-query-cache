@@ -357,6 +357,23 @@ def test_native_find_keys_match_python_bytes(
     )
 
 
+@pytest.mark.parametrize(
+    "builds", [(int, Int64), (Int64, int)], ids=["plain-first", "int64-first"]
+)
+@given(limit=_INTEGERS)
+def test_find_key_cache_distinguishes_equal_integer_representations(
+    builds: tuple[Callable[[int], int], Callable[[int], int]], limit: int
+) -> None:
+    cache = KeyCache(8)
+    family = canonicalize({"field": limit})
+    for build in (*builds, *builds):
+        signed_limit = build(limit)
+        assert cache.find(family, signed_limit) == (
+            encode_key(family),
+            encode_key(find_discriminator(family, signed_limit)),
+        )
+
+
 @pytest.mark.parametrize("limit", [False, True], ids=["false", "true"])
 def test_native_find_keys_preserve_boolean_discriminators(*, limit: bool) -> None:
     family = canonicalize({"field": "value"})

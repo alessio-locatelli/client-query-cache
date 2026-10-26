@@ -256,8 +256,13 @@ class KeyCache:
         return encoded
 
     def find(self, family: object, limit: int) -> tuple[bytes, bytes]:
-        canonical_limit = canonical_tags.canonicalize(limit)
-        cache_key = (family, canonical_limit)
+        if type(limit) is int:
+            canonical_limit: object = limit
+            cache_key: object = (family, limit)
+        else:
+            canonical_limit = canonical_tags.canonicalize(limit)
+            # BSON Int64 compares equal to int but has a different wire key.
+            cache_key = (family, type(limit), canonical_limit)
         try:
             return self._finds[cache_key]
         except KeyError:
