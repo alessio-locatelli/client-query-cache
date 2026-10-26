@@ -168,5 +168,7 @@ results as evidence rather than substituting them for the final comparison.
 Add one identical generic identity lookup batch to each native-floor invocation
 to investigate the preliminary identity-tail finding without MongoDB or timing
 instrumentation. The same twelve-window uncertainty allowance remains available
-for one explicitly declared finding after this final comparison. No further
+for one explicitly declared finding after this final comparison. The final owner path also restricts queued admission to identity messages and
+reuses existing namespace membership sets. Native floors use identical native
+code and the same collector across the owner-only Python cleanup. No further
 counter or family-filter variants are planned.

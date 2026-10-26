@@ -1807,13 +1807,28 @@ def test_local_find_commit_rechecks_core_generation(
 def test_local_find_admission_publishes_without_an_owner_handle(
     session: _Session, local_find_miss: Message
 ) -> None:
-    session.endpoint.send(local_find_miss, session.control.reader)
+    session.endpoint.send(local_find_miss)
     wait_for(lambda: session.owner.counters.admitted == 1)
     assert (
         session.owner.core.lookup_find_encoded(_NAMESPACE, FindReadShape(_SHAPE, 4))
         == local_find_miss["value"]
     )
     assert not session.owner._handles
+
+
+@pytest.mark.parametrize(
+    "shared_owner",
+    [{"local_miss_admission": True, "native_admission_queue": True}],
+    indirect=True,
+)
+def test_queued_find_admission_detaches_only_the_control_peer(
+    session: _Session, local_find_miss: Message
+) -> None:
+    session.endpoint.send(local_find_miss, session.control.reader)
+    wait_for(lambda: session.owner.counters.protocol_errors == 1)
+    assert session.control.sock.recv(1) == b""
+    assert session.owner.counters.admitted == 0
+    assert session.endpoint.request({"op": "observe"}) is not None
 
 
 @pytest.mark.parametrize(

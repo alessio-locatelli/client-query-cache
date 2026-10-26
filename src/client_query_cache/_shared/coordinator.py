@@ -537,9 +537,7 @@ class SharedCacheOwner:
                 raise ProtocolError("attachment must authenticate first")
             return self._hello(connection, message)
         if connection.control and not (
-            queued
-            and operation in {"admit-local", "admit-find-local"}
-            and message["id"] == 0
+            queued and operation == "admit-local" and message["id"] == 0
         ):
             raise ProtocolError("control connections carry no requests")
         self.counters.requests += 1
