@@ -172,3 +172,41 @@ for one explicitly declared finding after this final comparison. The final owner
 reuses existing namespace membership sets. Native floors use identical native
 code and the same collector across the owner-only Python cleanup. No further
 counter or family-filter variants are planned.
+
+### Final sync identity control
+
+The final three pairs show higher sync identity cold reader CPU in every pair
+(5.3–5.9%) with disjoint CPU ranges, higher P95/P99 and lower throughput. Use the
+remaining twelve-window allowance only for this finding: six additional
+main/candidate pairs of the unchanged sync identity cold workload, 1,024 calls
+per worker and 1,024 warm keys, shared only. Odd pairs run main then candidate;
+even pairs reverse order. Keep all results and stop at twelve windows. The
+native generic lookup diagnostic is separate and cannot dismiss an end-to-end
+regression. No build, test or other measurement campaign runs concurrently.
+
+### Bounded attribution for the remaining identity-tail finding
+
+The six final controls retain higher candidate sync identity cold P99 in every
+pair. CPU directions vary, and the dependency C extensions are byte-identical.
+Do not accept the finding as harmless noise. Add exactly two transport-only
+identity sync cold diagnostic windows (one per build, 1,024 calls per worker)
+and two separate cProfile windows (one per build, 256 calls per worker). Inspect
+all four worker profiles from each build, actual queue/socket counters and owner
+admission outcomes. Exclude these instrumented durations from timing tables.
+Stop attribution after these four windows and use the evidence to fix a concrete
+regression or report a blocked design choice; do not start more speculative
+architecture or timing variants.
+
+### Owner-admission attribution extension
+
+The four attribution windows found identical worker admission bytes/counts and
+no queue drops, matching worker key/lookup/capture call counts and near-equal
+native worker times. Owner busy time increased from 0.165 to 0.183 seconds for
+4,096 identity admissions. This specific owner-side finding warrants one
+extension of the preceding stop: exactly two owner-only cProfile windows, main
+and candidate, with the existing sync identity cold collector at 256 calls per
+worker. A temporary launcher wraps the spawned owner entry point; it changes no
+repository runtime code. Inspect normalized admission/native-publication costs,
+exclude profiled durations from timing evidence, and stop after this pair. No
+additional uninstrumented timing or architecture variants are authorized by
+this extension.
