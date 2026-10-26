@@ -2,7 +2,7 @@
 
 ### Requirement: Shared find preparation reuses portable query encodings
 
-Shared find key preparation SHALL traverse a query family at most once when both exact local lookup and owner selection need encodings. The resulting keys SHALL preserve existing wire bytes, scalar distinctions, errors and owner selection behavior. Reuse SHALL remain bounded; oversized encodings SHALL remain usable without retention.
+Shared find key preparation SHALL serialize a query family at most once when both exact local lookup and owner selection need encodings. The resulting keys SHALL preserve existing wire bytes, scalar distinctions, errors and owner selection behavior. Reuse SHALL remain bounded; oversized encodings SHALL remain usable without retention.
 
 #### Scenario: A local miss selects through the owner
 

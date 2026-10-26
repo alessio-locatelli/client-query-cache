@@ -37,11 +37,11 @@ from client_query_cache._core.order_sensitive_keys import (
 from client_query_cache._shared import wire
 from client_query_cache._shared.wire import (
     _EMPTY_IDENTITY,
-    _FIND_ENCODER,
     _MAX_CACHED_KEY_BYTES,
     KeyCache,
     ProtocolError,
     UnportableKeyError,
+    _find_encoder,
     decode_frame,
     decode_key,
     encode_frame,
@@ -50,13 +50,13 @@ from client_query_cache._shared.wire import (
     from_wire,
     to_wire,
 )
-from client_query_cache._shared_index import FindKeyEncoder
+from client_query_cache._shared_index import find_key_encoder
 from client_query_cache._types import NonNegativeInt, PositiveInt
 from tests.call_counting import count_current_thread_calls
 from tests.codec_helpers import Decimal128ToDecimalDecoder
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping
+    from collections.abc import Callable, Iterator, Mapping
 
     from faker import Faker
 
@@ -188,7 +188,7 @@ def test_find_shapes_and_codec_profiles_round_trip(
 )
 def test_bson_scalars_keep_their_type(value: object) -> None:
     assert _roundtrip(value) == value
-    assert _FIND_ENCODER.encode(value, 16)[0] == encode_key(value)
+    assert _find_encoder().encode(value, 16, encode_key)[0] == encode_key(value)
 
 
 @pytest.mark.parametrize(
@@ -425,7 +425,7 @@ def test_native_tuple_encoding_obeys_the_python_native_stack_guard() -> None:
     for _ in range(100_000):
         family = (family,)
     with pytest.raises(RecursionError):
-        _FIND_ENCODER.encode(family, 16)
+        _find_encoder().encode(family, 16, encode_key)
 
 
 def test_native_find_encoder_visits_specialized_family_scalars_once(
@@ -434,8 +434,8 @@ def test_native_find_encoder_visits_specialized_family_scalars_once(
     family = canonicalize((Int64(faker.pyint()), Int64(faker.pyint())))
     expected = (encode_key(family), encode_key(find_discriminator(family, 16)))
     scalars = count_current_thread_calls(monkeypatch, wire, "encode_key")
-    encoder = FindKeyEncoder(wire._TAG_NAMES, wire.encode_key)
-    assert encoder.encode(family, 16) == expected
+    encoder = find_key_encoder(wire._TAG_NAMES)
+    assert encoder.encode(family, 16, wire.encode_key) == expected
     assert scalars.count == 2
 
 
@@ -457,4 +457,23 @@ def test_find_limits_reuse_the_encoded_family(faker: Faker) -> None:
 )
 def test_native_find_wrapping_rejects_invalid_envelopes(encoded: bytes) -> None:
     with pytest.raises(ValueError, match="invalid encoded key envelope"):
-        _FIND_ENCODER.wrap(encoded, 16)
+        _find_encoder().wrap(encoded, 16, encode_key)
+
+
+@pytest.fixture
+def fresh_find_encoder_cache() -> Iterator[None]:
+    _find_encoder.cache_clear()
+    yield
+    _find_encoder.cache_clear()
+
+
+@pytest.mark.usefixtures("fresh_find_encoder_cache")
+def test_generic_keys_do_not_initialize_the_find_encoder() -> None:
+    cache = KeyCache(8)
+    cache.encode(17)
+    assert _find_encoder.cache_info().currsize == 0
+    family = canonicalize({"field": "value"})
+    cache.find(family, 16)
+    cache.find(family, 8)
+    assert _find_encoder.cache_info().misses == 1
+    assert _find_encoder.cache_info().hits == 1

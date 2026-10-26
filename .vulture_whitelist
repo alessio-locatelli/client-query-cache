@@ -273,3 +273,4 @@ spawned_worker  # Requested dynamically after warming the cache.
 unavailable_owner  # Requested dynamically after warming shared collection reads.
 
 unique_index  # Requested by pytest.mark.usefixtures for shared unique-key reads.
+fresh_find_encoder_cache  # pytest.mark.usefixtures invokes this fixture (tests/shared_cache/test_wire.py:463).
