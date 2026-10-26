@@ -204,11 +204,19 @@ class IndexPublisher:
                 payload
             )
         else:
-            self._finds.setdefault(key.namespace, set()).add(payload)
+            try:
+                members = self._finds[key.namespace]
+            except KeyError:
+                members = self._finds[key.namespace] = set()
+            members.add(payload)
         self._tokens[token] = key
 
     def _find_unpublished(self, namespace: NamespaceId, entry: CacheEntry) -> None:
-        self._unpublished_finds.setdefault(namespace, set()).add(entry)
+        try:
+            unpublished = self._unpublished_finds[namespace]
+        except KeyError:
+            unpublished = self._unpublished_finds[namespace] = set()
+        unpublished.add(entry)
         try:
             slot = self._namespaces[namespace]
         except KeyError:
