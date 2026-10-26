@@ -210,3 +210,40 @@ repository runtime code. Inspect normalized admission/native-publication costs,
 exclude profiled durations from timing evidence, and stop after this pair. No
 additional uninstrumented timing or architecture variants are authorized by
 this extension.
+
+### Rust key-preparation correction
+
+The user directs rewriting measured slow work into Rust. Replace the rejected
+native membership/admission designs with the paired-key encoder in the current
+OpenSpec design. Keep the original native index, generic identity lookup and
+owner request representation. No prior native candidate qualifies this build.
+
+Before timing, freeze the implementation, build clean installed release wheels,
+and verify dependency versions and import origins. Acquire exactly 48 matched
+shared-only windows: three revision pairs, sync/async, identity/sorted and
+hot/cold, using the initial populations and call counts. Blocks one and three
+run main then candidate and sync then async; block two reverses both orders.
+Retain every result and all expected hit/miss, stream and bypass counters. No
+other builds, tests or acquisition campaigns may run during workload timing.
+Compare latency, throughput, worker/owner CPU and group PSS under the baseline
+measurement limits. An unexplained reproducible regression blocks promotion.
+
+Separately acquire four sorted cold transport diagnostic windows (both builds
+and models), and four worker-profile windows (the same, 256 calls per worker).
+Inspect all four worker profiles in each window. These instrumented durations
+are not timing evidence. Compare paired-key preparation CPU against the two
+baseline encodings in five alternating isolated batches of 10,000 distinct
+canonical families, with no retained cache hits; preserve specialized scalar
+callback counts and exact byte checks. These are binding/encoding floors, not
+MongoDB latency claims.
+
+Compare the same existing test selection as the native trials in three
+alternating main/candidate pairs. Add `and not native-key` to exclude the new
+fixture and limit cases, retaining the original 279 cases in both builds. New
+wire/integration cases belong to the separate complete coverage gate.
+
+If the 48 windows expose one repeatable regression, use at most twelve more
+unprofiled windows (six alternating pairs) solely for that finding. Retain all
+controls and stop at that cap. Further instrumentation must answer a specific
+remaining attribution question; it does not authorize speculative variants or
+acceptance of a regression.

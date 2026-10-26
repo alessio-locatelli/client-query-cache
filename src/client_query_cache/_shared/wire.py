@@ -22,6 +22,7 @@ from client_query_cache._core import count_reads as count_tags
 from client_query_cache._core import order_sensitive_keys as order_tags
 from client_query_cache._core import query_filters as filter_tags
 from client_query_cache._core.codec import _TypeRegistryIdentity
+from client_query_cache._shared_index import FindKeyEncoder
 from client_query_cache._types import NonNegativeInt, PositiveInt
 
 if TYPE_CHECKING:
@@ -224,12 +225,16 @@ def decode_key(encoded: object) -> object:
     return from_wire(node)
 
 
+_FIND_ENCODER: Final = FindKeyEncoder(_TAG_NAMES, encode_key)
+
+
 class KeyCache:
-    __slots__ = ("_decoded", "_encoded", "_limit")
+    __slots__ = ("_decoded", "_encoded", "_finds", "_limit")
 
     def __init__(self, limit: PositiveInt) -> None:
         self._limit = limit
         self._encoded: dict[object, bytes] = {}
+        self._finds: dict[object, tuple[bytes, bytes]] = {}
         self._decoded: dict[bytes, object] = {}
 
     def encode(self, value: object) -> bytes:
@@ -239,9 +244,24 @@ class KeyCache:
             pass
         encoded = encode_key(value)
         if len(encoded) <= _MAX_CACHED_KEY_BYTES:
-            if len(self._encoded) >= self._limit:
+            if len(self._encoded) + len(self._finds) >= self._limit:
                 self._encoded.clear()
+                self._finds.clear()
             self._encoded[value] = encoded
+        return encoded
+
+    def find(self, family: object, limit: int) -> tuple[bytes, bytes]:
+        discriminator = canonical_tags.canonicalize((family, limit))
+        try:
+            return self._finds[discriminator]
+        except KeyError:
+            pass
+        encoded = _FIND_ENCODER.encode(family, canonical_tags.canonicalize(limit))
+        if len(encoded[0]) + len(encoded[1]) <= _MAX_CACHED_KEY_BYTES:
+            if len(self._encoded) + len(self._finds) >= self._limit:
+                self._encoded.clear()
+                self._finds.clear()
+            self._finds[discriminator] = encoded
         return encoded
 
     def decode(self, encoded: object) -> object:

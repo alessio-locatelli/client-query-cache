@@ -139,8 +139,7 @@ class _RemoteCaptureCore:
         self.observation.record_oversized_bypass()
 
     def discard(self, handle: object) -> None:
-        if not isinstance(handle, LocalMiss):
-            self._send({"op": "discard", "handle": handle})
+        self._send({"op": "discard", "handle": handle})
 
     def admit_namespace(
         self,
@@ -158,8 +157,8 @@ class _RemoteCaptureCore:
             self.max_entry_bytes,
             self.observation,
         )
-        if admission is not None:
-            self._send(admission)
+        assert admission is not None
+        self._send(admission)
 
 
 class RemoteCursorCapture(CursorCapture):
@@ -193,7 +192,7 @@ class RemoteCursorCapture(CursorCapture):
 @dataclass(frozen=True, slots=True)
 class LocalMiss:
     message: Message
-    reader: ReaderIndex | None
+    reader: ReaderIndex
     recover_socket: bool
 
 
@@ -387,91 +386,28 @@ def _reattached(shared: Shared) -> None:
 
 
 def _find_message(cursor: Cursor, shape: FindReadShape) -> Message | str | None:
-    native_limit = type(shape.limit) is not bool and 0 <= shape.limit < 1 << 63
-    if not native_limit:
-        local = _local_find(cursor, shape)
-        if local is True:
-            return None
-        if isinstance(local, str):
-            return local
+    shared = cursor._shared
+    local = shared.local
     try:
-        family = cursor._shared.keys.encode(shape.family)
+        if local is None:
+            family = shared.keys.encode(canonicalize(shape.family))
+        else:
+            family, key = shared.keys.find(shape.family, shape.limit)
     except UnportableKeyError:
         return UNPORTABLE_KEY
-    if native_limit and _native_find(cursor, shape, family):
-        return None
+    if local is not None:
+        documents = _local_select(cursor._view, (b"", key))
+        if documents is not NO_LOCAL_HIT:
+            assert isinstance(documents, list)
+            _apply_find_hit(cursor, documents, shape.limit)
+            return None
     return _select(
-        cursor._shared,
+        shared,
         "select-find",
         cursor._view._namespace(),
         family=family,
         limit=shape.limit,
     )
-
-
-def _native_find(cursor: Cursor, shape: FindReadShape, family: bytes) -> bool:
-    shared = cursor._shared
-    local = shared.local
-    if local is None:
-        return False
-    namespace = cursor._view._namespace()
-    assignment = shared._slots.find(namespace)
-    if assignment is None:
-        return False
-    database, slot, incarnation = assignment
-    if incarnation != local.incarnation:
-        shared._reattach = True
-        return False
-    metadata = _cached_metadata(shared._metadata, namespace)
-    if metadata is None:
-        return False
-    selection = local.reader.lookup_find(
-        database, slot, metadata.checked_epoch, family, shape.limit
-    )
-    if isinstance(selection, bytes):
-        shared.observation.hits += 1
-        documents = decode_value(selection, cursor._codec_options)
-        assert isinstance(documents, list)
-        _apply_find_hit(cursor, documents, shape.limit)
-        return True
-    if selection is None:
-        if local.reader.detached:
-            shared._reattach = True
-        return False
-    if not shared.endpoint.connected:
-        return False
-    handle = LocalMiss(
-        {
-            "op": "admit-find-local",
-            "ns": [namespace.database, namespace.collection],
-            "slot": [database, slot],
-            "epoch": metadata.checked_epoch,
-            "incarnation": incarnation,
-            "shape": family,
-            "limit": shape.limit,
-            "token": list(selection),
-        },
-        None,
-        recover_socket=False,
-    )
-    shared.observation.misses += 1
-    _capture_find(cursor, handle)
-    return True
-
-
-def _local_find(cursor: Cursor, shape: FindReadShape) -> bool | str:
-    if cursor._shared.local is None:
-        return False
-    try:
-        key = cursor._shared.keys.encode(canonicalize(shape.discriminator))
-    except UnportableKeyError:
-        return UNPORTABLE_KEY
-    documents = _local_select(cursor._view, (b"", key))
-    if documents is NO_LOCAL_HIT:
-        return False
-    assert isinstance(documents, list)
-    _apply_find_hit(cursor, documents, shape.limit)
-    return True
 
 
 def _prepare_find_shape(
@@ -542,7 +478,8 @@ def _outcome(shared: Shared, namespace: NamespaceId, reply: Message | None) -> s
 def _apply_find_reply(
     cursor: Cursor, reply: Message | None, shape: FindReadShape
 ) -> None:
-    outcome = _outcome(cursor._shared, cursor._view._namespace(), reply)
+    shared = cursor._shared
+    outcome = _outcome(shared, cursor._view._namespace(), reply)
     if outcome == "hit":
         assert reply is not None
         documents: list[Any] = decode_value(  # type: ignore[assignment]
@@ -556,18 +493,11 @@ def _apply_find_reply(
     assert reply is not None
     if reply["handle"] is None:
         return
-    _capture_find(cursor, reply["handle"])
-
-
-def _capture_find(cursor: Cursor, handle: object) -> None:
-    shared = cursor._shared
     cursor._capture = RemoteCursorCapture(
         _RemoteCaptureCore(
-            shared.endpoint.send,
-            shared.max_entry_bytes,
-            shared.observation,
+            shared.endpoint.send, shared.max_entry_bytes, shared.observation
         ),
-        handle,
+        reply["handle"],
         None,
         cursor._codec_options,
         find_source=None,

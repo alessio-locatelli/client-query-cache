@@ -9,6 +9,8 @@ from uuid import UUID
 
 import bson
 import pytest
+from bson.binary import Binary
+from bson.code import Code
 from bson.codec_options import CodecOptions, DatetimeConversion, TypeRegistry
 from bson.datetime_ms import DatetimeMS
 from bson.dbref import DBRef
@@ -32,8 +34,10 @@ from client_query_cache._core.find_reads import (
 from client_query_cache._core.order_sensitive_keys import (
     order_sensitive_discriminator_key,
 )
+from client_query_cache._shared import wire
 from client_query_cache._shared.wire import (
     _EMPTY_IDENTITY,
+    _FIND_ENCODER,
     _MAX_CACHED_KEY_BYTES,
     KeyCache,
     ProtocolError,
@@ -46,7 +50,9 @@ from client_query_cache._shared.wire import (
     from_wire,
     to_wire,
 )
-from client_query_cache._types import PositiveInt
+from client_query_cache._shared_index import FindKeyEncoder
+from client_query_cache._types import NonNegativeInt, PositiveInt
+from tests.call_counting import count_current_thread_calls
 from tests.codec_helpers import Decimal128ToDecimalDecoder
 
 if TYPE_CHECKING:
@@ -143,6 +149,10 @@ def test_find_shapes_and_codec_profiles_round_trip(
         codec=codec_fingerprint(codec),
     )
     canonical = canonicalize(shape.family)
+    assert KeyCache(2).find(canonical, shape.limit) == (
+        encode_key(canonical),
+        encode_key(canonicalize(shape.discriminator)),
+    )
     decoded = _roundtrip(canonical)
 
     assert to_wire(decoded) == to_wire(canonical)
@@ -157,6 +167,8 @@ def test_find_shapes_and_codec_profiles_round_trip(
     "value",
     [
         pytest.param(ObjectId(), id="object-id"),
+        pytest.param(Binary(b"payload", 128), id="binary-subtype"),
+        pytest.param(Code("return value", {"value": 1}), id="code-with-scope"),
         pytest.param(dt.datetime(2026, 1, 1, microsecond=1), id="microseconds"),  # noqa: DTZ001 - Exercise naive BSON input.
         pytest.param(dt.datetime(2026, 1, 1, tzinfo=dt.UTC), id="aware"),
         pytest.param(Timestamp(1, 2), id="timestamp"),
@@ -176,6 +188,7 @@ def test_find_shapes_and_codec_profiles_round_trip(
 )
 def test_bson_scalars_keep_their_type(value: object) -> None:
     assert _roundtrip(value) == value
+    assert _FIND_ENCODER.encode(value, 16)[0] == encode_key(value)
 
 
 @pytest.mark.parametrize(
@@ -195,6 +208,8 @@ def test_bson_scalars_keep_their_type(value: object) -> None:
 def test_unportable_keys_are_rejected(value: object) -> None:
     with pytest.raises(UnportableKeyError):
         to_wire(canonicalize(value))
+    with pytest.raises(UnportableKeyError):
+        KeyCache(2).find(canonicalize((value,)), 16)
 
 
 @pytest.mark.parametrize(
@@ -326,3 +341,88 @@ def test_regex_key_decoding_does_not_print_compile_debug_output(
     assert not decoded.flags & re.DEBUG
     assert not capsys.readouterr().out
     assert encode_key(pattern) == encode_key(re.compile(r"private-pattern"))
+
+
+@pytest.mark.parametrize("build", [int, Int64], ids=["plain", "explicit-int64"])
+@given(value=_VALUES, limit=_INTEGERS)
+@example(value={"field": [True, None, "zero\x00inside"]}, limit=0)
+def test_native_find_keys_match_python_bytes(
+    build: Callable[[int], int], value: object, limit: int
+) -> None:
+    family = canonicalize(order_sensitive_discriminator_key(value))
+    signed_limit = build(limit)
+    assert KeyCache(2).find(family, signed_limit) == (
+        encode_key(family),
+        encode_key(find_discriminator(family, signed_limit)),
+    )
+
+
+@pytest.mark.parametrize("limit", [False, True], ids=["false", "true"])
+def test_native_find_keys_preserve_boolean_discriminators(*, limit: bool) -> None:
+    family = canonicalize({"field": "value"})
+    assert KeyCache(2).find(family, limit) == (
+        encode_key(family),
+        encode_key(find_discriminator(family, limit)),
+    )
+
+
+@pytest.mark.parametrize("capacity", [1, 2, 8])
+@given(
+    operations=st.lists(st.tuples(st.booleans(), _INTEGERS), min_size=2, max_size=16)
+)
+@example(operations=[(True, 0), (False, 0), (True, 1)])
+@example(operations=[(False, 0), (True, 0), (False, 1)])
+def test_find_and_generic_keys_share_the_retention_budget(
+    capacity: PositiveInt, operations: list[tuple[bool, int]]
+) -> None:
+    cache = KeyCache(capacity)
+    for is_find, value in operations:
+        if is_find:
+            family = canonicalize({"field": value})
+            encoded = cache.find(family, 16)
+            assert encoded == (
+                encode_key(family),
+                encode_key(find_discriminator(family, 16)),
+            )
+            assert cache.find(family, 16) is encoded
+        else:
+            assert cache.encode(value) == encode_key(value)
+        assert len(cache._encoded) + len(cache._finds) <= capacity
+
+
+@pytest.mark.parametrize("extra", [0, 2], ids=["at-bound", "above-bound"])
+def test_find_key_pairs_apply_the_combined_size_bound(extra: NonNegativeInt) -> None:
+    cache = KeyCache(2)
+    overhead = sum(map(len, cache.find("", 16)))
+    family = "x" * ((_MAX_CACHED_KEY_BYTES - overhead) // 2 + extra // 2)
+    keys = cache.find(family, 16)
+    assert sum(map(len, keys)) == _MAX_CACHED_KEY_BYTES + extra
+    assert keys == (encode_key(family), encode_key(find_discriminator(family, 16)))
+    assert (canonicalize((family, 16)) in cache._finds) is (extra == 0)
+
+
+def test_native_find_keys_preserve_unicode_encoding_errors() -> None:
+    family = ("\ud800",)
+    with pytest.raises(UnicodeEncodeError):
+        encode_key(family)
+    with pytest.raises(UnicodeEncodeError):
+        KeyCache(2).find(family, 16)
+
+
+def test_native_tuple_encoding_obeys_the_python_native_stack_guard() -> None:
+    family: object = "leaf"
+    for _ in range(100_000):
+        family = (family,)
+    with pytest.raises(RecursionError):
+        _FIND_ENCODER.encode(family, 16)
+
+
+def test_native_find_encoder_visits_specialized_family_scalars_once(
+    monkeypatch: pytest.MonkeyPatch, faker: Faker
+) -> None:
+    family = canonicalize((Int64(faker.pyint()), Int64(faker.pyint())))
+    expected = (encode_key(family), encode_key(find_discriminator(family, 16)))
+    scalars = count_current_thread_calls(monkeypatch, wire, "encode_key")
+    encoder = FindKeyEncoder(wire._TAG_NAMES, wire.encode_key)
+    assert encoder.encode(family, 16) == expected
+    assert scalars.count == 2

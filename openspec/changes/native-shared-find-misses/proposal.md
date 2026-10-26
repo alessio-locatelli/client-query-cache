@@ -2,13 +2,11 @@
 
 ## Why
 
-The current-release investigation for [#341](https://github.com/alessio-locatelli/client-query-cache/issues/341) identifies a repeatable cold sorted-find cost: every read prepares two wire keys and selects through the owner before MongoDB. Native family absence checks and locally fenced capture can remove that control exchange; the measured baseline and attribution belong in `reports/shared-worker-cache/current-costs/results.md`.
+The current-release investigation for [#341](https://github.com/alessio-locatelli/client-query-cache/issues/341) identifies duplicate Python query serialization on shared find misses. The user directs moving measured slow work into Rust. The rejected native selection prototypes and their performance failures remain in `reports/shared-worker-cache/current-costs/native-trials.md`.
 
 ## What Changes
 
-- Retain native exact find hits and authorize definite misses through a bounded family filter; retain owner selection for compatible limits.
-- Preserve authoritative owner admission and fallback when native publication is incomplete.
-- Use focused, preregistered current-release comparisons for this scoped miss optimization; do not claim historical protocol requalification.
+Move shared find key encoding into Rust and reuse one query traversal for both required keys. Preserve the existing owner protocol and documented cache behavior. Validate the correction through the registered current-release comparison.
 
 ## Capabilities
 
@@ -18,9 +16,9 @@ None.
 
 ### Modified Capabilities
 
-- `shared-worker-cache`: native find selection, bounded publication completeness and cursor admission.
-- `shared-cache-benchmarking`: namespace capture scenarios and scoped optimization evidence.
+- `shared-worker-cache`: portable shared find key preparation and bounded reuse.
+- `shared-cache-benchmarking`: evidence for scoped current-release corrections.
 
 ## Impact
 
-Native index layout and bindings, shared publisher/adapters/coordinator, protocol tests and models, internal architecture guidance and benchmark evidence. Public constructors, query eligibility and consistency remain unchanged. No new dependency or public setting is proposed.
+Native Python bindings, shared key cache and cursor adapters, differential wire tests, internal architecture guidance and benchmark evidence. No public setting or dependency is introduced.

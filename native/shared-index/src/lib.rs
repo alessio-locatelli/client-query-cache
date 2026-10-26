@@ -16,6 +16,8 @@ mod echo;
 mod frames;
 mod hash;
 mod index;
+#[cfg(all(feature = "python", not(loom)))]
+mod key_encoder;
 mod memory;
 #[cfg(all(feature = "python", not(loom)))]
 mod python;

@@ -11,7 +11,7 @@ use pyo3::types::PyBytes;
 use crate::clock::monotonic_ns;
 use crate::echo::Echo;
 use crate::frames::Frames;
-use crate::index::{Block, Index, Layout, Miss, Query, Writer};
+use crate::index::{Block, Index, Layout, Query, Writer};
 use crate::memory::{Mapping, ReadOnly, WORD_BYTES, Words, Writable, reopen_read_only, seal};
 use crate::relay::Relay;
 use crate::ring::Ring;
@@ -144,34 +144,6 @@ impl OwnerIndex {
 
     fn unpublish(&self, payload: &Payload) -> bool {
         self.writer().unpublish(payload.block)
-    }
-
-    fn publish_find(
-        &self,
-        database: usize,
-        namespace: usize,
-        epoch: u64,
-        family: &[u8],
-        limit: u64,
-        payload: &Payload,
-    ) -> Option<u64> {
-        let query = Query {
-            database,
-            namespace,
-            epoch,
-            identity: &[],
-            shape: family,
-        };
-        self.writer()
-            .publish_find(&query, limit, payload.block)
-            .ok()
-    }
-
-    fn set_find_complete(&self, namespace: usize, complete: bool) -> PyResult<()> {
-        self.index
-            .set_find_complete(namespace, complete)
-            .then_some(())
-            .ok_or_else(|| out_of_range("namespace"))
     }
 
     fn published(&self) -> usize {
@@ -426,52 +398,6 @@ impl ReaderIndex {
         self.index.capture(self.incarnation, &query, monotonic_ns())
     }
 
-    fn lookup_find<'py>(
-        &self,
-        py: Python<'py>,
-        database: usize,
-        namespace: usize,
-        epoch: u64,
-        family: &[u8],
-        limit: u64,
-    ) -> PyResult<Bound<'py, PyAny>> {
-        if self.detached.load(Ordering::Acquire) {
-            return Ok(py.None().into_bound(py));
-        }
-        let query = Query {
-            database,
-            namespace,
-            epoch,
-            identity: &[],
-            shape: family,
-        };
-        let now = monotonic_ns();
-        let outcome = self
-            .index
-            .read_find(self.incarnation, &query, limit, now, |located| {
-                let mut copied = false;
-                let payload = PyBytes::new_with(py, located.payload_len, |buffer| {
-                    copied = self.index.copy_payload(located, buffer);
-                    Ok(())
-                })
-                .ok()?;
-                copied.then_some(payload)
-            });
-        match outcome {
-            Ok((payload, token)) => {
-                self.ring.push(token);
-                Ok(payload.into_any())
-            }
-            Err(Miss::Absent) if self.index.find_complete(namespace) => {
-                match self.index.capture(self.incarnation, &query, now) {
-                    Some(token) => Ok(token.into_pyobject(py)?.into_any()),
-                    None => Ok(py.None().into_bound(py)),
-                }
-            }
-            Err(_) => Ok(py.None().into_bound(py)),
-        }
-    }
-
     fn detach(&self) {
         self.detached.store(true, Ordering::Release);
     }
@@ -558,4 +484,6 @@ impl ByteRelay {
 mod _shared_index {
     #[pymodule_export]
     use super::{ByteRelay, EchoOwner, OwnerIndex, Payload, ReaderIndex, SessionRing};
+    #[pymodule_export]
+    use crate::key_encoder::FindKeyEncoder;
 }

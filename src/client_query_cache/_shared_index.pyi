@@ -1,3 +1,4 @@
+from collections.abc import Callable, Mapping
 from typing import final
 
 from client_query_cache._types import NonNegativeInt, PositiveInt
@@ -32,16 +33,6 @@ class OwnerIndex:
         payload: Payload,
     ) -> int | None: ...
     def unpublish(self, payload: Payload) -> bool: ...
-    def publish_find(
-        self,
-        database: NonNegativeInt,
-        namespace: NonNegativeInt,
-        epoch: NonNegativeInt,
-        family: bytes,
-        limit: NonNegativeInt,
-        payload: Payload,
-    ) -> NonNegativeInt | None: ...
-    def set_find_complete(self, namespace: NonNegativeInt, complete: bool) -> None: ...
     def published(self) -> int: ...
     def set_available(self, database: int, available: bool) -> None: ...
     def set_progress(self, database: int, monotonic_ns: int) -> None: ...
@@ -85,14 +76,6 @@ class ReaderIndex:
         self, database: int, namespace: int, epoch: int, identity: bytes, shape: bytes
     ) -> bytes | None: ...
     def detach(self) -> None: ...
-    def lookup_find(
-        self,
-        database: NonNegativeInt,
-        namespace: NonNegativeInt,
-        epoch: NonNegativeInt,
-        family: bytes,
-        limit: NonNegativeInt,
-    ) -> bytes | tuple[NonNegativeInt, NonNegativeInt, NonNegativeInt] | None: ...
     def capture(
         self, database: NonNegativeInt, namespace: NonNegativeInt, epoch: NonNegativeInt
     ) -> tuple[NonNegativeInt, NonNegativeInt, NonNegativeInt] | None: ...
@@ -114,3 +97,12 @@ class ByteRelay:
     def bytes_sent(self) -> NonNegativeInt: ...
     @property
     def bytes_received(self) -> NonNegativeInt: ...
+
+@final
+class FindKeyEncoder:
+    def __init__(
+        self,
+        tags: Mapping[NonNegativeInt, str],
+        scalar_encoder: Callable[[object], bytes],
+    ) -> None: ...
+    def encode(self, family: object, limit: object) -> tuple[bytes, bytes]: ...
