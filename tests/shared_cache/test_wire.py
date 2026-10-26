@@ -398,7 +398,7 @@ def test_find_key_pairs_apply_the_per_key_size_bound(extra: NonNegativeInt) -> N
     keys = cache.find(family, 16)
     assert len(keys[1]) == _MAX_CACHED_KEY_BYTES + extra
     assert keys == (encode_key(family), encode_key(find_discriminator(family, 16)))
-    assert (canonicalize((family, 16)) in cache._finds) is (extra == 0)
+    assert ((family, 16) in cache._finds) is (extra == 0)
     assert cache.find(family, 16)[0] is keys[0]
 
 
