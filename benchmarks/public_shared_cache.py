@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import cProfile
+import ctypes
 import json
 import math
 import multiprocessing
@@ -62,6 +63,17 @@ _DOCUMENT_BYTES = 4096
 _WORKERS = 4
 _START: Barrier
 _FINISH: Barrier
+_CPU_CLOCK = ctypes.CDLL(None).clock_getcpuclockid
+_CPU_CLOCK.argtypes = (ctypes.c_int, ctypes.POINTER(ctypes.c_int))
+_CPU_CLOCK.restype = ctypes.c_int
+
+
+def _process_cpu_clock(pid: PositiveInt) -> int:
+    clock = ctypes.c_int()
+    status = _CPU_CLOCK(pid, ctypes.byref(clock))
+    if status:
+        raise OSError(status, os.strerror(status))
+    return clock.value
 
 
 @dataclass(frozen=True, slots=True)
@@ -563,10 +575,12 @@ def _run_window(
             owner_before = endpoint.request({"op": "observe"})
             assert owner_before is not None
         owner_cpu_before = 0.0
+        owner_clock = None
         if server is not None:
             assert server._process is not None
             owner = psutil.Process(server._process.pid)
-            owner_cpu_before = sum(owner.cpu_times()[:2])
+            owner_clock = _process_cpu_clock(owner.pid)
+            owner_cpu_before = time.clock_gettime(owner_clock)
         # Capture before the measured interval.
         server_cpu_before = replica.container_cpu_usage_seconds()  # pytriage: TR11
         started = time.monotonic()
@@ -588,7 +602,8 @@ def _run_window(
         owner_pss = 0
         owner_cpu = 0.0
         if owner is not None:
-            owner_cpu = sum(owner.cpu_times()[:2])
+            assert owner_clock is not None
+            owner_cpu = time.clock_gettime(owner_clock)
             owner_pss = owner.memory_full_info().pss
         owner_streams = 0
         owner_after = None
@@ -640,6 +655,9 @@ def _run_window(
                 observation.measured_cpu_seconds for observation in observations
             ),
             "measured_owner_cpu_seconds": owner_cpu - owner_cpu_before,
+            "owner_cpu_resolution_seconds": None
+            if owner_clock is None
+            else time.clock_getres(owner_clock),
             "worker_endpoint_counters": {
                 name: sum(
                     observation.endpoint_counts[name] for observation in observations
