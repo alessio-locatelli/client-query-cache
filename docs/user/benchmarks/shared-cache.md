@@ -38,23 +38,26 @@ Independent sync caches were faster. Async hot medians were close in this run, w
 | Async | Independent |    333.99 | 420.01 |  531.39 |                 2.44 |         270.7 |
 | Async | Shared      |    319.62 | 519.13 | 1248.62 |                 3.00 |         261.2 |
 
-Shared cold windows recorded zero hits. Their median was below independent caches, but CPU and P99 were higher. Admission work and background publication add cost to MongoDB reads; the owner occupied about 77–78 MiB in these windows. CPU including warmup and owner startup was 5.41 seconds sync and 8.81 seconds async, versus 4.67 and 7.37 seconds for independent caches. These results support using sharing for a reused identity hot set; measure miss-heavy applications before opting in. These are 0.8.0 measurements. Subsequent cold-miss work is recorded in [issue #272](https://github.com/alessio-locatelli/client-query-cache/issues/272); it does not replace this dated public-API comparison.
+Shared cold windows recorded zero hits. Their median was below independent caches, but CPU and P99 were higher. Admission work and background publication add cost to MongoDB reads; the owner occupied about 77–78 MiB in these windows. CPU including warmup and owner startup was 5.41 seconds sync and 8.81 seconds async, versus 4.67 and 7.37 seconds for independent caches. These results support using sharing for a reused identity hot set; measure miss-heavy applications before opting in.
+
+These are 0.8.0 measurements. Later studies measured development revisions with their own workloads: the [completed identity study](https://github.com/alessio-locatelli/client-query-cache/blob/main/reports/shared-worker-cache/v15/results.md) tests cold `_id` misses against the direct-read bounds of [issue #272](https://github.com/alessio-locatelli/client-query-cache/issues/272), and the [collection-read comparison](https://github.com/alessio-locatelli/client-query-cache/blob/main/reports/shared-worker-cache/collection-reads.md) includes cold misses for the other shared read methods. Neither is a current-release measurement or a universal latency guarantee, and neither replaces this dated public-API comparison.
 
 Native implementation and profile attribution are in the [maintainer reference](https://github.com/alessio-locatelli/client-query-cache/blob/main/docs/development/shared-cache.md#profile-attribution-for-the-public-release-workload).
 
 ## Reproduce
 
-To run this workload against the current checkout, build its wheel with `just build`, then run the installed artifact:
+To run this workload against the current checkout, build its wheel, then run the installed artifact whose version matches the checkout:
 
 ```bash
+just build
 uv run --isolated --no-project \
   --python 3.14.7 \
-  --with dist/client_query_cache-0.8.1-cp314-abi3-manylinux_2_28_x86_64.whl \
+  --with "dist/client_query_cache-$(uv version --short)-cp314-abi3-manylinux_2_28_x86_64.whl" \
   --with psutil --with testcontainers --with requests --with pyyaml \
   python -m benchmarks.public_shared_cache \
   --output /tmp/agents/shared-cache-performance.json
 ```
 
-This measures the current 0.8.1 checkout, not the recorded 0.8.0 artifact. For that revision, use the `v0.8.0` checkout and its matching wheel filename.
+The checkout's version in the wheel name excludes older artifacts in `dist/`. This measures the current checkout, not the recorded 0.8.0 artifact. To repeat the 0.8.0 run, follow the [0.8.0 reproduction](https://github.com/alessio-locatelli/client-query-cache/blob/v0.8.0/docs/user/benchmarks/shared-cache.md#reproduce) from a `v0.8.0` checkout.
 
-The command requires a working Docker-compatible development runtime. Use the repository's documented [development environment](https://github.com/alessio-locatelli/client-query-cache/blob/main/CONTRIBUTING.md) when running in Toolbx. The harness accepts no production URI and writes only to its disposable replica set. Raw timing output is untracked.
+The benchmark requires a working Docker-compatible development runtime. Use the repository's documented [development environment](https://github.com/alessio-locatelli/client-query-cache/blob/main/CONTRIBUTING.md) when running in Toolbx. The harness accepts no production URI and writes only to its disposable replica set. Raw timing output is untracked.
