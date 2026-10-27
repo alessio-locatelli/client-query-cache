@@ -1,6 +1,6 @@
 # Shared collection-read measurements
 
-This comparison supports [issue #295](https://github.com/alessio-locatelli/client-query-cache/issues/295). It measures the implementation in this change against `main` at [`ff9153499b5e00054a2b91cf17cc852522cd13b1`](https://github.com/alessio-locatelli/client-query-cache/commit/ff9153499b5e00054a2b91cf17cc852522cd13b1), direct PyMongo majority reads and independent process-local caches.
+This comparison supports [issue #295](https://github.com/alessio-locatelli/client-query-cache/issues/295). It measures the implementation from [pull request #303](https://github.com/alessio-locatelli/client-query-cache/pull/303), merged as [`ae422f36500fafd20b37707e4a1e2d4914c775ab`](https://github.com/alessio-locatelli/client-query-cache/commit/ae422f36500fafd20b37707e4a1e2d4914c775ab), against `main` at [`ff9153499b5e00054a2b91cf17cc852522cd13b1`](https://github.com/alessio-locatelli/client-query-cache/commit/ff9153499b5e00054a2b91cf17cc852522cd13b1), direct PyMongo majority reads and independent process-local caches.
 
 ## Conditions and limits
 
@@ -155,21 +155,24 @@ The broader filtered shapes repeatedly lose their 32-key working set after each 
 
 ## Reproduce
 
-Run the current harness from the implementation checkout for **both** wheels. Build the baseline wheel from the pinned main commit in a detached worktree and the implementation wheel from this change:
+Run the harness from the implementation checkout for **both** wheels. Build each wheel in a detached worktree: the baseline from the pinned main commit and the implementation from the merge commit:
 
 ```bash
 git worktree add --detach /tmp/agents/collection-read-main \
   ff9153499b5e00054a2b91cf17cc852522cd13b1
+git worktree add --detach /tmp/agents/collection-read-branch \
+  ae422f36500fafd20b37707e4a1e2d4914c775ab
 (cd /tmp/agents/collection-read-main && \
   uv run maturin build --release --compatibility linux \
   --out /tmp/agents/collection-read-main-wheel)
-uv run maturin build --release --compatibility linux \
-  --out /tmp/agents/collection-read-branch-wheel
+(cd /tmp/agents/collection-read-branch && \
+  uv run maturin build --release --compatibility linux \
+  --out /tmp/agents/collection-read-branch-wheel)
 ```
 
 These are same-host comparison wheels. The normal release build remains `just build`. Use the repository’s [development environment](https://github.com/alessio-locatelli/client-query-cache/blob/main/CONTRIBUTING.md) for the container runtime; the harness accepts no production URI.
 
-For each wheel, run this identity window set in three alternating revision pairs:
+From `/tmp/agents/collection-read-branch`, run this identity window set for each wheel in three alternating revision pairs:
 
 ```bash
 comparison_wheel=/tmp/agents/collection-read-branch-wheel/client_query_cache-0.8.1-cp314-abi3-linux_x86_64.whl
@@ -200,4 +203,4 @@ For the targeted identity repeats, use both wheels in alternating order:
 
 Use distinct output/profile paths for each revision and repetition. Identity repeats retain 4,096-byte payloads.
 
-Existing-test timing used `tests/shared_cache/test_public.py`, `test_sorted_find.py` and `test_scenarios.py` in each checkout, with the same development environment and four pytest workers. New tests in `test_collection_reads.py` were excluded from that comparison. Run the project’s `just pytest` recipe with those paths; a native extension built from the corresponding revision is required. Remove the disposable baseline worktree with `git worktree remove` after use.
+Existing-test timing used `tests/shared_cache/test_public.py`, `test_sorted_find.py` and `test_scenarios.py` in each checkout, with the same development environment and four pytest workers. New tests in `test_collection_reads.py` were excluded from that comparison. Run the project’s `just pytest` recipe with those paths; a native extension built from the corresponding revision is required. Remove both disposable worktrees with `git worktree remove` after use.
