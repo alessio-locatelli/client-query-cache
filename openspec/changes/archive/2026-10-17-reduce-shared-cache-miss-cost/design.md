@@ -22,7 +22,7 @@ Local miss capture requires an open data connection in the calling thread or eve
 
 ## Native admission queue
 
-The [version 7 evidence](../../../reports/shared-worker-cache/v7/results.md) fails the eight-worker miss tail. With selection removed, a socket send remains on the worker's return path and the owner still processes each frame separately. Consolidating core locks would cross the explicit namespace/LRU lock-order boundary. Version 8 instead enables `native_admission_queue` with local capture, targeting the measured worker send and owner wakeup costs without changing core admission authority.
+The [version 7 evidence](../../../../reports/shared-worker-cache/v7/results.md) fails the eight-worker miss tail. With selection removed, a socket send remains on the worker's return path and the owner still processes each frame separately. Consolidating core locks would cross the explicit namespace/LRU lock-order boundary. Version 8 instead enables `native_admission_queue` with local capture, targeting the measured worker send and owner wakeup costs without changing core admission authority.
 
 Each existing writable session ring gains a trailing byte queue, bounded by `queued_bytes_per_connection`. Disabled configurations retain the original mapping. Each record contains its byte length and already encoded frame in atomic words. Producer and consumer callers are serialized separately in the bindings. Release publication exposes only complete records; acquire consumption copies each record before releasing its space for reuse. Counter overflow and damaged indices fail closed. A killed producer cannot publish a partial record. Queue memory scales with worker sessions and is included in the group memory gate.
 

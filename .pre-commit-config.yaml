@@ -128,6 +128,8 @@ repos:
     rev: lychee-v0.24.2
     hooks:
       - id: lychee
+        # Lockfiles list registry artifacts, this configuration lists exclusion patterns, and Renovate download patterns/templates are not fetchable links; Renovate's schema is validated separately. Lychee warns about passed inputs that its own configuration excludes, so skip them before they are passed.
+        exclude: ^(lychee\.toml|package-lock\.json|renovate\.json5|uv\.lock)$
 
   - repo: https://github.com/rhysd/actionlint
     rev: v1.7.12
