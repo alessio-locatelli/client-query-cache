@@ -4,7 +4,7 @@ Execute against [design.md](design.md) and the [evaluation contract](specs/proce
 
 ## 1. Register the comparison
 
-- [ ] 1.1 Create the D4 acquisition plan, freezing the baseline revision, target metric, exact cells/sample counts, build commands, block ordering, resource checkpoints, and existing pytest node-ID set. Register the same-core contention topology/pressure evidence, qualifying memory-occupancy controls, and final-wheel shared controls before candidate timing. Verify that every acceptance requirement has a named measurement or conformance check and that no baseline is described as newly measured before acquisition.
+- [x] 1.1 Create the D4 acquisition plan, freezing the baseline revision, target metric, exact cells/sample counts, build commands, block ordering, resource checkpoints, and existing pytest node-ID set. Register the same-core contention topology/pressure evidence, qualifying memory-occupancy controls, and final-wheel shared controls before candidate timing. Verify that every acceptance requirement has a named measurement or conformance check and that no baseline is described as newly measured before acquisition.
 - [ ] 1.2 Acquire the current reference baseline using the existing D4 entry points and separate profiles of generic `find_one` hits/misses. Record lookup, key preparation, generation, LRU, encoding/decoding, and allocation attribution in the plan; verify expected cache outcomes and retain every invalid-window reason. Resolve counter-resolution or residency problems before candidate timing.
 
 ## 2. Build the integrated native owner
