@@ -5,6 +5,7 @@ import re
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AsyncExitStack
 from copy import copy, deepcopy
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 import pytest
@@ -34,6 +35,9 @@ from tests.cursor_helpers import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Coroutine
+    from typing import Any
+
     from pymongo.asynchronous.client_session import AsyncClientSession
     from pymongo.message import _GetMore, _Query
     from pymongo.synchronous.client_session import ClientSession
@@ -337,7 +341,7 @@ async def test_partial_source_publishes_no_compatible_prefix(
     assert await materialize(source, 10) == cursors["documents"][:10]
     await close_cursor(source)
     core = view.database.manager.cache_core
-    assert not core._namespace(view._namespace()).find_families
+    assert core.snapshot().entry_count == 0
     cursors["commands"].commands.clear()
     assert (
         await materialize(view.find({}).sort("_id").limit(5))
@@ -610,11 +614,6 @@ async def test_later_batch_failure_discards_candidate(
         await materialize(cursor)
     assert not bool(cursor.alive)
     assert cursors["view"].database.manager.snapshot().entry_count == 0
-    assert (
-        not cursors["view"]
-        .database.manager.cache_core._namespace(cursors["view"]._namespace())
-        .find_families
-    )
     assert await materialize(cursor) == []
     assert isinstance(
         cursor,
@@ -843,10 +842,26 @@ async def test_encoding_failure_keeps_native_cursor_delivery(
     assert view.database.manager.snapshot().entry_count == before
 
 
+@dataclass(slots=True)
+class _PausedBatch:
+    entered: asyncio.Event = field(default_factory=asyncio.Event)
+    release: asyncio.Event = field(default_factory=asyncio.Event)
+    tasks: list[asyncio.Task[list[BsonDict]]] = field(default_factory=list)
+
+    def start(
+        self, operation: Coroutine[Any, Any, list[BsonDict]]
+    ) -> asyncio.Task[list[BsonDict]]:
+        pending = asyncio.create_task(operation)
+        self.tasks.append(pending)
+        return pending
+
+    async def wait(self) -> None:
+        await asyncio.wait_for(self.entered.wait(), timeout=5)
+
+
 @pytest.fixture
-def paused_batch(monkeypatch: pytest.MonkeyPatch) -> asyncio.Event:
-    entered = asyncio.Event()
-    release = asyncio.Event()
+async def paused_batch(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[_PausedBatch]:
+    barrier = _PausedBatch()
     for cursor_type in (AsyncCursor, AsyncCommandCursor):
         original = cursor_type._send_message
 
@@ -856,23 +871,30 @@ def paused_batch(monkeypatch: pytest.MonkeyPatch) -> asyncio.Event:
             send: Callable[..., Awaitable[None]] = original,
         ) -> None:
             if operation.name == "getMore":
-                entered.set()
-                await release.wait()
+                barrier.entered.set()
+                await barrier.release.wait()
             await send(cursor, operation)
 
         monkeypatch.setattr(cursor_type, "_send_message", paused)
-    return entered
+    yield barrier
+    barrier.release.set()
+    for pending in barrier.tasks:
+        pending.cancel()
+        try:
+            await pending
+        except asyncio.CancelledError:
+            pass
 
 
 @pytest.mark.parametrize("cursors", ["async"], indirect=True)
 async def test_cancelled_batch_await_discards_and_closes(
-    cursors: Binding, cursor_factory: CursorFactory, paused_batch: asyncio.Event
+    cursors: Binding, cursor_factory: CursorFactory, paused_batch: _PausedBatch
 ) -> None:
     cursor = await resolve_cursor(cursor_factory(cursors["view"]))
     assert isinstance(cursor, AsyncCursor | AsyncCommandCursor)
     await materialize(cursor, 101)
     assert cursor.cursor_id
-    pending = asyncio.create_task(cursor.to_list())
+    pending = paused_batch.start(cursor.to_list())
     await paused_batch.wait()
     pending.cancel()
     with pytest.raises(asyncio.CancelledError):
@@ -880,11 +902,6 @@ async def test_cancelled_batch_await_discards_and_closes(
     assert not bool(cursor.alive)
     assert await cursor.to_list() == []
     assert cursors["view"].database.manager.snapshot().entry_count == 0
-    assert (
-        not cursors["view"]
-        .database.manager.cache_core._namespace(cursors["view"]._namespace())
-        .find_families
-    )
     assert any("killCursors" in command for command in cursors["commands"].commands)
     assert isinstance(cursor, AsyncCachedCursor | AsyncCachedCommandCursor)
     assert cursor._capture is None

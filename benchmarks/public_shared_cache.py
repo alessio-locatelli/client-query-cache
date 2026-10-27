@@ -11,13 +11,16 @@ import math
 import multiprocessing
 import os
 import platform
+import resource
 import statistics
+import sys
 import threading
 import time
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from contextlib import AsyncExitStack, ExitStack, contextmanager
 from dataclasses import asdict, dataclass, field
 from importlib.metadata import version
+from itertools import product
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
@@ -25,14 +28,18 @@ import psutil
 from pymongo import AsyncMongoClient, MongoClient
 from pymongo.read_concern import ReadConcern
 
+from benchmarks.implementation import implementation as identify_implementation
+from benchmarks.stream_cost.multiprocess_run import WireCommands, command_delta
 from benchmarks.stream_cost.topology import IsolatedReplicaSet, ResourceLimits
 from client_query_cache import (
+    CacheCoreConfig,
     CacheManager,
     SharedCacheConfig,
     SharedCacheManager,
     SharedCacheServer,
     SharedCacheStatistics,
 )
+from client_query_cache._core.codec import encode_value
 from client_query_cache._shared.attachment import SyncEndpoint
 from client_query_cache._types import (
     BsonDict,
@@ -44,12 +51,20 @@ from client_query_cache.asynchronous import CacheManager as AsyncCacheManager
 from client_query_cache.asynchronous import (
     SharedCacheManager as AsyncSharedCacheManager,
 )
+from research.process_memory.measure import (
+    BUDGETS,
+    CODE_DOCUMENTS,
+    COLD_CODES,
+    MAX_ENTRY_BYTES,
+    code_filter,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Generator
     from multiprocessing.synchronize import Barrier
 
     from pymongo.asynchronous.collection import AsyncCollection
+    from pymongo.monitoring import CommandSucceededEvent
     from pymongo.synchronous.collection import Collection
 
     from client_query_cache import CachedCollection
@@ -61,6 +76,8 @@ if TYPE_CHECKING:
 _HOT_KEYS = 4096
 _DOCUMENT_BYTES = 4096
 _WORKERS = 4
+_CODE_METHODS = frozenset(("small-entries", "large-keys"))
+_READY_TIMEOUT = 300
 _START: Barrier
 _FINISH: Barrier
 _CPU_CLOCK = ctypes.CDLL(None).clock_getcpuclockid
@@ -89,6 +106,33 @@ class Observation:
     cache_bypasses: NonNegativeInt = 0
     endpoint_counts: dict[str, NonNegativeInt] = field(default_factory=dict)
     owner_requests: NonNegativeInt = 0
+    origin_commands: dict[str, NonNegativeInt] = field(default_factory=dict)
+    checkpoints: list[dict[str, NonNegativeInt]] = field(default_factory=list)
+    implementation: dict[str, str] = field(default_factory=dict)
+    resources: dict[str, object] = field(default_factory=dict)
+
+
+class ReadCommands(WireCommands):
+    def succeeded(self, event: CommandSucceededEvent) -> None:
+        # Reuse command/stream counting without interpreting application cursor
+        # documents as change-stream envelopes.
+        self._record(event.command_name, "completed")
+
+
+def _worker_record(observation: Observation) -> dict[str, object]:
+    return {
+        "completed": len(observation.latencies_us),
+        "measured_cpu_seconds": observation.measured_cpu_seconds,
+        "cpu_seconds_including_warmup": observation.cpu_seconds,
+        "pss_bytes": observation.pss_bytes,
+        "cache_hits": observation.cache_hits,
+        "cache_misses": observation.cache_misses,
+        "cache_bypasses": observation.cache_bypasses,
+        "origin_commands": observation.origin_commands,
+        "checkpoints": observation.checkpoints,
+        "implementation": observation.implementation,
+        "resources": observation.resources,
+    }
 
 
 def _install_barriers(start: Barrier, finish: Barrier) -> None:
@@ -108,15 +152,43 @@ def _collect(
     cache_bypasses: NonNegativeInt = 0,
     endpoint_counts: dict[str, NonNegativeInt] | None = None,
     owner_requests: NonNegativeInt = 0,
+    origin_commands: dict[str, NonNegativeInt] | None = None,
+    checkpoints: list[dict[str, NonNegativeInt]] | None = None,
+    implementation: dict[str, str] | None = None,
+    manager: object = None,
+    validate: bool = False,
 ) -> Observation:
     cpu_finished = time.process_time()
     _FINISH.wait(30)
-    pss_bytes = psutil.Process().memory_full_info().pss
+    residual_cpu_started = time.process_time()
+    residual_started = time.monotonic()
+    stable_before = _checkpoint(manager, len(latencies)) if validate else {}
+    if validate:
+        # Foreground admissions must be complete when reads return. Observe an
+        # untimed interval as well, so delayed work cannot escape resource scope.
+        time.sleep(0.05)
+        assert _checkpoint(manager, len(latencies)) == stable_before
+    info = psutil.Process().memory_full_info()
+    resources = (
+        {
+            "rss_bytes": info.rss,
+            "uss_bytes": info.uss,
+            "peak_rss_bytes_including_warmup": resource.getrusage(
+                resource.RUSAGE_SELF
+            ).ru_maxrss
+            * 1024,
+            "residual_cpu_seconds": time.process_time() - residual_cpu_started,
+            "residual_wall_seconds": time.monotonic() - residual_started,
+            "stable_checkpoint": stable_before,
+        }
+        if validate
+        else {}
+    )
     _FINISH.wait(30)
     return Observation(
         latencies,
         cpu_finished - started,
-        pss_bytes,
+        info.pss,
         hits,
         cpu_finished - measured_cpu_started,
         streams,
@@ -125,6 +197,10 @@ def _collect(
         cache_bypasses,
         {} if endpoint_counts is None else endpoint_counts,
         owner_requests,
+        {} if origin_commands is None else origin_commands,
+        [] if checkpoints is None else checkpoints,
+        {} if implementation is None else implementation,
+        resources,
     )
 
 
@@ -143,6 +219,156 @@ class Window:
     result_documents: PositiveInt = 1
     read_rate: NonNegativeFloat = 0
     diagnostics: bool = False
+    validate: bool = False
+    native_local: bool = False
+    document_bytes: PositiveInt = _DOCUMENT_BYTES
+    rotation: NonNegativeInt = 0
+
+
+def _checkpoint(
+    manager: object, completed: NonNegativeInt
+) -> dict[str, NonNegativeInt]:
+    if not isinstance(manager, (CacheManager, AsyncCacheManager)):
+        return {}
+    snapshot = manager.snapshot()
+    return {
+        "completed": completed,
+        "entries": snapshot.entry_count,
+        "used_bytes": snapshot.used_bytes,
+        "evictions": snapshot.evictions,
+        "hits": snapshot.hits,
+        "misses": snapshot.misses,
+        "bypasses": snapshot.bypasses,
+    }
+
+
+def _implementation(manager: object) -> dict[str, str]:
+    core = (
+        manager.cache_core
+        if isinstance(manager, (CacheManager, AsyncCacheManager))
+        else manager
+    )
+    return identify_implementation(core)
+
+
+def expected_value(
+    window: Window, identity: NonNegativeInt, payloads: tuple[str, ...]
+) -> BsonDict | list[BsonDict]:
+    if window.method in _CODE_METHODS:
+        return {"_id": identity, "code": f"C{identity:07d}", "state": "active"}
+    if window.method == "identity":
+        ordinal = identity % window.result_documents
+        return {
+            "_id": identity,
+            "group": identity // window.result_documents,
+            "ordinal": ordinal,
+            "payload": payloads[ordinal],
+        }
+    if window.method == "find_one":
+        ordinal = window.result_documents - 1
+        return {
+            "_id": identity * window.result_documents + ordinal,
+            "group": identity,
+            "ordinal": ordinal,
+            "payload": payloads[ordinal],
+        }
+    return [
+        {
+            "_id": identity * window.result_documents + ordinal,
+            "group": identity,
+            "ordinal": ordinal,
+            "payload": payloads[ordinal],
+        }
+        for ordinal in range(window.result_documents)
+    ]
+
+
+def _validate_value(
+    value: object, window: Window, identity: NonNegativeInt, payloads: tuple[str, ...]
+) -> None:
+    assert value == expected_value(window, identity, payloads)
+
+
+def _validate_checkpoint(window: Window, checkpoint: dict[str, NonNegativeInt]) -> None:
+    if window.path != "independent":
+        return
+    if window.method in _CODE_METHODS:
+        assert checkpoint["entries"] == COLD_CODES + 1
+        assert checkpoint["used_bytes"] == COLD_CODES * 59 + 8
+    else:
+        assert checkpoint["entries"] == window.hot_keys
+    assert checkpoint["bypasses"] == 0
+
+
+def _validate_observation(
+    window: Window,
+    before: SharedCacheStatistics,
+    after: SharedCacheStatistics,
+    origin: dict[str, NonNegativeInt],
+    checkpoints: list[dict[str, NonNegativeInt]],
+) -> None:
+    cached = window.path != "direct"
+    assert after.hits - before.hits == (
+        window.samples if cached and window.workload == "hot" else 0
+    )
+    assert after.misses - before.misses == (
+        window.samples if cached and window.workload == "cold" else 0
+    )
+    assert after.bypasses == before.bypasses
+    reads = 0
+    for command in ("find", "aggregate", "count", "distinct"):
+        try:
+            reads += origin[f"{command}:requested"]
+        except KeyError:
+            pass
+    assert reads == (
+        window.samples
+        if window.path == "direct"
+        or (window.path == "independent" and window.workload == "cold")
+        else 0
+    )
+    if window.path == "independent" and window.method not in _CODE_METHODS:
+        payloads = tuple(
+            f"{ordinal}:" + "x" * window.document_bytes
+            for ordinal in range(window.result_documents)
+        )
+        weight = len(encode_value(expected_value(window, 0, payloads)))
+        for checkpoint in checkpoints:
+            entries = window.hot_keys + (
+                checkpoint["completed"] if window.workload == "cold" else 0
+            )
+            assert checkpoint["entries"] == entries
+            assert checkpoint["used_bytes"] == entries * weight
+            assert checkpoint["evictions"] == 0
+    if window.path == "independent" and window.method in _CODE_METHODS:
+        initial = checkpoints[0]
+        budget = BUDGETS[window.method]
+        for checkpoint in checkpoints:
+            completed = checkpoint["completed"]
+            if window.workload == "hot":
+                entries, used, evictions = COLD_CODES + 1, COLD_CODES * 59 + 8, 0
+            elif COLD_CODES * 59 + 8 + completed * 59 <= budget:
+                entries, used, evictions = (
+                    COLD_CODES + 1 + completed,
+                    COLD_CODES * 59 + 8 + completed * 59,
+                    0,
+                )
+            else:
+                entries = budget // 59
+                used = entries * 59
+                evictions = COLD_CODES + 1 + completed - entries
+            assert (
+                checkpoint["entries"],
+                checkpoint["used_bytes"],
+                checkpoint["evictions"],
+            ) == (entries, used, evictions)
+            assert checkpoint["hits"] - initial["hits"] == (
+                completed if window.workload == "hot" else 0
+            )
+            assert checkpoint["misses"] - initial["misses"] == (
+                completed if window.workload == "cold" else 0
+            )
+            assert checkpoint["bypasses"] == 0
 
 
 def _endpoint_snapshot(window: Window, manager: object) -> dict[str, NonNegativeInt]:
@@ -170,7 +396,7 @@ def _profile(window: Window) -> Generator[None]:
 
 def _identity(window: Window, offset: NonNegativeInt) -> NonNegativeInt:
     return (
-        offset % window.hot_keys
+        (window.rotation + offset) % window.hot_keys
         if window.workload == "hot"
         else window.hot_keys + window.worker * window.samples + offset
     )
@@ -183,6 +409,8 @@ def _read_sync(
 ) -> object:
     if window.method == "identity":
         return view.find_one({"_id": identity})
+    if window.method in _CODE_METHODS:
+        return view.find_one(code_filter(identity, large=window.method == "large-keys"))
     query = {"group": identity}
     if window.method == "find_one":
         return view.find_one(query, sort=[("ordinal", -1)])
@@ -212,6 +440,10 @@ async def _read_async(
 ) -> object:
     if window.method == "identity":
         return await view.find_one({"_id": identity})
+    if window.method in _CODE_METHODS:
+        return await view.find_one(
+            code_filter(identity, large=window.method == "large-keys")
+        )
     query = {"group": identity}
     if window.method == "find_one":
         return await view.find_one(query, sort=[("ordinal", -1)])
@@ -254,8 +486,21 @@ def _counts(
 
 def _measure_sync(window: Window) -> Observation:
     cpu_started = time.process_time()
+    commands = ReadCommands(()) if window.validate else None
+    payloads = (
+        tuple(
+            f"{ordinal}:" + "x" * window.document_bytes
+            for ordinal in range(window.result_documents)
+        )
+        if window.validate and window.method not in _CODE_METHODS
+        else ()
+    )
     with ExitStack() as resources:
-        client = resources.enter_context(MongoClient[BsonDict](window.uri))
+        client = resources.enter_context(
+            MongoClient[BsonDict](
+                window.uri, event_listeners=[] if commands is None else [commands]
+            )
+        )
         raw = client.public_shared_cache.items.with_options(
             read_concern=ReadConcern("majority")
         )
@@ -267,10 +512,36 @@ def _measure_sync(window: Window) -> Observation:
             )
             view = manager.get_cached_collection(raw)
         elif window.path == "independent":
-            independent = resources.enter_context(CacheManager(client))
+            independent = resources.enter_context(
+                CacheManager(
+                    client,
+                    cache_config=CacheCoreConfig(
+                        shared_budget_bytes=BUDGETS[window.method],
+                        max_entry_bytes=MAX_ENTRY_BYTES,
+                    )
+                    if window.method in _CODE_METHODS
+                    else None,
+                )
+            )
             view = independent.get_cached_collection(raw)
         else:
             view = raw
+        observed_manager = (
+            None
+            if window.path == "direct"
+            else manager
+            if window.path == "shared"
+            else independent
+        )
+        if window.method in _CODE_METHODS and window.path == "independent":
+            assert (
+                independent.get_cached_collection(
+                    client.public_shared_cache.catalogue.with_options(
+                        read_concern=ReadConcern("majority")
+                    )
+                ).find_one({"_id": -1})
+                is None
+            )
         cold_view: CachedCollection[BsonDict] | Collection[BsonDict]
         cold_views = []
         if window.method == "estimated_document_count" and window.workload == "cold":
@@ -287,24 +558,49 @@ def _measure_sync(window: Window) -> Observation:
                 cold_view.find_one({"_id": -1})
                 cold_views.append(cold_view)
         for identity in range(window.hot_keys):
-            assert _read_sync(view, window, identity) is not None
+            value = _read_sync(view, window, identity)
+            assert value is not None
+            if window.validate:
+                _validate_value(value, window, identity, payloads)
         if window.path != "direct":
             warming = manager if window.path == "shared" else independent
-            deadline = time.monotonic() + 10
-            while _counts(warming).hits < window.hot_keys:
+            deadline = time.monotonic() + _READY_TIMEOUT
+            while True:
+                before_warm = _counts(warming)
                 for identity in range(window.hot_keys):
-                    assert _read_sync(view, window, identity) is not None
+                    value = _read_sync(view, window, identity)
+                    assert value is not None
+                    if window.validate:
+                        _validate_value(value, window, identity, payloads)
+                after_warm = _counts(warming)
+                if (
+                    after_warm.hits - before_warm.hits == window.hot_keys
+                    and after_warm.misses == before_warm.misses
+                    and after_warm.bypasses == before_warm.bypasses
+                ):
+                    break
                 if time.monotonic() > deadline:
-                    raise TimeoutError("cache warmup did not reach hits")
+                    raise TimeoutError(
+                        "cache warmup did not cover the complete resident catalogue"
+                    )
                 time.sleep(0.02)
+        checkpoints = []
+        if window.validate:
+            checkpoints.append(_checkpoint(observed_manager, 0))
+            _validate_checkpoint(window, checkpoints[-1])
+        implementation = _implementation(observed_manager) if window.validate else {}
         requests_before = (
             manager.endpoint.counters.requests if window.path == "shared" else 0
         )
         endpoint_before = _endpoint_snapshot(
             window, manager if window.path == "shared" else None
         )
-        _START.wait(30)
-        _START.wait(30)
+        _START.wait(_READY_TIMEOUT)
+        _START.wait(_READY_TIMEOUT)
+        # The command delta must enclose the measured reads.
+        origin_before = (  # pytriage: TR11 - Capture before the measured reads.
+            {} if commands is None else commands.snapshot()
+        )
         measured_cpu_started = time.process_time()
         measurement_started = time.monotonic()
         latencies: list[NonNegativeFloat] = []
@@ -324,19 +620,39 @@ def _measure_sync(window: Window) -> Observation:
                             - time.monotonic(),
                         )
                     )
+                identity = _identity(window, offset)
                 started = time.perf_counter_ns()
                 document = _read_sync(
                     cold_views[offset] if cold_views else view,
                     window,
-                    _identity(window, offset),
+                    identity,
                 )
                 latencies.append((time.perf_counter_ns() - started) / 1000)
                 assert document is not None
+                if window.validate:
+                    _validate_value(document, window, identity, payloads)
+                    if (
+                        window.method in _CODE_METHODS
+                        and (offset + 1) % 256 == 0
+                        and offset + 1 < window.samples
+                    ):
+                        checkpoints.append(_checkpoint(observed_manager, offset + 1))
         after_counts = (
             SharedCacheStatistics(0, 0, 0)
             if window.path == "direct"
             else _counts(manager if window.path == "shared" else independent)
         )
+        origin = (
+            {}
+            if commands is None
+            else command_delta(origin_before, commands.snapshot())
+        )
+        if window.validate:
+            checkpoints.append(_checkpoint(observed_manager, window.samples))
+            assert commands is not None
+            _validate_observation(
+                window, before_counts, after_counts, origin, checkpoints
+            )
         hits = 0 if window.path != "shared" else after_counts.hits - before_counts.hits
         return _collect(
             latencies,
@@ -358,6 +674,11 @@ def _measure_sync(window: Window) -> Observation:
             owner_requests=manager.endpoint.counters.requests - requests_before
             if window.path == "shared"
             else 0,
+            origin_commands=origin,
+            checkpoints=checkpoints,
+            implementation=implementation,
+            manager=observed_manager,
+            validate=window.validate,
         )
 
 
@@ -365,9 +686,20 @@ async def _measure_async(
     window: Window,
 ) -> Observation:
     cpu_started = time.process_time()
+    commands = ReadCommands(()) if window.validate else None
+    payloads = (
+        tuple(
+            f"{ordinal}:" + "x" * window.document_bytes
+            for ordinal in range(window.result_documents)
+        )
+        if window.validate and window.method not in _CODE_METHODS
+        else ()
+    )
     async with AsyncExitStack() as resources:
         client = await resources.enter_async_context(
-            AsyncMongoClient[BsonDict](window.uri)
+            AsyncMongoClient[BsonDict](
+                window.uri, event_listeners=[] if commands is None else [commands]
+            )
         )
         raw = client.public_shared_cache.items.with_options(
             read_concern=ReadConcern("majority")
@@ -380,10 +712,36 @@ async def _measure_async(
             )
             view = manager.get_cached_collection(raw)
         elif window.path == "independent":
-            independent = await resources.enter_async_context(AsyncCacheManager(client))
+            independent = await resources.enter_async_context(
+                AsyncCacheManager(
+                    client,
+                    cache_config=CacheCoreConfig(
+                        shared_budget_bytes=BUDGETS[window.method],
+                        max_entry_bytes=MAX_ENTRY_BYTES,
+                    )
+                    if window.method in _CODE_METHODS
+                    else None,
+                )
+            )
             view = independent.get_cached_collection(raw)
         else:
             view = raw
+        observed_manager = (
+            None
+            if window.path == "direct"
+            else manager
+            if window.path == "shared"
+            else independent
+        )
+        if window.method in _CODE_METHODS and window.path == "independent":
+            assert (
+                await independent.get_cached_collection(
+                    client.public_shared_cache.catalogue.with_options(
+                        read_concern=ReadConcern("majority")
+                    )
+                ).find_one({"_id": -1})
+                is None
+            )
         cold_view: AsyncCachedCollection[BsonDict] | AsyncCollection[BsonDict]
         cold_views = []
         if window.method == "estimated_document_count" and window.workload == "cold":
@@ -400,24 +758,49 @@ async def _measure_async(
                 await cold_view.find_one({"_id": -1})
                 cold_views.append(cold_view)
         for identity in range(window.hot_keys):
-            assert await _read_async(view, window, identity) is not None
+            value = await _read_async(view, window, identity)
+            assert value is not None
+            if window.validate:
+                _validate_value(value, window, identity, payloads)
         if window.path != "direct":
             warming = manager if window.path == "shared" else independent
-            deadline = time.monotonic() + 10
-            while _counts(warming).hits < window.hot_keys:
+            deadline = time.monotonic() + _READY_TIMEOUT
+            while True:
+                before_warm = _counts(warming)
                 for identity in range(window.hot_keys):
-                    assert await _read_async(view, window, identity) is not None
+                    value = await _read_async(view, window, identity)
+                    assert value is not None
+                    if window.validate:
+                        _validate_value(value, window, identity, payloads)
+                after_warm = _counts(warming)
+                if (
+                    after_warm.hits - before_warm.hits == window.hot_keys
+                    and after_warm.misses == before_warm.misses
+                    and after_warm.bypasses == before_warm.bypasses
+                ):
+                    break
                 if time.monotonic() > deadline:
-                    raise TimeoutError("cache warmup did not reach hits")
+                    raise TimeoutError(
+                        "cache warmup did not cover the complete resident catalogue"
+                    )
                 await asyncio.sleep(0.02)
+        checkpoints = []
+        if window.validate:
+            checkpoints.append(_checkpoint(observed_manager, 0))
+            _validate_checkpoint(window, checkpoints[-1])
+        implementation = _implementation(observed_manager) if window.validate else {}
         requests_before = (
             manager.endpoint.counters.requests if window.path == "shared" else 0
         )
         endpoint_before = _endpoint_snapshot(
             window, manager if window.path == "shared" else None
         )
-        _START.wait(30)
-        _START.wait(30)
+        _START.wait(_READY_TIMEOUT)
+        _START.wait(_READY_TIMEOUT)
+        # The command delta must enclose the measured reads.
+        origin_before = (  # pytriage: TR11 - Capture before the measured reads.
+            {} if commands is None else commands.snapshot()
+        )
         measured_cpu_started = time.process_time()
         measurement_started = time.monotonic()
         latencies: list[NonNegativeFloat] = []
@@ -437,19 +820,39 @@ async def _measure_async(
                             - time.monotonic(),
                         )
                     )
+                identity = _identity(window, offset)
                 started = time.perf_counter_ns()
                 document = await _read_async(
                     cold_views[offset] if cold_views else view,
                     window,
-                    _identity(window, offset),
+                    identity,
                 )
                 latencies.append((time.perf_counter_ns() - started) / 1000)
                 assert document is not None
+                if window.validate:
+                    _validate_value(document, window, identity, payloads)
+                    if (
+                        window.method in _CODE_METHODS
+                        and (offset + 1) % 256 == 0
+                        and offset + 1 < window.samples
+                    ):
+                        checkpoints.append(_checkpoint(observed_manager, offset + 1))
         after_counts = (
             SharedCacheStatistics(0, 0, 0)
             if window.path == "direct"
             else _counts(manager if window.path == "shared" else independent)
         )
+        origin = (
+            {}
+            if commands is None
+            else command_delta(origin_before, commands.snapshot())
+        )
+        if window.validate:
+            checkpoints.append(_checkpoint(observed_manager, window.samples))
+            assert commands is not None
+            _validate_observation(
+                window, before_counts, after_counts, origin, checkpoints
+            )
         hits = 0 if window.path != "shared" else after_counts.hits - before_counts.hits
         return _collect(
             latencies,
@@ -471,15 +874,36 @@ async def _measure_async(
             owner_requests=manager.endpoint.counters.requests - requests_before
             if window.path == "shared"
             else 0,
+            origin_commands=origin,
+            checkpoints=checkpoints,
+            implementation=implementation,
+            manager=observed_manager,
+            validate=window.validate,
         )
 
 
 def _worker(window: Window) -> Observation:
-    return (
+    if window.native_local and window.path == "independent":
+        from research.native_process_local_cache.selection import select_native  # noqa: PLC0415 - Select before constructing a manager in the spawned child.
+
+        select_native()
+    observation = (
         _measure_sync(window)
         if window.model == "sync"
         else asyncio.run(_measure_async(window))
     )
+    if window.validate:
+        for component in ("library", "extension"):
+            assert Path(observation.implementation[component]).is_relative_to(
+                sys.prefix
+            )
+        if window.path == "independent":
+            assert observation.implementation["core"] == (
+                "client_query_cache._shared_index.LocalCacheCore"
+                if window.native_local
+                else "client_query_cache._core.manager.CacheCore"
+            )
+    return observation
 
 
 def _run_window(
@@ -496,6 +920,10 @@ def _run_window(
     write_interval: NonNegativeFloat = 0,
     read_rate: NonNegativeFloat = 0,
     diagnostics: bool = False,
+    validate: bool = False,
+    native_local: bool = False,
+    document_bytes: PositiveInt = _DOCUMENT_BYTES,
+    rotation: NonNegativeInt = 0,
 ) -> dict[str, object]:
     context = multiprocessing.get_context("spawn")
     start, finish = context.Barrier(_WORKERS + 1), context.Barrier(_WORKERS + 1)
@@ -561,15 +989,19 @@ def _run_window(
                     result_documents,
                     read_rate,
                     diagnostics,
+                    validate,
+                    native_local,
+                    document_bytes,
+                    rotation,
                 ),
             )
             for worker in range(_WORKERS)
         )
-        start.wait(30)
+        start.wait(_READY_TIMEOUT)
         owner = None
         endpoint = None
         owner_before = None
-        if server is not None and diagnostics:
+        if server is not None and (diagnostics or validate):
             endpoint = SyncEndpoint(server.connection._attachment)
             resources.callback(endpoint.close)
             owner_before = endpoint.request({"op": "observe"})
@@ -582,17 +1014,19 @@ def _run_window(
             owner_clock = _process_cpu_clock(owner.pid)
             owner_cpu_before = time.clock_gettime(owner_clock)
         # Capture before the measured interval.
-        server_cpu_before = replica.container_cpu_usage_seconds()  # pytriage: TR11
+        server_cpu_before = replica.container_cpu_usage_seconds()
         started = time.monotonic()
         writer_future = None
         # Include writer startup and stop within its CPU interval.
-        writer_cpu_before = time.process_time()  # pytriage: TR11
+        writer_cpu_before = time.process_time()
         if write_interval:
             writer_pool = resources.enter_context(ThreadPoolExecutor(max_workers=1))
             writer_future = writer_pool.submit(write)
+        supervisor_cpu_started = time.process_time()
         try:
             start.wait(30)
             finish.wait(30)
+            supervisor_cpu = time.process_time() - supervisor_cpu_started
         finally:
             stop_writer.set()
             writes = 0 if writer_future is None else writer_future.result(timeout=10)
@@ -618,6 +1052,17 @@ def _run_window(
             owner_streams = commands["aggregate:requested"]
         finish.wait(30)
         observations = tuple(future.result() for future in futures)
+        if validate:
+            quantum = time.get_clock_info("process_time").resolution
+            assert supervisor_cpu > 100 * quantum
+            assert all(
+                observation.measured_cpu_seconds > 100 * quantum
+                for observation in observations
+            )
+            if owner_clock is not None:
+                assert owner_cpu - owner_cpu_before > 100 * time.clock_getres(
+                    owner_clock
+                )
         latencies = sorted(
             latency
             for observation in observations
@@ -646,9 +1091,9 @@ def _run_window(
                 observation.cpu_seconds for observation in observations
             )
             + owner_cpu,
-            "measured_cpu_seconds": sum(
-                observation.measured_cpu_seconds for observation in observations
-            )
+            "supervisor_cpu_seconds": supervisor_cpu,
+            "measured_cpu_seconds": supervisor_cpu
+            + sum(observation.measured_cpu_seconds for observation in observations)
             + owner_cpu
             - owner_cpu_before,
             "measured_worker_cpu_seconds": sum(
@@ -668,7 +1113,7 @@ def _run_window(
                 observation.owner_requests for observation in observations
             ),
             "owner_before": owner_before,
-            "owner_after": owner_after if diagnostics else None,
+            "owner_after": owner_after if diagnostics or validate else None,
             "shared_hits": sum(observation.hits for observation in observations),
             "cache_hits": sum(observation.cache_hits for observation in observations),
             "cache_misses": sum(
@@ -679,6 +1124,15 @@ def _run_window(
             ),
             "streams": owner_streams
             + sum(observation.streams for observation in observations),
+            "worker_observations": [
+                _worker_record(observation) for observation in observations
+            ]
+            if validate
+            else None,
+            "process_cpu_clock": vars(time.get_clock_info("process_time")),
+            "completed_reads": sum(
+                len(observation.latencies_us) for observation in observations
+            ),
         }
 
 
@@ -686,15 +1140,32 @@ def _seed(
     client: MongoClient[BsonDict], arguments: argparse.Namespace, workload: str
 ) -> None:
     client.drop_database("public_shared_cache")
+    if arguments.method in _CODE_METHODS:
+        client.public_shared_cache.create_collection("catalogue")
+        for start in range(0, CODE_DOCUMENTS, 10_000):
+            client.public_shared_cache.items.insert_many(
+                {"_id": index, "code": f"C{index:07d}", "state": "active"}
+                for index in range(start, start + 10_000)
+            )
+        client.public_shared_cache.items.create_index("code")
+        assert (
+            len(encode_value({"_id": 0, "code": "C0000000", "state": "active"})) == 59
+        )
+        assert len(encode_value(None)) == 8
+        return
     groups = arguments.hot_keys + (
         _WORKERS * arguments.samples if workload == "cold" else 0
+    )
+    payloads = tuple(
+        f"{ordinal}:" + "x" * arguments.document_bytes
+        for ordinal in range(arguments.result_documents)
     )
     client.public_shared_cache.items.insert_many(
         {
             "_id": identity * arguments.result_documents + ordinal,
             "group": identity,
             "ordinal": ordinal,
-            "payload": f"{ordinal}:" + "x" * arguments.document_bytes,
+            "payload": payloads[ordinal],
         }
         for identity in range(groups)
         for ordinal in range(arguments.result_documents)
@@ -717,6 +1188,17 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--profile-dir", type=Path)
     parser.add_argument(
+        "--validate",
+        action="store_true",
+        help="Verify results, origins, residency and cache trajectories.",
+    )
+    parser.add_argument(
+        "--native-local",
+        action="store_true",
+        help="Select the prototype before independent manager construction.",
+    )
+    parser.add_argument("--rotation", type=int, default=0)
+    parser.add_argument(
         "--diagnostics",
         action="store_true",
         help="Include worker and owner transport counters for attribution.",
@@ -733,6 +1215,8 @@ def main() -> None:
             "count_documents",
             "estimated_document_count",
             "distinct",
+            "small-entries",
+            "large-keys",
         ),
         default="identity",
     )
@@ -769,6 +1253,33 @@ def main() -> None:
         or not math.isfinite(arguments.write_interval)
     ):
         parser.error("samples and repetitions must be positive")
+    if arguments.rotation < 0:
+        parser.error("rotation must not be negative")
+    if arguments.method in _CODE_METHODS:
+        if (
+            arguments.hot_keys != COLD_CODES
+            or arguments.result_documents != 1
+            or "shared" in arguments.paths
+        ):
+            parser.error(
+                "small-result controls require 64,000 keys, one document "
+                "and direct/independent paths"
+            )
+        if (
+            "cold" in arguments.workloads
+            and COLD_CODES + _WORKERS * arguments.samples > CODE_DOCUMENTS
+        ):
+            parser.error(
+                "cold code requests must fit within the 100,000-code catalogue"
+            )
+    if arguments.validate and (
+        arguments.method not in {"identity", "find_one", "find", *_CODE_METHODS}
+        or arguments.write_interval
+    ):
+        parser.error(
+            "validated cells support identity, find_one, find and small-result "
+            "controls without a writer"
+        )
     if (
         arguments.method == "estimated_document_count"
         and "cold" in arguments.workloads
@@ -778,57 +1289,71 @@ def main() -> None:
             "cold estimated counts require samples <= 255 to fit 1,024 namespace slots"
         )
     windows: list[dict[str, object]] = []
-    with (
-        IsolatedReplicaSet(ResourceLimits(cpus=2.0, memory="1g")) as replica,
-        MongoClient[BsonDict](replica.uri) as client,
-    ):
-        for repetition in range(arguments.repetitions):
-            for model in arguments.models:
-                for workload in arguments.workloads:
-                    paths = tuple(arguments.paths)
-                    rotation = repetition % len(paths)
-                    for path in paths[rotation:] + paths[:rotation]:
-                        _seed(client, arguments, workload)
-                        windows.append(
-                            {
-                                "repetition": repetition,
-                                **_run_window(
-                                    replica,
-                                    model,
-                                    workload,
-                                    path,
-                                    arguments.samples,
-                                    method=arguments.method,
-                                    hot_keys=arguments.hot_keys,
-                                    result_documents=arguments.result_documents,
-                                    write_interval=arguments.write_interval,
-                                    read_rate=arguments.read_rate,
-                                    diagnostics=arguments.diagnostics,
-                                    profile_directory=None
-                                    if arguments.profile_dir is None
-                                    else arguments.profile_dir / str(repetition),
-                                ),
-                            }
-                        )
-    arguments.output.parent.mkdir(parents=True, exist_ok=True)
-    arguments.output.write_text(
-        json.dumps(
-            {
-                "package": version("client-query-cache"),
-                "pymongo": version("pymongo"),
-                "python": platform.python_version(),
-                "platform": platform.platform(),
-                "cpus": os.cpu_count(),
-                "samples_per_worker": arguments.samples,
-                "workers": _WORKERS,
-                "document_bytes": arguments.document_bytes,
-                "hot_keys": arguments.hot_keys,
-                "windows": windows,
-            },
-            indent=2,
+    invalid_reason = None
+    try:
+        with (
+            IsolatedReplicaSet(ResourceLimits(cpus=2.0, memory="1g")) as replica,
+            MongoClient[BsonDict](replica.uri) as client,
+        ):
+            for repetition, model, workload in product(
+                range(arguments.repetitions), arguments.models, arguments.workloads
+            ):
+                paths = tuple(arguments.paths)
+                rotation = repetition % len(paths)
+                for path in paths[rotation:] + paths[:rotation]:
+                    _seed(client, arguments, workload)
+                    windows.append(
+                        {
+                            "repetition": repetition,
+                            **_run_window(
+                                replica,
+                                model,
+                                workload,
+                                path,
+                                arguments.samples,
+                                method=arguments.method,
+                                hot_keys=arguments.hot_keys,
+                                result_documents=arguments.result_documents,
+                                write_interval=arguments.write_interval,
+                                read_rate=arguments.read_rate,
+                                diagnostics=arguments.diagnostics,
+                                validate=arguments.validate,
+                                native_local=arguments.native_local,
+                                document_bytes=arguments.document_bytes,
+                                rotation=arguments.rotation,
+                                profile_directory=None
+                                if arguments.profile_dir is None
+                                else arguments.profile_dir / str(repetition),
+                            ),
+                        }
+                    )
+    except Exception as error:
+        invalid_reason = f"{type(error).__name__}: {error}"
+        raise
+    finally:
+        arguments.output.parent.mkdir(parents=True, exist_ok=True)
+        arguments.output.write_text(
+            json.dumps(
+                {
+                    "package": version("client-query-cache"),
+                    "pymongo": version("pymongo"),
+                    "python": platform.python_version(),
+                    "platform": platform.platform(),
+                    "cpus": os.cpu_count(),
+                    "samples_per_worker": arguments.samples,
+                    "workers": _WORKERS,
+                    "document_bytes": arguments.document_bytes,
+                    "hot_keys": arguments.hot_keys,
+                    "native_local": arguments.native_local,
+                    "validated": arguments.validate,
+                    "rotation": arguments.rotation,
+                    "windows": windows,
+                    "invalid_reason": invalid_reason,
+                },
+                indent=2,
+            )
+            + "\n"
         )
-        + "\n"
-    )
 
 
 if __name__ == "__main__":
