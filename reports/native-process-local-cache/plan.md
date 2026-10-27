@@ -60,8 +60,8 @@ one serial caller per worker, majority reads, no writer, and complete results:
 | `identity`                             |                          1,024 |          4,096-byte payload |             16,384 |               1,024 |
 | Generic `find_one`, descending ordinal |                          1,024 |          4,096-byte payload |             16,384 |               1,024 |
 | Sorted `find`, 16 documents            |                     128 groups | 4,096-byte payload/document |              2,048 |                 256 |
-| Short-filter small result              | observed memory warm occupancy |        exactly 59-byte BSON |             16,384 |               4,096 |
-| Per-request 48-value `$in` filter      | observed memory warm occupancy |        exactly 59-byte BSON |             16,384 |               4,096 |
+| Short-filter small result              | observed memory warm occupancy |        exactly 59-byte BSON |             16,384 |               8,192 |
+| Per-request 48-value `$in` filter      | observed memory warm occupancy |        exactly 59-byte BSON |             16,384 |               8,192 |
 
 Run each shape hot/cold and direct/independent for M/R/N: 120 windows/block,
 600 windows across five blocks. The two small-result shapes use a 4 MiB budget,
@@ -73,6 +73,11 @@ ratio, and catalogue coverage before/after timing. Cold reads begin from that
 same checkpoint and use disjoint keys in the same order; compare admitted bytes,
 entry counts, and evictions, including the transition to eviction. Never replace
 these controls with a 4,096-key working set. Reject unmatched checkpoints.
+
+Before candidate timing, increase the two small-result cold cells from 4,096
+to 8,192 calls/worker: the observed checkpoint has room for 7,089 more 59-byte
+entries, so 4,096 calls would not exercise the registered eviction transition.
+No candidate results were collected before this correction.
 
 Use five revision orders: M/R/N, N/R/M, R/M/N, N/M/R, M/N/R.
 Within a revision rotate the first shape by block, alternate model order, and
@@ -143,7 +148,7 @@ observation may be inferred from a different topology or a historical result.
 
 Profiles are separate from timing: generic `find_one`, both APIs, hot/cold,
 independent, 256 calls/worker, one repetition and `--profile-dir` under the raw
-directory. Attribute exclusive/cumulative CPU to lookup, canonical/key preparation,
+directory. Attribute exclusive/cumulative profile time to lookup, canonical/key preparation,
 generation checks, LRU, BSON encoding/decoding, and remaining calls. Run separate
 `tracemalloc` snapshots around baseline/population/close for Python retained
 allocations; reconcile with process PSS/RSS, never call traced bytes total memory.
@@ -155,14 +160,15 @@ residency, origin-command counts, elapsed time and raw CPU deltas. Include reade
 supervision CPU in completed-work runtime totals. Measure residual admission
 work/peaks in an additional untimed window through stable admission completion.
 Workers use `time.process_time`; record `time.get_clock_info("process_time")`.
-The existing shared owner uses `psutil.Process.cpu_times` (Linux clock ticks);
-record `os.sysconf("SC_CLK_TCK")`. Read-supervisor and startup CPU observations
+The shared owner uses its POSIX process CPU clock, obtained once with
+`clock_getcpuclockid` and sampled with `time.clock_gettime`; record
+`time.clock_getres` for that clock. Read-supervisor and startup CPU observations
 must record their clock as well. Ensure each nonzero CPU component exceeds
 100 quanta of its own counter; classify a component below resolution as
 unresolved rather than treating zero as free work. Lengthen matched windows or
-extend the existing collector to sample the operating system's per-process CPU
-clock, recording its resolution, before C timing. On this host `process_time`
-reports 1 ns resolution and `SC_CLK_TCK` is 100 (10 ms owner-counter quanta).
+resolve the collector's precision before C timing. On this host both clocks
+report 1 ns resolution. The original collector's 10 ms ticks are insufficient
+for short owner intervals and are not used in matched candidate controls.
 Reject wrong results, incomplete catalogues, unexpected hot misses/bypasses/origin
 reads, unmatched cold trajectories, coarse counters, setup errors, deadline
 failures or host interference. Retain every rejected window and its reason.
@@ -213,3 +219,120 @@ layout and synchronization evidence here before completing the native adapter.
 Raw outputs stay under `/tmp/agents/native-local-20261027/`. The results report
 will retain source identities, attribution, invalid reasons and the decision;
 this registration does not assert that acquisition or conformance has passed.
+
+## Reference acquisition and attribution
+
+The first reference acquisition used M's installed wheel and original harnesses:
+24 public windows (the three original shapes, both models, direct/independent,
+hot/cold), 124 fresh-process memory checkpoints across the registered scenarios,
+and four separately profiled generic-read windows. All observed independent hot
+reads hit, cold reads missed, and bypass counts were zero. These are preliminary
+reference observations, not candidate comparisons or five-block gain evidence.
+The original public harness checks nonempty results and aggregate outcomes but
+does not supply the full value/origin/residency observations required of the
+extended comparison. Retain those missing-observation reasons and repeat its
+reference cells with the extended harness. Environment/commit preparation also
+overlapped the initial memory campaign; that campaign is diagnostic only and
+cannot serve as an acceptance block.
+
+Both small-result shapes reached exactly 64,001 entries and 3,776,008 charged
+BSON bytes at `warm` in both APIs: 64,000 code results of 59 bytes and the setup
+probe's 8-byte result. Every warm code read hit, with zero bypasses. The observed
+budget occupancy is 90.03%. Baseline-adjusted cached-minus-direct warm PSS growth
+was 280,252,416 bytes (sync) and 280,313,856 bytes (async) for long keys; short
+filters used 45,297,664 and 46,981,120 bytes respectively. These single-run values
+describe the reference's scale; they establish neither a native saving nor an
+RSS bound.
+
+The default cProfile timer measures elapsed time, including waits; its tables
+must not be called CPU attribution. Summing exclusive profile time across four
+256-read workers gives the following microseconds/read:
+
+| Model/state | Canonical/ordered key preparation | Lookup | Namespace/generation/availability helpers |   LRU | BSON/codec helpers |
+| ----------- | --------------------------------: | -----: | ----------------------------------------: | ----: | -----------------: |
+| Sync hot    |                             89.13 |  11.60 |                                     14.75 |  9.67 |               6.99 |
+| Async hot   |                             62.24 |   8.48 |                                      8.92 |  7.05 |               4.93 |
+| Sync cold   |                             62.06 |   4.57 |                                     14.77 | 13.75 |              22.50 |
+| Async cold  |                             49.29 |   5.30 |                                     11.90 | 13.05 |              17.72 |
+
+The categories are disjoint: canonical/order-sensitive modules, lookup-named
+methods, generation-named methods plus `_namespace`, `_is_database_available`,
+`_capture_database_availability`, `_is_registered_state`, LRU module, and codec
+module/native BSON functions. Remaining time includes facade work, locks,
+classification, driver calls and waits. Generation work within larger methods
+is not separately resolved. Profiler overhead is substantial; only the separate
+uninstrumented windows supply operation latency and process CPU.
+
+The separate allocation acquisition reuses the memory harness's builders and
+phases with 5,000 code reads per shape/API and no eviction tail:
+
+```bash
+PYTHONPATH=/path/to/acquisition-checkout .venv/bin/python -m research.native_process_local_cache.profile_allocations --api sync --scenario large-keys --output /tmp/agents/native-local-20261027/M-allocation-sync-large-keys
+```
+
+Repeat for async and `small-entries`, using M's installed interpreter/environment.
+Snapshots compare `cold` with `baseline`; `evict` is an explicitly empty phase,
+not eviction attribution. Dumping snapshots adds traced transient allocations,
+so traced peaks and process memory from this instrumented run are not acceptance
+metrics. Cold retained traced bytes were 3,246,099/3,281,302 (short sync/async)
+and 19,846,660/19,870,685 (long sync/async). Long-key filter leaves retained
+13,641,632 bytes and canonical tuples about 4,559,000 bytes, while manager and
+LRU source locations retained 787,856 and 373,044 bytes in each run. Native
+metadata alone cannot eliminate the retained Python key graph; its total-process
+benefit remains a measurement question.
+
+Worker CPU windows use the verified 1 ns process clock. The shared collector now
+resolves the owner's POSIX process CPU clock once while the owner is alive and
+samples that same clock at both boundaries; it records the clock resolution.
+Real spawned-process checks compare that counter to the child's own CPU reading
+and verify that a stopped owner produces a visible error. This replaces the
+10 ms owner ticks without claiming that a rounded zero represents no work.
+The final matched acquisition must use this same collector on M and F.
+The first shared clock-validation command ran from M's source directory, whose
+harness shadowed `PYTHONPATH`; it lacks the new resolution field and is excluded
+from collector validation. The corrected run used the acquisition checkout with
+the absolute M interpreter path, verifying both import paths first. Both APIs
+recorded 262,144 hits, zero misses/bypasses and zero owner requests; measured
+owner CPU was 0.120590 seconds (sync) and 0.129671 seconds (async), at 1 ns
+reported resolution.
+For every cross-revision run, use the same acquisition checkout as working
+directory and each revision's absolute installed interpreter; changing only
+`PYTHONPATH` while staying in another source checkout is insufficient.
+
+## D3 key and synchronization spike
+
+The feature-only `local_spike` module tests two representations before adapter
+construction. Reconstructing compact tuple nodes changes supported mixed
+equality: an opaque hashable value can recognize the original canonical tuple
+by identity. The deterministic differential case retains both lookup orders;
+one order incorrectly misses after reconstruction. This rules out that compact
+representation, not all possible future key representations.
+
+Select D3's reference-preserving alternative: Python key references with native
+entry metadata. The spike pins keys/values through owned references, compares
+outside its mutex, and commits only after revalidating a non-reused revision.
+Every insertion, replacement or clear changes that revision; misses create no
+historical bucket metadata. The global revision is a conservative feasibility
+mechanism, and its vector LRU is not the production performance candidate.
+
+Owner-level cases cover canonical generated values, deliberate collisions and
+generated operation order, mixed opaque/scalar equality in both orders, identity
+numeric equivalence versus discriminator subtype distinctions, embedded order,
+codec-registry identity, reentrant replacement, and deterministic concurrent
+clear/replacement/negative-comparison insertion for lookup and admission.
+Interrupted lookup/admission commits no pending outcome or LRU mutation; callback
+mutations remain effective. A weak-reference finalizer reenters the owner during
+reclamation, verifying that Python reference destruction runs outside the lock.
+Finite callback mutations terminate and return the replacement token/value,
+with exactly one committed lookup outcome.
+
+Reproduce with a feature wheel installed from the acquisition source:
+
+```bash
+uv sync --locked --no-editable --group docs --quiet --config-setting build-args=--features=local-cache-prototype
+.venv/bin/python -m pytest research/native_process_local_cache/test_key_spike.py tests/core/test_canonical.py tests/benchmark/stream_cost/test_process_cpu_clock.py -n 0 -q
+```
+
+The full adapter must preserve these callback and ownership properties while
+adding the namespace/availability/capture fences and scalable LRU specified in
+D2. The spike supplies no complete-operation performance qualification.
