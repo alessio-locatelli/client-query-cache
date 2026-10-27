@@ -16,16 +16,6 @@ max_cache_age = "14d"
 accept = "200..=204,400,401,403,405,418,429,500,503,504"
 # The default is false. We override it because authored links must not probe private or loopback services.
 exclude_all_private = true
-# Renovate download patterns/templates are not fetchable links; its schema is validated separately.
-exclude_path = [
-  'lychee.toml',
-  'specifications',
-  'renovate.json5',
-  'site',
-  '.cache',
-  'uv.lock',
-  'package-lock.json',
-]
 # Hosted guide routes can be absent until this revision is published. The strict
 # local site build and preview inspection validate them before publication.
 exclude = [
