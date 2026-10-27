@@ -488,5 +488,8 @@ mod _shared_index {
     use crate::key_encoder::find_key_encoder;
     #[cfg(feature = "local-cache-prototype")]
     #[pymodule_export]
+    use crate::local_cache::local_cache_type;
+    #[cfg(feature = "local-cache-prototype")]
+    #[pymodule_export]
     use crate::local_spike::{ReferenceKeySpike, compact_key_equal};
 }

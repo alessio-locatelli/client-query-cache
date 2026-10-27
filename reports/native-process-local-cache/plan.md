@@ -16,7 +16,7 @@ wheel (N). Repeat final ordinary-wheel acquisition (F) against M after removing
 temporary selection. Record wheel and extension SHA-256, imported paths, Python,
 dependency versions, kernel, CPU, libc, MongoDB image digest, and resource limits.
 
-Build each revision in its own detached checkout and installed environment:
+Build each revision in its own checkout and installed environment:
 
 ```bash
 git worktree add --detach /tmp/agents/native-local-20261027/main 1f70de76b6bc9fdcc4ab7cf0d4a8a4d784d9588e
@@ -46,7 +46,7 @@ than presenting its memory figures as four-worker figures.
 
 ## Registered cells and ordering
 
-The primary benefit metric is incremental single-process PSS at `large-keys`
+The registered memory benefit metric is incremental single-process PSS at `large-keys`
 `warm`: subtract each process's baseline, then subtract the matched direct
 growth. Only this checkpoint may qualify memory retention. Record RSS and USS
 alongside PSS. Small-entry, post-eviction, document, and lifecycle checkpoints
@@ -201,14 +201,16 @@ their cost into the existing-case comparison.
 | Qualifying memory occupancy and small-read runtime         | Both small-result public cells above                                                |
 | Same-core contention                                       | Thread identity, processed-invalidation overlap and pressure records                |
 | Final shared/import/startup effects                        | F/M warm, import, readiness and resident resource probes                            |
-| Material gain and regressions                              | Per-block primary PSS reduction and all runtime/resource/existing-test controls     |
+| Material gain and regressions                              | Per-block registered gain metric and all runtime/resource/existing-test controls    |
 | Reproducibility and disposition                            | Immutable measured source URLs, build commands and independent fetch before removal |
 
 ## Decision and bounded follow-up
 
-Report each paired block change, median and full range. The registered primary
-PSS reduction must reach 20% in every valid block. No other memory checkpoint
-or isolated helper can substitute. Investigate every repeatable regression in
+Report each paired block change, median and full range. Qualification requires
+either the registered PSS reduction to reach 20% in every valid block, or
+synchronous generic `find_one` hot-read CPU/completed read (including read
+supervision) to fall at least 10% in every valid block. No other memory
+checkpoint, runtime cell or isolated helper can substitute. Investigate every repeatable regression in
 latency, throughput, CPU, resources or existing tests; correct it or obtain
 explicit approval before retention. Mixed directions and unresolved controls
 remain inconclusive. Allow one additional five-block cohort for one named
@@ -243,6 +245,16 @@ was 280,252,416 bytes (sync) and 280,313,856 bytes (async) for long keys; short
 filters used 45,297,664 and 46,981,120 bytes respectively. These single-run values
 describe the reference's scale; they establish neither a native saving nor an
 RSS bound.
+
+A clean repeat from the same installed M wheel, started at 08:49:43 UTC on
+2026-10-27, completed all 124 checkpoints without a concurrent build or test
+campaign. Both APIs and both small-result shapes again reached 64,001 entries,
+3,776,008 charged bytes, 64,000 warm hits, 64,001 accumulated misses and zero
+bypasses. Incremental warm PSS was 282,005,504 bytes (sync) and 281,927,680 bytes
+(async) for long keys, and 47,042,560 and 46,997,504 bytes for short filters.
+Raw output: `M-reference-memory-clean.json` in the disposable acquisition
+directory. This repeat supplies the uncontended reference checkpoint; it is
+still one baseline run, not a paired native acceptance block.
 
 The default cProfile timer measures elapsed time, including waits; its tables
 must not be called CPU attribution. Summing exclusive profile time across four
@@ -333,6 +345,211 @@ uv sync --locked --no-editable --group docs --quiet --config-setting build-args=
 .venv/bin/python -m pytest research/native_process_local_cache/test_key_spike.py tests/core/test_canonical.py tests/benchmark/stream_cost/test_process_cpu_clock.py -n 0 -q
 ```
 
-The full adapter must preserve these callback and ownership properties while
-adding the namespace/availability/capture fences and scalable LRU specified in
-D2. The spike supplies no complete-operation performance qualification.
+The spike supplies no complete-operation performance qualification. The
+integrated owner below adds the namespace/availability/capture fences and LRU.
+
+Before any candidate timing, add the synchronous generic hot-read CPU target
+above to the initial memory-only registration. The preferred compact tuple
+representation failed the semantic spike; the selected alternative retains the
+Python key graph that dominates reference allocation attribution. The delta
+spec already permits a complete-operation CPU gain, and this target uses an
+existing registered cell with unchanged counts and controls. This amendment
+preserves the memory target and does not waive any regression or conformance
+gate. No native candidate has yet been timed, and no favorable native timing
+diagnostic motivated the amendment.
+
+## Integrated owner conformance before timing
+
+`local_cache` is compiled only by `local-cache-prototype`. The lazy binding
+getter initializes its Python class when explicitly selected; the reference
+construction and shared-owner constructor stay available in the same wheel.
+`research.native_process_local_cache.selection.select_native` replaces only the
+two local manager constructors, before constructing managers in that process.
+There is no public backend setting or fallback. An ordinary M wheel raises
+`ImportError` when its absent native getter is requested; the expected failure
+is retained in `M-no-native-feature.log`.
+
+The backend-neutral call surface lives in the typing-only
+`_core/contracts.pyi`; it creates no runtime protocol objects or storage graph.
+The adapter inventory covers:
+
+- Read and encoded-read methods for identity, namespace and find, deferred
+  namespace misses, compatible sources, and alias resolution.
+- Identity/namespace captures, encoded/value admission, unique matches and
+  conditional alias/namespace cleanup.
+- Namespace registration/inspection, generations, write/index events,
+  clear/drop/recreation and conditional namespace release.
+- Database availability, cumulative outcome snapshots, capacity properties,
+  stream-cost forwarding, and close. The two metadata-probe invalidation hooks
+  are no-ops locally: probe ownership remains exclusive to the shared owner.
+
+Native storage uses indexed immutable records, chunked slots and linked LRU,
+namespace and alias ownership. It retains original canonical Python keys and
+immutable BSON bytes, with no Python `NamespaceState` or `CacheEntry` index.
+Callbacks compare pinned records outside the mutex; membership changes advance
+a non-reused revision. Capture handles combine namespace identity, stable slot
+tokens, generations and availability observations. A stale compare cannot
+delete a replacement. Close releases arena/table capacity even when captures
+keep the empty authority alive. The feature-only `_ownership` diagnostic
+reports namespace, identity, alias, capture and source counts outside timed work.
+
+Installed-wheel conformance has passed 43 owner cases, including 100 generated
+collision/eviction schedules against the reference. Cases cover abandoned
+captures, original-key reclamation, Python/native cycles, reentrant finalizers,
+negative comparisons followed by insertion, reentrant stale admissions and
+parallel mutation during blocked equality. A spawned worker constructs real
+sync/async managers, checks that their coordinators hold the same native core,
+and verifies that the shared constructor remains the reference.
+
+The explicit native pytest plugin additionally ran
+15 availability/state-machine cases, 19 find outcome/covering/collision cases,
+16 unique-admission/cleanup cases and five lifecycle cases. The four excluded
+unique-admission instances pause Python LRU methods; native stale-publication
+and replacement cases instead exercise its outside-lock comparison boundary.
+Other tests of Python storage internals remain reference tests. Native ownership
+counts, original-key weak references and pressure tests cover reclamation on
+its actual representation.
+The 32 identity-normalization helper cases also passed, but do not execute a
+core and are not counted as native storage conformance. Owner cases separately
+exercise numeric identity equality and invalidation through real native storage.
+
+The native-selected public run passed 665 sync/async collection, bound-session
+and cursor cases, including codecs, isolated prefixes, native errors, stream
+transitions, batch failures and cancellation. Public cursor tests inspect
+resident entries rather than Python family dictionaries; owner-level cases
+check native family reclamation. The plugin asserts the actual native type for
+core/manager fixtures and shared core identity for manager/coordinator pairs.
+Review exposed a capture-only key cycle rooted by the native identity index;
+adding a capture clear hook alone would not make that reachable cycle collectible.
+The corrected candidate uses a GC-tracked native identity handle, with weak
+index ownership until a value is resident. Its alias references are traced by
+the same handle, and comparison snapshots pin it. Live-core cycle cases cover
+pending captures, post-eviction identities, alias keys and alias values. The
+additional handle/weak-reference allocations remain in the measured build.
+The concurrent raising-comparison case checks preserved insertion, unchanged
+outcomes and unchanged LRU order. The cursor cancellation barrier now has a
+bounded wait and fixture-owned task cleanup. The corrected native public run
+again passed all 665 cases.
+These are correctness runs; their elapsed times do not qualify performance.
+
+Reproduce the owner and public runs after installing the feature wheel:
+
+```bash
+.venv/bin/python -m pytest research/native_process_local_cache/test_owner.py -n 0 -q
+source scripts/testcontainers-bridge.sh
+.venv/bin/python -m pytest -p research.native_process_local_cache.pytest_plugin tests/synchronous/test_collection.py tests/asynchronous/test_collection.py tests/test_bound_sessions.py tests/test_cached_cursors.py -n 0 -q
+```
+
+Candidate timing, the full existing-test timing comparison, the remaining
+stream/concurrency conformance and final ordinary-wheel controls are pending.
+
+## Collector validation before the candidate freeze
+
+The public collector now verifies returned values after each latency interval,
+records origin command deltas and worker implementation/import paths, and
+requires one complete catalogue traversal consisting entirely of cache hits.
+Large-occupancy setup has a finite 300-second readiness/warmup deadline. The
+measured CPU/throughput scope includes value checks and checkpoint bookkeeping;
+individual read latencies exclude those checks. Only the small-result controls
+take intermediate residency snapshots, every 256 reads, in addition to their
+start/end checkpoints. Every revision uses the same acquisition harness source.
+
+A reference smoke run used 16 keys and 64 samples/worker across eight
+model/path/state windows. Each completed 256 reads; independent hot windows
+recorded 256 hits, cold windows 256 misses, and bypass counts were zero. This
+reduced smoke is collector validation, not a registered performance cell.
+
+The full-occupancy long-key cold control then passed both APIs and both paths.
+Each of eight independent workers began with 64,001 entries and 3,776,008 charged
+bytes. After 8,192 disjoint reads, each held 71,089 entries and 4,194,251 bytes,
+with exactly 1,104 evictions (including the eight-byte probe). All 32,768
+independent reads per window missed, with zero bypasses. The worker type was the
+installed reference core throughout. Raw outputs are
+`R-collector-validation.json` and `R-occupancy-collector-validation.json` in the
+disposable acquisition directory. Neither run supplies a native gain claim.
+
+### Extended acquisition entry points
+
+Use the committed C checkout as the working directory for every revision, with
+its harness and each revision's absolute installed interpreter. This supersedes
+the earlier per-checkout harness invocation: starting in M shadows the extended
+harness even when `PYTHONPATH` names C. No `src` directory belongs on that path.
+Build explicit release wheel artifacts in separate output directories, using
+the repository's `maturin build --release --zig --compatibility manylinux_2_28
+--locked` settings and `CARGO_ZIGBUILD_PYTHON_PATH` pointing to that checkout's
+`scripts/zig-linker.sh`. Add `--features local-cache-prototype` for C only.
+Install those exact artifacts with `uv pip install --python <interpreter>
+--no-deps --reinstall <wheel>`, retaining the frozen environment dependencies.
+
+Run one revision/block with:
+
+```bash
+/path/to/installed/python -m research.native_process_local_cache.acquire --label M --block 0 --wheel /path/to/M.whl --existing-nodes /tmp/agents/native-local-20261027/existing-nodes.txt --output /tmp/agents/native-local-20261027/cohort-1/b0-M
+```
+
+Repeat with R/N and the same C wheel (N selects native), following the registered
+block orders. `--components public memory contention tests` is the default;
+component subsets allow recording a failed/repeated component separately without
+silently replacing completed observations. The controller retains wheel and
+extension hashes, installed paths, harness revision, clock resolution, limits,
+values/outcomes/residency and rejected-cell reasons. Memory uses the existing
+child/phase collector. Public workers report RSS/USS/PSS and lifetime peak RSS,
+plus a separate untimed 50 ms admission-stability observation; its CPU is
+excluded from read CPU and reported separately. The measured CPU total includes
+read supervision. Value guards run outside individual read latency but inside
+process CPU and throughput intervals. Peak RSS includes setup and warmup; it is
+not an allocation attribution.
+
+The contention entry point is `python -m
+research.native_process_local_cache.contention --output <raw.json>`; add
+`--native-local` only for N. It reuses the public dataset/provenance and command
+collectors. Its absolute, finite writer schedule needs separate acknowledgement
+and offered/completed records rather than the public CLI's duration-dependent
+writer. The uninstrumented R validation completed both 1/4-thread cells with
+80,000 completed reads, 1,000 writes and exactly 1,000 applied invalidations,
+all inside the active read interval. Both cells had 79,001 hits, 999 misses and
+zero bypasses. This is collector validation, not candidate performance evidence.
+
+Existing-case N timing selects native manager construction while direct tests
+of the retained reference core continue to exercise that core. The acquisition
+plugin explicitly keeps Python-storage inspection, reference-class fault
+injection and cursor allocation implementation probes on reference construction;
+its finite selection is recorded in `pytest_plugin.py`, and JUnit properties
+record the selected manager constructor per case. It asserts the actual backend
+and coordinator identity for manager-valued fixtures. These representation-specific
+cases do not establish native conformance; the actual native owner ordering and
+reclamation suite plus public behavioral cases provide that evidence. The same
+frozen node IDs and test bodies run for M/R/N; new tests remain separate.
+
+The prototype controller accepts M/R/N only. F is deliberately rejected until
+ordinary-build integration supplies default-native assertions without private
+selection in public, memory and contention collectors. Contention throughput
+uses the scheduled origin through final completion; actual first/last call
+endpoints remain the overlap interval, and initial/individual-call lateness is
+retained rather than disappearing from the denominator.
+
+The broad N construction conformance run passed 4,363 cases and exposed four
+editable-path assertions, one reference-class fault-injection selector mismatch,
+and two fixture cleanup ordering errors caused by borrowing the tests' own
+`monkeypatch` fixture. The source assertion now follows the actual imported
+package; the selector has an independent patch context and an explicit reference
+case for that injected fault. The seven affected cases and all 43 owner cases
+then passed together (52 cases, because the fault check has three parameters and
+the source assertion four). These runs predate frozen C and are correctness
+checks only; their duration is not existing-test performance evidence.
+
+Native public-contract coverage includes both API directories' collection/read
+methods, metadata and codec/document-class cases; `tests/test_cached_cursors.py`
+covers complete lists, compatible sources, partial/cancelled/faulted cursors and
+caller-owned results, and `tests/test_bound_sessions.py` covers session bypass.
+The real-manager stream integration cases exercise native availability and
+recovery. Direct reference-coordinator fakes and the explicit representation
+probes remain reference cases. `test_owner.py` adds actual native collision,
+reentrant/concurrent comparison, stale-admission, ABA, GC, alias and compatible
+source cases; its randomized histories compare against a distinct reference
+instance. The selector's module patch is restricted to `tests.*` and does not
+replace that differential reference instance.
+
+C uses a separate installed environment at `/tmp/agents/native-local-20261027/candidate-env`; the working checkout remains the clean, committed C branch. This separates acquisition imports from the editable environment used for the source coverage gate. The matched explicit M/C wheel builds completed in release mode with the registered Zig/glibc settings. The reference collector recheck verified all eight sorted-read model/path/state cells, complete values, charged bytes, admission stability and CPU resolution.
+
+The acquisition host is an Intel Core i3-13100. Toolbx does not expose `cpu.max`, `memory.max` or `pids.max` at the cgroup mount root; record that absence rather than inferring cgroup limits. Process limits/affinity and RSS/USS/PSS remain available, and each server has its explicit container limits. Retain the full host and wheel hashes in the untracked `host-and-artifacts.json`; the results report will identify the reproducible source and build settings.

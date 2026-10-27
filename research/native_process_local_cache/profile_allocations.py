@@ -20,6 +20,7 @@ def acquire(
     api: Literal["sync", "async"],
     scenario: Literal["small-entries", "large-keys"],
     output: Path,
+    backend: Literal["reference", "native"] = "reference",
 ) -> None:
     output.mkdir(parents=True, exist_ok=True)
     original_sample = measure.sample
@@ -60,7 +61,7 @@ def acquire(
             address = control.address
             assert address is not None
             uri = f"mongodb://{address[0]}:{address[1]}/?directConnection=true"
-            asyncio.run(measure.child(uri, scenario, api, "cached"))
+            asyncio.run(measure.child(uri, scenario, api, "cached", backend))
     finally:
         measure.sample = original_sample
         tracemalloc.stop()
@@ -73,8 +74,11 @@ def main() -> None:
         "--scenario", choices=("small-entries", "large-keys"), required=True
     )
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--backend", choices=("reference", "native"), default="reference"
+    )
     arguments = parser.parse_args()
-    acquire(arguments.api, arguments.scenario, arguments.output)
+    acquire(arguments.api, arguments.scenario, arguments.output, arguments.backend)
 
 
 if __name__ == "__main__":

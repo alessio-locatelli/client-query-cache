@@ -15,6 +15,8 @@ omit =
     # Performance acceptance harnesses run without instrumentation.
     benchmarks/record_write_invalidation.py
     benchmarks/public_shared_cache.py
+    benchmarks/implementation.py
+    research/process_memory/measure.py
     tests/benchmark/real_server/test_cache_benefit.py
 
 [report]

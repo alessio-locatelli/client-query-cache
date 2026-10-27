@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+import client_query_cache
 from benchmarks import stream_startup
 from client_query_cache._core import stream_activation
 
@@ -34,7 +35,10 @@ def test_harness_measures_coordination_and_writes_a_healthy_profile(
     stream_startup.main([mode, *profile_arguments])
     measurement = stream_startup.Measurement(**json.loads(capsys.readouterr().out))
     assert measurement.mode == mode
-    assert Path(measurement.source).is_relative_to(Path.cwd() / "src")
+    assert (
+        Path(measurement.source).parent.parent
+        == Path(client_query_cache.__file__).parent
+    )
     assert measurement.healthy_seconds > 0
     assert measurement.failed_seconds > 0
     assert measurement.failure_attempts == measurement.failure_warnings == 1

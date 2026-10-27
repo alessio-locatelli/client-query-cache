@@ -222,8 +222,17 @@ SCENARIOS = {
 }
 
 
-async def child(uri: str, scenario: str, api: str, mode: str) -> None:
+async def child(
+    uri: str, scenario: str, api: str, mode: str, backend: str = "reference"
+) -> None:
     from pymongo import AsyncMongoClient, MongoClient
+
+    from benchmarks.implementation import implementation
+
+    if backend == "native" and mode == "cached":
+        from research.native_process_local_cache.selection import select_native
+
+        select_native()
 
     client: Any = (MongoClient if api == "sync" else AsyncMongoClient)(uri)
 
@@ -260,7 +269,18 @@ async def child(uri: str, scenario: str, api: str, mode: str) -> None:
     def checkpoint(phase: str, **extra: object) -> None:
         sample(phase, session[0], **extra)
 
-    checkpoint("baseline", libc=platform.libc_ver())
+    actual = implementation(None if session[0] is None else session[0].cache_core)
+    if mode == "cached":
+        assert actual["core"] == (
+            "client_query_cache._shared_index.LocalCacheCore"
+            if backend == "native"
+            else "client_query_cache._core.manager.CacheCore"
+        )
+        for component in ("library", "extension"):
+            assert Path(actual[component]).is_relative_to(sys.prefix)
+    checkpoint(
+        "baseline", libc=platform.libc_ver(), implementation=actual, backend=backend
+    )
     if scenario == "cycles":
         for cycle in range(CYCLES):
             if cycle:
@@ -338,10 +358,13 @@ def coordinate(arguments: argparse.Namespace) -> None:
         "host": platform.uname()._asdict(),
         "cpu_count": psutil.cpu_count(),
         "python": sys.version,
+        "backend": arguments.backend,
     }
     records: list[dict[str, object]] = []
     with fixture(image) as control:
-        host, port = control.address
+        address = control.address
+        assert address is not None
+        host, port = address
         uri = f"mongodb://{host}:{port}/?directConnection=true"
         report["dataset"] = seed(control)
         report["server"] = control.server_info()["version"]
@@ -358,6 +381,8 @@ def coordinate(arguments: argparse.Namespace) -> None:
                         scenario,
                         api,
                         mode,
+                        "--backend",
+                        arguments.backend,
                     ],
                     entrypoint=sys.executable,
                     environment={"PYTHONDONTWRITEBYTECODE": "1"},
@@ -459,11 +484,15 @@ def main() -> None:
     run.add_argument("--image", help="server and measured-process image")
     run.add_argument("--scenarios", nargs="+", choices=SCENARIOS, default=[*SCENARIOS])
     run.add_argument("--output", type=Path, required=True)
+    run.add_argument("--backend", choices=("reference", "native"), default="reference")
     measured = commands.add_parser("child")
     measured.add_argument("uri")
     measured.add_argument("scenario", choices=SCENARIOS)
     measured.add_argument("api", choices=("sync", "async"))
     measured.add_argument("mode", choices=("direct", "cached"))
+    measured.add_argument(
+        "--backend", choices=("reference", "native"), default="reference"
+    )
     summary = commands.add_parser("summarize")
     summary.add_argument("report", type=Path)
     arguments = parser.parse_args()
@@ -473,7 +502,13 @@ def main() -> None:
         summarize(json.loads(arguments.report.read_text()))
     else:
         asyncio.run(
-            child(arguments.uri, arguments.scenario, arguments.api, arguments.mode)
+            child(
+                arguments.uri,
+                arguments.scenario,
+                arguments.api,
+                arguments.mode,
+                arguments.backend,
+            )
         )
 
 
