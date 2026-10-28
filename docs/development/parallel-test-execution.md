@@ -44,6 +44,10 @@ test selection and conditional skips, including exclusion of the opt-in memory t
 specifications submodule. Independent example subprocesses and installed wheels are not
 instrumented by this coverage command.
 
+An intermittent combine warning from an incomplete child SQLite coverage file is tracked in
+[issue #354](https://github.com/alessio-locatelli/client-query-cache/issues/354).
+Preserve the named file for diagnosis; a 100% combined report does not resolve that warning.
+
 ## Diagnostics
 
 The controller writes `pytest.log`; workers write `pytest-gw0.log`, `pytest-gw1.log`, and so on.
