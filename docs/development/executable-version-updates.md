@@ -77,8 +77,9 @@ floating request; other lines use major/minor requests. Only identical requests
 are deduplicated.
 
 Floating requests permit early candidate testing and select stable Python when
-the toolchain provides it. The stable `Python compatibility` check blocks merging
-if any applicable packaging or test lane fails. Publishing advertised support
+the toolchain provides it. The stable `Python compatibility` check fails
+if any applicable packaging or test lane fails. Its required-check enforcement
+gap is tracked in [issue #358](https://github.com/alessio-locatelli/client-query-cache/issues/358). Publishing advertised support
 also requires the [stable-release acceptance procedure](../../CONTRIBUTING.md#per-release-steps).
 The README badge reflects published PyPI classifiers, so it can differ from
 development declarations until publication.
