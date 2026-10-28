@@ -137,7 +137,7 @@ The evaluation SHALL compare reference/native public-read performance with multi
 
 ### Requirement: Final-wheel controls cover shared-cache regressions
 
-The final ordinary wheel SHALL be compared against frozen main for representative shared-cache warm reads, fresh-process import/startup wall time and CPU, per-process RSS, and worker-plus-owner group PSS. Repeated matched controls SHALL verify equal residency and expected cache outcomes. Shared regressions SHALL follow the same approval rule even when owner/publication algorithms are unchanged.
+For a qualifying native candidate, the final ordinary wheel SHALL be compared against frozen main for representative shared-cache warm reads, fresh-process import/startup wall time and CPU, per-process RSS, and worker-plus-owner group PSS. Repeated matched controls SHALL verify equal residency and expected cache outcomes. Shared regressions SHALL follow the same approval rule even when owner/publication algorithms are unchanged.
 
 #### Scenario: The combined native binary increases shared startup memory
 
