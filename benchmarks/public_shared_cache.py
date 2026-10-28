@@ -16,6 +16,7 @@ import statistics
 import sys
 import threading
 import time
+import traceback
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from contextlib import AsyncExitStack, ExitStack, contextmanager
 from dataclasses import asdict, dataclass, field
@@ -572,9 +573,18 @@ def _measure_sync(window: Window) -> Observation:
                 cold_views.append(cold_view)
         startup_resources = None
         if window.validate and window.path == "shared":
-            assert (
-                manager.get_cached_collection(raw)._cache_ineligibility_reason() is None
-            )
+            startup_deadline = time.monotonic() + _READY_TIMEOUT
+            reason = manager.get_cached_collection(raw)._cache_ineligibility_reason()
+            while reason == "stream-starting":
+                if time.monotonic() >= startup_deadline:
+                    raise TimeoutError(
+                        "shared metadata did not become ready before warmup"
+                    )
+                time.sleep(0.02)
+                reason = manager.get_cached_collection(
+                    raw
+                )._cache_ineligibility_reason()
+            assert reason is None, reason
             startup_resources = _startup_resources()
             _START.wait(_READY_TIMEOUT)
             _START.wait(_READY_TIMEOUT)
@@ -781,10 +791,20 @@ async def _measure_async(
                 cold_views.append(cold_view)
         startup_resources = None
         if window.validate and window.path == "shared":
-            assert (
-                await manager.get_cached_collection(raw)._cache_ineligibility_reason()
-                is None
-            )
+            startup_deadline = time.monotonic() + _READY_TIMEOUT
+            reason = await manager.get_cached_collection(
+                raw
+            )._cache_ineligibility_reason()
+            while reason == "stream-starting":
+                if time.monotonic() >= startup_deadline:
+                    raise TimeoutError(
+                        "shared metadata did not become ready before warmup"
+                    )
+                await asyncio.sleep(0.02)
+                reason = await manager.get_cached_collection(
+                    raw
+                )._cache_ineligibility_reason()
+            assert reason is None, reason
             startup_resources = _startup_resources()
             _START.wait(_READY_TIMEOUT)
             _START.wait(_READY_TIMEOUT)
@@ -915,17 +935,24 @@ async def _measure_async(
 
 
 def _worker(window: Window) -> Observation:
-    observation = (
-        _measure_sync(window)
-        if window.model == "sync"
-        else asyncio.run(_measure_async(window))
-    )
-    if window.validate:
-        for component in ("library", "extension"):
-            assert Path(observation.implementation[component]).is_relative_to(
-                sys.prefix
-            )
-    return observation
+    try:
+        observation = (
+            _measure_sync(window)
+            if window.model == "sync"
+            else asyncio.run(_measure_async(window))
+        )
+        if window.validate:
+            for component in ("library", "extension"):
+                assert Path(observation.implementation[component]).is_relative_to(
+                    sys.prefix
+                )
+    except BaseException:
+        traceback.print_exc()
+        _START.abort()
+        _FINISH.abort()
+        raise
+    else:
+        return observation
 
 
 def _run_window(

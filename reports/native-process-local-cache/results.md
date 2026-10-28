@@ -345,3 +345,7 @@ Memray's attribution-only run emitted two symbol-address correction warnings.
 Its [documented implementation](https://github.com/bloomberg/memray/blob/v1.20.0/src/memray/_memray/hooks.h#L90-L111)
 resolves the original symbol before forwarding calls. Those warnings were
 investigated and retained; profiled timings do not enter qualification.
+
+## Ordinary-wheel acquisition setup rejection
+
+The first final-wheel baseline acquisition stopped at the first shared warm control: the new pre-warm metadata probe returned the legitimate transient `stream-starting` state. No native timing ran. Its two completed baseline windows and the failed setup remain under `/tmp/agents/native-local-20261027/final-cohort-setup-rejection`; they have no paired final-wheel comparison and do not enter the adoption decision. The collector now waits for that observed transient state within its existing readiness deadline, includes that wait in startup cost, and exposes worker failures while aborting peer barriers. The workload, target, and acceptance rule are unchanged.
