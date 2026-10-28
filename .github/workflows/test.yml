@@ -24,19 +24,19 @@ env:
 # Shared rationales for the occurrences listed below.
 # checkout v7.0.1:
 # https://github.com/actions/checkout/blob/3d3c42e5aac5ba805825da76410c181273ba90b1/action.yml
-# persist-credentials in scope, prek, prettier, documentation, package, integration-e2e, pymongo-min,
+# persist-credentials in scope, prek, prettier, documentation, arm64, package, integration-e2e, pymongo-min,
 # mongodb-min, memory, guard, container and benchmark-startup: The default is true. We override it
 # because later repository commands must not inherit checkout credentials.
 # fetch-depth in scope and guard: The default is 1. We override it because revision
 # comparisons need earlier history.
 # uv 0.12.20: https://docs.astral.sh/uv/reference/cli/
-# uv sync --locked in package, integration-e2e, pymongo-min, mongodb-min, memory, guard
+# uv sync --locked in arm64, package, integration-e2e, pymongo-min, mongodb-min, memory, guard
 # and benchmark-startup: The default is inherited UV_LOCKED, otherwise unlocked resolution.
 # We override it because these standalone commands must validate the committed lockfile.
 # uv sync --no-default-groups --group: The default includes dev. We override it
 # because each job selects only its build, typing, test, compatibility, or benchmark
 # tools; full coverage also exercises the real documentation tools.
-# UV_NO_SYNC in package, integration-e2e, pymongo-min, mongodb-min, memory, guard,
+# UV_NO_SYNC in arm64, package, integration-e2e, pymongo-min, mongodb-min, memory, guard,
 # and benchmark-startup: The default is false. We override it because uv run must
 # reuse each job's explicitly synchronized environment without adding dev.
 # Every uv sync above builds the root package's bundled native index with the
@@ -76,6 +76,7 @@ jobs:
       container: ${{ steps.paths.outputs.container }}
       benchmark: ${{ steps.paths.outputs.benchmark }}
       python: ${{ steps.paths.outputs.python }}
+      arm64: ${{ steps.paths.outputs.arm64 }}
       rust: ${{ steps.paths.outputs.rust }}
       format: ${{ steps.paths.outputs.format }}
       documentation: ${{ steps.paths.outputs.documentation }}
@@ -261,6 +262,47 @@ jobs:
       - if: needs.scope.outputs.rust == 'true'
         run: just rust-tests
 
+  arm64:
+    name: Linux ARM64 runtime and distribution
+    needs: [scope, prek, prettier, rust-static]
+    if: needs.scope.outputs.arm64 == 'true'
+    runs-on: ubuntu-24.04-arm
+    # The default is 360 minutes. Bound native builds, isolated installs and
+    # disposable MongoDB tests to the same budget as other runtime lanes.
+    timeout-minutes: 20
+    env:
+      UV_NO_SYNC: "true"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: $/.github/actions/setup-toolchain
+
+      - run: uv sync --locked --no-default-groups --group test --group build
+
+      - run: |
+          uname -m
+          git rev-parse HEAD
+          uv run -- python -c 'import sys; print(sys.version)'
+
+      - run: cargo test --locked --manifest-path native/shared-index/Cargo.toml --quiet
+
+      - run: just verify-release
+
+      # pytest -q: The default is verbosity zero. Keep successful output concise.
+      - run: uv run -- pytest -q tests/core tests/synchronous tests/asynchronous tests/shared_cache tests/e2e
+
+      - if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pytest-log-arm64
+          path: |
+            pytest.log
+            pytest-gw*.log
+          if-no-files-found: ignore
+          retention-days: 7
+
   package:
     name: Static checks, packaging, and isolated install (${{ matrix.python }})
     needs: [scope, prek, prettier, rust-static]
@@ -407,34 +449,40 @@ jobs:
 
   python-compatibility:
     name: Python compatibility
-    needs: [scope, package, integration-e2e, pymongo-min, mongodb-min]
+    needs: [scope, package, integration-e2e, pymongo-min, mongodb-min, arm64]
     # The default is implicit success(). We override it because failed matrix
     # prerequisites must fail the aggregate gate visibly instead of skipping it.
-    if: always() && needs.scope.outputs.python == 'true'
+    if: always() && needs.scope.outputs.arm64 == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - env:
+          PYTHON_SELECTED: ${{ needs.scope.outputs.python }}
           PACKAGE_RESULT: ${{ needs.package.result }}
           TEST_RESULT: ${{ needs.integration-e2e.result }}
           PYMONGO_MIN_RESULT: ${{ needs.pymongo-min.result }}
           MONGODB_MIN_RESULT: ${{ needs.mongodb-min.result }}
+          ARM64_RESULT: ${{ needs.arm64.result }}
         run: |
           status=0
-          if [[ "${PACKAGE_RESULT}" != success ]]; then
+          if [[ "${PYTHON_SELECTED}" == true && "${PACKAGE_RESULT}" != success ]]; then
             echo "::error title=Python compatibility::The static checks, packaging, and isolated install matrix finished with '${PACKAGE_RESULT}'; open its failed lane for the cause."
             status=1
           fi
-          if [[ "${TEST_RESULT}" != success ]]; then
+          if [[ "${PYTHON_SELECTED}" == true && "${TEST_RESULT}" != success ]]; then
             echo "::error title=Python compatibility::The Docker-backed integration, end-to-end, and coverage matrix finished with '${TEST_RESULT}'; open its failed lane for the cause."
             status=1
           fi
-          if [[ "${PYMONGO_MIN_RESULT}" != success ]]; then
+          if [[ "${PYTHON_SELECTED}" == true && "${PYMONGO_MIN_RESULT}" != success ]]; then
             echo "::error title=Python compatibility::Minimum PyMongo behavioral compatibility finished with '${PYMONGO_MIN_RESULT}'; open that job for the cause."
             status=1
           fi
-          if [[ "${MONGODB_MIN_RESULT}" != success ]]; then
+          if [[ "${PYTHON_SELECTED}" == true && "${MONGODB_MIN_RESULT}" != success ]]; then
             echo "::error title=Python compatibility::Minimum MongoDB server compatibility finished with '${MONGODB_MIN_RESULT}'; open that job for the cause."
+            status=1
+          fi
+          if [[ "${ARM64_RESULT}" != success ]]; then
+            echo "::error title=Python compatibility::Linux ARM64 runtime and distribution finished with '${ARM64_RESULT}'; open that job for the cause."
             status=1
           fi
           exit "${status}"

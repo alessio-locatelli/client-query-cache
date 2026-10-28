@@ -17,9 +17,10 @@ coverage of platform-sensitive changes. No runtime-performance benefit is claime
 macOS/Windows process-local support is feasible through a separate import and
 native-compilation boundary, but is a larger first target. A decision to retain
 current support is also reasonable if the recurring validation cost is unwanted.
-Neither ecosystem adoption nor these probes establish user demand. Unselected
-platform work remains within the investigation context of issue #340, without a
-support commitment or implementation follow-up in this change.
+Neither ecosystem adoption nor these probes establish user demand. macOS/Windows process-local implementation is tracked in
+[issue #357](https://github.com/alessio-locatelli/client-query-cache/issues/357).
+Shared caching on those systems remains outside that ticket. musl has no support
+commitment in this change.
 
 ## Process-local dependency boundary
 
@@ -137,3 +138,16 @@ compatibility. A musllinux build/tag, suitable Python and dependency artifacts,
 libc binding checks and native runtime validation would be required. No specific
 musl source defect was demonstrated. This investigation does not propose that
 additional build and validation surface.
+
+## Implementation qualification
+
+The maintainer approved Linux ARM64/glibc build, test and release work plus the
+server platform check, with changes to the core cache implementation excluded.
+Source review of the eight-byte mapping offsets, page alignment, little-endian
+64-bit target configuration, version/fence publication and ring/frame ordering
+identified no required core change. This conclusion is limited by the native
+runtime evidence below; bounded models do not prove every possible interleaving.
+
+Native ARM64 qualification is pending the new hosted acceptance lane. Public
+installation guidance retains its existing support statement until that lane
+and isolated artifact verification have completed successfully.

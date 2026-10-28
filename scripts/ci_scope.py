@@ -26,6 +26,7 @@ def main() -> None:
             "justfile",
             ".github/workflows/test.yml",
             "scripts/ci_scope.py",
+            "scripts/zig-linker.sh",
         }
         or path.startswith((".github/actions/setup-toolchain/", "native/"))
         for path in paths
@@ -81,6 +82,15 @@ def main() -> None:
     print(f"container={str(container).lower()}")
     print(f"benchmark={str(benchmark).lower()}")
     print(f"python={str(python).lower()}")
+    arm64 = python or any(
+        path
+        in {
+            ".github/workflows/publish.yml",
+            ".github/workflows/release-verification.yml",
+        }
+        for path in paths
+    )
+    print(f"arm64={str(arm64).lower()}")
     print(f"format={str(formatting).lower()}")
     rust = python or container or ".pre-commit-config.yaml" in paths
     print(f"rust={str(rust).lower()}")
