@@ -628,3 +628,26 @@ and free symbol-correction warnings; its
 updates the resolved original addresses before forwarding allocations. Retain
 those warnings with the trace and use this instrumented result only for
 attribution. The uninstrumented qualification logs contain no warnings.
+
+Before the registered corrected cohort, the interned-name resource smoke check
+removed the large long-key arena excess but left document-sized buffers retained
+by libc after close. Native entries still allocate an Arc separately from their
+already allocated row slot. The close path additionally walks/unlinks indexes
+that are about to be discarded. Complete this same allocation correction by
+storing immutable nodes directly in the existing chunks. Outside-lock comparison
+pins retain the original Python key/payload references and copied scalar tokens;
+non-reused tokens continue to revalidate the compared version. Whole-core close
+moves the existing arenas out of the authority and drops them after unlocking,
+without allocating a second per-entry retirement array.
+
+The interned-only snapshot `effca8d8` remains published and its smoke outputs are
+retained as diagnostic evidence, not a matched qualifying cohort. Identify the
+completed corrected source separately before running the single registered
+correction cohort. The data, counts, ownership boundary and key semantics remain
+unchanged. No global GC or allocator-trimming behavior is added to the library.
+
+The concurrent source validation attempt was invalid: a newly spawned child
+loaded an editable extension without the experiment feature, and the parallel
+memory smoke output omitted two expected checkpoints (122 versus 124). Retain
+both failures; rerun source/build checks and the memory validation sequentially.
+Do not use incomplete output to support a resource claim.

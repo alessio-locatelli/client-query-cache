@@ -237,6 +237,7 @@ struct Handle {
     token: u64,
 }
 
+#[derive(Clone, Copy)]
 struct Source {
     family: isize,
     limit: u64,
@@ -255,7 +256,7 @@ enum Body {
         payload: Py<PyBytes>,
         weight: usize,
         generation: u64,
-        source: Option<Box<Source>>,
+        source: Option<Source>,
     },
     Identity {
         payload: Py<PyBytes>,
@@ -279,6 +280,44 @@ struct Node {
 }
 
 impl Node {
+    fn clone_ref(&self, py: Python<'_>) -> Self {
+        Self {
+            token: self.token,
+            namespace: self.namespace,
+            hash: self.hash,
+            key: self.key.clone_ref(py),
+            body: match &self.body {
+                Body::Namespace {
+                    payload,
+                    weight,
+                    generation,
+                    source,
+                } => Body::Namespace {
+                    payload: payload.clone_ref(py),
+                    weight: *weight,
+                    generation: *generation,
+                    source: *source,
+                },
+                Body::Identity {
+                    payload,
+                    weight,
+                    epoch,
+                    identity,
+                    generation,
+                } => Body::Identity {
+                    payload: payload.clone_ref(py),
+                    weight: *weight,
+                    epoch: *epoch,
+                    identity: *identity,
+                    generation: *generation,
+                },
+                Body::Alias { identity, metadata } => Body::Alias {
+                    identity: identity.clone_ref(py),
+                    metadata: *metadata,
+                },
+            },
+        }
+    }
     fn kind(&self) -> Kind {
         match self.body {
             Body::Namespace { .. } => Kind::Namespace,
@@ -300,14 +339,14 @@ impl Node {
     }
     fn source(&self) -> Option<&Source> {
         match &self.body {
-            Body::Namespace { source, .. } => source.as_deref(),
+            Body::Namespace { source, .. } => source.as_ref(),
             _ => None,
         }
     }
 }
 
 struct Row {
-    node: Arc<Node>,
+    node: Node,
     links: [Links; 3],
 }
 
@@ -418,12 +457,20 @@ struct Database {
     order: BTreeSet<u64>,
 }
 
+struct ClosedStorage {
+    _rows: Slots<Row>,
+    _identities: Slots<Identity>,
+    _namespaces: HashMap<u64, Namespace>,
+}
+
 #[derive(Default)]
 struct Retired {
-    nodes: Vec<Arc<Node>>,
+    nodes: Vec<Node>,
     identities: Vec<Identity>,
     namespaces: Vec<Namespace>,
     owners: Vec<Py<IdentityOwner>>,
+    // Whole-core close retires the existing arenas without copying every row.
+    _closed: Option<ClosedStorage>,
 }
 
 struct State {
@@ -579,7 +626,7 @@ impl State {
         self.changed();
         handle
     }
-    fn node(&self, slot: u64) -> &Arc<Node> {
+    fn node(&self, slot: u64) -> &Node {
         &self.rows.get(slot).expect("resident node").node
     }
     fn node_is_current(&self, pin: &Pin) -> bool {
@@ -621,7 +668,7 @@ impl State {
         self.rows.install(
             slot,
             Row {
-                node: Arc::new(node),
+                node,
                 links: [Links::default(); 3],
             },
         );
@@ -668,16 +715,17 @@ impl State {
         self.changed();
     }
     fn remove_alias(&mut self, slot: u64, retired: &mut Retired) {
-        let node = self.node(slot).clone();
+        let node = self.node(slot);
         let Body::Alias { metadata, .. } = node.body else {
             unreachable!("alias node");
         };
+        let hash = node.hash;
         let identity = self
             .identities
             .get_mut(metadata.slot)
             .expect("alias identity");
         cycle_remove(&mut self.rows, &mut identity.aliases, slot, Link::Role);
-        self.unindex_node(slot, node.hash);
+        self.unindex_node(slot, hash);
         retired.nodes.push(self.rows.take(slot).node);
     }
     fn clear_aliases(&mut self, identity: Handle, retired: &mut Retired) {
@@ -712,25 +760,33 @@ impl State {
         }
     }
     fn remove_value(&mut self, slot: u64, prune: bool, retired: &mut Retired) {
-        let node = self.node(slot).clone();
+        let node = self.node(slot);
+        let namespace_id = node.namespace;
+        let hash = node.hash;
+        let weight = node.weight();
+        let source = node.source().copied();
+        let identity = match node.body {
+            Body::Identity { identity, .. } => Some(identity),
+            _ => None,
+        };
         chain_remove(&mut self.rows, &mut self.lru, slot, Link::Role);
         let namespace = self
             .namespaces
-            .get_mut(&node.namespace)
+            .get_mut(&namespace_id)
             .expect("value namespace");
         chain_remove(&mut self.rows, &mut namespace.values, slot, Link::Namespace);
-        if let Some(source) = node.source() {
+        if let Some(source) = source {
             if let Some(family) = namespace.families.get_mut(&source.family) {
                 if family.remove(source.limit, slot) {
                     namespace.families.remove(&source.family);
                 }
             }
         }
-        self.used -= node.weight();
+        self.used -= weight;
         self.value_count -= 1;
-        self.unindex_node(slot, node.hash);
+        self.unindex_node(slot, hash);
         retired.nodes.push(self.rows.take(slot).node);
-        if let Body::Identity { identity, .. } = node.body {
+        if let Some(identity) = identity {
             let metadata = self.identity_mut(identity).expect("resident identity");
             metadata.residents -= 1;
             if metadata.residents == 0 {
@@ -742,7 +798,7 @@ impl State {
                 );
             }
             if prune {
-                self.prune_identity(node.namespace, identity, retired);
+                self.prune_identity(namespace_id, identity, retired);
             }
         }
     }
@@ -774,7 +830,7 @@ impl State {
 
 struct Pin {
     slot: u64,
-    node: Arc<Node>,
+    node: Node,
     _owner: Option<Py<IdentityOwner>>,
 }
 
@@ -905,7 +961,7 @@ impl State {
                 if kind != Kind::Alias || owner.is_some() {
                     pins.push(Pin {
                         slot,
-                        node: row.node.clone(),
+                        node: row.node.clone_ref(py),
                         _owner: owner,
                     });
                 }
@@ -1007,23 +1063,25 @@ impl State {
         self.changed();
     }
     fn close(&mut self) -> Retired {
-        let mut retired = Retired::default();
         if self.closed {
-            return retired;
+            return Retired::default();
         }
         self.closed = true;
-        let namespaces: Vec<_> = self.namespaces.keys().copied().collect();
-        for namespace in namespaces {
-            self.bump(namespace, true, &mut retired);
-        }
-        // Captures can outlive the Python owner. Keep their empty authority and
-        // cumulative observations, without retaining the resident arena capacity.
+        let storage = ClosedStorage {
+            _rows: std::mem::take(&mut self.rows),
+            _identities: std::mem::take(&mut self.identities),
+            _namespaces: std::mem::take(&mut self.namespaces),
+        };
         self.names = HashMap::new();
-        self.namespaces = HashMap::new();
-        self.rows = Slots::default();
-        self.identities = Slots::default();
+        self.index = HashMap::new();
+        self.lru = Chain::default();
+        self.used = 0;
+        self.value_count = 0;
         self.changed();
-        retired
+        Retired {
+            _closed: Some(storage),
+            ..Retired::default()
+        }
     }
 }
 
@@ -1576,12 +1634,7 @@ impl LocalOwner {
                     payload: encoded.clone().unbind(),
                     weight,
                     generation: capture.query_token,
-                    source: source.as_ref().map(|source| {
-                        Box::new(Source {
-                            family: source.family,
-                            limit: source.limit,
-                        })
-                    }),
+                    source,
                 },
             };
             let handle = state.put(py, node, previous, &mut retired);
@@ -2416,7 +2469,7 @@ impl LocalOwner {
                     if source_limit == 0 || limit.is_some_and(|limit| source_limit >= limit) {
                         candidates.push(Pin {
                             slot,
-                            node: state.node(slot).clone(),
+                            node: state.node(slot).clone_ref(py),
                             _owner: None,
                         });
                     }
