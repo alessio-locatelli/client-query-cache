@@ -13,6 +13,12 @@ bodies or OpenSpec. An empty Unreleased section is valid.
 
 ## Unreleased
 
+## [0.10.0] - 2026-10-28
+
+### Features
+
+- Support process-local and shared caching on Linux ARM64 with glibc 2.28+.
+
 ### Performance
 
 - Reduce CPU spent preparing shared `find()` queries.
