@@ -1,0 +1,20 @@
+# Tasks
+
+Implementation is pending the explicit approval recorded in [design.md](design.md).
+All acceptance references below use that document's decisions.
+
+## 1. Platform boundary
+
+- [ ] 1.1 Update `SharedCacheServer` in `src/client_query_cache/shared.py` to admit the proposed architecture; parametrize the supported/unsupported platform cases in `tests/shared_cache/test_public.py` without starting an owner for invalid hosts. Confirm existing x86-64 errors and configuration validation remain meaningful.
+- [ ] 1.2 Check `memory.rs`, `index.rs`, `ring.rs` and `frames.rs` against the target's atomic size/alignment, native-endian encoding and version/fence assumptions. Record the conclusions in the feasibility report; an ordering or layout redesign requires renewed approval rather than silently expanding this task.
+
+## 2. Target acceptance and distribution
+
+- [ ] 2.1 Add the design's ARM acceptance lane to `.github/workflows/test.yml`, with path selection through the existing scope mechanism. Run the ordinary native harness and existing local-core, synchronous, asynchronous and shared-cache real-server suites. Record runner architecture, full interpreter, tested revision, selected tests and duration in `reports/platform-portability/feasibility.md`; inspect logs for warnings and ensure an injected lane failure fails its required aggregate check.
+- [ ] 2.2 Extend `.github/workflows/release-verification.yml` and `.github/workflows/publish.yml` according to the per-architecture artifact decision. Keep `just verify-release` reusable; adjust its orchestration only where necessary. Demonstrate isolated ARM wheel/source verification, both architecture artifacts in the collected set, one sdist and publication blocked by any failed/cancelled architecture lane. Keep actual package publication outside this task.
+- [ ] 2.3 Update `docs/user/getting-started/installation.md` and the affected existing `context7.json` rule after native qualification. Review README and maintainer release guidance for platform/artifact assumptions and link to the canonical requirements instead of duplicating them. The delivered report must distinguish observed ARM results from the investigation's host-only evidence and retain any concrete blocker if qualification fails.
+
+## 3. Code Quality
+
+- [ ] 3.1 Scan each entire edited or added test file, including its pre-existing tests, against the AGENTS.md Writing Tests rules and apply parametrization where test logic is shared.
+- [x] 3.2 Confirm no new code prose was added if applying with Claude Code; OpenAI Codex is exempt (planning prepared by Codex).
