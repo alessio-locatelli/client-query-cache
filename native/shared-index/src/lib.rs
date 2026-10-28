@@ -18,6 +18,8 @@ mod hash;
 mod index;
 #[cfg(all(feature = "python", not(loom)))]
 mod key_encoder;
+#[cfg(all(feature = "python", not(loom)))]
+mod local_cache;
 mod memory;
 #[cfg(all(feature = "python", not(loom)))]
 mod python;

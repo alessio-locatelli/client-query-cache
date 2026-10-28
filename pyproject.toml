@@ -117,6 +117,9 @@ mike = { git = "https://github.com/squidfunk/mike.git", rev = "2d4ad799442f4592d
 # slotscheck 0.21.0: https://github.com/ariebovenberg/slotscheck/blob/v0.21.0/src/slotscheck/config.py
 # require-subclass: The default is false. We override it because subclasses must preserve their slotted parent's memory contract.
 require-subclass = true
+# PyO3 classes have a fixed native layout and no instance dictionary. The
+# Python subclass rule misclassifies their re-export through adapter modules.
+exclude-classes = '^client_query_cache\._shared_index:LocalCacheCore$'
 # slotscheck 0.21.0: https://github.com/ariebovenberg/slotscheck/blob/v0.21.0/src/slotscheck/config.py
 # The default excludes __main__ modules. Research analyses run with separate
 # numerical dependencies that are absent from the project environment.

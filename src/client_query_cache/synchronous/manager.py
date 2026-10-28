@@ -7,7 +7,6 @@ from client_query_cache._core.collection_metadata import (
     CollectionMetadata,
     CollectionMetadataCache,
 )
-from client_query_cache._core.manager import CacheCore
 from client_query_cache._core.snapshots import BypassReason
 from client_query_cache._core.stream_options import (
     DEFAULT_MAX_AWAIT_TIME_MS,
@@ -18,6 +17,7 @@ from client_query_cache._core.unique_keys import (
     UniqueKeyMetadataCache,
     discover_unique_keys,
 )
+from client_query_cache._shared_index import LocalCacheCore as CacheCore
 from client_query_cache._types import MaxAwaitTimeMs
 from client_query_cache.synchronous.collection import CachedCollection
 from client_query_cache.synchronous.database import CachedDatabase

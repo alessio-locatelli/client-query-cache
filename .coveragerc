@@ -17,6 +17,7 @@ omit =
     benchmarks/public_shared_cache.py
     benchmarks/implementation.py
     research/process_memory/measure.py
+    research/native_local_integration/*
     tests/benchmark/real_server/test_cache_benefit.py
 
 [report]

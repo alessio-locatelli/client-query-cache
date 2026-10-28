@@ -2,12 +2,12 @@
 
 ## Why
 
-The process-local cache retains Python query trees, entries, and generation bookkeeping outside its BSON budget; the historical [process-memory study](../../../../reports/process-memory/summary.md) identifies substantial overhead for small results and long keys. Moving that ownership boundary into the library's Rust implementation can reduce repeated bookkeeping, with current complete-read and resource measurements determining whether the change is retained.
+The process-local cache retains Python query trees, entries, and generation bookkeeping outside its BSON budget; the historical [process-memory study](../../../reports/process-memory/summary.md) identifies substantial overhead for small results and long keys. Moving that ownership boundary into the library's Rust implementation can reduce repeated bookkeeping, with current complete-read and resource measurements determining whether the change is retained.
 
 ## What Changes
 
 - Integrate native process-local storage and invalidation into the library and compare it through the existing synchronous and asyncio read APIs.
-- Add a reproducible evaluation with correctness, performance, and resource gates defined in the delta spec.
+- Add a reproducible evaluation with correctness, performance, and resource gates defined in the delta spec. Stable proven improvements qualify without a minimum percentage; material adverse trade-offs require a documented decision.
 - Retain a qualifying native implementation as the ordinary process-local core in this branch and PR; remove an unqualified candidate while preserving reproducible evidence.
 
 Implementation, evaluation, and qualified production integration form one change. A successful evaluation must continue through default-build integration without a follow-up ticket or PR. Shared-cache protocol/ownership rewrites, change-stream transport/recovery rewrites, cursor capture/serialization rewrites, selective invalidation, public budget renaming, and new metadata limits are outside scope.

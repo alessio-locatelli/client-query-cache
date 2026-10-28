@@ -7,9 +7,8 @@ from unittest.mock import Mock
 
 import pytest
 
-from client_query_cache import CacheManager
+from client_query_cache import CacheCore, CacheManager
 from client_query_cache._core.errors import StreamLifecycleError
-from client_query_cache._core.manager import CacheCore
 from client_query_cache.asynchronous import CacheManager as AsyncCacheManager
 from client_query_cache.asynchronous.streams import (
     ChangeStreamCoordinator as AsyncCoordinator,

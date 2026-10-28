@@ -11,14 +11,16 @@ from pymongo.asynchronous.collection import AsyncCollection
 from pymongo.collation import Collation
 from pymongo.errors import ConnectionFailure, OperationFailure
 
+from client_query_cache import CacheCore
 from client_query_cache._core.canonical import canonicalize
 from client_query_cache._core.codec import codec_fingerprint
+from client_query_cache._core.entries import LookupResult
 from client_query_cache._core.keys import (
     IdentityCacheKey,
     NamespaceId,
     canonical_alias_key,
 )
-from client_query_cache._core.manager import CacheCore, CacheCoreConfig
+from client_query_cache._core.manager import CacheCoreConfig
 from client_query_cache._core.order_sensitive_keys import (
     order_sensitive_discriminator_key,
 )
@@ -505,7 +507,6 @@ async def _evict_identity_entry_via_filler_pressure(
     identity_key: IdentityCacheKey,
 ) -> None:
     cache = cache_manager.cache_core
-    lru = cache._lru
     filler_count = 60
     before = cache.capture_namespace_generation(namespace).generation
     await collection.raw.insert_many(
@@ -523,11 +524,12 @@ async def _evict_identity_entry_via_filler_pressure(
     )
 
     for index in range(filler_count):
-        if lru.peek(identity_key) is None:
-            return
         await collection.find_one({"email": f"filler-{index}@example.com"})
-    pytest.fail(  # pragma: no cover (test timeout diagnostic)
-        "target entry was never evicted under budget pressure"
+    assert (
+        cache.lookup_identity_encoded(
+            namespace, identity_key.identity, identity_key.read_shape
+        )
+        is None
     )
 
 
@@ -546,7 +548,7 @@ async def evicted_alias(
     cached_database_name: DatabaseName,
     nonpersistent_collection_name: CollectionName,
     faker: Faker,
-) -> _EvictedAlias:
+) -> AsyncIterator[_EvictedAlias]:
     email = faker.email()
     collection = tight_budget_cache_manager[cached_database_name][
         nonpersistent_collection_name
@@ -569,16 +571,22 @@ async def evicted_alias(
         namespace, resolved_identity, canonicalize(read_shape)
     )
 
-    await _evict_identity_entry_via_filler_pressure(
-        tight_budget_cache_manager, collection, namespace, identity_key
+    capture = tight_budget_cache_manager.cache_core.begin_identity_admission(
+        namespace, target["_id"]
     )
-    assert (
-        tight_budget_cache_manager.cache_core.resolve_alias(
-            namespace, ("email",), (email,), None
+    try:
+        await _evict_identity_entry_via_filler_pressure(
+            tight_budget_cache_manager, collection, namespace, identity_key
         )
-        is not None
-    )
-    return _EvictedAlias(collection, namespace, email, target, read_shape)
+        assert (
+            tight_budget_cache_manager.cache_core.resolve_alias(
+                namespace, ("email",), (email,), None
+            )
+            is not None
+        )
+        yield _EvictedAlias(collection, namespace, email, target, read_shape)
+    finally:
+        capture.release()
 
 
 async def test_a_still_accurate_resolved_alias_refreshes_with_a_single_round_trip(
@@ -640,13 +648,15 @@ async def test_a_revalidated_positive_match_overwrites_a_stale_namespace_entry(
     cache = cache_manager.cache_core
     identity = cache.resolve_alias(namespace, ("email",), (email,), None)
     assert identity is not None
-    identity_key = IdentityCacheKey(namespace, identity, canonicalize(read_shape))
-    identity_entry = cache._lru.peek(identity_key)
-    assert identity_entry is not None
-    assert cache._lru.remove_exact(identity_key, identity_entry)
+    assert cache.lookup_identity(namespace, identity, read_shape).hit
 
     updated = {"_id": document_id, "email": email, "v": 2}
-    with patch.object(AsyncCollection, "find_one", autospec=True, return_value=updated):
+    with (
+        patch.object(
+            CacheCore, "lookup_identity", return_value=LookupResult(hit=False)
+        ),
+        patch.object(AsyncCollection, "find_one", autospec=True, return_value=updated),
+    ):
         refreshed = await collection.find_one({"email": email})
 
     assert refreshed == updated
@@ -677,18 +687,18 @@ async def test_an_uncanonicalizable_revalidated_identity_discards_the_stale_alia
     cache = cache_manager.cache_core
     identity = cache.resolve_alias(namespace, ("email",), (email,), None)
     assert identity is not None
-    identity_key = IdentityCacheKey(namespace, identity, canonicalize(read_shape))
-    identity_entry = cache._lru.peek(identity_key)
-    assert identity_entry is not None
-    assert cache._lru.remove_exact(identity_key, identity_entry)
+    assert cache.lookup_identity(namespace, identity, read_shape).hit
 
     replaced = {
         "_id": Decimal128("2.0"),
         "email": email,
         "v": 2,
     }
-    with patch.object(
-        AsyncCollection, "find_one", autospec=True, return_value=replaced
+    with (
+        patch.object(
+            CacheCore, "lookup_identity", return_value=LookupResult(hit=False)
+        ),
+        patch.object(AsyncCollection, "find_one", autospec=True, return_value=replaced),
     ):
         revalidated = await collection.find_one({"email": email})
 

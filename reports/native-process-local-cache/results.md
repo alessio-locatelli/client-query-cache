@@ -1,17 +1,12 @@
 # Native process-local cache evaluation
 
-The native prototype is unqualified under the registered stopping rule. Its
-corrected complete-read CPU reduction has a 24.7% median, but one valid block
-improves only 7.95%, below the required 10% in every block. Long-key incremental
-warm PSS falls about 2.7%, below the alternative 20% threshold. The correction
-substantially improves allocation lifetime, while synchronous long-key memory
-after normal close remains higher than main in every block.
+Ordinary-build adoption is being completed under the revised acceptance rule in the original OpenSpec change: stable demonstrated gains qualify without a minimum percentage, subject to documented material trade-offs. Final-wheel confirmation is reported below when complete.
 
-Keep ordinary process-local construction on the reference core. The measured
-native implementation, tests and selection tools are preserved in published
-history; experimental runtime code and private selection hooks are removed from
-the delivered tree. The conditional ordinary-native integration and F/M controls
-are inapplicable because no candidate qualifies. No final-native wheel is claimed.
+## Historical candidate disposition
+
+Under the original registered stopping rule, the prototype was rejected despite a 24.7% median corrected complete-read CPU reduction: one valid block improved only 7.95%, below its 10% cutoff. Long-key incremental warm PSS fell about 2.7%, below the alternative 20% cutoff. The correction substantially improved allocation lifetime, while synchronous long-key memory after normal close remained higher than main in every block.
+
+That earlier disposition removed experimental runtime code and preserved the measured native implementation, tests, and selection tools in published history. It did not acquire an ordinary-native final wheel. The revised policy changes the adoption decision; it does not change those original measurements or their preregistered cutoffs.
 
 The [acquisition plan](plan.md) owns workload definitions, environment, commands,
 conformance mapping, stopping conditions, and diagnostic history. Raw outputs

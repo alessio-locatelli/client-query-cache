@@ -486,4 +486,6 @@ mod _shared_index {
     use super::{ByteRelay, EchoOwner, OwnerIndex, Payload, ReaderIndex, SessionRing};
     #[pymodule_export]
     use crate::key_encoder::find_key_encoder;
+    #[pymodule_export]
+    use crate::local_cache::LocalOwner;
 }

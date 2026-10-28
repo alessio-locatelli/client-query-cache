@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from pymongo.asynchronous.database import AsyncDatabase
     from pymongo.synchronous.database import Database
 
-    from client_query_cache._core.manager import CacheCore
+    from client_query_cache._core.contracts import LocalCacheCore as CacheCore
 
 SINGLE_EVENT_LAG_WINDOW = LagCaptureWindowConfig(
     window_count=1, events_per_window=1, min_separation_events=0
