@@ -27,7 +27,7 @@ Python consumers retain a narrowly scoped, explained unused-code exception.
 Dead-code analysis does not prove that every runtime path is used; DRY and unsafe
 code safety still require review.
 
-The locked dependency graph's yanked-release warning is tracked in
+The yanked-release warning from installing the pinned `cargo-shear` tool is tracked in
 [#345](https://github.com/alessio-locatelli/client-query-cache/issues/345).
 
 CI runs **Rust static checks** once, followed by **Rust tests and concurrency models**.
