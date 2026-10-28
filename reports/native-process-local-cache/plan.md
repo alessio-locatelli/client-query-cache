@@ -668,3 +668,22 @@ diagnostic trimming); long-key post-close PSS was 76/86 MiB sync/async and
 62/73 MiB after trimming. These are smoke observations, not paired qualification
 results. The corrected cohort must retain this resource control even if its CPU
 target passes.
+
+An additional broad conformance invocation selected every `tests/core` case for
+native execution, including tests written specifically against Python LRU,
+namespace dictionaries, observer/payload-store construction, metadata probes,
+and the reference logger. It passed 1,386 cases and failed 135 such reference
+implementation probes. They remain covered on reference, with native ordering
+and reclamation checked at its actual callback/ownership boundary as mapped
+above; this invocation is not a successful all-core native conformance run.
+It also exposed a selector error in 14 public fault-injection cases: collection
+rewrote their imported reference class while their managers deliberately used
+reference. Restrict direct constructor rewriting to `tests.core` modules, so
+public fault hooks target their real constructor. Existing-case acquisition's
+`--native-managers-only` mode already avoids direct constructor rewriting.
+The corrected public invocation passed all 665 cases. This is a native-selected
+suite, with the finite reference fault-injection exceptions recorded by the
+plugin; it is not 665 exclusively native executions. The corrected installed
+wheel also passed the full source gate at 100% coverage and strict exclusions.
+Its 61 Python/stub files match source, and its native extension matches C2b
+byte for byte. The unused residency protocol module is now a typing stub.
