@@ -651,3 +651,20 @@ loaded an editable extension without the experiment feature, and the parallel
 memory smoke output omitted two expected checkpoints (122 versus 124). Retain
 both failures; rerun source/build checks and the memory validation sequentially.
 Do not use incomplete output to support a resource claim.
+
+A sequential check reproduced a missing baseline frame: the child completed all
+six document phases, but its captured stream contained only the last five. The
+corrected collector saves each raw child stream and compares it with a terminal
+list of completed phases. It waits for the child, retrieves its logs, and only
+then removes the container, rather than allowing removal before the SDK's
+streamed response is consumed. All four document processes then supplied their
+complete 24 checkpoints. This establishes a working collection sequence; it does
+not establish which engine/SDK layer lost the earlier frame. Apply this same
+collector to M/R/N in the corrected cohort. Keep incomplete precursors separate.
+
+The `feb0b37e` inline-node smoke check completed all 124 checkpoints. Document
+post-close PSS remained about 108 MiB in both models (about 45 MiB after explicit
+diagnostic trimming); long-key post-close PSS was 76/86 MiB sync/async and
+62/73 MiB after trimming. These are smoke observations, not paired qualification
+results. The corrected cohort must retain this resource control even if its CPU
+target passes.

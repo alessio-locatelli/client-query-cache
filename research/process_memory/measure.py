@@ -266,8 +266,11 @@ async def child(
 
     session = await open_session()
 
+    completed_phases: list[str] = []
+
     def checkpoint(phase: str, **extra: object) -> None:
         sample(phase, session[0], **extra)
+        completed_phases.append(phase)
 
     actual = implementation(None if session[0] is None else session[0].cache_core)
     if mode == "cached":
@@ -301,6 +304,7 @@ async def child(
     ctypes.CDLL(None).malloc_trim(0)
     checkpoint("trimmed")
     await call(client.close())
+    print(json.dumps({"completed_phases": completed_phases}), flush=True)
 
 
 def seed(control: Any) -> dict[str, object]:
@@ -361,6 +365,8 @@ def coordinate(arguments: argparse.Namespace) -> None:
         "backend": arguments.backend,
     }
     records: list[dict[str, object]] = []
+    children = arguments.output.with_name(f"{arguments.output.stem}-children")
+    children.mkdir(parents=True, exist_ok=True)
     with fixture(image) as control:
         address = control.address
         assert address is not None
@@ -371,7 +377,7 @@ def coordinate(arguments: argparse.Namespace) -> None:
         for run in range(arguments.runs):
             order.shuffle(cells)
             for scenario, api, mode in cells:
-                output = engine.containers.run(
+                container = engine.containers.run(
                     image,
                     [
                         "-m",
@@ -390,12 +396,29 @@ def coordinate(arguments: argparse.Namespace) -> None:
                     volumes=mounts,
                     network_mode="host",
                     security_opt=["label=disable"],
-                    remove=True,
+                    detach=True,
                 )
+                raw = children / f"{run}-{scenario}-{api}-{mode}.jsonl"
+                try:
+                    status = container.wait()["StatusCode"]
+                    output = container.logs()
+                    raw.write_bytes(output)
+                    if status:
+                        message = f"measured child exited with status {status}: {raw}"
+                        raise RuntimeError(message)
+                finally:
+                    container.remove()
+                frames = [json.loads(line) for line in output.decode().splitlines()]
+                if not frames or "completed_phases" not in frames[-1]:
+                    message = f"missing child completion record: {raw}"
+                    raise RuntimeError(message)
+                completed = frames.pop()["completed_phases"]
+                if [frame["phase"] for frame in frames] != completed:
+                    message = f"incomplete child checkpoint stream: {raw}"
+                    raise RuntimeError(message)
                 records.extend(
-                    json.loads(line)
-                    | {"run": run, "scenario": scenario, "api": api, "mode": mode}
-                    for line in output.decode().splitlines()
+                    frame | {"run": run, "scenario": scenario, "api": api, "mode": mode}
+                    for frame in frames
                 )
                 print(f"run {run}: {scenario} {api} {mode}", file=sys.stderr)
     report["records"] = records
