@@ -220,7 +220,6 @@ class Window:
     read_rate: NonNegativeFloat = 0
     diagnostics: bool = False
     validate: bool = False
-    native_local: bool = False
     document_bytes: PositiveInt = _DOCUMENT_BYTES
     rotation: NonNegativeInt = 0
 
@@ -883,10 +882,6 @@ async def _measure_async(
 
 
 def _worker(window: Window) -> Observation:
-    if window.native_local and window.path == "independent":
-        from research.native_process_local_cache.selection import select_native  # noqa: PLC0415 - Select before constructing a manager in the spawned child.
-
-        select_native()
     observation = (
         _measure_sync(window)
         if window.model == "sync"
@@ -896,12 +891,6 @@ def _worker(window: Window) -> Observation:
         for component in ("library", "extension"):
             assert Path(observation.implementation[component]).is_relative_to(
                 sys.prefix
-            )
-        if window.path == "independent":
-            assert observation.implementation["core"] == (
-                "client_query_cache._shared_index.LocalCacheCore"
-                if window.native_local
-                else "client_query_cache._core.manager.CacheCore"
             )
     return observation
 
@@ -921,7 +910,6 @@ def _run_window(
     read_rate: NonNegativeFloat = 0,
     diagnostics: bool = False,
     validate: bool = False,
-    native_local: bool = False,
     document_bytes: PositiveInt = _DOCUMENT_BYTES,
     rotation: NonNegativeInt = 0,
 ) -> dict[str, object]:
@@ -990,7 +978,6 @@ def _run_window(
                     read_rate,
                     diagnostics,
                     validate,
-                    native_local,
                     document_bytes,
                     rotation,
                 ),
@@ -1190,12 +1177,7 @@ def main() -> None:
     parser.add_argument(
         "--validate",
         action="store_true",
-        help="Verify results, origins, residency and cache trajectories.",
-    )
-    parser.add_argument(
-        "--native-local",
-        action="store_true",
-        help="Select the prototype before independent manager construction.",
+        help="Verify installed artifacts, results, origins and cache trajectories.",
     )
     parser.add_argument("--rotation", type=int, default=0)
     parser.add_argument(
@@ -1318,7 +1300,6 @@ def main() -> None:
                                 read_rate=arguments.read_rate,
                                 diagnostics=arguments.diagnostics,
                                 validate=arguments.validate,
-                                native_local=arguments.native_local,
                                 document_bytes=arguments.document_bytes,
                                 rotation=arguments.rotation,
                                 profile_directory=None
@@ -1344,7 +1325,6 @@ def main() -> None:
                     "workers": _WORKERS,
                     "document_bytes": arguments.document_bytes,
                     "hot_keys": arguments.hot_keys,
-                    "native_local": arguments.native_local,
                     "validated": arguments.validate,
                     "rotation": arguments.rotation,
                     "windows": windows,
