@@ -52,12 +52,12 @@ To run this workload against the current checkout, build its wheel, then run the
 just build
 uv run --isolated --no-project \
   --python 3.14.7 \
-  --with "dist/client_query_cache-$(uv version --short)-cp314-abi3-manylinux_2_28_x86_64.whl" \
+  --with "dist/client_query_cache-$(uv version --short)-cp314-abi3-manylinux_2_28_$(uname -m).whl" \
   --with psutil --with testcontainers --with requests --with pyyaml \
   python -m benchmarks.public_shared_cache \
   --output /tmp/agents/shared-cache-performance.json
 ```
 
-The checkout's version in the wheel name excludes older artifacts in `dist/`. This measures the current checkout, not the recorded 0.8.0 artifact. To repeat the 0.8.0 run, follow the [0.8.0 reproduction](https://github.com/alessio-locatelli/client-query-cache/blob/v0.8.0/docs/user/benchmarks/shared-cache.md#reproduce) from a `v0.8.0` checkout.
+The wheel name selects the checkout's version and the running architecture. This measures the current checkout, not the recorded 0.8.0 artifact. To repeat the 0.8.0 run, follow the [0.8.0 reproduction](https://github.com/alessio-locatelli/client-query-cache/blob/v0.8.0/docs/user/benchmarks/shared-cache.md#reproduce) from a `v0.8.0` checkout.
 
 The benchmark requires a working Docker-compatible development runtime. Use the repository's documented [development environment](https://github.com/alessio-locatelli/client-query-cache/blob/main/CONTRIBUTING.md) when running in Toolbx. The harness accepts no production URI and writes only to its disposable replica set. Raw timing output is untracked.

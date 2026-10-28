@@ -238,7 +238,7 @@ just verify-release v1.2.3
 
 A mismatch fails with an actionable error; a match succeeds without creating a tag or any other release state.
 
-The same check is also available as the manual "Release verification" GitHub Actions workflow (`workflow_dispatch`, with an optional `tag` input) for verifying a candidate release from the GitHub UI or `gh workflow run` without a local checkout.
+The same check is also available as the manual "Release verification" GitHub Actions workflow (`workflow_dispatch`, with an optional `tag` input) for verifying a candidate release from the GitHub UI or `gh workflow run` without a local checkout. It runs on native hardware for each [supported architecture](docs/user/getting-started/installation.md#requirements) and retains the verified artifacts for inspection. The local command verifies the current machine’s architecture.
 
 ## Releasing
 
@@ -280,7 +280,7 @@ Before the first release, complete the [one-time PyPI publishing setup](docs/dev
 6. Push the tag: `git push origin vX.Y.Z`.
 
 Pushing the tag triggers the `publish.yml` workflow, which builds and verifies the release
-artifacts, then pauses for the `pypi` environment's required reviewer to approve before uploading to
+artifacts on every supported architecture, then pauses for the `pypi` environment's required reviewer to approve before uploading to
 PyPI and creating the matching GitHub Release.
 
 Link the acceptance record from the publishing run's `pypi` approval context.

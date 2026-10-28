@@ -4,13 +4,12 @@
 
 [Issue #340](https://github.com/alessio-locatelli/client-query-cache/issues/340)
 asks for an evidence-backed first portability target. The
-[feasibility report](../../../reports/platform-portability/feasibility.md)
+[feasibility report](../../../../reports/platform-portability/feasibility.md)
 identifies Linux ARM64 as the smallest extension of the current deployment model.
 
 ## What Changes
 
-- Propose Linux ARM64/glibc support, contingent on maintainer approval and target
-  runtime evidence; no support is committed by these planning artifacts.
+- Add Linux ARM64/glibc support qualified by native runtime evidence.
 - Extend release distribution and native acceptance to the proposed target.
 - Keep other operating systems and libc implementations outside implementation.
 

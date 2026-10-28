@@ -3,10 +3,8 @@
 ## Context
 
 See [proposal.md](proposal.md) for motivation and the linked feasibility report
-for source traces and probe results. **Status: approved for build/test/release work and the platform guard.** The
-maintainer limited this implementation to changes outside the core cache code;
-any required core change returns for discussion. macOS/Windows process-local
-support is tracked in [issue #357](https://github.com/alessio-locatelli/client-query-cache/issues/357).
+for source traces and probe results. macOS/Windows process-local support is
+tracked in [issue #357](https://github.com/alessio-locatelli/client-query-cache/issues/357).
 
 The local cache already uses the bundled Rust extension. Its shared backend uses
 Linux kernel facilities, while the Python server rejects non-x86-64 machines.
@@ -45,8 +43,8 @@ Alternatives:
   acceptance task resolves it before committing to both modes; local-only is
   not an automatic fallback if it fails.
 - **Keep current platforms:** incurs no ongoing CI/release cost and is valid
-  given unknown demand, but enables no new deployment environment. No technical
-  investigation is needed to choose it instead during approval.
+  given unknown demand, but enables no new deployment environment. No additional technical
+  investigation is needed to choose this alternative.
 
 ### Qualify on native hardware with a bounded CI expansion
 
@@ -83,7 +81,7 @@ task 2.2; no custom wheel validator or packaging dependency is justified.
 - Weaker memory ordering may expose bugs absent on x86-64 → inspect atomic layout
   and version/fence invariants, run existing concurrency models once, and exercise
   the native cross-process suite. Passing tests provide bounded evidence, not a
-  proof. A required ordering/layout redesign returns for approval.
+  proof. A required ordering/layout redesign needs a separate scope decision.
 - Native runners, Zig, dependency wheels or MongoDB images may fail on ARM →
   investigate within the acceptance tasks; do not advertise support until resolved.
 - Recurring cost increases by one focused runtime lane and one artifact lane →
@@ -96,7 +94,7 @@ task 2.2; no custom wheel validator or packaging dependency is justified.
 
 ## Migration Plan
 
-After approval, qualify the target and update canonical installation guidance and
+Qualify the target and update canonical installation guidance and
 Context7 in the same implementation. Record native runner architecture, interpreter,
 revision and artifact results. If qualification is blocked, keep support unchanged
 and record the concrete scope/blocker under issue #340 before any closure. Do not
