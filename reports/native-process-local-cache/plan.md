@@ -553,3 +553,37 @@ replace that differential reference instance.
 C uses a separate installed environment at `/tmp/agents/native-local-20261027/candidate-env`; the working checkout remains the clean, committed C branch. This separates acquisition imports from the editable environment used for the source coverage gate. The matched explicit M/C wheel builds completed in release mode with the registered Zig/glibc settings. The reference collector recheck verified all eight sorted-read model/path/state cells, complete values, charged bytes, admission stability and CPU resolution.
 
 The acquisition host is an Intel Core i3-13100. Toolbx does not expose `cpu.max`, `memory.max` or `pids.max` at the cgroup mount root; record that absence rather than inferring cgroup limits. Process limits/affinity and RSS/USS/PSS remain available, and each server has its explicit container limits. Retain the full host and wheel hashes in the untracked `host-and-artifacts.json`; the results report will identify the reproducible source and build settings.
+
+## Bounded follow-up registered after cohort 1
+
+Cohort 1 completed all 600 public windows, 1,860 memory checkpoints and 30
+contention windows. All 15 existing-case runs completed; retain the original
+block-2 N test interval as invalid because the supervising daemon restarted
+while it ran, and use the separately recorded identical-node replacement. No
+other completed measurement is replaced for a favorable result.
+
+The CPU target passed all five blocks against both M and R. Long-key warm PSS
+fell about 2%, below the memory threshold. The unresolved public control is
+short-window timing variation: asynchronous small-entry hot tails and sorted
+find latency/CPU/throughput include mixed directions, also seen in matched
+direct controls. This does not yet establish a repeatable implementation
+regression or waive that control.
+
+Use the one additional five-block uncertainty cohort for that timing question.
+Keep C and its wheels unchanged. Repeat exactly these original cells: sorted
+find hot/cold in both APIs, and small-entry hot in the asynchronous API; retain
+both direct and independent paths, original sample counts, full catalogue
+warmup/residency, values, counters and resource collection. This is 10 windows
+per revision, 150 windows total, in the original five revision orders and
+within-block model/state/path ordering. It supplements the completed matrix;
+it cannot replace the CPU target or any original negative observation. Do not
+repeat memory, contention or existing-test costs to answer this public-window
+question. Retain the new cohort separately under `cohort-uncertainty/` and report
+both cohorts. Any unresolved control after this allowance remains inconclusive.
+
+Separately profile generic find_one hot/cold with 256 calls/worker in both APIs
+for R/N, using the same installed C wheel. These instrumented runs attribute
+costs; their timing is not an additional gain cohort. The attributed-correction
+allowance remains unused.
+
+Run this subset through the versioned controller by adding `--components public --uncertainty` to the registered per-revision acquisition command. The first temporary M preparation run is retained as invalid after the registration commit was rejected for a missing commit body; no native follow-up ran before the committed controller and registration.

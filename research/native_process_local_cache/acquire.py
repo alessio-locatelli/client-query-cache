@@ -60,6 +60,7 @@ def public(
     block: NonNegativeInt,
     *,
     native: bool,
+    uncertainty: bool = False,
 ) -> None:
     windows = []
     invalid = None
@@ -75,9 +76,16 @@ def public(
     paths: tuple[Literal["direct", "independent"], ...] = (
         ("independent", "direct") if block % 2 else ("direct", "independent")
     )
+    cells = (
+        (shape, model, workload)
+        for shape, model, workload in product(shapes, models, workloads)
+        if not uncertainty
+        or shape.method == "find"
+        or (shape.method, model, workload) == ("small-entries", "async", "hot")
+    )
     try:
         with MongoClient[BsonDict](replica.uri) as client:
-            for shape, model, workload in product(shapes, models, workloads):
+            for shape, model, workload in cells:
                 samples = shape.hot_samples if workload == "hot" else shape.cold_samples
                 for path in paths:
                     active = {
@@ -155,6 +163,7 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--wheel", type=Path, required=True)
     parser.add_argument("--existing-nodes", type=Path, required=True)
+    parser.add_argument("--uncertainty", action="store_true")
     parser.add_argument(
         "--components",
         nargs="+",
@@ -164,6 +173,8 @@ def main() -> None:
     arguments = parser.parse_args()
     if arguments.block < 0:
         parser.error("block must not be negative")
+    if arguments.uncertainty and arguments.components != ["public"]:
+        parser.error("the registered uncertainty cohort contains public cells only")
     assert digest(arguments.existing_nodes) == _NODE_HASH
     arguments.output.mkdir(parents=True, exist_ok=False)
     imported = implementation(None)
@@ -203,6 +214,7 @@ def main() -> None:
                     arguments.output / "public.json",
                     arguments.block,
                     native=native,
+                    uncertainty=arguments.uncertainty,
                 )
             if "contention" in arguments.components:
                 windows = []
