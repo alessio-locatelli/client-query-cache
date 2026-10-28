@@ -6,7 +6,7 @@
 | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | Python            | Standard CPython 3.14+; free-threaded builds are unsupported                                                                             |
 | PyMongo           | 4.18.1 or newer                                                                                                                          |
-| Package platform  | Linux x86-64 with glibc 2.28+; other platforms are unsupported                                                                           |
+| Package platform  | Linux x86-64 or ARM64 with glibc 2.28+; other platforms are unsupported                                                                  |
 | Shared-cache host | Linux 5.1+ with `memfd` sealing and `/proc` available                                                                                    |
 | MongoDB caching   | MongoDB 8.0+ on a replica set or sharded cluster                                                                                         |
 | Database access   | Collection reads and metadata (`listCollections`, plus `listIndexes` for unique-key discovery), and database-level `changeStream` access |

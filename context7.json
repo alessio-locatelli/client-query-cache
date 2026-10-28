@@ -32,7 +32,7 @@
     "Check shared-read eligibility: shared caching requires portable keys, standard dict documents, no custom codec registry and simple explicit/default collation; aggregates must stay within one collection. Other requests fall back to PyMongo.",
     "Preserve all query and authorization predicates when using either manager. Never remove tenant filters or change query semantics to obtain cache hits; credential or role changes alone do not invalidate cached documents.",
     "Keep SharedCacheConnection private: never log or persist it. Share only among trusted workers using the same MongoDB deployment, credentials and read visibility; holders can read all configured databases and submit cached values.",
-    "Use Linux x86-64 with glibc 2.28+; shared hosts also need Linux 5.1+, memfd sealing and /proc. For caching, use MongoDB 8.0+ replica sets or sharded clusters with collection reads, metadata and database-level changeStream access.",
+    "Use Linux x86-64 or ARM64 with glibc 2.28+; shared hosts also need Linux 5.1+, memfd sealing and /proc. For caching, use MongoDB 8.0+ replica sets or sharded clusters with collection reads, metadata and database-level changeStream access.",
     "Size memory from measured peaks across workers and the shared owner; BSON budgets do not cap RSS or container memory. Distinguish capacity eviction from freshness: change streams invalidate data, while LRU eviction frees capacity."
   ]
 }
