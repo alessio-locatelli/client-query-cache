@@ -587,3 +587,44 @@ costs; their timing is not an additional gain cohort. The attributed-correction
 allowance remains unused.
 
 Run this subset through the versioned controller by adding `--components public --uncertainty` to the registered per-revision acquisition command. The first temporary M preparation run is retained as invalid after the registration commit was rejected for a missing commit body; no native follow-up ran before the committed controller and registration.
+
+### One attributed candidate correction
+
+The additional timing cohort is complete and retained separately; its
+asynchronous small-entry hot medians and CPU were lower in every block, while
+short-window tails remain variable in both cached and direct controls. Do not
+turn that observation into a new target.
+
+C1 has a separate, repeatable post-close PSS regression in long-key cells:
+roughly 47 MiB (sync) and 67 MiB (async) above M after trimming. The full-workload
+allocator diagnostic found zero native ownership counts after close and live
+Python block bytes back near baseline, but 139 Python arenas remained versus
+44 at baseline; a matched reference diagnostic retained 89 versus 43. These
+host-process diagnostic values explain retention, not acceptance gains.
+
+A bounded 5,000-key Memray trace with native stacks and Python allocator
+tracking retained about 106 KiB at close. Its largest two groups were 215 and
+188 51-byte Unicode allocations from the native capture/admission calls.
+The binding repeatedly constructs fixed attribute-name strings.
+[CPython 3.14.7's lookup cache](https://github.com/python/cpython/blob/v3.14.7/Objects/typeobject.c#L36-L49)
+uses name addresses and holds name references. This identifies a concrete
+allocation source that can pin sparsely used Python arenas.
+
+Use the single correction allowance to intern fixed attribute and method names
+in the native binding. Preserve the key representation, ownership layout,
+selection, data, target and control matrix. Commit and identify corrected C2
+before its timing. Build the same release feature wheel and repeat all original
+M/R/N blocks and resource/existing-case controls, keeping C1 and the uncertainty
+cohort intact. No second candidate tuning or uncertainty cohort is allowed.
+
+Reproduce allocation attribution with the optional locked `memory` group and
+`python -m research.native_process_local_cache.diagnose_allocations --api sync
+--scenario large-keys --backend native --entries 5000 --trace <raw.bin>`.
+Use `--entries 64000` without a trace for the original cold/warm/eviction/close
+sequence and allocator statistics. The diagnostic entry point reuses the memory
+builders; it does not alter qualification samples. Memray 1.20.0 emitted malloc
+and free symbol-correction warnings; its
+[hook implementation](https://github.com/bloomberg/memray/blob/v1.20.0/src/memray/_memray/hooks.h#L97-L110)
+updates the resolved original addresses before forwarding allocations. Retain
+those warnings with the trace and use this instrumented result only for
+attribution. The uninstrumented qualification logs contain no warnings.

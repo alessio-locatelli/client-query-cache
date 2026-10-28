@@ -1142,9 +1142,16 @@ const OUTCOMES: usize = 15;
 const REASONS: usize = 16;
 
 fn namespace_names(namespace: &Bound<'_, PyAny>) -> PyResult<(PyBackedStr, PyBackedStr)> {
+    let py = namespace.py();
+    // CPython caches attribute names by address. Reuse names rather than
+    // pinning fresh strings in otherwise empty Python allocator arenas.
     Ok((
-        namespace.getattr("database")?.extract()?,
-        namespace.getattr("collection")?.extract()?,
+        namespace
+            .getattr(pyo3::intern!(py, "database"))?
+            .extract()?,
+        namespace
+            .getattr(pyo3::intern!(py, "collection"))?
+            .extract()?,
     ))
 }
 
@@ -1523,8 +1530,8 @@ impl LocalOwner {
             .filter(|value| !value.is_none())
             .map(|source| -> PyResult<Source> {
                 Ok(Source {
-                    family: source.getattr("family")?.extract()?,
-                    limit: source.getattr("limit")?.extract()?,
+                    family: source.getattr(pyo3::intern!(py, "family"))?.extract()?,
+                    limit: source.getattr(pyo3::intern!(py, "limit"))?.extract()?,
                 })
             })
             .transpose()?;
@@ -1697,7 +1704,7 @@ impl LocalOwner {
     fn new(py: Python<'_>, config: Option<&Bound<'_, PyAny>>) -> PyResult<Self> {
         let operations = py
             .import("client_query_cache._core.native")?
-            .getattr("_OPERATIONS")?
+            .getattr(pyo3::intern!(py, "_OPERATIONS"))?
             .cast_into::<PyTuple>()?;
         let setup = operations
             .get_item(INITIALIZE)?
@@ -1753,11 +1760,19 @@ impl LocalOwner {
     }
     #[getter]
     fn max_entry_bytes(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
-        Ok(self.config.bind(py).getattr("max_entry_bytes")?.unbind())
+        Ok(self
+            .config
+            .bind(py)
+            .getattr(pyo3::intern!(py, "max_entry_bytes"))?
+            .unbind())
     }
     #[getter]
     fn max_namespaces(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
-        Ok(self.config.bind(py).getattr("max_namespaces")?.unbind())
+        Ok(self
+            .config
+            .bind(py)
+            .getattr(pyo3::intern!(py, "max_namespaces"))?
+            .unbind())
     }
     fn snapshot(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let values = {
@@ -1804,7 +1819,9 @@ impl LocalOwner {
     fn record_bypass(&self, py: Python<'_>, reason: Option<&Bound<'_, PyAny>>) -> PyResult<()> {
         let reasons = self.operation(py, REASONS);
         let index = if let Some(reason) = reason {
-            reasons.call_method1("index", (reason,))?.extract()?
+            reasons
+                .call_method1(pyo3::intern!(py, "index"), (reason,))?
+                .extract()?
         } else {
             reasons.len()? - 1
         };
@@ -2326,11 +2343,11 @@ impl LocalOwner {
             shape.clone()
         } else {
             self.operation(py, PREPARED_FIND).call1((
-                self.canonical(&shape.getattr("family")?)?,
-                shape.getattr("limit")?,
+                self.canonical(&shape.getattr(pyo3::intern!(py, "family"))?)?,
+                shape.getattr(pyo3::intern!(py, "limit"))?,
             ))?
         };
-        let key = prepared.getattr("discriminator")?;
+        let key = prepared.getattr(pyo3::intern!(py, "discriminator"))?;
         let hashes = Query::Plain(&key).hash()?;
         loop {
             let (revision, namespace_id, pins) = {
@@ -2371,7 +2388,7 @@ impl LocalOwner {
             }
             // Prepare a covering-family probe only after an exact miss. The
             // ordinary exact hit hashes its prepared discriminator just once.
-            let raw_limit = prepared.getattr("limit")?;
+            let raw_limit = prepared.getattr(pyo3::intern!(py, "limit"))?;
             let positive = !raw_limit.is_instance_of::<PyBool>() && raw_limit.gt(0)?;
             let limit = if positive {
                 match raw_limit.extract::<u64>() {
@@ -2382,7 +2399,7 @@ impl LocalOwner {
             } else {
                 None
             };
-            let family = prepared.getattr("family")?;
+            let family = prepared.getattr(pyo3::intern!(py, "family"))?;
             let family_hash = if positive { Some(family.hash()?) } else { None };
             let candidates = {
                 let state = self.state.lock().expect("local owner mutex");
@@ -2444,7 +2461,11 @@ impl LocalOwner {
         match self.lookup_find_encoded(py, namespace, shape)? {
             Some(payload) => Ok(self
                 .operation(py, DECODE_FIND)
-                .call1((payload.bind(py), shape.getattr("limit")?, codec_options))?
+                .call1((
+                    payload.bind(py),
+                    shape.getattr(pyo3::intern!(py, "limit"))?,
+                    codec_options,
+                ))?
                 .unbind()),
             None => Ok(self.operations[MISS].clone_ref(py)),
         }
@@ -2702,7 +2723,7 @@ impl LocalOwner {
     fn record_stream_poll(&self, py: Python<'_>, database: &str) -> PyResult<()> {
         self.stream_cost
             .bind(py)
-            .call_method1("record_poll", (database,))?;
+            .call_method1(pyo3::intern!(py, "record_poll"), (database,))?;
         Ok(())
     }
     fn record_logical_event_bytes(
@@ -2711,9 +2732,10 @@ impl LocalOwner {
         database: &str,
         count: u64,
     ) -> PyResult<()> {
-        self.stream_cost
-            .bind(py)
-            .call_method1("record_logical_event_bytes", (database, count))?;
+        self.stream_cost.bind(py).call_method1(
+            pyo3::intern!(py, "record_logical_event_bytes"),
+            (database, count),
+        )?;
         Ok(())
     }
     fn record_invalidation_applied(
@@ -2725,7 +2747,7 @@ impl LocalOwner {
         monotonic_seconds: f64,
     ) -> PyResult<()> {
         self.stream_cost.bind(py).call_method1(
-            "record_invalidation",
+            pyo3::intern!(py, "record_invalidation"),
             (database, raw_lag_seconds, wall_seconds, monotonic_seconds),
         )?;
         Ok(())
@@ -2736,10 +2758,12 @@ impl LocalOwner {
             Some(database) => {
                 self.stream_cost
                     .bind(py)
-                    .call_method1("reset", (database,))?;
+                    .call_method1(pyo3::intern!(py, "reset"), (database,))?;
             }
             None => {
-                self.stream_cost.bind(py).call_method0("reset_all")?;
+                self.stream_cost
+                    .bind(py)
+                    .call_method0(pyo3::intern!(py, "reset_all"))?;
             }
         }
         Ok(())
@@ -2751,14 +2775,14 @@ impl LocalOwner {
         Ok(self
             .stream_cost
             .bind(py)
-            .call_method("snapshot", (database,), Some(&kwargs))?
+            .call_method(pyo3::intern!(py, "snapshot"), (database,), Some(&kwargs))?
             .unbind())
     }
     fn active_stream_cost_databases(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         Ok(self
             .stream_cost
             .bind(py)
-            .call_method0("active_databases")?
+            .call_method0(pyo3::intern!(py, "active_databases"))?
             .unbind())
     }
     fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {

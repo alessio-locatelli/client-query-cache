@@ -7,11 +7,12 @@ import gc
 import multiprocessing
 import threading
 import weakref
+from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import partial
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, Literal, NamedTuple
 
 import pytest
 from bson.int64 import Int64
@@ -56,6 +57,34 @@ class Ownership(NamedTuple):
     aliases: NonNegativeInt
     captures: NonNegativeInt
     sources: NonNegativeInt
+
+
+@pytest.fixture
+def namespace_attribute_names(monkeypatch: pytest.MonkeyPatch) -> dict[str, list[str]]:
+    names: dict[str, list[str]] = defaultdict(list)
+    original = NamespaceId.__getattribute__
+
+    def observe(namespace: NamespaceId, name: str) -> object:
+        names[name].append(name)
+        return original(namespace, name)
+
+    monkeypatch.setattr(NamespaceId, "__getattribute__", observe)
+    return names
+
+
+@pytest.mark.parametrize("field_name", ["database", "collection"])
+def test_native_namespace_lookups_reuse_attribute_names(
+    native: LocalCacheCore,
+    namespace_attribute_names: dict[str, list[str]],
+    field_name: Literal["database", "collection"],
+    faker: Faker,
+) -> None:
+    absent_key = faker.pystr()
+    for _ in range(16):
+        assert not native.lookup_namespace(_NAMESPACE, absent_key).hit
+    names = namespace_attribute_names[field_name]
+    assert len(names) >= 16
+    assert all(name is names[0] for name in names)
 
 
 def ownership(core: LocalCacheCore) -> Ownership:
