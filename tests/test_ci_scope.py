@@ -46,6 +46,15 @@ pytestmark = pytest.mark.unit
         pytest.param(("notes.txt",), False, False, False, False, False, id="unrelated"),
         pytest.param(("justfile",), True, False, False, False, True, id="justfile"),
         pytest.param(
+            ("scripts/zig-linker.sh",),
+            True,
+            False,
+            False,
+            False,
+            False,
+            id="release-linker",
+        ),
+        pytest.param(
             ("tox.ini",), True, False, False, False, False, id="minimum-driver-config"
         ),
         pytest.param(
@@ -113,24 +122,6 @@ pytestmark = pytest.mark.unit
             True,
             True,
             id="shared-tools",
-        ),
-        pytest.param(
-            (".github/workflows/publish.yml",),
-            False,
-            True,
-            False,
-            False,
-            False,
-            id="publish-tools",
-        ),
-        pytest.param(
-            (".github/workflows/release-verification.yml",),
-            False,
-            True,
-            False,
-            False,
-            False,
-            id="release-tools",
         ),
         pytest.param(
             (".github/workflows/stream-cost-benchmark.yml",),
@@ -302,6 +293,7 @@ def test_ci_scope_selects_validation_tiers(
     selected = _selected_tiers(changed_paths)
     assert selected == {
         "python": str(python).lower(),
+        "arm64": str(python).lower(),
         "format": str(formatting).lower(),
         "container": str(container).lower(),
         "benchmark": str(benchmark).lower(),
@@ -338,3 +330,16 @@ def _selected_tiers(changed_paths: tuple[str, ...]) -> dict[str, str]:
     )
 
     return dict(line.split("=") for line in completed.stdout.decode().splitlines())
+
+
+@pytest.mark.parametrize(
+    "path",
+    [".github/workflows/publish.yml", ".github/workflows/release-verification.yml"],
+    ids=("publication", "manual-verification"),
+)
+def test_release_workflows_select_native_arm64_without_python_matrix(
+    path: NonEmptyStr,
+) -> None:
+    selected = _selected_tiers((path,))
+    assert selected["arm64"] == "true"
+    assert selected["python"] == "false"

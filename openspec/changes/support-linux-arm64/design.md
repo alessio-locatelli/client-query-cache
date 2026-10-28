@@ -3,8 +3,10 @@
 ## Context
 
 See [proposal.md](proposal.md) for motivation and the linked feasibility report
-for source traces and probe results. **Status: proposed; target and design await
-maintainer approval under issue #340.** Implementation must not start beforehand.
+for source traces and probe results. **Status: approved for build/test/release work and the platform guard.** The
+maintainer limited this implementation to changes outside the core cache code;
+any required core change returns for discussion. macOS/Windows process-local
+support is tracked in [issue #357](https://github.com/alessio-locatelli/client-query-cache/issues/357).
 
 The local cache already uses the bundled Rust extension. Its shared backend uses
 Linux kernel facilities, while the Python server rejects non-x86-64 machines.

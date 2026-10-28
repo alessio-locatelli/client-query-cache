@@ -44,7 +44,7 @@ from client_query_cache._shared.attachment import (
     AttachmentConfigurationError,
     ControlAttachment,
 )
-from client_query_cache._types import BsonDict, PositiveInt
+from client_query_cache._types import BsonDict, NonEmptyStr, PositiveInt
 from client_query_cache.asynchronous import (
     SharedCachedCollection as AsyncSharedCachedCollection,
 )
@@ -803,12 +803,28 @@ async def test_bson_timestamps_are_portable_shared_keys(
     assert manager.snapshot().misses == before.misses + 1
 
 
-def test_server_rejects_unsupported_architecture(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize(
+    ("system", "machine"),
+    [("Linux", "armv7l"), ("Darwin", "arm64"), ("Windows", "AMD64")],
+    ids=("linux-32-bit", "macos", "windows"),
+)
+def test_server_rejects_unsupported_platform(
+    monkeypatch: pytest.MonkeyPatch, system: NonEmptyStr, machine: NonEmptyStr
 ) -> None:
-    monkeypatch.setattr(platform, "machine", lambda: "unsupported")
-    with pytest.raises(CacheConfigurationError, match="Linux x86-64"):
+    monkeypatch.setattr(platform, "system", lambda: system)
+    monkeypatch.setattr(platform, "machine", lambda: machine)
+    with pytest.raises(CacheConfigurationError, match="Linux x86-64 or ARM64"):
         SharedCacheServer("mongodb://127.0.0.1:1", ("application",))
+
+
+@pytest.mark.parametrize("machine", ["x86_64", "aarch64"], ids=("x86-64", "arm64"))
+def test_server_validates_configuration_on_supported_platforms(
+    monkeypatch: pytest.MonkeyPatch, machine: NonEmptyStr
+) -> None:
+    monkeypatch.setattr(platform, "system", lambda: "Linux")
+    monkeypatch.setattr(platform, "machine", lambda: machine)
+    with pytest.raises(CacheConfigurationError, match="databases must contain"):
+        SharedCacheServer("mongodb://127.0.0.1:1", ())
 
 
 def test_startup_failure_is_sanitized() -> None:

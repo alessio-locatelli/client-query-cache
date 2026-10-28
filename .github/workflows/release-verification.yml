@@ -23,8 +23,14 @@ permissions:
 
 jobs:
   release-verification:
-    name: Non-publishing release verification
-    runs-on: ubuntu-24.04
+    name: Non-publishing release verification (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    # Keep both architecture outcomes when one fails.
+    # https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idstrategyfail-fast
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
     # timeout-minutes for release-verification (15m): The default is 360. We override it
     # because stalled jobs must stop within their assigned validation/publication
     # budgets.
@@ -57,3 +63,13 @@ jobs:
       - run: just verify-release "${INPUTS_TAG}"
         env:
           INPUTS_TAG: ${{ inputs.tag }}
+
+      # upload-artifact: https://github.com/actions/upload-artifact
+      # The default name is artifact. Separate native builds, keeping a single sdist
+      # from x86-64 so the merged release set has no duplicate source archive.
+      # retention-days defaults to repository policy; bound inspection artifacts.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dist-${{ matrix.runner }}
+          path: ${{ matrix.runner == 'ubuntu-24.04' && 'dist/' || 'dist/*.whl' }}
+          retention-days: 7

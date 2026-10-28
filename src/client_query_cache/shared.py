@@ -154,8 +154,11 @@ class SharedCacheServer:
         config: SharedCacheConfig = _DEFAULT_CONFIG,
         client_options: Mapping[str, object] | None = None,
     ) -> None:
-        if platform.system() != "Linux" or platform.machine() != "x86_64":
-            raise CacheConfigurationError("shared caches require Linux x86-64")
+        if platform.system() != "Linux" or platform.machine() not in {
+            "x86_64",
+            "aarch64",
+        }:
+            raise CacheConfigurationError("shared caches require Linux x86-64 or ARM64")
         if not databases or any(
             not isinstance(name, str) or not name for name in databases
         ):

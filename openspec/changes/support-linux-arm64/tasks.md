@@ -1,12 +1,12 @@
 # Tasks
 
-Implementation is pending the explicit approval recorded in [design.md](design.md).
+The approved implementation boundary is recorded in [design.md](design.md).
 All acceptance references below use that document's decisions.
 
 ## 1. Platform boundary
 
-- [ ] 1.1 Update `SharedCacheServer` in `src/client_query_cache/shared.py` to admit the proposed architecture; parametrize the supported/unsupported platform cases in `tests/shared_cache/test_public.py` without starting an owner for invalid hosts. Confirm existing x86-64 errors and configuration validation remain meaningful.
-- [ ] 1.2 Check `memory.rs`, `index.rs`, `ring.rs` and `frames.rs` against the target's atomic size/alignment, native-endian encoding and version/fence assumptions. Record the conclusions in the feasibility report; an ordering or layout redesign requires renewed approval rather than silently expanding this task.
+- [x] 1.1 Update `SharedCacheServer` in `src/client_query_cache/shared.py` to admit the proposed architecture; parametrize the supported/unsupported platform cases in `tests/shared_cache/test_public.py` without starting an owner for invalid hosts. Confirm existing x86-64 errors and configuration validation remain meaningful.
+- [x] 1.2 Check `memory.rs`, `index.rs`, `ring.rs` and `frames.rs` against the target's atomic size/alignment, native-endian encoding and version/fence assumptions. Record the conclusions in the feasibility report; an ordering or layout redesign requires renewed approval rather than silently expanding this task.
 
 ## 2. Target acceptance and distribution
 
@@ -16,5 +16,5 @@ All acceptance references below use that document's decisions.
 
 ## 3. Code Quality
 
-- [ ] 3.1 Scan each entire edited or added test file, including its pre-existing tests, against the AGENTS.md Writing Tests rules and apply parametrization where test logic is shared.
+- [x] 3.1 Scan each entire edited or added test file, including its pre-existing tests, against the AGENTS.md Writing Tests rules and apply parametrization where test logic is shared.
 - [x] 3.2 Confirm no new code prose was added if applying with Claude Code; OpenAI Codex is exempt (planning prepared by Codex).
