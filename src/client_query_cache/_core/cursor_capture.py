@@ -12,9 +12,9 @@ if TYPE_CHECKING:
 
     from bson.codec_options import CodecOptions
 
-    from client_query_cache._core.contracts import LocalCacheCore, NamespaceCaptureView
     from client_query_cache._core.entries import AdmissionOutcome
     from client_query_cache._core.find_reads import FindSource
+    from client_query_cache._core.manager import CacheCore, NamespaceCapture
 
 
 class CursorCapture:
@@ -34,8 +34,8 @@ class CursorCapture:
 
     def __init__(
         self,
-        core: LocalCacheCore,
-        capture: NamespaceCaptureView,
+        core: CacheCore,
+        capture: NamespaceCapture,
         discriminator: object,
         codec_options: CodecOptions[Mapping[str, Any]],
         *,

@@ -1,6 +1,10 @@
 # Native process-local cache acquisition
 
-Registered on 2026-10-27 before baseline timing or candidate construction.
+The initial protocol was registered on 2026-10-27 before baseline timing or
+candidate construction. Later registrations and diagnostic checkpoints are
+identified below. The completed decision and results live in [results.md](results.md).
+Reproduce prototype commands from the published measured source identified
+there; the delivered tree has no prototype selector.
 The [design](../../openspec/changes/prototype-native-process-local-cache/design.md)
 defines the implementation boundary; the
 [evaluation contract](../../openspec/changes/prototype-native-process-local-cache/specs/process-local-cache-evaluation/spec.md)
@@ -355,7 +359,7 @@ Python key graph that dominates reference allocation attribution. The delta
 spec already permits a complete-operation CPU gain, and this target uses an
 existing registered cell with unchanged counts and controls. This amendment
 preserves the memory target and does not waive any regression or conformance
-gate. No native candidate has yet been timed, and no favorable native timing
+gate. At this amendment no native candidate had been timed, and no favorable native timing
 diagnostic motivated the amendment.
 
 ## Integrated owner conformance before timing
@@ -440,8 +444,9 @@ source scripts/testcontainers-bridge.sh
 .venv/bin/python -m pytest -p research.native_process_local_cache.pytest_plugin tests/synchronous/test_collection.py tests/asynchronous/test_collection.py tests/test_bound_sessions.py tests/test_cached_cursors.py -n 0 -q
 ```
 
-Candidate timing, the full existing-test timing comparison, the remaining
-stream/concurrency conformance and final ordinary-wheel controls are pending.
+At this checkpoint, candidate timing, the full existing-test comparison and
+remaining stream/concurrency conformance were pending. The final outcome is
+recorded in the results; ordinary-wheel controls are conditional on qualification.
 
 ## Collector validation before the candidate freeze
 
@@ -547,7 +552,8 @@ recovery. Direct reference-coordinator fakes and the explicit representation
 probes remain reference cases. `test_owner.py` adds actual native collision,
 reentrant/concurrent comparison, stale-admission, ABA, GC, alias and compatible
 source cases; its randomized histories compare against a distinct reference
-instance. The selector's module patch is restricted to `tests.*` and does not
+instance. At this checkpoint the selector's module patch was restricted to
+`tests.*` and did not
 replace that differential reference instance.
 
 C uses a separate installed environment at `/tmp/agents/native-local-20261027/candidate-env`; the working checkout remains the clean, committed C branch. This separates acquisition imports from the editable environment used for the source coverage gate. The matched explicit M/C wheel builds completed in release mode with the registered Zig/glibc settings. The reference collector recheck verified all eight sorted-read model/path/state cells, complete values, charged bytes, admission stability and CPU resolution.
@@ -687,3 +693,22 @@ plugin; it is not 665 exclusively native executions. The corrected installed
 wheel also passed the full source gate at 100% coverage and strict exclusions.
 Its 61 Python/stub files match source, and its native extension matches C2b
 byte for byte. The unused residency protocol module is now a typing stub.
+
+## Completed acquisition and disposition
+
+The corrected source was frozen and published as `de8408aa` before its full
+cohort, then independently retrieved into a fresh checkout. All registered
+M/R/N blocks completed on 2026-10-28; per-component logs and complete child
+streams passed the final audit. The [results](results.md) retain the original,
+uncertainty and corrected cohorts, source/build identities and the decision.
+The bounded allowance is exhausted and the corrected candidate is unqualified.
+The conditional F/M integration acquisition therefore does not apply.
+
+The delivered tree removes the unqualified native owner, adapters, feature
+exports and private selection/orchestration. It retains the generic collectors,
+CPU precision correction, complete-stream capture and fixture fixes. Published
+history remains the reproduction source. The final whole-file test audit covers
+the foreign-process clock tests, imported-source assertion and cursor suite,
+including its pre-existing cases; owner/spike suites were audited before their
+preserved experimental source was removed. Public guides and Context7 retain
+their reference-core contract.

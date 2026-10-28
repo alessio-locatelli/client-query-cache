@@ -1,10 +1,7 @@
 from collections.abc import Callable, Mapping
 from typing import final
 
-from client_query_cache._core.contracts import LocalCacheCore
 from client_query_cache._types import NonNegativeInt, PositiveInt
-
-def local_cache_type() -> type[LocalCacheCore]: ...
 
 @final
 class Payload:

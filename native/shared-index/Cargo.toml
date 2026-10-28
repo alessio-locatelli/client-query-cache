@@ -17,7 +17,6 @@ crate-type = ["cdylib"]
 
 [features]
 python = ["dep:pyo3"]
-local-cache-prototype = ["python"]
 
 [dependencies]
 libc = "0.2.190"
