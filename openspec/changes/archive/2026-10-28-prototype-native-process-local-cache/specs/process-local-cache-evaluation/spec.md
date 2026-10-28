@@ -208,3 +208,10 @@ The change SHALL deliver either a qualified native default or the reference impl
 
 - **WHEN** all applicable conformance and performance gates are satisfied
 - **THEN** the same PR retains the native implementation in ordinary builds and qualifies that final integration against the registered baseline
+
+## REMOVED Requirements
+
+### Requirement: Material gains use the agreed thresholds
+
+**Reason**: The user replaced minimum percentage gains with evidence-based acceptance.
+**Migration**: Apply the proven-gains requirement; retain the historical acquisition rules in the report.

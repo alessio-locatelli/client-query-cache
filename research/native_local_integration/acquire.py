@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import platform
 import resource
 import subprocess
@@ -145,12 +146,20 @@ def command(
     started = time.monotonic()
     with output.open("w", encoding="utf-8") as log:
         completed_process = subprocess.run(  # noqa: S603 - Run fixed acquisition modules with the installed interpreter.
-            arguments, stdout=log, stderr=subprocess.STDOUT, check=False, cwd=checkout
+            arguments,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            check=False,
+            cwd=checkout,
+            env=None
+            if checkout is None
+            else os.environ | {"PYTHONPATH": str(checkout / "src")},
         )
     after = resource.getrusage(resource.RUSAGE_CHILDREN)
     observation = {
         "command": arguments,
         "checkout": str(Path.cwd() if checkout is None else checkout),
+        "source_overlay": None if checkout is None else str(checkout / "src"),
         "returncode": completed_process.returncode,
         "wall_seconds": time.monotonic() - started,
         "children_cpu_seconds": after.ru_utime

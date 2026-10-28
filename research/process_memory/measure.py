@@ -387,7 +387,7 @@ def coordinate(arguments: argparse.Namespace) -> None:
                         message = f"measured child exited with status {status}: {raw}"
                         raise RuntimeError(message)
                 finally:
-                    container.remove()
+                    container.remove(v=True)
                 frames = [json.loads(line) for line in output.decode().splitlines()]
                 if not frames or "completed_phases" not in frames[-1]:
                     message = f"missing child completion record: {raw}"

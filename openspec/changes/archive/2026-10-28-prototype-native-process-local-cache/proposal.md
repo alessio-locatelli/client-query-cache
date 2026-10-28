@@ -2,7 +2,7 @@
 
 ## Why
 
-The process-local cache retains Python query trees, entries, and generation bookkeeping outside its BSON budget; the historical [process-memory study](../../../reports/process-memory/summary.md) identifies substantial overhead for small results and long keys. Moving that ownership boundary into the library's Rust implementation can reduce repeated bookkeeping, with current complete-read and resource measurements determining whether the change is retained.
+The process-local cache retains Python query trees, entries, and generation bookkeeping outside its BSON budget; the historical [process-memory study](../../../../reports/process-memory/summary.md) identifies substantial overhead for small results and long keys. Moving that ownership boundary into the library's Rust implementation can reduce repeated bookkeeping, with current complete-read and resource measurements determining whether the change is retained.
 
 ## What Changes
 

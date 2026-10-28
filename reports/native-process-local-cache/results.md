@@ -1,6 +1,6 @@
 # Native process-local cache evaluation
 
-Ordinary-build adoption is being completed under the revised acceptance rule in the original OpenSpec change: stable demonstrated gains qualify without a minimum percentage, subject to documented material trade-offs. Final-wheel confirmation is reported below when complete.
+The ordinary wheel uses the Rust process-local owner in both APIs. Its registered complete hot `find_one()` CPU target improves in all five matched blocks: median 25.4%, range 11.3–31.5% against frozen main. The revised acceptance rule requires a demonstrated stable benefit, without a minimum percentage. Resource costs and inconclusive controls remain visible below.
 
 ## Historical candidate disposition
 
@@ -277,7 +277,7 @@ tails, without declaring unfavorable native windows invalid. The initial,
 uncertainty and corrected cohorts remain separate. No further cohort is used
 to search for a qualifying result.
 
-## Reproduction and disposition
+## Historical candidate reproduction and disposition
 
 Use the published C2 checkout for the experiment commands; the delivered tree
 contains the generic collectors but no native selector. The plan supplies the
@@ -302,12 +302,7 @@ the controller verifies its digest. Reproduce C1 with its immutable source and
 feature wheel, and the uncertainty subset with U's controller and C1's wheel.
 Instrumented attribution commands remain in the plan and use their named source.
 
-The final disposition removes the native owner/spike, Python adapter/contracts,
-feature exports, backend selector, prototype-only tests and orchestration. The
-generic workload/value/resource collectors, accurate owner CPU clock, complete
-memory-stream collection and cursor-fixture cleanup remain. The residency
-protocols remain typing-only. Public cache behavior and Context7 instructions
-continue to describe the reference implementation.
+The earlier negative disposition removed the native owner/spike, adapter/contracts, feature exports, selector, tests and orchestration while retaining the generic collectors. Ordinary-wheel adoption below restores the corrected owner through normal construction, with ownership tests in the regular suite and no selection hook. Documented public read and inspection behavior remains unchanged.
 
 ## Invalid runs and evidence limits
 
@@ -349,3 +344,114 @@ investigated and retained; profiled timings do not enter qualification.
 ## Ordinary-wheel acquisition setup rejection
 
 The first final-wheel baseline acquisition stopped at the first shared warm control: the new pre-warm metadata probe returned the legitimate transient `stream-starting` state. No native timing ran. Its two completed baseline windows and the failed setup remain under `/tmp/agents/native-local-20261027/final-cohort-setup-rejection`; they have no paired final-wheel comparison and do not enter the adoption decision. The collector now waits for that observed transient state within its existing readiness deadline, includes that wait in startup cost, and exposes worker failures while aborting peer barriers. The workload, target, and acceptance rule are unchanged.
+
+## Ordinary-wheel adoption
+
+The runtime is frozen at `cd9967d0592edc06568748c081926a3136b1c6fd`; the final acquisition harness is `34cb5fa4187a9c7ad22ea6aab1a99d02ec16278c`. F is an ordinary release wheel with no prototype Cargo feature or constructor selection. Its SHA-256 is `75cdc05312c975613ae2883b4ae61386219378dbe6072e194558a5dc6b25c6a0`; all 61 packaged Python/stub files matched the frozen source. M uses the original wheel identified above. Installed dependency versions matched exactly.
+
+The five blocks follow the original change's D6 registration. They contain 460 public windows, 1,240 complete memory checkpoints and 20 contention windows. Every completed performance component passed its result, installed-path, residency, cache-outcome and origin-read checks. All ten performance-component provenance records identify the frozen harness above; the subsequent test-source-overlay correction is recorded by the test command metadata. Raw outputs remain under `/tmp/agents/native-local-20261027/final-cohort`.
+
+### CPU confirmation and complete-read controls
+
+The predeclared target is synchronous generic `find_one()` hot CPU/read with four independent managers, including reader supervision. Each row is one paired block, not an independent request sample. All five favor F (one-sided exact sign test, p = 1/32), confirming the target direction under the registered rule.
+
+| Block | M CPU µs/read | F CPU µs/read | F/M change |
+| ----- | ------------: | ------------: | ---------: |
+| 0     |        24.472 |        21.713 |    -11.27% |
+| 1     |        27.761 |        21.946 |    -20.95% |
+| 2     |        31.943 |        21.887 |    -31.48% |
+| 3     |        27.724 |        20.687 |    -25.38% |
+| 4     |        30.432 |        22.087 |    -27.42% |
+
+The following independent-manager controls report median [minimum, maximum] paired changes in percent; negative CPU/latency and positive throughput changes favor F. They are workload-specific observations rather than an application-wide speedup. Direct controls remain part of the acquisition and retain variable tails.
+
+| Read / API / temperature     | CPU/read %           | P50 %                | P95 %                | P99 %                | Throughput %          |
+| ---------------------------- | -------------------- | -------------------- | -------------------- | -------------------- | --------------------- |
+| identity / sync / hot        | -35.1 [-61.9, -16.6] | -34.1 [-72.2, +3.0]  | -43.0 [-45.9, -19.8] | -43.2 [-48.6, -20.5] | +58.5 [+18.8, +117.0] |
+| identity / sync / cold       | -11.7 [-14.7, -10.2] | -7.6 [-10.9, -6.5]   | -4.4 [-27.9, +2.0]   | -3.9 [-40.3, +1.6]   | +8.0 [+5.8, +19.4]    |
+| identity / async / hot       | -40.2 [-46.2, -9.5]  | -32.4 [-34.0, -28.2] | -42.2 [-45.6, -11.5] | -42.4 [-44.2, -6.4]  | +59.3 [+18.4, +118.5] |
+| identity / async / cold      | -8.5 [-10.5, -5.9]   | -7.1 [-10.4, -3.7]   | -2.7 [-13.7, +19.4]  | -4.0 [-15.3, +8.3]   | +7.3 [-1.2, +10.5]    |
+| find_one / sync / hot        | -25.4 [-31.5, -11.3] | -30.4 [-30.7, -29.2] | -23.6 [-23.9, +6.4]  | -23.2 [-23.9, -19.6] | +34.5 [-4.5, +43.6]   |
+| find_one / sync / cold       | -9.3 [-10.4, -8.8]   | -6.3 [-7.2, -1.8]    | -8.8 [-23.7, +5.9]   | -8.3 [-30.4, +4.7]   | +8.4 [+0.2, +13.6]    |
+| find_one / async / hot       | -28.9 [-40.3, -15.1] | -28.9 [-56.3, -28.8] | -23.1 [-42.7, +2.4]  | -22.9 [-38.6, -0.4]  | +41.2 [+17.6, +57.3]  |
+| find_one / async / cold      | -7.9 [-8.6, -4.7]    | -6.2 [-6.7, -3.3]    | -2.6 [-17.4, +20.6]  | -2.7 [-22.3, +27.6]  | +5.4 [-5.5, +10.9]    |
+| find / sync / hot            | -14.2 [-27.0, +0.8]  | -11.5 [-51.0, -10.1] | -10.3 [-17.5, -6.4]  | -11.7 [-16.3, -4.7]  | +8.6 [-1.3, +30.5]    |
+| find / sync / cold           | -5.2 [-9.5, -4.6]    | -4.8 [-5.9, -1.6]    | +5.6 [-25.2, +16.2]  | +9.8 [-57.9, +41.2]  | +1.8 [+0.3, +10.4]    |
+| find / async / hot           | -3.4 [-16.6, +34.4]  | -10.6 [-39.6, +67.9] | -7.7 [-11.4, +7.8]   | -8.1 [-13.2, +6.7]   | +4.6 [-13.4, +27.6]   |
+| find / async / cold          | -3.9 [-10.4, -1.8]   | -3.1 [-9.8, +0.5]    | +12.7 [-36.7, +32.5] | +28.4 [-50.0, +62.8] | -1.5 [-3.5, +17.0]    |
+| small-entries / sync / hot   | -29.0 [-36.4, -15.7] | -31.0 [-32.5, -28.7] | -35.9 [-37.5, -5.4]  | -35.5 [-37.7, -8.7]  | +38.7 [+23.5, +60.8]  |
+| small-entries / sync / cold  | -8.8 [-10.1, -7.1]   | -8.0 [-12.9, -6.7]   | +9.0 [-23.7, +17.1]  | +6.5 [-25.9, +34.5]  | +5.2 [+1.5, +10.0]    |
+| small-entries / async / hot  | -32.3 [-47.3, -28.4] | -33.4 [-58.0, -30.1] | -34.5 [-54.5, -34.2] | -34.1 [-52.6, -32.8] | +51.8 [+35.0, +93.9]  |
+| small-entries / async / cold | -7.3 [-7.8, -6.1]    | -7.1 [-8.0, -6.1]    | -9.8 [-11.4, +8.0]   | -14.2 [-18.5, +9.3]  | +6.3 [+3.6, +8.1]     |
+| large-keys / sync / hot      | -13.6 [-21.0, -11.9] | -15.9 [-16.9, -15.4] | -12.2 [-13.1, -11.6] | -11.9 [-12.7, -11.3] | +18.8 [+15.5, +19.5]  |
+| large-keys / sync / cold     | -4.4 [-5.6, -3.8]    | -5.8 [-6.6, -5.4]    | -9.0 [-17.0, +2.3]   | -1.9 [-16.6, +8.2]   | +2.9 [+1.2, +6.0]     |
+| large-keys / async / hot     | -17.2 [-24.0, -14.2] | -15.5 [-15.9, -13.5] | -12.2 [-25.6, -11.0] | -11.9 [-22.4, -11.0] | +16.4 [+14.2, +33.8]  |
+| large-keys / async / cold    | -4.2 [-5.9, -1.6]    | -5.3 [-6.3, -1.1]    | +2.7 [-18.7, +13.4]  | +2.2 [-30.4, +20.6]  | +2.0 [-5.0, +7.8]     |
+
+### Resource controls and accepted costs
+
+Warm RSS/PSS and bytes/entry below use baseline-adjusted cached-minus-direct growth. Peak RSS is the median of each process's maximum across measured lifecycle phases; close/trimmed PSS is absolute. Equal warm entry counts and BSON weights match in M and F. The small/long-key checkpoints retain 64,001 entries and 3,776,008 BSON bytes, with zero bypasses; their public cold trajectories retain the registered 71,089-entry, 4,194,251-byte boundary and 1,104 evictions.
+
+| Scenario / API        | Warm RSS MiB M→F | Warm PSS MiB M→F | Peak RSS MiB M→F | PSS bytes/entry M→F | Close PSS MiB M→F | Trimmed PSS MiB M→F |
+| --------------------- | ---------------: | ---------------: | ---------------: | ------------------: | ----------------: | ------------------: |
+| documents / sync      |      66.21→66.68 |      66.21→66.63 |    122.11→123.37 |         4,959→4,990 |     106.71→104.50 |         42.26→41.39 |
+| documents / async     |      66.15→66.58 |      66.23→66.62 |    122.61→123.89 |         4,960→4,990 |      54.84→104.57 |         43.09→41.50 |
+| small-entries / sync  |      44.84→37.66 |      44.84→37.66 |     106.70→92.15 |             735→617 |       60.02→51.33 |         52.96→49.95 |
+| small-entries / async |      44.74→37.63 |      44.83→37.67 |     107.05→92.45 |             734→617 |       69.82→57.67 |         62.79→56.31 |
+| large-keys / sync     |    268.90→261.80 |    268.90→261.76 |    357.18→343.34 |         4,406→4,289 |       69.97→70.30 |         69.83→55.91 |
+| large-keys / async    |    268.84→261.73 |    268.92→261.77 |    357.89→343.41 |         4,406→4,289 |       92.64→84.95 |         92.49→71.60 |
+
+Small-result incremental PSS falls about 16%; long-key growth falls about 2.7%. Document residency costs about 0.4 MiB more, consistent with the corrected candidate. Synchronous long-key ordinary-close paired PSS differences are mixed (−0.81 to +5.86 MiB, median +2.71 MiB), while trimming releases additional allocator-held memory. The user accepted the corrected candidate's previously documented residency/close costs as nonmaterial for adoption; the library does not call `malloc_trim()`.
+
+Document close is allocator-sensitive: F ends near 104–105 MiB, while M ranges about 43–109 MiB. Thus some paired closes retain roughly 60 MiB more than M, and others retain less. The same bimodal M behavior and approximately 104 MiB native close footprint occur in the preserved C2 data; this is not a new ordinary-build change or proof of a leak. After diagnostic trimming, both return to about 41–43 MiB. Repeated-cycle fifth-close medians are F 46.98/46.81 MiB versus M 48.04/48.19 MiB for sync/async, with a plateau rather than unbounded growth. These observations preserve the unfavorable close cases and establish no RSS ceiling.
+
+### Shared-cache and startup controls
+
+Shared warm read changes use the same median [minimum, maximum] convention. Mixed CPU, latency and throughput directions remain inconclusive: these windows do not prove absence of a smaller shared regression. Stable group-PSS increases for filtered reads are below 0.9 MiB across the owner plus four workers; the fixed combined-binary/type cost is nonmaterial alongside this topology's roughly 70 MiB per-worker RSS and existing mapped-cache budget.
+
+| Shared read / API | CPU/read %          | P50 %                | P95 %               | P99 %               | Throughput %        | Warm group PSS delta KiB |
+| ----------------- | ------------------- | -------------------- | ------------------- | ------------------- | ------------------- | ------------------------ |
+| identity / sync   | +6.6 [-22.6, +15.6] | +10.0 [-37.5, +58.5] | +2.5 [-9.7, +3.1]   | +8.6 [-21.1, +16.5] | -9.0 [-17.1, +10.4] | -129.0 [-288.0, +415.0]  |
+| identity / async  | +2.5 [-22.6, +16.1] | -0.4 [-32.7, +26.0]  | +1.4 [-10.3, +12.1] | +2.9 [-14.3, +29.2] | -2.4 [-13.3, +37.7] | -366.0 [-572.0, +442.0]  |
+| find_one / sync   | -3.0 [-10.9, +4.4]  | -2.0 [-11.8, +0.4]   | -4.8 [-22.1, +0.0]  | -5.3 [-19.5, +0.2]  | +2.1 [-13.3, +8.9]  | +133.0 [+69.0, +247.0]   |
+| find_one / async  | +1.0 [-16.6, +23.2] | +0.8 [-2.9, +4.4]    | +0.6 [-19.3, +28.5] | +0.7 [-19.7, +27.5] | -2.3 [-19.2, +23.2] | +157.0 [+68.0, +324.0]   |
+| find / sync       | -1.2 [-3.5, +22.0]  | +0.1 [-17.2, +6.8]   | -0.6 [-1.3, +22.5]  | -1.2 [-4.4, +19.2]  | +2.4 [-12.2, +4.5]  | +602.0 [+115.0, +868.0]  |
+| find / async      | -0.4 [-20.6, +3.9]  | -11.0 [-44.6, +3.6]  | -0.9 [-1.5, +9.8]   | -0.9 [-3.9, +7.0]   | +2.8 [-1.1, +16.6]  | +280.0 [+274.0, +492.0]  |
+
+The next table separates attachment/metadata readiness before result warmup from the stable warm resource sample. Startup group CPU counts the owner and workers; supervisor CPU remains separate in raw output. Worker RSS is measured after complete warmup; owner RSS here is measured before warmup.
+
+| Shared read / API | Pre-warm wall ms M→F | Pre-warm group CPU ms M→F | Pre-warm group PSS delta KiB | Worker RSS MiB M→F | Owner RSS MiB M→F |
+| ----------------- | -------------------: | ------------------------: | ---------------------------- | -----------------: | ----------------: |
+| identity / sync   |          526.0→523.8 |             1253.7→1260.9 | +269.0 [-208.0, +499.0]      |        70.32→70.31 |       61.89→62.05 |
+| identity / async  |          516.1→520.8 |             1260.8→1240.8 | +87.0 [-277.0, +738.0]       |        70.72→70.86 |       61.89→61.99 |
+| find_one / sync   |          512.5→505.6 |             1242.3→1166.6 | +41.0 [+20.0, +289.0]        |        71.09→71.20 |       62.03→62.19 |
+| find_one / async  |          521.6→524.7 |             1257.5→1276.0 | +204.0 [+23.0, +528.0]       |        71.44→71.56 |       61.84→62.16 |
+| find / sync       |          522.7→517.1 |             1261.4→1259.6 | +720.0 [+83.0, +867.0]       |        72.30→72.47 |       62.07→62.16 |
+| find / async      |          519.5→510.7 |             1245.1→1236.0 | +366.0 [+305.0, +609.0]      |        72.76→72.91 |       61.89→62.12 |
+
+Fresh-process library/PyMongo import takes roughly 83–98 ms across controls, with mixed paired directions. Empty client/manager setup costs roughly 1.5–2.5 ms after import. F adds about 0.1 ms CPU and 0.2 MiB PSS to that first setup; these fixed process-start costs are amortized by normal manager reuse and do not offset the repeated-read benefit. No backend/toolchain installation change is required.
+
+### Contention, conformance and test execution
+
+Each one/four-thread window completes 80,000 reads at the offered 4,000 reads/s and processes 1,000 invalidations with zero bypasses. Actual call-interval overlap counts are 12–27 for M and 10–23 for F; enclosing-window application counts are not substituted for call-level overlap. Median CPU/read changes are −19.7%/−17.8%; ranges are −31.9% to +0.3% / −21.1% to −13.8%. P99 changes range −17.2% to −12.0% / −14.3% to −8.2%. Offered throughput is a load control, not a saturation claim.
+
+The ordinary installed F wheel passes 1,145 public/ownership conformance cases. The full Python suite reaches 100% line/branch coverage and passes strict exclusion checks. One earlier run's incomplete child coverage database is tracked separately in [issue #354](https://github.com/alessio-locatelli/client-query-cache/issues/354); the subsequent complete rerun emitted no warnings.
+
+Existing-case timing is recorded after the setup recoveries below; added ownership/race tests are excluded from its frozen node selection. Four startup-harness cases require checkout source paths. For timing only, M's 59 and F's 61 source Python/stub files were byte-verified against their installed wheels, and the exact wheel extensions were placed in their source packages. Child `PYTHONPATH` selects the matching checkout; all 4,367 registered tests remain selected. Installed-wheel conformance and performance acquisitions remain separate. The complete matched pair records 4,366 passes and one identical real-server skip for each revision: wall time M 330.545 s versus F 327.353 s, child CPU M 400.337 s versus F 393.252 s. One pair is a regression control, not evidence of a stable test-speed improvement.
+
+### Runtime-capacity rejection and reproducibility
+
+The first existing-test M attempt exhausted Podman's 2,048 resource locks while creating temporary volumes (13 failures and 874 setup errors). Its 71.4-second duration is invalid test-timing evidence. It remains in `final-cohort/b5-M-runtime-capacity-rejection`; all ten previously completed performance components remain valid. Recovery backed up and removed only 321 verified-empty, unused anonymous volumes created during this campaign, leaving older volumes and host settings untouched. Measured-container teardown now removes its own anonymous volumes; two lifecycle probes verified that cleanup. Recovery backups/metadata remain in `/tmp/agents/native-local-20261027/empty-volume-recovery`.
+
+The first post-recovery M test run completed 4,362 passes and one skip but failed the four source-location assertions described above; its duration is also excluded and retained in `b5-M-installed-path-rejection`. A source-overlay preflight was aborted when verification caught an omitted subprocess environment argument (`b5-M-source-overlay-preflight-abort`); no timing from that attempt is accepted. Both wheels then passed all four affected source-harness cases through the corrected child invocation before the complete matched pair restarted. No case was dropped to obtain a passing timing.
+
+Build F normally, install its wheel into a separate environment, and use the existing generic collectors through the committed acquisition module. The frozen baseline/node regeneration and dependency/host setup remain in the original plan. For each registered M/F block, run from the integrated harness checkout, selecting its installed interpreter and wheel:
+
+```bash
+CARGO_ZIGBUILD_PYTHON_PATH="$PWD/scripts/zig-linker.sh" .venv/bin/maturin build --release --zig --compatibility manylinux_2_28 --locked --out /tmp/agents/native-local-final-wheels
+source scripts/testcontainers-bridge.sh
+<installed-python> -m research.native_local_integration.acquire --label <M-or-F> --block <0-through-4> --wheel <absolute-wheel-path> --existing-nodes <absolute-frozen-node-file> --output <new-absolute-output-directory> --components public memory contention
+<installed-python> -m research.native_local_integration.acquire --label <M-or-F> --block 5 --wheel <absolute-wheel-path> --existing-nodes <absolute-frozen-node-file> --output <new-absolute-output-directory> --test-checkout <matching-revision-checkout> --components tests
+```
+
+Use M/F, F/M, M/F, F/M, M/F order. M's test checkout is frozen main; F's is the integrated checkout. The newly added namespace-clear case is deselected from timing. Before test timing, verify each source package against its wheel and extract that wheel's native extension into the matching source package; `--test-checkout` sets the child source overlay required by the source-harness tests. Current post-record container cleanup prevents the anonymous-volume accumulation without changing the recorded workload or resource checkpoints. The normal core is retained in this branch; experimental source tags remain reproducible historical evidence.
