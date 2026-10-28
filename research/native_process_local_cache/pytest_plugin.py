@@ -44,7 +44,7 @@ def pytest_collection_modifyitems(
         module = item.getparent(pytest.Module)
         if (
             module is not None
-            and module.obj.__name__.startswith("tests.")
+            and module.obj.__name__.startswith("tests.core.")
             and "CacheCore" in vars(module.obj)
             and vars(module.obj)["CacheCore"] is ReferenceCore
         ):
