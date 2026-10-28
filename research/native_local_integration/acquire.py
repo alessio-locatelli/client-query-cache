@@ -181,6 +181,10 @@ def main() -> None:
         default=("public", "memory", "contention", "tests"),
     )
     arguments = parser.parse_args()
+    arguments.output = arguments.output.resolve()
+    arguments.existing_nodes = arguments.existing_nodes.resolve()
+    arguments.wheel = arguments.wheel.resolve()
+    arguments.test_checkout = arguments.test_checkout.resolve()
     if arguments.block < 0:
         parser.error("block must not be negative")
     if arguments.uncertainty and arguments.components != ["public"]:
