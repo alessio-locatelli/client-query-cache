@@ -140,6 +140,17 @@ def _install_barriers(start: Barrier, finish: Barrier) -> None:
     _START, _FINISH = start, finish
 
 
+def _startup_resources(pid: PositiveInt | None = None) -> dict[str, object]:
+    memory = psutil.Process(pid).memory_full_info()
+    return {
+        "rss_bytes": memory.rss,
+        "pss_bytes": memory.pss,
+        "cpu_seconds": time.process_time()
+        if pid is None
+        else time.clock_gettime(_process_cpu_clock(pid)),
+    }
+
+
 def _collect(
     latencies: list[NonNegativeFloat],
     hits: NonNegativeInt,
@@ -156,6 +167,7 @@ def _collect(
     checkpoints: list[dict[str, NonNegativeInt]] | None = None,
     implementation: dict[str, str] | None = None,
     manager: object = None,
+    startup_resources: dict[str, object] | None = None,
     validate: bool = False,
 ) -> Observation:
     cpu_finished = time.process_time()
@@ -177,6 +189,7 @@ def _collect(
                 resource.RUSAGE_SELF
             ).ru_maxrss
             * 1024,
+            "startup_cpu_seconds_including_import_and_warmup": measured_cpu_started,
             "residual_cpu_seconds": time.process_time() - residual_cpu_started,
             "residual_wall_seconds": time.monotonic() - residual_started,
             "stable_checkpoint": stable_before,
@@ -184,6 +197,7 @@ def _collect(
         if validate
         else {}
     )
+    resources["startup_before_result_warmup"] = startup_resources
     _FINISH.wait(30)
     return Observation(
         latencies,
@@ -556,6 +570,14 @@ def _measure_sync(window: Window) -> Observation:
                     cold_view = cold_raw
                 cold_view.find_one({"_id": -1})
                 cold_views.append(cold_view)
+        startup_resources = None
+        if window.validate and window.path == "shared":
+            assert (
+                manager.get_cached_collection(raw)._cache_ineligibility_reason() is None
+            )
+            startup_resources = _startup_resources()
+            _START.wait(_READY_TIMEOUT)
+            _START.wait(_READY_TIMEOUT)
         for identity in range(window.hot_keys):
             value = _read_sync(view, window, identity)
             assert value is not None
@@ -677,6 +699,7 @@ def _measure_sync(window: Window) -> Observation:
             checkpoints=checkpoints,
             implementation=implementation,
             manager=observed_manager,
+            startup_resources=startup_resources,
             validate=window.validate,
         )
 
@@ -756,6 +779,15 @@ async def _measure_async(
                     cold_view = cold_raw
                 await cold_view.find_one({"_id": -1})
                 cold_views.append(cold_view)
+        startup_resources = None
+        if window.validate and window.path == "shared":
+            assert (
+                await manager.get_cached_collection(raw)._cache_ineligibility_reason()
+                is None
+            )
+            startup_resources = _startup_resources()
+            _START.wait(_READY_TIMEOUT)
+            _START.wait(_READY_TIMEOUT)
         for identity in range(window.hot_keys):
             value = await _read_async(view, window, identity)
             assert value is not None
@@ -877,6 +909,7 @@ async def _measure_async(
             checkpoints=checkpoints,
             implementation=implementation,
             manager=observed_manager,
+            startup_resources=startup_resources,
             validate=window.validate,
         )
 
@@ -913,6 +946,8 @@ def _run_window(
     document_bytes: PositiveInt = _DOCUMENT_BYTES,
     rotation: NonNegativeInt = 0,
 ) -> dict[str, object]:
+    setup_started = time.monotonic()
+    setup_cpu_started = time.process_time()
     context = multiprocessing.get_context("spawn")
     start, finish = context.Barrier(_WORKERS + 1), context.Barrier(_WORKERS + 1)
     with ExitStack() as resources:
@@ -984,7 +1019,17 @@ def _run_window(
             )
             for worker in range(_WORKERS)
         )
+        owner_startup = None
+        attachment_wall = None
+        if validate and server is not None:
+            start.wait(_READY_TIMEOUT)
+            attachment_wall = time.monotonic() - setup_started
+            assert server._process is not None
+            owner_startup = _startup_resources(server._process.pid)
+            start.wait(_READY_TIMEOUT)
         start.wait(_READY_TIMEOUT)
+        setup_wall = time.monotonic() - setup_started
+        setup_cpu = time.process_time() - setup_cpu_started
         owner = None
         endpoint = None
         owner_before = None
@@ -1056,6 +1101,11 @@ def _run_window(
             for latency in observation.latencies_us
         )
         return {
+            "startup_wall_seconds_before_result_warmup": attachment_wall,
+            "startup_owner_before_result_warmup": owner_startup,
+            "startup_wall_seconds_including_warmup": setup_wall,
+            "startup_supervisor_cpu_seconds": setup_cpu,
+            "startup_owner_cpu_seconds": owner_cpu_before,
             "method": method,
             "model": model,
             "throughput": _WORKERS * samples / elapsed,

@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     import threading
     from unittest.mock import Mock
 
-    from client_query_cache._core.manager import CacheCore
+    from client_query_cache._core.contracts import LocalCacheCore as CacheCore
 
 type ShutdownOwner = (
     CacheManager[BsonDict]

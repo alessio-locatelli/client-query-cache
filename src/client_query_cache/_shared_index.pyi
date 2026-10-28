@@ -1,6 +1,7 @@
 from collections.abc import Callable, Mapping
 from typing import final
 
+from client_query_cache._core.contracts import LocalCacheCore as _LocalCacheCore
 from client_query_cache._types import NonNegativeInt, PositiveInt
 
 @final
@@ -108,3 +109,11 @@ class FindKeyEncoder:
     ) -> bytes: ...
 
 def find_key_encoder(tags: Mapping[NonNegativeInt, str]) -> FindKeyEncoder: ...
+
+@final
+class LocalCacheCore(_LocalCacheCore):
+    def _ownership(
+        self,
+    ) -> tuple[
+        NonNegativeInt, NonNegativeInt, NonNegativeInt, NonNegativeInt, NonNegativeInt
+    ]: ...

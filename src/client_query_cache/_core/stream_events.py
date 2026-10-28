@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 
     from pymongo.errors import OperationFailure
 
-    from client_query_cache._core.manager import CacheCore
+    from client_query_cache._core.contracts import LocalCacheCore as CacheCore
     from client_query_cache._core.namespace_metadata import NamespaceMetadataCache
 
 NONRESUMABLE_CHANGE_STREAM_ERROR_LABEL = "NonResumableChangeStreamError"

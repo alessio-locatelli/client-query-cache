@@ -404,15 +404,24 @@ def test_a_racing_write_does_not_leave_a_stale_alias_reachable(
     assert lookup_result.value == {"v": "fresh"}
 
 
+@pytest.mark.parametrize(
+    "reclaim", ["evict", "clear"], ids=["eviction", "namespace-clear"]
+)
 def test_a_rolled_back_identity_admission_does_not_leave_the_alias_orphaned(
-    core: CacheCore, namespace: NamespaceId, monkeypatch: pytest.MonkeyPatch
+    core: CacheCore,
+    namespace: NamespaceId,
+    monkeypatch: pytest.MonkeyPatch,
+    reclaim: str,
 ) -> None:
     alias = canonical_alias_key(("email",), ("a@example.com",), None)
     namespace_capture = core.capture_namespace_generation(namespace)
 
     def hook(key: CacheKey, entry: CacheEntry) -> None:
         if entry.identity is not None:
-            core._lru.remove_exact(key, entry)
+            if reclaim == "evict":
+                core._lru.remove_exact(key, entry)
+            else:
+                core.clear_namespace(namespace)
 
     patch_conditional_put_hook(monkeypatch, core, hook)
 

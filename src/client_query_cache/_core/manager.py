@@ -11,7 +11,13 @@ from bson.errors import BSONError
 
 from client_query_cache._core.canonical import canonicalize, is_canonicalizable
 from client_query_cache._core.codec import decode_value, encode_value
-from client_query_cache._core.entries import AdmissionOutcome, CacheEntry, LookupResult
+from client_query_cache._core.entries import (
+    _DEFERRED_MISS,
+    _MISS,
+    AdmissionOutcome,
+    CacheEntry,
+    LookupResult,
+)
 from client_query_cache._core.errors import (
     CacheClosedError,
     CacheConfigurationError,
@@ -57,6 +63,10 @@ if TYPE_CHECKING:
     from bson.codec_options import CodecOptions
 
     from client_query_cache._core.canonical import Canonical
+    from client_query_cache._core.contracts import (
+        IdentityCaptureView,
+        NamespaceCaptureView,
+    )
     from client_query_cache._core.find_reads import FindSource
     from client_query_cache._core.keys import AliasKey, CacheKey, NamespaceId
     from client_query_cache._core.residency import CacheObserver, PayloadStore
@@ -68,8 +78,6 @@ _NAMESPACE_METADATA_PROBE_TTL_SECONDS: PositiveFloat = 30.0
 
 _NOT_INDEXED = object()
 _DEFAULT_DATABASE_AVAILABILITY = (True, 0)
-_MISS = LookupResult(hit=False)
-_DEFERRED_MISS = LookupResult(hit=False, deferred_miss=True)
 
 logger = logging.getLogger(__name__)
 
@@ -880,7 +888,7 @@ class _CacheCoreIdentityAdmission(_CacheCoreBase):
 
     def admit_identity(
         self,
-        capture: IdentityCapture,
+        capture: IdentityCaptureView,
         read_shape: object,
         value: object,
         *,
@@ -903,7 +911,7 @@ class _CacheCoreIdentityAdmission(_CacheCoreBase):
 
     def admit_identity_encoded(
         self,
-        capture: IdentityCapture,
+        capture: IdentityCaptureView,
         read_shape: object,
         encoded: bytes,
         *,
@@ -918,11 +926,12 @@ class _CacheCoreIdentityAdmission(_CacheCoreBase):
 
     def _admit_identity_encoded(
         self,
-        capture: IdentityCapture,
+        capture: IdentityCaptureView,
         read_shape: object,
         encoded: bytes,
         alias: AliasKey | None,
     ) -> AdmissionOutcome:
+        assert isinstance(capture, IdentityCapture)
         state = capture.state
         try:
             canonical_shape = canonicalize(read_shape)
@@ -1028,7 +1037,7 @@ class _CacheCoreNamespaceAdmission(_CacheCoreBase):
 
     def admit_namespace(
         self,
-        capture: NamespaceCapture,
+        capture: NamespaceCaptureView,
         discriminator: object,
         value: object,
         *,
@@ -1048,7 +1057,7 @@ class _CacheCoreNamespaceAdmission(_CacheCoreBase):
 
     def admit_namespace_encoded(
         self,
-        capture: NamespaceCapture,
+        capture: NamespaceCaptureView,
         discriminator: object,
         encoded: bytes,
         *,
@@ -1061,11 +1070,12 @@ class _CacheCoreNamespaceAdmission(_CacheCoreBase):
 
     def _admit_namespace_encoded(
         self,
-        capture: NamespaceCapture,
+        capture: NamespaceCaptureView,
         discriminator: object,
         encoded: bytes,
         find_source: FindSource | None,
     ) -> AdmissionOutcome:
+        assert isinstance(capture, NamespaceCapture)
         canonical_discriminator = canonicalize(discriminator)
         weight = len(encoded)
         with self._admission_section(
@@ -1115,18 +1125,23 @@ class _CacheCoreUniqueKeyAdmission(_CacheCoreBase):
     __slots__ = ()
 
     def discard_stale_alias(
-        self, capture: NamespaceCapture, alias: AliasKey, expected_identity: Canonical
+        self,
+        capture: NamespaceCaptureView,
+        alias: AliasKey,
+        expected_identity: Canonical,
     ) -> None:
         self._ensure_active()
+        assert isinstance(capture, NamespaceCapture)
         state = capture.state
         with state.lock:
             if state.tracked and state.query_generation_key == capture.generation_key:
                 _discard_alias_locked(state, alias, expected_identity)
 
     def discard_namespace_entry(
-        self, capture: NamespaceCapture, discriminator: object
+        self, capture: NamespaceCaptureView, discriminator: object
     ) -> None:
         self._ensure_active()
+        assert isinstance(capture, NamespaceCapture)
         key = NamespaceCacheKey(capture.namespace, canonicalize(discriminator))
         entry = self._lru.peek(key)
         if entry is None or entry.generation_key != capture.generation_key:
@@ -1143,7 +1158,7 @@ class _CacheCoreUniqueKeyAdmission(_CacheCoreBase):
 
     def admit_unique_key_match(
         self,
-        namespace_capture: NamespaceCapture,
+        namespace_capture: NamespaceCaptureView,
         discriminator: object,
         identity: object,
         read_shape: object,
@@ -1153,6 +1168,7 @@ class _CacheCoreUniqueKeyAdmission(_CacheCoreBase):
         codec_options: CodecOptions[Any] | None = None,
     ) -> AdmissionOutcome:
         self._ensure_active()
+        assert isinstance(namespace_capture, NamespaceCapture)
         canonical_identity = canonicalize(order_sensitive_key(identity))
         if canonical_identity is None:
             message = "identity must not be None"

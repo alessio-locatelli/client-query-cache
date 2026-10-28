@@ -180,3 +180,5 @@ cursor, address, or session; find `retrieved` counts the loaded snapshot or pref
 Both execution models are checked with the same disposable replica-set cursor and
 bound-session cases on PyMongo 4.18.1 and the locked 4.18.2 driver. Future driver
 releases require the same differential checks because these hooks are protected.
+
+Process-local managers use the native owner exported by the existing extension. Shared-cache coordination retains the Python owner because it provides publication observers and payload-store integration. Both owners implement the common read and coherence protocols; their capture objects are opaque handles. The [native evaluation report](../../reports/native-process-local-cache/results.md) records measured costs and adoption evidence.

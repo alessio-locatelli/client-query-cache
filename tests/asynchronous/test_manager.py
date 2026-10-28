@@ -23,6 +23,7 @@ from client_query_cache.asynchronous import (
 )
 from client_query_cache.asynchronous.collection import CachedCollection
 from client_query_cache.asynchronous.database import CachedDatabase
+from client_query_cache.asynchronous.streams import ChangeStreamCoordinator
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable
@@ -38,6 +39,13 @@ async def client() -> AsyncIterator[AsyncMongoClient[BsonDict]]:
         "mongodb://localhost:27017", connect=False
     ) as instance:
         yield instance
+
+
+@pytest.fixture
+def active_database(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        ChangeStreamCoordinator, "activate_database", AsyncMock(return_value=object())
+    )
 
 
 def test_manager_does_not_subclass_or_replace_the_caller_client(
@@ -90,21 +98,14 @@ async def test_unique_keys_for_rejects_a_probe_racing_a_concurrent_index_change(
     assert await manager._unique_keys_for(namespace, racing_list_indexes) == ()
 
 
+@pytest.mark.usefixtures("active_database")
 async def test_namespace_capacity_bypasses_collection_metadata_probe(
-    client: AsyncMongoClient[BsonDict], monkeypatch: pytest.MonkeyPatch
+    client: AsyncMongoClient[BsonDict],
 ) -> None:
     manager = CacheManager(client, cache_config=CacheCoreConfig(max_namespaces=1))
     tracked = NamespaceId("example", "tracked")
     overflow = NamespaceId("example", "overflow")
     manager.cache_core.try_current_epoch(tracked)
-
-    async def activate_database(_self: object, _database: str) -> object:
-        await asyncio.sleep(0)
-        return object()
-
-    monkeypatch.setattr(
-        type(manager._coordinator), "activate_database", activate_database
-    )
 
     collection_probe = AsyncMock(return_value=None)
 
@@ -143,21 +144,14 @@ async def test_namespace_capacity_bypasses_collection_metadata_probe(
         pytest.param(None, BypassReason.METADATA_UNAVAILABLE, id="probe-failed"),
     ],
 )
+@pytest.mark.usefixtures("active_database")
 async def test_ineligible_collection_does_not_consume_namespace_capacity(
     client: AsyncMongoClient[BsonDict],
-    monkeypatch: pytest.MonkeyPatch,
     probe_result: CollectionProbeResult | None,
     expected_reason: BypassReason,
 ) -> None:
     manager = CacheManager(client, cache_config=CacheCoreConfig(max_namespaces=1))
 
-    async def activate_database(_self: object, _database: str) -> object:
-        await asyncio.sleep(0)
-        return object()
-
-    monkeypatch.setattr(
-        type(manager._coordinator), "activate_database", activate_database
-    )
     unavailable = NamespaceId("example", "unavailable")
     available = NamespaceId("example", "available")
 
@@ -303,3 +297,21 @@ async def test_manager_inspection_delegates_without_activation(
         manager.active_stream_cost_databases()
         == manager.cache_core.active_stream_cost_databases()
     )
+
+
+@pytest.mark.usefixtures("active_database")
+async def test_ineligible_probe_cannot_release_a_recreated_namespace(
+    client: AsyncMongoClient[BsonDict],
+) -> None:
+    async with CacheManager(client) as manager:
+        namespace = NamespaceId("example", "recreated")
+
+        async def racing_probe() -> CollectionProbeResult:
+            await asyncio.sleep(0)
+            manager.cache_core.create_namespace(namespace)
+            return CollectionProbeResult(BypassReason.VIEW_COLLECTION, None)
+
+        reason = await manager._cache_ineligibility_reason(namespace, racing_probe)
+        assert reason is BypassReason.VIEW_COLLECTION
+        assert manager.cache_core.has_namespace(namespace)
+        assert manager._metadata.get(namespace) is None

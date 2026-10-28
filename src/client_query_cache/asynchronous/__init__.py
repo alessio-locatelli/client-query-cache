@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING
 
-from client_query_cache._core.manager import CacheCore, CacheCoreConfig
+from client_query_cache._core.manager import CacheCoreConfig
 from client_query_cache._core.snapshots import (
     BypassReason,
     BypassReasonCount,
@@ -11,6 +11,7 @@ from client_query_cache._core.stream_health import (
     StreamHealthSnapshot,
     StreamHealthStatus,
 )
+from client_query_cache._shared_index import LocalCacheCore as CacheCore
 
 from .collection import CachedCollection
 from .database import CachedDatabase

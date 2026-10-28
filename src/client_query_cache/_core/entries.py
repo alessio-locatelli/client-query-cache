@@ -35,3 +35,7 @@ class LookupResult:
     hit: bool
     value: Any = None
     deferred_miss: bool = False
+
+
+_MISS = LookupResult(hit=False)
+_DEFERRED_MISS = LookupResult(hit=False, deferred_miss=True)

@@ -16,6 +16,7 @@ bodies or OpenSpec. An empty Unreleased section is valid.
 ### Performance
 
 - Reduce CPU spent preparing shared `find()` queries.
+- Reduce CPU overhead for process-local cached reads and memory use for caches containing many small results.
 
 ## [0.9.1] - 2026-10-24
 

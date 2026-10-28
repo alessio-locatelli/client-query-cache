@@ -14,7 +14,7 @@ from benchmarks.stream_cost.await_run import (
 )
 from benchmarks.stream_cost.errors import BenchmarkSetupError
 from benchmarks.stream_cost.topology import IsolatedReplicaSet, ResourceLimits
-from client_query_cache._core.manager import CacheCore
+from client_query_cache import CacheCore
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

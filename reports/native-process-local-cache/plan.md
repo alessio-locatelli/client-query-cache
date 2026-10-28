@@ -5,9 +5,9 @@ candidate construction. Later registrations and diagnostic checkpoints are
 identified below. The completed decision and results live in [results.md](results.md).
 Reproduce prototype commands from the published measured source identified
 there; the delivered tree has no prototype selector.
-The [design](../../openspec/changes/archive/2026-10-28-prototype-native-process-local-cache/design.md)
+The [design](../../openspec/changes/prototype-native-process-local-cache/design.md)
 defines the implementation boundary; the
-[evaluation contract](../../openspec/changes/archive/2026-10-28-prototype-native-process-local-cache/specs/process-local-cache-evaluation/spec.md)
+[evaluation contract](../../openspec/changes/prototype-native-process-local-cache/specs/process-local-cache-evaluation/spec.md)
 defines acceptance. This file owns the acquisition choices and observations.
 No historical measurement is a newly acquired baseline.
 

@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING, Literal
 
 import pytest
 
-from client_query_cache._core.keys import NamespaceId
 from tests.stress.helpers import stress_run, wait_until
 
 if TYPE_CHECKING:
@@ -91,15 +90,15 @@ async def test_reads_spanning_invalidation_or_recovery_are_not_admitted(
             else:
                 after_document = await run.write(target, "update")
                 await wait_until(lambda: run.applied(target))
-            namespace_state = run.manager.cache_core._namespace(
-                NamespaceId(run.database, target[0])
-            )
-            indexed_entries = frozenset(namespace_state.entry_index)
+            resident_before = run.manager.snapshot()
             run.release_read.set()
             assert await paused == before_document
-            assert frozenset(namespace_state.entry_index) == indexed_entries
+            resident_after = run.manager.snapshot()
+            assert resident_after.evictions == resident_before.evictions
             before = run.manager.snapshot()
+            origin_before = run.origin_reads[target, shape]
             assert await run.read(target, shape) == after_document
+            assert run.origin_reads[target, shape] == origin_before + 1
             assert run.manager.snapshot().misses > before.misses
             before = run.manager.snapshot()
             assert await run.read(target, shape) == after_document
