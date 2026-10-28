@@ -8,13 +8,13 @@ Planning inspected clean branch `rewrite_to_rust` at `419b54d077e7c635d9661b7161
 
 `lookup_identity_encoded`, `lookup_namespace_encoded`, and `lookup_find_encoded` perform separate storage probes, validity checks, LRU touches, and statistics updates. Find compatibility also consults a family index. `CacheCore` is used by the shared owner as well as local managers, so replacing it globally would affect an unrelated execution path.
 
-The [process-memory results](../../../reports/process-memory/summary.md) date from October 10–11; the [cursor study](../../../reports/cached-read-cursors/summary.md) dates from October 5. Neither establishes current native-core gains. The [completed Rust encoding correction](../../../reports/shared-worker-cache/current-costs/rust-encoding.md#final-review-correction-and-acceptance) concerns shared-key preparation and has a specifically approved resource trade-off. That approval does not carry into this experiment.
+The [process-memory results](../../../../reports/process-memory/summary.md) date from October 10–11; the [cursor study](../../../../reports/cached-read-cursors/summary.md) dates from October 5. Neither establishes current native-core gains. The [completed Rust encoding correction](../../../../reports/shared-worker-cache/current-costs/rust-encoding.md#final-review-correction-and-acceptance) concerns shared-key preparation and has a specifically approved resource trade-off. That approval does not carry into this experiment.
 
 ## Goals / Non-Goals
 
 The design goal is one native owner for resident keys and metadata, evaluated without a duplicate Python ownership graph. Python retains PyMongo integration, result codecs, request classification, cursor capture, stream supervision, and stream-cost telemetry. This keeps the experiment's causal question narrow: what does moving storage and its associated bookkeeping together actually save?
 
-The existing [cache-core](../../specs/cache-core/spec.md), [cached-read-api](../../specs/cached-read-api/spec.md), and [change-stream-coherency](../../specs/change-stream-coherency/spec.md) specifications remain the semantic authorities. The native local core does not take over the shared owner's observer/payload publication integration.
+The existing [cache-core](../../../specs/cache-core/spec.md), [cached-read-api](../../../specs/cached-read-api/spec.md), and [change-stream-coherency](../../../specs/change-stream-coherency/spec.md) specifications remain the semantic authorities. The native local core does not take over the shared owner's observer/payload publication integration.
 
 ## Decisions
 
