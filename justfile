@@ -87,7 +87,19 @@ format:
     just --fmt
 
 setup-rust:
+    #!/usr/bin/env bash
+    set -euo pipefail
     uv python install
+    # Rustup component list: https://rust-lang.github.io/rustup/concepts/components.html
+    # Add only missing quality components; source builds use the minimal profile in
+    # rust-toolchain.toml and do not need formatting, linting or coverage tools.
+    installed_components="$(rustup component list --installed)"
+    for component in rustfmt clippy llvm-tools-preview; do
+        if ! grep -q "^${component}-.* (installed)$" <<< "${installed_components}"; then
+            rustup component add "${component}"
+            installed_components="$(rustup component list --installed)"
+        fi
+    done
     cargo fmt --version
     cargo clippy --version
     # Cargo install: https://doc.rust-lang.org/cargo/commands/cargo-install.html
@@ -96,7 +108,6 @@ setup-rust:
     cargo install --locked --root .rust-tools cargo-shear --version '={{ shear_version }}'
     cargo install --locked --root .rust-tools cargo-deny --version '={{ deny_version }}'
     cargo install --locked --root .rust-tools cargo-llvm-cov --version '={{ llvm_cov_version }}'
-    rustup component add llvm-tools-preview
 
 rust-fmt-check:
     # rustfmt: https://github.com/rust-lang/rustfmt#checking-style-on-a-ci-server

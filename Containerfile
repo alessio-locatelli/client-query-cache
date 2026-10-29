@@ -13,6 +13,7 @@ ADD --checksum=sha256:8fe196b894ccf9072f98d4e1013a180306e17d244830b03986ee5e8eab
 # Dockerfile ENV inheritance: https://docs.docker.com/reference/dockerfile/#env
 # PATH: The default is inherited from the pinned Fedora base image. We override it because installed project tools in /usr/local/bin must precede system binaries.
 ENV PATH=/usr/local/bin:${PATH} \
+    RUSTUP_HOME=/opt/rustup \
     UV_PYTHON_BIN_DIR=/usr/local/bin \
     UV_PYTHON_INSTALL_DIR=/opt/uv-python \
     UV_TOOL_BIN_DIR=/usr/local/bin \
@@ -20,6 +21,7 @@ ENV PATH=/usr/local/bin:${PATH} \
 
 COPY .python-version /tmp/python-version
 COPY .node-version /tmp/node-version
+COPY rust-toolchain.toml /opt/project/rust-toolchain.toml
 
 # Fedora packages follow the Fedora 44 repositories; see CONTRIBUTING.md for the rationale.
 # DNF5 --assumeyes: https://dnf5.readthedocs.io/en/latest/dnf5.8.html
@@ -28,16 +30,24 @@ RUN NODE_TOOL_VERSION="$(cat /tmp/node-version)" \
     && NODE_MAJOR="${NODE_TOOL_VERSION%%.*}" \
     && dnf install --assumeyes \
         bash \
-        cargo \
-        clippy \
+        gcc \
         gh \
         just \
         "nodejs${NODE_MAJOR}" \
         "nodejs${NODE_MAJOR}-npm" \
-        rust \
-        rustfmt \
+        rustup \
         uv \
     && dnf clean all \
+    && for tool in rustup cargo rustc rustdoc rustfmt cargo-fmt cargo-clippy clippy-driver; do ln -s /usr/bin/rustup-init "/usr/local/bin/${tool}"; done \
+    && cd /opt/project \
+    && rustup install \
+    && RUST_TOOLCHAIN="$(sed -n 's/^channel = "\([^"]*\)"/\1/p' rust-toolchain.toml)" \
+    && test -n "${RUST_TOOLCHAIN}" \
+    && rustup default "${RUST_TOOLCHAIN}" \
+    && rustup component add rustfmt clippy llvm-tools-preview \
+    && chmod -R a+rX /opt/rustup \
+    && cd /tmp \
+    && rustup show active-toolchain \
     && PYTHON_TOOL_VERSION="$(cat /tmp/python-version)" \
     && uv python install "${PYTHON_TOOL_VERSION}" \
     && uv tool install --python "${PYTHON_TOOL_VERSION}" "prek==${PREK_TOOL_VERSION}" \

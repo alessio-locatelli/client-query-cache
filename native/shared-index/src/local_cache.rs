@@ -775,12 +775,11 @@ impl State {
             .get_mut(&namespace_id)
             .expect("value namespace");
         chain_remove(&mut self.rows, &mut namespace.values, slot, Link::Namespace);
-        if let Some(source) = source {
-            if let Some(family) = namespace.families.get_mut(&source.family) {
-                if family.remove(source.limit, slot) {
-                    namespace.families.remove(&source.family);
-                }
-            }
+        if let Some(source) = source
+            && let Some(family) = namespace.families.get_mut(&source.family)
+            && family.remove(source.limit, slot)
+        {
+            namespace.families.remove(&source.family);
         }
         self.used -= weight;
         self.value_count -= 1;

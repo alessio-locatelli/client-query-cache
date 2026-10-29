@@ -87,6 +87,7 @@ manifest-path = "native/shared-index/Cargo.toml"
 python-source = "src"
 module-name = "client_query_cache._shared_index"
 features = ["python"]
+include = [{ path = "rust-toolchain.toml", format = "sdist" }]
 # Maturin 1.15: https://www.maturin.rs/distribution
 # The default is the minimum supported glibc detected at build time. We override
 # it because release wheels must install on glibc 2.28 and newer.
@@ -105,6 +106,7 @@ extra-build-variables = { client-query-cache = { MATURIN_NO_INSTALL_RUST = "1" }
 # rebuild editable installations.
 cache-keys = [
   { file = "pyproject.toml" },
+  { file = "rust-toolchain.toml" },
   { file = "native/shared-index/Cargo.toml" },
   { file = "native/shared-index/Cargo.lock" },
   { file = "native/shared-index/src/**/*.rs" },

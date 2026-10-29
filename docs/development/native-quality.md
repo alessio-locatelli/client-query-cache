@@ -1,16 +1,16 @@
 # Native Rust quality checks
 
 Run `just setup-rust` to install the pinned Cargo quality tools into the ignored
-`.rust-tools/` directory and provision the selected Python through uv. The command
-uses Cargo's existing-install detection and does not install OS packages.
+`.rust-tools/` directory, install rustfmt, Clippy and LLVM coverage components, and
+provision the selected Python through uv. The command uses existing-install checks
+and does not install OS packages.
 
-The contributor image supplies Rust formatting and Clippy. Outside that image,
-use the official [Rust installation guide](https://rust-lang.org/tools/install)
-and [rustup components guide](https://rust-lang.github.io/rustup/concepts/components.html)
-for `rustfmt`, `clippy`, and `llvm-tools-preview` (the LLVM tools matching rustc).
-Missing prerequisites fail visibly.
-The pinned quality tools require Rust 1.95 or newer; this does not raise the
-native library's declared minimum compiler version.
+The contributor image supplies rustup, the selected compiler and the native quality
+components. Rebuild the image after the toolchain selection changes. Outside that
+image, install [rustup](https://rust-lang.org/tools/install); Rust builds use the
+minimal toolchain selected by `rust-toolchain.toml`, and `just setup-rust` adds the
+quality components. Only that stable release is tested and supported. Older
+compilers may work but are not maintained.
 
 | Command              | Enforcement                                                                                                                                    |
 | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |

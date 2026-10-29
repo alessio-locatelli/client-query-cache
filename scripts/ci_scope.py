@@ -23,6 +23,7 @@ def main() -> None:
             "pyproject.toml",
             "uv.lock",
             ".python-version",
+            "rust-toolchain.toml",
             "justfile",
             ".github/workflows/test.yml",
             "scripts/ci_scope.py",
@@ -57,6 +58,7 @@ def main() -> None:
         path
         in {
             "Containerfile",
+            "rust-toolchain.toml",
             ".node-version",
             ".python-version",
             "scripts/check_dev_container.sh",
