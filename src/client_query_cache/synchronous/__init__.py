@@ -5,6 +5,9 @@ from client_query_cache._core.snapshots import (
     BypassReason,
     BypassReasonCount,
     CacheSnapshot,
+    RetentionDeclineCount,
+    RetentionDeclineReason,
+    RetentionRecordKind,
 )
 from client_query_cache._core.stream_cost import StreamCostSnapshot
 from client_query_cache._core.stream_health import (
@@ -29,6 +32,9 @@ __all__ = [
     "CachedDatabase",
     "ChangeStreamCoordinator",
     "DatabaseStreamSupervisor",
+    "RetentionDeclineCount",
+    "RetentionDeclineReason",
+    "RetentionRecordKind",
     "SharedCacheManager",
     "SharedCachedCollection",
     "StreamCostSnapshot",

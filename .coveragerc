@@ -18,6 +18,7 @@ omit =
     benchmarks/implementation.py
     benchmarks/cached_hit_latency.py
     research/process_memory/measure.py
+    research/native_build_profile/*
     research/native_local_integration/*
     tests/benchmark/real_server/test_cache_benefit.py
 

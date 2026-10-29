@@ -22,7 +22,7 @@ from client_query_cache._core.canonical import canonicalize
 from client_query_cache._core.codec import codec_fingerprint, encode_value
 from client_query_cache._core.find_one_reads import find_one_read_shape
 from client_query_cache._core.find_reads import PreparedFindRead, find_read_shape
-from client_query_cache._core.keys import NamespaceId
+from client_query_cache._core.keys import NamespaceId, canonical_alias_key
 from client_query_cache._core.manager import CacheCoreConfig
 from client_query_cache._core.order_sensitive_keys import (
     canonical_discriminator_key,
@@ -37,6 +37,8 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
     from typing import Any
 
+    from client_query_cache._core.keys import AliasKey
+
 type Document = dict[str, object]
 type Pass = Callable[[], None]
 type Workload = tuple[Pass, int]
@@ -49,6 +51,12 @@ RESIDENT_KEYS = 1024
 CHURN_WINDOWS = 64
 CAPTURE_DOCUMENTS = 4096
 LARGE_IN_ELEMENTS = 256
+LIMITED_ENTRIES = 1_000_000
+LIMITED_KEY_BYTES = 1_048_576
+PRESSURE_ENTRIES = 512
+LIMITED_WINDOWS = 24
+LIMITED_BUDGET = 2 * 1024 * 1024
+BRIEF_SHARE = 0.2
 SLOTS = 4096
 ARENA_BYTES = 32 * 1024 * 1024
 RING_TOKENS = 4096
@@ -559,6 +567,143 @@ def identity_frame(request_id: int, identity: bytes, shape: bytes) -> bytes:
     )
 
 
+def limited_core(max_entries: int) -> native.LocalCacheCore:
+    return native.LocalCacheCore(
+        CacheCoreConfig(
+            budget_bytes=LIMITED_BUDGET,
+            max_entry_bytes=LIMITED_BUDGET // 4,
+            max_entries=max_entries,
+            max_key_bytes=LIMITED_KEY_BYTES,
+        )
+    )
+
+
+def rotating(
+    items: Sequence[object], run_window: Callable[[Sequence[Any]], None]
+) -> Pass:
+    position = 0
+
+    def run() -> None:
+        nonlocal position
+        run_window(items[position : position + RESIDENT_KEYS])
+        position = (position + RESIDENT_KEYS) % len(items)
+
+    return run
+
+
+def limited_namespace_admission(*, entries: int) -> Workload:
+    payload = encode_value(documents(MEDIUM_BYTES, 1)[0], OPTIONS)
+    core = limited_core(max_entries=entries)
+    pipelines = [
+        ("aggregate", [{"$match": {"tenant": index % 97}}, {"$limit": index}])
+        for index in range(LIMITED_WINDOWS * RESIDENT_KEYS)
+    ]
+    capture = core.capture_namespace_generation
+    admit = core.admit_namespace_encoded
+
+    def run_window(window: Sequence[Any]) -> None:
+        for pipeline in window:
+            admit(capture(NAMESPACE), pipeline, payload)
+
+    run = rotating(pipelines, run_window)
+    for _ in range(LIMITED_WINDOWS):
+        run()
+    require(
+        condition=core.snapshot().evictions > 0, reason="limited churn never evicted"
+    )
+    return run, RESIDENT_KEYS
+
+
+def limited_identity_alias_admission() -> Workload:
+    payload = encode_value(documents(SMALL_BYTES, 1)[0], OPTIONS)
+    shape = read_shape()
+    core = limited_core(max_entries=PRESSURE_ENTRIES)
+    pairs = [
+        (
+            f"user-{index}",
+            canonical_alias_key("email", f"user-{index}@example.test", None),
+        )
+        for index in range(LIMITED_WINDOWS * RESIDENT_KEYS)
+    ]
+    begin = core.begin_identity_admission
+    admit = core.admit_identity_encoded
+
+    def run_window(window: Sequence[Any]) -> None:
+        for identity, alias in window:
+            admit(begin(NAMESPACE, identity), shape, payload, alias=alias)
+
+    run = rotating(pairs, run_window)
+    for _ in range(LIMITED_WINDOWS):
+        run()
+    require(condition=core.snapshot().entry_count > 0, reason="no value was retained")
+    return run, RESIDENT_KEYS
+
+
+def unique_entries(count: int) -> list[tuple[AliasKey, tuple[AliasKey, object], str]]:
+    shape = read_shape()
+    entries = []
+    for index in range(count):
+        alias = canonical_alias_key("handle", f"handle-{index}", None)
+        entries.append((alias, (alias, shape), f"account-{index}"))
+    return entries
+
+
+def limited_unique_admission(*, entries: int) -> Workload:
+    document = documents(SMALL_BYTES, 1)[0]
+    shape = read_shape()
+    core = limited_core(max_entries=entries)
+    capture = core.capture_namespace_generation
+    admit = core.admit_unique_key_match
+
+    def run_window(window: Sequence[Any]) -> None:
+        for alias, discriminator, identity in window:
+            admit(
+                capture(NAMESPACE),
+                discriminator,
+                identity,
+                shape,
+                document,
+                alias=alias,
+            )
+
+    run = rotating(unique_entries(LIMITED_WINDOWS * RESIDENT_KEYS), run_window)
+    for _ in range(LIMITED_WINDOWS):
+        run()
+    require(condition=core.snapshot().entry_count > 0, reason="no value was retained")
+    return run, RESIDENT_KEYS
+
+
+def limited_unique_hit() -> Workload:
+    document = documents(SMALL_BYTES, 1)[0]
+    shape = read_shape()
+    core = limited_core(max_entries=LIMITED_ENTRIES)
+    handles = []
+    for index, (alias, discriminator, identity) in enumerate(
+        unique_entries(RESIDENT_KEYS)
+    ):
+        core.admit_unique_key_match(
+            core.capture_namespace_generation(NAMESPACE),
+            discriminator,
+            identity,
+            shape,
+            document,
+            alias=alias,
+        )
+        handles.append((f"handle-{index}", identity))
+    available = core.is_database_available
+    resolve = core.resolve_alias
+    lookup = core.lookup_identity_deferred
+
+    def run() -> None:
+        for handle, _identity in handles:
+            available(NAMESPACE.database)
+            resolved = resolve(NAMESPACE, "handle", handle, None)
+            lookup(NAMESPACE, resolved, shape, codec_options=OPTIONS)
+
+    verified(core, run, hits=len(handles))
+    return run, len(handles)
+
+
 def echo_roundtrip() -> Workload:
     shared = SharedIndex(SMALL_BYTES)
     directory = CLEANUP.enter_context(tempfile.TemporaryDirectory())
@@ -623,7 +768,24 @@ WORKLOADS: dict[str, Callable[[], Workload]] = {
     "facade_find_miss": facade_find_miss,
     "facade_invalidation": facade_invalidation,
     "echo_roundtrip": echo_roundtrip,
+    "limited_namespace_roomy": lambda: limited_namespace_admission(
+        entries=LIMITED_ENTRIES
+    ),
+    "limited_namespace_pressure": lambda: limited_namespace_admission(
+        entries=PRESSURE_ENTRIES
+    ),
+    "limited_identity_alias": limited_identity_alias_admission,
+    "limited_unique_pair": lambda: limited_unique_admission(entries=PRESSURE_ENTRIES),
+    "limited_unique_single": lambda: limited_unique_admission(entries=1),
+    "limited_unique_hit": limited_unique_hit,
 }
+
+
+BRIEF = frozenset(
+    name
+    for name in WORKLOADS
+    if name.startswith("limited_") and not name.endswith("_hit")
+)
 
 
 def train(names: Sequence[str], seconds: float) -> None:
@@ -631,7 +793,8 @@ def train(names: Sequence[str], seconds: float) -> None:
         for name in names:
             run, _operations = WORKLOADS[name]()
             run()
-            deadline = time.monotonic() + seconds
+            share = BRIEF_SHARE if name in BRIEF else 1.0
+            deadline = time.monotonic() + seconds * share
             while time.monotonic() < deadline:
                 run()
 

@@ -27,6 +27,35 @@ def test_default_budget_and_max_entry_size() -> None:
     assert config.budget_bytes == 64 * 1024 * 1024
     assert config.max_entry_bytes == 1024 * 1024
     assert config.max_namespaces == 1024
+    assert config.max_entries is None
+    assert config.max_key_bytes is None
+
+
+@pytest.mark.parametrize("field", ["max_entries", "max_key_bytes"])
+@pytest.mark.parametrize(
+    "limit", [None, 1, 2**100], ids=["disabled", "minimum", "large"]
+)
+def test_optional_retention_limits(field: str, limit: PositiveInt | None) -> None:
+    config = CacheCoreConfig(**{field: limit})  # type: ignore[arg-type]
+    assert getattr(config, field) == limit
+
+
+@pytest.mark.parametrize("field", ["max_entries", "max_key_bytes"])
+@pytest.mark.parametrize("limit", [0, -1], ids=["zero", "negative"])
+def test_retention_limits_reject_invalid_ranges(field: str, limit: int) -> None:
+    with pytest.raises(CacheConfigurationError, match=field):
+        CacheCoreConfig(**{field: limit})  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("field", ["max_entries", "max_key_bytes"])
+def test_retention_limits_reject_invalid_types(
+    field: str, invalid_config_integer: object
+) -> None:
+    if invalid_config_integer is None:
+        assert getattr(CacheCoreConfig(**{field: None}), field) is None  # type: ignore[arg-type]
+    else:
+        with pytest.raises(CacheConfigurationError, match=field):
+            CacheCoreConfig(**{field: invalid_config_integer})  # type: ignore[arg-type]
 
 
 def test_removed_budget_interfaces_are_not_aliased(core: CacheCore) -> None:

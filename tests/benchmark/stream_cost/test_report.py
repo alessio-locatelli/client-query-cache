@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 
@@ -28,6 +30,8 @@ from benchmarks.stream_cost.workload import (
 from client_query_cache._types import JsonDict, NonNegativeInt
 
 pytestmark = pytest.mark.unit
+
+_RETAINED_REPORT_DIR = Path(__file__).resolve().parents[3] / "reports/stream-cost/v1"
 
 
 def _valid_config() -> BenchmarkConfig:
@@ -109,6 +113,19 @@ def _logical_metrics() -> JsonDict:
 
 def test_build_report_produces_a_report_that_validates() -> None:
     validate_report(_valid_report())
+
+
+@pytest.mark.parametrize(
+    "report_path",
+    tuple(
+        pytest.param(path, id=path.stem)
+        for path in sorted(_RETAINED_REPORT_DIR.glob("*.report.v1.json"))
+        # Exclude decision evidence; it uses a separate report format.
+        if path.name != "decision-evidence.report.v1.json"
+    ),
+)
+def test_retained_version_one_reports_validate(report_path: Path) -> None:
+    validate_report(json.loads(report_path.read_text(encoding="utf-8")))
 
 
 @pytest.mark.parametrize(

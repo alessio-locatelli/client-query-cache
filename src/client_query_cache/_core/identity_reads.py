@@ -8,7 +8,10 @@ from typing import TYPE_CHECKING, Any
 from bson.errors import BSONError
 from bson.regex import Regex
 
+from client_query_cache._core.canonical import Canonical, canonicalize
 from client_query_cache._core.codec import decode_value, encode_value
+from client_query_cache._core.errors import UnsupportedCacheRequestError
+from client_query_cache._core.order_sensitive_keys import order_sensitive_key
 
 if TYPE_CHECKING:
     from bson.codec_options import CodecOptions
@@ -61,6 +64,18 @@ def extract_id_anchor(filter_query: object) -> tuple[object, Mapping[str, Any]]:
     return identity, {
         key: value for key, value in filter_query.items() if key != _ID_FIELD
     }
+
+
+def prepare_resolved_identity(identity: object) -> Canonical | None:
+    if identity is None:
+        return None
+    try:
+        canonical = canonicalize(identity)
+        if canonical is identity or isinstance(identity, bool):
+            return canonical
+        return canonicalize(order_sensitive_key(identity))
+    except UnsupportedCacheRequestError:
+        return None
 
 
 def normalize_identity_for_cache_key(
