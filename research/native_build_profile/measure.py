@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import gc
 import hashlib
+import inspect
 import json
 import resource
 import statistics
@@ -13,6 +14,8 @@ from typing import TYPE_CHECKING
 
 from client_query_cache import _shared_index as native
 from client_query_cache._core.keys import NamespaceId
+from client_query_cache._core.manager import CacheCoreConfig
+from scripts import pgo_training
 from scripts.pgo_training import (
     CLEANUP,
     NAMESPACE,
@@ -28,6 +31,7 @@ from scripts.pgo_training import (
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
+    from types import ModuleType
 
     from scripts.pgo_training import Pass, Workload
 
@@ -35,6 +39,19 @@ BATCH_SECONDS = 0.02
 BATCHES = 31
 WARMUP_BATCHES = 3
 LIFECYCLE_NAMESPACES = 64
+
+
+def accept_previous_budget_keyword[Config](
+    training: ModuleType, config_class: Callable[..., Config]
+) -> None:
+    if "budget_bytes" in inspect.signature(config_class).parameters:
+        return
+
+    def previous_keyword(**fields: int) -> Config:
+        fields["shared_budget_bytes"] = fields.pop("budget_bytes")
+        return config_class(**fields)
+
+    vars(training)["CacheCoreConfig"] = previous_keyword
 
 
 def snapshot() -> Workload:
@@ -124,6 +141,7 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--workloads", nargs="*", default=list(WORKLOADS))
     arguments = parser.parse_args()
+    accept_previous_budget_keyword(pgo_training, CacheCoreConfig)
     with CLEANUP:
         timings = {name: measure(name) for name in arguments.workloads}
     report = {

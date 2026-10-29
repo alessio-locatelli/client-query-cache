@@ -5,6 +5,7 @@ from contextlib import AbstractContextManager
 from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from types import TracebackType
 
 
@@ -46,10 +47,10 @@ class _LockSection(AbstractContextManager[None]):
 
 
 class LockOrderGuard:
-    __slots__ = ("_lru", "_namespace")
+    __slots__ = ("_lru", "_namespace", "_state")
 
     def __init__(self) -> None:
-        state = threading.local()
+        state = self._state = threading.local()
         self._namespace = _LockSection(state, "in_namespace", "in_lru")
         self._lru = _LockSection(state, "in_lru", "in_namespace")
 
@@ -58,6 +59,57 @@ class LockOrderGuard:
 
     def lru_section(self) -> _LockSection:
         return self._lru
+
+    def assert_outside_storage(self) -> None:
+        state = self._state
+        if getattr(state, "in_namespace", 0) or getattr(state, "in_lru", 0):
+            message = (
+                "cannot enter capacity transaction while holding a storage section"
+            )
+            raise LockOrderViolationError(message)
+
+
+class CapacitySection(AbstractContextManager[None]):
+    __slots__ = ("_guard", "_lock", "_state")
+
+    def __init__(self, lock: threading.RLock, guard: LockOrderGuard) -> None:
+        self._lock = lock
+        self._guard = guard
+        self._state = threading.local()
+
+    def __enter__(self) -> None:
+        self._guard.assert_outside_storage()
+        self._lock.acquire()
+        depth = getattr(self._state, "depth", 0)
+        if depth == 0:
+            self._state.retired = []
+        self._state.depth = depth + 1
+
+    def retire(self, *objects: object) -> None:
+        self._state.retired.extend(objects)
+
+    def set_completion(self, notification: Callable[[], None]) -> None:
+        # One final publication owns the outer transaction's completion notice.
+        self._state.completion = notification
+
+    def __exit__(
+        self,
+        _exc_type: type[BaseException] | None,
+        _exc_value: BaseException | None,
+        _traceback: TracebackType | None,
+    ) -> None:
+        self._state.depth -= 1
+        if self._state.depth:
+            self._lock.release()
+            return
+        retired = self._state.retired
+        self._state.retired = None
+        completion = getattr(self._state, "completion", None)
+        self._state.completion = None
+        self._lock.release()
+        retired.clear()
+        if completion is not None:
+            completion()
 
 
 class NamespaceLock(AbstractContextManager[None]):

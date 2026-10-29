@@ -6,7 +6,7 @@ import time
 from collections import deque
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, override
+from typing import TYPE_CHECKING, Any, ClassVar, override
 
 from pymongo.collation import Collation
 
@@ -98,6 +98,7 @@ _NEGATIVE_METADATA_TTL_SECONDS: PositiveFloat = 1.0
 
 @dataclass(slots=True)
 class LocalObservation:
+    max_entries: ClassVar[None] = None
     hits: NonNegativeInt = 0
     misses: NonNegativeInt = 0
     bypasses: dict[str, NonNegativeInt] = field(default_factory=dict)

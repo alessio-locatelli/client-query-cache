@@ -1,14 +1,19 @@
-use std::collections::{BTreeSet, HashMap, hash_map::DefaultHasher};
+use std::collections::{BTreeSet, HashMap, HashSet, hash_map::DefaultHasher};
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 use pyo3::PyTraverseError;
-use pyo3::exceptions::{PyOverflowError, PyTypeError};
+use pyo3::exceptions::{PyException, PyOverflowError, PyTypeError};
 use pyo3::gc::PyVisit;
 use pyo3::prelude::*;
 use pyo3::pybacked::PyBackedStr;
-use pyo3::types::{PyBool, PyBytes, PyDict, PyTuple, PyType, PyWeakrefMethods, PyWeakrefReference};
+use pyo3::types::{
+    PyBool, PyBytes, PyDict, PyFloat, PyInt, PyString, PyTuple, PyType, PyWeakrefMethods,
+    PyWeakrefReference,
+};
+
+use rustc_hash::FxBuildHasher;
 
 use crate::index::Block;
 use crate::keys::OrderedKeys;
@@ -23,6 +28,7 @@ const OVERSIZE: usize = 1;
 const STALE: usize = 2;
 const UNAVAILABLE: usize = 3;
 const UNENCODABLE: usize = 4;
+const RETENTION: usize = 5;
 
 #[derive(Clone, Copy, Default)]
 struct Links {
@@ -274,6 +280,152 @@ impl Stored {
     }
 }
 
+fn has_fixed_size(node: &Bound<'_, PyAny>) -> bool {
+    node.is_exact_instance_of::<PyString>()
+        || node.is_exact_instance_of::<PyInt>()
+        || node.is_none()
+        || node.is_exact_instance_of::<PyTuple>()
+        || node.is_exact_instance_of::<PyBool>()
+        || node.is_exact_instance_of::<PyFloat>()
+        || node.is_exact_instance_of::<PyBytes>()
+}
+
+struct Sizer<'a, 'py> {
+    owner: &'a LocalOwner,
+    py: Python<'py>,
+    sizes: Option<HashMap<usize, usize, FxBuildHasher>>,
+    pending: Vec<Bound<'py, PyAny>>,
+    seen: HashSet<usize, FxBuildHasher>,
+}
+
+impl<'py> Sizer<'_, 'py> {
+    fn decide(&mut self, roots: &[&Bound<'py, PyAny>]) -> PyResult<Option<usize>> {
+        let Some(maximum) = self.owner.key_limit else {
+            return Ok(None);
+        };
+        let tag = self.owner.operation(self.py, CANONICAL_TAG).as_ptr();
+        self.pending.clear();
+        self.pending.reserve(KEY_NODES);
+        self.seen.clear();
+        self.seen.reserve(KEY_NODES);
+        self.pending
+            .extend(roots.iter().map(|root| (*root).clone()));
+        let mut charge = 0usize;
+        while let Some(node) = self.pending.pop() {
+            if node.get_type_ptr().cast() == tag || !self.seen.insert(node.as_ptr() as usize) {
+                continue;
+            }
+            let tuple = node.cast_exact::<PyTuple>().ok();
+            let size = match self.size(&node, tuple) {
+                Ok(size) => size,
+                Err(error) => return self.failure(error),
+            };
+            charge = charge.saturating_add(size);
+            if charge > maximum {
+                return Ok(Some(KEY_SIZE_LIMIT));
+            }
+            if let Some(tuple) = tuple {
+                self.pending.extend(tuple.iter());
+            }
+        }
+        Ok(None)
+    }
+    fn size(
+        &mut self,
+        node: &Bound<'py, PyAny>,
+        tuple: Option<&Bound<'py, PyTuple>>,
+    ) -> PyResult<usize> {
+        if let (Some(base), Some(tuple)) = (self.owner.tuple_size, tuple) {
+            return Ok(base + tuple.len() * std::mem::size_of::<usize>());
+        }
+        let address = node.as_ptr() as usize;
+        let remembered = self.sizes.is_some() && has_fixed_size(node);
+        if remembered
+            && let Some(sizes) = &self.sizes
+            && let Some(size) = sizes.get(&address)
+        {
+            return Ok(*size);
+        }
+        let size = self
+            .owner
+            .operation(self.py, GETSIZEOF)
+            .call1((node,))?
+            .extract::<usize>()?;
+        if remembered && let Some(sizes) = &mut self.sizes {
+            sizes.insert(address, size);
+        }
+        Ok(size)
+    }
+    fn failure(&self, error: PyErr) -> PyResult<Option<usize>> {
+        if error.is_instance_of::<PyException>(self.py) {
+            Ok(Some(KEY_SIZE_UNAVAILABLE))
+        } else {
+            Err(error)
+        }
+    }
+}
+
+struct NamespaceDecision {
+    key: Option<usize>,
+    pending: usize,
+}
+
+enum NamespaceAdmission<'a> {
+    Direct,
+    Published((&'a [u8], &'a [u8])),
+    Fallback(NamespaceDecision),
+}
+
+struct AdmissionPlan {
+    values: Vec<u64>,
+    aliases: Vec<u64>,
+    removed: HashSet<u64, FxBuildHasher>,
+    identity_removals: HashMap<u64, usize, FxBuildHasher>,
+    records: usize,
+    used: usize,
+    next_alias: u64,
+}
+
+impl AdmissionPlan {
+    fn remove_alias(&mut self, slot: u64) {
+        if self.removed.insert(slot) {
+            self.aliases.push(slot);
+            self.records -= 1;
+        }
+    }
+    fn remove_value(&mut self, state: &State, slot: u64, protected: u64) {
+        if !self.removed.insert(slot) {
+            return;
+        }
+        self.values.push(slot);
+        self.records -= 1;
+        self.used -= state.node(slot).weight();
+        if let Body::Identity { identity, .. } = state.node(slot).body {
+            let metadata = state.identity(identity).expect("planned identity");
+            let removed = self.identity_removals.entry(identity.slot).or_default();
+            *removed += 1;
+            if identity.slot != protected
+                && metadata.captures == 0
+                && *removed == metadata.residents
+            {
+                let first = metadata.aliases;
+                if first != 0 {
+                    let mut alias = first;
+                    loop {
+                        self.remove_alias(alias);
+                        alias = state.rows.get(alias).expect("planned alias").links
+                            [Link::Role as usize]
+                            .next;
+                        if alias == first {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 enum Body {
     Namespace {
         payload: Stored,
@@ -504,6 +656,8 @@ struct State {
     budget: usize,
     max_entry: usize,
     max_namespaces: usize,
+    max_entries: Option<usize>,
+    alias_chain: Option<Chain>,
     used: usize,
     value_count: usize,
     names: HashMap<Arc<str>, Database>,
@@ -521,6 +675,7 @@ struct State {
     unavailable_reason: usize,
     invalidated_reason: usize,
     shared: Option<Box<shared::SharedState>>,
+    declines: [u64; 9],
 }
 
 impl State {
@@ -800,6 +955,9 @@ impl State {
         let head = self.index.entry(hash).or_default();
         cycle_insert(&mut self.rows, head, slot, Link::Hash);
         if alias {
+            if let Some(order) = &mut self.alias_chain {
+                chain_insert(&mut self.rows, order, slot, Link::Namespace);
+            }
             let Body::Alias { metadata, .. } = self.node(slot).body else {
                 unreachable!("alias node");
             };
@@ -840,6 +998,9 @@ impl State {
         self.changed();
     }
     fn remove_alias(&mut self, slot: u64, retired: &mut Retired) {
+        if let Some(order) = &mut self.alias_chain {
+            chain_remove(&mut self.rows, order, slot, Link::Namespace);
+        }
         let node = self.node(slot);
         let Body::Alias { metadata, .. } = node.body else {
             unreachable!("alias node");
@@ -1219,6 +1380,9 @@ impl State {
         self.names = HashMap::new();
         self.index = HashMap::new();
         self.lru = Chain::default();
+        if let Some(order) = &mut self.alias_chain {
+            *order = Chain::default();
+        }
         self.used = 0;
         self.value_count = 0;
         self.changed();
@@ -1230,6 +1394,77 @@ impl State {
 }
 
 impl State {
+    fn value_plan(
+        &self,
+        previous: Option<&Pin>,
+        redundant: Option<&Pin>,
+        weight: usize,
+        protected: u64,
+        reuse: bool,
+    ) -> AdmissionPlan {
+        let mut plan = AdmissionPlan {
+            values: Vec::new(),
+            aliases: Vec::new(),
+            removed: HashSet::default(),
+            identity_removals: HashMap::default(),
+            records: self.rows.count,
+            used: self.used,
+            next_alias: self.alias_chain.expect("alias chain").first,
+        };
+        if let Some(pin) = redundant {
+            plan.remove_value(self, pin.slot, protected);
+        }
+        if !reuse {
+            if let Some(pin) = previous {
+                plan.remove_value(self, pin.slot, protected);
+            }
+            plan.records += 1;
+            plan.used += weight;
+        }
+        let maximum = self.max_entries.expect("count-limited plan");
+        while plan.records > maximum && plan.next_alias != 0 {
+            let alias = plan.next_alias;
+            plan.remove_alias(alias);
+            plan.next_alias = self.next_alias(alias);
+        }
+        let mut value = self.lru.first;
+        while plan.records > maximum || plan.used > self.budget {
+            let next = self.rows.get(value).expect("planned value").links[Link::Role as usize].next;
+            plan.remove_value(self, value, protected);
+            value = next;
+        }
+        plan
+    }
+    fn next_alias(&self, slot: u64) -> u64 {
+        self.rows.get(slot).expect("planned alias").links[Link::Namespace as usize].next
+    }
+    fn pair_fits(&self, plan: &mut AdmissionPlan, previous: Option<&Pin>) -> bool {
+        let delta = usize::from(previous.is_none_or(|pin| plan.removed.contains(&pin.slot)));
+        let maximum = self.max_entries.expect("count-limited pair");
+        while plan.records + delta > maximum && plan.next_alias != 0 {
+            let alias = plan.next_alias;
+            plan.remove_alias(alias);
+            plan.next_alias = self.next_alias(alias);
+        }
+        plan.records + delta <= maximum
+    }
+    fn apply_plan(
+        &mut self,
+        plan: &AdmissionPlan,
+        replaced: Option<u64>,
+        redundant: Option<u64>,
+        retired: &mut Retired,
+    ) {
+        for &alias in &plan.aliases {
+            self.remove_alias(alias, retired);
+        }
+        for &value in &plan.values {
+            self.remove_value(value, true, retired);
+            if Some(value) != replaced && Some(value) != redundant {
+                self.evictions += 1;
+            }
+        }
+    }
     fn put(
         &mut self,
         py: Python<'_>,
@@ -1287,6 +1522,17 @@ impl State {
                 .expect("arena residency")
                 .hold(slot, block);
         }
+        if let Some(maximum) = self.max_entries {
+            while self.rows.count > maximum {
+                let alias = self.alias_chain.expect("alias chain").first;
+                if alias != 0 {
+                    self.remove_alias(alias, retired);
+                } else {
+                    self.remove_value(self.lru.first, true, retired);
+                    self.evictions += 1;
+                }
+            }
+        }
         while self.used > self.budget {
             self.remove_value(self.lru.first, true, retired);
             self.evictions += 1;
@@ -1303,7 +1549,7 @@ impl State {
         alias: AliasPublication<'_, '_>,
         previous: Option<&Pin>,
         retired: &mut Retired,
-    ) {
+    ) -> bool {
         let AliasPublication {
             namespace,
             hash,
@@ -1311,6 +1557,15 @@ impl State {
             identity,
             metadata,
         } = alias;
+        let previous = previous.filter(|pin| self.node_is_current(pin));
+        if previous.is_none()
+            && self
+                .max_entries
+                .is_some_and(|maximum| self.rows.count >= maximum)
+        {
+            self.declines[8] += 1;
+            return false;
+        }
         let key = if let Some(previous) = previous {
             let key = previous.node.key.clone_ref(key.py());
             self.remove_alias(previous.slot, retired);
@@ -1329,6 +1584,7 @@ impl State {
                 metadata,
             },
         });
+        true
     }
 }
 
@@ -1348,6 +1604,22 @@ const MISS: usize = 12;
 const DEFERRED_MISS: usize = 13;
 const OUTCOMES: usize = 14;
 const REASONS: usize = 15;
+const GETSIZEOF: usize = 16;
+const CANONICAL_TAG: usize = 17;
+const KEY_SIZE_LIMIT: usize = 0;
+const KEY_SIZE_UNAVAILABLE: usize = 1;
+const KEY_NODES: usize = 32;
+
+fn calibrated_tuple_size(getsizeof: &Bound<'_, PyAny>) -> PyResult<Option<usize>> {
+    let py = getsizeof.py();
+    let pointer = std::mem::size_of::<usize>();
+    let mut sizes = [0usize; 3];
+    for (count, size) in sizes.iter_mut().enumerate() {
+        let tuple = PyTuple::new(py, (0..count).map(|_| py.None()))?;
+        *size = getsizeof.call1((tuple,))?.extract()?;
+    }
+    Ok((sizes[1] == sizes[0] + pointer && sizes[2] == sizes[0] + 2 * pointer).then_some(sizes[0]))
+}
 
 fn namespace_names(namespace: &Bound<'_, PyAny>) -> PyResult<(PyBackedStr, PyBackedStr)> {
     let py = namespace.py();
@@ -1558,6 +1830,9 @@ pub(crate) struct LocalOwner {
     keys: Py<OrderedKeys>,
     operations: Vec<Py<PyAny>>,
     config: Py<PyAny>,
+    key_limit: Option<usize>,
+    tuple_size: Option<usize>,
+    count_limit: Option<usize>,
     stream_cost: Py<PyAny>,
 }
 
@@ -1662,6 +1937,37 @@ impl LocalOwner {
                     identity.generation == capture.generation.1 && identity.owner(py).is_some()
                 })
     }
+    fn retention_preflight(
+        &self,
+        py: Python<'_>,
+        capture: &Capture,
+        database: &str,
+        weight: usize,
+    ) -> PyResult<Option<usize>> {
+        let mut state = self.state.lock().expect("local owner mutex");
+        self.active(py, &state)?;
+        if let Some(outcome) = state.admission_gate(database, capture.availability, weight) {
+            return Ok(Some(outcome));
+        }
+        let valid = if capture.identity.is_some() {
+            Self::identity_capture_valid(py, &state, capture)
+        } else {
+            Self::namespace_capture_valid(&state, capture)
+        };
+        Ok((!valid).then_some(STALE))
+    }
+    fn sizer<'a, 'py>(&'a self, py: Python<'py>, shared: bool) -> Sizer<'a, 'py> {
+        Sizer {
+            owner: self,
+            py,
+            sizes: shared.then(HashMap::default),
+            pending: Vec::new(),
+            seen: HashSet::default(),
+        }
+    }
+    fn key_decision(&self, py: Python<'_>, roots: &[&Bound<'_, PyAny>]) -> PyResult<Option<usize>> {
+        self.sizer(py, false).decide(roots)
+    }
     fn lookup_gate(&self, py: Python<'_>, database: &str) -> PyResult<bool> {
         let mut state = self.state.lock().expect("local owner mutex");
         self.active(py, &state)?;
@@ -1722,6 +2028,28 @@ impl LocalOwner {
             return Ok(Read::Miss);
         }
     }
+    fn identity_read(
+        &self,
+        py: Python<'_>,
+        namespace: &Bound<'_, PyAny>,
+        identity: &Bound<'_, PyAny>,
+        read_shape: &Bound<'_, PyAny>,
+        defer: bool,
+    ) -> PyResult<Read> {
+        let names = namespace_names(namespace)?;
+        if !self.lookup_gate(py, &names.0)? {
+            return Ok(Read::Bypass);
+        }
+        let identity = self.canonical_identity(identity, false)?;
+        let shape = self.canonical(read_shape)?;
+        self.lookup(
+            py,
+            &names,
+            Kind::Identity,
+            Query::Identity(&identity, &shape),
+            defer,
+        )
+    }
     fn admit_namespace_bytes(
         &self,
         py: Python<'_>,
@@ -1729,10 +2057,15 @@ impl LocalOwner {
         discriminator: &Bound<'_, PyAny>,
         encoded: &Bound<'_, PyBytes>,
         find_source: Option<&Bound<'_, PyAny>>,
-        publication: Option<(&[u8], &[u8])>,
+        admission: NamespaceAdmission<'_>,
     ) -> PyResult<usize> {
         self.check_capture(capture)?;
         self.ensure_active(py)?;
+        let (publication, prepared) = match admission {
+            NamespaceAdmission::Direct => (None, None),
+            NamespaceAdmission::Published(keys) => (Some(keys), None),
+            NamespaceAdmission::Fallback(decision) => (None, Some(decision)),
+        };
         let key = self.canonical(discriminator)?;
         let hashes = Query::Plain(&key).hash()?;
         let source = find_source
@@ -1746,6 +2079,17 @@ impl LocalOwner {
             .transpose()?;
         let names = namespace_names(capture.namespace.bind(py))?;
         let weight = encoded.as_bytes().len();
+        if prepared.is_none()
+            && self.key_limit.is_some()
+            && let Some(outcome) = self.retention_preflight(py, capture, &names.0, weight)?
+        {
+            return Ok(outcome);
+        }
+        let key_decision = if let Some(policy) = &prepared {
+            policy.key
+        } else {
+            self.key_decision(py, &[&key])?
+        };
         loop {
             let (revision, pins, hash) = {
                 let mut state = self.state.lock().expect("local owner mutex");
@@ -1756,6 +2100,13 @@ impl LocalOwner {
                 }
                 if !Self::namespace_capture_valid(&state, capture) {
                     return Ok(STALE);
+                }
+                if let Some(reason) = key_decision {
+                    state.declines[reason] += 1;
+                    if let Some(policy) = &prepared {
+                        state.declines[policy.pending] += 1;
+                    }
+                    return Ok(RETENTION);
                 }
                 let namespace = capture.namespace_id.expect("valid capture");
                 let hash = scoped_hash(namespace, Kind::Namespace, hashes);
@@ -1774,6 +2125,12 @@ impl LocalOwner {
             }
             if !Self::namespace_capture_valid(&state, capture) {
                 return Ok(STALE);
+            }
+            if let Some(policy) = &prepared {
+                state.declines[policy.pending] += 1;
+            }
+            if self.count_limit.is_some() && previous.is_some_and(|pin| state.valid(&pin.node)) {
+                return Ok(ADMITTED);
             }
             let token = state.token();
             let (payload, block) = state.store(encoded);
@@ -1824,6 +2181,21 @@ impl LocalOwner {
         let alias_hash = alias.map(|alias| alias.hash()).transpose()?;
         let names = namespace_names(capture.namespace.bind(py))?;
         let weight = encoded.as_bytes().len();
+        if self.key_limit.is_some()
+            && let Some(outcome) = self.retention_preflight(py, capture, &names.0, weight)?
+        {
+            return Ok(outcome);
+        }
+        let mut sizer = self.sizer(py, alias.is_some());
+        let key_decision = sizer.decide(&[identity, &shape])?;
+        let alias_decision = if key_decision.is_none() {
+            alias
+                .map(|alias| sizer.decide(&[alias, identity]))
+                .transpose()?
+                .flatten()
+        } else {
+            None
+        };
         loop {
             let (revision, pins, aliases, hash, alias_hash) = {
                 let mut state = self.state.lock().expect("local owner mutex");
@@ -1834,6 +2206,10 @@ impl LocalOwner {
                 }
                 if !Self::identity_capture_valid(py, &state, capture) {
                     return Ok(STALE);
+                }
+                if let Some(reason) = key_decision {
+                    state.declines[3 + reason] += 1;
+                    return Ok(RETENTION);
                 }
                 let namespace = capture.namespace_id.expect("valid capture");
                 let hash = scoped_hash(namespace, Kind::Identity, hashes);
@@ -1865,41 +2241,266 @@ impl LocalOwner {
             }
             let namespace = capture.namespace_id.expect("valid capture");
             let metadata = capture.handle.expect("identity capture");
-            if let (Some(alias), Some(hash)) = (alias, alias_hash) {
-                state.publish_alias(
-                    AliasPublication {
-                        namespace,
-                        hash,
-                        key: alias,
-                        identity,
-                        metadata,
+            let publish = |state: &mut State, retired: &mut Retired| {
+                if let Some(reason) = alias_decision {
+                    state.declines[6 + reason] += 1;
+                } else if let (Some(alias), Some(hash)) = (alias, alias_hash) {
+                    state.publish_alias(
+                        AliasPublication {
+                            namespace,
+                            hash,
+                            key: alias,
+                            identity,
+                            metadata,
+                        },
+                        old_alias,
+                        retired,
+                    );
+                }
+            };
+            if self.count_limit.is_none() {
+                publish(&mut state, &mut retired);
+            }
+            let admitted = if self.count_limit.is_some()
+                && previous.is_some_and(|pin| state.valid(&pin.node))
+            {
+                true
+            } else {
+                let token = state.token();
+                let (payload, block) = state.store(encoded);
+                let node = Node {
+                    token,
+                    namespace,
+                    hash,
+                    key: key.clone().unbind(),
+                    body: Body::Identity {
+                        payload,
+                        weight,
+                        epoch: capture.generation.0,
+                        identity: metadata,
+                        generation: capture.generation.1,
                     },
-                    old_alias,
+                };
+                let handle = state
+                    .put(py, node, block, previous, &mut retired)
+                    .filter(|handle| state.resident(*handle));
+                if let (Some(handle), Some(keys)) = (handle, publication) {
+                    state.publish(py, handle, keys);
+                }
+                handle.is_some()
+            };
+            if self.count_limit.is_some() && admitted {
+                publish(&mut state, &mut retired);
+            }
+            state.cleanup_empty();
+            drop(state);
+            return Ok(if admitted { ADMITTED } else { STALE });
+        }
+    }
+
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "Unique admission supplies the captured origin result and its three keys"
+    )]
+    fn admit_unique_limited(
+        &self,
+        py: Python<'_>,
+        capture: &Capture,
+        key: &Bound<'_, PyAny>,
+        identity: &Bound<'_, PyAny>,
+        shape: &Bound<'_, PyAny>,
+        encoded: &Bound<'_, PyBytes>,
+        alias: &Bound<'_, PyAny>,
+    ) -> PyResult<usize> {
+        let maximum = self.count_limit.expect("count-limited admission");
+        let names = namespace_names(capture.namespace.bind(py))?;
+        let weight = encoded.as_bytes().len();
+        if let Some(outcome) = self.retention_preflight(py, capture, &names.0, weight)? {
+            return Ok(outcome);
+        }
+        let mut sizer = self.sizer(py, true);
+        let identity_decision = if maximum == 1 {
+            None
+        } else {
+            sizer.decide(&[identity, shape])?
+        };
+        let alias_decision = if maximum > 1 && identity_decision.is_none() {
+            sizer.decide(&[alias, identity])?
+        } else {
+            None
+        };
+        let pair_eligible = maximum > 1 && identity_decision.is_none() && alias_decision.is_none();
+        if !pair_eligible {
+            let blocked = identity_decision
+                .map(|reason| 3 + reason)
+                .or_else(|| alias_decision.map(|reason| 6 + reason))
+                .unwrap_or(8);
+            let decision = sizer.decide(&[key])?;
+            return self.admit_namespace_bytes(
+                py,
+                capture,
+                key,
+                encoded,
+                None,
+                NamespaceAdmission::Fallback(NamespaceDecision {
+                    key: decision,
+                    pending: blocked,
+                }),
+            );
+        }
+        let identity_hash = identity.hash()?;
+        let namespace_hashes = Query::Plain(key).hash()?;
+        let identity_hashes = Query::Identity(identity, shape).hash()?;
+        let alias_hashes = Query::Plain(alias).hash()?;
+        let identity_key = PyTuple::new(py, [identity, shape])?.into_any();
+        let mut fallback_decision = None;
+        let mut prepared = None;
+        loop {
+            let (revision, metadata_pins, ns_pins, id_pins, aliases, ns_hash, id_hash, alias_hash) = {
+                let mut state = self.state.lock().expect("local owner mutex");
+                self.active(py, &state)?;
+                if let Some(outcome) = state.admission_gate(&names.0, capture.availability, weight)
+                {
+                    return Ok(outcome);
+                }
+                if !Self::namespace_capture_valid(&state, capture) {
+                    return Ok(STALE);
+                }
+                let namespace = capture.namespace_id.expect("valid capture");
+                let ns_hash = scoped_hash(namespace, Kind::Namespace, namespace_hashes);
+                let id_hash = scoped_hash(namespace, Kind::Identity, identity_hashes);
+                let alias_hash = scoped_hash(namespace, Kind::Alias, alias_hashes);
+                (
+                    state.revision,
+                    state.meta_pins(py, namespace, identity_hash),
+                    state.pins(py, namespace, Kind::Namespace, ns_hash),
+                    state.pins(py, namespace, Kind::Identity, id_hash),
+                    state.pins(py, namespace, Kind::Alias, alias_hash),
+                    ns_hash,
+                    id_hash,
+                    alias_hash,
+                )
+            };
+            let metadata = metadata_pins.matching(identity)?;
+            let previous_ns = ns_pins.matching(py, &Query::Plain(key))?;
+            let previous_id = id_pins.matching(py, &Query::Identity(identity, shape))?;
+            let previous_alias = aliases.matching(py, &Query::Plain(alias))?;
+            let mut retired = Retired::default();
+            let mut state = self.state.lock().expect("local owner mutex");
+            self.active(py, &state)?;
+            if state.revision != revision {
+                continue;
+            }
+            if !Self::namespace_capture_valid(&state, capture) {
+                return Ok(STALE);
+            }
+            let namespace = capture.namespace_id.expect("valid capture");
+            let reuse = previous_id.is_some_and(|pin| state.valid(&pin.node));
+            let mut plan = state.value_plan(
+                previous_id,
+                previous_ns,
+                weight,
+                metadata.map_or(0, |handle| handle.slot),
+                reuse,
+            );
+            if state.pair_fits(&mut plan, previous_alias) {
+                if metadata.is_none() && prepared.is_none() {
+                    drop(state);
+                    prepared = Some(self.prepare_identity_owner(py, namespace, identity)?);
+                    continue;
+                }
+                let handle = metadata.unwrap_or_else(|| {
+                    let (owner, weak) = prepared.as_ref().expect("prepared identity");
+                    state.insert_identity(namespace, owner.bind(py), weak.bind(py), identity_hash)
+                });
+                let owner = state.identity_mut(handle).expect("reserved identity");
+                owner.captures += 1;
+                let generation = owner.generation;
+                let epoch = state.namespaces[&namespace].epoch;
+                state.apply_plan(
+                    &plan,
+                    previous_id.map(|pin| pin.slot),
+                    previous_ns.map(|pin| pin.slot),
                     &mut retired,
                 );
+                if !reuse {
+                    let token = state.token();
+                    let (payload, block) = state.store(encoded);
+                    state.put(
+                        py,
+                        Node {
+                            token,
+                            namespace,
+                            hash: id_hash,
+                            key: identity_key.clone().unbind(),
+                            body: Body::Identity {
+                                payload,
+                                weight,
+                                epoch,
+                                identity: handle,
+                                generation,
+                            },
+                        },
+                        block,
+                        None,
+                        &mut retired,
+                    );
+                }
+                let published = state.publish_alias(
+                    AliasPublication {
+                        namespace,
+                        hash: alias_hash,
+                        key: alias,
+                        identity,
+                        metadata: handle,
+                    },
+                    previous_alias,
+                    &mut retired,
+                );
+                assert!(published, "planned pair fits the record limit");
+                state
+                    .identity_mut(handle)
+                    .expect("reserved identity")
+                    .captures -= 1;
+                state.prune_identity(namespace, handle, &mut retired);
+                state.cleanup_empty();
+                drop(state);
+                return Ok(ADMITTED);
+            }
+            let Some(namespace_decision) = fallback_decision else {
+                drop(state);
+                fallback_decision = Some(sizer.decide(&[key])?);
+                continue;
+            };
+            state.declines[8] += 1;
+            if let Some(reason) = namespace_decision {
+                state.declines[reason] += 1;
+                return Ok(RETENTION);
+            }
+            if previous_ns.is_some_and(|pin| state.valid(&pin.node)) {
+                return Ok(ADMITTED);
             }
             let token = state.token();
             let (payload, block) = state.store(encoded);
-            let node = Node {
-                token,
-                namespace,
-                hash,
-                key: key.clone().unbind(),
-                body: Body::Identity {
-                    payload,
-                    weight,
-                    epoch: capture.generation.0,
-                    identity: metadata,
-                    generation: capture.generation.1,
+            let handle = state.put(
+                py,
+                Node {
+                    token,
+                    namespace,
+                    hash: ns_hash,
+                    key: key.clone().unbind(),
+                    body: Body::Namespace {
+                        payload,
+                        weight,
+                        generation: capture.query_token,
+                        source: None,
+                    },
                 },
-            };
-            let handle = state
-                .put(py, node, block, previous, &mut retired)
-                .filter(|handle| state.resident(*handle));
-            if let (Some(handle), Some(keys)) = (handle, publication) {
-                state.publish(py, handle, keys);
-            }
-            let admitted = handle.is_some();
+                block,
+                previous_ns,
+                &mut retired,
+            );
+            let admitted = handle.is_some_and(|handle| state.resident(handle));
             state.cleanup_empty();
             drop(state);
             return Ok(if admitted { ADMITTED } else { STALE });
@@ -1941,6 +2542,12 @@ impl LocalOwner {
                 invalidated_reason = index;
             }
         }
+        let key_limit: Option<usize> = setup.get_item(6)?.extract()?;
+        let tuple_size = if key_limit.is_some() {
+            calibrated_tuple_size(&operations.get_item(GETSIZEOF)?)?
+        } else {
+            None
+        };
         Ok(Self {
             state: Arc::new(Mutex::new(State {
                 closed: false,
@@ -1950,6 +2557,11 @@ impl LocalOwner {
                 budget: setup.get_item(1)?.extract()?,
                 max_entry: setup.get_item(2)?.extract()?,
                 max_namespaces: setup.get_item(3)?.extract()?,
+                max_entries: setup.get_item(5)?.extract()?,
+                alias_chain: setup
+                    .get_item(5)?
+                    .extract::<Option<usize>>()?
+                    .map(|_| Chain::default()),
                 used: 0,
                 value_count: 0,
                 names: HashMap::new(),
@@ -1967,6 +2579,7 @@ impl LocalOwner {
                 unavailable_reason,
                 invalidated_reason,
                 shared: shared.map(Box::new),
+                declines: [0; 9],
             })),
             keys: operations
                 .get_item(ORDER_SENSITIVE)?
@@ -1974,6 +2587,9 @@ impl LocalOwner {
                 .unbind(),
             operations: operations.iter().map(Bound::unbind).collect(),
             config: setup.get_item(0)?.unbind(),
+            key_limit,
+            tuple_size,
+            count_limit: setup.get_item(5)?.extract()?,
             stream_cost: setup.get_item(4)?.unbind(),
         })
     }
@@ -2006,23 +2622,52 @@ impl LocalOwner {
             .getattr(pyo3::intern!(py, "max_namespaces"))?
             .unbind())
     }
+    #[getter]
+    fn max_entries(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        Ok(self
+            .config
+            .bind(py)
+            .getattr(pyo3::intern!(py, "max_entries"))?
+            .unbind())
+    }
     fn snapshot(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
-        let values = {
+        let (values, declines) = {
             let state = self.state.lock().expect("local owner mutex");
             (
-                state.closed,
-                state.used,
-                state.value_count,
-                state.hits,
-                state.misses,
-                state.evictions,
-                state.oversized,
-                state.bypasses.clone(),
+                (
+                    state.closed,
+                    state.used,
+                    state.value_count,
+                    state.hits,
+                    state.misses,
+                    state.evictions,
+                    state.oversized,
+                    state.bypasses.clone(),
+                    state.rows.count - state.value_count,
+                ),
+                state.declines,
             )
         };
+        let (closed, used, count, hits, misses, evictions, oversized, reasons, aliases) = values;
+        let statistics = (
+            closed,
+            used,
+            count,
+            hits,
+            misses,
+            evictions,
+            oversized,
+            reasons,
+            aliases,
+            declines
+                .iter()
+                .any(|count| *count != 0)
+                .then(|| PyTuple::new(py, declines))
+                .transpose()?,
+        );
         Ok(self
             .operation(py, SNAPSHOT)
-            .call1((values, self.config.bind(py)))?
+            .call1((statistics, self.config.bind(py)))?
             .unbind())
     }
     fn _ownership(&self) -> (usize, usize, usize, usize, usize) {
@@ -2353,7 +2998,14 @@ impl LocalOwner {
         };
         self.outcome(
             py,
-            self.admit_namespace_bytes(py, capture, discriminator, &encoded, find_source, None)?,
+            self.admit_namespace_bytes(
+                py,
+                capture,
+                discriminator,
+                &encoded,
+                find_source,
+                NamespaceAdmission::Direct,
+            )?,
         )
     }
     #[pyo3(signature = (capture, discriminator, encoded, *, find_source=None))]
@@ -2367,7 +3019,14 @@ impl LocalOwner {
     ) -> PyResult<Py<PyAny>> {
         self.outcome(
             py,
-            self.admit_namespace_bytes(py, capture, discriminator, encoded, find_source, None)?,
+            self.admit_namespace_bytes(
+                py,
+                capture,
+                discriminator,
+                encoded,
+                find_source,
+                NamespaceAdmission::Direct,
+            )?,
         )
     }
     #[pyo3(signature = (capture, read_shape, value, *, alias=None, codec_options=None))]
@@ -2414,20 +3073,8 @@ impl LocalOwner {
         identity: &Bound<'_, PyAny>,
         read_shape: &Bound<'_, PyAny>,
     ) -> PyResult<Option<Py<PyBytes>>> {
-        let names = namespace_names(namespace)?;
-        if !self.lookup_gate(py, &names.0)? {
-            return Ok(None);
-        }
-        let identity = self.canonical_identity(identity, false)?;
-        let shape = self.canonical(read_shape)?;
         Ok(
-            match self.lookup(
-                py,
-                &names,
-                Kind::Identity,
-                Query::Identity(&identity, &shape),
-                false,
-            )? {
+            match self.identity_read(py, namespace, identity, read_shape, false)? {
                 Read::Hit(payload) => Some(payload),
                 Read::Miss | Read::Bypass => None,
             },
@@ -2448,6 +3095,24 @@ impl LocalOwner {
                 .call1((payload.bind(py), codec_options))?
                 .unbind()),
             None => Ok(self.operations[MISS].clone_ref(py)),
+        }
+    }
+    #[pyo3(signature = (namespace, identity, read_shape, *, codec_options=None))]
+    fn lookup_identity_deferred(
+        &self,
+        py: Python<'_>,
+        namespace: &Bound<'_, PyAny>,
+        identity: &Bound<'_, PyAny>,
+        read_shape: &Bound<'_, PyAny>,
+        codec_options: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Py<PyAny>> {
+        match self.identity_read(py, namespace, identity, read_shape, true)? {
+            Read::Hit(payload) => Ok(self
+                .operation(py, DECODE)
+                .call1((payload.bind(py), codec_options))?
+                .unbind()),
+            Read::Miss => Ok(self.operations[DEFERRED_MISS].clone_ref(py)),
+            Read::Bypass => Ok(self.operations[MISS].clone_ref(py)),
         }
     }
     #[pyo3(signature = (namespace, discriminator, *, defer_miss=false))]
@@ -2868,13 +3533,47 @@ impl LocalOwner {
         };
         let key = self.canonical(discriminator)?;
         let shape = self.canonical(read_shape)?;
+        if self.count_limit.is_some() {
+            let outcome =
+                self.admit_unique_limited(py, capture, &key, &identity, &shape, &encoded, alias)?;
+            return self.outcome(py, outcome);
+        }
+        let names = namespace_names(capture.namespace.bind(py))?;
+        let weight = encoded.as_bytes().len();
+        if self.key_limit.is_some()
+            && let Some(outcome) = self.retention_preflight(py, capture, &names.0, weight)?
+        {
+            return self.outcome(py, outcome);
+        }
+        let mut sizer = self.sizer(py, true);
+        let namespace_decision = sizer.decide(&[&key])?;
+        if let Some(reason) = sizer.decide(&[&identity, &shape])? {
+            let outcome = self.admit_namespace_bytes(
+                py,
+                capture,
+                &key,
+                &encoded,
+                None,
+                NamespaceAdmission::Fallback(NamespaceDecision {
+                    key: namespace_decision,
+                    pending: 3 + reason,
+                }),
+            )?;
+            return self.outcome(
+                py,
+                if outcome == ADMITTED {
+                    RETENTION
+                } else {
+                    outcome
+                },
+            );
+        }
+        let alias_decision = sizer.decide(&[alias, &identity])?;
         let identity_key = PyTuple::new(py, [&identity, &shape])?.into_any();
         let identity_hash = identity.hash()?;
         let namespace_hashes = Query::Plain(&key).hash()?;
         let identity_hashes = Query::Identity(&identity, &shape).hash()?;
         let alias_hashes = Query::Plain(alias).hash()?;
-        let names = namespace_names(capture.namespace.bind(py))?;
-        let weight = encoded.as_bytes().len();
         loop {
             let (revision, metadata_pins, ns_pins, id_pins, aliases, ns_hash, id_hash, alias_hash) = {
                 let mut state = self.state.lock().expect("local owner mutex");
@@ -2940,32 +3639,46 @@ impl LocalOwner {
             metadata.captures += 1;
             let generation = metadata.generation;
             let epoch = state.namespaces[&namespace].epoch;
-            state.publish_alias(
-                AliasPublication {
-                    namespace,
-                    hash: alias_hash,
-                    key: alias,
-                    identity: &identity,
-                    metadata: handle,
-                },
-                previous_alias,
-                &mut retired,
-            );
-            let token = state.token();
-            let (payload, block) = state.store(&encoded);
-            let ns_node = Node {
-                token,
-                namespace,
-                hash: ns_hash,
-                key: key.clone().unbind(),
-                body: Body::Namespace {
-                    payload,
-                    weight,
-                    generation: capture.query_token,
-                    source: None,
-                },
+            if let Some(reason) = alias_decision {
+                state.declines[6 + reason] += 1;
+            } else {
+                state.publish_alias(
+                    AliasPublication {
+                        namespace,
+                        hash: alias_hash,
+                        key: alias,
+                        identity: &identity,
+                        metadata: handle,
+                    },
+                    previous_alias,
+                    &mut retired,
+                );
+            }
+            let ns_result = if let Some(reason) = namespace_decision {
+                state.declines[reason] += 1;
+                None
+            } else {
+                let token = state.token();
+                let (payload, block) = state.store(&encoded);
+                state.put(
+                    py,
+                    Node {
+                        token,
+                        namespace,
+                        hash: ns_hash,
+                        key: key.clone().unbind(),
+                        body: Body::Namespace {
+                            payload,
+                            weight,
+                            generation: capture.query_token,
+                            source: None,
+                        },
+                    },
+                    block,
+                    previous_ns,
+                    &mut retired,
+                )
             };
-            let ns_result = state.put(py, ns_node, block, previous_ns, &mut retired);
             let token = state.token();
             let (payload, block) = state.store(&encoded);
             let id_node = Node {
@@ -2984,6 +3697,8 @@ impl LocalOwner {
             let id_result = state.put(py, id_node, block, previous_id, &mut retired);
             let admitted = ns_result.is_some_and(|handle| state.resident(handle))
                 && id_result.is_some_and(|handle| state.resident(handle));
+            let policy_declined = namespace_decision.is_some()
+                && id_result.is_some_and(|handle| state.resident(handle));
             state
                 .identity_mut(handle)
                 .expect("reserved unique identity")
@@ -2991,7 +3706,16 @@ impl LocalOwner {
             state.prune_identity(namespace, handle, &mut retired);
             state.cleanup_empty();
             drop(state);
-            return self.outcome(py, if admitted { ADMITTED } else { STALE });
+            return self.outcome(
+                py,
+                if admitted {
+                    ADMITTED
+                } else if policy_declined {
+                    RETENTION
+                } else {
+                    STALE
+                },
+            );
         }
     }
     fn record_stream_poll(&self, py: Python<'_>, database: &str) -> PyResult<()> {

@@ -410,6 +410,19 @@ async def test_lazy_find_and_native_validation(cursors: Binding) -> None:
     ],
     ids=["duplicate-filter", "skip", "projection", "batch-size"],
 )
+@pytest.mark.parametrize(
+    "cursors",
+    [
+        "sync",
+        "async",
+        *(
+            (api, DOCUMENT_COUNT, 0, 1048576, {"max_entries": 4, "max_key_bytes": 8192})
+            for api in ("sync", "async")
+        ),
+    ],
+    indirect=True,
+    ids=["sync", "async", "sync-limits", "async-limits"],
+)
 async def test_warm_find_keeps_native_constructor_errors(
     cursors: Binding,
     arguments: tuple[object, ...],
@@ -428,6 +441,19 @@ async def test_warm_find_keeps_native_constructor_errors(
     assert cursors["commands"].commands == []
 
 
+@pytest.mark.parametrize(
+    "cursors",
+    [
+        "sync",
+        "async",
+        *(
+            (api, DOCUMENT_COUNT, 0, 1048576, {"max_entries": 4, "max_key_bytes": 8192})
+            for api in ("sync", "async")
+        ),
+    ],
+    indirect=True,
+    ids=["sync", "async", "sync-limits", "async-limits"],
+)
 async def test_native_streaming_and_complete_admission(
     cursors: Binding, cursor_factory: CursorFactory
 ) -> None:
@@ -462,6 +488,19 @@ async def test_eligible_miss_reads_majority_when_read_concern_is_unspecified(
     assert cursors["commands"].commands[0]["readConcern"] == {"level": "majority"}
 
 
+@pytest.mark.parametrize(
+    "cursors",
+    [
+        "sync",
+        "async",
+        *(
+            (api, DOCUMENT_COUNT, 0, 1048576, {"max_entries": 4, "max_key_bytes": 8192})
+            for api in ("sync", "async")
+        ),
+    ],
+    indirect=True,
+    ids=["sync", "async", "sync-limits", "async-limits"],
+)
 async def test_partial_to_list_and_early_close(
     cursors: Binding, cursor_factory: CursorFactory
 ) -> None:
@@ -629,6 +668,19 @@ async def test_later_batch_failure_discards_candidate(
     "transition",
     ["invalidate", "unavailable", "restored", "close"],
     ids=["write", "unavailable", "restored", "manager-close"],
+)
+@pytest.mark.parametrize(
+    "cursors",
+    [
+        "sync",
+        "async",
+        *(
+            (api, DOCUMENT_COUNT, 0, 1048576, {"max_entries": 4, "max_key_bytes": 8192})
+            for api in ("sync", "async")
+        ),
+    ],
+    indirect=True,
+    ids=["sync", "async", "sync-limits", "async-limits"],
 )
 async def test_started_hit_retains_snapshot(
     cursors: Binding, cursor_factory: CursorFactory, transition: str

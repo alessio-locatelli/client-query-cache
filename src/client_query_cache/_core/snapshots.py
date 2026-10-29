@@ -3,13 +3,14 @@ from __future__ import annotations
 import threading
 from dataclasses import dataclass
 from enum import StrEnum
+from functools import lru_cache
+from itertools import starmap
 from typing import TYPE_CHECKING, Protocol
 
 from client_query_cache._types import NonNegativeInt, PositiveInt
 
 if TYPE_CHECKING:
     from client_query_cache._core.stream_cost import StreamCostSnapshot
-from itertools import starmap
 
 
 class BypassReason(StrEnum):
@@ -36,6 +37,47 @@ class BypassReasonCount:
     count: NonNegativeInt
 
 
+class RetentionRecordKind(StrEnum):
+    NAMESPACE_VALUE = "namespace_value"
+    IDENTITY_VALUE = "identity_value"
+    ALIAS = "alias"
+
+
+class RetentionDeclineReason(StrEnum):
+    KEY_SIZE_LIMIT = "key_size_limit"
+    KEY_SIZE_UNAVAILABLE = "key_size_unavailable"
+    ENTRY_CAPACITY = "entry_capacity"
+
+
+@dataclass(frozen=True, slots=True)
+class RetentionDeclineCount:
+    kind: RetentionRecordKind
+    reason: RetentionDeclineReason
+    count: NonNegativeInt
+
+
+_RETENTION_DIMENSIONS = tuple(
+    (kind, reason) for kind in RetentionRecordKind for reason in RetentionDeclineReason
+)
+_RETENTION_COUNT_VARIANTS = 256
+_RETENTION_INDEX = {
+    dimensions: index for index, dimensions in enumerate(_RETENTION_DIMENSIONS)
+}
+EMPTY_RETENTION_DECLINES = tuple(
+    RetentionDeclineCount(kind, reason, 0) for kind, reason in _RETENTION_DIMENSIONS
+)
+
+
+@lru_cache(maxsize=_RETENTION_COUNT_VARIANTS)
+def retention_counts(
+    counts: tuple[NonNegativeInt, ...],
+) -> tuple[RetentionDeclineCount, ...]:
+    return tuple(
+        RetentionDeclineCount(empty.kind, empty.reason, count) if count else empty
+        for empty, count in zip(EMPTY_RETENTION_DECLINES, counts, strict=True)
+    )
+
+
 _EMPTY_BYPASS_REASONS = tuple(BypassReasonCount(reason, 0) for reason in BypassReason)
 
 
@@ -52,6 +94,10 @@ class CacheSnapshot:
     bypasses: NonNegativeInt
     oversized_bypasses: NonNegativeInt
     bypass_reasons: tuple[BypassReasonCount, ...] = _EMPTY_BYPASS_REASONS
+    max_entries: PositiveInt | None = None
+    max_key_bytes: PositiveInt | None = None
+    alias_count: NonNegativeInt = 0
+    retention_declines: tuple[RetentionDeclineCount, ...] = EMPTY_RETENTION_DECLINES
 
 
 class CacheStatistics:
@@ -63,6 +109,7 @@ class CacheStatistics:
         "_lock",
         "_misses",
         "_oversized_bypasses",
+        "_retention_declines",
     )
 
     def __init__(self) -> None:
@@ -73,6 +120,19 @@ class CacheStatistics:
         self._bypasses = 0
         self._bypass_reasons = dict.fromkeys(BypassReason, 0)
         self._oversized_bypasses = 0
+        self._retention_declines: list[NonNegativeInt] = [0] * len(
+            _RETENTION_DIMENSIONS
+        )
+
+    def record_retention_decline(
+        self, kind: RetentionRecordKind, reason: RetentionDeclineReason
+    ) -> None:
+        with self._lock:
+            self._retention_declines[_RETENTION_INDEX[kind, reason]] += 1
+
+    def retention_snapshot(self) -> tuple[RetentionDeclineCount, ...]:
+        with self._lock:
+            return retention_counts(tuple(self._retention_declines))
 
     def record_hit(self) -> None:
         with self._lock:

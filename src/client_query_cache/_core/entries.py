@@ -18,6 +18,7 @@ class AdmissionOutcome(enum.Enum):
     DECLINED_STALE = "declined_stale"
     DECLINED_UNAVAILABLE = "declined_unavailable"
     DECLINED_UNENCODABLE = "declined_unencodable"
+    DECLINED_RETENTION = "declined_retention"
 
 
 @dataclass(eq=False, slots=True)

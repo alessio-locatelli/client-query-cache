@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import threading
 from typing import TYPE_CHECKING
 
 import pytest
 
 from client_query_cache._core.locking import (
+    CapacitySection,
     LockOrderGuard,
     LockOrderViolationError,
     NamespaceLock,
@@ -130,3 +132,20 @@ def test_interrupted_namespace_acquisition_releases_the_guard(
 
     with guard.lru_section(), pytest.raises(LockOrderViolationError):
         guard.namespace_section().__enter__()
+
+
+@pytest.mark.parametrize(
+    "storage", [LockOrderGuard.namespace_section, LockOrderGuard.lru_section]
+)
+def test_capacity_transaction_rejects_storage_lock_inversion(
+    storage: Callable[[LockOrderGuard], AbstractContextManager[None]],
+) -> None:
+    guard = LockOrderGuard()
+    capacity = CapacitySection(threading.RLock(), guard)
+    with (
+        storage(guard),
+        pytest.raises(LockOrderViolationError, match="capacity transaction"),
+    ):
+        capacity.__enter__()
+    with capacity, guard.namespace_section():
+        pass

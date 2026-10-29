@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 
 from bson.errors import BSONError
 
+from client_query_cache._core.canonical import _CanonicalTag
 from client_query_cache._core.codec import decode_value, encode_value
 from client_query_cache._core.entries import (
     _DEFERRED_MISS,
@@ -21,9 +22,11 @@ from client_query_cache._core.keys import canonical_alias_key
 from client_query_cache._core.manager import CacheCoreConfig
 from client_query_cache._core.order_sensitive_keys import _ORDERED
 from client_query_cache._core.snapshots import (
+    EMPTY_RETENTION_DECLINES,
     BypassReason,
     BypassReasonCount,
     CacheSnapshot,
+    retention_counts,
 )
 from client_query_cache._core.stream_cost import StreamCostRegistry
 from client_query_cache._types import NonEmpty, NonNegativeInt, PositiveInt
@@ -44,11 +47,19 @@ type NativeStatistics = tuple[
     NonNegativeInt,
     NonNegativeInt,
     NonEmpty[list[NonNegativeInt]],
+    NonNegativeInt,
+    tuple[NonNegativeInt, ...] | None,
 ]
 
 
 type NativeSetup = tuple[
-    CacheCoreConfig, PositiveInt, PositiveInt, PositiveInt, StreamCostRegistry
+    CacheCoreConfig,
+    PositiveInt,
+    PositiveInt,
+    PositiveInt,
+    StreamCostRegistry,
+    PositiveInt | None,
+    PositiveInt | None,
 ]
 
 
@@ -62,6 +73,12 @@ def initialize(config: CacheCoreConfig | None) -> NativeSetup:
         min(resolved.max_entry_bytes, sys.maxsize),
         min(resolved.max_namespaces, sys.maxsize),
         StreamCostRegistry(resolved.lag_capture_window_config),
+        None
+        if resolved.max_entries is None
+        else min(resolved.max_entries, sys.maxsize),
+        None
+        if resolved.max_key_bytes is None
+        else min(resolved.max_key_bytes, sys.maxsize),
     )
 
 
@@ -83,7 +100,18 @@ def decoded_find(
 
 
 def snapshot(statistics: NativeStatistics, config: CacheCoreConfig) -> CacheSnapshot:
-    closed, used, count, hits, misses, evictions, oversized, reasons = statistics
+    (
+        closed,
+        used,
+        count,
+        hits,
+        misses,
+        evictions,
+        oversized,
+        reasons,
+        aliases,
+        declines,
+    ) = statistics
     return CacheSnapshot(
         lifecycle="closed" if closed else "active",
         used_bytes=used,
@@ -96,6 +124,12 @@ def snapshot(statistics: NativeStatistics, config: CacheCoreConfig) -> CacheSnap
         bypasses=sum(reasons),
         oversized_bypasses=oversized,
         bypass_reasons=tuple(map(BypassReasonCount, _REASONS, reasons, strict=True)),
+        max_entries=config.max_entries,
+        max_key_bytes=config.max_key_bytes,
+        alias_count=aliases,
+        retention_declines=EMPTY_RETENTION_DECLINES
+        if declines is None
+        else retention_counts(declines),
     )
 
 
@@ -116,4 +150,6 @@ _OPERATIONS = (
     _DEFERRED_MISS,
     tuple(AdmissionOutcome),
     _REASONS,
+    sys.getsizeof,
+    _CanonicalTag,
 )

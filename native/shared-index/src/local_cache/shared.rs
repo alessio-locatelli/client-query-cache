@@ -4,7 +4,9 @@ use std::sync::Arc;
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 
-use super::{Capture, Handle, LocalOwner, ReleaseCapture, State, namespace_names};
+use super::{
+    Capture, Handle, LocalOwner, NamespaceAdmission, ReleaseCapture, State, namespace_names,
+};
 use crate::clock::monotonic_ns;
 use crate::index::{Block, Query};
 use crate::python::{OwnerIndex, SessionRing};
@@ -615,7 +617,7 @@ impl SharedOwner {
                 discriminator,
                 encoded,
                 find_source,
-                Some((b"", shape_key)),
+                NamespaceAdmission::Published((b"", shape_key)),
             )?,
         )
     }

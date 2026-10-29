@@ -4,6 +4,7 @@ import logging
 import threading
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from functools import partial
 from typing import TYPE_CHECKING
 
 from bson.errors import BSONError
@@ -34,16 +35,19 @@ from client_query_cache._core.keys import (
 )
 from client_query_cache._core.lifecycle import CacheLifecycleState
 from client_query_cache._core.locking import LockOrderGuard, NamespaceLock
-from client_query_cache._core.lru import WeightedLru
+from client_query_cache._core.lru import LruPlanChangedError, WeightedLru
 from client_query_cache._core.namespace import IdentityState, NamespaceState
 from client_query_cache._core.order_sensitive_keys import (
     canonical_order_sensitive_key,
     order_sensitive_key,
 )
+from client_query_cache._core.retention import AliasRegistry, RetentionPlan, key_decline
 from client_query_cache._core.snapshots import (
     BypassReason,
     CacheSnapshot,
     CacheStatistics,
+    RetentionDeclineReason,
+    RetentionRecordKind,
 )
 from client_query_cache._core.stream_cost import (
     DEFAULT_LAG_CAPTURE_WINDOW_CONFIG,
@@ -81,6 +85,10 @@ _DEFAULT_DATABASE_AVAILABILITY = (True, 0)
 logger = logging.getLogger(__name__)
 
 
+def _log_evictions(count: PositiveInt) -> None:
+    logger.debug("cache entries evicted", extra={"evicted_count": count})
+
+
 @dataclass(frozen=True, slots=True)
 class CacheCoreConfig:
     budget_bytes: PositiveInt = DEFAULT_BUDGET_BYTES
@@ -89,6 +97,8 @@ class CacheCoreConfig:
         DEFAULT_LAG_CAPTURE_WINDOW_CONFIG
     )
     max_namespaces: PositiveInt = DEFAULT_MAX_NAMESPACES
+    max_entries: PositiveInt | None = None
+    max_key_bytes: PositiveInt | None = None
 
     def __post_init__(self) -> None:
         if type(self.budget_bytes) is not int:
@@ -112,6 +122,16 @@ class CacheCoreConfig:
         if self.max_entry_bytes > self.budget_bytes:
             message = "max_entry_bytes must not exceed budget_bytes"
             raise CacheConfigurationError(message)
+        for name in ("max_entries", "max_key_bytes"):
+            limit = getattr(self, name)
+            if limit is None:
+                continue
+            if type(limit) is not int:
+                message = f"{name} must be a built-in integer or None"
+                raise CacheConfigurationError(message)
+            if limit <= 0:
+                message = f"{name} must be positive"
+                raise CacheConfigurationError(message)
 
 
 @dataclass(slots=True)
@@ -124,16 +144,17 @@ class IdentityCapture:
     released: bool = field(default=False)
 
     def release(self) -> None:
-        if self.released:
-            return
-        self.released = True
-        with self.state.lock:
-            try:
-                identity_state = self.state.identities[self.identity]
-            except KeyError:
+        with self.state.alias_registry.section:
+            if self.released:
                 return
-            identity_state.inflight_ref_count -= 1
-            _maybe_prune_identity_locked(self.state, self.identity, identity_state)
+            self.released = True
+            with self.state.lock:
+                try:
+                    identity_state = self.state.identities[self.identity]
+                except KeyError:
+                    return
+                identity_state.inflight_ref_count -= 1
+                _maybe_prune_identity_locked(self.state, self.identity, identity_state)
 
 
 @dataclass(slots=True)
@@ -153,8 +174,10 @@ def _maybe_prune_identity_locked(
 ) -> None:
     if identity_state.is_referenced:
         return
-    for alias_key in identity_state.alias_keys:
-        state.aliases.pop(alias_key, None)
+    for alias_key in identity_state.alias_keys or ():
+        state.alias_registry.removed(state, alias_key)
+        state.alias_registry.retire(state.aliases.pop(alias_key, None))
+    state.alias_registry.identity_removed(state, identity_state)
     state.identities.pop(identity, None)
     state.identity_generation_watermark = max(
         state.identity_generation_watermark, identity_state.generation + 1
@@ -162,7 +185,9 @@ def _maybe_prune_identity_locked(
 
 
 def _discard_entry_locked(state: NamespaceState, entry: CacheEntry) -> None:
-    was_indexed = state.entry_index.pop(entry, _NOT_INDEXED) is not _NOT_INDEXED
+    indexed_key = state.entry_index.pop(entry, _NOT_INDEXED)
+    was_indexed = indexed_key is not _NOT_INDEXED
+    state.alias_registry.retire(indexed_key, entry)
     if entry.find_source is not None:
         family = entry.find_source.family
         try:
@@ -208,9 +233,12 @@ class _CacheCoreBase:
         "_lifecycle",
         "_lifecycle_lock",
         "_lru",
+        "_max_entries",
+        "_max_key_bytes",
         "_max_namespaces",
         "_namespaces",
         "_namespaces_lock",
+        "_retention",
         "_statistics",
         "_stream_cost",
     )
@@ -218,10 +246,15 @@ class _CacheCoreBase:
     def __init__(self, config: CacheCoreConfig | None = None) -> None:
         resolved_config = config if config is not None else CacheCoreConfig()
         self._guard = LockOrderGuard()
+        self._availability_lock = threading.RLock()
+        self._retention = AliasRegistry(
+            resolved_config.max_entries, self._availability_lock, self._guard
+        )
         self._lru = WeightedLru(
             budget_bytes=resolved_config.budget_bytes,
             max_entry_bytes=resolved_config.max_entry_bytes,
             guard=self._guard,
+            track_revision=resolved_config.max_entries is not None,
         )
         self._namespaces: dict[NamespaceId, NamespaceState] = {}
         self._database_namespaces: dict[str, dict[NamespaceId, None]] = {}
@@ -229,11 +262,12 @@ class _CacheCoreBase:
         self._generation: NonNegativeInt = 0
         self._generation_lock = threading.Lock()
         self._max_namespaces = resolved_config.max_namespaces
+        self._max_entries = resolved_config.max_entries
+        self._max_key_bytes = resolved_config.max_key_bytes
         self._lifecycle = CacheLifecycleState.ACTIVE
         self._lifecycle_lock = threading.Lock()
         self._statistics = CacheStatistics()
         self._database_availability: dict[str, tuple[bool, NonNegativeInt]] = {}
-        self._availability_lock = threading.RLock()
         self._stream_cost = StreamCostRegistry(
             resolved_config.lag_capture_window_config
         )
@@ -248,6 +282,246 @@ class _CacheCoreBase:
     @property
     def max_namespaces(self) -> PositiveInt:
         return self._max_namespaces
+
+    @property
+    def max_entries(self) -> PositiveInt | None:
+        return self._max_entries
+
+    def _capture_current(self, capture: IdentityCapture | NamespaceCapture) -> bool:
+        state = capture.state
+        if self._is_closed() or not state.tracked:
+            return False
+        if isinstance(capture, NamespaceCapture):
+            return state.query_generation_key == capture.generation_key
+        return (
+            _match_identity_state(state, capture.identity, capture.generation_key)
+            is not None
+        )
+
+    def _retention_preflight(
+        self, capture: IdentityCapture | NamespaceCapture, weight: NonNegativeInt
+    ) -> AdmissionOutcome | None:
+        with self._admission_section(
+            capture.namespace, capture.availability_generation, weight
+        ) as rejected:
+            if rejected is not None:
+                return rejected
+            with capture.state.lock:
+                return (
+                    None
+                    if self._capture_current(capture)
+                    else AdmissionOutcome.DECLINED_STALE
+                )
+
+    def _key_decision(self, *roots: object) -> RetentionDeclineReason | None:
+        assert self._max_key_bytes is not None
+        return key_decline(self._max_key_bytes, *roots)
+
+    def _limited_put(
+        self,
+        capture: IdentityCapture | NamespaceCapture,
+        key: IdentityCacheKey | NamespaceCacheKey,
+        encoded: bytes,
+        *,
+        decision: RetentionDeclineReason | None,
+        alias: AliasKey | None = None,
+        alias_decision: RetentionDeclineReason | None = None,
+        require_alias: bool = False,
+        redundant: NamespaceCacheKey | None = None,
+        pending: tuple[RetentionRecordKind, RetentionDeclineReason] | None = None,
+        find_source: FindSource | None = None,
+    ) -> AdmissionOutcome:
+        assert self._max_entries is not None
+        state = capture.state
+        kind = (
+            RetentionRecordKind.IDENTITY_VALUE
+            if isinstance(key, IdentityCacheKey)
+            else RetentionRecordKind.NAMESPACE_VALUE
+        )
+        with self._retention.section:
+            while True:
+                rejected = self._retention_preflight(capture, len(encoded))
+                if rejected is not None:
+                    return rejected
+                with state.lock:
+                    if decision is not None:
+                        if pending is not None:
+                            self._statistics.record_retention_decline(*pending)
+                        self._statistics.record_retention_decline(kind, decision)
+                        return AdmissionOutcome.DECLINED_RETENTION
+                    owner = None
+                    if isinstance(key, IdentityCacheKey):
+                        try:
+                            owner = state.identities[key.identity]
+                        except KeyError:
+                            generation = (
+                                state.epoch,
+                                state.identity_generation_watermark,
+                            )
+                        else:
+                            generation = (state.epoch, owner.generation)
+                    else:
+                        generation = state.query_generation_key
+                view = self._lru.planning_view()
+                previous = self._lru.peek(key)
+                obsolete = None if redundant is None else self._lru.peek(redundant)
+                reuse = previous is not None and previous.generation_key == generation
+                used, count = self._lru.snapshot_usage()
+                order = self._retention.order
+                assert order is not None
+                plan = RetentionPlan(
+                    self._retention,
+                    self._lru,
+                    self._registered_namespace,
+                    view,
+                    count + self._retention.count,
+                    used,
+                    owner,
+                    iter(order.values()),
+                )
+                if obsolete is not None:
+                    assert redundant is not None
+                    plan.remove_value(redundant, obsolete)
+                if not reuse:
+                    if previous is not None:
+                        plan.remove_value(key, previous)
+                    plan.records += 1
+                    plan.used += len(encoded)
+                try:
+                    plan.fit_value()
+                except LruPlanChangedError:
+                    continue
+                alias_block = alias_decision
+                if alias is not None and alias_block is None:
+                    alias_token = (id(state), alias)
+                    delta = (
+                        1
+                        if alias_token not in order or alias_token in plan.aliases
+                        else 0
+                    )
+                    fits = (
+                        plan.fit_alias(state, alias)
+                        if require_alias
+                        else plan.records + delta <= self._max_entries
+                    )
+                    if not fits:
+                        alias_block = RetentionDeclineReason.ENTRY_CAPACITY
+                        if require_alias:
+                            return AdmissionOutcome.DECLINED_RETENTION
+                entry = (
+                    None
+                    if reuse
+                    else CacheEntry(
+                        generation_key=generation,
+                        weight=len(encoded),
+                        value=encoded,
+                        namespace=capture.namespace,
+                        identity=key.identity
+                        if isinstance(key, IdentityCacheKey)
+                        else None,
+                        find_source=find_source,
+                    )
+                )
+                if not self._lru.commit_plan(view, plan.victims, key, entry):
+                    continue
+                if isinstance(key, IdentityCacheKey):
+                    with state.lock:
+                        if owner is None:
+                            owner = IdentityState(generation=generation[1])
+                            state.identity_generation_watermark += 1
+                            state.identities[key.identity] = owner
+                            state.alias_registry.identity_added(
+                                state, key.identity, owner
+                            )
+                        owner.inflight_ref_count += 1
+                return self._complete_limited_put(
+                    capture,
+                    key,
+                    plan,
+                    entry=entry,
+                    previous=previous,
+                    obsolete=obsolete,
+                    owner=owner,
+                    alias=alias,
+                    alias_block=alias_block,
+                    pending=pending,
+                    find_source=find_source,
+                )
+
+    def _complete_limited_put(
+        self,
+        capture: IdentityCapture | NamespaceCapture,
+        key: IdentityCacheKey | NamespaceCacheKey,
+        plan: RetentionPlan,
+        *,
+        entry: CacheEntry | None,
+        previous: CacheEntry | None,
+        obsolete: CacheEntry | None,
+        owner: IdentityState | None,
+        alias: AliasKey | None,
+        alias_block: RetentionDeclineReason | None,
+        pending: tuple[RetentionRecordKind, RetentionDeclineReason] | None,
+        find_source: FindSource | None,
+    ) -> AdmissionOutcome:
+        state = capture.state
+
+        try:
+            for alias_state, victim_alias in plan.aliases.values():
+                with alias_state.lock:
+                    _discard_alias_locked(
+                        alias_state,
+                        victim_alias,
+                        alias_state.aliases[victim_alias],
+                    )
+            evicted = [
+                victim
+                for _key, victim in plan.victims
+                if victim is not previous and victim is not obsolete
+            ]
+            self._process_evicted(evicted)
+            with state.lock:
+                for victim in (previous, obsolete):
+                    if victim is not None and victim in plan.removed:
+                        _discard_entry_locked(state, victim)
+            if entry is not None:
+
+                def publish() -> None:
+                    if isinstance(key, IdentityCacheKey):
+                        assert owner is not None
+                        owner.cached_ref_count += 1
+                    if find_source is not None:
+                        assert isinstance(key, NamespaceCacheKey)
+                        state.find_families.setdefault(find_source.family, {})[
+                            entry
+                        ] = key
+
+                outcome = self._finalize_put(
+                    state,
+                    key,
+                    entry,
+                    admitted=True,
+                    displaced=None,
+                    is_still_valid=lambda: self._capture_current(capture),
+                    on_admit=publish,
+                )
+                assert outcome is AdmissionOutcome.ADMITTED
+            if alias is not None:
+                if alias_block is None:
+                    assert isinstance(key, IdentityCacheKey)
+                    with state.lock:
+                        _publish_alias_locked(state, alias, key.identity)
+                else:
+                    self._statistics.record_retention_decline(
+                        RetentionRecordKind.ALIAS, alias_block
+                    )
+            if pending is not None:
+                self._statistics.record_retention_decline(*pending)
+            return AdmissionOutcome.ADMITTED
+        finally:
+            if owner is not None and isinstance(key, IdentityCacheKey):
+                with state.lock:
+                    owner.inflight_ref_count -= 1
+                    _maybe_prune_identity_locked(state, key.identity, owner)
 
     def _is_database_available(self, database: str) -> bool:
         with self._availability_lock:
@@ -307,12 +581,14 @@ class _CacheCoreBase:
                     return NamespaceState(
                         namespace=namespace,
                         lock=NamespaceLock(self._guard),
+                        alias_registry=self._retention,
                         tracked=False,
                     )
                 generation = self._next_generation()
                 state = NamespaceState(
                     namespace=namespace,
                     lock=NamespaceLock(self._guard),
+                    alias_registry=self._retention,
                     generation=generation,
                     epoch=generation,
                     index_generation=generation,
@@ -353,7 +629,11 @@ class _CacheCoreBase:
         if not evicted:
             return
         self._statistics.record_evictions(len(evicted))
-        logger.debug("cache entries evicted", extra={"evicted_count": len(evicted)})
+        capacity = self._retention.capacity
+        if capacity is None:
+            _log_evictions(len(evicted))
+        else:
+            capacity.set_completion(partial(_log_evictions, len(evicted)))
         by_namespace: dict[NamespaceId, list[CacheEntry]] = {}
         for entry in evicted:
             by_namespace.setdefault(entry.namespace, []).append(entry)
@@ -402,24 +682,109 @@ class _CacheCoreBase:
             return AdmissionOutcome.DECLINED_STALE
         return AdmissionOutcome.ADMITTED
 
+    def _admit_namespace_prepared(
+        self,
+        capture: NamespaceCapture,
+        canonical_discriminator: Canonical,
+        encoded: bytes,
+        *,
+        find_source: FindSource | None,
+        decision: RetentionDeclineReason | None,
+        pending: tuple[RetentionRecordKind, RetentionDeclineReason] | None = None,
+    ) -> AdmissionOutcome:
+        weight = len(encoded)
+        if self._max_entries is not None:
+            return self._limited_put(
+                capture,
+                NamespaceCacheKey(capture.namespace, canonical_discriminator),
+                encoded,
+                decision=decision,
+                find_source=find_source,
+                pending=pending,
+            )
+        with self._admission_section(
+            capture.namespace, capture.availability_generation, weight
+        ) as rejected:
+            if rejected is not None:
+                return rejected
+            key = NamespaceCacheKey(capture.namespace, canonical_discriminator)
+            state = capture.state
+            with state.lock:
+                if (
+                    self._is_closed()
+                    or not _is_registered_state(state)
+                    or state.query_generation_key != capture.generation_key
+                ):
+                    return AdmissionOutcome.DECLINED_STALE
+                if pending is not None:
+                    self._statistics.record_retention_decline(*pending)
+                if decision is not None:
+                    self._statistics.record_retention_decline(
+                        RetentionRecordKind.NAMESPACE_VALUE, decision
+                    )
+                    return AdmissionOutcome.DECLINED_RETENTION
+            entry = CacheEntry(
+                generation_key=capture.generation_key,
+                weight=weight,
+                value=encoded,
+                namespace=capture.namespace,
+                identity=None,
+                find_source=find_source,
+            )
+            admitted, displaced, evicted = self._lru.conditional_put(key, entry)
+        self._process_evicted(evicted)
+
+        def publish_source() -> None:
+            if find_source is not None:
+                state.find_families.setdefault(find_source.family, {})[entry] = key
+
+        return self._finalize_put(
+            state,
+            key,
+            entry,
+            admitted=admitted,
+            displaced=displaced,
+            is_still_valid=lambda: (
+                _is_registered_state(state)
+                and state.query_generation_key == capture.generation_key
+            ),
+            on_admit=publish_source,
+        )
+
 
 class _CacheCoreLifecycle(_CacheCoreBase):
     __slots__ = ()
 
     def close(self) -> None:
-        with self._lifecycle_lock:
-            if self._is_closed():
-                return
-            self._lifecycle = CacheLifecycleState.CLOSED
-        self._lru.clear_all()
-        with self._namespaces_lock:
-            states = list(self._namespaces.values())
-        for state in states:
-            with state.lock:
-                state.tracked = False
-        with self._namespaces_lock:
-            self._namespaces.clear()
-            self._database_namespaces.clear()
+        retired: list[object] = []
+        with self._retention.section:
+            with self._lifecycle_lock:
+                if self._is_closed():
+                    return
+                self._lifecycle = CacheLifecycleState.CLOSED
+            self._lru.clear_all()
+            with self._namespaces_lock:
+                states = list(self._namespaces.values())
+            for state in states:
+                with state.lock:
+                    state.tracked = False
+                    retired.append(
+                        (
+                            state.aliases,
+                            state.identities,
+                            state.entry_index,
+                            state.find_families,
+                        )
+                    )
+                    state.aliases = {}
+                    state.identities = {}
+                    state.entry_index = {}
+                    state.find_families = {}
+            self._retention.clear()
+            with self._namespaces_lock:
+                self._namespaces.clear()
+                self._database_namespaces.clear()
+        retired.clear()
         logger.info("cache manager closed")
 
     def record_miss(self) -> None:
@@ -432,23 +797,28 @@ class _CacheCoreLifecycle(_CacheCoreBase):
         self._statistics.record_oversized_bypass()
 
     def snapshot(self) -> CacheSnapshot:
-        used_bytes, entry_count = self._lru.snapshot_usage()
-        hits, misses, evictions, bypasses, oversized_bypasses, bypass_reasons = (
-            self._statistics.snapshot()
-        )
-        return CacheSnapshot(
-            lifecycle=self._lifecycle.value,
-            used_bytes=used_bytes,
-            budget_bytes=self._lru.budget_bytes,
-            max_entry_bytes=self._lru.max_entry_bytes,
-            entry_count=entry_count,
-            hits=hits,
-            misses=misses,
-            evictions=evictions,
-            bypasses=bypasses,
-            oversized_bypasses=oversized_bypasses,
-            bypass_reasons=bypass_reasons,
-        )
+        with self._retention.section:
+            used_bytes, entry_count = self._lru.snapshot_usage()
+            hits, misses, evictions, bypasses, oversized_bypasses, bypass_reasons = (
+                self._statistics.snapshot()
+            )
+            return CacheSnapshot(
+                lifecycle=self._lifecycle.value,
+                used_bytes=used_bytes,
+                budget_bytes=self._lru.budget_bytes,
+                max_entry_bytes=self._lru.max_entry_bytes,
+                entry_count=entry_count,
+                hits=hits,
+                misses=misses,
+                evictions=evictions,
+                bypasses=bypasses,
+                oversized_bypasses=oversized_bypasses,
+                bypass_reasons=bypass_reasons,
+                max_entries=self._max_entries,
+                max_key_bytes=self._max_key_bytes,
+                alias_count=self._retention.count,
+                retention_declines=self._statistics.retention_snapshot(),
+            )
 
 
 class _CacheCoreNamespaceLifecycle(_CacheCoreBase):
@@ -499,35 +869,38 @@ class _CacheCoreNamespaceLifecycle(_CacheCoreBase):
             return state.index_generation
 
     def record_index_change(self, namespace: NamespaceId) -> None:
-        self._ensure_active()
-        state = self._namespace(namespace)
-        with state.lock:
-            if not _is_registered_state(state):
-                return
-            state.index_generation = self._next_generation(
-                greater_than=state.index_generation + 1
-            )
-            state.query_generation_key = (state.generation, state.index_generation)
-            state.find_families.clear()
+        with self._retention.section:
+            self._ensure_active()
+            state = self._namespace(namespace)
+            with state.lock:
+                if not _is_registered_state(state):
+                    return
+                state.index_generation = self._next_generation(
+                    greater_than=state.index_generation + 1
+                )
+                state.query_generation_key = (state.generation, state.index_generation)
+                state.find_families.clear()
 
     def record_write(self, namespace: NamespaceId, identity: object) -> None:
         self._ensure_active()
         identity = order_sensitive_key(identity)
-        state = self._namespace(namespace)
-        with state.lock:
-            state.generation += 1
-            state.query_generation_key = (state.generation, state.index_generation)
-            state.find_families.clear()
-            if not is_canonicalizable(identity):
-                return
-            try:
-                identity_state = state.identities[canonicalize(identity)]
-            except KeyError:
-                return
-            identity_state.generation += 1
-            for alias_key in identity_state.alias_keys:
-                state.aliases.pop(alias_key, None)
-            identity_state.clear_aliases()
+        with self._retention.section:
+            state = self._namespace(namespace)
+            with state.lock:
+                state.generation += 1
+                state.query_generation_key = (state.generation, state.index_generation)
+                state.find_families.clear()
+                if not is_canonicalizable(identity):
+                    return
+                try:
+                    identity_state = state.identities[canonicalize(identity)]
+                except KeyError:
+                    return
+                identity_state.generation += 1
+                for alias_key in identity_state.alias_keys or ():
+                    state.alias_registry.removed(state, alias_key)
+                    state.alias_registry.retire(state.aliases.pop(alias_key, None))
+                identity_state.clear_aliases()
 
     def clear_namespace(self, namespace: NamespaceId) -> None:
         self._ensure_active()
@@ -566,34 +939,41 @@ class _CacheCoreNamespaceLifecycle(_CacheCoreBase):
         expected_state: NamespaceState | None = None,
         expected_epoch: NonNegativeInt | None = None,
     ) -> bool:
-        state = self._namespace(namespace) if expected_state is None else expected_state
-        released = False
-        with state.lock:
-            if not _is_registered_state(state):
-                return False
-            if expected_epoch is not None and state.epoch != expected_epoch:
-                return False
-            generation = self._next_generation(greater_than=state.generation + 1)
-            state.generation = generation
-            state.epoch = generation
-            state.index_generation = generation
-            state.query_generation_key = (generation, generation)
-            state.aliases = {}
-            reclaimed = list(state.entry_index.items())
-            state.entry_index.clear()
-            state.find_families.clear()
-            for entry, _key in reclaimed:
-                if entry.identity is not None:
-                    state.identities[entry.identity].cached_ref_count -= 1
-            for identity_state in state.identities.values():
-                identity_state.clear_aliases()
-            for identity, identity_state in list(state.identities.items()):
-                if not identity_state.is_referenced:
-                    del state.identities[identity]
-            if release:
-                state.tracked = False
-        for entry, key in reclaimed:
-            self._lru.remove_exact(key, entry)
+        with self._retention.section:
+            state = (
+                self._namespace(namespace) if expected_state is None else expected_state
+            )
+            released = False
+            with state.lock:
+                if not _is_registered_state(state):
+                    return False
+                if expected_epoch is not None and state.epoch != expected_epoch:
+                    return False
+                generation = self._next_generation(greater_than=state.generation + 1)
+                state.generation = generation
+                state.epoch = generation
+                state.index_generation = generation
+                state.query_generation_key = (generation, generation)
+                state.alias_registry.retire(state.aliases)
+                for alias_key in state.aliases:
+                    state.alias_registry.removed(state, alias_key)
+                state.aliases = {}
+                reclaimed = list(state.entry_index.items())
+                state.entry_index.clear()
+                state.find_families.clear()
+                for entry, _key in reclaimed:
+                    if entry.identity is not None:
+                        state.identities[entry.identity].cached_ref_count -= 1
+                for identity_state in state.identities.values():
+                    identity_state.clear_aliases()
+                for identity, identity_state in list(state.identities.items()):
+                    if not identity_state.is_referenced:
+                        state.alias_registry.identity_removed(state, identity_state)
+                        del state.identities[identity]
+                if release:
+                    state.tracked = False
+            for entry, key in reclaimed:
+                self._lru.remove_exact(key, entry)
         if release:
             with self._namespaces_lock:
                 try:
@@ -648,34 +1028,38 @@ class _CacheCoreIdentityAdmission(_CacheCoreBase):
         availability_generation = self._capture_database_availability(
             namespace.database
         )
-        state = self._namespace(namespace)
-        with state.lock:
-            registered = _is_registered_state(state)
-            if not registered:
-                return IdentityCapture(
-                    namespace=namespace,
-                    identity=canonical_identity,
-                    generation_key=(state.epoch, 0),
-                    availability_generation=availability_generation,
-                    state=state,
-                )
-            try:
-                identity_state = state.identities[canonical_identity]
-            except KeyError:
-                identity_state = IdentityState(
-                    generation=state.identity_generation_watermark
-                )
-                state.identity_generation_watermark += 1
-                state.identities[canonical_identity] = identity_state
-            identity_state.inflight_ref_count += 1
-            generation_key = (state.epoch, identity_state.generation)
-        return IdentityCapture(
-            namespace=state.namespace,
-            identity=canonical_identity,
-            generation_key=generation_key,
-            availability_generation=availability_generation,
-            state=state,
-        )
+        with self._retention.section:
+            state = self._namespace(namespace)
+            with state.lock:
+                registered = _is_registered_state(state)
+                if not registered:
+                    return IdentityCapture(
+                        namespace=namespace,
+                        identity=canonical_identity,
+                        generation_key=(state.epoch, 0),
+                        availability_generation=availability_generation,
+                        state=state,
+                    )
+                try:
+                    identity_state = state.identities[canonical_identity]
+                except KeyError:
+                    identity_state = IdentityState(
+                        generation=state.identity_generation_watermark
+                    )
+                    state.identity_generation_watermark += 1
+                    state.identities[canonical_identity] = identity_state
+                    state.alias_registry.identity_added(
+                        state, canonical_identity, identity_state
+                    )
+                identity_state.inflight_ref_count += 1
+                generation_key = (state.epoch, identity_state.generation)
+            return IdentityCapture(
+                namespace=state.namespace,
+                identity=canonical_identity,
+                generation_key=generation_key,
+                availability_generation=availability_generation,
+                state=state,
+            )
 
     def admit_identity(
         self,
@@ -727,6 +1111,26 @@ class _CacheCoreIdentityAdmission(_CacheCoreBase):
         try:
             canonical_shape = canonicalize(read_shape)
             weight = len(encoded)
+            decision = None
+            alias_decision = None
+            if self._max_key_bytes is not None:
+                rejected = self._retention_preflight(capture, weight)
+                if rejected is not None:
+                    return rejected
+                decision = self._key_decision(capture.identity, canonical_shape)
+                if decision is None and alias is not None:
+                    alias_decision = self._key_decision(alias, capture.identity)
+            if self._max_entries is not None:
+                return self._limited_put(
+                    capture,
+                    IdentityCacheKey(
+                        capture.namespace, capture.identity, canonical_shape
+                    ),
+                    encoded,
+                    decision=decision,
+                    alias=alias,
+                    alias_decision=alias_decision,
+                )
             with self._admission_section(
                 capture.namespace, capture.availability_generation, weight
             ) as rejected:
@@ -745,8 +1149,18 @@ class _CacheCoreIdentityAdmission(_CacheCoreBase):
                         or identity_state is None
                     ):
                         return AdmissionOutcome.DECLINED_STALE
+                    if decision is not None:
+                        self._statistics.record_retention_decline(
+                            RetentionRecordKind.IDENTITY_VALUE, decision
+                        )
+                        return AdmissionOutcome.DECLINED_RETENTION
                     if alias is not None:
-                        _publish_alias_locked(state, alias, capture.identity)
+                        if alias_decision is None:
+                            _publish_alias_locked(state, alias, capture.identity)
+                        else:
+                            self._statistics.record_retention_decline(
+                                RetentionRecordKind.ALIAS, alias_decision
+                            )
                 entry = CacheEntry(
                     generation_key=capture.generation_key,
                     weight=weight,
@@ -784,10 +1198,15 @@ class _CacheCoreIdentityAdmission(_CacheCoreBase):
 def _publish_alias_locked(
     state: NamespaceState, alias: AliasKey, identity: Canonical
 ) -> None:
+    alias = state.alias_registry.canonical_alias(state, alias)
     try:
         previous_identity = state.aliases[alias]
     except KeyError:
         previous_identity = None
+        state.alias_registry.added(state, alias)
+    else:
+        state.alias_registry.republished(state, alias)
+        state.alias_registry.retire(previous_identity)
     if previous_identity is not None and previous_identity != identity:
         state.identities[previous_identity].discard_alias(alias)
     state.aliases[alias] = identity
@@ -803,6 +1222,8 @@ def _discard_alias_locked(
         return
     if current_identity != expected_identity:
         return
+    state.alias_registry.removed(state, alias)
+    state.alias_registry.retire(current_identity)
     del state.aliases[alias]
     identity_state = state.identities[expected_identity]
     identity_state.discard_alias(alias)
@@ -869,51 +1290,93 @@ class _CacheCoreNamespaceAdmission(_CacheCoreBase):
         assert isinstance(capture, NamespaceCapture)
         canonical_discriminator = canonicalize(discriminator)
         weight = len(encoded)
-        with self._admission_section(
-            capture.namespace, capture.availability_generation, weight
-        ) as rejected:
+        decision = None
+        if self._max_key_bytes is not None:
+            rejected = self._retention_preflight(capture, weight)
             if rejected is not None:
                 return rejected
-            key = NamespaceCacheKey(capture.namespace, canonical_discriminator)
-            state = capture.state
-            with state.lock:
-                if (
-                    self._is_closed()
-                    or not _is_registered_state(state)
-                    or state.query_generation_key != capture.generation_key
-                ):
-                    return AdmissionOutcome.DECLINED_STALE
-            entry = CacheEntry(
-                generation_key=capture.generation_key,
-                weight=weight,
-                value=encoded,
-                namespace=capture.namespace,
-                identity=None,
-                find_source=find_source,
-            )
-            admitted, displaced, evicted = self._lru.conditional_put(key, entry)
-        self._process_evicted(evicted)
-
-        def publish_source() -> None:
-            if find_source is not None:
-                state.find_families.setdefault(find_source.family, {})[entry] = key
-
-        return self._finalize_put(
-            state,
-            key,
-            entry,
-            admitted=admitted,
-            displaced=displaced,
-            is_still_valid=lambda: (
-                _is_registered_state(state)
-                and state.query_generation_key == capture.generation_key
-            ),
-            on_admit=publish_source,
+            decision = self._key_decision(canonical_discriminator)
+        return self._admit_namespace_prepared(
+            capture,
+            canonical_discriminator,
+            encoded,
+            find_source=find_source,
+            decision=decision,
         )
 
 
 class _CacheCoreUniqueKeyAdmission(_CacheCoreBase):
     __slots__ = ()
+
+    def _admit_unique_limited(
+        self,
+        capture: NamespaceCapture,
+        discriminator: Canonical,
+        identity: Canonical,
+        shape: Canonical,
+        encoded: bytes,
+        *,
+        alias: AliasKey,
+    ) -> AdmissionOutcome:
+        rejected = self._retention_preflight(capture, len(encoded))
+        if rejected is not None:
+            return rejected
+        blocked = (RetentionRecordKind.ALIAS, RetentionDeclineReason.ENTRY_CAPACITY)
+        identity_decision = None
+        alias_decision = None
+        if self._max_entries != 1 and self._max_key_bytes is not None:
+            identity_decision = self._key_decision(identity, shape)
+            if identity_decision is not None:
+                blocked = (RetentionRecordKind.IDENTITY_VALUE, identity_decision)
+            else:
+                alias_decision = self._key_decision(alias, identity)
+                if alias_decision is not None:
+                    blocked = (RetentionRecordKind.ALIAS, alias_decision)
+        eligible = (
+            self._max_entries != 1
+            and identity_decision is None
+            and alias_decision is None
+        )
+        if not eligible:
+            decision = None
+            if self._max_key_bytes is not None:
+                decision = self._key_decision(discriminator)
+            return self._admit_namespace_prepared(
+                capture,
+                discriminator,
+                encoded,
+                find_source=None,
+                decision=decision,
+                pending=blocked,
+            )
+        namespace_key = NamespaceCacheKey(capture.namespace, discriminator)
+        identity_key = IdentityCacheKey(capture.namespace, identity, shape)
+        prepared_fallback = False
+        namespace_decision = None
+        while True:
+            with self._retention.section:
+                outcome = self._limited_put(
+                    capture,
+                    identity_key,
+                    encoded,
+                    decision=None,
+                    alias=alias,
+                    require_alias=True,
+                    redundant=namespace_key,
+                )
+                if outcome is not AdmissionOutcome.DECLINED_RETENTION:
+                    return outcome
+                if prepared_fallback:
+                    return self._limited_put(
+                        capture,
+                        namespace_key,
+                        encoded,
+                        decision=namespace_decision,
+                        pending=blocked,
+                    )
+            if self._max_key_bytes is not None:
+                namespace_decision = self._key_decision(discriminator)
+            prepared_fallback = True
 
     def discard_stale_alias(
         self,
@@ -921,31 +1384,36 @@ class _CacheCoreUniqueKeyAdmission(_CacheCoreBase):
         alias: AliasKey,
         expected_identity: Canonical,
     ) -> None:
-        self._ensure_active()
-        assert isinstance(capture, NamespaceCapture)
-        state = capture.state
-        with state.lock:
-            if state.tracked and state.query_generation_key == capture.generation_key:
-                _discard_alias_locked(state, alias, expected_identity)
+        with self._retention.section:
+            self._ensure_active()
+            assert isinstance(capture, NamespaceCapture)
+            state = capture.state
+            with state.lock:
+                if (
+                    state.tracked
+                    and state.query_generation_key == capture.generation_key
+                ):
+                    _discard_alias_locked(state, alias, expected_identity)
 
     def discard_namespace_entry(
         self, capture: NamespaceCaptureView, discriminator: object
     ) -> None:
-        self._ensure_active()
-        assert isinstance(capture, NamespaceCapture)
-        key = NamespaceCacheKey(capture.namespace, canonicalize(discriminator))
-        entry = self._lru.peek(key)
-        if entry is None or entry.generation_key != capture.generation_key:
-            return
-        state = capture.state
-        with state.lock:
-            if (
-                not state.tracked
-                or state.query_generation_key != capture.generation_key
-            ):
+        with self._retention.section:
+            self._ensure_active()
+            assert isinstance(capture, NamespaceCapture)
+            key = NamespaceCacheKey(capture.namespace, canonicalize(discriminator))
+            entry = self._lru.peek(key)
+            if entry is None or entry.generation_key != capture.generation_key:
                 return
-            _discard_entry_locked(state, entry)
-        self._lru.remove_exact(key, entry)
+            state = capture.state
+            with state.lock:
+                if (
+                    not state.tracked
+                    or state.query_generation_key != capture.generation_key
+                ):
+                    return
+                _discard_entry_locked(state, entry)
+            self._lru.remove_exact(key, entry)
 
     def admit_unique_key_match(
         self,
@@ -974,6 +1442,39 @@ class _CacheCoreUniqueKeyAdmission(_CacheCoreBase):
         canonical_discriminator = canonicalize(discriminator)
         canonical_shape = canonicalize(read_shape)
         weight = len(encoded)
+        if self._max_entries is not None:
+            return self._admit_unique_limited(
+                namespace_capture,
+                canonical_discriminator,
+                canonical_identity,
+                canonical_shape,
+                encoded,
+                alias=alias,
+            )
+        namespace_decision = None
+        identity_decision = None
+        alias_decision = None
+        if self._max_key_bytes is not None:
+            rejected = self._retention_preflight(namespace_capture, weight)
+            if rejected is not None:
+                return rejected
+            namespace_decision = self._key_decision(canonical_discriminator)
+            identity_decision = self._key_decision(canonical_identity, canonical_shape)
+            if identity_decision is not None:
+                outcome = self._admit_namespace_prepared(
+                    namespace_capture,
+                    canonical_discriminator,
+                    encoded,
+                    find_source=None,
+                    decision=namespace_decision,
+                    pending=(RetentionRecordKind.IDENTITY_VALUE, identity_decision),
+                )
+                return (
+                    AdmissionOutcome.DECLINED_RETENTION
+                    if outcome is AdmissionOutcome.ADMITTED
+                    else outcome
+                )
+            alias_decision = self._key_decision(alias, canonical_identity)
         with self._admission_section(
             namespace, namespace_capture.availability_generation, weight
         ) as rejected:
@@ -999,15 +1500,25 @@ class _CacheCoreUniqueKeyAdmission(_CacheCoreBase):
                     )
                     state.identity_generation_watermark += 1
                     state.identities[canonical_identity] = identity_state
+                    state.alias_registry.identity_added(
+                        state, canonical_identity, identity_state
+                    )
                 identity_generation_key = (state.epoch, identity_state.generation)
-                _publish_alias_locked(state, alias, canonical_identity)
-            namespace_entry = CacheEntry(
-                generation_key=namespace_capture.generation_key,
-                weight=weight,
-                value=encoded,
-                namespace=namespace,
-                identity=None,
-            )
+                if alias_decision is None:
+                    _publish_alias_locked(state, alias, canonical_identity)
+                else:
+                    self._statistics.record_retention_decline(
+                        RetentionRecordKind.ALIAS, alias_decision
+                    )
+            namespace_entry = None
+            if namespace_decision is None:
+                namespace_entry = CacheEntry(
+                    generation_key=namespace_capture.generation_key,
+                    weight=weight,
+                    value=encoded,
+                    namespace=namespace,
+                    identity=None,
+                )
             identity_entry = CacheEntry(
                 generation_key=identity_generation_key,
                 weight=weight,
@@ -1015,26 +1526,36 @@ class _CacheCoreUniqueKeyAdmission(_CacheCoreBase):
                 namespace=namespace,
                 identity=canonical_identity,
             )
-            ns_admitted, ns_displaced, ns_evicted = self._lru.conditional_put(
-                namespace_key, namespace_entry
-            )
+            if namespace_entry is not None:
+                ns_admitted, ns_displaced, ns_evicted = self._lru.conditional_put(
+                    namespace_key, namespace_entry
+                )
+            else:
+                ns_admitted, ns_displaced, ns_evicted = False, None, []
             id_admitted, id_displaced, id_evicted = self._lru.conditional_put(
                 identity_key, identity_entry
             )
         self._process_evicted(ns_evicted)
         self._process_evicted(id_evicted)
-        namespace_outcome = self._finalize_put(
-            state,
-            namespace_key,
-            namespace_entry,
-            admitted=ns_admitted,
-            displaced=ns_displaced,
-            is_still_valid=lambda: (
-                _is_registered_state(state)
-                and state.query_generation_key == namespace_capture.generation_key
-            ),
-            on_admit=lambda: None,
-        )
+        if namespace_entry is not None:
+            namespace_outcome = self._finalize_put(
+                state,
+                namespace_key,
+                namespace_entry,
+                admitted=ns_admitted,
+                displaced=ns_displaced,
+                is_still_valid=lambda: (
+                    _is_registered_state(state)
+                    and state.query_generation_key == namespace_capture.generation_key
+                ),
+                on_admit=lambda: None,
+            )
+        else:
+            assert namespace_decision is not None
+            self._statistics.record_retention_decline(
+                RetentionRecordKind.NAMESPACE_VALUE, namespace_decision
+            )
+            namespace_outcome = AdmissionOutcome.DECLINED_RETENTION
 
         def _identity_still_valid() -> bool:
             return (
@@ -1067,7 +1588,10 @@ class _CacheCoreUniqueKeyAdmission(_CacheCoreBase):
                     or not current_identity_state.is_referenced
                 ):
                     _discard_alias_locked(state, alias, canonical_identity)
-        if namespace_outcome is AdmissionOutcome.ADMITTED:
+        if (
+            namespace_outcome is AdmissionOutcome.ADMITTED
+            or identity_outcome is not AdmissionOutcome.ADMITTED
+        ):
             return identity_outcome
         return namespace_outcome
 
@@ -1160,24 +1684,63 @@ class _CacheCoreLookup(_CacheCoreBase):
         *,
         codec_options: CodecOptions[Any] | None = None,
     ) -> LookupResult:
-        encoded = self.lookup_identity_encoded(namespace, identity, read_shape)
-        if encoded is None:
-            return _MISS
+        return self._decoded_identity(
+            namespace, identity, read_shape, codec_options, defer_miss=False
+        )
+
+    def lookup_identity_deferred(
+        self,
+        namespace: NamespaceId,
+        identity: object,
+        read_shape: object,
+        *,
+        codec_options: CodecOptions[Any] | None = None,
+    ) -> LookupResult:
+        return self._decoded_identity(
+            namespace, identity, read_shape, codec_options, defer_miss=True
+        )
+
+    def _decoded_identity(
+        self,
+        namespace: NamespaceId,
+        identity: object,
+        read_shape: object,
+        codec_options: CodecOptions[Any] | None,
+        *,
+        defer_miss: bool,
+    ) -> LookupResult:
+        encoded = self._lookup_identity_bytes(
+            namespace, identity, read_shape, defer_miss=defer_miss
+        )
+        if isinstance(encoded, LookupResult):
+            return encoded
         return LookupResult(hit=True, value=decode_value(encoded, codec_options))
 
     def lookup_identity_encoded(
         self, namespace: NamespaceId, identity: object, read_shape: object
     ) -> bytes | None:
+        encoded = self._lookup_identity_bytes(
+            namespace, identity, read_shape, defer_miss=False
+        )
+        return encoded if isinstance(encoded, bytes) else None
+
+    def _lookup_identity_bytes(
+        self,
+        namespace: NamespaceId,
+        identity: object,
+        read_shape: object,
+        *,
+        defer_miss: bool,
+    ) -> bytes | LookupResult:
         self._ensure_active()
         if not self._is_database_available(namespace.database):
             self._statistics.record_bypass(BypassReason.STREAM_UNAVAILABLE)
-            return None
+            return _MISS
         canonical_identity = canonical_order_sensitive_key(identity)
         key = IdentityCacheKey(namespace, canonical_identity, canonicalize(read_shape))
         entry = self._lru.peek(key)
         if entry is None:
-            self._statistics.record_miss()
-            return None
+            return self._namespace_miss(defer_miss=defer_miss)
         state = self._namespace(namespace)
         entry_generation_key = (entry.generation_key[0], entry.generation_key[1])
         with state.lock:
@@ -1185,8 +1748,7 @@ class _CacheCoreLookup(_CacheCoreBase):
                 state, canonical_identity, entry_generation_key
             )
         if matched is None:
-            self._statistics.record_miss()
-            return None
+            return self._namespace_miss(defer_miss=defer_miss)
         self._lru.touch(key)
         self._statistics.record_hit()
         return entry.value
