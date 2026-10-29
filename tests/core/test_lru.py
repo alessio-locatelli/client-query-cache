@@ -41,7 +41,7 @@ def make_key(discriminator: object) -> NamespaceCacheKey:
 @pytest.fixture
 def lru() -> WeightedLru:
     return WeightedLru(
-        shared_budget_bytes=SHARED_BUDGET_BYTES,
+        budget_bytes=SHARED_BUDGET_BYTES,
         max_entry_bytes=100,
         guard=LockOrderGuard(),
     )
@@ -163,7 +163,7 @@ class _WeightedLruMachine(RuleBasedStateMachine):
     def __init__(self) -> None:
         super().__init__()
         self.lru = WeightedLru(
-            shared_budget_bytes=SHARED_BUDGET_BYTES,
+            budget_bytes=SHARED_BUDGET_BYTES,
             max_entry_bytes=100,
             guard=LockOrderGuard(),
         )
@@ -211,7 +211,7 @@ class _WeightedLruMachine(RuleBasedStateMachine):
     @invariant()
     def usage_never_exceeds_the_shared_budget(self) -> None:
         used_bytes, _entry_count = self.lru.snapshot_usage()
-        assert used_bytes <= self.lru.shared_budget_bytes
+        assert used_bytes <= self.lru.budget_bytes
 
     @invariant()
     def resident_entries_are_never_staler_than_their_latest_submission(self) -> None:

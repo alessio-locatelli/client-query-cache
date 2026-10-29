@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import ctypes
+import dataclasses
 import gc
 import inspect
 import json
@@ -11,12 +12,15 @@ import platform
 import random
 import statistics
 import sys
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Annotated, Any
 
 import psutil
+from annotated_types import Ge
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -85,7 +89,9 @@ def _cgroup(name: str) -> int | None:
         return None
 
 
-def sample(phase: str, manager: Any, **extra: object) -> None:
+def sample(
+    phase: str, manager: Any, budget_field: str = "budget_bytes", /, **extra: object
+) -> None:
     gc.collect()
     peak = _keyed("/proc/self/status", ":")["VmHWM"] * 1024
     memory = psutil.Process().memory_full_info()
@@ -112,7 +118,12 @@ def sample(phase: str, manager: Any, **extra: object) -> None:
             "misses": snapshot.misses,
             "bypasses": snapshot.bypasses,
             "oversized_bypasses": snapshot.oversized_bypasses,
-            "budget": snapshot.shared_budget_bytes,
+            "budget": getattr(snapshot, budget_field),
+            "aliases": getattr(snapshot, "alias_count", None),
+            "retention_declines": [
+                dataclasses.asdict(item)
+                for item in getattr(snapshot, "retention_declines", ())
+            ],
         }
     record["objects"] = len(gc.get_objects())
     print(json.dumps(record), flush=True)
@@ -240,7 +251,7 @@ async def child(uri: str, scenario: str, api: str, mode: str) -> None:
             manager = (SyncManager if api == "sync" else AsyncManager)(
                 client,
                 cache_config=CacheCoreConfig(
-                    shared_budget_bytes=BUDGETS[scenario],
+                    budget_bytes=BUDGETS[scenario],
                     max_entry_bytes=MAX_ENTRY_BYTES,
                 ),
             )
@@ -388,14 +399,7 @@ def coordinate(arguments: argparse.Namespace) -> None:
                         raise RuntimeError(message)
                 finally:
                     container.remove(v=True)
-                frames = [json.loads(line) for line in output.decode().splitlines()]
-                if not frames or "completed_phases" not in frames[-1]:
-                    message = f"missing child completion record: {raw}"
-                    raise RuntimeError(message)
-                completed = frames.pop()["completed_phases"]
-                if [frame["phase"] for frame in frames] != completed:
-                    message = f"incomplete child checkpoint stream: {raw}"
-                    raise RuntimeError(message)
+                frames = completed_frames(output, raw)
                 records.extend(
                     frame | {"run": run, "scenario": scenario, "api": api, "mode": mode}
                     for frame in frames
@@ -405,6 +409,18 @@ def coordinate(arguments: argparse.Namespace) -> None:
     arguments.output.parent.mkdir(parents=True, exist_ok=True)
     arguments.output.write_text(json.dumps(report, indent=1))
     summarize(report)
+
+
+def completed_frames(output: bytes, raw: Path) -> list[dict[str, Any]]:
+    frames = [json.loads(line) for line in output.decode().splitlines()]
+    if not frames or "completed_phases" not in frames[-1]:
+        message = f"missing child completion record: {raw}"
+        raise RuntimeError(message)
+    completed = frames.pop()["completed_phases"]
+    if [frame["phase"] for frame in frames] != completed:
+        message = f"incomplete child checkpoint stream: {raw}"
+        raise RuntimeError(message)
+    return frames
 
 
 def _span(values: list[int], scale: int) -> str:
@@ -478,6 +494,296 @@ def summarize(report: dict[str, Any]) -> None:
         )
 
 
+def latency_summary(
+    latencies: list[Annotated[int, Ge(0)]],
+    wall: Annotated[float, Ge(0)],
+    cpu: Annotated[float, Ge(0)],
+) -> dict[str, object]:
+    ordered = sorted(latencies)
+    return {
+        "operations": len(ordered),
+        "wall_seconds": wall,
+        "cpu_seconds": cpu,
+        "p50_ns": ordered[(len(ordered) - 1) // 2],
+        "p95_ns": ordered[(len(ordered) - 1) * 95 // 100],
+        "p99_ns": ordered[(len(ordered) - 1) * 99 // 100],
+    }
+
+
+async def measured_reads(
+    operation: Callable[[Annotated[int, Ge(0)]], object],
+    indexes: range,
+    repetitions: Annotated[int, Ge(1)] = 1,
+) -> dict[str, object]:
+    latencies = []
+    cpu = time.process_time()
+    wall = time.perf_counter()
+    for _ in range(repetitions):
+        for index in indexes:
+            start = time.perf_counter_ns()
+            assert await call(operation(index)) is not None
+            latencies.append(time.perf_counter_ns() - start)
+    return latency_summary(
+        latencies, time.perf_counter() - wall, time.process_time() - cpu
+    )
+
+
+async def retention_child(arguments: argparse.Namespace) -> None:
+    from pymongo import AsyncMongoClient, MongoClient
+    from pymongo.monitoring import CommandListener
+
+    from client_query_cache import CacheCoreConfig
+    from client_query_cache import CacheManager as SyncManager
+    from client_query_cache._core.keys import NamespaceId  # noqa: PLC2701 - Qualification clears the measured namespace between phases.
+    from client_query_cache.asynchronous import CacheManager as AsyncManager
+
+    class OriginCommands(CommandListener):
+        __slots__ = ("count",)
+
+        def __init__(self) -> None:
+            self.count = 0
+
+        def started(self, event: Any) -> None:
+            if event.database_name == DATABASE and event.command_name == "find":
+                self.count += 1
+
+        def succeeded(self, event: Any) -> None:
+            pass
+
+        def failed(self, event: Any) -> None:
+            pass
+
+    observer = OriginCommands()
+    client: Any = (MongoClient if arguments.api == "sync" else AsyncMongoClient)(
+        arguments.uri, event_listeners=[observer]
+    )
+    config = {
+        arguments.budget_field: arguments.budget,
+        "max_entry_bytes": min(arguments.budget, MIB),
+    }
+    if arguments.max_entries is not None:
+        config["max_entries"] = arguments.max_entries
+    if arguments.max_key_bytes is not None:
+        config["max_key_bytes"] = arguments.max_key_bytes
+    manager: Any = (SyncManager if arguments.api == "sync" else AsyncManager)(
+        client, cache_config=CacheCoreConfig(**config)
+    )
+    view = manager[DATABASE][CODES]
+    completed = []
+
+    def checkpoint(phase: str, **extra: object) -> None:
+        alias_count = getattr(manager.snapshot(), "alias_count", None)
+        if alias_count is None:
+            alias_count = manager.cache_core._ownership()[2]  # noqa: SLF001 - Frozen builds expose alias occupancy only through this diagnostic.
+        sample(
+            phase,
+            manager,
+            arguments.budget_field,
+            origins=observer.count,
+            live_aliases=alias_count,
+            **extra,
+        )
+        completed.append(phase)
+
+    # Stream startup and index metadata discovery are outside measured phases.
+    deadline = time.monotonic() + 30
+    while True:
+        before = manager.snapshot().hits
+        await call(view.find_one({"code": "C0000000"}))
+        if manager.snapshot().hits > before:
+            break
+        if time.monotonic() > deadline:
+            raise RuntimeError("retention preflight did not become warm")
+        await asyncio.sleep(0.01)
+    manager.cache_core.clear_namespace(NamespaceId(DATABASE, CODES))
+    if arguments.prefill:
+        for index in range(2048, 2048 + 8):
+            await call(view.find_one({"code": f"C{index:07d}"}))
+        for index in range(4096, 4096 + arguments.prefill):
+            await call(view.find_one({"_id": index}))
+    checkpoint("baseline", python=sys.version, limits=config, api=arguments.api)
+    large = arguments.scenario == "large-keys"
+
+    def read(index: Annotated[int, Ge(0)]) -> object:
+        query = code_filter(index, large=large)
+        if arguments.single_identity:
+            query["code"] = f"S{index:07d}"
+        return view.find_one(query)
+
+    checkpoint("cold", **await measured_reads(read, range(arguments.distinct)))
+    # The known retained suffix is the hit control under count pressure.
+    checkpoint(
+        "warm",
+        **await measured_reads(
+            read,
+            range(arguments.distinct - arguments.retained, arguments.distinct),
+            arguments.warm_repeats,
+        ),
+    )
+    checkpoint(
+        "repeat",
+        **await measured_reads(
+            read,
+            range(arguments.distinct - arguments.retained, arguments.distinct),
+            arguments.warm_repeats,
+        ),
+    )
+    if arguments.unique:
+        checkpoint(
+            "identity",
+            **await measured_reads(
+                lambda index: view.find_one(
+                    {"_id": 8194 if arguments.single_identity else index}
+                ),
+                range(arguments.distinct - arguments.retained, arguments.distinct),
+                arguments.warm_repeats,
+            ),
+        )
+        for label, identity in (
+            ("unrelated", arguments.distinct + 1),
+            ("matched", 8194 if arguments.single_identity else arguments.distinct - 1),
+        ):
+            before = manager.cache_core.stream_cost_snapshot(DATABASE).invalidations
+            await call(
+                view.raw.update_one({"_id": identity}, {"$inc": {"revision": 1}})
+            )
+            deadline = time.monotonic() + 30
+            while (
+                manager.cache_core.stream_cost_snapshot(DATABASE).invalidations
+                <= before
+            ):
+                if time.monotonic() > deadline:
+                    raise RuntimeError("retention write invalidation did not arrive")
+                await asyncio.sleep(0.005)
+            checkpoint(
+                label,
+                **await measured_reads(
+                    read,
+                    range(arguments.distinct - arguments.retained, arguments.distinct),
+                    arguments.warm_repeats,
+                ),
+            )
+    manager.cache_core.clear_namespace(NamespaceId(DATABASE, CODES))
+    checkpoint("clear")
+    await call(manager.close())
+    checkpoint("close")
+    await call(client.close())
+    print(json.dumps({"completed_phases": completed}), flush=True)
+
+
+def retention_core(arguments: argparse.Namespace) -> None:
+    from client_query_cache import CacheCoreConfig
+    from client_query_cache._core.keys import NamespaceId, canonical_alias_key  # noqa: PLC2701 - Measure complete internal alias admission and reclamation.
+    from client_query_cache._core.manager import CacheCore  # noqa: PLC2701 - Compare the reference and native ownership implementations.
+    from client_query_cache._shared_index import LocalCacheCore  # noqa: PLC2701 - Compare the reference and native ownership implementations.
+
+    completed = []
+
+    def checkpoint(phase: str, core: Any, **extra: object) -> None:
+        sample(phase, core, arguments.budget_field, **extra)
+        completed.append(phase)
+
+    constructor = CacheCore if arguments.core == "reference" else LocalCacheCore
+    namespace = NamespaceId(DATABASE, CODES)
+    if arguments.scenario == "aliases":
+        for count in (256, 1024, 4096):
+            config: dict[str, Any] = {
+                arguments.budget_field: arguments.budget,
+                "max_entry_bytes": MIB,
+            }
+            if arguments.enabled:
+                config["max_entries"] = count + 2
+            core = constructor(CacheCoreConfig(**config))
+            aliases = [
+                canonical_alias_key("code", f"C{index:07d}", None)
+                for index in range(count)
+            ]
+            for cycle in range(3):
+                core.admit_identity(
+                    core.begin_identity_admission(namespace, "A"), "full", 1
+                )
+                pin = core.begin_identity_admission(namespace, "A")
+                wall, cpu = time.perf_counter(), time.process_time()
+                latencies = []
+                for alias in aliases:
+                    start = time.perf_counter_ns()
+                    core.admit_identity(
+                        core.begin_identity_admission(namespace, "A"),
+                        "full",
+                        1,
+                        alias=alias,
+                    )
+                    latencies.append(time.perf_counter_ns() - start)
+                checkpoint(
+                    "published",
+                    core,
+                    count=count,
+                    cycle=cycle,
+                    **latency_summary(
+                        latencies, time.perf_counter() - wall, time.process_time() - cpu
+                    ),
+                )
+                assert all(
+                    core.resolve_alias(namespace, "code", f"C{index:07d}", None) == "A"
+                    for index in range(count)
+                )
+                capture = core.capture_namespace_generation(namespace)
+                wall, cpu = time.perf_counter(), time.process_time()
+                latencies = []
+                for alias in aliases:
+                    start = time.perf_counter_ns()
+                    core.discard_stale_alias(capture, alias, "A")
+                    latencies.append(time.perf_counter_ns() - start)
+                checkpoint(
+                    "removed",
+                    core,
+                    count=count,
+                    cycle=cycle,
+                    **latency_summary(
+                        latencies, time.perf_counter() - wall, time.process_time() - cpu
+                    ),
+                )
+                pin.release()
+                core.clear_namespace(namespace)
+                checkpoint("released", core, count=count, cycle=cycle)
+            core.close()
+    else:
+        config = {arguments.budget_field: arguments.budget, "max_entry_bytes": MIB}
+        if arguments.enabled:
+            config["max_entries"] = arguments.max_entries
+        core = constructor(CacheCoreConfig(**config))
+        barrier = threading.Barrier(arguments.threads)
+
+        def admit(worker: Annotated[int, Ge(0)]) -> list[Annotated[int, Ge(0)]]:
+            target = NamespaceId(DATABASE, f"namespace-{worker % 2}")
+            barrier.wait(timeout=30)
+            latencies = []
+            for index in range(arguments.distinct):
+                start = time.perf_counter_ns()
+                core.admit_namespace(
+                    core.capture_namespace_generation(target), (worker, index), index
+                )
+                latencies.append(time.perf_counter_ns() - start)
+            return latencies
+
+        wall, cpu = time.perf_counter(), time.process_time()
+        with ThreadPoolExecutor(max_workers=arguments.threads) as pool:
+            timings = list(pool.map(admit, range(arguments.threads)))
+        checkpoint(
+            "contention",
+            core,
+            threads=arguments.threads,
+            **latency_summary(
+                [latency for group in timings for latency in group],
+                time.perf_counter() - wall,
+                time.process_time() - cpu,
+            ),
+        )
+        core.close()
+        checkpoint("close", core)
+    print(json.dumps({"completed_phases": completed}), flush=True)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     commands = parser.add_subparsers(dest="command", required=True)
@@ -492,10 +798,53 @@ def main() -> None:
     measured.add_argument("scenario", choices=SCENARIOS)
     measured.add_argument("api", choices=("sync", "async"))
     measured.add_argument("mode", choices=("direct", "cached"))
+    retention = commands.add_parser("retention-child")
+    retention.add_argument("uri")
+    retention.add_argument("--api", choices=("sync", "async"), default="sync")
+    retention.add_argument(
+        "--scenario", choices=("small-entries", "large-keys"), default="small-entries"
+    )
+    retention.add_argument("--distinct", type=int, default=8192)
+    retention.add_argument("--retained", type=int, default=4096)
+    retention.add_argument("--budget", type=int, default=4 * MIB)
+    retention.add_argument("--max-entries", type=int)
+    retention.add_argument("--max-key-bytes", type=int)
+    retention.add_argument("--unique", action="store_true")
+    retention.add_argument("--warm-repeats", type=int, default=1)
+    retention.add_argument("--prefill", type=int, default=0)
+    retention.add_argument("--single-identity", action="store_true")
+    core = commands.add_parser("retention-core")
+    core.add_argument("--core", choices=("native", "reference"), default="native")
+    core.add_argument(
+        "--scenario", choices=("aliases", "contention"), default="aliases"
+    )
+    core.add_argument("--enabled", action="store_true")
+    core.add_argument("--threads", type=int, choices=(1, 4), default=1)
+    core.add_argument("--distinct", type=int, default=8192)
+    core.add_argument("--max-entries", type=int, default=1024)
+    core.add_argument("--budget", type=int, default=MIB)
+    for qualification in (retention, core):
+        qualification.add_argument(
+            "--budget-field",
+            choices=("budget_bytes", "shared_budget_bytes"),
+            default="budget_bytes",
+        )
     summary = commands.add_parser("summarize")
     summary.add_argument("report", type=Path)
     arguments = parser.parse_args()
-    if arguments.command == "run":
+    if arguments.command == "retention-child" and (
+        not 0 < arguments.retained <= arguments.distinct
+        or arguments.warm_repeats < 1
+        or arguments.prefill < 0
+    ):
+        parser.error(
+            "require 0 < retained <= distinct, warm-repeats >= 1 and prefill >= 0"
+        )
+    if arguments.command == "retention-child":
+        asyncio.run(retention_child(arguments))
+    elif arguments.command == "retention-core":
+        retention_core(arguments)
+    elif arguments.command == "run":
         coordinate(arguments)
     elif arguments.command == "summarize":
         summarize(json.loads(arguments.report.read_text()))

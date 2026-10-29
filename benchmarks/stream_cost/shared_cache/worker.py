@@ -94,7 +94,7 @@ class WorkerSpec:
 
 def _cache_config(spec: WorkerSpec) -> CacheCoreConfig:
     return CacheCoreConfig(
-        shared_budget_bytes=spec.budget_bytes,
+        budget_bytes=spec.budget_bytes,
         max_entry_bytes=spec.max_entry_bytes,
         lag_capture_window_config=LagCaptureWindowConfig(*spec.lag_capture),
     )

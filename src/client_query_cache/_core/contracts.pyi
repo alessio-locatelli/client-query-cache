@@ -45,6 +45,8 @@ class NamespaceCaptureView(Protocol):
 
 class CoreLifecycle(Protocol):
     @property
+    def max_entries(self) -> PositiveInt | None: ...
+    @property
     def max_entry_bytes(self) -> PositiveInt: ...
     @property
     def max_namespaces(self) -> PositiveInt: ...
@@ -148,6 +150,7 @@ class CoreReads(Protocol):
         read_shape: object,
         *,
         codec_options: CodecOptions[Any] | None = None,
+        defer_miss: bool = False,
     ) -> LookupResult: ...
     def lookup_identity_encoded(
         self, namespace: NamespaceId, identity: object, read_shape: object

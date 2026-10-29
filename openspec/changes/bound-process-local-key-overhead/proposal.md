@@ -11,6 +11,12 @@ The BSON budget leaves retained query keys and entry bookkeeping unbounded by a 
 - **BREAKING**: Rename `shared_budget_bytes` to `budget_bytes` without a compatibility alias, including configuration, snapshots, validation and maintained usage references.
 - Qualify footprint and affected read costs using focused existing memory workloads.
 
+## Implementation sequencing
+
+Preserve the current implementation, tests and measurements as a checkpoint. Further implementation and performance qualification wait until `migrate-remaining-hotpaths-to-rust` lands. The measured regressions in the [resource report](../../../reports/process-memory/summary.md#retention-safeguards-qualification-on-2026-10-29) remain unaccepted.
+
+Resume by rebasing onto that migration, freezing its resulting main as the new control, and measuring the safeguard's incremental costs. Retain the selected public contract, including the budget-name migration. Keep this change active and unarchived until its remaining qualification task is complete.
+
 ## Capabilities
 
 ### New Capabilities

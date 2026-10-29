@@ -76,12 +76,14 @@ async def cursors(
     nonpersistent_collection_name: CollectionName,
 ) -> AsyncIterator[Binding]:
     commands = ReadCommands(nonpersistent_collection_name)
-    api, count, payload_bytes, entry_limit = (
+    api, count, payload_bytes, entry_limit, *retention = (
         request.param
         if isinstance(request.param, tuple)
         else (request.param, DOCUMENT_COUNT, 0, 1024 * 1024)
     )
-    config = CacheCoreConfig(max_entry_bytes=entry_limit)
+    config = CacheCoreConfig(
+        max_entry_bytes=entry_limit, **(retention[0] if retention else {})
+    )
     async with AsyncExitStack() as stack:
         if api == "sync":
             client = stack.enter_context(

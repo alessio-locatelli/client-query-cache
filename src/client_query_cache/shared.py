@@ -87,7 +87,7 @@ class SharedCacheConfig:
                 "connections must allow at least two connections"
             )
         CacheCoreConfig(
-            shared_budget_bytes=self.budget_bytes,
+            budget_bytes=self.budget_bytes,
             max_entry_bytes=self.max_entry_bytes,
             max_namespaces=self.namespaces,
         )

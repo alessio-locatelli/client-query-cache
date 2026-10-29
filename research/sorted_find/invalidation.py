@@ -18,7 +18,7 @@ def main() -> None:
         index = OwnerIndex(32768, 128 * 1024 * 1024, 1, 1, 1, 60 * 10**9)
         publisher = IndexPublisher(index, (namespace.database,), 1)
         core = CacheCore(
-            CacheCoreConfig(shared_budget_bytes=96 * 1024 * 1024),
+            CacheCoreConfig(budget_bytes=96 * 1024 * 1024),
             observer=publisher,
             payloads=ArenaPayloads(index),
         )

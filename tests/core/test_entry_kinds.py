@@ -97,7 +97,7 @@ def test_admission_captured_before_a_write_is_rejected_by_compare_and_decide(
 def test_identity_state_is_bounded_by_cache_capacity_not_write_history(
     namespace: NamespaceId,
 ) -> None:
-    core = CacheCore(CacheCoreConfig(shared_budget_bytes=500, max_entry_bytes=100))
+    core = CacheCore(CacheCoreConfig(budget_bytes=500, max_entry_bytes=100))
     admission_count = 500
 
     for index in range(admission_count):

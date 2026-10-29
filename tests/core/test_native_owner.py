@@ -30,7 +30,7 @@ from client_query_cache._core.keys import (
 from client_query_cache._core.manager import CacheCore, CacheCoreConfig
 from client_query_cache._shared import coordinator as shared_coordinator
 from client_query_cache._shared_index import LocalCacheCore as NativeCacheCore
-from client_query_cache._types import BsonDict, NonNegativeInt
+from client_query_cache._types import BsonDict, NonEmptyStr, NonNegativeInt
 from client_query_cache.asynchronous import CacheManager as AsyncManager
 from client_query_cache.synchronous import CacheManager as SyncManager
 
@@ -41,7 +41,7 @@ if TYPE_CHECKING:
 
     from faker import Faker
 
-    from client_query_cache._core.contracts import LocalCacheCore
+    from client_query_cache._core.contracts import IdentityCaptureView, LocalCacheCore
 
 pytestmark = pytest.mark.unit
 _NAMESPACE = NamespaceId("native_owner", "values")
@@ -111,7 +111,7 @@ class Key:
 def native() -> Generator[LocalCacheCore]:
     with managed_core(
         NativeCacheCore,
-        CacheCoreConfig(shared_budget_bytes=256, max_entry_bytes=128),
+        CacheCoreConfig(budget_bytes=256, max_entry_bytes=128),
     ) as core:
         yield core
 
@@ -620,7 +620,7 @@ def bounded_core(value: object) -> AbstractContextManager[LocalCacheCore]:
     weight = len(encode_value(value))
     return managed_core(
         NativeCacheCore,
-        CacheCoreConfig(shared_budget_bytes=weight * 2, max_entry_bytes=weight),
+        CacheCoreConfig(budget_bytes=weight * 2, max_entry_bytes=weight),
     )
 
 
@@ -761,7 +761,7 @@ def test_native_matches_reference_across_collision_and_eviction_schedules(
 
 @contextmanager
 def matching_cores() -> Generator[tuple[LocalCacheCore, LocalCacheCore]]:
-    config = CacheCoreConfig(shared_budget_bytes=128, max_entry_bytes=64)
+    config = CacheCoreConfig(budget_bytes=128, max_entry_bytes=64)
     with (
         managed_core(CacheCore, config) as reference,
         managed_core(NativeCacheCore, config) as native,
@@ -769,17 +769,16 @@ def matching_cores() -> Generator[tuple[LocalCacheCore, LocalCacheCore]]:
         yield reference, native
 
 
-@pytest.mark.parametrize(
-    "factory", [CacheCore, NativeCacheCore], ids=["reference", "native"]
-)
-def test_capture_keeps_alias_alive_after_last_entry_eviction(
-    factory: type[LocalCacheCore], faker: Faker
-) -> None:
+@pytest.fixture(params=[CacheCore, NativeCacheCore], ids=["reference", "native"])
+def pinned_alias(
+    request: pytest.FixtureRequest,
+    faker: Faker,
+) -> Generator[tuple[LocalCacheCore, NonEmptyStr, NonEmptyStr, IdentityCaptureView]]:
     identity = faker.uuid4()
     value = faker.pystr(min_chars=30, max_chars=30)
     weight = len(encode_value(value))
     with managed_core(
-        factory, CacheCoreConfig(shared_budget_bytes=weight, max_entry_bytes=weight)
+        request.param, CacheCoreConfig(budget_bytes=weight, max_entry_bytes=weight)
     ) as core:
         alias = canonical_alias_key("code", identity, None)
         for _ in range(2):
@@ -790,12 +789,73 @@ def test_capture_keeps_alias_alive_after_last_entry_eviction(
                 alias=alias,
             )
         capture = core.begin_identity_admission(_NAMESPACE, identity)
-        try:
-            core.admit_namespace(
-                core.capture_namespace_generation(_NAMESPACE), "pressure", value
-            )
-            assert core.lookup_identity_encoded(_NAMESPACE, identity, None) is None
-            assert core.resolve_alias(_NAMESPACE, "code", identity, None) == identity
-        finally:
-            capture.release()
-        assert core.resolve_alias(_NAMESPACE, "code", identity, None) is None
+        yield core, identity, value, capture
+        capture.release()
+
+
+def test_capture_keeps_alias_alive_after_last_entry_eviction(
+    pinned_alias: tuple[LocalCacheCore, NonEmptyStr, NonEmptyStr, IdentityCaptureView],
+) -> None:
+    core, identity, value, capture = pinned_alias
+    core.admit_namespace(
+        core.capture_namespace_generation(_NAMESPACE), "pressure", value
+    )
+    assert core.lookup_identity_encoded(_NAMESPACE, identity, None) is None
+    assert core.resolve_alias(_NAMESPACE, "code", identity, None) == identity
+    capture.release()
+    assert core.resolve_alias(_NAMESPACE, "code", identity, None) is None
+
+
+@pytest.fixture
+def key_sizing_calls(monkeypatch: pytest.MonkeyPatch) -> list[Key]:
+    calls: list[Key] = []
+
+    def measure(key: Key) -> NonNegativeInt:
+        calls.append(key)
+        return object.__sizeof__(key)
+
+    monkeypatch.setattr(Key, "__sizeof__", measure)
+    return calls
+
+
+@pytest.fixture
+def one_slot_native() -> Generator[LocalCacheCore]:
+    with managed_core(
+        NativeCacheCore, CacheCoreConfig(max_entries=1, max_key_bytes=1024)
+    ) as core:
+        yield core
+
+
+def test_native_fallback_retry_does_not_repeat_sizing_or_decline_events(
+    one_slot_native: LocalCacheCore,
+    key_sizing_calls: list[Key],
+) -> None:
+    core = one_slot_native
+    other = NamespaceId("native_owner", "other")
+    before = core.capture_namespace_generation(other).generation
+    key = Key(1)
+    assert (
+        core.admit_namespace(core.capture_namespace_generation(_NAMESPACE), key, 1)
+        is AdmissionOutcome.ADMITTED
+    )
+    key_sizing_calls.clear()
+    key.callback = partial(core.record_write, other, "unrelated")
+    probe = Key(1)
+    assert (
+        core.admit_unique_key_match(
+            core.capture_namespace_generation(_NAMESPACE),
+            probe,
+            "A",
+            "full",
+            1,
+            alias=canonical_alias_key("email", "alice@example.com", None),
+        )
+        is AdmissionOutcome.ADMITTED
+    )
+    assert core.capture_namespace_generation(other).generation > before
+    assert key_sizing_calls == [probe]
+    assert [
+        (item.kind, item.reason, item.count)
+        for item in core.snapshot().retention_declines
+        if item.count
+    ] == [("alias", "entry_capacity", 1)]

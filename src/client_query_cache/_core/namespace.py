@@ -15,9 +15,7 @@ if TYPE_CHECKING:
         NamespaceId,
     )
     from client_query_cache._core.locking import NamespaceLock
-
-
-_NO_ALIASES: frozenset[AliasKey] = frozenset()
+    from client_query_cache._core.retention import AliasRegistry
 
 
 @dataclass(slots=True)
@@ -25,27 +23,33 @@ class IdentityState:
     generation: NonNegativeInt = 0
     cached_ref_count: NonNegativeInt = 0
     inflight_ref_count: NonNegativeInt = 0
-    alias_keys: frozenset[AliasKey] = _NO_ALIASES
+    alias_keys: set[AliasKey] | None = None
 
     @property
     def is_referenced(self) -> bool:
         return self.cached_ref_count > 0 or self.inflight_ref_count > 0
 
     def add_alias(self, alias: AliasKey) -> None:
-        if alias not in self.alias_keys:
-            self.alias_keys |= {alias}
+        if self.alias_keys is None:
+            self.alias_keys = {alias}
+        else:
+            self.alias_keys.add(alias)
 
     def discard_alias(self, alias: AliasKey) -> None:
-        self.alias_keys = (self.alias_keys - {alias}) or _NO_ALIASES
+        assert self.alias_keys is not None
+        self.alias_keys.remove(alias)
+        if not self.alias_keys:
+            self.alias_keys = None
 
     def clear_aliases(self) -> None:
-        self.alias_keys = _NO_ALIASES
+        self.alias_keys = None
 
 
 @dataclass(slots=True)
 class NamespaceState:
     namespace: NamespaceId
     lock: NamespaceLock
+    alias_registry: AliasRegistry
     generation: NonNegativeInt = 0
     epoch: NonNegativeInt = 0
     index_generation: NonNegativeInt = 0

@@ -41,7 +41,7 @@ def small_max_entry_cache_manager(
     manager = CacheManager(
         raw_mongo_client,
         cache_config=CacheCoreConfig(
-            shared_budget_bytes=_MAX_ENTRY_BYTES * 4,
+            budget_bytes=_MAX_ENTRY_BYTES * 4,
             max_entry_bytes=_MAX_ENTRY_BYTES,
         ),
     )

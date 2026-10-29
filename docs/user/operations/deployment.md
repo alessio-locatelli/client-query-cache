@@ -32,44 +32,37 @@ Closing a manager first disables caching, then waits for pending startup and str
 
 ## Capacity estimation
 
-`CacheCoreConfig(shared_budget_bytes=..., max_entry_bytes=...)` bounds stored BSON across all collections and databases within one manager. Despite its name, `shared_budget_bytes` does not share values between processes. The separate `max_namespaces` setting bounds tracked database/collection pairs; when full, other names bypass caching until a collection drop releases a slot. See the [configuration reference](../reference/api.md#configuration). These settings are not an RSS limit; keys, active cursors and application-held results add memory.
+`CacheCoreConfig(budget_bytes=..., max_entry_bytes=...)` bounds stored BSON across all collections and databases within one manager. The separate `max_namespaces` setting bounds tracked database/collection pairs; when full, other names bypass caching until a collection drop releases a slot. See the [configuration reference](../reference/api.md#configuration). These settings are not an RSS limit; keys, active cursors and application-held results add memory.
+
+For workloads with many small results or large query filters, enable the optional retention safeguards:
+
+```python
+cache_config = CacheCoreConfig(
+    budget_bytes=64 * 1024 * 1024,
+    max_entries=50_000,
+    max_key_bytes=16 * 1024,
+)
+```
+
+Choose these example limits from measurements of your own workload. Unique-key aliases also consume slots, so `entry_count` alone does not describe count occupancy. The [API reference](../reference/api.md#optional-retention-limits) explains one-slot fallback, pair admission, occupied caches, key charging and decline observations. In-flight requests, decoded results, opaque scalar referents and allocator retention remain outside these bounds. [Shared managers](../reference/shared-cache.md) have a separate capacity policy.
 
 One manager watching three databases opens three streams. Four workers watching those databases open twelve streams and hold four independent cache budgets. Sync and asyncio managers are also independent, even in one process. Avoid constructing a manager per request: startup and independent warming can consume the benefit before the process reuses any data.
 
 ### Memory beyond the cache budget
 
-`shared_budget_bytes` and `max_entry_bytes` count stored BSON, not process memory. Each cached result also keeps its query and some bookkeeping: from about 0.6 KB for a document read by `_id` to about 0.9 KB for a result found by a short filter, plus the filter values your application passed. Large results barely notice this; many small results multiply it. In the project's measurements, a full budget added this much process memory beyond the same reads without the cache:
+`budget_bytes` and `max_entry_bytes` count stored BSON. A workload with many small results or long filters can spend more memory on keys and bookkeeping than on those results. Use the optional retention safeguards and measure process memory with your application's query mix; the [API reference](../reference/api.md#optional-retention-limits) defines their bounds.
 
-| Cached results                                    | Added memory per cached result | Added memory per 1 MiB of cached BSON |
-| ------------------------------------------------- | -----------------------------: | ------------------------------------: |
-| `find()` results of about 0.9 MiB                 |                    about 1 MiB |                        about 1.05 MiB |
-| 4.4 KB documents read by `_id`                    |                   about 4.9 KB |                        about 1.15 MiB |
-| 60-byte results read with a one-field filter      |                   about 0.9 KB |                          about 15 MiB |
-| 60-byte results read with a 48-value `$in` filter |                   about 4.5 KB |                          about 77 MiB |
+Include active requests and results held by your application when sizing a worker. A cursor still reading a miss can retain a candidate result until it finishes or closes, alongside the driver's batches. Many open cursors multiply that additional memory, so close cursors you stop reading. Library imports, clients, managers and streams also contribute to each process's baseline.
 
-For example, the default 64 MiB budget filled with 4.4 KB documents added about 74 MiB, while a 4 MiB budget filled with 60-byte results from the larger filter added about 310 MiB. If most cached results are small, or filters carry long lists of values, lower `shared_budget_bytes` and compare `entry_count` from [`snapshot()`](monitoring.md#observability) with your process memory.
-
-Other memory comes on top of the budget:
-
-- A cursor that is still reading a miss keeps a copy of what it has read so far, up to `max_entry_bytes`, until it finishes or closes. Thirty-two open cursors that had each read about 0.9 MiB added 31–34 MiB. Close cursors you stop reading.
-- Results your application keeps take the same memory as without the cache.
-- Importing the library and running one manager added about 2 MiB to a process before any result was cached.
-
-Process memory usually stays near its peak after the cache frees memory. After eviction, closing cursors, or closing the manager, Python and the C library keep freed memory for reuse instead of returning it to the operating system. Closing a manager that had filled its budget typically left 0–20 MiB above the starting level after large results or documents, and 20–62 MiB after many small results, the most with large filters. Five fill-and-close cycles in one process reused that memory: their peaks barely grew after the first cycle. Size memory limits for the observed peak, not for the current budget usage.
-
-Container memory limits apply to the container's own memory counter, not to process RSS, which also counts shared library pages. In the measurements, the container counter followed the process's private memory and stayed about 17 MiB below RSS.
-
-The figures come from Python 3.14, PyMongo 4.18, and glibc on Linux; see the [memory measurement report](https://github.com/alessio-locatelli/client-query-cache/blob/main/reports/process-memory/summary.md) for commands and evidence. Measure your own document and query shapes.
+Measure after warming, eviction and shutdown. Live cache counts can fall while RSS remains high because allocators retain storage. Size container limits from measured peaks across all workers and any shared owner. The [process-memory report](https://github.com/alessio-locatelli/client-query-cache/blob/main/reports/process-memory/summary.md) records versions, workloads and measurement conditions; its observations are not an RSS guarantee.
 
 Monitor [cache outcomes and stream health](monitoring.md) alongside your application workload. Use the [benchmark guide](../benchmarks/index.md) to decide what to measure before deployment.
 
 ### Worked worker estimate
 
-Suppose four workers each use one manager, actively cache two databases, and have a 32 MiB `shared_budget_bytes` setting. Together they can store up to 128 MiB of BSON and open eight database change streams. The budget is shared by the two databases within each worker; it is not 32 MiB per database. Size each client's pool for two concurrent stream polls alongside that worker's ordinary database traffic.
+Suppose four workers each use one manager, actively cache two databases, and have a 32 MiB `budget_bytes` setting. Together they can store up to 128 MiB of BSON and open eight database change streams. The budget covers both databases within each worker. Size each client's pool for two concurrent stream polls alongside that worker's ordinary database traffic.
 
-For the measured 4.4 KB `_id` document shape above, 128 MiB of stored BSON corresponds to about 147 MiB of added process memory across the four workers when all budgets are full. Application baseline memory, retained responses, concurrent miss captures, and other services come on top. Use observed per-worker peaks to set limits; small results or large filters can multiply the cache's memory cost much more.
-
-For an economic comparison, measure the application's change in CPU, memory, and database usage at the same request rate, then apply your provider's prices. Read/write ratio and document size alone cannot predict the hit rate or savings.
+Application baseline memory, retained responses and concurrent misses add to the stored BSON. Use measured per-worker peaks to set process limits. For an economic comparison, measure the application's change in CPU, memory and database usage at the same request rate, then apply your provider's prices. Read/write ratio and document size alone cannot predict the hit rate or savings.
 
 ## Multi-worker servers
 

@@ -176,25 +176,27 @@ Pass a `CacheCoreConfig` to size a manager's cache:
 from client_query_cache import CacheCoreConfig, CacheManager
 
 cache_manager = CacheManager(
-    client, cache_config=CacheCoreConfig(shared_budget_bytes=128 * 1024 * 1024)
+    client, cache_config=CacheCoreConfig(budget_bytes=128 * 1024 * 1024)
 )
 ```
 
 | Field                       | Default                  | Meaning                                                                                                                                                                                                                                                                                                   |
 | --------------------------- | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `shared_budget_bytes`       | 64 MiB                   | Total BSON-encoded size the manager's cache may hold at once, shared across every database and collection that manager caches.                                                                                                                                                                            |
+| `budget_bytes`              | 64 MiB                   | Total BSON-encoded size the manager's cache may hold at once, shared across every database and collection that manager caches.                                                                                                                                                                            |
 | `max_entry_bytes`           | 1 MiB                    | The largest single cached value (one document, or one `find`/`aggregate`/`distinct` result) the cache accepts.                                                                                                                                                                                            |
+| `max_entries`               | `None`                   | Optional manager-wide limit on resident values plus unique-key aliases.                                                                                                                                                                                                                                   |
+| `max_key_bytes`             | `None`                   | Optional maximum accounted key size for each retained value or alias.                                                                                                                                                                                                                                     |
 | `max_namespaces`            | 1,024                    | Maximum number of database/collection pairs whose cache state the manager tracks at once. A dropped collection releases its slot; other names bypass caching while all slots are in use.                                                                                                                  |
 | `lag_capture_window_config` | 10 windows of 100 events | Sizes the invalidation-lag sample windows used by the stream-cost telemetry described in [Observability](../operations/monitoring.md#observability). Most applications never need to change this; it exists for the benchmark suite documented in [stream cost benchmarks](../benchmarks/stream-cost.md). |
 
-`shared_budget_bytes` and `max_entry_bytes` must be positive, and `max_entry_bytes` must not exceed
-`shared_budget_bytes`. `max_namespaces` must be positive. Equal budgets are allowed.
+`budget_bytes` and `max_entry_bytes` must be positive, and `max_entry_bytes` must not exceed
+`budget_bytes`. `max_namespaces` must be positive. Equal budgets are allowed.
 
 The `lag_capture_window_config` has three numeric fields: `window_count` and `events_per_window` must be
 positive; `min_separation_events` must be nonnegative. The default separation is zero, allowing adjacent windows.
 
-All six numeric fields require exact built-in integers. Booleans, integer subclasses, floats (including NaN and
-infinities), strings, `None`, and other types raise `CacheConfigurationError` at configuration construction,
+Numeric fields require exact built-in integers; `max_entries` and `max_key_bytes` also accept `None` to disable their checks and otherwise must be positive. Booleans, integer subclasses, floats (including NaN and
+infinities), strings, and other types raise `CacheConfigurationError` at configuration construction,
 naming the invalid field. Values are not converted. Invalid ranges or budget relationships also raise
 `CacheConfigurationError` at construction.
 
@@ -224,22 +226,30 @@ your client's timeout settings unchanged.
 - A read whose result would exceed `max_entry_bytes` once BSON-encoded is not cached; it still returns the correct
   result, counted as an oversized bypass rather than a hit.
 - Cursor candidates also cap their retained encoded payload at `max_entry_bytes`; exceeding it discards the candidate while native delivery continues. Native batches, decoded hit snapshots, wrappers, and temporary encoding allocations consume additional memory. This is not a process-memory limit; see [memory beyond the cache budget](../operations/deployment.md#memory-beyond-the-cache-budget).
-- Once the cache's total stored BSON size would exceed `shared_budget_bytes`, admitting a new entry evicts the
+- Once the cache's total stored BSON size would exceed `budget_bytes`, admitting a new entry evicts the
   least-recently-used entries to make room. Query keys and Python metadata consume additional memory outside
   this budget, especially for large predicates with small results; see
   [memory beyond the cache budget](../operations/deployment.md#memory-beyond-the-cache-budget) for measured examples.
 - A read whose `_id` or result depends on a value that cannot be used as a cache key — for example a `bson.Code`
   value, or a `NaN`, which is never equal to itself — is executed and returned normally without being cached.
 
-None of these limits raise an exception to the caller: exceeding one always falls back to an uncached, correct
-result. See [deployment guidance](../operations/deployment.md#capacity-estimation) for how to size these limits against your
-deployment.
+Admission limits preserve native results and cursor delivery without adding read-time exceptions. The cache may evict older entries or decline a value or alias while retaining other eligible entries. See [deployment guidance](../operations/deployment.md#capacity-estimation) for how to size these limits against your deployment.
+
+### Optional retention limits
+
+`max_entries` counts resident values and unique-key aliases together across every collection in one manager. When a value needs space, the cache first reclaims old aliases, then evicts least-recently-used values. Removing an alias leaves its value eligible for direct identity reads. An alias whose value was evicted can remain while an in-flight identity read holds its relationship; it still consumes a slot.
+
+For a unique-key read with the count limit enabled, the cache prefers one identity value and its alias, avoiding a second value record and BSON-budget charge. With one available slot it retains the original query result instead, so repeated queries can hit. With two available slots it can retain the pair, supporting both unique-key and identity reads. If a two-slot cache already holds two unrelated values, a new unique-key read can replace the oldest value with its original query result; it does not evict the second value merely to obtain an alias. Existing records, replacements, BSON capacity and key eligibility also affect this choice. Setting only `max_key_bytes` keeps the ordinary admission policy.
+
+`max_key_bytes` measures a key independently for each candidate value or alias. It sums shallow Python object sizes, visits tuple contents, and counts each object identity once per record. Query results use their canonical query key; identity results include identity and read shape; aliases include the alias key and resolved identity. Shared namespace identifiers and canonical tags are excluded. Equality with the limit is allowed. A key that exceeds the limit, or whose size cannot be obtained, is declined without raising a sizing error to the caller. An independently declined alias can accompany a successfully admitted value.
+
+This charge excludes objects reachable through opaque scalar values, cache indexes and allocator overhead. Neither optional limit bounds in-flight requests, decoded results held by callers, or RSS. Sizing runs for candidate publication, not cache hits. [Deployment guidance](../operations/deployment.md#capacity-estimation) shows an opt-in configuration.
 
 ## Ownership
 
 Create the client and manager inside the process that uses them, and reuse them across requests. The manager owns cached data and one change stream per active database. Close it before closing its caller-owned client, using `with` or `async with` where practical.
 
-Each process-local manager has an independent budget and streams, even when another manager uses the same client or deployment. The `shared_budget_bytes` name means the budget is shared across collections **within that manager**; it does not enable sharing across processes. Use [shared managers](shared-cache.md) for that deployment.
+Each process-local manager has an independent budget and streams, even when another manager uses the same client or deployment. Use [shared managers](shared-cache.md) for that deployment.
 
 Advanced direct construction of exported cache-core and coordinator types is covered by the [maintainer architecture reference](https://github.com/alessio-locatelli/client-query-cache/blob/main/docs/development/architecture.md#low-level-design). Do not share one core between multiple coordinators.
 
@@ -303,7 +313,11 @@ Snapshots contain cumulative cache counters and capacity observations without do
 Inspection does not activate a stream or make a database request. The advanced `manager.cache_core`
 inspection methods remain available.
 
-`CacheSnapshot`, `BypassReason`, `BypassReasonCount`, `StreamCostSnapshot`, `StreamHealthSnapshot`, and
+`CacheSnapshot.entry_count` counts resident values, `alias_count` counts retained aliases, and `used_bytes` counts BSON bytes. `budget_bytes`, `max_entries` and `max_key_bytes` expose the configured capacities. After close, resident value and alias counts are zero.
+
+`retention_declines` is a fixed tuple of `RetentionDeclineCount(kind, reason, count)` records. Kinds are `namespace_value`, `identity_value` and `alias`; reasons are `key_size_limit`, `key_size_unavailable` and `entry_capacity`. Counters measure declined publications, rather than reads. A failed unique-key pair records its first blocking candidate (identity before alias); a failed namespace fallback adds its own key decline. Retries do not add duplicate events. A successful fallback can therefore have one retention decline. These counters do not change `bypasses`, `oversized_bypasses`, or their OpenTelemetry series; they have no separate OpenTelemetry instruments.
+
+`RetentionDeclineCount`, `RetentionRecordKind`, `RetentionDeclineReason`, `CacheSnapshot`, `BypassReason`, `BypassReasonCount`, `StreamCostSnapshot`, `StreamHealthSnapshot`, and
 `StreamHealthStatus` are importable from `client_query_cache`, `client_query_cache.synchronous`, and
 `client_query_cache.asynchronous`. See [bypass reasons and stream health](../operations/monitoring.md#bypass-reasons-and-stream-health)
 for their meaning and limitations.

@@ -36,8 +36,10 @@ and **Prettier, Markdownlint, and OpenSpec**. A skipped dependent job cannot
 substitute for its failed prerequisite. Python compatibility jobs retain their interpreter
 matrix without repeating the interpreter-independent Cargo suite.
 
-Python coverage does not measure native instructions. Native coverage enforcement
-is tracked separately in [issue #328](https://github.com/alessio-locatelli/client-query-cache/issues/328).
+Python coverage does not measure native instructions. Completing process-local
+owner coverage and enabling required CI enforcement are tracked separately in
+[issue #328](https://github.com/alessio-locatelli/client-query-cache/issues/328).
+The current helper selects container-free shared-cache Python tests.
 
 ## Native coverage
 
@@ -48,8 +50,8 @@ initialization export is measured once. The command clears previous profiles and
 while retaining compiled dependencies. It enforces 100% line and function
 coverage and prints missing lines. Loom remains a separate correctness check.
 
-The measured production modules are `clock`, `echo`, `frames`, `hash`, `index`,
-`key_encoder`, `memory`, `python`, `relay`, and `ring`, including the Python binding bodies.
+The extension's production modules are `clock`, `echo`, `frames`, `hash`, `index`,
+`key_encoder`, `local_cache`, `memory`, `python`, `relay`, and `ring`, including the Python binding bodies.
 `lib` and `sync` contain only module declarations and imports. Test bodies and
 helpers live in test-only files excluded by cargo-llvm-cov's
 [standard source selection](https://github.com/taiki-e/cargo-llvm-cov#exclude-file-from-coverage);

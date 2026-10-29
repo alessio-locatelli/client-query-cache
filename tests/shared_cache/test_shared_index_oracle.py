@@ -47,7 +47,7 @@ _DATABASE = "oracle"
 _NAMESPACES = (NamespaceId(_DATABASE, "first"), NamespaceId(_DATABASE, "second"))
 _IDENTITIES = range(6)
 _SHAPES = ("full", "summary")
-_EVICTING_BUDGET = CacheCoreConfig(shared_budget_bytes=1_024, max_entry_bytes=512)
+_EVICTING_BUDGET = CacheCoreConfig(budget_bytes=1_024, max_entry_bytes=512)
 _TEXT_CHARACTERS = st.integers(min_value=0, max_value=200)
 _EXPIRY_NS = 60 * 10**9
 _SLOTS = 64

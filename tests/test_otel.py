@@ -10,8 +10,10 @@ from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import InMemoryMetricReader, NumberDataPoint
 
 from client_query_cache import BypassReason
+from client_query_cache._core.entries import AdmissionOutcome
 from client_query_cache._core.errors import CacheConfigurationError
-from client_query_cache._core.manager import CacheCore
+from client_query_cache._core.keys import NamespaceId, canonical_alias_key
+from client_query_cache._core.manager import CacheCore, CacheCoreConfig
 from client_query_cache._core.snapshots import CacheSnapshot
 from client_query_cache._core.stream_cost import (
     INVALIDATION_LAG_CLOCK_SKEW_LIMITATION,
@@ -22,6 +24,8 @@ from client_query_cache._types import Probability
 from client_query_cache.otel import register_cache_metrics
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from opentelemetry.metrics import Meter
     from opentelemetry.sdk.metrics.export import Metric
 
@@ -34,7 +38,7 @@ def _make_cache_snapshot(**overrides: object) -> CacheSnapshot:
     defaults: dict[str, object] = {
         "lifecycle": "active",
         "used_bytes": 1_024,
-        "shared_budget_bytes": 1_048_576,
+        "budget_bytes": 1_048_576,
         "max_entry_bytes": 65_536,
         "entry_count": 3,
         "hits": 7,
@@ -390,3 +394,36 @@ def test_bypass_reason_metric_has_only_the_fixed_reason_dimension(
     } == {record.reason.value: record.count for record in before.bypass_reasons}
     assert sum(point.value for point in points) == before.bypasses
     assert core.snapshot() == before
+
+
+@pytest.fixture
+def retention_core() -> Iterator[CacheCore]:
+    core = CacheCore(CacheCoreConfig(max_entries=1, max_key_bytes=1024))
+    yield core
+    core.close()
+
+
+def test_retention_declines_do_not_increment_bypass_instruments(
+    meter: Meter, reader: InMemoryMetricReader, retention_core: CacheCore
+) -> None:
+    namespace = NamespaceId("telemetry", "retention")
+    capture = retention_core.begin_identity_admission(namespace, "document")
+    assert (
+        retention_core.admit_identity(
+            capture, "full", 1, alias=canonical_alias_key("email", "x" * 4096, None)
+        )
+        is AdmissionOutcome.ADMITTED
+    )
+    assert (
+        sum(record.count for record in retention_core.snapshot().retention_declines)
+        == 1
+    )
+    register_cache_metrics(meter, retention_core)
+    metrics = _collect_metrics(reader)
+    for name in (
+        "client_query_cache.cache.bypasses",
+        "client_query_cache.cache.bypasses.oversized",
+    ):
+        (point,) = _number_data_points(metrics[name])
+        assert point.value == 0
+    assert not any("retention" in name for name in metrics)

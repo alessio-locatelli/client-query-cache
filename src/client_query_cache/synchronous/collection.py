@@ -30,6 +30,7 @@ from client_query_cache._core.identity_reads import (
     NO_IDENTITY,
     extract_id_anchor,
     normalize_identity_for_cache_key,
+    prepare_resolved_identity,
 )
 from client_query_cache._core.keys import NamespaceId, canonical_alias_key
 from client_query_cache._core.order_sensitive_keys import (
@@ -82,6 +83,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
     __slots__ = (
         "_codec_identity",
         "_collection",
+        "_count_limit_enabled",
         "_database",
         "_find_one_default_shape",
         "_forced_collection",
@@ -95,6 +97,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
         collection: Collection[DocumentType],
     ) -> None:
         self._database = database
+        self._count_limit_enabled = database.manager.cache_core.max_entries is not None
         self._collection = collection
         self._namespace_id = NamespaceId(database.name, collection.name)
         self._codec_identity = codec_fingerprint(collection.codec_options)
@@ -539,25 +542,38 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
             namespace, key_definition.fields, key_values, key_definition.collation
         )
         if resolved_identity is not None:
-            lookup_result = cache.lookup_identity(
-                namespace, resolved_identity, read_shape, codec_options=codec_options
-            )
+            if self._count_limit_enabled:
+                lookup_result = cache.lookup_identity(
+                    namespace,
+                    resolved_identity,
+                    read_shape,
+                    codec_options=codec_options,
+                    defer_miss=True,
+                )
+            else:
+                lookup_result = cache.lookup_identity(
+                    namespace,
+                    resolved_identity,
+                    read_shape,
+                    codec_options=codec_options,
+                )
             if lookup_result.hit:
                 return lookup_result.value  # type: ignore[no-any-return]
             if not cache.is_database_available(namespace.database):
                 return self._collection.find_one(
                     original_filter, projection, sort=sort, collation=collation
                 )
-            return self._resolve_unique_key_read(
-                alias,
-                discriminator,
-                original_filter,
-                projection,
-                read_shape,
-                sort=sort,
-                collation=collation,
-                previous_identity=resolved_identity,
-            )
+            if not self._count_limit_enabled:
+                return self._resolve_unique_key_read(
+                    alias,
+                    discriminator,
+                    original_filter,
+                    projection,
+                    read_shape,
+                    sort=sort,
+                    collation=collation,
+                    previous_identity=resolved_identity,
+                )
 
         lookup_result = cache.lookup_namespace(
             namespace, discriminator, codec_options=codec_options
@@ -576,6 +592,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
             read_shape,
             sort=sort,
             collation=collation,
+            previous_identity=resolved_identity,
         )
 
     def _resolve_unique_key_read(
@@ -614,8 +631,10 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
         cache_identity = normalize_identity_for_cache_key(
             raw_identity, codec_options, self._database.manager.client.codec_options
         )
-        if cache_identity is not None and is_canonicalizable(cache_identity):
-            cache.discard_namespace_entry(capture, discriminator)
+        cache_identity = prepare_resolved_identity(cache_identity)
+        if cache_identity is not None:
+            if not self._count_limit_enabled:
+                cache.discard_namespace_entry(capture, discriminator)
             outcome = cache.admit_unique_key_match(
                 capture,
                 discriminator,
@@ -625,9 +644,9 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
                 alias=alias,
                 codec_options=codec_options,
             )
-            if (
+            if previous_identity is not None and (
                 outcome is not AdmissionOutcome.ADMITTED
-                and previous_identity is not None
+                or previous_identity != cache_identity
             ):
                 cache.discard_stale_alias(capture, alias, previous_identity)
         elif previous_identity is not None:

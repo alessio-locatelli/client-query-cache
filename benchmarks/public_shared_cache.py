@@ -530,7 +530,7 @@ def _measure_sync(window: Window) -> Observation:
                 CacheManager(
                     client,
                     cache_config=CacheCoreConfig(
-                        shared_budget_bytes=BUDGETS[window.method],
+                        budget_bytes=BUDGETS[window.method],
                         max_entry_bytes=MAX_ENTRY_BYTES,
                     )
                     if window.method in _CODE_METHODS
@@ -748,7 +748,7 @@ async def _measure_async(
                 AsyncCacheManager(
                     client,
                     cache_config=CacheCoreConfig(
-                        shared_budget_bytes=BUDGETS[window.method],
+                        budget_bytes=BUDGETS[window.method],
                         max_entry_bytes=MAX_ENTRY_BYTES,
                     )
                     if window.method in _CODE_METHODS

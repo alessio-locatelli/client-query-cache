@@ -391,7 +391,7 @@ def test_delayed_eviction_cleanup_does_not_resurrect_a_dropped_namespace(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     core = CacheCore(
-        CacheCoreConfig(shared_budget_bytes=512, max_entry_bytes=512, max_namespaces=2)
+        CacheCoreConfig(budget_bytes=512, max_entry_bytes=512, max_namespaces=2)
     )
     dropped = NamespaceId("catalogue", "dropped")
     active = NamespaceId("catalogue", "active")
