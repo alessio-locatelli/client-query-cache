@@ -49,6 +49,8 @@ track, the container build fails and blocks merging.
 
 Python updates follow the [support policy](#python-support-policy).
 
+The Rust toolchain is checked weekly instead of monthly because only the newest stable release is [supported](native-quality.md#rust-toolchain): Rust ships a stable release every six weeks, with occasional patch releases in between, and a monthly check could leave the selection a month behind. The seven-day cooldown still applies, so a release is proposed 7 to 13 days after publication. That delay keeps the repository-wide aging rule and gives regressions in a new compiler time to surface, at the cost of adopting fixes about a week later. A toolchain proposal runs the Rust, Python, ARM64, container, and performance-guard checks.
+
 The Renovate window permits branch creation when the hosted app runs; it does
 not schedule hosted polling. Blocked PRs or unavailable runs can carry a backlog
 into the next month. The commit budget limits automatic rebases as well as new

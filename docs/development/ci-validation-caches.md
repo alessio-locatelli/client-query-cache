@@ -50,13 +50,35 @@ Existing OpenSpec requirement-length notices are tracked in [issue #185](https:/
 
 Lychee's installed binary is stored in the Prek environment cache; `.lycheecache` stores link results. On a binary-cache miss, the hook installs the pinned release with authenticated API access and then checks links. Installation and link-check failures fail the Prek job. Benchmark reports and failure logs are uploaded as artifacts for inspection, not restored as validation caches.
 
-The Rust toolchain has no cache: in each job that compiles native code, the runner's rustup downloads the [selected release](native-quality.md#rust-toolchain).
-
 Native Cargo tools are cached in `.rust-tools/`, keyed by runner OS, architecture,
 and `justfile` (which owns their version pins), with a fallback to the same OS and
 architecture. `just setup-rust` reuses installed matching tool versions and replaces
 outdated versions after a fallback restore. See [native quality checks](native-quality.md) for the
 commands and their scope.
+
+## Rust toolchain downloads
+
+The Rust compiler is deliberately not cached. Every job that compiles native code runs `rustup toolchain install`, which downloads the [selected release](native-quality.md#rust-toolchain) with rustup's minimal profile: the compiler, the standard library, and Cargo. The runners' preinstalled Rust is not reused, because rustup stores it as `stable` rather than under the selected version, even when the versions match. Depending on the selected tiers and Python lanes, a pull request run installs the toolchain in up to 13 x86-64 jobs and one ARM64 job. The jobs run in parallel, so the installation lengthens the run by roughly one installation, not by the sum.
+
+Measurements for Rust 1.99.1 on the GitHub-hosted `ubuntu-24.04` and `ubuntu-24.04-arm` runners, 2026-10-29:
+
+| Measurement                                 | x86-64                            | ARM64                            |
+| ------------------------------------------- | --------------------------------- | -------------------------------- |
+| Download of the three minimal components    | 121 MiB                           | 106 MiB                          |
+| Installed toolchain                         | 593 MiB                           | 497 MiB                          |
+| Download and install time                   | 6.9–9.3 s, median 8.2 s (18 jobs) | 5.0–6.1 s, median 5.2 s (6 jobs) |
+| Compressed Actions cache entry              | 189 MiB                           | 156 MiB                          |
+| Cache restore until `rustc` and `cargo` run | 2.4–4.6 s, median 4.4 s (3 jobs)  | 2.0–2.1 s, median 2.1 s (3 jobs) |
+
+A cache hit would therefore save about 4 s per x86-64 job and 3 s per ARM64 job. It was rejected for these reasons:
+
+- **Few hits.** Pull request validation is the only workflow that compiles native code on every change, and GitHub restores a [pull request's caches only in later runs of that pull request](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching#restrictions-for-accessing-a-cache), not in other pull requests. Of the 200 validation runs from 2026-10-10 to 2026-10-29, 88 were the first run of their pull request and could not have hit. A shared cache would need an additional workflow that compiles on `main` only to seed it.
+- **Storage pressure.** Each pull request would add about 345 MiB of entries for both architectures. The repository's caches already total 11.6 GB, above GitHub's [default 10 GB repository limit](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching#usage-limits-and-eviction-policy), so new entries evict the least recently used uv, Prek, mypy, and Cargo-tool caches.
+- **More workflow logic.** The cache path depends on the runner's rustup home, each toolchain update creates new entries, and the jobs of one run would race to save the same key unless one job per architecture owns the save.
+
+The main benefit forgone is the time above, roughly one minute of runner time and a few seconds of elapsed time per full pull request run. Without a cache, a cold job also depends on `static.rust-lang.org` being reachable; a cached job would still depend on it on every miss. Revisit the decision if installation becomes much slower, if a workflow on `main` starts compiling native code anyway, or if cache storage stops being contended.
+
+Install times are the durations of `rustup toolchain install` in the job logs of pull request #364, its release verification run, and a disposable measurement run (`gh api repos/alessio-locatelli/client-query-cache/actions/jobs/<job-id>/logs`). The measurement run also installed the toolchain, saved `$(rustup show home)/toolchains/1.99.1-*` and `update-hashes/1.99.1-*` with `actions/cache/save`, and then, in three fresh jobs per architecture, restored them with `actions/cache/restore` and ran `rustup toolchain install --no-self-update`, `rustc --version`, and `cargo --version` with `RUSTUP_AUTO_INSTALL=0`. Download sizes are the `Content-Length` of the `xz_url` artifacts listed in `https://static.rust-lang.org/dist/channel-rust-1.99.1.toml`; installed sizes are `du -sm` of the toolchain directory.
 
 ## Documentation validation limitations
 
