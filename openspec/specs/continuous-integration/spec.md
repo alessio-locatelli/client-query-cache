@@ -146,6 +146,11 @@ Pull requests changing executable dependency configuration SHALL validate the af
 - **WHEN** a pull request updates shared Python-toolchain configuration without changing Python source
 - **THEN** package validation and database-backed tests run after applicable quality checks pass
 
+#### Scenario: The Rust toolchain selection changes
+
+- **WHEN** a pull request changes only the selected Rust release
+- **THEN** CI runs native static checks, native tests and concurrency models, package validation and database-backed tests, ARM64 runtime and distribution checks, the development-container check, and the performance guard after applicable quality checks pass
+
 #### Scenario: An unrelated document changes
 
 - **WHEN** a pull request changes only documentation unrelated to executable inputs
