@@ -88,15 +88,16 @@ format:
 
 setup-rust:
     uv python install
-    cargo fmt --version
-    cargo clippy --version
+    # rustup 1.29 toolchain install --no-self-update: The default may also update rustup.
+    # We override it because setup installs only the selected toolchain.
+    rustup toolchain install --no-self-update
+    rustup component add rustfmt clippy llvm-tools-preview
     # Cargo install: https://doc.rust-lang.org/cargo/commands/cargo-install.html
     # --locked: The default resolves dependencies anew. We override it because
     # tool builds must use each release's committed dependency lockfile.
     cargo install --locked --root .rust-tools cargo-shear --version '={{ shear_version }}'
     cargo install --locked --root .rust-tools cargo-deny --version '={{ deny_version }}'
     cargo install --locked --root .rust-tools cargo-llvm-cov --version '={{ llvm_cov_version }}'
-    rustup component add llvm-tools-preview
 
 rust-fmt-check:
     # rustfmt: https://github.com/rust-lang/rustfmt#checking-style-on-a-ci-server

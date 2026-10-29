@@ -88,6 +88,15 @@ pytestmark = pytest.mark.unit
             (".node-version",), False, True, True, False, False, id="node-version"
         ),
         pytest.param(
+            ("rust-toolchain.toml",),
+            True,
+            False,
+            True,
+            False,
+            False,
+            id="rust-toolchain",
+        ),
+        pytest.param(
             ("tests/conftest.py",),
             True,
             False,

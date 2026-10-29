@@ -1,13 +1,20 @@
 name: Set up the locked uv and just toolchain
-description: Installs shared uv and just versions; uv uses the project Python selection.
+description: Installs shared uv and just versions; uv uses the project Python selection. Optionally installs the selected Rust toolchain.
 
 inputs:
   python-version:
     description: Optional compatibility lane; otherwise use .python-version.
+  rust:
+    description: Set to true in jobs that compile native code to install the rust-toolchain.toml selection.
 
 runs:
   using: composite
   steps:
+    # rustup 1.29 toolchain install --no-self-update: The default may also update rustup. We override it because CI provisions only the selected toolchain.
+    - if: inputs.rust == 'true'
+      shell: bash
+      run: rustup toolchain install --no-self-update
+
     - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
       with:
         version: "0.13.4"

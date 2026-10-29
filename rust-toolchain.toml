@@ -1,0 +1,5 @@
+[toolchain]
+channel = "1.99.1"
+# rustup 1.29 toolchain file: https://rust-lang.github.io/rustup/overrides.html#the-toolchain-file
+# The default is the installing rustup's profile setting, normally default. We override it because source builds need only the compiler, standard library, and Cargo.
+profile = "minimal"

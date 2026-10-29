@@ -1,6 +1,6 @@
 # Executable version updates
 
-Dependabot and the official hosted Renovate app propose monthly dependency updates.
+Dependabot and the official hosted Renovate app propose monthly dependency updates; Dependabot checks the Rust toolchain weekly.
 Eligible major updates follow the same policy as minor, patch, and digest updates. After
 operator activation, the shared App workflow approves eligible bot PRs and requests
 GitHub native auto-merge using rebase; required checks gate merging.
@@ -17,10 +17,10 @@ GitHub native auto-merge using rebase; required checks gate merging.
 | Zizmor                                                       | Renovate Dockerfile preset                       | Containerfile ARG                                                                                                                                                             |
 | Taplo                                                        | Renovate regex                                   | Containerfile ARG, download URL, and SHA256                                                                                                                                   |
 | DNF tools                                                    | Fedora repositories                              | Unpinned Fedora 44 RPMs; Node.js track comes from `.node-version`; [rationale](https://github.com/alessio-locatelli/client-query-cache/blob/main/CONTRIBUTING.md#environment) |
+| Rust toolchain                                               | Dependabot `rust-toolchain`, weekly              | `rust-toolchain.toml`; development, the container default, CI, release builds, and source distributions use it through rustup ([policy](native-quality.md#rust-toolchain))    |
 | Rust crates                                                  | Dependabot `cargo`                               | `native/shared-index/Cargo.toml` and `Cargo.lock`                                                                                                                             |
 | Native Cargo quality tools                                   | Renovate `custom.regex` with crates.io releases  | Version variables in `justfile`; `just setup-rust` installs them into `.rust-tools/`                                                                                          |
 | maturin build backend                                        | None; each build resolves the newest 1.x release | `pyproject.toml` build requirement                                                                                                                                            |
-| CI Rust and Cargo                                            | GitHub runner image                              | Preinstalled in `ubuntu-24.04`; unpinned, with `rust-version` in `native/shared-index/Cargo.toml` as the compatibility floor                                                  |
 
 In this repository, Renovate's Actions manager updates only `uses-with` inputs.
 Its other dependency types are disabled to preserve Dependabot ownership. Reports,
@@ -39,7 +39,7 @@ excluded from extraction.
 | Bot        | Ordinary update budget                                                                                          | Proposal window                |
 | ---------- | --------------------------------------------------------------------------------------------------------------- | ------------------------------ |
 | Renovate   | Two concurrent PRs and branches, three new PRs per hour, four automatic branch creation/rebase commits per hour | Days 1–7 of each month, in UTC |
-| Dependabot | Two concurrent version-update PRs **per ecosystem**, not across the repository                                  | Existing monthly schedules     |
+| Dependabot | Two concurrent version-update PRs **per ecosystem**, not across the repository                                  | Monthly; weekly Rust toolchain |
 
 Renovate waits seven days for timestamped releases; missing timestamps do not
 block indefinitely. Dependabot retains its seven-day cooldowns. Only the minimum MongoDB pin is capped: it stays on the supported floor's release line until the floor is raised. Renovate maintains the shared

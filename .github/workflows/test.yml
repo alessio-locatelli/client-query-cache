@@ -39,9 +39,6 @@ env:
 # UV_NO_SYNC in arm64, package, integration-e2e, pymongo-min, mongodb-min, memory, guard,
 # and benchmark-startup: The default is false. We override it because uv run must
 # reuse each job's explicitly synchronized environment without adding dev.
-# Every uv sync above builds the root package's bundled native index with the
-# Cargo preinstalled in the ubuntu-24.04 image
-# (Rust Tools in image 20261004.327.1: Cargo 1.99.0, https://github.com/actions/runner-images/blob/bdac7c6000c3501174076ad6d6a06ce46871fa71/images/ubuntu/Ubuntu2404-Readme.md#rust-tools).
 # cache v6.1.0:
 # https://github.com/actions/cache/blob/55cc8345863c7cc4c66a329aec7e433d2d1c52a9/action.yml
 # restore-keys for prek-results (prek), prettier (prettier), rust-tools (rust-static),
@@ -258,6 +255,8 @@ jobs:
 
       - if: needs.scope.outputs.rust == 'true'
         uses: $/.github/actions/setup-toolchain
+        with:
+          rust: "true"
 
       - if: needs.scope.outputs.rust == 'true'
         run: just rust-tests
@@ -278,6 +277,8 @@ jobs:
           persist-credentials: false
 
       - uses: $/.github/actions/setup-toolchain
+        with:
+          rust: "true"
 
       - run: uv sync --locked --no-default-groups --group test --group build
 
@@ -323,6 +324,7 @@ jobs:
       - uses: $/.github/actions/setup-toolchain
         with:
           python-version: ${{ matrix.python }}
+          rust: "true"
 
       - run: uv sync --locked --no-default-groups --group typing --group build
 
@@ -364,6 +366,7 @@ jobs:
       - uses: $/.github/actions/setup-toolchain
         with:
           python-version: ${{ matrix.python }}
+          rust: "true"
 
       - run: uv sync --locked --no-default-groups --group test --group test-tools --group docs
 
@@ -402,6 +405,8 @@ jobs:
           persist-credentials: false
 
       - uses: $/.github/actions/setup-toolchain
+        with:
+          rust: "true"
 
       - run: uv sync --locked --no-default-groups --group compatibility
 
@@ -432,6 +437,8 @@ jobs:
           persist-credentials: false
 
       - uses: $/.github/actions/setup-toolchain
+        with:
+          rust: "true"
 
       - run: uv sync --locked --no-default-groups --group test
 
@@ -512,6 +519,8 @@ jobs:
           python-version-file: .python-version
 
       - uses: $/.github/actions/setup-toolchain
+        with:
+          rust: "true"
 
       - run: uv sync --locked --no-default-groups --group test --group memory
 
@@ -550,11 +559,13 @@ jobs:
 
       - if: steps.scope.outputs.requires_guard != 'true'
         run: |
-          echo "No Python, dependency, or guard input changed; skipping the timed comparison." \
+          echo "No Python, dependency, Rust toolchain, or guard input changed; skipping the timed comparison." \
             >> "${GITHUB_STEP_SUMMARY}"
 
       - if: steps.scope.outputs.requires_guard == 'true'
         uses: $/.github/actions/setup-toolchain
+        with:
+          rust: "true"
 
       - if: steps.scope.outputs.requires_guard == 'true'
         run: uv sync --locked --no-default-groups --group benchmark
@@ -609,6 +620,8 @@ jobs:
           persist-credentials: false
 
       - uses: $/.github/actions/setup-toolchain
+        with:
+          rust: "true"
 
       - run: uv sync --locked --no-default-groups --group test
 

@@ -1,16 +1,14 @@
 # Native Rust quality checks
 
-Run `just setup-rust` to install the pinned Cargo quality tools into the ignored
-`.rust-tools/` directory and provision the selected Python through uv. The command
-uses Cargo's existing-install detection and does not install OS packages.
+## Rust toolchain
 
-The contributor image supplies Rust formatting and Clippy. Outside that image,
-use the official [Rust installation guide](https://rust-lang.org/tools/install)
-and [rustup components guide](https://rust-lang.github.io/rustup/concepts/components.html)
-for `rustfmt`, `clippy`, and `llvm-tools-preview` (the LLVM tools matching rustc).
-Missing prerequisites fail visibly.
-The pinned quality tools require Rust 1.95 or newer; this does not raise the
-native library's declared minimum compiler version.
+`rust-toolchain.toml` selects one exact stable Rust release with rustup's minimal profile. In the checkout and in source distributions, rustup installs that release on first use, so development, CI, release, and source builds use the same compiler. Only the selected release is tested and supported. The native crate declares no minimum Rust version; older compilers are not necessarily incompatible, but compatibility with them is not maintained. Cargo installations without rustup ignore the selection.
+
+The contributor image and the GitHub-hosted runners provide rustup; CI jobs that compile native code install the selected release before building. Elsewhere, install rustup with the official [Rust installation guide](https://rust-lang.org/tools/install). Dependabot proposes each newer stable release, including patch releases; see [executable version updates](executable-version-updates.md).
+
+## Commands
+
+Run `just setup-rust` to install the selected toolchain with the `rustfmt`, `clippy`, and `llvm-tools-preview` [components](https://rust-lang.github.io/rustup/concepts/components.html), install the pinned Cargo quality tools into the ignored `.rust-tools/` directory, and provision the selected Python through uv. The command reuses existing rustup and Cargo installations and does not install OS packages. Missing prerequisites fail visibly.
 
 | Command              | Enforcement                                                                                                                                    |
 | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
