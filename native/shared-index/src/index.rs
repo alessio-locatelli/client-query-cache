@@ -198,11 +198,10 @@ fn word_of(bytes: &[u8]) -> u64 {
 
 fn copy_words(source: &[AtomicU64], destination: &mut [u8]) {
     let complete_words = destination.len() / WORD_BYTES;
-    let mut chunks = destination.chunks_exact_mut(WORD_BYTES);
-    for (chunk, word) in chunks.by_ref().zip(source) {
+    let (chunks, remainder) = destination.as_chunks_mut::<WORD_BYTES>();
+    for (chunk, word) in chunks.iter_mut().zip(source) {
         chunk.copy_from_slice(&word.load(Ordering::Relaxed).to_ne_bytes());
     }
-    let remainder = chunks.into_remainder();
     if !remainder.is_empty() {
         let bytes = source[complete_words].load(Ordering::Relaxed).to_ne_bytes();
         remainder.copy_from_slice(&bytes[..remainder.len()]);
@@ -844,11 +843,10 @@ impl<M: Words> Writer<M> {
             if Some(next) != original_next {
                 self.allocations[Allocation::index(next)].previous = Some(Allocation::id(index));
             }
-            if previous != original_previous {
-                if let Some(previous) = previous {
-                    self.allocations[Allocation::index(previous)].next =
-                        Some(Allocation::id(index));
-                }
+            if previous != original_previous
+                && let Some(previous) = previous
+            {
+                self.allocations[Allocation::index(previous)].next = Some(Allocation::id(index));
             }
             self.insert_free(index);
         } else {
@@ -879,14 +877,13 @@ impl<M: Words> Writer<M> {
                     used = 0;
                 }
             }
-            let mut chunks = part.chunks_exact(WORD_BYTES);
-            for chunk in chunks.by_ref() {
+            let (chunks, remainder) = part.as_chunks::<WORD_BYTES>();
+            for chunk in chunks {
                 self.index
                     .arena(offset)
                     .store(word_of(chunk), Ordering::Relaxed);
                 offset += 1;
             }
-            let remainder = chunks.remainder();
             if !remainder.is_empty() {
                 pending[..remainder.len()].copy_from_slice(remainder);
                 used = remainder.len();

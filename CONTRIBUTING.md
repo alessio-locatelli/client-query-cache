@@ -12,7 +12,7 @@ tools on `PATH`.
 ## Environment
 
 The image pins its base digest, Python, and tools installed outside DNF. DNF selects
-`bash`, `cargo`, `clippy`, `gh`, `just`, `rust`, `rustfmt`, `uv`, and the Node.js/npm packages from the Fedora 44 repositories
+`bash`, `gcc`, `gh`, `just`, `rustup`, `uv`, and the Node.js/npm packages from the Fedora 44 repositories
 at build time. Renovate maintains `.node-version`; CI reads that file and the
 container selects the same Node.js major track. A Node.js update must pass the
 container build and tool checks before it can merge. These RPM versions are
@@ -26,7 +26,9 @@ They are not dependencies of the published library, whose Python dependencies
 remain declared separately. Tool updates can still affect installation, validation,
 or benchmark results, so validate the rebuilt image before using it.
 
-Installing the project builds its bundled Rust extension in `native/shared-index`, so an environment outside the image also needs [Rust and Cargo](https://rust-lang.org/tools/install) on `PATH`.
+The image's rustup defaults to the [selected Rust release](docs/development/native-quality.md#rust-toolchain), including outside the checkout. After the selection changes, rustup installs the new release in the container on first use; rebuilding the image also updates the default. During the build, Fedora 44's rustup 1.29.0 prints a spurious warning about an existing settings file ([rustup #4744](https://github.com/rust-lang/rustup/issues/4744), fixed in rustup 1.29.1; Fedora update tracked in [bug 2526789](https://bugzilla.redhat.com/show_bug.cgi?id=2526789)).
+
+Installing the project builds its bundled Rust extension in `native/shared-index`, so an environment outside the image also needs [rustup](https://rust-lang.org/tools/install) on `PATH`.
 
 From the host, build the image and create a Toolbx container:
 

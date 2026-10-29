@@ -18,34 +18,52 @@ zizmor_version="$(awk -F= '/^ARG ZIZMOR_TOOL_VERSION=/ {print $2}' Containerfile
 # because contributor checks should emphasize diagnostics.
 # --file Containerfile is required across engines: Docker defaults to Dockerfile, while
 # Podman also recognizes Containerfile.
-tar -cf - Containerfile .python-version .node-version | "$@" build --quiet --tag "${image}" --file Containerfile -
+tar -cf - Containerfile .python-version .node-version rust-toolchain.toml | "$@" build --quiet --tag "${image}" --file Containerfile -
 # shellcheck disable=SC2016 # Expected versions are expanded inside the container.
 # Docker run: https://docs.docker.com/engine/containers/run/
 # --rm: The default is retaining stopped containers. We override it because completed
 # disposable checks must not leave stopped containers.
+# --interactive: The default closes stdin. We override it because the selected Rust
+# toolchain file is passed on stdin.
+# --user: The default is the image's root user. We override it because contributors use
+# the image from a non-root host account.
+# HOME: The default for an unnamed user is /. We override it because contributors have
+# a writable home directory.
+# RUSTUP_AUTO_INSTALL: The default installs a missing selected toolchain. We override it
+# because the image must already provide the selected release.
 # bash -e below: The default is off in this fresh process. We override it because failed
 # version checks must fail container validation.
-"$@" run --rm \
+"$@" run --rm --interactive \
+    --user 1000:1000 \
+    --env HOME=/tmp \
+    --env RUSTUP_AUTO_INSTALL=0 \
     --env "EXPECTED_PYTHON=${python_version}" \
     --env "EXPECTED_NODE_MAJOR=${node_major}" \
     --env "EXPECTED_PREK=${prek_version}" \
     --env "EXPECTED_TAPLO=${taplo_version}" \
     --env "EXPECTED_ZIZMOR=${zizmor_version}" \
     "${image}" bash -ec '
-        rpm -q bash cargo clippy gh just "nodejs${EXPECTED_NODE_MAJOR}" "nodejs${EXPECTED_NODE_MAJOR}-npm" rust rustfmt uv
+        mkdir "${HOME}/checkout"
+        cat > "${HOME}/checkout/rust-toolchain.toml"
+        rpm -q bash gcc gh just "nodejs${EXPECTED_NODE_MAJOR}" "nodejs${EXPECTED_NODE_MAJOR}-npm" rustup uv
         bash --version
-        cargo --version
+        cd "${HOME}"
         rustc --version
-        cargo fmt --version
-        cargo clippy --version
+        cargo --version
+        test "$(rustc --version)" = "$(cd checkout && rustc --version)"
+        cd checkout
+        cargo init --vcs none --name probe
+        cargo build
+        rustup component add rustfmt clippy
         gh --version
         just --version
         node --version | grep -E "^v${EXPECTED_NODE_MAJOR}\."
         npm --version
         uv --version
+        uv python install "${EXPECTED_PYTHON}"
         python_executable="$(uv python find "${EXPECTED_PYTHON}")"
         test "$("${python_executable}" --version)" = "Python ${EXPECTED_PYTHON}"
         test "$(prek --version)" = "prek ${EXPECTED_PREK}"
         test "$(taplo --version)" = "taplo ${EXPECTED_TAPLO}"
         test "$(zizmor --version)" = "zizmor ${EXPECTED_ZIZMOR}"
-    '
+    ' < rust-toolchain.toml

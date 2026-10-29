@@ -10,6 +10,7 @@ if TYPE_CHECKING:
 _RELEVANT_PATTERNS = (
     "*.py",
     "pyproject.toml",
+    "rust-toolchain.toml",
     "uv.lock",
     ".github/workflows/test.yml",
 )

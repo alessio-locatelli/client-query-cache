@@ -107,7 +107,7 @@ repos:
         name: Rust quality checks
         entry: just rust-lint
         language: system
-        files: ^(native/|justfile$|\.pre-commit-config\.yaml$)
+        files: ^(native/|justfile$|rust-toolchain\.toml$|\.pre-commit-config\.yaml$)
         pass_filenames: false
       - id: prettier
         name: Prettier

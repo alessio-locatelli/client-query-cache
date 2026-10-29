@@ -11,7 +11,7 @@
 | MongoDB caching   | MongoDB 8.0+ on a replica set or sharded cluster                                                                                         |
 | Database access   | Collection reads and metadata (`listCollections`, plus `listIndexes` for unique-key discovery), and database-level `changeStream` access |
 
-Binary wheels include the Rust native module. Source builds require [Rust and Cargo](https://rust-lang.org/tools/install).
+Binary wheels include the Rust native module. Source builds require [Rust and Cargo](https://rust-lang.org/tools/install) and are tested only with the stable Rust release that the package selects. With [rustup](https://rust-lang.github.io/rustup/), the build installs and uses that release automatically.
 
 For shared caching, also review the [owner and worker security requirements](../operations/shared-cache.md#security-and-monitoring).
 

@@ -50,6 +50,8 @@ Existing OpenSpec requirement-length notices are tracked in [issue #185](https:/
 
 Lychee's installed binary is stored in the Prek environment cache; `.lycheecache` stores link results. On a binary-cache miss, the hook installs the pinned release with authenticated API access and then checks links. Installation and link-check failures fail the Prek job. Benchmark reports and failure logs are uploaded as artifacts for inspection, not restored as validation caches.
 
+The Rust toolchain has no cache: in each job that compiles native code, the runner's rustup downloads the [selected release](native-quality.md#rust-toolchain).
+
 Native Cargo tools are cached in `.rust-tools/`, keyed by runner OS, architecture,
 and `justfile` (which owns their version pins), with a fallback to the same OS and
 architecture. `just setup-rust` reuses installed matching tool versions and replaces
