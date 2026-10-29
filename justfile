@@ -4,7 +4,7 @@ set positional-arguments
 # The default is running the first recipe. We override it because plain just must list commands without running setup.
 set default-list
 
-# Bash 5.3 help set; set -euo pipefail in docs-build-editions, typecheck-examples,
+# Bash 5.3 help set; set -euo pipefail in setup-rust, docs-build-editions, typecheck-examples,
 # verify-release, pytest, test-pymongo-min, test-mongodb-min,
 # enable-podman-socket, podman, test-memory, test-integration, test-e2e and
 # tests_and_coverage:
@@ -87,17 +87,22 @@ format:
     just --fmt
 
 setup-rust:
+    #!/usr/bin/env bash
+    set -euo pipefail
     uv python install
     # rustup 1.29 toolchain install --no-self-update: The default may also update rustup.
     # We override it because setup installs only the selected toolchain.
     rustup toolchain install --no-self-update
     rustup component add rustfmt clippy llvm-tools-preview
+    rust_toolchain="$("$(uv python find)" -c 'import tomllib; print(tomllib.load(open("rust-toolchain.toml", "rb"))["toolchain"]["channel"])')"
     # Cargo install: https://doc.rust-lang.org/cargo/commands/cargo-install.html
+    # +toolchain: The default is the implicit toolchain-file selection, which Cargo reports
+    # with a warning. We override it because the tools deliberately build with that release.
     # --locked: The default resolves dependencies anew. We override it because
     # tool builds must use each release's committed dependency lockfile.
-    cargo install --locked --root .rust-tools cargo-shear --version '={{ shear_version }}'
-    cargo install --locked --root .rust-tools cargo-deny --version '={{ deny_version }}'
-    cargo install --locked --root .rust-tools cargo-llvm-cov --version '={{ llvm_cov_version }}'
+    cargo +"${rust_toolchain}" install --locked --root .rust-tools cargo-shear --version '={{ shear_version }}'
+    cargo +"${rust_toolchain}" install --locked --root .rust-tools cargo-deny --version '={{ deny_version }}'
+    cargo +"${rust_toolchain}" install --locked --root .rust-tools cargo-llvm-cov --version '={{ llvm_cov_version }}'
 
 rust-fmt-check:
     # rustfmt: https://github.com/rust-lang/rustfmt#checking-style-on-a-ci-server
