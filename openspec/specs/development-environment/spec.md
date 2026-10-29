@@ -150,21 +150,26 @@ The repository SHALL provide a `justfile` at the repository root with named reci
 
 ### Requirement: The development container provides the documented toolchain
 
-Contributors SHALL be able to build a development container with the documented toolchain. Tools installed outside DNF SHALL use explicit versions; Fedora DNF packages SHALL be resolved from the selected Fedora release repositories, selecting the Node.js major track from the shared `.node-version`.
+Contributors SHALL be able to build a development container with the documented toolchain. Rust builds SHALL use the stable release selected in the root rustup toolchain file. The image SHALL make that selection the default so Rust commands also work outside a checkout. Only that selected release is tested and supported. Fedora DNF packages SHALL be resolved from the selected Fedora release repositories, selecting the Node.js major track from the shared `.node-version`.
 
 #### Scenario: A contributor builds the dev container image
 
 - **WHEN** a contributor builds the container image from the documented definition
-- **THEN** the resulting container has `gh`, `uv`, Node.js, npm, `prek`, `taplo`, `zizmor`, `just`, `rustc`, and `cargo` available on `PATH`, without further manual installation; tools installed outside DNF match their pinned versions and DNF packages follow Fedora 44 repositories with Node.js on the major track selected by `.node-version`
+- **THEN** the resulting container has `gh`, `uv`, Node.js, npm, `prek`, `taplo`, `zizmor`, `just`, `rustc`, and `cargo` available on `PATH`, and Rust uses the selected toolchain as its default
+
+#### Scenario: A contributor runs Rust outside a checkout
+
+- **WHEN** a contributor invokes Rust commands from a directory without `rust-toolchain.toml`
+- **THEN** rustup selects the image's default toolchain from the repository's pinned stable release
 
 ### Requirement: Container image inputs are pinned
 
-The contributor image SHALL pin its base digest and tools installed outside DNF. DNF SHALL install `bash`, `gh`, `just`, `uv`, the Rust compiler and Cargo, and Node.js/npm on the `.node-version` major track from Fedora 44 without RPM pins. Contributor documentation SHALL explain the bots' RPM pin limitations, expected low development-tool breakage risk, and package variability across rebuilds.
+The contributor image SHALL pin its base digest and tools installed outside DNF. DNF SHALL install `bash`, `gh`, `just`, `uv`, rustup, and Node.js/npm on the `.node-version` major track from Fedora 44 without RPM pins. Contributor documentation SHALL explain the bots' RPM pin limitations, expected low development-tool breakage risk, and package variability across rebuilds.
 
 #### Scenario: A contributor rebuilds the image
 
 - **WHEN** the same image definition is rebuilt
-- **THEN** its base image and tools installed outside DNF remain pinned, DNF resolves compatible package versions from Fedora 44 repositories while selecting the Node.js major track from the shared `.node-version`, and host bridge commands remain documented host prerequisites
+- **THEN** its base image and Rust toolchain remain pinned, DNF resolves compatible package versions from Fedora 44 repositories while selecting the Node.js major track from the shared `.node-version`, and host bridge commands remain documented host prerequisites
 
 ### Requirement: Container bootstrap states host prerequisites
 
@@ -454,3 +459,45 @@ The local native quality workflow SHALL reject unused dependencies and unlinked 
 
 - **WHEN** the native dependency graph violates the configured policy
 - **THEN** native quality validation reports the violation and exits unsuccessfully
+
+### Requirement: Stable Rust toolchain updates are reviewed
+
+Development, CI and release builds SHALL use the root selected stable Rust toolchain. Dependabot SHALL check weekly for stable releases, including patches, and toolchain update pull requests SHALL require human acceptance after validation.
+
+#### Scenario: A stable Rust release is published
+
+- **WHEN** Dependabot checks the root versioned toolchain after a stable release is available
+- **THEN** it can propose an update without changing the Cargo dependency schedule
+
+#### Scenario: The toolchain selection changes
+
+- **WHEN** a pull request changes the root toolchain file
+- **THEN** CI selects Rust, Python extension, contributor image and ARM64 validation and does not automatically accept the update
+
+### Requirement: Rust quality components are separate from source builds
+
+The root `rust-toolchain.toml` SHALL select the minimal rustup profile. Native quality setup SHALL install rustfmt, Clippy, and LLVM coverage components separately.
+
+#### Scenario: A source distribution is built
+
+- **WHEN** rustup reads the toolchain file while building the Python source distribution
+- **THEN** it installs the compiler, standard library, and Cargo without installing development-only quality components
+
+#### Scenario: Native quality checks are prepared
+
+- **WHEN** a contributor runs `just setup-rust`
+- **THEN** rustfmt, Clippy, and LLVM coverage components are available for the native quality checks
+
+### Requirement: CI installs Rust only for native consumers
+
+The shared CI toolchain action SHALL install the root Rust selection only when a calling job builds or checks native code.
+
+#### Scenario: A non-native CI job sets up the shared toolchain
+
+- **WHEN** a documentation or Prek job uses the shared CI toolchain action
+- **THEN** it provisions uv and just without installing Rust
+
+#### Scenario: A native CI job sets up the shared toolchain
+
+- **WHEN** a CI job builds or checks native code and requests Rust setup
+- **THEN** it installs the Rust release selected by the root toolchain file
