@@ -112,9 +112,7 @@ That guide documents cycle counts and longer local runs.
 
 **Pull request validation** reports these stable checks: **Select validation tiers**, **Prek**, **Prettier, Markdownlint, and OpenSpec**, **Documentation build**, **Rust static checks**, **Rust tests and concurrency models**, **Python compatibility**, **Cache memory regression guard**, **Cache hot-path performance guard**, and **Development container build and tools**. **Python compatibility** fails when any packaging, test, minimum-compatibility, or ARM64 job selected for the pull request does not succeed.
 
-The `main` ruleset requires only **Prek**, **Prettier, Markdownlint, and OpenSpec**, **Rust static checks**, and **Rust tests and concurrency models**, from GitHub Actions. A failure in any other check does not block merging; [#358](https://github.com/alessio-locatelli/client-query-cache/issues/358) tracks requiring all of them.
-
-GitHub accepts a skipped job as passing. Jobs whose inputs did not change skip by design, but a job also skips when a job it depends on fails. Each prerequisite therefore has to be required itself: while **Select validation tiers** is not required, a pull request whose tier selection fails skips **Prettier, Markdownlint, and OpenSpec** and both Rust checks, and is mergeable once **Prek** passes.
+The `main` ruleset requires all of them from GitHub Actions. GitHub accepts a skipped job as passing. Jobs whose inputs did not change skip by design, but a job also skips when a job it depends on fails, so each prerequisite is required itself and its failure blocks merging.
 
 Repository administrators can merge a pull request by bypassing the ruleset. The bypass covers required checks as well as the approval requirement.
 
