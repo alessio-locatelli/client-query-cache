@@ -52,9 +52,14 @@ The code PR SHALL prepare configs, trusted workflows, and a post-merge operator 
 
 ### Requirement: Approval follows a successful merge request
 
-Bot PR management SHALL request native automerge for the validated head before approving that head. A rejected automerge request SHALL fail management before any approval is submitted.
+Bot PR management SHALL request native automerge for the validated head before approving that head and SHALL NOT merge the PR directly. A rejected automerge request SHALL fail management before any approval is submitted.
 
 #### Scenario: Repository auto-merge is disabled
 
 - **WHEN** an eligible bot PR is managed while the repository does not permit auto-merge
 - **THEN** management fails visibly and the PR receives no automated approval
+
+#### Scenario: The PR is already mergeable
+
+- **WHEN** an eligible bot PR already satisfies every merge requirement, such as a maintainer approval, when management requests automerge
+- **THEN** management fails visibly without merging or approving the PR
