@@ -340,9 +340,10 @@ jobs:
 
       - run: just typecheck-examples
 
-      - run: uv tool install "prek==${PREK_VERSION}"
-
-      - run: uv run -- prek run slotscheck --all-files
+      # The local slotscheck Prek hook checks every tracked Python file. Listing the
+      # directories avoids installing Prek in each lane; we accept that a new top-level
+      # Python directory must be added here manually.
+      - run: uv run -- python -m slotscheck src tests benchmarks scripts research
 
       - run: just verify-release
 
