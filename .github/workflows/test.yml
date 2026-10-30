@@ -17,6 +17,14 @@ on:
 permissions:
   contents: read
 
+defaults:
+  run:
+    # https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idstepsshell
+    # The default is bash -e on these Linux runners. We override it because a failed
+    # command before a pipe, such as the revision diff feeding a path selector, must fail
+    # the step instead of selecting nothing (bash adds -o pipefail).
+    shell: bash
+
 env:
   # renovate: datasource=pypi depName=prek versioning=pep440
   PREK_VERSION: "0.5.4"
@@ -571,10 +579,6 @@ jobs:
 
       - if: steps.scope.outputs.requires_guard == 'true'
         run: |
-          # The default is off in the unspecified Linux shell (bash -e). We override it
-          # because benchmark failure must fail the step even when tee writes
-          # successfully.
-          set -o pipefail
           uv run -- python -m benchmarks.stream_cost.guard_check \
             --repo-root "${GITHUB_WORKSPACE}" \
             --base-revision "${BASE_REVISION}" \
