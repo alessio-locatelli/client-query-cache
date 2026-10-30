@@ -558,7 +558,7 @@ jobs:
 
       - if: steps.scope.outputs.requires_guard != 'true'
         run: |
-          echo "No Python, dependency, Rust toolchain, or guard input changed; skipping the timed comparison." \
+          echo "No Python, native, dependency, Rust toolchain, or guard input changed; skipping the timed comparison." \
             >> "${GITHUB_STEP_SUMMARY}"
 
       - if: steps.scope.outputs.requires_guard == 'true'
