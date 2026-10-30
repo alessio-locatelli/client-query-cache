@@ -38,6 +38,7 @@ RUN NODE_TOOL_VERSION="$(cat /tmp/node-version)" \
         bash \
         gcc \
         gh \
+        jq \
         just \
         "nodejs${NODE_MAJOR}" \
         "nodejs${NODE_MAJOR}-npm" \

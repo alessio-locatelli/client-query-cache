@@ -12,7 +12,7 @@ tools on `PATH`.
 ## Environment
 
 The image pins its base digest, Python, and tools installed outside DNF. DNF selects
-`bash`, `gcc`, `gh`, `just`, `rustup`, `uv`, and the Node.js/npm packages from the Fedora 44 repositories
+`bash`, `gcc`, `gh`, `jq`, `just`, `rustup`, `uv`, and the Node.js/npm packages from the Fedora 44 repositories
 at build time. Renovate maintains `.node-version`; CI reads that file and the
 container selects the same Node.js major track. A Node.js update runs the
 container build and tool checks. These RPM versions are
