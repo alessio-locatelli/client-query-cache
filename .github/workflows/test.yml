@@ -33,19 +33,19 @@ env:
 # checkout v7.0.1:
 # https://github.com/actions/checkout/blob/3d3c42e5aac5ba805825da76410c181273ba90b1/action.yml
 # persist-credentials in scope, prek, prettier, documentation, arm64, package, integration-e2e, pymongo-min,
-# mongodb-min, memory, guard, container and benchmark-startup: The default is true. We override it
+# mongodb-min, memory, guard and container: The default is true. We override it
 # because later repository commands must not inherit checkout credentials.
 # fetch-depth in scope and guard: The default is 1. We override it because revision
 # comparisons need earlier history.
 # uv 0.12.20: https://docs.astral.sh/uv/reference/cli/
-# uv sync --locked in arm64, package, integration-e2e, pymongo-min, mongodb-min, memory, guard
-# and benchmark-startup: The default is inherited UV_LOCKED, otherwise unlocked resolution.
+# uv sync --locked in arm64, package, integration-e2e, pymongo-min, mongodb-min, memory and
+# guard: The default is inherited UV_LOCKED, otherwise unlocked resolution.
 # We override it because these standalone commands must validate the committed lockfile.
 # uv sync --no-default-groups --group: The default includes dev. We override it
 # because each job selects only its build, typing, test, compatibility, or benchmark
 # tools; full coverage also exercises the real documentation tools.
-# UV_NO_SYNC in arm64, package, integration-e2e, pymongo-min, mongodb-min, memory, guard,
-# and benchmark-startup: The default is false. We override it because uv run must
+# UV_NO_SYNC in arm64, package, integration-e2e, pymongo-min, mongodb-min, memory and
+# guard: The default is false. We override it because uv run must
 # reuse each job's explicitly synchronized environment without adding dev.
 # cache v6.1.0:
 # https://github.com/actions/cache/blob/55cc8345863c7cc4c66a329aec7e433d2d1c52a9/action.yml
@@ -57,13 +57,14 @@ env:
 # it because every supported Python lane must report even when another lane fails.
 # upload-artifact v7.0.1:
 # https://github.com/actions/upload-artifact/blob/043fb46d1a93c77aae656e7c1c64a875d1fc6a0a/action.yml
-# if: failure() for pytest-log (integration-e2e), pytest-log-pymongo-min (pymongo-min),
-# pytest-log-mongodb-min (mongodb-min) and memory-reports (memory): The default
+# if: failure() for pytest-log-arm64 (arm64), pytest-log (integration-e2e),
+# pytest-log-pymongo-min (pymongo-min), pytest-log-mongodb-min (mongodb-min) and
+# memory-reports (memory): The default
 # is implicit success(). We override it because diagnostics are needed on failed runs.
 # if-no-files-found for those uploads: The default is warn. We override it because
 # failures before test execution can legitimately produce no diagnostics.
-# retention-days for pytest-log, pytest-log-pymongo-min, pytest-log-mongodb-min, memory-reports and
-# pr-performance-guard-report (guard):
+# retention-days for pytest-log-arm64, pytest-log, pytest-log-pymongo-min, pytest-log-mongodb-min,
+# memory-reports and pr-performance-guard-report (guard):
 # The default is inherited repository/organization retention. We override it because
 # diagnostics need bounded storage lifetimes.
 
@@ -73,13 +74,12 @@ jobs:
     runs-on: ubuntu-24.04
     # timeout-minutes for scope (5m), prek (15m), prettier (10m), documentation (10m),
     # package (15m), integration-e2e (20m), pymongo-min (20m), mongodb-min (20m),
-    # python-compatibility (5m), memory (10m), guard (20m), container (20m),
-    # benchmark-startup (10m): The default is 360. We override it because stalled jobs
-    # must stop within their assigned validation/publication budgets.
+    # python-compatibility (5m), memory (10m), guard (20m), container (20m): The default
+    # is 360. We override it because stalled jobs must stop within their assigned
+    # validation/publication budgets.
     timeout-minutes: 5
     outputs:
       container: ${{ steps.paths.outputs.container }}
-      benchmark: ${{ steps.paths.outputs.benchmark }}
       python: ${{ steps.paths.outputs.python }}
       arm64: ${{ steps.paths.outputs.arm64 }}
       rust: ${{ steps.paths.outputs.rust }}
@@ -608,30 +608,3 @@ jobs:
           persist-credentials: false
 
       - run: bash scripts/check_dev_container.sh docker
-
-  benchmark-startup:
-    name: Isolated benchmark replica-set startup
-    needs: [scope, prek, prettier, rust-static]
-    if: needs.scope.outputs.benchmark == 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    env:
-      UV_NO_SYNC: "true"
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - uses: $/.github/actions/setup-toolchain
-        with:
-          rust: "true"
-
-      - run: uv sync --locked --no-default-groups --group test
-
-      # pytest 9.1.1 / pytest-timeout 2.4.0:
-      # https://docs.pytest.org/en/stable/reference/reference.html
-      # -q: The default is verbosity zero. We override it because CI output should
-      # emphasize failures.
-      # --timeout: The default is pytest.ini 30s. We override it because disposable
-      # image startup can exceed the normal budget.
-      - run: uv run -- pytest -q tests/benchmark/stream_cost/test_topology_integration.py --timeout=120

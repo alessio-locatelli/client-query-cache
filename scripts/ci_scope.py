@@ -72,24 +72,8 @@ def main() -> None:
         }
         for path in paths
     )
-    benchmark = any(
-        path
-        in {
-            "tests/conftest.py",
-            "docker-compose.yaml",
-            ".python-version",
-            "pyproject.toml",
-            "uv.lock",
-            "benchmarks/mongodb_image.py",
-            "benchmarks/stream_cost/topology.py",
-            "tests/benchmark/stream_cost/test_topology_integration.py",
-        }
-        or path.startswith(".github/actions/setup-toolchain/")
-        for path in paths
-    )
     print(f"documentation={str(documentation).lower()}")
     print(f"container={str(container).lower()}")
-    print(f"benchmark={str(benchmark).lower()}")
     print(f"python={str(python).lower()}")
     arm64 = python or any(
         path

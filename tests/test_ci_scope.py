@@ -17,14 +17,12 @@ pytestmark = pytest.mark.unit
         "python",
         "formatting",
         "container",
-        "benchmark",
         "documentation",
     ),
     [
         pytest.param(
             ("src/client_query_cache/core.py",),
             True,
-            False,
             False,
             False,
             False,
@@ -36,37 +34,30 @@ pytestmark = pytest.mark.unit
             False,
             False,
             False,
-            False,
             id="native-extension",
         ),
-        pytest.param(("README.md",), False, True, False, False, False, id="readme"),
-        pytest.param(
-            (".prettierrc",), False, True, False, False, False, id="prettier-config"
-        ),
-        pytest.param(("notes.txt",), False, False, False, False, False, id="unrelated"),
-        pytest.param(("justfile",), True, False, False, False, True, id="justfile"),
+        pytest.param(("README.md",), False, True, False, False, id="readme"),
+        pytest.param((".prettierrc",), False, True, False, False, id="prettier-config"),
+        pytest.param(("notes.txt",), False, False, False, False, id="unrelated"),
+        pytest.param(("justfile",), True, False, False, True, id="justfile"),
         pytest.param(
             ("scripts/zig-linker.sh",),
             True,
             False,
             False,
             False,
-            False,
             id="release-linker",
         ),
         pytest.param(
-            ("tox.ini",), True, False, False, False, False, id="minimum-driver-config"
+            ("tox.ini",), True, False, False, False, id="minimum-driver-config"
         ),
+        pytest.param((".coveragerc",), True, False, False, False, id="coverage-config"),
         pytest.param(
-            (".coveragerc",), True, False, False, False, False, id="coverage-config"
-        ),
-        pytest.param(
-            ("mypy.ini",), True, False, False, False, False, id="type-checker-config"
+            ("mypy.ini",), True, False, False, False, id="type-checker-config"
         ),
         pytest.param(
             ("src/client_query_cache/_shared_index.pyi",),
             True,
-            False,
             False,
             False,
             False,
@@ -78,7 +69,6 @@ pytestmark = pytest.mark.unit
             False,
             False,
             False,
-            False,
             id="typing-marker",
         ),
         pytest.param(
@@ -87,14 +77,12 @@ pytestmark = pytest.mark.unit
             True,
             False,
             False,
-            False,
             id="benchmark-report-schema",
         ),
         pytest.param(
             (".github/workflows/test.yml",),
             True,
             True,
-            False,
             False,
             True,
             id="pr-workflow",
@@ -105,24 +93,18 @@ pytestmark = pytest.mark.unit
             True,
             True,
             False,
-            False,
             id="mixed",
         ),
+        pytest.param(("Containerfile",), False, False, True, False, id="container"),
         pytest.param(
-            ("Containerfile",), False, False, True, False, False, id="container"
+            (".python-version",), True, False, True, True, id="python-version"
         ),
-        pytest.param(
-            (".python-version",), True, False, True, True, True, id="python-version"
-        ),
-        pytest.param(
-            (".node-version",), False, True, True, False, False, id="node-version"
-        ),
+        pytest.param((".node-version",), False, True, True, False, id="node-version"),
         pytest.param(
             ("rust-toolchain.toml",),
             True,
             False,
             True,
-            False,
             False,
             id="rust-toolchain",
         ),
@@ -131,7 +113,6 @@ pytestmark = pytest.mark.unit
             True,
             False,
             False,
-            True,
             False,
             id="shared-pytest-fixtures",
         ),
@@ -140,7 +121,6 @@ pytestmark = pytest.mark.unit
             True,
             False,
             False,
-            True,
             False,
             id="benchmark-mongodb",
         ),
@@ -149,7 +129,6 @@ pytestmark = pytest.mark.unit
             True,
             False,
             False,
-            True,
             False,
             id="shared-mongodb-image",
         ),
@@ -159,14 +138,12 @@ pytestmark = pytest.mark.unit
             True,
             False,
             True,
-            True,
             id="shared-tools",
         ),
         pytest.param(
             (".github/workflows/stream-cost-benchmark.yml",),
             False,
             True,
-            False,
             False,
             False,
             id="benchmark-tools",
@@ -177,7 +154,6 @@ pytestmark = pytest.mark.unit
             False,
             False,
             False,
-            False,
             id="benchmark-report",
         ),
         pytest.param(
@@ -185,7 +161,6 @@ pytestmark = pytest.mark.unit
             True,
             False,
             False,
-            True,
             False,
             id="startup-test",
         ),
@@ -195,18 +170,14 @@ pytestmark = pytest.mark.unit
             False,
             True,
             False,
-            False,
             id="container-check",
         ),
+        pytest.param(("renovate.json5",), False, True, False, False, id="renovate"),
         pytest.param(
-            ("renovate.json5",), False, True, False, False, False, id="renovate"
-        ),
-        pytest.param(
-            ("docs/user/reference/api.md",), False, True, False, False, True, id="guide"
+            ("docs/user/reference/api.md",), False, True, False, True, id="guide"
         ),
         pytest.param(
             ("docs/user/assets/figure.svg",),
-            False,
             False,
             False,
             False,
@@ -218,19 +189,14 @@ pytestmark = pytest.mark.unit
             False,
             True,
             False,
-            False,
             True,
             id="examples-readme",
         ),
+        pytest.param(("zensical.toml",), False, False, False, True, id="site-config"),
+        pytest.param(("pyproject.toml",), True, False, False, True, id="dependencies"),
+        pytest.param(("uv.lock",), True, False, False, True, id="lockfile"),
         pytest.param(
-            ("zensical.toml",), False, False, False, False, True, id="site-config"
-        ),
-        pytest.param(
-            ("pyproject.toml",), True, False, False, True, True, id="dependencies"
-        ),
-        pytest.param(("uv.lock",), True, False, False, True, True, id="lockfile"),
-        pytest.param(
-            ("docker-compose.yaml",), True, True, False, True, False, id="compose-image"
+            ("docker-compose.yaml",), True, True, False, False, id="compose-image"
         ),
         pytest.param(
             ("tests/mongodb-minimum/docker-compose.yaml",),
@@ -238,13 +204,11 @@ pytestmark = pytest.mark.unit
             True,
             False,
             False,
-            False,
             id="minimum-mongodb-image",
         ),
         pytest.param(
             ("scripts/build_versioned_docs.py",),
             True,
-            False,
             False,
             False,
             True,
@@ -256,7 +220,6 @@ pytestmark = pytest.mark.unit
             False,
             False,
             False,
-            False,
             id="scope-script",
         ),
         pytest.param(
@@ -264,12 +227,11 @@ pytestmark = pytest.mark.unit
             False,
             True,
             False,
-            False,
             True,
             id="docs-workflow",
         ),
         *[
-            pytest.param((path,), False, True, False, False, False, id=path)
+            pytest.param((path,), False, True, False, False, id=path)
             for path in (
                 "docs/development/index.md",
                 "docs/development/architecture.md",
@@ -282,7 +244,7 @@ pytestmark = pytest.mark.unit
             )
         ],
         *[
-            pytest.param((path,), False, True, False, False, True, id=path)
+            pytest.param((path,), False, True, False, True, id=path)
             for path in (
                 "docs/user/getting-started/asyncio.md",
                 "docs/user/usage/consistency.md",
@@ -292,7 +254,7 @@ pytestmark = pytest.mark.unit
             )
         ],
         *[
-            pytest.param((path,), True, False, False, False, True, id=path)
+            pytest.param((path,), True, False, False, True, id=path)
             for path in (
                 "examples/requests_cache_example.py",
                 "examples/celery_example.py",
@@ -304,7 +266,6 @@ pytestmark = pytest.mark.unit
             False,
             True,
             False,
-            False,
             True,
             id="mixed-documentation",
         ),
@@ -313,11 +274,10 @@ pytestmark = pytest.mark.unit
             True,
             True,
             False,
-            False,
             True,
             id="development-and-example",
         ),
-        pytest.param((), False, False, False, False, False, id="empty"),
+        pytest.param((), False, False, False, False, id="empty"),
     ],
 )
 def test_ci_scope_selects_validation_tiers(
@@ -326,7 +286,6 @@ def test_ci_scope_selects_validation_tiers(
     python: bool,
     formatting: bool,
     container: bool,
-    benchmark: bool,
     documentation: bool,
 ) -> None:
     selected = _selected_tiers(changed_paths)
@@ -335,7 +294,6 @@ def test_ci_scope_selects_validation_tiers(
         "arm64": str(python).lower(),
         "format": str(formatting).lower(),
         "container": str(container).lower(),
-        "benchmark": str(benchmark).lower(),
         "documentation": str(documentation).lower(),
         "rust": str(python or container).lower(),
     }
