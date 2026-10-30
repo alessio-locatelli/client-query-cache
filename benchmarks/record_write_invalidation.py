@@ -86,8 +86,13 @@ def measure(workers: PositiveInt, *, populated: bool) -> NonNegativeFloat:
     return writes / statistics.median(durations)
 
 
-for _populated in (False, True):
-    _mode = "cached_identity_and_families" if _populated else "empty_namespace"
-    for _workers in (1, 2, 4, 8):
-        _throughput = measure(_workers, populated=_populated)
-        print(f"mode={_mode} workers={_workers} writes_per_second={_throughput:.0f}")
+def main() -> None:
+    for populated in (False, True):
+        mode = "cached_identity_and_families" if populated else "empty_namespace"
+        for workers in (1, 2, 4, 8):
+            throughput = measure(workers, populated=populated)
+            print(f"mode={mode} workers={workers} writes_per_second={throughput:.0f}")
+
+
+if __name__ == "__main__":
+    main()
