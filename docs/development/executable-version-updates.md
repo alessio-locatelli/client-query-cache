@@ -165,7 +165,6 @@ access or credentials blocks activation, not repository delivery.
    - `Cache memory regression guard`
    - `Cache hot-path performance guard`
    - `Development container build and tools`
-   - `Isolated benchmark replica-set startup`
 
    Use `gh run list --workflow test.yml --status success`, then
    `gh api repos/alessio-locatelli/client-query-cache/actions/runs/<run-id>/jobs`.
