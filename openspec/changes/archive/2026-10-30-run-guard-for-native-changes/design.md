@@ -27,4 +27,4 @@ Alternative: match only build inputs (the crate manifest, `Cargo.lock`, and non-
 
 ## Risks / Trade-offs
 
-- [Native-only pull requests spend runner time on the guard] → Native changes already select the database-backed test jobs, which start after the same quality checks and run longer than the guard, so the guard adds runner time but not elapsed time.
+- [The guard adds runner time to native-only pull requests and can lengthen a run, for example when runners are scarce] → Native changes also select the database-backed test jobs, which start no earlier than the guard and normally run several times longer, so the guard normally overlaps with them.
