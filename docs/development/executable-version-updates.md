@@ -2,8 +2,8 @@
 
 Dependabot and the official hosted Renovate app propose monthly dependency updates; Dependabot checks the Rust toolchain weekly.
 Eligible major updates follow the same policy as minor, patch, and digest updates. After
-operator activation, the shared App workflow approves eligible bot PRs and requests
-GitHub native auto-merge using rebase; required checks gate merging.
+operator activation, the shared App workflow requests GitHub native auto-merge
+using rebase for eligible bot PRs and approves them; required checks gate merging.
 
 | Selection                                                    | Owner                                            | Location                                                                                                                                                                                               |
 | ------------------------------------------------------------ | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -160,45 +160,42 @@ access or credentials blocks activation, not repository delivery.
    `DEPENDENCY_AUTOMERGE_APP_PRIVATE_KEY` to its private key without logging it.
    [Installation tokens](https://github.com/actions/create-github-app-token)
    are scoped to this repository and those two permissions. The built-in workflow
-   token remains read-only. Absent configuration produces a visible inactive
-   notice and no approval or merge request; invalid credentials or permissions
-   fail visibly.
+   token remains read-only. Until both are set, the acceptance run for each
+   eligible bot PR fails without requesting a merge or approving; invalid
+   credentials or permissions also fail the run.
 
-3. Enable repository auto-merge and verify rebase merging is permitted. After
+3. Enable repository auto-merge and verify rebase merging is permitted. The
+   workflow only requests auto-merge and never merges directly. GitHub rejects
+   the request while repository auto-merge is disabled or when the PR is already
+   mergeable, for example after a maintainer approved it; the run then fails
+   before approving, and such an approved PR is merged by hand. After
    `Pull request validation` succeeds, the acceptance workflow runs from main
    for both bots. This [completion event can access repository secrets](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_run)
    even when validation cannot; [Dependabot-triggered `pull_request_target` cannot](https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-on-actions).
-   No duplicate Dependabot secret or routine manual dispatch is needed.
+   No duplicate Dependabot secret is needed.
 
    Management verifies the validation workflow path, event, head repository, and
    original Dependabot/Renovate actor,
    then uses GitHub's commit-to-PR metadata to select a unique eligible PR. It
    requires a bot author, a same-repository head, main as base, and an open
-   non-draft PR whose live head matches the validated commit. It rechecks before
-   requesting credentials, approves that commit, and rechecks before requesting
-   native auto-merge for the same SHA. It executes no PR code and consumes no run
-   artifacts or caches. Human pushes to bot PRs do not qualify. An operator rerun
-   of bot-initiated validation can qualify at the same SHA. Normal contributors
-   retain their approval requirement.
+   non-draft PR whose live head matches the validated commit; several such PRs
+   fail the run. It rechecks before requesting credentials, requests native
+   auto-merge for that commit, rechecks, and then approves that commit. It
+   executes no PR code and consumes no run artifacts or caches. Human pushes to
+   bot PRs do not qualify. Normal contributors retain their approval requirement.
 
-   For existing bot PRs, a write-authorized operator can dispatch on main:
-
-   For `--ref main`: The default is the repository's default branch. We override it because
-   acceptance must use trusted main independently of that setting
-   ([gh 2.97.0 workflow dispatch](https://cli.github.com/manual/gh_workflow_run)).
-
-   ```console
-   gh workflow run dependency-automerge.yml --ref main -f pr_number=<number>
-   ```
+   To accept a bot PR opened before activation, re-run its bot-initiated
+   validation. The rerun keeps the bot as the run's actor and qualifies at the
+   same SHA.
 
    Verify both Dependabot and Renovate with recorded PR/run links: App approval
    on the latest commit, native rebase acceptance after required CI, and major
    updates using the same path. Check that failed, cancelled, and pending checks
    prevent merging, especially failed Prek with downstream skips. Confirm a
    non-conflicting PR behind main remains eligible; stale completion heads and human,
-   fork, draft, or non-main PRs receive no acceptance. Exercise the dispatch path
-   for a pre-existing PR, then verify a newly created Dependabot PR reaches App
-   approval without dispatch or a Dependabot secret. Verify applicable documentation publication after a bot
+   fork, draft, or non-main PRs receive no acceptance. Re-run validation for a
+   pre-existing PR, then verify a newly created Dependabot PR reaches App
+   approval without a rerun or a Dependabot secret. Verify applicable documentation publication after a bot
    merge: the App token preserves events that
    [`GITHUB_TOKEN` can suppress](https://docs.github.com/en/actions/concepts/security/github_token).
 

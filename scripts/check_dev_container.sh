@@ -45,7 +45,7 @@ tar -cf - Containerfile .python-version .node-version rust-toolchain.toml | "$@"
     "${image}" bash -ec '
         mkdir "${HOME}/checkout"
         cat > "${HOME}/checkout/rust-toolchain.toml"
-        rpm -q bash gcc gh just "nodejs${EXPECTED_NODE_MAJOR}" "nodejs${EXPECTED_NODE_MAJOR}-npm" rustup uv
+        rpm -q bash gcc gh jq just "nodejs${EXPECTED_NODE_MAJOR}" "nodejs${EXPECTED_NODE_MAJOR}-npm" rustup uv
         bash --version
         cd "${HOME}"
         rustc --version
