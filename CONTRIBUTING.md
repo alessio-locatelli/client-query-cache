@@ -262,7 +262,7 @@ Before the first release, complete the [one-time PyPI publishing setup](docs/dev
    uv run -- python -c 'import sys; print(sys.version); print(sys.version_info); assert sys.version_info[:3] == (3, 15, 0) and sys.version_info.releaselevel == "final"'
    uv run -- mypy --install-types
    just typecheck-examples
-   uv run -- python -m slotscheck src tests
+   uv run -- prek run slotscheck --all-files
    just verify-release
    just tests_and_coverage
    ```
