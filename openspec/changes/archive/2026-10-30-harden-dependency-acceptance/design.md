@@ -19,8 +19,9 @@ The configuration check stays after PR selection, so only eligible bot PRs fail.
 
 ### Request auto-merge before approving
 
-`gh pr merge --auto --match-head-commit` runs before the approval. Before approval, the review requirement blocks merging, so the request enables auto-merge pinned to the validated head; GitHub rejects it when repository auto-merge is disabled, and the job fails before approving.
+The `enablePullRequestAutoMerge` GraphQL mutation, pinned to the validated head with the rebase method, runs before the approval. It only registers auto-merge: GitHub rejects it when repository auto-merge is disabled or the PR is already mergeable, and the job fails before approving. An already-mergeable PR has a maintainer approval, so the maintainer merges it.
 
+- `gh pr merge --auto --match-head-commit`: merges immediately when GitHub already reports the PR mergeable ([gh `isImmediatelyMergeable`](https://github.com/cli/cli/blob/trunk/pkg/cmd/pr/merge/merge.go)), so a run could merge without approving, fail its post-merge recheck, and bypass a disabled repository auto-merge setting. Rejected after review of PR #379.
 - Reading `allow_auto_merge` before approving: an additional API call whose visibility to a read-only token is unverified, and the setting can change between check and request. Rejected; the request itself is GitHub's authoritative check.
 - Keeping approval first: leaves an App approval without a merge request whenever the request fails. Rejected.
 

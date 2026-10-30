@@ -165,6 +165,25 @@ Privileged approval and merge management SHALL act only on verified same-reposit
 - **WHEN** a contributor pushes a new revision to a bot-authored PR and its validation succeeds
 - **THEN** unattended bot management submits neither approval nor an automerge request for that revision
 
+#### Scenario: Several eligible PRs share the validated head
+
+- **WHEN** more than one open eligible bot PR matches the validated head
+- **THEN** management fails visibly and submits neither approval nor an automerge request
+
+### Requirement: Approval follows a successful merge request
+
+Bot PR management SHALL request native automerge for the validated head before approving that head and SHALL NOT merge the PR directly. A rejected automerge request SHALL fail management before any approval is submitted.
+
+#### Scenario: Repository auto-merge is disabled
+
+- **WHEN** an eligible bot PR is managed while the repository does not permit auto-merge
+- **THEN** management fails visibly and the PR receives no automated approval
+
+#### Scenario: The PR is already mergeable
+
+- **WHEN** an eligible bot PR already satisfies every merge requirement, such as a maintainer approval, when management requests automerge
+- **THEN** management fails visibly without merging or approving the PR
+
 ### Requirement: Dependabot version proposals have bounded volume
 
 Each configured Dependabot ecosystem SHALL allow at most two concurrent version-update PRs while retaining its configured schedule and cooldown. Guidance SHALL distinguish per-ecosystem limits from a repository-wide cap and explain that security updates have separate limits.
@@ -245,10 +264,10 @@ The code PR SHALL prepare configs, trusted workflows, and a post-merge operator 
 
 #### Scenario: App configuration is absent
 
-- **WHEN** bot PR management runs without its App configuration
-- **THEN** it visibly reports inactive acceptance and submits neither approval nor an automerge request
+- **WHEN** bot PR management runs for an eligible bot PR without its App configuration
+- **THEN** it fails visibly and submits neither approval nor an automerge request
 
 #### Scenario: A bot PR predates activation
 
-- **WHEN** an authorized operator dispatches management on main for an existing bot PR after setup
-- **THEN** the workflow verifies the live bot author, repository, base, and head before approving and enabling native automerge without needing a new bot event
+- **WHEN** an authorized operator re-runs the bot-initiated validation of an existing bot PR after setup
+- **THEN** the workflow verifies the live bot author, repository, base, and head before enabling native automerge and approving, without needing a new bot event
