@@ -3,6 +3,7 @@ version: 2
 # https://docs.github.com/en/code-security/reference/supply-chain-security/dependabot-options-reference
 # For pip, github-actions, npm, pre-commit, uv, cargo, docker, and docker-compose open-pull-requests-limit:
 # The default is 5 per ecosystem. We override it because two version-update PRs per ecosystem bound review and CI load.
+# rust-toolchain keeps the default because its single dependency never has more than one open version-update PR.
 # For each ecosystem's cooldown.default-days:
 # The default is no cooldown. We override it because new releases need seven days of aging before ordinary proposals.
 updates:
