@@ -16,6 +16,9 @@ pytestmark = pytest.mark.unit
     [
         (("src/client_query_cache/synchronous/manager.py",), True),
         (("benchmarks/stream_cost/guard_workload.py",), True),
+        (("native/shared-index/src/local_cache.rs",), True),
+        (("native/shared-index/Cargo.toml",), True),
+        (("native/shared-index/Cargo.lock",), True),
         (("pyproject.toml",), True),
         (("rust-toolchain.toml",), True),
         (("uv.lock",), True),
