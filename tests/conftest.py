@@ -48,7 +48,9 @@ _MONGODB_IMAGE_LOCK_FILE = (
     Path(tempfile.gettempdir()) / "client-query-cache-mongodb-image.lock"
 )
 
+# ast-grep-ignore: no-import-time-execution
 logging.getLogger("faker.factory").setLevel("INFO")
+# ast-grep-ignore: no-import-time-execution
 logging.getLogger("pymongo").setLevel("INFO")
 
 
