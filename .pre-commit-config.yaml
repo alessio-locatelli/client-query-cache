@@ -68,7 +68,7 @@ repos:
       - id: vulture
 
   - repo: https://github.com/astral-sh/uv-pre-commit
-    rev: "0.13.0"
+    rev: "0.13.5"
     hooks:
       - id: uv-lock
         # uv 0.12.23: https://docs.astral.sh/uv/reference/cli/#uv-lock--check
