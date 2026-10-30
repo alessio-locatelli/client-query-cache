@@ -31,7 +31,7 @@ repos:
       - id: no-commit-to-branch
 
   - repo: https://github.com/renovatebot/pre-commit-hooks
-    rev: "44.149.3"
+    rev: "44.178.5"
     hooks:
       - id: renovate-config-validator
         # Hook 44.133.0: https://github.com/renovatebot/pre-commit-hooks/blob/44.133.0/.pre-commit-hooks.yaml
