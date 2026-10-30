@@ -127,16 +127,14 @@ jobs:
           restore-keys: |
             prek-results-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml', 'lychee.toml', 'pyproject.toml') }}-
 
-      - run: uv tool install "prek==${PREK_VERSION}"
-
       # Prek hook skipping:
       # https://prek.j178.dev/quickstart/#temporarily-disabling-hooks
       # SKIP: The default is no skipped hooks. We override it because slotscheck and
       # formatting and Rust have dedicated lanes, while Lychee runs separately with its
       # step-scoped GitHub token.
-      - run: SKIP=slotscheck,prettier,lychee,rust-lint prek run --all-files
+      - run: SKIP=slotscheck,prettier,lychee,rust-lint uvx "prek@${PREK_VERSION}" run --all-files
 
-      - run: prek run lychee --all-files
+      - run: uvx "prek@${PREK_VERSION}" run lychee --all-files
         env:
           GH_TOKEN: ${{ github.token }}
 
