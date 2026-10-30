@@ -14,8 +14,8 @@ tools on `PATH`.
 The image pins its base digest, Python, and tools installed outside DNF. DNF selects
 `bash`, `gcc`, `gh`, `just`, `rustup`, `uv`, and the Node.js/npm packages from the Fedora 44 repositories
 at build time. Renovate maintains `.node-version`; CI reads that file and the
-container selects the same Node.js major track. A Node.js update must pass the
-container build and tool checks before it can merge. These RPM versions are
+container selects the same Node.js major track. A Node.js update runs the
+container build and tool checks. These RPM versions are
 unpinned because the selected update bots cannot safely update the Fedora RPM pins:
 Renovate’s [RPM parser](https://github.com/renovatebot/renovate/blob/main/lib/modules/datasource/rpm/providers/xml.ts)
 omits epochs and architecture filtering.
@@ -108,6 +108,16 @@ See the [workload, allocation limits, and calibration guide](docs/development/me
 The integration suite includes [mixed concurrency stress tests](docs/development/concurrency-stress-tests.md).
 That guide documents cycle counts and longer local runs.
 
+### Required checks
+
+**Pull request validation** reports these stable checks: **Select validation tiers**, **Prek**, **Prettier, Markdownlint, and OpenSpec**, **Documentation build**, **Rust static checks**, **Rust tests and concurrency models**, **Python compatibility**, **Cache memory regression guard**, **Cache hot-path performance guard**, and **Development container build and tools**. **Python compatibility** fails when any packaging, test, minimum-compatibility, or ARM64 job selected for the pull request does not succeed.
+
+The `main` ruleset requires only **Prek**, **Prettier, Markdownlint, and OpenSpec**, **Rust static checks**, and **Rust tests and concurrency models**, from GitHub Actions. A failure in any other check does not block merging; [#358](https://github.com/alessio-locatelli/client-query-cache/issues/358) tracks requiring all of them.
+
+GitHub accepts a skipped job as passing. Jobs whose inputs did not change skip by design, but a job also skips when a job it depends on fails. Each prerequisite therefore has to be required itself: while **Select validation tiers** is not required, a pull request whose tier selection fails skips **Prettier, Markdownlint, and OpenSpec** and both Rust checks, and is mergeable once **Prek** passes.
+
+Repository administrators can merge a pull request by bypassing the ruleset. The bypass covers required checks as well as the approval requirement.
+
 ## npm quality options
 
 `package.json` selects Prettier 3.9.9 and markdownlint-cli2 0.23.3.
@@ -174,7 +184,7 @@ The combined command discovers the latest published stable [GitHub Release](http
 
 For local reproduction without discovery or fetching, pass an exact release tag already available in the checkout: `just docs-build-editions <release-tag>`. The selected snapshot must contain the public guide layout and native export settings. The maintained [mike integration](https://zensical.org/docs/compatibility/mkdocs/mike/) owns version metadata and selection; Zensical renders both editions and root redirects.
 
-Pull requests affecting site inputs run **Documentation build** after **Prek** and **Prettier, Markdownlint, and OpenSpec**. If configuring required checks, require all three independently: GitHub can report a dependent job skipped after a failed prerequisite as successful. Guide-only Markdown changes do not select Python or database tests.
+Pull requests affecting site inputs run **Documentation build** after **Prek** and **Prettier, Markdownlint, and OpenSpec**; see [required checks](#required-checks). Guide-only Markdown changes do not select Python or database tests, including guides whose examples the test suite runs; see the [documentation validation limitations](docs/development/ci-validation-caches.md#documentation-validation-limitations).
 
 ### Publishing
 
