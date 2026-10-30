@@ -61,6 +61,36 @@ pytestmark = pytest.mark.unit
             (".coveragerc",), True, False, False, False, False, id="coverage-config"
         ),
         pytest.param(
+            ("mypy.ini",), True, False, False, False, False, id="type-checker-config"
+        ),
+        pytest.param(
+            ("src/client_query_cache/_shared_index.pyi",),
+            True,
+            False,
+            False,
+            False,
+            False,
+            id="type-stub",
+        ),
+        pytest.param(
+            ("src/client_query_cache/py.typed",),
+            True,
+            False,
+            False,
+            False,
+            False,
+            id="typing-marker",
+        ),
+        pytest.param(
+            ("benchmarks/stream_cost/schemas/report.v1.schema.json",),
+            True,
+            True,
+            False,
+            False,
+            False,
+            id="benchmark-report-schema",
+        ),
+        pytest.param(
             (".github/workflows/test.yml",),
             True,
             True,

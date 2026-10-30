@@ -17,8 +17,8 @@ def main() -> None:
         in {
             "pytest.ini",
             "tox.ini",
+            "mypy.ini",
             "docker-compose.yaml",
-            "tests/mongodb-minimum/docker-compose.yaml",
             ".coveragerc",
             "pyproject.toml",
             "uv.lock",
@@ -26,10 +26,17 @@ def main() -> None:
             "rust-toolchain.toml",
             "justfile",
             ".github/workflows/test.yml",
-            "scripts/ci_scope.py",
             "scripts/zig-linker.sh",
         }
-        or path.startswith((".github/actions/setup-toolchain/", "native/"))
+        or path.startswith(
+            (
+                ".github/actions/setup-toolchain/",
+                "native/",
+                "src/",
+                "tests/",
+                "benchmarks/",
+            )
+        )
         for path in paths
     )
     documentation = any(
