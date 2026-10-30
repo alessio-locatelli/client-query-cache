@@ -342,7 +342,11 @@ jobs:
 
       - run: just typecheck-examples
 
-      - run: uv run -- python -m slotscheck src tests
+      - run: |
+          uv tool install "prek==${PREK_VERSION}"
+          echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
+
+      - run: uv run -- prek run slotscheck --all-files
 
       - run: just verify-release
 
