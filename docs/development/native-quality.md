@@ -30,10 +30,8 @@ code safety still require review.
 The yanked-release warning from installing the pinned `cargo-shear` tool is tracked in
 [#345](https://github.com/alessio-locatelli/client-query-cache/issues/345).
 
-CI runs **Rust static checks** once, followed by **Rust tests and concurrency models**.
-The `main` ruleset requires both checks from GitHub Actions, together with **Prek**
-and **Prettier, Markdownlint, and OpenSpec**. A skipped dependent job cannot
-substitute for its failed prerequisite. Python compatibility jobs retain their interpreter
+CI runs **Rust static checks** once, followed by **Rust tests and concurrency models**;
+both are [required checks](../../CONTRIBUTING.md#required-checks). Python compatibility jobs retain their interpreter
 matrix without repeating the interpreter-independent Cargo suite.
 
 Python coverage does not measure native instructions. Native coverage enforcement

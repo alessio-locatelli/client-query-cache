@@ -46,7 +46,7 @@ Renovate waits seven days for timestamped releases; missing timestamps do not
 block indefinitely. Dependabot retains its seven-day cooldowns. Only the minimum MongoDB pin is capped: it stays on the supported floor's release line until the floor is raised. Renovate maintains the shared
 `.node-version`; CI and the development container use the same Node.js major.
 Node updates run tooling and container checks. If Fedora cannot provide a proposed
-track, the container build fails and blocks merging.
+track, the container build fails.
 
 Python updates follow the [support policy](#python-support-policy).
 
@@ -81,8 +81,8 @@ are deduplicated.
 
 Floating requests permit early candidate testing and select stable Python when
 the toolchain provides it. The stable `Python compatibility` check fails
-if any applicable packaging or test lane fails. Its required-check enforcement
-gap is tracked in [issue #358](https://github.com/alessio-locatelli/client-query-cache/issues/358). Publishing advertised support
+if any applicable packaging or test lane fails; see its
+[merge enforcement](../../CONTRIBUTING.md#required-checks). Publishing advertised support
 also requires the [stable-release acceptance procedure](../../CONTRIBUTING.md#per-release-steps).
 The README badge reflects published PyPI classifiers, so it can differ from
 development declarations until publication.
@@ -141,36 +141,16 @@ access or credentials blocks activation, not repository delivery.
    gh api repos/alessio-locatelli/client-query-cache
    ```
 
-   Configure [required status checks](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/available-rules-for-rulesets#require-status-checks-to-pass-before-merging)
-   for every stable check in `.github/workflows/test.yml`, including
-   `Python compatibility`. That check requires every packaging and test matrix
-   lane to succeed; release-specific matrix check names need not be registered
-   as required checks. Leave “Require branches to be up
-   to date before merging” unchecked. Preserve contributor approval, stale-review
-   dismissal, linear history, and the permitted rebase method; grant no bypass.
-   Loose checks allow a non-conflicting PR to merge after main advances, accepting
-   that later base changes can interact with previously validated code.
-
-   Expected check names from the workflow are listed below. Resolve each exact
-   context and its GitHub Actions integration from a successful run before saving
-   the rule, and recheck the effective main rules afterward. Scope selection and
-   quality prerequisites must independently be required: a failed prerequisite
-   can leave downstream jobs skipped. Preserve intentional path-selected skips.
-
-   - `Select validation tiers`
-   - `Prek`
-   - `Prettier, Markdownlint, and OpenSpec`
-   - `Documentation build`
-   - `Python compatibility`
-   - `Cache memory regression guard`
-   - `Cache hot-path performance guard`
-   - `Development container build and tools`
-
-   Use `gh run list --workflow test.yml --status success`, then
-   `gh api repos/alessio-locatelli/client-query-cache/actions/runs/<run-id>/jobs`.
-   Each job's `check_run_url` identifies its check metadata, including `.name`
-   and `.app.id`; require the GitHub Actions source, not a check supplied by the
-   acceptance App.
+   Require every [stable validation check](../../CONTRIBUTING.md#required-checks)
+   with [required status checks](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/available-rules-for-rulesets#require-status-checks-to-pass-before-merging)
+   from the GitHub Actions source, not from a check supplied by the acceptance
+   App. Release-specific matrix check names need not be required. Leave “Require
+   branches to be up to date before merging” unchecked. Preserve contributor
+   approval, stale-review dismissal, linear history, and the permitted rebase
+   method; grant the acceptance App no bypass. Loose checks allow a
+   non-conflicting PR to merge after main advances, accepting that later base
+   changes can interact with previously validated code. Recheck the effective
+   main rules afterward.
 
 2. Install or verify the [official hosted Renovate app](https://docs.renovatebot.com/getting-started/installing-onboarding/)
    for this repository. Provision or reuse a **separate acceptance App** with
