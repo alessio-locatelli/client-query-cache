@@ -101,8 +101,21 @@ repos:
   - repo: local
     hooks:
       # Prek 0.5.4: https://prek.j178.dev/configuration/#pass_filenames
-      # pass_filenames for rust-lint: The default is true. We override
-      # it because the recipes validate the whole crate rather than file operands.
+      # pass_filenames for rust-lint and ast-grep-test: The default is true. We override
+      # it because these commands validate the whole crate or rule set rather than file operands.
+      - id: ast-grep
+        name: ast-grep
+        entry: ast-grep scan
+        language: python
+        additional_dependencies: ["ast-grep-cli==0.51.0"]
+        types: [python]
+      - id: ast-grep-test
+        name: ast-grep rule tests
+        entry: ast-grep test
+        language: python
+        additional_dependencies: ["ast-grep-cli==0.51.0"]
+        files: ^(sgconfig\.yml|rules/|rule-tests/)
+        pass_filenames: false
       - id: rust-lint
         name: Rust quality checks
         entry: just rust-lint

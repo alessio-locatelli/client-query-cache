@@ -1,0 +1,84 @@
+id: no-import-time-execution
+snapshots:
+  "asyncio.run(main())\n":
+    labels:
+    - source: asyncio.run(main())
+      style: primary
+      start: 0
+      end: 19
+    - source: asyncio.run(main())
+      style: secondary
+      start: 0
+      end: 19
+  "class Runner:\n    for name in NAMES:\n        register(name)\n":
+    labels:
+    - source: |-
+        for name in NAMES:
+                register(name)
+      style: primary
+      start: 18
+      end: 59
+  "for workers in (1, 2, 4, 8):\n    print(measure(workers))\n":
+    labels:
+    - source: |-
+        for workers in (1, 2, 4, 8):
+            print(measure(workers))
+      style: primary
+      start: 0
+      end: 56
+  "if ENABLED:\n    measure(8)\n":
+    labels:
+    - source: measure(8)
+      style: primary
+      start: 16
+      end: 26
+    - source: measure(8)
+      style: secondary
+      start: 16
+      end: 26
+  "if __name__ == \"__main__\":\n    main()\nelse:\n    main()\n":
+    labels:
+    - source: main()
+      style: primary
+      start: 48
+      end: 54
+    - source: main()
+      style: secondary
+      start: 48
+      end: 54
+  "main()\n":
+    labels:
+    - source: main()
+      style: primary
+      start: 0
+      end: 6
+    - source: main()
+      style: secondary
+      start: 0
+      end: 6
+  "try:\n    run()\nexcept OSError:\n    pass\n":
+    labels:
+    - source: run()
+      style: primary
+      start: 9
+      end: 14
+    - source: run()
+      style: secondary
+      start: 9
+      end: 14
+  "while True:\n    poll()\n":
+    labels:
+    - source: |-
+        while True:
+            poll()
+      style: primary
+      start: 0
+      end: 22
+  "with open(\"report.txt\") as report:\n    report.write(\"done\")\n":
+    labels:
+    - source: |-
+        with open("report.txt") as report:
+            report.write("done")
+      style: primary
+      start: 0
+      end: 59

@@ -243,6 +243,7 @@ def _detach_inherited() -> None:  # pragma: lax no cover
         os.close(placeholder)
 
 
+# ast-grep-ignore: no-import-time-execution
 os.register_at_fork(after_in_child=_detach_inherited)
 
 
