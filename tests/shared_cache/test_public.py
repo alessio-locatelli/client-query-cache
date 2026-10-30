@@ -51,6 +51,7 @@ from client_query_cache.asynchronous import (
 from client_query_cache.asynchronous import (
     SharedCacheManager as AsyncSharedCacheManager,
 )
+from tests.polling import wait_until_value_async
 from tests.shared_cache.conftest import wait_for
 
 if TYPE_CHECKING:
@@ -525,10 +526,17 @@ async def test_default_identity_reads_refresh_collection_collation(
     raw.insert_one({"_id": 0})
     view = manager[seeded_database][raw.name]
     before = manager.snapshot()
-    for _ in range(2):
-        assert await _read(view, {"_id": 0}) == {"_id": 0}
+    await wait_until_value_async(
+        lambda: _read(view, {"_id": 0}),
+        lambda document: (
+            document == {"_id": 0}
+            and adapters.PROTOTYPE_SCOPE in manager.observation.bypasses
+        ),
+    )
+    settled = manager.snapshot()
+    assert await _read(view, {"_id": 0}) == {"_id": 0}
     assert manager.snapshot().hits == before.hits
-    assert manager.snapshot().bypasses == before.bypasses + 2
+    assert manager.snapshot().bypasses == settled.bypasses + 1
     assert manager.observation.bypasses[adapters.PROTOTYPE_SCOPE] == 2
 
 

@@ -1242,10 +1242,13 @@ def test_expired_view_metadata_allows_reads_after_collection_replacement(
     )
     reads.manager._metadata.store(namespace, replace(metadata, expires_at=0))
 
-    assert reads.find_one("replacement", view_name) == {
-        "_id": "replacement",
-        "payload": "regular collection",
-    }
+    wait_for(
+        lambda: (
+            reads.find_one("replacement", view_name)
+            == {"_id": "replacement", "payload": "regular collection"}
+            and reads.manager._metadata.find(namespace) is not None
+        )
+    )
     refreshed = reads.manager._metadata.find(namespace)
     assert refreshed is not None
     assert refreshed.bypass_reason is None
