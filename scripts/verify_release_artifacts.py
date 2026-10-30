@@ -8,15 +8,6 @@ from client_query_cache.asynchronous import (
     SharedCacheManager as AsyncSharedCacheManager,
 )
 
-for module_name in (
-    "client_query_cache",
-    "client_query_cache.synchronous",
-    "client_query_cache.asynchronous",
-):
-    module = importlib.import_module(module_name)
-    for name in module.__all__:
-        getattr(module, name)
-
 
 async def verify_async(server: SharedCacheServer) -> None:
     async with (
@@ -27,6 +18,14 @@ async def verify_async(server: SharedCacheServer) -> None:
 
 
 if __name__ == "__main__":
+    for module_name in (
+        "client_query_cache",
+        "client_query_cache.synchronous",
+        "client_query_cache.asynchronous",
+    ):
+        module = importlib.import_module(module_name)
+        for name in module.__all__:
+            getattr(module, name)
     with SharedCacheServer(
         "mongodb://127.0.0.1:1",
         ("artifact_check",),
