@@ -1,13 +1,22 @@
 from __future__ import annotations
 
 import operator
+from typing import TYPE_CHECKING
 
 import pytest
 from hypothesis import example, given
 from hypothesis import strategies as st
 
-from client_query_cache._core.canonical import canonicalize
+from client_query_cache._core.canonical import (
+    _reference_canonicalize,
+    canonicalize,
+)
 from client_query_cache._core.errors import UnsupportedCacheRequestError
+from client_query_cache._core.order_sensitive_keys import order_sensitive_key
+from tests.key_inputs import key_inputs, outcome, same_outcome, strictly_equal
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 pytestmark = pytest.mark.unit
 
@@ -156,3 +165,116 @@ def test_canonicalize_never_conflates_a_bool_and_an_int(
     bool_value: bool, int_value: int
 ) -> None:
     assert canonicalize(bool_value) != canonicalize(int_value)
+
+
+@given(key_inputs())
+@example({"it's": 1, "a": 2, 3: 4, True: 5})
+@example({"\ud800": 1, "é": 2, "e": 3})
+@example([float("nan")])
+@example({1, 2})
+@example(_reference_canonicalize({"a": [1, True]}))
+@example(order_sensitive_key({"a": [1.5, {"b": None}]}))
+def test_native_canonicalization_matches_the_reference(value: object) -> None:
+    assert same_outcome(
+        outcome(canonicalize, value), outcome(_reference_canonicalize, value)
+    )
+
+
+class _Ordered(str):  # noqa: FURB189 - repr() must return a str subclass with its own ordering.
+    __slots__ = ()
+
+    def __lt__(self, other: object) -> bool:
+        return str(other) < str(self)
+
+
+class _ReversedRepr:
+    __slots__ = ("value",)
+
+    def __init__(self, value: str) -> None:
+        self.value = value
+
+    def __hash__(self) -> int:
+        return hash(self.value)
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, _ReversedRepr) and other.value == self.value
+
+    def __repr__(self) -> str:
+        return _Ordered(self.value)
+
+
+def test_mapping_keys_with_custom_repr_ordering_sort_like_the_reference() -> None:
+    value = {_ReversedRepr(name): name for name in ("a", "c", "b")}
+    expected = _reference_canonicalize(value)
+    assert isinstance(expected, tuple)
+    assert strictly_equal(canonicalize(value), expected)
+    assert [pair[1] for pair in expected[1]] == ["c", "b", "a"]
+
+
+class _Leaf:
+    __slots__ = ("effect", "hash_error", "unequal")
+
+    def __init__(
+        self,
+        effect: Callable[[], object] | None = None,
+        *,
+        hash_error: Exception | None = None,
+        unequal: Exception | bool = False,
+    ) -> None:
+        self.effect = effect
+        self.hash_error = hash_error
+        self.unequal = unequal
+
+    def __hash__(self) -> int:
+        if self.effect is not None:
+            self.effect()
+        if self.hash_error is not None:
+            raise self.hash_error
+        return 0
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, _Leaf)
+
+    def __ne__(self, other: object) -> bool:
+        if isinstance(self.unequal, Exception):
+            raise self.unequal
+        return self.unequal
+
+
+def _appending_leaf() -> object:
+    tail: list[object] = [1]
+    return {"leaf": _Leaf(lambda: tail.append(2)), "tail": tail}
+
+
+def _resizing_leaf() -> object:
+    value: dict[str, object] = {}
+    value["leaf"] = _Leaf(lambda: value.update(extra=1))
+    value["tail"] = 1
+    return value
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        _appending_leaf,
+        _resizing_leaf,
+        lambda: [_Leaf(hash_error=ValueError("hash failed"))],
+        lambda: [_Leaf(hash_error=TypeError("not hashable"))],
+        lambda: {"leaf": _Leaf(unequal=ValueError("comparison failed"))},
+        lambda: {"leaf": _Leaf(unequal=True)},
+    ],
+    ids=[
+        "appending",
+        "resizing",
+        "raising-hash",
+        "unhashable",
+        "raising-ne",
+        "nan-like",
+    ],
+)
+def test_reentrant_and_raising_leaves_match_the_reference(
+    build: Callable[[], object],
+) -> None:
+    assert same_outcome(
+        outcome(canonicalize, build()), outcome(_reference_canonicalize, build())
+    )

@@ -23,6 +23,7 @@ from bson.timestamp import Timestamp
 from hypothesis import example, given
 from hypothesis import strategies as st
 
+from client_query_cache._core import canonical, order_sensitive_keys
 from client_query_cache._core.canonical import canonicalize
 from client_query_cache._core.codec import codec_fingerprint
 from client_query_cache._core.count_reads import count_read_options
@@ -34,6 +35,7 @@ from client_query_cache._core.find_reads import (
 from client_query_cache._core.order_sensitive_keys import (
     order_sensitive_discriminator_key,
 )
+from client_query_cache._core.query_filters import find_filter_key
 from client_query_cache._shared import wire
 from client_query_cache._shared.wire import (
     _EMPTY_IDENTITY,
@@ -494,3 +496,19 @@ def test_generic_keys_do_not_initialize_the_find_encoder() -> None:
     cache.find(family, 8)
     assert _find_encoder.cache_info().misses == 1
     assert _find_encoder.cache_info().hits == 1
+
+
+@given(value=_VALUES, limit=_INTEGERS)
+@example(value={"group": 1, "ordinal": {"$in": list(range(256))}}, limit=1)
+def test_natively_prepared_find_keys_match_reference_prepared_bytes(
+    value: object, limit: int
+) -> None:
+    filter_key = find_filter_key(value)
+    native = canonicalize(order_sensitive_discriminator_key(("find", filter_key)))
+    reference = canonical._reference_canonicalize(
+        order_sensitive_keys._reference_order_sensitive_discriminator_key(
+            ("find", filter_key)
+        )
+    )
+    assert KeyCache(2).find(native, limit) == KeyCache(2).find(reference, limit)
+    assert encode_key(native) == encode_key(reference)

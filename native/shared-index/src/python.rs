@@ -538,5 +538,7 @@ mod _shared_index {
     #[pymodule_export]
     use crate::key_encoder::find_key_encoder;
     #[pymodule_export]
+    use crate::keys::{Canonicalizer, OrderedKeys, UnsafeScan};
+    #[pymodule_export]
     use crate::local_cache::LocalOwner;
 }

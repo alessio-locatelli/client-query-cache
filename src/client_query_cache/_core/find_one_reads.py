@@ -1,15 +1,19 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pymongo.collation import Collation
 
 from client_query_cache._core.collation import normalize_collation
 from client_query_cache._core.order_sensitive_keys import (
+    canonical_discriminator_key,
     order_sensitive_discriminator_key,
 )
 from client_query_cache._types import NonNegativeInt
+
+if TYPE_CHECKING:
+    from client_query_cache._core.canonical import Canonical
 
 type CollationInput = Collation | Mapping[str, Any]
 
@@ -95,17 +99,43 @@ def find_one_read_shape(
     codec_identity: object,
     remainder: Mapping[str, Any] | None = None,
 ) -> object:
-    shape = ("find_one", projection, sort, effective_collation, codec_identity)
     return order_sensitive_discriminator_key(
-        (*shape, remainder) if remainder else shape
+        _find_one_shape(
+            projection, sort, effective_collation, codec_identity, remainder
+        )
     )
+
+
+def find_one_read_shape_key(
+    projection: Mapping[str, Any] | Sequence[str] | None,
+    sort: Sequence[tuple[str, int]] | None,
+    effective_collation: Mapping[str, Any] | None,
+    codec_identity: object,
+    remainder: Mapping[str, Any] | None = None,
+) -> Canonical:
+    return canonical_discriminator_key(
+        _find_one_shape(
+            projection, sort, effective_collation, codec_identity, remainder
+        )
+    )
+
+
+def _find_one_shape(
+    projection: Mapping[str, Any] | Sequence[str] | None,
+    sort: Sequence[tuple[str, int]] | None,
+    effective_collation: Mapping[str, Any] | None,
+    codec_identity: object,
+    remainder: Mapping[str, Any] | None,
+) -> tuple[object, ...]:
+    shape = ("find_one", projection, sort, effective_collation, codec_identity)
+    return (*shape, remainder) if remainder else shape
 
 
 def generic_find_one_discriminator(
     filter_query: object,
     read_shape: object,
     index_generation: NonNegativeInt,
-) -> object:
-    return order_sensitive_discriminator_key(
+) -> Canonical:
+    return canonical_discriminator_key(
         ("find_one_generic", filter_query, read_shape, index_generation)
     )
