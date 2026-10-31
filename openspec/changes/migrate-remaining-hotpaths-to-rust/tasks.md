@@ -27,7 +27,7 @@ Use [design.md](design.md) for architecture, workload definitions and decision r
 
 ## 5. Resolve the remaining-responsibility map
 
-- [ ] 5.1 Inspect the retained tree and available short-run profiles for event routing/telemetry, facade dispatch, metadata caches and the remaining table rows. Record call frequencies, removable repeated work and each component's disposition in the existing report. Freeze any justified event/dispatch target and baseline rate/shape before changing its runtime code; otherwise close that row with its concrete reason.
+- [x] 5.1 Inspect the retained tree and available short-run profiles for event routing/telemetry, facade dispatch, metadata caches and the remaining table rows. Record call frequencies, removable repeated work and each component's disposition in the existing report. Freeze any justified event/dispatch target and baseline rate/shape before changing its runtime code; otherwise close that row with its concrete reason.
 - [ ] 5.2 For each justified row from 5.1, implement D5 through ordinary construction and extend the existing routing/stream, session or cursor regressions for its actual changed boundary. Execute its D6 preflight and single bounded candidate benchmark and record the final disposition and performance record. Mark complete without code changes when all remaining rows have evidence-backed no-change decisions.
 
 ## 6. Confirm the combined ordinary distribution
