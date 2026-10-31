@@ -141,21 +141,16 @@ class _RemoteCaptureCore:
     def discard(self, handle: object) -> None:
         self._send({"op": "discard", "handle": handle})
 
-    def admit_namespace(
+    def admit_namespace_encoded(
         self,
         capture: object,
         _discriminator: object,
-        documents: object,
+        encoded: bytes,
         *,
-        codec_options: CodecOptions[Any],
         find_source: FindSource | None,  # noqa: ARG002 - The owner derives it.
     ) -> None:
-        admission = _admission(
-            capture,
-            documents,
-            codec_options,
-            self.max_entry_bytes,
-            self.observation,
+        admission = _encoded_admission(
+            capture, encoded, self.max_entry_bytes, self.observation
         )
         assert admission is not None
         self._send(admission)
@@ -203,7 +198,17 @@ def _admission(
     max_entry_bytes: NonNegativeInt,
     observation: LocalObservation,
 ) -> Message | None:
-    encoded = encode_value(value, codec_options)
+    return _encoded_admission(
+        handle, encode_value(value, codec_options), max_entry_bytes, observation
+    )
+
+
+def _encoded_admission(
+    handle: object,
+    encoded: bytes,
+    max_entry_bytes: NonNegativeInt,
+    observation: LocalObservation,
+) -> Message | None:
     if len(encoded) > max_entry_bytes:
         observation.record_oversized_bypass()
         if isinstance(handle, LocalMiss):

@@ -10,7 +10,7 @@ Use [design.md](design.md) for architecture, workload definitions and decision r
 
 ## 2. Integrate encoded cursor capture
 
-- [ ] 2.1 Implement D2 in the existing native crate and route `_core/cursor_capture.py` through encoded admission for local and shared cores. Extend `tests/core/test_cursor_capture.py` to exercise production native construction as well as still-supported Python-core paths; use byte-equivalence cases for empty arrays, decimal index-width boundaries, embedded `_id` order, custom codecs/document classes, exact final size, and encoder failure. Verify existing cursor fault/cancellation/lifetime cases in `tests/test_cached_cursors.py` cover native buffer release.
+- [x] 2.1 Implement D2 in the existing native crate and route `_core/cursor_capture.py` through encoded admission for local and shared cores. Extend `tests/core/test_cursor_capture.py` to exercise production native construction as well as still-supported Python-core paths; use byte-equivalence cases for empty arrays, decimal index-width boundaries, embedded `_id` order, custom codecs/document classes, exact final size, and encoder failure. Verify existing cursor fault/cancellation/lifetime cases in `tests/test_cached_cursors.py` cover native buffer release.
 - [ ] 2.2 Apply the D6 preflight and single capture benchmark to this integrated commit. Add the capture disposition and reproduction source to the report; keep or remove its runtime changes according to that disposition before group 3. Update the user-facing performance record required by the proposal for a retained result, describing only its demonstrated workload benefit.
 
 ## 3. Integrate fused request preparation

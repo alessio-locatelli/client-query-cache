@@ -9,6 +9,7 @@
     )
 )]
 
+mod array;
 #[cfg(not(loom))]
 mod clock;
 #[cfg(not(loom))]
