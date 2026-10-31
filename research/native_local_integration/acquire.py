@@ -313,6 +313,11 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--wheel", type=Path, required=True)
     parser.add_argument("--existing-nodes", type=Path, required=True)
+    parser.add_argument(
+        "--added-nodes",
+        type=Path,
+        help="Also time the registered tests added after the existing selection.",
+    )
     parser.add_argument("--test-checkout", type=Path, default=Path.cwd())
     parser.add_argument("--uncertainty", action="store_true")
     parser.add_argument(
@@ -330,6 +335,8 @@ def main() -> None:
     arguments = parser.parse_args()
     arguments.output = arguments.output.resolve()
     arguments.existing_nodes = arguments.existing_nodes.resolve()
+    if arguments.added_nodes is not None:
+        arguments.added_nodes = arguments.added_nodes.resolve()
     arguments.wheel = arguments.wheel.resolve()
     arguments.test_checkout = arguments.test_checkout.resolve()
     if arguments.block < 0:
@@ -338,6 +345,8 @@ def main() -> None:
         parser.error("the registered uncertainty cohort contains public cells only")
     if ("candidate" in arguments.components) != (arguments.candidate is not None):
         parser.error("--candidate selects the cells of the candidate component")
+    if arguments.added_nodes is not None and "tests" not in arguments.components:
+        parser.error("--added-nodes selects tests of the tests component")
     try:
         expected = build(arguments.registration, arguments.label)
     except ValueError as error:
@@ -345,11 +354,22 @@ def main() -> None:
     registration = REGISTRATIONS[arguments.registration]
     if digest(arguments.existing_nodes) != registration.node_hash:
         parser.error(f"{arguments.existing_nodes} is not the registered node selection")
+    if (
+        arguments.added_nodes is not None
+        and digest(arguments.added_nodes) != registration.added_node_hash
+    ):
+        parser.error(f"{arguments.added_nodes} is not the registered added selection")
     imported = implementation(None)
     extension = Path(imported["extension"])
     if not extension.is_relative_to(sys.prefix):
         parser.error(f"{extension} is not installed in {sys.prefix}")
     verify_installation(expected, arguments.wheel, Path(imported["library"]).parent)
+    if "tests" in arguments.components:
+        verify_installation(
+            expected,
+            arguments.wheel,
+            arguments.test_checkout / "src" / "client_query_cache",
+        )
     arguments.output.mkdir(parents=True, exist_ok=False)
     source = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()  # noqa: S607 - Git is the repository tool on the configured executable path.
     (arguments.output / "provenance.json").write_text(
@@ -366,6 +386,10 @@ def main() -> None:
                 "extension_sha256": digest(extension),
                 "implementation": imported,
                 "lock_sha256": digest(Path("uv.lock")),
+                "existing_nodes_sha256": registration.node_hash,
+                "added_nodes_sha256": None
+                if arguments.added_nodes is None
+                else registration.added_node_hash,
                 "python": sys.version,
                 "pymongo": version("pymongo"),
                 "platform": platform.platform(),
@@ -453,24 +477,28 @@ def main() -> None:
             arguments.output / "memory.log",
         )
     if "tests" in arguments.components:
-        command(
-            [
-                sys.executable,
-                "-m",
-                "pytest",
-                "-q",
-                "-n",
-                "auto",
-                f"@{arguments.existing_nodes}",
-                "--deselect=tests/core/test_unique_key_admission.py::test_a_rolled_back_identity_admission_does_not_leave_the_alias_orphaned[namespace-clear]",
-                "--log-file",
-                str(arguments.output / "pytest.log"),
-                "--junitxml",
-                str(arguments.output / "pytest.xml"),
-            ],
-            arguments.output / "tests.log",
-            checkout=arguments.test_checkout,
-        )
+        selections = [("", arguments.existing_nodes)]
+        if arguments.added_nodes is not None:
+            selections.append(("added-", arguments.added_nodes))
+        for prefix, nodes in selections:
+            command(
+                [
+                    sys.executable,
+                    "-m",
+                    "pytest",
+                    "-q",
+                    "-n",
+                    "auto",
+                    f"@{nodes}",
+                    "--deselect=tests/core/test_unique_key_admission.py::test_a_rolled_back_identity_admission_does_not_leave_the_alias_orphaned[namespace-clear]",
+                    "--log-file",
+                    str(arguments.output / f"{prefix}pytest.log"),
+                    "--junitxml",
+                    str(arguments.output / f"{prefix}pytest.xml"),
+                ],
+                arguments.output / f"{prefix}tests.log",
+                checkout=arguments.test_checkout,
+            )
 
 
 if __name__ == "__main__":

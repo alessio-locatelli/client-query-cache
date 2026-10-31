@@ -1,5 +1,3 @@
-"""Registered build identities and implementation expectations per acquisition."""
-
 from __future__ import annotations
 
 import hashlib
@@ -26,6 +24,7 @@ class Build:
 class Registration:
     node_hash: str
     builds: Mapping[str, Build]
+    added_node_hash: str | None = None
 
 
 REGISTRATIONS: Final[Mapping[str, Registration]] = {
