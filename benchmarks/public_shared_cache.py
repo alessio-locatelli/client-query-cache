@@ -1110,10 +1110,14 @@ def _owner_sampler(
             "--output",
             str(output),
         ),
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
     ) as sampler:
         try:
+            assert sampler.stdout is not None
+            if not sampler.stdout.readline().startswith(b"py-spy> Sampling"):
+                message = "owner sampler did not attach"
+                raise RuntimeError(message)
             yield sampler
         finally:
             if sampler.poll() is None:
