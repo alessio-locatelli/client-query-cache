@@ -5,6 +5,9 @@ from typing import TYPE_CHECKING, Any
 import bson
 from bson.codec_options import CodecOptions
 
+from client_query_cache._core.errors import UnsupportedCacheRequestError
+from client_query_cache._core.order_sensitive_keys import canonical_discriminator_key
+
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
@@ -41,6 +44,14 @@ def decode_value(
     encoded: bytes, codec_options: CodecOptions[Mapping[str, Any]] | None = None
 ) -> object:
     return bson.decode(encoded, codec_options=codec_options)[_ENVELOPE_FIELD]
+
+
+def codec_identity_key(codec_options: CodecOptions[Mapping[str, Any]]) -> object:
+    fingerprint = codec_fingerprint(codec_options)
+    try:
+        return canonical_discriminator_key(fingerprint)
+    except UnsupportedCacheRequestError:
+        return fingerprint
 
 
 def codec_fingerprint(codec_options: CodecOptions[Mapping[str, Any]]) -> object:

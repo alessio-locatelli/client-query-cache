@@ -11,9 +11,10 @@ from pymongo.errors import PyMongoError
 from pymongo.read_concern import ReadConcern
 
 from client_query_cache._core.canonical import canonicalize, is_canonicalizable
-from client_query_cache._core.codec import codec_fingerprint
+from client_query_cache._core.codec import codec_identity_key
 from client_query_cache._core.collation import collation_document
 from client_query_cache._core.collection_metadata import (
+    CollectionMetadata,
     interpret_list_collections_entry,
 )
 from client_query_cache._core.count_reads import count_read_options
@@ -99,7 +100,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
         self._database = database
         self._collection = collection
         self._namespace_id = NamespaceId(database.name, collection.name)
-        self._codec_identity = codec_fingerprint(collection.codec_options)
+        self._codec_identity = codec_identity_key(collection.codec_options)
         default_shape = find_one_read_shape(None, None, None, self._codec_identity)
         try:
             self._find_one_default_shape = canonicalize(default_shape)
@@ -167,10 +168,9 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
                     reason = BypassReason.UNCANONICALIZABLE_KEY
             except UnsupportedCacheRequestError:
                 reason = BypassReason.UNCANONICALIZABLE_KEY
-        if reason is None:
-            reason = await self._cache_ineligibility_reason()
-        if reason is not None:
-            self._record_bypass(reason)
+        eligibility = await self._cache_eligibility() if reason is None else reason
+        if not isinstance(eligibility, CollectionMetadata):
+            self._record_bypass(eligibility)
             return await self._collection.find_one(
                 filter,
                 projection,
@@ -180,8 +180,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
                 **kwargs,
             )
         effective_collation = effective_find_one_collation(
-            collation,
-            self._database.manager._default_collation_for(self._namespace()),  # noqa: SLF001 - Manager owns collection collation metadata.
+            collation, eligibility.default_collation
         )
         if collation is None and effective_collation is not None:
             read_shape = find_one_read_shape_key(
@@ -667,6 +666,11 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
                 read_concern=_FORCED_READ_CONCERN,
             )
         return self._forced_database
+
+    async def _cache_eligibility(self) -> BypassReason | CollectionMetadata:
+        return await self._database.manager._cache_eligibility(  # noqa: SLF001 - Manager owns namespace cache eligibility.
+            self._namespace(), self._probe_collection
+        )
 
     async def _cache_ineligibility_reason(self) -> BypassReason | None:
         return await self._database.manager._cache_ineligibility_reason(  # noqa: SLF001 - Manager owns namespace cache eligibility.

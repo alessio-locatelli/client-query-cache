@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 
     from client_query_cache.asynchronous.collection import CachedCollection
 
-_FIND_SIGNATURE = signature(AsyncCursor)
+_FIND_PARAMETERS = tuple(signature(AsyncCursor).parameters)
 _SUPPORTED_FIND_OPTIONS = frozenset(
     {"filter", "projection", "skip", "limit", "sort", "collation", "session"}
 )
@@ -43,10 +43,8 @@ class CachedCursor[DocumentType: Mapping[str, Any]](AsyncCursor[DocumentType]):
         self._receiving = False
         self._unsupported = False
         super().__init__(view.raw, *args, **kwargs)  # type: ignore[arg-type]
-        supplied = _FIND_SIGNATURE.bind(view.raw, *args, **kwargs).arguments
-        self._unsupported = bool(
-            supplied.keys() - _SUPPORTED_FIND_OPTIONS - {"collection"}
-        )
+        supplied = {*_FIND_PARAMETERS[1 : 1 + len(args)], *kwargs}
+        self._unsupported = bool(supplied - _SUPPORTED_FIND_OPTIONS)
 
     async def _prepare(self) -> None:
         self._prepared = True
