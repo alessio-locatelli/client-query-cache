@@ -13,11 +13,12 @@ from bson.son import SON
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
-from client_query_cache._core.codec import decode_value, encode_document, encode_value
+from client_query_cache._core.codec import decode_value, encode_value
 from client_query_cache._core.cursor_capture import CursorCapture
 from client_query_cache._core.entries import AdmissionOutcome
 from client_query_cache._core.manager import CacheCore, CacheCoreConfig
-from client_query_cache._types import BsonDict, PositiveInt
+from client_query_cache._shared_index import LocalCacheCore as NativeCacheCore
+from client_query_cache._types import BsonDict, NonNegativeInt, PositiveInt
 from tests.codec_helpers import (
     Decimal128ToDecimalDecoder,
     decode_only_decimal_options,
@@ -28,6 +29,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Mapping
     from decimal import Decimal
 
+    from client_query_cache._core.contracts import LocalCacheCore
     from client_query_cache._core.keys import NamespaceId
 
 pytestmark = pytest.mark.unit
@@ -38,7 +40,27 @@ def encode_decimal(value: Decimal) -> Decimal128:
     return Decimal128(str(value))
 
 
-def test_empty_capture_is_admitted(core: CacheCore, namespace: NamespaceId) -> None:
+_CORES: dict[str, type[LocalCacheCore]] = {
+    "python": CacheCore,
+    "native": NativeCacheCore,
+}
+
+
+@pytest.fixture(params=tuple(_CORES))
+def core_factory(request: pytest.FixtureRequest) -> type[LocalCacheCore]:
+    return _CORES[request.param]
+
+
+@pytest.fixture
+def core(core_factory: type[LocalCacheCore]) -> Iterator[LocalCacheCore]:
+    core = core_factory()
+    yield core
+    core.close()
+
+
+def test_empty_capture_is_admitted(
+    core: LocalCacheCore, namespace: NamespaceId
+) -> None:
     capture = capture_for(core, namespace)
     assert capture.finish() is AdmissionOutcome.ADMITTED
     lookup = core.lookup_namespace(namespace, QUERY)
@@ -47,11 +69,13 @@ def test_empty_capture_is_admitted(core: CacheCore, namespace: NamespaceId) -> N
 
 
 @pytest.fixture
-def make_core() -> Iterator[Callable[[PositiveInt], CacheCore]]:
-    cores: list[CacheCore] = []
+def make_core(
+    core_factory: type[LocalCacheCore],
+) -> Iterator[Callable[[PositiveInt], LocalCacheCore]]:
+    cores: list[LocalCacheCore] = []
 
-    def create(limit: PositiveInt) -> CacheCore:
-        core = CacheCore(
+    def create(limit: PositiveInt) -> LocalCacheCore:
+        core = core_factory(
             CacheCoreConfig(shared_budget_bytes=limit * 2, max_entry_bytes=limit)
         )
         cores.append(core)
@@ -63,7 +87,7 @@ def make_core() -> Iterator[Callable[[PositiveInt], CacheCore]]:
 
 
 def capture_for(
-    core: CacheCore,
+    core: LocalCacheCore,
     namespace: NamespaceId,
     options: CodecOptions[Mapping[str, Any]] | None = None,
 ) -> CursorCapture:
@@ -86,7 +110,7 @@ def capture_for(
     )
 )
 def test_capture_owns_values_before_caller_mutation(
-    core: CacheCore, namespace: NamespaceId, documents: list[dict[str, int]]
+    core: LocalCacheCore, namespace: NamespaceId, documents: list[dict[str, int]]
 ) -> None:
     core.clear_namespace(namespace)
     expected = [dict(document) for document in documents]
@@ -109,7 +133,7 @@ def test_capture_owns_values_before_caller_mutation(
     ],
 )
 def test_capture_limit_bounds_retained_document_bytes(
-    make_core: Callable[[PositiveInt], CacheCore],
+    make_core: Callable[[PositiveInt], LocalCacheCore],
     namespace: NamespaceId,
     delta: int,
     expected: AdmissionOutcome | None,
@@ -129,7 +153,7 @@ def test_capture_limit_bounds_retained_document_bytes(
     "document", [{"bad": object()}, {"bad": 2**64}], ids=["unencodable", "overflow"]
 )
 def test_encoding_rejection_discards_previous_snapshots(
-    core: CacheCore, namespace: NamespaceId, document: Mapping[str, Any]
+    core: LocalCacheCore, namespace: NamespaceId, document: Mapping[str, Any]
 ) -> None:
     capture = capture_for(core, namespace)
     capture.append({"valid": True})
@@ -141,7 +165,7 @@ def test_encoding_rejection_discards_previous_snapshots(
 
 
 def test_custom_encoder_failure_discards_native_decoded_candidate(
-    core: CacheCore, namespace: NamespaceId
+    core: LocalCacheCore, namespace: NamespaceId
 ) -> None:
     options: CodecOptions[Mapping[str, Any]] = CodecOptions(
         type_registry=TypeRegistry(
@@ -162,7 +186,9 @@ def test_custom_encoder_failure_discards_native_decoded_candidate(
     assert not core.lookup_namespace(namespace, QUERY).hit
 
 
-def test_abandon_releases_snapshots(core: CacheCore, namespace: NamespaceId) -> None:
+def test_abandon_releases_snapshots(
+    core: LocalCacheCore, namespace: NamespaceId
+) -> None:
     capture = capture_for(core, namespace)
     capture.append({"value": True})
     assert capture.retained_bytes > 0
@@ -172,11 +198,11 @@ def test_abandon_releases_snapshots(core: CacheCore, namespace: NamespaceId) -> 
     assert not core.lookup_namespace(namespace, QUERY).hit
 
 
-def make_unavailable(core: CacheCore, namespace: NamespaceId) -> None:
+def make_unavailable(core: LocalCacheCore, namespace: NamespaceId) -> None:
     core.set_database_available(namespace.database, available=False)
 
 
-def make_unavailable_then_restore(core: CacheCore, namespace: NamespaceId) -> None:
+def make_unavailable_then_restore(core: LocalCacheCore, namespace: NamespaceId) -> None:
     make_unavailable(core, namespace)
     core.set_database_available(namespace.database, available=True)
 
@@ -201,9 +227,9 @@ def make_unavailable_then_restore(core: CacheCore, namespace: NamespaceId) -> No
     ],
 )
 def test_capture_keeps_existing_admission_guards(
-    core: CacheCore,
+    core: LocalCacheCore,
     namespace: NamespaceId,
-    transition: Callable[[CacheCore, NamespaceId], object],
+    transition: Callable[[LocalCacheCore, NamespaceId], object],
     expected: AdmissionOutcome | None,
 ) -> None:
     capture = capture_for(core, namespace)
@@ -231,7 +257,9 @@ def test_capture_keeps_existing_admission_guards(
     ids=["dict", "ordered", "raw", "custom-decoder", "custom-encoder", "uuid"],
 )
 def test_finalization_matches_ordinary_cache_codec_round_trip(
-    core: CacheCore, namespace: NamespaceId, options: CodecOptions[Mapping[str, Any]]
+    core: LocalCacheCore,
+    namespace: NamespaceId,
+    options: CodecOptions[Mapping[str, Any]],
 ) -> None:
     document: BsonDict = {
         "z": Decimal128("1.25"),
@@ -253,7 +281,7 @@ def test_finalization_matches_ordinary_cache_codec_round_trip(
 
 
 def test_exact_final_entry_size_is_enforced(
-    make_core: Callable[[PositiveInt], CacheCore], namespace: NamespaceId
+    make_core: Callable[[PositiveInt], LocalCacheCore], namespace: NamespaceId
 ) -> None:
     # Final admission also accounts for the list envelope and array element keys.
     documents = [{"value": True}]
@@ -269,10 +297,10 @@ def test_exact_final_entry_size_is_enforced(
 
 
 def test_snapshots_encode_each_document_once(
-    core: CacheCore, namespace: NamespaceId, monkeypatch: pytest.MonkeyPatch
+    core: LocalCacheCore, namespace: NamespaceId, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     encoded_documents: list[object] = []
-    original_encode = encode_document
+    original_encode = encode_value
 
     def record(
         document: Mapping[str, Any], options: CodecOptions[Mapping[str, Any]]
@@ -280,12 +308,85 @@ def test_snapshots_encode_each_document_once(
         encoded_documents.append(document)
         return original_encode(document, options)
 
-    monkeypatch.setattr(
-        "client_query_cache._core.cursor_capture.encode_document", record
-    )
+    monkeypatch.setattr("client_query_cache._core.cursor_capture.encode_value", record)
     documents = [{"n": n} for n in range(10)]
     capture = capture_for(core, namespace)
     for document in documents:
         capture.append(document)
     assert capture.finish() is AdmissionOutcome.ADMITTED
     assert encoded_documents == documents
+
+
+@pytest.mark.parametrize(
+    "count",
+    [0, 1, 10, 11, 100, 101],
+    ids=["empty", "one", "one-digit-limit", "two-digit", "two-digit-limit", "three"],
+)
+def test_capture_bytes_match_driver_array_encoding(
+    core: LocalCacheCore, namespace: NamespaceId, count: NonNegativeInt
+) -> None:
+    documents = [{"z": index, "_id": index} for index in range(count)]
+    capture = capture_for(core, namespace)
+    for document in documents:
+        capture.append(document)
+    assert capture.finish() is AdmissionOutcome.ADMITTED
+    encoded = core.lookup_namespace_encoded(namespace, QUERY)
+    assert encoded == encode_value(documents)
+    assert isinstance(encoded, bytes)
+    assert [tuple(document) for document in decode_value(encoded)] == [  # type: ignore[attr-defined]
+        ("z", "_id")
+    ] * count
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        CodecOptions(document_class=SON),
+        CodecOptions(document_class=RawBSONDocument),
+        CodecOptions(
+            type_registry=TypeRegistry(
+                [Decimal128ToDecimalDecoder()], fallback_encoder=encode_decimal
+            )
+        ),
+    ],
+    ids=["ordered", "raw", "custom-encoder"],
+)
+def test_capture_bytes_match_codec_aware_driver_encoding(
+    core: LocalCacheCore,
+    namespace: NamespaceId,
+    options: CodecOptions[Mapping[str, Any]],
+) -> None:
+    source = [{"z": Decimal128("1.25"), "_id": index} for index in range(3)]
+    documents = [
+        bson.decode(encode_value(document, options), codec_options=options)["v"]
+        for document in source
+    ]
+    capture = capture_for(core, namespace, options)
+    for document in documents:
+        capture.append(document)
+    assert capture.finish() is AdmissionOutcome.ADMITTED
+    assert core.lookup_namespace_encoded(namespace, QUERY) == encode_value(
+        documents, options
+    )
+
+
+@pytest.mark.parametrize(
+    ("delta", "expected"),
+    [
+        pytest.param(-1, AdmissionOutcome.DECLINED_OVERSIZE, id="one-byte-short"),
+        pytest.param(0, AdmissionOutcome.ADMITTED, id="exact"),
+    ],
+)
+def test_final_envelope_size_bounds_admission(
+    make_core: Callable[[PositiveInt], LocalCacheCore],
+    namespace: NamespaceId,
+    delta: int,
+    expected: AdmissionOutcome,
+) -> None:
+    documents = [{"value": index} for index in range(12)]
+    core = make_core(len(encode_value(documents)) + delta)
+    capture = capture_for(core, namespace)
+    for document in documents:
+        capture.append(document)
+    assert capture.finish() is expected
+    assert core.snapshot().entry_count == (expected is AdmissionOutcome.ADMITTED)

@@ -4,10 +4,11 @@ use std::os::unix::net::UnixListener;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use pyo3::exceptions::PyValueError;
+use pyo3::exceptions::{PyOverflowError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 
+use crate::array::{AppendError, ArrayBuilder};
 use crate::clock::monotonic_ns;
 use crate::echo::Echo;
 use crate::frames::Frames;
@@ -480,10 +481,60 @@ impl ByteRelay {
     }
 }
 
+#[pyclass(frozen)]
+struct EncodedArray {
+    limit: usize,
+    builder: Mutex<ArrayBuilder>,
+}
+
+impl EncodedArray {
+    fn builder(&self) -> MutexGuard<'_, ArrayBuilder> {
+        self.builder.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+#[pymethods]
+impl EncodedArray {
+    #[new]
+    fn new(limit: usize) -> Self {
+        Self {
+            limit,
+            builder: Mutex::new(ArrayBuilder::default()),
+        }
+    }
+
+    #[getter]
+    fn retained_bytes(&self) -> usize {
+        self.builder().retained()
+    }
+
+    fn append(&self, envelope: &[u8]) -> PyResult<bool> {
+        self.builder()
+            .append(envelope, self.limit)
+            .map_err(|error| match error {
+                AppendError::Malformed => invalid("value is not an encoded document envelope"),
+                AppendError::Overflow => {
+                    PyOverflowError::new_err("encoded array exceeds the BSON size limit")
+                }
+            })
+    }
+
+    fn finish<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
+        let bytes = self.builder().finish();
+        PyBytes::new(py, &bytes)
+    }
+
+    fn clear(&self) {
+        self.builder().clear();
+    }
+}
+
 #[pymodule]
 mod _shared_index {
     #[pymodule_export]
-    use super::{ByteRelay, EchoOwner, OwnerIndex, Payload, ReaderIndex, SessionRing};
+    use super::{
+        ByteRelay, EchoOwner, EncodedArray, OwnerIndex, Payload, ReaderIndex, SessionRing,
+    };
     #[pymodule_export]
     use crate::key_encoder::find_key_encoder;
     #[pymodule_export]

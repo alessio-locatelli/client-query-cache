@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+import sys
 from typing import TYPE_CHECKING, Any
 
-from bson.raw_bson import DEFAULT_RAW_BSON_OPTIONS, RawBSONDocument
-
-from client_query_cache._core.codec import encode_document
+from client_query_cache._core.codec import encode_value
 from client_query_cache._core.errors import CacheClosedError
+from client_query_cache._shared_index import EncodedArray
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from client_query_cache._core.contracts import LocalCacheCore, NamespaceCaptureView
     from client_query_cache._core.entries import AdmissionOutcome
     from client_query_cache._core.find_reads import FindSource
+    from client_query_cache._types import NonNegativeInt
 
 
 class CursorCapture:
@@ -28,8 +29,6 @@ class CursorCapture:
         "_discriminator",
         "_documents",
         "_find_source",
-        "_max_entry_bytes",
-        "retained_bytes",
     )
 
     def __init__(
@@ -46,41 +45,42 @@ class CursorCapture:
         self._discriminator = discriminator
         self._codec_options = codec_options
         self._find_source = find_source
-        self._max_entry_bytes = core.max_entry_bytes
-        self._documents: list[RawBSONDocument] = []  # An empty result is cacheable.
-        self.retained_bytes = 0
+        # An empty result is cacheable.
+        self._documents = EncodedArray(min(core.max_entry_bytes, sys.maxsize))
         self._active = True
+
+    @property
+    def retained_bytes(self) -> NonNegativeInt:
+        return self._documents.retained_bytes
 
     def append(self, document: Mapping[str, Any]) -> None:
         if not self._active:
             return
         try:
-            encoded = encode_document(document, self._codec_options)
+            # Embedded encoding preserves field order; top-level encoding promotes _id.
+            retained = self._documents.append(
+                encode_value(document, self._codec_options)
+            )
         except Exception:  # noqa: BLE001 - Application BSON encoders can raise arbitrary errors.
             self.abandon()
             return
-        if self.retained_bytes + len(encoded) > self._max_entry_bytes:
+        if not retained:
             self._core.record_oversized_bypass()
             self.abandon()
-            return
-        self._documents.append(RawBSONDocument(encoded, DEFAULT_RAW_BSON_OPTIONS))
-        self.retained_bytes += len(encoded)
 
     def abandon(self) -> None:
         self._active = False
         self._documents.clear()
-        self.retained_bytes = 0
 
     def finish(self) -> AdmissionOutcome | None:
         if not self._active:
             return None
         self._active = False
         try:
-            return self._core.admit_namespace(
+            return self._core.admit_namespace_encoded(
                 self._capture,
                 self._discriminator,
-                self._documents,
-                codec_options=self._codec_options,
+                self._documents.finish(),
                 find_source=self._find_source,
             )
         except CacheClosedError:
@@ -88,4 +88,3 @@ class CursorCapture:
             return None
         finally:
             self._documents.clear()
-            self.retained_bytes = 0
