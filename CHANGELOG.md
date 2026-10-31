@@ -17,6 +17,7 @@ bodies or OpenSpec. An empty Unreleased section is valid.
 
 - Reduce CPU and latency for process-local `find()` cache misses that cache large results.
 - Reduce CPU and latency for process-local cached `find_one()` reads with large filters, such as long `$in` lists.
+- Reduce shared-cache owner CPU for admitting cache misses.
 
 ## [0.10.0] - 2026-10-28
 
