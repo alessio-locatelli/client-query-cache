@@ -45,12 +45,44 @@ Bounded profiles (32 reads per worker in block 0 of each build) attribute the sa
 
 **Disposition: retained.** The registered target improves in all six paired observations, and no control or resource observation shows an adverse effect. The changelog records the large-result `find()` miss improvement.
 
+## Preparation
+
+The preparation candidate (`9b15985b`) passed the preflight in 75.1 seconds. Its benchmark ran three counterbalanced blocks against the retained capture build from harness `e7b88888` in 144 seconds, with every window validated and every CPU component resolved.
+
+| Cell (four workers)                                                          | Model | Paired change per block (capture → preparation) | Median |
+| ---------------------------------------------------------------------------- | ----- | ----------------------------------------------- | -----: |
+| Target: hot `find_one`, 256-element `$in`, 1,024 resident keys, CPU per read | sync  | −60.5%, −55.2%, −62.6%                          | −60.5% |
+|                                                                              | async | −52.1%, −54.7%, −47.5%                          | −52.1% |
+| Target P50 latency                                                           | sync  | −60.0%, −59.5%, −60.2%                          | −60.0% |
+|                                                                              | async | −58.3%, −58.0%, −56.4%                          | −58.0% |
+| Control: hot identity, independent, CPU per read                             | sync  | −34.1%, +7.3%, −2.0%                            |  −2.0% |
+|                                                                              | async | +39.0%, +23.7%, +1.6%                           | +23.7% |
+| Control: hot identity, shared, worker plus owner CPU per read                | sync  | +4.0%, +2.5%, −3.0%                             |  +2.5% |
+|                                                                              | async | +24.0%, +39.6%, −2.4%                           | +24.0% |
+
+The target fell from 54.4–61.3 µs to 22.3–30.5 µs of CPU per read. Worker PSS stayed within 0.6%. Peak worker RSS, which includes warmup, moved between −5.0% and +5.1% across all cells without a consistent direction (target: −0.2% to +3.1%).
+
+The identity controls cost 5.8–9.8 µs per read and their windows are bimodal within a single build: the capture build's own P50 latency alternated between about 5 µs and 9 µs. The async controls' positive medians are therefore a specific adverse signal that three short pairs cannot resolve. A narrowly affected recheck alternated the two installed builds four times with 16,384 reads per worker:
+
+| Recheck cell              | Model | Capture CPU per read (µs) | Preparation CPU per read (µs) | P50 latency (µs), capture → preparation |
+| ------------------------- | ----- | ------------------------- | ----------------------------- | --------------------------------------- |
+| Hot identity, independent | sync  | 5.79, 6.34, 6.37, 6.68    | 6.45, 5.61, 6.64, 6.00        | 5.12–5.17 → 4.89–4.98                   |
+|                           | async | 7.25, 6.46, 6.65, 8.55    | 6.26, 6.89, 7.91, 6.55        | 5.78–5.94 → 5.56–5.67                   |
+| Hot identity, shared      | sync  | 7.69, 6.79, 6.42, 7.81    | 7.03, 5.89, 5.78, 5.63        | 4.71–7.43 → 4.41–4.67                   |
+|                           | async | 6.25, 6.18, 7.28, 5.99    | 7.14, 6.16, 5.88, 6.35        | 5.10–5.20 → 4.99–5.04                   |
+
+Every candidate P50 is at or below the corresponding capture range, and the CPU distributions overlap. The recheck finds no regression; the short-run control signal is attributed to window noise.
+
+Bounded profiles (256 reads per worker in block 0) attribute the target saving to key preparation. The capture build spent 99.9 µs in `_order_sensitive_key`, 85.7 µs in `canonicalize` and 102.8 µs in `_contains_unsafe_construct` per instrumented read; the candidate spent 14.8 µs in three native `discriminator` calls and 3.2 µs in the native filter scan. The candidate still performs 13 abstract-base-class checks per read for the codec fingerprint inside each read shape; task 5.1 assesses that repeated work.
+
+**Disposition: retained.** The registered target improves in all six paired observations, and the recheck resolves the adverse control signal. The changelog records the large-filter `find_one()` improvement.
+
 ## Candidate map
 
 | Component                   | Current code path                                                                                                                                                                                                                                                                                   | Candidate and control                   | Disposition |
 | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- | ----------- |
 | Capture                     | `CursorCapture.append` encodes each document inside an envelope, slices the embedded bytes into a new object, and wraps them in `RawBSONDocument`; `finish` passes the wrapper list to `admit_namespace`, which encodes the whole list again; the native owner then retains that bytes object.      | `capture` cells in `CANDIDATES`         | Retained    |
-| Key preparation             | Native lookups call the Python `canonicalize` operation for every discriminator and `order_sensitive_key` followed by `canonicalize` for identities; facade classification (`read_classification.py`, `read_validation.py`, `query_filters.py`) traverses the same filters before key construction. | `preparation` cells                     | Pending     |
+| Key preparation             | Native lookups call the Python `canonicalize` operation for every discriminator and `order_sensitive_key` followed by `canonicalize` for identities; facade classification (`read_classification.py`, `read_validation.py`, `query_filters.py`) traverses the same filters before key construction. | `preparation` cells                     | Retained    |
 | Shared residency            | `SharedCacheOwner` constructs the Python `CacheCore` with `IndexPublisher` and `ArenaPayloads`; `_drain_rings` touches the private `_lru`, and `_admit_local` holds `progress._lock` and `CacheCore._availability_lock` across validation and admission.                                            | `owner` cells                           | Pending     |
 | Shared frames and dispatch  | `_frames` decodes each socket frame in Python; `select-*` requests decode keys through `decode_key` and `KeyCache.decode`; queued admissions use `decode_queued_frame`.                                                                                                                             | Attributed inside the `owner` benchmark | Pending     |
 | Event interpretation        | `_core/stream_events.py` routes each change event and `_core/stream_cost.py` records telemetry.                                                                                                                                                                                                     | Conditional on task 5.1                 | Pending     |
