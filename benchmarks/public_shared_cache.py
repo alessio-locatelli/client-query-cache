@@ -13,8 +13,10 @@ import multiprocessing
 import os
 import platform
 import resource
+import shutil
 import signal
 import statistics
+import subprocess
 import sys
 import threading
 import time
@@ -88,6 +90,8 @@ _VALIDATED_METHODS = frozenset(("identity", "find_one", "find_one_in", *_LIST_ME
 _IN_ORDINALS = 256
 _READY_TIMEOUT = 300
 _DRAIN_TIMEOUT = 20
+_SAMPLER_RATE = 1000
+_SAMPLER_TIMEOUT = 30
 _START: Barrier
 _FINISH: Barrier
 _CPU_CLOCK = ctypes.CDLL(None).clock_getcpuclockid
@@ -1083,6 +1087,41 @@ def _worker(window: Window) -> Observation:
         return observation
 
 
+@contextmanager
+def _owner_sampler(
+    pid: PositiveInt, output: Path
+) -> Generator[subprocess.Popen[bytes]]:
+    executable = shutil.which("py-spy")
+    if executable is None:
+        message = "owner profiles require py-spy on PATH"
+        raise RuntimeError(message)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with subprocess.Popen(  # noqa: S603 - Sample the spawned owner with the installed py-spy.
+        (
+            executable,
+            "record",
+            "--pid",
+            str(pid),
+            "--rate",
+            str(_SAMPLER_RATE),
+            "--format",
+            "raw",
+            "--output",
+            str(output),
+        ),
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    ) as sampler:
+        try:
+            yield sampler
+        finally:
+            if sampler.poll() is None:
+                sampler.terminate()
+    if sampler.returncode != 0:
+        message = f"owner sampler exited with {sampler.returncode}"
+        raise RuntimeError(message)
+
+
 class _TerminateOnFailure:
     __slots__ = ("_barriers", "_pool")
 
@@ -1306,6 +1345,13 @@ def _run_window(
             owner = psutil.Process(server._process.pid)
             owner_clock = _process_cpu_clock(owner.pid)
             owner_cpu_before = time.clock_gettime(owner_clock)
+        sampler = (
+            None
+            if owner is None or profile_directory is None
+            else resources.enter_context(
+                _owner_sampler(owner.pid, profile_directory / f"{model}-owner.txt")
+            )
+        )
         # Capture before the measured interval.
         server_cpu_before = replica.container_cpu_usage_seconds()
         started = time.monotonic()
@@ -1335,6 +1381,9 @@ def _run_window(
                 workers * samples,
                 hot_keys + workers * samples,
             )
+        if sampler is not None:
+            sampler.send_signal(signal.SIGINT)
+            sampler.wait(timeout=_SAMPLER_TIMEOUT)
         server_cpu = replica.container_cpu_usage_seconds() - server_cpu_before
         owner_pss = 0
         owner_cpu = 0.0
