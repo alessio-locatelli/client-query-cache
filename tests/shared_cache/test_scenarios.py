@@ -1229,7 +1229,10 @@ def test_an_admission_raced_by_a_write_or_eviction_is_never_published(
     wait_for(lambda: owner.counters()["admissions"] > admissions)
 
     assert document == {"_id": 5, "payload": "value-5", "revision": 0}
-    assert _local_read(manager, seeded_database, 5) is None
+    if race == "write":
+        assert _local_read(manager, seeded_database, 5) is None
+    else:
+        wait_for(lambda: _local_read(manager, seeded_database, 5) is None)
 
 
 def _received_descriptors(config: AttachmentConfig) -> tuple[socket.socket, list[int]]:

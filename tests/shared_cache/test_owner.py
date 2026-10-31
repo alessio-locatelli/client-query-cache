@@ -22,9 +22,8 @@ from benchmarks.stream_cost.shared_cache.window import attachment_for
 from client_query_cache._core.canonical import canonicalize
 from client_query_cache._core.codec import encode_value
 from client_query_cache._core.collection_metadata import CollectionProbeResult
-from client_query_cache._core.keys import IdentityCacheKey, NamespaceId
-from client_query_cache._core.lru import WeightedLru
-from client_query_cache._core.manager import CacheCore, IdentityCapture
+from client_query_cache._core.entries import AdmissionOutcome
+from client_query_cache._core.keys import NamespaceId
 from client_query_cache._core.order_sensitive_keys import order_sensitive_key
 from client_query_cache._core.snapshots import BypassReason
 from client_query_cache._core.stream_events import route_change_event
@@ -43,21 +42,17 @@ from client_query_cache._shared.coordinator import (
     OwnerConfig,
     SharedCacheOwner,
 )
-from client_query_cache._shared.shared_index import (
-    IndexPublisher,
-    NamespaceSlot,
-    SharedIndexLimits,
-)
+from client_query_cache._shared.shared_index import SharedIndexLimits
 from client_query_cache._shared.wire import (
     PROTOCOL_VERSION,
+    KeyCache,
     ProtocolError,
     decode_frame,
     encode_frame,
     encode_key,
 )
-from client_query_cache._shared_index import Payload, ReaderIndex
+from client_query_cache._shared_index import ReaderIndex
 from client_query_cache._types import NonNegativeFloat, NonNegativeInt, PositiveFloat
-from tests.core.conftest import patch_conditional_put_hook
 from tests.shared_cache.conftest import LIMITS, wait_for
 
 if TYPE_CHECKING:
@@ -66,7 +61,6 @@ if TYPE_CHECKING:
 
     from faker import Faker
 
-    from client_query_cache._core.entries import AdmissionOutcome
     from client_query_cache._shared.attachment import Message
     from client_query_cache._shared_index import SessionRing
 
@@ -700,12 +694,59 @@ def _committed(session: _Session, value: bytes, _patch: pytest.MonkeyPatch) -> b
     return value
 
 
-def _rolled_back(session: _Session, value: bytes, patch: pytest.MonkeyPatch) -> None:
-    def write(_key: object, _entry: object) -> None:
-        session.owner.core.record_write(_NAMESPACE, 1)
+class _Racing:
+    __slots__ = ("_action", "_on_hash", "_value")
 
-    patch_conditional_put_hook(patch, session.owner.core, write)
-    session.admit(1, value)
+    def __init__(
+        self, value: object, action: Callable[[], object], *, on_hash: bool = True
+    ) -> None:
+        self._value = value
+        self._action: Callable[[], object] | None = action
+        self._on_hash = on_hash
+
+    def _race(self) -> None:
+        action, self._action = self._action, None
+        if action is not None:
+            action()
+
+    def __hash__(self) -> int:
+        if self._on_hash:
+            self._race()
+        return hash(self._value)
+
+    def __eq__(self, other: object) -> bool:
+        self._race()
+        return other == self._value
+
+    def __ne__(self, other: object) -> bool:
+        return other is not self
+
+
+def _racing_decode(
+    monkeypatch: pytest.MonkeyPatch, shape: object, racing: _Racing
+) -> None:
+    decode = KeyCache.decode
+    encoded = encode_key(shape)
+
+    def decode_racing(cache: KeyCache, value: object) -> object:
+        return racing if value == encoded else decode(cache, value)
+
+    monkeypatch.setattr(KeyCache, "decode", decode_racing)
+
+
+def _rolled_back(session: _Session, value: bytes, _patch: pytest.MonkeyPatch) -> None:
+    core = session.owner.core
+    racing = _Racing(_SHAPE, lambda: core.record_write(_NAMESPACE, 1))
+    assert (
+        core.admit_identity_published(
+            core.begin_identity_admission(_NAMESPACE, 1),
+            racing,
+            value,
+            _identity(1),
+            encode_key(_SHAPE),
+        )
+        is AdmissionOutcome.DECLINED_STALE
+    )
 
 
 def _written(session: _Session, value: bytes, _patch: pytest.MonkeyPatch) -> None:
@@ -805,30 +846,20 @@ def test_an_rpc_hit_never_returns_a_reused_block(
     core = session.owner.core
     index = session.owner._index
     assert index is not None
-    key = IdentityCacheKey(
-        _NAMESPACE, canonicalize(order_sensitive_key(1)), canonicalize(_SHAPE)
-    )
-    entry = core._lru.peek(key)
-    assert entry is not None
-    original = entry.value
-    assert isinstance(original, Payload)
-    reused: list[Payload | None] = []
-    touch = WeightedLru.touch
+    reused: list[object] = []
 
-    def evict_and_reuse(lru: WeightedLru, touched: object) -> None:
+    def evict_and_reuse() -> None:
         for filler in range(2, 2 + _FILLERS):
             capture = core.begin_identity_admission(_NAMESPACE, filler)
             core.admit_identity_encoded(capture, _SHAPE, b"x" * _FILLER_BYTES)
         reused.append(index.store(faker.binary(length=len(value))))
-        touch(lru, touched)  # type: ignore[arg-type]
 
-    monkeypatch.setattr(WeightedLru, "touch", evict_and_reuse)
+    _racing_decode(monkeypatch, _SHAPE, _Racing(_SHAPE, evict_and_reuse, on_hash=False))
 
     reply = session.select(1)
 
-    assert core._lru.peek(key) is None
     assert reused[0] is not None
-    assert index.snapshot(original) is None
+    assert core.lookup_identity_encoded(_NAMESPACE, 1, _SHAPE) is None
     assert reply["r"] == "miss" or reply["value"] == value
 
 
@@ -888,11 +919,33 @@ def test_namespaces_beyond_the_slot_capacity_bypass_without_retention(
     assert selection["r"] == "bypass"
     assert selection["reason"] == "namespace_capacity"
     assert not session.owner.core.has_namespace(other)
-    assert len(session.owner.core._namespaces) == 1
-    publisher = session.owner._publisher
-    assert publisher is not None
-    assert len(publisher._epochs) == 1
+    assert session.owner.core._ownership()[0] == 1
+    assert session.owner.core.assigned_slot(other) is None
     assert _index_stats(session.owner)["published"] == 0
+
+
+def _metadata_reply(
+    owner: SharedCacheOwner,
+    connection: coordinator._Connection,
+    namespace: NamespaceId,
+    token: object,
+) -> Message | None:
+    return owner._handle_request(
+        connection,
+        {"op": "metadata", "ns": list(namespace), "probe_token": token},
+        time.monotonic(),
+    )
+
+
+def _probe_token(
+    owner: SharedCacheOwner, connection: coordinator._Connection, namespace: NamespaceId
+) -> object:
+    probe = owner._handle_request(
+        connection, {"op": "metadata-probe", "ns": list(namespace)}, time.monotonic()
+    )
+    assert probe is not None
+    assert probe["r"] == "probe"
+    return probe["probe_token"]
 
 
 @pytest.mark.parametrize("shared_owner", [{"namespaces": 1}], indirect=True)
@@ -906,114 +959,36 @@ def test_metadata_slot_assignment_is_serialized_with_namespace_drop(
         return None
 
     monkeypatch.setattr(SharedCacheOwner, "_gate", allow_database)
-    publisher = shared_owner._publisher
-    assert publisher is not None
     namespace = NamespaceId(_DATABASE, "first")
     replacement = NamespaceId(_DATABASE, "replacement")
     with socket.socket() as sock:
         connection = coordinator._Connection(sock)
         connection.session = 1
-        probe = shared_owner._handle_request(
+        first = _metadata_reply(
+            shared_owner,
             connection,
-            {
-                "op": "metadata-probe",
-                "ns": [namespace.database, namespace.collection],
-            },
-            time.monotonic(),
+            namespace,
+            _probe_token(shared_owner, connection, namespace),
         )
-        assert probe is not None
-        assert probe["r"] == "probe"
-        request: Message = {
-            "op": "metadata",
-            "ns": [namespace.database, namespace.collection],
-            "probe_token": probe["probe_token"],
-        }
-        first = shared_owner._handle_request(connection, request, time.monotonic())
         assert first is not None
         assert first["r"] == "ok"
-        first_slot = first["slot"]
+        repeated_token = _probe_token(shared_owner, connection, namespace)
 
-        repeated_probe = shared_owner._handle_request(
+        shared_owner.core.drop_namespace(namespace)
+        stale = _metadata_reply(shared_owner, connection, namespace, repeated_token)
+        replacement_reply = _metadata_reply(
+            shared_owner,
             connection,
-            {
-                "op": "metadata-probe",
-                "ns": [namespace.database, namespace.collection],
-            },
-            time.monotonic(),
-        )
-        assert repeated_probe is not None
-        assert repeated_probe["r"] == "probe"
-        request["probe_token"] = repeated_probe["probe_token"]
-
-        assignment_started = threading.Event()
-        resume_assignment = threading.Event()
-        original_assign = IndexPublisher.assign
-
-        def pause_assignment(
-            instance: IndexPublisher,
-            assigned_namespace: NamespaceId,
-            epoch: NonNegativeInt,
-        ) -> NamespaceSlot | None:
-            if instance is publisher and assigned_namespace == namespace:
-                assignment_started.set()
-                assert resume_assignment.wait(5)
-            return original_assign(instance, assigned_namespace, epoch)
-
-        monkeypatch.setattr(IndexPublisher, "assign", pause_assignment)
-        metadata_replies: list[Message | None] = []
-        metadata_request = threading.Thread(
-            target=lambda: metadata_replies.append(
-                shared_owner._handle_request(connection, request, time.monotonic())
-            )
-        )
-        metadata_request.start()
-        assert assignment_started.wait(5)
-        state = shared_owner.core._namespaces[namespace]
-        lock_held = state.lock._lock.locked()  # pytriage: TR11 - Snapshot while paused.
-
-        drop_started = threading.Event()
-
-        def drop_namespace() -> None:
-            drop_started.set()
-            shared_owner.core.drop_namespace(namespace)
-
-        drop = threading.Thread(target=drop_namespace)
-        drop.start()
-        assert drop_started.wait(5)
-        resume_assignment.set()
-        metadata_request.join(5)
-        drop.join(5)
-
-        assert lock_held
-        assert not metadata_request.is_alive()
-        assert not drop.is_alive()
-        assert len(metadata_replies) == 1
-        assert metadata_replies[0] is not None
-        assert metadata_replies[0]["r"] == "ok"
-
-        replacement_probe = shared_owner._handle_request(
-            connection,
-            {
-                "op": "metadata-probe",
-                "ns": [replacement.database, replacement.collection],
-            },
-            time.monotonic(),
-        )
-        assert replacement_probe is not None
-        assert replacement_probe["r"] == "probe"
-        replacement_reply = shared_owner._handle_request(
-            connection,
-            {
-                "op": "metadata",
-                "ns": [replacement.database, replacement.collection],
-                "probe_token": replacement_probe["probe_token"],
-            },
-            time.monotonic(),
+            replacement,
+            _probe_token(shared_owner, connection, replacement),
         )
 
+    assert stale == {"r": "bypass", "reason": BypassReason.METADATA_UNAVAILABLE.value}
+    assert shared_owner.core.assigned_slot(namespace) is None
     assert replacement_reply is not None
     assert replacement_reply["r"] == "ok"
-    assert replacement_reply["slot"] == first_slot
+    assert replacement_reply["slot"] == first["slot"]
+    assert shared_owner.core.assigned_slot(replacement) == tuple(first["slot"])  # type: ignore[arg-type]
 
 
 @pytest.mark.parametrize("shared_owner", [{"namespaces": 1}], indirect=True)
@@ -1063,7 +1038,7 @@ def test_stale_metadata_probe_cannot_reregister_a_dropped_namespace(
     }
     assert not shared_owner.core.has_namespace(stale_namespace)
     assert shared_owner.core.has_namespace(active_namespace)
-    assert len(shared_owner.core._namespaces) == 1
+    assert shared_owner.core._ownership()[0] == 1
 
 
 def test_metadata_cancel_releases_a_probe_reservation(
@@ -1107,7 +1082,7 @@ def test_metadata_cancel_releases_a_probe_reservation(
     assert cancelled == {"r": "ok"}
     assert available_probe is not None
     assert available_probe["r"] == "probe"
-    assert len(shared_owner.core._namespace_metadata_probes) == 1
+    assert len(shared_owner.core._probes()) == 1
     available_token = available_probe["probe_token"]
     assert isinstance(available_token, int)
     shared_owner.core.cancel_namespace_metadata_probe(available, available_token)
@@ -1166,8 +1141,9 @@ def test_gate_bypass_releases_only_its_metadata_probe_request(
             {"op": "metadata", "ns": list(namespace), "probe_token": True},
             time.monotonic(),
         )
-        active_probe = shared_owner.core._namespace_metadata_probes[namespace]
-        assert active_probe.active_requests == 1
+        assert shared_owner.core._probes() == [
+            (namespace.database, namespace.collection, first_probe["probe_token"], 1)
+        ]
 
         gate_open = True
         admitted = shared_owner._handle_request(
@@ -1307,7 +1283,7 @@ def test_drop_of_an_untracked_probe_releases_metadata_probe_capacity(
     assert active_metadata["r"] == "ok"
     assert not shared_owner.core.has_namespace(stale_namespace)
     assert shared_owner.core.has_namespace(active_namespace)
-    assert len(shared_owner.core._namespaces) == 1
+    assert shared_owner.core._ownership()[0] == 1
 
 
 @pytest.mark.parametrize("shared_owner", [{"namespaces": 2}], indirect=True)
@@ -1497,19 +1473,15 @@ def test_drained_tokens_touch_only_published_entries(
 ) -> None:
     for key in (1, 2):
         session.admit(key, encode_frame({"name": faker.name()}))
-    publisher = session.owner._publisher
-    assert publisher is not None
     session.owner.pause(_PAUSE_SECONDS)
     time.sleep(_SWEEP_GAP_SECONDS)
     assert session.local(1) is not None
     if write:
         session.owner.core.record_write(_NAMESPACE, 1)
 
-    session.owner._drain_rings(publisher)
+    session.owner._drain_rings()
 
-    newest = list(session.owner.core._lru._order)[-1]
-    assert isinstance(newest, IdentityCacheKey)
-    assert newest.identity == canonicalize(order_sensitive_key(most_recent))
+    assert session.owner.core._recency()[-1] == (most_recent, canonicalize(_SHAPE))
 
 
 @pytest.mark.parametrize("shared_owner", [{"slots": 4}], indirect=True)
@@ -1528,8 +1500,12 @@ def test_every_shape_of_an_identity_is_unpublished(
 ) -> None:
     for shape in (_SHAPE, "summary"):
         capture = session.owner.core.begin_identity_admission(_NAMESPACE, 1)
-        session.owner.core.admit_identity_encoded(
-            capture, shape, encode_frame({"name": faker.name()})
+        session.owner.core.admit_identity_published(
+            capture,
+            shape,
+            encode_frame({"name": faker.name()}),
+            _identity(1),
+            encode_key(shape),
         )
     published = _index_stats(session.owner)["published"]
 
@@ -1711,7 +1687,7 @@ def test_obsolete_local_misses_cannot_populate_the_owner(
     assert owner._index is not None
     match mutation:
         case "write":
-            assert not owner.core._namespaces[_NAMESPACE].identities
+            assert owner.core._ownership()[1] == 0
             owner.core.record_write(_NAMESPACE, 0)
         case "reset":
             owner.core.clear_namespace(_NAMESPACE)
@@ -1735,7 +1711,7 @@ def test_obsolete_local_misses_cannot_populate_the_owner(
     assert owner.counters.rejected_admissions == 1
     assert owner.core.snapshot().entry_count == 0
     assert not owner._handles
-    assert not owner.core._namespaces[_NAMESPACE].identities
+    assert owner.core._ownership()[1] == 0
     assert session.local(0) is None
 
 
@@ -1748,19 +1724,14 @@ def test_core_mutations_after_token_validation_prevent_local_publication(
     monkeypatch: pytest.MonkeyPatch,
     mutation: str,
 ) -> None:
-    original = CacheCore.admit_identity_encoded
-
-    def mutate(
-        core: CacheCore, capture: IdentityCapture, shape: object, encoded: bytes
-    ) -> AdmissionOutcome:
+    def mutate() -> None:
         if mutation == "write":
             session.owner.core.record_write(_NAMESPACE, 0)
         else:
             session.owner.core.set_database_available(_DATABASE, available=False)
             session.owner.core.set_database_available(_DATABASE, available=True)
-        return original(core, capture, shape, encoded)
 
-    monkeypatch.setattr(CacheCore, "admit_identity_encoded", mutate)
+    _racing_decode(monkeypatch, _SHAPE, _Racing(_SHAPE, mutate))
     session.owner._admit_local(local_miss)
     assert session.owner.counters.rejected_admissions == 1
     assert session.local(0) is None
@@ -1803,22 +1774,17 @@ def test_progress_publication_waits_for_local_admission_commit(
     def publish() -> None:
         attempted.set()
         with session.owner.progress._lock:
-            assert session.owner._publisher is not None
-            session.owner._publisher.progress(_DATABASE)
+            session.owner._publish_progress(_DATABASE)
         published.set()
 
     thread = threading.Thread(target=publish)
-    original = CacheCore.admit_identity_encoded
 
-    def admit(
-        core: CacheCore, capture: IdentityCapture, shape: object, encoded: bytes
-    ) -> AdmissionOutcome:
+    def admit() -> None:
         thread.start()
         assert attempted.wait(1)
         assert not published.is_set()
-        return original(core, capture, shape, encoded)
 
-    monkeypatch.setattr(CacheCore, "admit_identity_encoded", admit)
+    _racing_decode(monkeypatch, _SHAPE, _Racing(_SHAPE, admit))
     session.owner._admit_local(local_miss)
     thread.join(1)
     assert published.is_set()

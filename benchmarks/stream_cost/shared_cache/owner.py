@@ -13,19 +13,20 @@ import psutil
 from benchmarks.stream_cost.client import BenchmarkClientTopologyConfig, WireCompressor
 from benchmarks.stream_cost.proxy import DirectPathByteProxy, DirectPathProxyConfig
 from benchmarks.stream_cost.shared_cache.profiling import WindowProfiler
-from client_query_cache._core.keys import IdentityCacheKey, NamespaceId
-from client_query_cache._core.lru import WeightedLru
+from client_query_cache._core.keys import NamespaceId
 from client_query_cache._shared.coordinator import SharedCacheOwner
 from client_query_cache._shared_index import ByteRelay
-from client_query_cache._types import NonNegativeInt
+from client_query_cache._types import NonNegativeFloat, NonNegativeInt
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
     from multiprocessing.connection import Connection
 
-    from client_query_cache._core.entries import CacheEntry
-    from client_query_cache._core.keys import CacheKey
-    from client_query_cache._shared.coordinator import Message, OwnerConfig
+    from client_query_cache._shared.coordinator import (
+        Message,
+        OwnerConfig,
+        _Connection,
+    )
     from client_query_cache.synchronous.streams import DatabaseStreamSupervisor
 
 TOPOLOGY = BenchmarkClientTopologyConfig(
@@ -134,27 +135,52 @@ def activation_pending(owner: SharedCacheOwner) -> bool:
         return any(state == "pending" for state, _since in owner._activation.values())
 
 
+class _RacingShape:
+    __slots__ = ("_action", "_value")
+
+    def __init__(self, value: object, action: Callable[[], object]) -> None:
+        self._value = value
+        self._action: Callable[[], object] | None = action
+
+    def __hash__(self) -> int:
+        action, self._action = self._action, None
+        if action is not None:
+            action()
+        return hash(self._value)
+
+    def __ne__(self, other: object) -> bool:
+        return other is not self
+
+
 def race_next_admission(owner: SharedCacheOwner, race: str) -> None:
-    original = WeightedLru.conditional_put
+    original = SharedCacheOwner._admit
 
     def racing(
-        lru: WeightedLru, key: CacheKey, entry: CacheEntry
-    ) -> tuple[bool, CacheEntry | None, list[CacheEntry]]:
-        WeightedLru.conditional_put = original  # type: ignore[method-assign]
-        put = original(lru, key, entry)
-        assert isinstance(key, IdentityCacheKey)
+        instance: SharedCacheOwner,
+        connection: _Connection,
+        message: Message,
+        now: NonNegativeFloat,
+    ) -> None:
+        SharedCacheOwner._admit = original  # type: ignore[method-assign]
+        handle = instance._handles[cast("bytes", message["handle"])]
+        namespace = handle.capture.namespace
+        shape = handle.shape
         if race == "write":
-            owner.core.record_write(key.namespace, key.identity)
-            return put
+            identity = handle.capture.identity
+            handle.shape = _RacingShape(
+                shape, lambda: owner.core.record_write(namespace, identity)
+            )
+            original(instance, connection, message, now)
+            return
+        original(instance, connection, message, now)
         filler = b"x" * (owner.config.max_entry_bytes // 2)
         for offset in range(owner.config.budget_bytes // len(filler) + 1):
             capture = owner.core.begin_identity_admission(
-                key.namespace, f"race-filler-{offset}"
+                namespace, f"race-filler-{offset}"
             )
-            owner.core.admit_identity_encoded(capture, key.read_shape, filler)
-        return put
+            owner.core.admit_identity_encoded(capture, shape, filler)
 
-    WeightedLru.conditional_put = racing  # type: ignore[method-assign,assignment]
+    SharedCacheOwner._admit = racing  # type: ignore[method-assign,assignment]
 
 
 def _sample(owner: SharedCacheOwner, proxy: FaultableProxy) -> Message:

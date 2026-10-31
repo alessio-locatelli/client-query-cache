@@ -18,7 +18,7 @@ use crate::relay::Relay;
 use crate::ring::Ring;
 use crate::sync::Ordering;
 
-type Shared = Arc<Mapping>;
+pub(crate) type Shared = Arc<Mapping>;
 
 fn invalid(message: &str) -> PyErr {
     PyValueError::new_err(message.to_owned())
@@ -59,14 +59,14 @@ impl Payload {
 }
 
 #[pyclass(frozen)]
-struct OwnerIndex {
-    index: Index<Shared>,
+pub(crate) struct OwnerIndex {
+    pub(crate) index: Index<Shared>,
     writer: Mutex<Writer<Shared>>,
     descriptor: OwnedFd,
 }
 
 impl OwnerIndex {
-    fn writer(&self) -> MutexGuard<'_, Writer<Shared>> {
+    pub(crate) fn writer(&self) -> MutexGuard<'_, Writer<Shared>> {
         self.writer.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
@@ -246,7 +246,7 @@ impl OwnerIndex {
 }
 
 #[pyclass(frozen)]
-struct SessionRing {
+pub(crate) struct SessionRing {
     ring: Ring<Shared>,
     admissions: Option<Mutex<Frames<Shared>>>,
     descriptor: Mutex<Option<OwnedFd>>,
@@ -270,7 +270,7 @@ impl SessionRing {
             .take();
     }
 
-    fn drain(&self) -> Vec<u64> {
+    pub(crate) fn drain(&self) -> Vec<u64> {
         let mut tokens = Vec::new();
         self.ring.drain(|token| tokens.push(token));
         tokens
@@ -540,5 +540,5 @@ mod _shared_index {
     #[pymodule_export]
     use crate::keys::{Canonicalizer, OrderedKeys, UnsafeScan};
     #[pymodule_export]
-    use crate::local_cache::LocalOwner;
+    use crate::local_cache::{LocalOwner, SharedOwner};
 }
