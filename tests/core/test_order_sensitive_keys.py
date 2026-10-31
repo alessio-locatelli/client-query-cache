@@ -248,22 +248,6 @@ def _canonical_reference(
     return lambda value: canonical._reference_canonicalize(reference(value))
 
 
-@pytest.mark.parametrize(
-    ("pending", "reference", "fused"), _PREPARATIONS, ids=["identity", "discriminator"]
-)
-@given(value=key_inputs(string_keys=True))
-def test_native_order_sensitive_keys_match_the_reference(
-    pending: Callable[[object], object],
-    reference: Callable[[object], object],
-    fused: Callable[[object], object],
-    value: object,
-) -> None:
-    assert same_outcome(outcome(pending, value), outcome(reference, value))
-    assert same_outcome(
-        outcome(fused, value), outcome(_canonical_reference(reference), value)
-    )
-
-
 class _Subtype(enum.IntEnum):
     ONE = 1
 
@@ -275,32 +259,17 @@ class _Float(float):
 @pytest.mark.parametrize(
     ("pending", "reference", "fused"), _PREPARATIONS, ids=["identity", "discriminator"]
 )
-@pytest.mark.parametrize(
-    "value",
-    [
-        Int64(1),
-        1.0,
-        _Float(1.5),
-        _Subtype.ONE,
-        True,
-        Decimal128("1.0"),
-        Decimal128("NaN"),
-        float("nan"),
-        {"n": [Int64(2), 2.0, 2, Decimal128("2")]},
-    ],
-    ids=[
-        "int64",
-        "float",
-        "float-subclass",
-        "int-subclass",
-        "bool",
-        "decimal",
-        "decimal-nan",
-        "nan",
-        "nested",
-    ],
-)
-def test_numeric_subtypes_match_the_reference(
+@given(value=key_inputs(string_keys=True))
+@example(value=Int64(1))
+@example(value=1.0)
+@example(value=_Float(1.5))
+@example(value=_Subtype.ONE)
+@example(value=True)
+@example(value=Decimal128("1.0"))
+@example(value=Decimal128("NaN"))
+@example(value=float("nan"))
+@example(value={"n": [Int64(2), 2.0, 2, Decimal128("2")]})
+def test_native_order_sensitive_keys_match_the_reference(
     pending: Callable[[object], object],
     reference: Callable[[object], object],
     fused: Callable[[object], object],
@@ -334,14 +303,13 @@ def _resizing_filter() -> dict[str, object]:
 
 
 @pytest.mark.parametrize(
-    ("pending", "reference", "fused"), _PREPARATIONS, ids=["identity", "discriminator"]
+    ("reference", "fused"),
+    [(reference, fused) for _, reference, fused in _PREPARATIONS],
+    ids=["identity", "discriminator"],
 )
 def test_fused_keys_snapshot_the_input_before_leaf_callbacks(
-    pending: Callable[[object], object],
-    reference: Callable[[object], object],
-    fused: Callable[[object], object],
+    reference: Callable[[object], object], fused: Callable[[object], object]
 ) -> None:
-    del pending
     expected = outcome(_canonical_reference(reference), _resizing_filter())
     assert expected[0] == "result"
     assert same_outcome(outcome(fused, _resizing_filter()), expected)

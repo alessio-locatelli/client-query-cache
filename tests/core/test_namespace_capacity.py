@@ -27,10 +27,10 @@ from client_query_cache._core.unique_keys import (
 )
 from client_query_cache._shared_index import LocalCacheCore as NativeCacheCore
 from client_query_cache._shared_index import SharedOwnerCore
-from client_query_cache._types import NonNegativeInt, PositiveInt
+from client_query_cache._types import NonNegativeInt, PositiveFloat, PositiveInt
 
 if TYPE_CHECKING:
-    from collections.abc import Generator
+    from collections.abc import Callable, Generator, Iterator
 
     from faker import Faker
 
@@ -164,59 +164,79 @@ def test_drop_releases_capacity_and_rejects_a_capture_from_the_previous_lifetime
     assert core.lookup_namespace(namespace, "all").value == [{"revision": "new"}]
 
 
-def _shared_owner(namespaces: PositiveInt) -> SharedOwnerCore:
-    return SharedOwnerCore(
-        CacheCoreConfig(max_namespaces=namespaces),
-        None,
-        ["catalogue"],
-        namespaces,
-        _PROBE_TTL_SECONDS,
-    )
+@pytest.fixture
+def make_owner() -> Iterator[Callable[..., SharedOwnerCore]]:
+    owners: list[SharedOwnerCore] = []
+
+    def create(
+        *databases: str,
+        namespaces: PositiveInt = 1,
+        probe_ttl_seconds: PositiveFloat = _PROBE_TTL_SECONDS,
+    ) -> SharedOwnerCore:
+        owner = SharedOwnerCore(
+            CacheCoreConfig(max_namespaces=namespaces),
+            None,
+            list(databases or ("catalogue",)),
+            namespaces,
+            probe_ttl_seconds,
+        )
+        owners.append(owner)
+        return owner
+
+    yield create
+    for owner in owners:
+        owner.close()
 
 
-def test_namespace_capacity_check_does_not_register_a_namespace() -> None:
-    core = _shared_owner(1)
+@pytest.fixture
+def owner(make_owner: Callable[..., SharedOwnerCore]) -> SharedOwnerCore:
+    return make_owner()
+
+
+def test_namespace_capacity_check_does_not_register_a_namespace(
+    owner: SharedOwnerCore,
+) -> None:
     namespace = NamespaceId("catalogue", "products")
     other = NamespaceId("catalogue", "orders")
 
-    assert core.can_register_namespace(namespace)
-    probe_token = core.begin_namespace_metadata_probe(namespace)
+    assert owner.can_register_namespace(namespace)
+    probe_token = owner.begin_namespace_metadata_probe(namespace)
     assert probe_token is not None
-    core.capture_namespace_generation(namespace)
-    core.cancel_namespace_metadata_probe(namespace, probe_token)
+    owner.capture_namespace_generation(namespace)
+    owner.cancel_namespace_metadata_probe(namespace, probe_token)
 
-    assert core.can_register_namespace(namespace)
-    assert not core.can_register_namespace(other)
-    assert core.begin_namespace_metadata_probe(other) is None
-    assert core.namespace_metadata_after_probe(other, 0) is None
-    assert not core.release_namespace_if_epoch_matches(other, 0)
-    core.close()
-    assert not core.can_register_namespace(namespace)
-    assert core.begin_namespace_metadata_probe(namespace) is None
-    assert core.namespace_metadata_after_probe(namespace, 0) is None
+    assert owner.can_register_namespace(namespace)
+    assert not owner.can_register_namespace(other)
+    assert owner.begin_namespace_metadata_probe(other) is None
+    assert owner.namespace_metadata_after_probe(other, 0) is None
+    assert not owner.release_namespace_if_epoch_matches(other, 0)
+    owner.close()
+    assert not owner.can_register_namespace(namespace)
+    assert owner.begin_namespace_metadata_probe(namespace) is None
+    assert owner.namespace_metadata_after_probe(namespace, 0) is None
 
 
-def test_a_metadata_probe_cannot_reuse_a_dropped_namespace() -> None:
+def test_a_metadata_probe_cannot_reuse_a_dropped_namespace(
+    owner: SharedOwnerCore,
+) -> None:
     namespace = NamespaceId("catalogue", "products")
-    core = _shared_owner(1)
-    assert core.try_current_epoch(namespace) is not None
-    probe_token = core.begin_namespace_metadata_probe(namespace)
+    assert owner.try_current_epoch(namespace) is not None
+    probe_token = owner.begin_namespace_metadata_probe(namespace)
     assert probe_token is not None
 
-    core.drop_namespace(namespace)
+    owner.drop_namespace(namespace)
 
-    assert core.namespace_metadata_after_probe(namespace, probe_token) is None
-    assert not core.has_namespace(namespace)
-    core.close()
+    assert owner.namespace_metadata_after_probe(namespace, probe_token) is None
+    assert not owner.has_namespace(namespace)
 
 
 @pytest.mark.parametrize(
     "lifecycle_change",
-    ["clear", "create", "drop"],
+    [CacheCore.clear_namespace, CacheCore.create_namespace, CacheCore.drop_namespace],
     ids=["clear", "create", "drop"],
 )
 def test_namespace_generation_advances_past_local_writes_before_lifecycle_reset(
-    lifecycle_change: str,
+    lifecycle_change: Callable[[CacheCore, NamespaceId], object],
 ) -> None:
     core = CacheCore(CacheCoreConfig(max_namespaces=1))
     namespace = NamespaceId("catalogue", "products")
@@ -224,12 +244,7 @@ def test_namespace_generation_advances_past_local_writes_before_lifecycle_reset(
     core.record_write(namespace, "second")
     old_capture = core.capture_namespace_generation(namespace)
 
-    if lifecycle_change == "clear":
-        core.clear_namespace(namespace)
-    elif lifecycle_change == "create":
-        core.create_namespace(namespace)
-    else:
-        core.drop_namespace(namespace)
+    lifecycle_change(core, namespace)
 
     new_capture = core.capture_namespace_generation(namespace)
     assert new_capture.generation > old_capture.generation
@@ -245,57 +260,53 @@ def _probe_tokens(core: SharedOwnerCore) -> dict[NamespaceId, NonNegativeInt]:
     }
 
 
-def test_namespace_metadata_probe_cancellation_and_capacity_are_bounded() -> None:
-    core = _shared_owner(1)
+def test_namespace_metadata_probe_cancellation_and_capacity_are_bounded(
+    owner: SharedOwnerCore,
+) -> None:
     first = NamespaceId("catalogue", "first")
     second = NamespaceId("catalogue", "second")
-    first_token = core.begin_namespace_metadata_probe(first)
-    repeated_token = core.begin_namespace_metadata_probe(first)
+    first_token = owner.begin_namespace_metadata_probe(first)
+    repeated_token = owner.begin_namespace_metadata_probe(first)
 
     assert first_token is not None
     assert repeated_token == first_token
-    assert core.begin_namespace_metadata_probe(second) is None
-    assert len(core._probes()) == 1
+    assert owner.begin_namespace_metadata_probe(second) is None
+    assert len(owner._probes()) == 1
 
-    core.cancel_namespace_metadata_probe(first, first_token)
-    assert len(core._probes()) == 1
-    core.cancel_namespace_metadata_probe(first, first_token)
-    assert not core._probes()
-    assert core.begin_namespace_metadata_probe(second) is not None
+    owner.cancel_namespace_metadata_probe(first, first_token)
+    assert len(owner._probes()) == 1
+    owner.cancel_namespace_metadata_probe(first, first_token)
+    assert not owner._probes()
+    assert owner.begin_namespace_metadata_probe(second) is not None
 
 
 @pytest.mark.parametrize(
     "replace_probe", [False, True], ids=["invalidated", "replaced"]
 )
 def test_an_invalidated_metadata_probe_is_rejected_without_its_replacement(
-    *, replace_probe: bool
+    owner: SharedOwnerCore, *, replace_probe: bool
 ) -> None:
-    core = _shared_owner(1)
     namespace = NamespaceId("catalogue", "products")
-    stale_token = core.begin_namespace_metadata_probe(namespace)
+    stale_token = owner.begin_namespace_metadata_probe(namespace)
     assert stale_token is not None
-    core.invalidate_namespace_metadata_probe(namespace)
+    owner.invalidate_namespace_metadata_probe(namespace)
     active_token = (
-        core.begin_namespace_metadata_probe(namespace) if replace_probe else None
+        owner.begin_namespace_metadata_probe(namespace) if replace_probe else None
     )
 
-    assert core.namespace_metadata_after_probe(namespace, stale_token) is None
-    core.cancel_namespace_metadata_probe(namespace, stale_token)
+    assert owner.namespace_metadata_after_probe(namespace, stale_token) is None
+    owner.cancel_namespace_metadata_probe(namespace, stale_token)
 
-    assert _probe_tokens(core) == (
+    assert _probe_tokens(owner) == (
         {namespace: active_token} if active_token is not None else {}
     )
     assert active_token != stale_token
 
 
-def test_database_probe_invalidation_preserves_probes_for_other_databases() -> None:
-    core = SharedOwnerCore(
-        CacheCoreConfig(max_namespaces=2),
-        None,
-        ["catalogue", "archive"],
-        2,
-        _PROBE_TTL_SECONDS,
-    )
+def test_database_probe_invalidation_preserves_probes_for_other_databases(
+    make_owner: Callable[..., SharedOwnerCore],
+) -> None:
+    core = make_owner("catalogue", "archive", namespaces=2)
     affected = NamespaceId("catalogue", "products")
     unaffected = NamespaceId("archive", "products")
     affected_token = core.begin_namespace_metadata_probe(affected)
@@ -308,28 +319,25 @@ def test_database_probe_invalidation_preserves_probes_for_other_databases() -> N
     assert _probe_tokens(core) == {unaffected: unaffected_token}
 
 
-def test_metadata_probe_is_rejected_when_capacity_fills_after_preflight() -> None:
-    core = _shared_owner(1)
+def test_metadata_probe_is_rejected_when_capacity_fills_after_preflight(
+    owner: SharedOwnerCore,
+) -> None:
     probed = NamespaceId("catalogue", "probed")
     registered = NamespaceId("catalogue", "registered")
-    probe_token = core.begin_namespace_metadata_probe(probed)
+    probe_token = owner.begin_namespace_metadata_probe(probed)
     assert probe_token is not None
-    assert core.try_current_epoch(registered) is not None
+    assert owner.try_current_epoch(registered) is not None
 
-    assert core.namespace_metadata_after_probe(probed, probe_token) is None
+    assert owner.namespace_metadata_after_probe(probed, probe_token) is None
 
-    assert not core.has_namespace(probed)
-    assert not core._probes()
+    assert not owner.has_namespace(probed)
+    assert not owner._probes()
 
 
-def test_expired_namespace_metadata_probe_does_not_block_another_namespace() -> None:
-    core = SharedOwnerCore(
-        CacheCoreConfig(max_namespaces=1),
-        None,
-        ["catalogue"],
-        1,
-        _SHORT_PROBE_TTL_SECONDS,
-    )
+def test_expired_namespace_metadata_probe_does_not_block_another_namespace(
+    make_owner: Callable[..., SharedOwnerCore],
+) -> None:
+    core = make_owner(probe_ttl_seconds=_SHORT_PROBE_TTL_SECONDS)
     first = NamespaceId("catalogue", "first")
     second = NamespaceId("catalogue", "second")
     stale_token = core.begin_namespace_metadata_probe(first)
@@ -343,20 +351,21 @@ def test_expired_namespace_metadata_probe_does_not_block_another_namespace() -> 
     assert core.namespace_metadata_after_probe(second, active_token) is not None
 
 
-def test_stale_ineligibility_probe_cannot_release_a_recreated_namespace() -> None:
-    core = _shared_owner(1)
+def test_stale_ineligibility_probe_cannot_release_a_recreated_namespace(
+    owner: SharedOwnerCore,
+) -> None:
     namespace = NamespaceId("catalogue", "products")
-    old_epoch = core.try_current_epoch(namespace)
+    old_epoch = owner.try_current_epoch(namespace)
     assert old_epoch is not None
 
-    core.drop_namespace(namespace)
-    new_epoch = core.try_current_epoch(namespace)
+    owner.drop_namespace(namespace)
+    new_epoch = owner.try_current_epoch(namespace)
     assert new_epoch is not None
 
-    assert not core.release_namespace_if_epoch_matches(namespace, old_epoch)
-    assert core.registered_namespace_metadata(namespace) == (
+    assert not owner.release_namespace_if_epoch_matches(namespace, old_epoch)
+    assert owner.registered_namespace_metadata(namespace) == (
         new_epoch,
-        core.current_index_generation(namespace),
+        owner.current_index_generation(namespace),
     )
 
 

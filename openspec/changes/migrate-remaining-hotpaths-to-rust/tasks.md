@@ -36,5 +36,5 @@ Use [design.md](design.md) for architecture, workload definitions and decision r
 
 ## 7. Code Quality
 
-- [ ] 7.1 Scan the entire file for edited or added tests (including pre-existing tests within the file) and ensure that the Writing Tests guidelines from `AGENTS.md` are applied, including test parametrization.
+- [x] 7.1 Scan the entire file for edited or added tests (including pre-existing tests within the file) and ensure that the Writing Tests guidelines from `AGENTS.md` are applied, including test parametrization.
 - [ ] 7.2 At implementation completion, if using Claude Code, confirm no new prose was added to code. If the implementation agent is OpenAI Codex, mark this item inapplicable then.

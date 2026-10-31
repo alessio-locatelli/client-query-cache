@@ -91,6 +91,34 @@ class Owner:
         reclaim_workers((self.process,), time.monotonic() + 10, graceful=True)
 
 
+class Racing:
+    __slots__ = ("_action", "_on_hash", "_value")
+
+    def __init__(
+        self, value: object, action: Callable[[], object], *, on_hash: bool = True
+    ) -> None:
+        self._value = value
+        self._action: Callable[[], object] | None = action
+        self._on_hash = on_hash
+
+    def _race(self) -> None:
+        action, self._action = self._action, None
+        if action is not None:
+            action()
+
+    def __hash__(self) -> int:
+        if self._on_hash:
+            self._race()
+        return hash(self._value)
+
+    def __eq__(self, other: object) -> bool:
+        self._race()
+        return other == self._value
+
+    def __ne__(self, other: object) -> bool:
+        return other is not self
+
+
 def wait_for(predicate: Callable[[], bool], timeout: float = 10.0) -> None:
     deadline = time.monotonic() + timeout
     while not predicate():

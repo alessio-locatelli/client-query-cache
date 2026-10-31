@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import time
-from typing import TYPE_CHECKING, TypedDict
+from typing import TYPE_CHECKING, NamedTuple, TypedDict
 
 import pytest
 from faker import Faker
@@ -27,12 +27,13 @@ from client_query_cache._core.manager import CacheCoreConfig
 from client_query_cache._core.order_sensitive_keys import order_sensitive_key
 from client_query_cache._shared.wire import encode_key
 from client_query_cache._shared_index import OwnerIndex, ReaderIndex, SharedOwnerCore
-from client_query_cache._types import NonNegativeInt
+from client_query_cache._types import NonNegativeInt, PositiveInt
+from tests.shared_cache.conftest import Racing
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
-    from client_query_cache._shared_index import LocalCapture
+    from client_query_cache._shared_index import LocalCapture, SessionRing
 
 pytestmark = pytest.mark.unit
 
@@ -106,25 +107,49 @@ def _admit_find(
 
 
 def _shared_core(
-    index: OwnerIndex, config: CacheCoreConfig, namespaces: int
+    index: OwnerIndex, config: CacheCoreConfig, namespaces: PositiveInt
 ) -> SharedOwnerCore:
     return SharedOwnerCore(config, index, [_DATABASE], namespaces, _PROBE_TTL_SECONDS)
 
 
+class _SharedIndex(NamedTuple):
+    core: SharedOwnerCore
+    owner_index: OwnerIndex
+    ring: SessionRing
+    reader: ReaderIndex
+
+
 @pytest.fixture
-def bounded_shared_index() -> Iterator[tuple[SharedOwnerCore, OwnerIndex, ReaderIndex]]:
-    index = OwnerIndex(8, 4096, 1, 1, 1, _EXPIRY_NS)
-    core = _shared_core(index, CacheCoreConfig(max_namespaces=1), 1)
-    ring = index.session_ring(8)
-    descriptor = index.reader_descriptor()
-    reader = ReaderIndex(descriptor, ring.descriptor())
-    ring.close_descriptor()
-    index.set_progress(0, time.monotonic_ns())
-    try:
-        yield core, index, reader
-    finally:
+def make_shared_index() -> Iterator[Callable[..., _SharedIndex]]:
+    opened: list[tuple[int, SharedOwnerCore]] = []
+
+    def create(
+        slots: PositiveInt = 8,
+        arena_bytes: PositiveInt = 4096,
+        ring_tokens: PositiveInt = 8,
+    ) -> _SharedIndex:
+        index = OwnerIndex(slots, arena_bytes, 1, 1, 1, _EXPIRY_NS)
+        core = _shared_core(index, CacheCoreConfig(max_namespaces=1), 1)
+        ring = index.session_ring(ring_tokens)
+        descriptor = index.reader_descriptor()
+        reader = ReaderIndex(descriptor, ring.descriptor())
+        ring.close_descriptor()
+        index.set_progress(0, time.monotonic_ns())
+        opened.append((descriptor, core))
+        return _SharedIndex(core, index, ring, reader)
+
+    yield create
+    for descriptor, core in opened:
         os.close(descriptor)
         core.close()
+
+
+@pytest.fixture
+def bounded_shared_index(
+    make_shared_index: Callable[..., _SharedIndex],
+) -> tuple[SharedOwnerCore, OwnerIndex, ReaderIndex]:
+    core, index, _ring, reader = make_shared_index()
+    return core, index, reader
 
 
 def test_recycled_namespace_slot_rejects_a_reader_with_the_old_epoch(
@@ -252,23 +277,6 @@ def test_every_write_removes_find_publication_without_removing_other_identities(
         )
 
 
-class _Racing:
-    __slots__ = ("_action", "_value")
-
-    def __init__(self, value: object, action: Callable[[], object]) -> None:
-        self._value = value
-        self._action: Callable[[], object] | None = action
-
-    def __hash__(self) -> int:
-        action, self._action = self._action, None
-        if action is not None:
-            action()
-        return hash(self._value)
-
-    def __ne__(self, other: object) -> bool:
-        return other is not self
-
-
 @pytest.mark.parametrize("race", ["write", "unavailable", "reset"])
 def test_a_mutation_during_admission_prevents_its_publication(
     bounded_shared_index: tuple[SharedOwnerCore, OwnerIndex, ReaderIndex],
@@ -283,61 +291,52 @@ def test_a_mutation_during_admission_prevents_its_publication(
         "reset": lambda: core.clear_namespace(namespace),
     }
 
-    outcome = _admit(core, namespace, 1, {"value": 1}, _Racing(_SHAPE, actions[race]))
+    outcome = _admit(core, namespace, 1, {"value": 1}, Racing(_SHAPE, actions[race]))
 
     assert outcome is not AdmissionOutcome.ADMITTED
     assert index.published() == 0
     assert core.snapshot().entry_count == 0
 
 
-def test_a_full_arena_keeps_owner_served_bytes_without_publication() -> None:
-    index = OwnerIndex(8, 64, 1, 1, 1, _EXPIRY_NS)
-    core = _shared_core(index, CacheCoreConfig(max_namespaces=1), 1)
-    try:
-        _assign(core, _NAMESPACES[0])
-        value = {"text": "x" * 128}
+def test_a_full_arena_keeps_owner_served_bytes_without_publication(
+    make_shared_index: Callable[..., _SharedIndex],
+) -> None:
+    shared = make_shared_index(arena_bytes=64)
+    core = shared.core
+    _assign(core, _NAMESPACES[0])
+    value = {"text": "x" * 128}
 
-        assert _admit(core, _NAMESPACES[0], 1, value) is AdmissionOutcome.ADMITTED
-        assert index.published() == 0
-        assert core.lookup_identity_encoded(_NAMESPACES[0], 1, _SHAPE) == (
-            encode_value(value)
-        )
-    finally:
-        core.close()
+    assert _admit(core, _NAMESPACES[0], 1, value) is AdmissionOutcome.ADMITTED
+    assert shared.owner_index.published() == 0
+    assert core.lookup_identity_encoded(_NAMESPACES[0], 1, _SHAPE) == (
+        encode_value(value)
+    )
 
 
-def test_a_touch_token_of_a_reclaimed_entry_does_not_touch_its_replacement() -> None:
-    index = OwnerIndex(_SLOTS, _ARENA_BYTES, 1, 1, 1, _EXPIRY_NS)
-    core = _shared_core(index, CacheCoreConfig(max_namespaces=1), 1)
-    ring = index.session_ring(_RING_TOKENS)
-    descriptor = index.reader_descriptor()
-    reader = ReaderIndex(descriptor, ring.descriptor())
-    ring.close_descriptor()
-    index.set_progress(0, time.monotonic_ns())
+def test_a_touch_token_of_a_reclaimed_entry_does_not_touch_its_replacement(
+    make_shared_index: Callable[..., _SharedIndex],
+) -> None:
+    core, _index, ring, reader = make_shared_index(_SLOTS, _ARENA_BYTES, _RING_TOKENS)
     namespace = _NAMESPACES[0]
-    try:
-        slot = _assign(core, namespace)
-        assert slot is not None
-        epoch = core.current_epoch(namespace)
-        _admit(core, namespace, 1, {"value": "replaced"})
-        assert reader.lookup(*slot, epoch, _identity_key(1), _shape_key(_SHAPE))
-        core.record_write(namespace, 1)
-        _admit(core, namespace, 2, {"value": "older"})
-        assert _admit(core, namespace, 1, {"value": "replacement"}) is (
-            AdmissionOutcome.ADMITTED
-        )
-        _admit(core, namespace, 3, {"value": "newest"})
-        recency = core._recency()
+    slot = _assign(core, namespace)
+    assert slot is not None
+    epoch = core.current_epoch(namespace)
+    _admit(core, namespace, 1, {"value": "replaced"})
+    assert reader.lookup(*slot, epoch, _identity_key(1), _shape_key(_SHAPE))
+    core.record_write(namespace, 1)
+    _admit(core, namespace, 2, {"value": "older"})
+    assert _admit(core, namespace, 1, {"value": "replacement"}) is (
+        AdmissionOutcome.ADMITTED
+    )
+    _admit(core, namespace, 3, {"value": "newest"})
+    recency = core._recency()
 
-        core.touch(ring)
-        assert core._recency() == recency
-        assert reader.lookup(*slot, epoch, _identity_key(2), _shape_key(_SHAPE))
-        core.touch(ring)
+    core.touch(ring)
+    assert core._recency() == recency
+    assert reader.lookup(*slot, epoch, _identity_key(2), _shape_key(_SHAPE))
+    core.touch(ring)
 
-        assert core._recency() == [*recency[1:], recency[0]]
-    finally:
-        os.close(descriptor)
-        core.close()
+    assert core._recency() == [*recency[1:], recency[0]]
 
 
 def test_close_withdraws_every_publication(
