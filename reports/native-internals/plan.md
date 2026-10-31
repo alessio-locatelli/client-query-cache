@@ -50,7 +50,7 @@ The identity cell is the D4 queue check: validated shared cold cells wait for ow
 **Candidate benchmark.** `research/native_local_integration/acquire.py` defines each candidate's target and control cells in `CANDIDATES`. Run three blocks with predecessor/candidate order P/C, C/P, P/C:
 
 ```bash
-<installed-python> -m research.native_local_integration.acquire --registration native-internals --label <label> --block <0-2> --wheel <absolute-wheel> --existing-nodes /tmp/agents/native-internals/existing-nodes.txt --components candidate --candidate <capture|preparation|owner> --profile --output /tmp/agents/native-internals/<candidate>/b<block>-<label>
+<installed-python> -m research.native_local_integration.acquire --registration native-internals --label <label> --block <0-2> --wheel <absolute-wheel> --existing-nodes /tmp/agents/native-internals/existing-nodes.txt --components candidate --candidate <capture|preparation|owner> --profile --output /tmp/agents/native-internals/bench-<candidate>/b<block>-<label>
 ```
 
 `--profile` adds one bounded profiled window per target cell and model after its timed window. Profiled windows never enter timing comparisons. Before a candidate's timing, record its baseline-only calibration below and adjust the registered sample counts within D6's ceilings.
