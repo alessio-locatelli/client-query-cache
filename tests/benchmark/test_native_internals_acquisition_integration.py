@@ -28,8 +28,9 @@ pytestmark = pytest.mark.integration
 _WORKERS: PositiveInt = 2
 _KEYS: PositiveInt = 4
 _READS: PositiveInt = 4
-# The default collector shape keeps its four workers and spawned owner busy.
-_COLLECTOR_PROCESSES: PositiveInt = 5
+_DEFAULT_COLLECTOR_WORKERS: PositiveInt = 4
+_SPAWNED_OWNERS: PositiveInt = 1
+_COLLECTOR_PROCESSES = _DEFAULT_COLLECTOR_WORKERS + _SPAWNED_OWNERS
 _INTERRUPT_EXIT = 128 + signal.SIGTERM
 
 

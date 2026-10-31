@@ -121,7 +121,7 @@ def native() -> Generator[LocalCacheCore]:
 
 @contextmanager
 def managed_core(
-    factory: type[LocalCacheCore], config: CacheCoreConfig
+    factory: Callable[[CacheCoreConfig], LocalCacheCore], config: CacheCoreConfig
 ) -> Generator[LocalCacheCore]:
     core = factory(config)
     assert core.max_namespaces == config.max_namespaces
@@ -749,46 +749,39 @@ def apply(core: LocalCacheCore, operation: str, key: int, value: int) -> object:
     return None
 
 
-@pytest.mark.parametrize("candidate", ["local", "shared", "arena"])
+def _shared_owner(
+    config: CacheCoreConfig, index: OwnerIndex | None = None
+) -> LocalCacheCore:
+    return SharedOwnerCore(
+        config, index, [_NAMESPACE.database], config.max_namespaces, _PROBE_TTL_SECONDS
+    )
+
+
+_CANDIDATE_CORES: dict[str, Callable[[CacheCoreConfig], LocalCacheCore]] = {
+    "local": NativeCacheCore,
+    "shared": _shared_owner,
+    "arena": lambda config: _shared_owner(
+        config, OwnerIndex(64, 64 * 1024, 1, config.max_namespaces, 1, _EXPIRY_NS)
+    ),
+}
+
+
+@pytest.mark.parametrize("candidate", tuple(_CANDIDATE_CORES))
 @settings(max_examples=100, deadline=None)
 @given(operations=_OPERATIONS)
 def test_native_matches_reference_across_collision_and_eviction_schedules(
     candidate: str, operations: list[tuple[str, int, int]]
 ) -> None:
-    with matching_cores(candidate) as (reference, native):
+    config = CacheCoreConfig(shared_budget_bytes=128, max_entry_bytes=64)
+    with (
+        managed_core(CacheCore, config) as reference,
+        managed_core(_CANDIDATE_CORES[candidate], config) as native,
+    ):
         for operation, key, value in operations:
             assert apply(native, operation, key, value) == apply(
                 reference, operation, key, value
             )
             assert native.snapshot() == reference.snapshot()
-
-
-@contextmanager
-def matching_cores(
-    candidate: str,
-) -> Generator[tuple[LocalCacheCore, LocalCacheCore]]:
-    config = CacheCoreConfig(shared_budget_bytes=128, max_entry_bytes=64)
-    with managed_core(CacheCore, config) as reference:
-        if candidate == "local":
-            with managed_core(NativeCacheCore, config) as native:
-                yield reference, native
-            return
-        index = (
-            OwnerIndex(64, 64 * 1024, 1, config.max_namespaces, 1, _EXPIRY_NS)
-            if candidate == "arena"
-            else None
-        )
-        shared = SharedOwnerCore(
-            config,
-            index,
-            [_NAMESPACE.database],
-            config.max_namespaces,
-            _PROBE_TTL_SECONDS,
-        )
-        try:
-            yield reference, shared
-        finally:
-            shared.close()
 
 
 @pytest.mark.parametrize(

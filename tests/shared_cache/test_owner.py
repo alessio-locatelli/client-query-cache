@@ -53,7 +53,7 @@ from client_query_cache._shared.wire import (
 )
 from client_query_cache._shared_index import ReaderIndex
 from client_query_cache._types import NonNegativeFloat, NonNegativeInt, PositiveFloat
-from tests.shared_cache.conftest import LIMITS, wait_for
+from tests.shared_cache.conftest import LIMITS, Racing, wait_for
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable, Iterator
@@ -694,36 +694,8 @@ def _committed(session: _Session, value: bytes, _patch: pytest.MonkeyPatch) -> b
     return value
 
 
-class _Racing:
-    __slots__ = ("_action", "_on_hash", "_value")
-
-    def __init__(
-        self, value: object, action: Callable[[], object], *, on_hash: bool = True
-    ) -> None:
-        self._value = value
-        self._action: Callable[[], object] | None = action
-        self._on_hash = on_hash
-
-    def _race(self) -> None:
-        action, self._action = self._action, None
-        if action is not None:
-            action()
-
-    def __hash__(self) -> int:
-        if self._on_hash:
-            self._race()
-        return hash(self._value)
-
-    def __eq__(self, other: object) -> bool:
-        self._race()
-        return other == self._value
-
-    def __ne__(self, other: object) -> bool:
-        return other is not self
-
-
 def _racing_decode(
-    monkeypatch: pytest.MonkeyPatch, shape: object, racing: _Racing
+    monkeypatch: pytest.MonkeyPatch, shape: object, racing: Racing
 ) -> None:
     decode = KeyCache.decode
     encoded = encode_key(shape)
@@ -736,7 +708,7 @@ def _racing_decode(
 
 def _rolled_back(session: _Session, value: bytes, _patch: pytest.MonkeyPatch) -> None:
     core = session.owner.core
-    racing = _Racing(_SHAPE, lambda: core.record_write(_NAMESPACE, 1))
+    racing = Racing(_SHAPE, lambda: core.record_write(_NAMESPACE, 1))
     assert (
         core.admit_identity_published(
             core.begin_identity_admission(_NAMESPACE, 1),
@@ -854,7 +826,7 @@ def test_an_rpc_hit_never_returns_a_reused_block(
             core.admit_identity_encoded(capture, _SHAPE, b"x" * _FILLER_BYTES)
         reused.append(index.store(faker.binary(length=len(value))))
 
-    _racing_decode(monkeypatch, _SHAPE, _Racing(_SHAPE, evict_and_reuse, on_hash=False))
+    _racing_decode(monkeypatch, _SHAPE, Racing(_SHAPE, evict_and_reuse, on_hash=False))
 
     reply = session.select(1)
 
@@ -1731,7 +1703,7 @@ def test_core_mutations_after_token_validation_prevent_local_publication(
             session.owner.core.set_database_available(_DATABASE, available=False)
             session.owner.core.set_database_available(_DATABASE, available=True)
 
-    _racing_decode(monkeypatch, _SHAPE, _Racing(_SHAPE, mutate))
+    _racing_decode(monkeypatch, _SHAPE, Racing(_SHAPE, mutate))
     session.owner._admit_local(local_miss)
     assert session.owner.counters.rejected_admissions == 1
     assert session.local(0) is None
@@ -1784,7 +1756,7 @@ def test_progress_publication_waits_for_local_admission_commit(
         assert attempted.wait(1)
         assert not published.is_set()
 
-    _racing_decode(monkeypatch, _SHAPE, _Racing(_SHAPE, admit))
+    _racing_decode(monkeypatch, _SHAPE, Racing(_SHAPE, admit))
     session.owner._admit_local(local_miss)
     thread.join(1)
     assert published.is_set()
