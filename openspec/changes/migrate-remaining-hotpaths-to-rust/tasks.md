@@ -16,7 +16,7 @@ Use [design.md](design.md) for architecture, workload definitions and decision r
 ## 3. Integrate fused request preparation
 
 - [x] 3.1 Implement D3 behind the existing canonicalization/read-preparation entry points and update the native operation bindings/stubs and sync/async/shared callers. Extend the existing canonical, order-sensitive, read-classification, filter, and shared-wire cases with generated nested inputs, mutable execution changes, opaque/reentrant/raising leaves, numeric subtypes and exact bypass precedence. Confirm prepared portable-find bytes still match the existing encoder.
-- [ ] 3.2 Apply the D6 preflight and single preparation benchmark against the retained predecessor. Record attribution, disposition and reproduction source in the report, adjust the performance record for a retained result, and remove unqualified changes before group 4.
+- [x] 3.2 Apply the D6 preflight and single preparation benchmark against the retained predecessor. Record attribution, disposition and reproduction source in the report, adjust the performance record for a retained result, and remove unqualified changes before group 4.
 
 ## 4. Integrate native shared ownership
 
