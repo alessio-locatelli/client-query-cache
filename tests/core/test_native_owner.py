@@ -30,6 +30,7 @@ from client_query_cache._core.keys import (
 from client_query_cache._core.manager import CacheCore, CacheCoreConfig
 from client_query_cache._shared import coordinator as shared_coordinator
 from client_query_cache._shared_index import LocalCacheCore as NativeCacheCore
+from client_query_cache._shared_index import OwnerIndex, SharedOwnerCore
 from client_query_cache._types import BsonDict, NonNegativeInt
 from client_query_cache.asynchronous import CacheManager as AsyncManager
 from client_query_cache.synchronous import CacheManager as SyncManager
@@ -46,6 +47,8 @@ if TYPE_CHECKING:
 pytestmark = pytest.mark.unit
 _NAMESPACE = NamespaceId("native_owner", "values")
 _COLLISION_HASH = 137
+_EXPIRY_NS = 60 * 10**9
+_PROBE_TTL_SECONDS = 30.0
 
 
 class Ownership(NamedTuple):
@@ -644,7 +647,7 @@ def construction_probe() -> tuple[bool, bool, bool]:
     return (
         synchronous,
         asyncio.run(async_construction()),
-        shared_coordinator.CacheCore is CacheCore,  # type: ignore[attr-defined] # The private imported constructor is intentionally inspected.
+        shared_coordinator.SharedOwnerCore is SharedOwnerCore,  # type: ignore[attr-defined] # The private imported constructor is intentionally inspected.
     )
 
 
@@ -746,12 +749,13 @@ def apply(core: LocalCacheCore, operation: str, key: int, value: int) -> object:
     return None
 
 
+@pytest.mark.parametrize("candidate", ["local", "shared", "arena"])
 @settings(max_examples=100, deadline=None)
 @given(operations=_OPERATIONS)
 def test_native_matches_reference_across_collision_and_eviction_schedules(
-    operations: list[tuple[str, int, int]],
+    candidate: str, operations: list[tuple[str, int, int]]
 ) -> None:
-    with matching_cores() as (reference, native):
+    with matching_cores(candidate) as (reference, native):
         for operation, key, value in operations:
             assert apply(native, operation, key, value) == apply(
                 reference, operation, key, value
@@ -760,13 +764,31 @@ def test_native_matches_reference_across_collision_and_eviction_schedules(
 
 
 @contextmanager
-def matching_cores() -> Generator[tuple[LocalCacheCore, LocalCacheCore]]:
+def matching_cores(
+    candidate: str,
+) -> Generator[tuple[LocalCacheCore, LocalCacheCore]]:
     config = CacheCoreConfig(shared_budget_bytes=128, max_entry_bytes=64)
-    with (
-        managed_core(CacheCore, config) as reference,
-        managed_core(NativeCacheCore, config) as native,
-    ):
-        yield reference, native
+    with managed_core(CacheCore, config) as reference:
+        if candidate == "local":
+            with managed_core(NativeCacheCore, config) as native:
+                yield reference, native
+            return
+        index = (
+            OwnerIndex(64, 64 * 1024, 1, config.max_namespaces, 1, _EXPIRY_NS)
+            if candidate == "arena"
+            else None
+        )
+        shared = SharedOwnerCore(
+            config,
+            index,
+            [_NAMESPACE.database],
+            config.max_namespaces,
+            _PROBE_TTL_SECONDS,
+        )
+        try:
+            yield reference, shared
+        finally:
+            shared.close()
 
 
 @pytest.mark.parametrize(

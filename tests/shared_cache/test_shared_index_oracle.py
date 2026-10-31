@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from typing import TYPE_CHECKING, TypedDict
 
 import pytest
@@ -22,24 +23,16 @@ from client_query_cache._core.codec import encode_value
 from client_query_cache._core.entries import AdmissionOutcome
 from client_query_cache._core.find_reads import FindReadShape
 from client_query_cache._core.keys import NamespaceId
-from client_query_cache._core.manager import (
-    CacheCore,
-    CacheCoreConfig,
-    IdentityCapture,
-    NamespaceCapture,
-)
+from client_query_cache._core.manager import CacheCoreConfig
 from client_query_cache._core.order_sensitive_keys import order_sensitive_key
-from client_query_cache._shared.shared_index import (
-    ArenaPayloads,
-    IndexPublisher,
-    NamespaceSlot,
-)
 from client_query_cache._shared.wire import encode_key
-from client_query_cache._shared_index import OwnerIndex, ReaderIndex
+from client_query_cache._shared_index import OwnerIndex, ReaderIndex, SharedOwnerCore
 from client_query_cache._types import NonNegativeInt
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
+
+    from client_query_cache._shared_index import LocalCapture
 
 pytestmark = pytest.mark.unit
 
@@ -50,6 +43,7 @@ _SHAPES = ("full", "summary")
 _EVICTING_BUDGET = CacheCoreConfig(shared_budget_bytes=1_024, max_entry_bytes=512)
 _TEXT_CHARACTERS = st.integers(min_value=0, max_value=200)
 _EXPIRY_NS = 60 * 10**9
+_PROBE_TTL_SECONDS = 30.0
 _SLOTS = 64
 _ARENA_BYTES = 64 * 1024
 _RING_TOKENS = 4_096
@@ -58,150 +52,168 @@ _BOUNDED_FIND_SHAPE = FindReadShape(("find", "sorted"), 8)
 _FIND_SHAPES = tuple(
     FindReadShape(("find", name), limit) for name in _SHAPES for limit in (1, 3)
 )
+_SHAPE = "full"
+
+
+def _identity_key(identity: object) -> bytes:
+    return encode_key(canonicalize(order_sensitive_key(identity)))
+
+
+def _shape_key(shape: object) -> bytes:
+    return encode_key(canonicalize(shape))
+
+
+def _assign(
+    core: SharedOwnerCore, namespace: NamespaceId
+) -> tuple[NonNegativeInt, NonNegativeInt] | None:
+    token = core.begin_namespace_metadata_probe(namespace)
+    if token is None:
+        return None
+    metadata = core.namespace_metadata_after_probe(namespace, token)
+    assert metadata is not None
+    return metadata[2]
+
+
+def _admit(
+    core: SharedOwnerCore,
+    namespace: NamespaceId,
+    identity: object,
+    value: object,
+    shape: object = _SHAPE,
+) -> AdmissionOutcome:
+    return core.admit_identity_published(
+        core.begin_identity_admission(namespace, identity),
+        shape,
+        encode_value(value),
+        _identity_key(identity),
+        _shape_key(_SHAPE),
+    )
+
+
+def _admit_find(
+    core: SharedOwnerCore,
+    capture: LocalCapture,
+    shape: FindReadShape,
+    value: object,
+) -> AdmissionOutcome:
+    return core.admit_namespace_published(
+        capture,
+        shape.discriminator,
+        encode_value(value),
+        _shape_key(shape.discriminator),
+        find_source=shape.source,
+    )
+
+
+def _shared_core(
+    index: OwnerIndex, config: CacheCoreConfig, namespaces: int
+) -> SharedOwnerCore:
+    return SharedOwnerCore(config, index, [_DATABASE], namespaces, _PROBE_TTL_SECONDS)
 
 
 @pytest.fixture
-def bounded_shared_index() -> Iterator[
-    tuple[CacheCore, IndexPublisher, OwnerIndex, ReaderIndex]
-]:
+def bounded_shared_index() -> Iterator[tuple[SharedOwnerCore, OwnerIndex, ReaderIndex]]:
     index = OwnerIndex(8, 4096, 1, 1, 1, _EXPIRY_NS)
-    publisher = IndexPublisher(index, (_DATABASE,), 1)
-    core = CacheCore(
-        CacheCoreConfig(max_namespaces=1),
-        observer=publisher,
-        payloads=ArenaPayloads(index),
-    )
+    core = _shared_core(index, CacheCoreConfig(max_namespaces=1), 1)
     ring = index.session_ring(8)
     descriptor = index.reader_descriptor()
     reader = ReaderIndex(descriptor, ring.descriptor())
     ring.close_descriptor()
-    publisher.progress(_DATABASE)
+    index.set_progress(0, time.monotonic_ns())
     try:
-        yield core, publisher, index, reader
+        yield core, index, reader
     finally:
         os.close(descriptor)
         core.close()
 
 
 def test_recycled_namespace_slot_rejects_a_reader_with_the_old_epoch(
-    bounded_shared_index: tuple[CacheCore, IndexPublisher, OwnerIndex, ReaderIndex],
+    bounded_shared_index: tuple[SharedOwnerCore, OwnerIndex, ReaderIndex],
 ) -> None:
-    core, publisher, _index, reader = bounded_shared_index
-    identity = encode_key(canonicalize(order_sensitive_key(1)))
-    shape = encode_key(canonicalize("full"))
+    core, _index, reader = bounded_shared_index
+    identity = _identity_key(1)
+    shape = _shape_key(_SHAPE)
     first = NamespaceId(_DATABASE, "first")
     second = NamespaceId(_DATABASE, "second")
+    first_slot = _assign(core, first)
     first_epoch = core.current_epoch(first)
-    first_slot = publisher.assign(first, first_epoch)
     assert first_slot is not None
-    assert (
-        core.admit_identity(
-            core.begin_identity_admission(first, 1), "full", {"value": "first"}
-        )
-        is AdmissionOutcome.ADMITTED
-    )
-    assert (
-        reader.lookup(
-            first_slot.database, first_slot.namespace, first_epoch, identity, shape
-        )
-        is not None
-    )
+    assert _admit(core, first, 1, {"value": "first"}) is AdmissionOutcome.ADMITTED
+    assert reader.lookup(*first_slot, first_epoch, identity, shape) is not None
 
     core.drop_namespace(first)
+    second_slot = _assign(core, second)
     second_epoch = core.current_epoch(second)
-    second_slot = publisher.assign(second, second_epoch)
     assert second_slot == first_slot
     assert second_epoch > first_epoch
-    assert (
-        core.admit_identity(
-            core.begin_identity_admission(second, 1), "full", {"value": "second"}
-        )
-        is AdmissionOutcome.ADMITTED
-    )
+    assert _admit(core, second, 1, {"value": "second"}) is AdmissionOutcome.ADMITTED
 
-    assert (
-        reader.lookup(
-            second_slot.database, second_slot.namespace, first_epoch, identity, shape
-        )
-        is None
-    )
-    assert (
-        reader.lookup(
-            second_slot.database, second_slot.namespace, second_epoch, identity, shape
-        )
-        is not None
-    )
+    assert reader.lookup(*second_slot, first_epoch, identity, shape) is None
+    assert reader.lookup(*second_slot, second_epoch, identity, shape) is not None
 
 
-def test_publisher_returns_no_slot_when_its_capacity_is_full(
-    bounded_shared_index: tuple[CacheCore, IndexPublisher, OwnerIndex, ReaderIndex],
+def test_a_namespace_beyond_the_slot_capacity_receives_no_slot(
+    bounded_shared_index: tuple[SharedOwnerCore, OwnerIndex, ReaderIndex],
 ) -> None:
-    _core, publisher, _index, _reader = bounded_shared_index
+    core, _index, _reader = bounded_shared_index
 
-    assert publisher.assign(_NAMESPACES[0], 0) == NamespaceSlot(0, 0)
-    assert publisher.assign(_NAMESPACES[1], 0) is None
+    assert _assign(core, _NAMESPACES[0]) == (0, 0)
+    assert _assign(core, _NAMESPACES[1]) is None
+    assert core.assigned_slot(_NAMESPACES[1]) is None
 
 
 def test_unassigned_namespace_lifecycle_events_do_not_publish_to_the_index(
-    bounded_shared_index: tuple[CacheCore, IndexPublisher, OwnerIndex, ReaderIndex],
+    bounded_shared_index: tuple[SharedOwnerCore, OwnerIndex, ReaderIndex],
 ) -> None:
-    core, publisher, _index, _reader = bounded_shared_index
+    core, index, _reader = bounded_shared_index
     namespace = NamespaceId(_DATABASE, "unassigned")
-    capture = core.begin_identity_admission(namespace, 1)
 
-    assert (
-        core.admit_identity(capture, "full", {"value": "unassigned"})
-        is AdmissionOutcome.ADMITTED
+    assert _admit(core, namespace, 1, {"value": "unassigned"}) is (
+        AdmissionOutcome.ADMITTED
     )
     core.record_write(namespace, 1)
     core.record_write(namespace, float("nan"))
     core.clear_namespace(namespace)
     core.drop_namespace(namespace)
 
-    assert publisher.assigned(namespace) is None
-    assert publisher._published == {}
+    assert core.assigned_slot(namespace) is None
+    assert index.published() == 0
 
 
 def test_stale_namespace_release_does_not_remove_a_reused_namespace_slot(
-    bounded_shared_index: tuple[CacheCore, IndexPublisher, OwnerIndex, ReaderIndex],
+    bounded_shared_index: tuple[SharedOwnerCore, OwnerIndex, ReaderIndex],
 ) -> None:
-    core, publisher, _index, _reader = bounded_shared_index
+    core, _index, _reader = bounded_shared_index
     namespace = _NAMESPACES[0]
+    first_slot = _assign(core, namespace)
     first_epoch = core.current_epoch(namespace)
-    first_slot = publisher.assign(namespace, first_epoch)
     assert first_slot is not None
 
     core.drop_namespace(namespace)
-    next_epoch = core.current_epoch(namespace)
-    next_slot = publisher.assign(namespace, next_epoch)
+    next_slot = _assign(core, namespace)
     assert next_slot == first_slot
 
-    publisher.namespace_released(namespace, first_epoch)
-
-    assert publisher.assigned(namespace) == next_slot
+    assert not core.release_namespace_if_epoch_matches(namespace, first_epoch)
+    assert core.assigned_slot(namespace) == next_slot
 
 
 def test_namespace_churn_reuses_owner_state_and_shared_slot(
-    bounded_shared_index: tuple[CacheCore, IndexPublisher, OwnerIndex, ReaderIndex],
+    bounded_shared_index: tuple[SharedOwnerCore, OwnerIndex, ReaderIndex],
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     caplog.set_level(logging.WARNING, logger="client_query_cache._core.manager")
-    core, publisher, _index, _reader = bounded_shared_index
+    core, _index, _reader = bounded_shared_index
 
     for index in range(1_000):
         namespace = NamespaceId(_DATABASE, f"collection_{index}")
-        epoch = core.current_epoch(namespace)
-        slot = publisher.assign(namespace, epoch)
+        slot = _assign(core, namespace)
         core.record_write(namespace, 0)
 
-        assert slot == NamespaceSlot(0, 0)
+        assert slot == (0, 0)
         core.drop_namespace(namespace)
+        assert core.assigned_slot(namespace) is None
 
-    assert len(core._namespaces) == 0
-    assert len(core._database_namespaces) == 0
-    assert publisher._namespaces == {}
-    assert publisher._epochs == {}
-    assert publisher._free_slots == [0]
+    assert core._ownership()[0] == 0
 
 
 @pytest.mark.parametrize(
@@ -210,65 +222,144 @@ def test_namespace_churn_reuses_owner_state_and_shared_slot(
     ids=["ordinary", "non-reflexive", "unhashable"],
 )
 def test_every_write_removes_find_publication_without_removing_other_identities(
-    bounded_shared_index: tuple[CacheCore, IndexPublisher, OwnerIndex, ReaderIndex],
+    bounded_shared_index: tuple[SharedOwnerCore, OwnerIndex, ReaderIndex],
     identity: object,
 ) -> None:
-    core, publisher, index, reader = bounded_shared_index
+    core, index, reader = bounded_shared_index
     namespace = NamespaceId("oracle", "first")
+    slot = _assign(core, namespace)
     epoch = core.current_epoch(namespace)
-    slot = publisher.assign(namespace, epoch)
     assert slot is not None
-    core.admit_identity(core.begin_identity_admission(namespace, 1), "full", {"_id": 1})
+    _admit(core, namespace, 1, {"_id": 1})
+    find_key = _shape_key(_BOUNDED_FIND_SHAPE.discriminator)
     for _ in range(2):
         capture = core.capture_namespace_generation(namespace)
         assert (
-            core.admit_namespace(
-                capture,
-                _BOUNDED_FIND_SHAPE.discriminator,
-                [],
-                find_source=_BOUNDED_FIND_SHAPE.source,
-            )
+            _admit_find(core, capture, _BOUNDED_FIND_SHAPE, [])
             is AdmissionOutcome.ADMITTED
         )
-        assert (
-            reader.lookup(
-                0,
-                slot.namespace,
-                epoch,
-                b"",
-                encode_key(canonicalize(_BOUNDED_FIND_SHAPE.discriminator)),
-            )
-            is not None
-        )
+        assert reader.lookup(*slot, epoch, b"", find_key) is not None
         core.record_write(namespace, identity)
+        assert reader.lookup(*slot, epoch, b"", find_key) is None
         assert (
-            reader.lookup(
-                0,
-                slot.namespace,
-                epoch,
-                b"",
-                encode_key(canonicalize(_BOUNDED_FIND_SHAPE.discriminator)),
-            )
-            is None
-        )
-        assert (
-            reader.lookup(0, slot.namespace, epoch, encode_key(1), encode_key("full"))
+            reader.lookup(*slot, epoch, _identity_key(1), _shape_key(_SHAPE))
             is not None
         )
         assert index.published() == 1
         assert (
-            core.admit_namespace(
-                capture,
-                _BOUNDED_FIND_SHAPE.discriminator,
-                [],
-                find_source=_BOUNDED_FIND_SHAPE.source,
-            )
+            _admit_find(core, capture, _BOUNDED_FIND_SHAPE, [])
             is AdmissionOutcome.DECLINED_STALE
         )
 
 
-class LocalCapture(TypedDict):
-    core: NamespaceCapture
+class _Racing:
+    __slots__ = ("_action", "_value")
+
+    def __init__(self, value: object, action: Callable[[], object]) -> None:
+        self._value = value
+        self._action: Callable[[], object] | None = action
+
+    def __hash__(self) -> int:
+        action, self._action = self._action, None
+        if action is not None:
+            action()
+        return hash(self._value)
+
+    def __ne__(self, other: object) -> bool:
+        return other is not self
+
+
+@pytest.mark.parametrize("race", ["write", "unavailable", "reset"])
+def test_a_mutation_during_admission_prevents_its_publication(
+    bounded_shared_index: tuple[SharedOwnerCore, OwnerIndex, ReaderIndex],
+    race: str,
+) -> None:
+    core, index, _reader = bounded_shared_index
+    namespace = _NAMESPACES[0]
+    _assign(core, namespace)
+    actions: dict[str, Callable[[], object]] = {
+        "write": lambda: core.record_write(namespace, 1),
+        "unavailable": lambda: core.set_database_available(_DATABASE, available=False),
+        "reset": lambda: core.clear_namespace(namespace),
+    }
+
+    outcome = _admit(core, namespace, 1, {"value": 1}, _Racing(_SHAPE, actions[race]))
+
+    assert outcome is not AdmissionOutcome.ADMITTED
+    assert index.published() == 0
+    assert core.snapshot().entry_count == 0
+
+
+def test_a_full_arena_keeps_owner_served_bytes_without_publication() -> None:
+    index = OwnerIndex(8, 64, 1, 1, 1, _EXPIRY_NS)
+    core = _shared_core(index, CacheCoreConfig(max_namespaces=1), 1)
+    try:
+        _assign(core, _NAMESPACES[0])
+        value = {"text": "x" * 128}
+
+        assert _admit(core, _NAMESPACES[0], 1, value) is AdmissionOutcome.ADMITTED
+        assert index.published() == 0
+        assert core.lookup_identity_encoded(_NAMESPACES[0], 1, _SHAPE) == (
+            encode_value(value)
+        )
+    finally:
+        core.close()
+
+
+def test_a_touch_token_of_a_reclaimed_entry_does_not_touch_its_replacement() -> None:
+    index = OwnerIndex(_SLOTS, _ARENA_BYTES, 1, 1, 1, _EXPIRY_NS)
+    core = _shared_core(index, CacheCoreConfig(max_namespaces=1), 1)
+    ring = index.session_ring(_RING_TOKENS)
+    descriptor = index.reader_descriptor()
+    reader = ReaderIndex(descriptor, ring.descriptor())
+    ring.close_descriptor()
+    index.set_progress(0, time.monotonic_ns())
+    namespace = _NAMESPACES[0]
+    try:
+        slot = _assign(core, namespace)
+        assert slot is not None
+        epoch = core.current_epoch(namespace)
+        _admit(core, namespace, 1, {"value": "replaced"})
+        assert reader.lookup(*slot, epoch, _identity_key(1), _shape_key(_SHAPE))
+        core.record_write(namespace, 1)
+        _admit(core, namespace, 2, {"value": "older"})
+        assert _admit(core, namespace, 1, {"value": "replacement"}) is (
+            AdmissionOutcome.ADMITTED
+        )
+        _admit(core, namespace, 3, {"value": "newest"})
+        recency = core._recency()
+
+        core.touch(ring)
+        assert core._recency() == recency
+        assert reader.lookup(*slot, epoch, _identity_key(2), _shape_key(_SHAPE))
+        core.touch(ring)
+
+        assert core._recency() == [*recency[1:], recency[0]]
+    finally:
+        os.close(descriptor)
+        core.close()
+
+
+def test_close_withdraws_every_publication(
+    bounded_shared_index: tuple[SharedOwnerCore, OwnerIndex, ReaderIndex],
+) -> None:
+    core, index, reader = bounded_shared_index
+    slot = _assign(core, _NAMESPACES[0])
+    assert slot is not None
+    epoch = core.current_epoch(_NAMESPACES[0])
+    capture = core.begin_identity_admission(_NAMESPACES[0], 2)
+    _admit(core, _NAMESPACES[0], 1, {"value": 1})
+
+    core.close()
+
+    assert index.published() == 0
+    assert reader.lookup(*slot, epoch, _identity_key(1), _shape_key(_SHAPE)) is None
+    capture.release()
+    assert capture.released
+
+
+class LocalCaptureState(TypedDict):
+    core: LocalCapture
     epoch: NonNegativeInt
     token: tuple[NonNegativeInt, NonNegativeInt, NonNegativeInt] | None
 
@@ -283,26 +374,22 @@ class _SharedIndexMachine(RuleBasedStateMachine):
         self.index = OwnerIndex(
             _SLOTS, _ARENA_BYTES, 1, len(_NAMESPACES), 1, _EXPIRY_NS
         )
-        self.publisher = IndexPublisher(self.index, (_DATABASE,), len(_NAMESPACES))
         self.index.enable_capture(enabled=True)
-        self.core = CacheCore(
-            _EVICTING_BUDGET,
-            observer=self.publisher,
-            payloads=ArenaPayloads(self.index),
-        )
+        self.core = _shared_core(self.index, _EVICTING_BUDGET, len(_NAMESPACES))
         ring = self.index.session_ring(_RING_TOKENS)
         descriptor = self.index.reader_descriptor()
         self.reader = ReaderIndex(descriptor, ring.descriptor())
         ring.close_descriptor()
         self.ring = ring
         self.descriptor = descriptor
-        self.slots: dict[NamespaceId, NamespaceSlot | None] = {}
+        self.slots: dict[NamespaceId, tuple[NonNegativeInt, NonNegativeInt]] = {}
         self.epochs: dict[NamespaceId, set[NonNegativeInt]] = {}
         for namespace in _NAMESPACES:
-            epoch = self.core.current_epoch(namespace)
-            self.slots[namespace] = self.publisher.assign(namespace, epoch)
-            self.epochs[namespace] = {epoch}
-        self.publisher.progress(_DATABASE)
+            slot = _assign(self.core, namespace)
+            assert slot is not None
+            self.slots[namespace] = slot
+            self.epochs[namespace] = {self.core.current_epoch(namespace)}
+        self.index.set_progress(0, time.monotonic_ns())
 
     def teardown(self) -> None:
         os.close(self.descriptor)
@@ -318,38 +405,34 @@ class _SharedIndexMachine(RuleBasedStateMachine):
         namespace=st.sampled_from(_NAMESPACES),
         identity=st.sampled_from(_IDENTITIES),
     )
-    def capture(self, namespace: NamespaceId, identity: int) -> IdentityCapture:
+    def capture(self, namespace: NamespaceId, identity: int) -> LocalCapture:
         return self.core.begin_identity_admission(namespace, identity)
 
     @rule(target=local_captures, namespace=st.sampled_from(_NAMESPACES))
-    def local_capture(self, namespace: NamespaceId) -> LocalCapture:
-        slot = self.slots[namespace]
-        assert slot is not None
+    def local_capture(self, namespace: NamespaceId) -> LocalCaptureState:
         epoch = self.core.current_epoch(namespace)
         return {
             "core": self.core.capture_namespace_generation(namespace),
             "epoch": epoch,
-            "token": self.reader.capture(slot.database, slot.namespace, epoch),
+            "token": self.reader.capture(*self.slots[namespace], epoch),
         }
 
     @rule(capture=consumes(local_captures))
-    def validate_local_capture(self, capture: LocalCapture) -> None:
+    def validate_local_capture(self, capture: LocalCaptureState) -> None:
         core_capture = capture["core"]
-        slot = self.slots[core_capture.namespace]
-        assert slot is not None
         token = capture["token"]
         if token is not None and self.index.validate_capture(
-            slot.database,
-            slot.namespace,
+            *self.slots[core_capture.namespace],
             capture["epoch"],
             self.reader.incarnation,
             token,
             _EXPIRY_NS,
         ):
             assert self.core.is_database_available(_DATABASE)
-            assert (
-                self.core.capture_namespace_generation(core_capture.namespace)
-                == core_capture
+            current = self.core.capture_namespace_generation(core_capture.namespace)
+            assert (current.generation_key, current.availability_generation) == (
+                core_capture.generation_key,
+                core_capture.availability_generation,
             )
 
     @rule(
@@ -359,10 +442,14 @@ class _SharedIndexMachine(RuleBasedStateMachine):
         characters=_TEXT_CHARACTERS,
     )
     def admit(
-        self, capture: IdentityCapture, shape: str, seed: int, characters: int
+        self, capture: LocalCapture, shape: str, seed: int, characters: int
     ) -> None:
-        self.core.admit_identity_encoded(
-            capture, shape, self._document(seed, characters)
+        self.core.admit_identity_published(
+            capture,
+            shape,
+            self._document(seed, characters),
+            _identity_key(capture.identity),
+            _shape_key(shape),
         )
 
     @rule(
@@ -383,34 +470,20 @@ class _SharedIndexMachine(RuleBasedStateMachine):
 
     @rule(fresh=st.booleans())
     def progress(self, *, fresh: bool) -> None:
-        if fresh:
-            self.publisher.progress(_DATABASE)
-        else:
-            self.index.set_progress(0, _STALE_PROGRESS_NS)
+        self.index.set_progress(0, time.monotonic_ns() if fresh else _STALE_PROGRESS_NS)
 
     @rule()
     def drain(self) -> None:
-        for token in (
-            self.ring.drain()
-        ):  # pragma: lax no cover (generated runs may drain only empty rings)
-            key = self.publisher.key(token)
-            if key is not None:
-                self.core._lru.touch(key)
+        self.core.touch(self.ring)
 
     @invariant()
     def local_values_match_the_core(self) -> None:
         for namespace, slot in self.slots.items():
-            assert slot is not None
             for identity in _IDENTITIES:
-                canonical = encode_key(canonicalize(order_sensitive_key(identity)))
                 for shape in _SHAPES:
                     for epoch in self.epochs[namespace]:
                         local = self.reader.lookup(
-                            slot.database,
-                            slot.namespace,
-                            epoch,
-                            canonical,
-                            encode_key(canonicalize(shape)),
+                            *slot, epoch, _identity_key(identity), _shape_key(shape)
                         )
                         if local is None:
                             continue
@@ -428,30 +501,20 @@ class _SharedFindIndexMachine(_SharedIndexMachine):
     find_captures = Bundle("find_captures")
 
     @rule(target=find_captures, namespace=st.sampled_from(_NAMESPACES))
-    def capture_find(self, namespace: NamespaceId) -> NamespaceCapture:
+    def capture_find(self, namespace: NamespaceId) -> LocalCapture:
         return self.core.capture_namespace_generation(namespace)
 
     @rule(capture=consumes(find_captures), shape=st.sampled_from(_FIND_SHAPES))
-    def admit_find(self, capture: NamespaceCapture, shape: FindReadShape) -> None:
-        self.core.admit_namespace(
-            capture,
-            shape.discriminator,
-            [{"name": self.faker.name()}],
-            find_source=shape.source,
-        )
+    def admit_find(self, capture: LocalCapture, shape: FindReadShape) -> None:
+        _admit_find(self.core, capture, shape, [{"name": self.faker.name()}])
 
     @invariant()
     def local_find_values_match_the_core(self) -> None:
         for namespace, slot in self.slots.items():
-            assert slot is not None
             for find_shape in _FIND_SHAPES:
                 for epoch in self.epochs[namespace]:
                     local = self.reader.lookup(
-                        slot.database,
-                        slot.namespace,
-                        epoch,
-                        b"",
-                        encode_key(canonicalize(find_shape.discriminator)),
+                        *slot, epoch, b"", _shape_key(find_shape.discriminator)
                     )
                     if local is not None:
                         assert local == self.core.lookup_find_encoded(

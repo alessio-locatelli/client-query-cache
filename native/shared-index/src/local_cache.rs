@@ -10,7 +10,12 @@ use pyo3::prelude::*;
 use pyo3::pybacked::PyBackedStr;
 use pyo3::types::{PyBool, PyBytes, PyDict, PyTuple, PyType, PyWeakrefMethods, PyWeakrefReference};
 
+use crate::index::Block;
 use crate::keys::OrderedKeys;
+
+mod shared;
+
+pub(crate) use shared::SharedOwner;
 
 const CHUNK: usize = 64;
 const ADMITTED: usize = 0;
@@ -253,15 +258,29 @@ struct AliasPublication<'a, 'py> {
     metadata: Handle,
 }
 
+enum Stored {
+    Bytes(Py<PyBytes>),
+    Arena(Block),
+}
+
+impl Stored {
+    fn clone_ref(&self, py: Python<'_>) -> Self {
+        match self {
+            Self::Bytes(bytes) => Self::Bytes(bytes.clone_ref(py)),
+            Self::Arena(block) => Self::Arena(*block),
+        }
+    }
+}
+
 enum Body {
     Namespace {
-        payload: Py<PyBytes>,
+        payload: Stored,
         weight: usize,
         generation: u64,
         source: Option<Source>,
     },
     Identity {
-        payload: Py<PyBytes>,
+        payload: Stored,
         weight: usize,
         epoch: u64,
         identity: Handle,
@@ -333,7 +352,7 @@ impl Node {
             Body::Alias { .. } => 0,
         }
     }
-    fn payload(&self) -> &Py<PyBytes> {
+    fn payload(&self) -> &Stored {
         match &self.body {
             Body::Namespace { payload, .. } | Body::Identity { payload, .. } => payload,
             Body::Alias { .. } => unreachable!("value payload"),
@@ -499,9 +518,88 @@ struct State {
     bypasses: Vec<u64>,
     unavailable_reason: usize,
     invalidated_reason: usize,
+    shared: Option<Box<shared::SharedState>>,
 }
 
 impl State {
+    fn invalidate_probe(&mut self, names: &(PyBackedStr, PyBackedStr)) {
+        if let Some(shared) = self.shared.as_deref_mut() {
+            shared
+                .probes
+                .invalidate(&(Arc::from(names.0.as_ref()), Arc::from(names.1.as_ref())));
+        }
+    }
+    fn residency(&self) -> Option<&shared::Residency> {
+        self.shared.as_deref()?.residency.as_ref()
+    }
+    fn residency_mut(&mut self) -> Option<&mut shared::Residency> {
+        self.shared.as_deref_mut()?.residency.as_mut()
+    }
+    fn payload(&self, py: Python<'_>, node: &Node) -> Option<Py<PyBytes>> {
+        match node.payload() {
+            Stored::Bytes(bytes) => Some(bytes.clone_ref(py)),
+            Stored::Arena(block) => self.residency()?.snapshot(py, *block),
+        }
+    }
+    fn store(&self, encoded: &Bound<'_, PyBytes>) -> Stored {
+        self.residency()
+            .and_then(|residency| residency.store(encoded.as_bytes()))
+            .map_or_else(|| Stored::Bytes(encoded.clone().unbind()), Stored::Arena)
+    }
+    fn discard(&mut self, stored: &Stored) {
+        if let Some(residency) = self.residency_mut() {
+            residency.release(None, stored);
+        }
+    }
+    fn publish(&mut self, handle: Handle, keys: (&[u8], &[u8])) {
+        let node = self.node(handle.slot);
+        let Stored::Arena(block) = *node.payload() else {
+            return;
+        };
+        let identity = match node.body {
+            Body::Identity { identity, .. } => Some(identity.slot),
+            _ => None,
+        };
+        let namespace_id = node.namespace;
+        let namespace = &self.namespaces[&namespace_id];
+        let (database, epoch) = (namespace.database.clone(), namespace.epoch);
+        if let Some(residency) = self.residency_mut() {
+            residency.publish(
+                handle,
+                namespace_id,
+                &database,
+                epoch,
+                identity,
+                keys,
+                block,
+            );
+        }
+    }
+    fn withdraw_rows(&mut self, rows: Vec<u64>) {
+        for row in rows {
+            let Stored::Arena(block) = *self.node(row).payload() else {
+                continue;
+            };
+            if let Some(residency) = self.residency_mut() {
+                residency.withdraw(row, Some(block));
+            }
+        }
+    }
+    fn namespace_written(&mut self, namespace: u64) {
+        let Some(residency) = self.residency() else {
+            return;
+        };
+        residency.record_write(namespace);
+        let rows = residency.query_rows(namespace);
+        self.withdraw_rows(rows);
+    }
+    fn identity_written(&mut self, identity: Handle) {
+        let Some(residency) = self.residency() else {
+            return;
+        };
+        let rows = residency.identity_rows(identity.slot);
+        self.withdraw_rows(rows);
+    }
     fn changed(&mut self) {
         self.revision = self
             .revision
@@ -786,7 +884,11 @@ impl State {
         self.used -= weight;
         self.value_count -= 1;
         self.unindex_node(slot, hash);
-        retired.nodes.push(self.rows.take(slot).node);
+        let node = self.rows.take(slot).node;
+        if let Some(residency) = self.residency_mut() {
+            residency.release(Some(slot), node.payload());
+        }
+        retired.nodes.push(node);
         if let Some(identity) = identity {
             let metadata = self.identity_mut(identity).expect("resident identity");
             metadata.residents -= 1;
@@ -1019,6 +1121,13 @@ impl State {
         namespace.query_token = query_token;
         namespace.families.clear();
         let heads: Vec<_> = namespace.identities.values().copied().collect();
+        if let Some(residency) = self
+            .shared
+            .as_deref()
+            .and_then(|shared| shared.residency.as_ref())
+        {
+            residency.epoch_changed(id, generation);
+        }
         let mut identities = Vec::new();
         for first in heads {
             let mut slot = first;
@@ -1048,6 +1157,9 @@ impl State {
             }
         }
         if release {
+            if let Some(residency) = self.residency_mut() {
+                residency.released(id);
+            }
             let namespace = self.namespaces.remove(&id).expect("released namespace");
             let names = self
                 .names
@@ -1068,6 +1180,17 @@ impl State {
             return Retired::default();
         }
         self.closed = true;
+        if let Some(shared) = self.shared.as_deref_mut() {
+            shared.probes.clear();
+            if let Some(residency) = shared.residency.as_mut() {
+                for row in self.rows.iter() {
+                    if !matches!(row.node.body, Body::Alias { .. }) {
+                        residency.release(None, row.node.payload());
+                    }
+                }
+                residency.clear();
+            }
+        }
         let storage = ClosedStorage {
             _rows: std::mem::take(&mut self.rows),
             _identities: std::mem::take(&mut self.identities),
@@ -1119,6 +1242,7 @@ impl State {
                 _ => unreachable!("matching value kinds"),
             };
             if !older {
+                self.discard(node.payload());
                 return None;
             }
             self.remove_value(previous.slot, true, retired);
@@ -1399,6 +1523,7 @@ enum Read {
 
 #[pyclass(
     frozen,
+    subclass,
     module = "client_query_cache._shared_index",
     name = "LocalCacheCore"
 )]
@@ -1559,10 +1684,11 @@ impl LocalOwner {
             }
             if let Some(pin) =
                 found.filter(|pin| state.node_is_current(pin) && state.valid(&pin.node))
+                && let Some(payload) = state.payload(py, &pin.node)
             {
                 state.touch(pin.slot);
                 state.hits += 1;
-                return Ok(Read::Hit(pin.node.payload().clone_ref(py)));
+                return Ok(Read::Hit(payload));
             }
             if !defer {
                 state.misses += 1;
@@ -1577,6 +1703,7 @@ impl LocalOwner {
         discriminator: &Bound<'_, PyAny>,
         encoded: &Bound<'_, PyBytes>,
         find_source: Option<&Bound<'_, PyAny>>,
+        publication: Option<(&[u8], &[u8])>,
     ) -> PyResult<usize> {
         self.check_capture(capture)?;
         self.ensure_active(py)?;
@@ -1629,14 +1756,19 @@ impl LocalOwner {
                 hash,
                 key: key.clone().unbind(),
                 body: Body::Namespace {
-                    payload: encoded.clone().unbind(),
+                    payload: state.store(encoded),
                     weight,
                     generation: capture.query_token,
                     source,
                 },
             };
-            let handle = state.put(py, node, previous, &mut retired);
-            let admitted = handle.is_some_and(|handle| state.resident(handle));
+            let handle = state
+                .put(py, node, previous, &mut retired)
+                .filter(|handle| state.resident(*handle));
+            if let (Some(handle), Some(keys)) = (handle, publication) {
+                state.publish(handle, keys);
+            }
+            let admitted = handle.is_some();
             state.cleanup_empty();
             drop(state);
             return Ok(if admitted { ADMITTED } else { STALE });
@@ -1649,6 +1781,7 @@ impl LocalOwner {
         read_shape: &Bound<'_, PyAny>,
         encoded: &Bound<'_, PyBytes>,
         alias: Option<&Bound<'_, PyAny>>,
+        publication: Option<(&[u8], &[u8])>,
     ) -> PyResult<usize> {
         self.check_capture(capture)?;
         self.ensure_active(py)?;
@@ -1725,15 +1858,20 @@ impl LocalOwner {
                 hash,
                 key: key.clone().unbind(),
                 body: Body::Identity {
-                    payload: encoded.clone().unbind(),
+                    payload: state.store(encoded),
                     weight,
                     epoch: capture.generation.0,
                     identity: metadata,
                     generation: capture.generation.1,
                 },
             };
-            let handle = state.put(py, node, previous, &mut retired);
-            let admitted = handle.is_some_and(|handle| state.resident(handle));
+            let handle = state
+                .put(py, node, previous, &mut retired)
+                .filter(|handle| state.resident(*handle));
+            if let (Some(handle), Some(keys)) = (handle, publication) {
+                state.publish(handle, keys);
+            }
+            let admitted = handle.is_some();
             state.cleanup_empty();
             drop(state);
             return Ok(if admitted { ADMITTED } else { STALE });
@@ -1748,11 +1886,12 @@ impl Drop for LocalOwner {
     }
 }
 
-#[pymethods]
 impl LocalOwner {
-    #[new]
-    #[pyo3(signature = (config=None))]
-    fn new(py: Python<'_>, config: Option<&Bound<'_, PyAny>>) -> PyResult<Self> {
+    fn create(
+        py: Python<'_>,
+        config: Option<&Bound<'_, PyAny>>,
+        shared: Option<shared::SharedState>,
+    ) -> PyResult<Self> {
         let operations = py
             .import("client_query_cache._core.native")?
             .getattr(pyo3::intern!(py, "_OPERATIONS"))?
@@ -1799,6 +1938,7 @@ impl LocalOwner {
                 bypasses: vec![0; reason_count],
                 unavailable_reason,
                 invalidated_reason,
+                shared: shared.map(Box::new),
             })),
             keys: operations
                 .get_item(ORDER_SENSITIVE)?
@@ -1808,6 +1948,15 @@ impl LocalOwner {
             config: setup.get_item(0)?.unbind(),
             stream_cost: setup.get_item(4)?.unbind(),
         })
+    }
+}
+
+#[pymethods]
+impl LocalOwner {
+    #[new]
+    #[pyo3(signature = (config=None))]
+    fn new(py: Python<'_>, config: Option<&Bound<'_, PyAny>>) -> PyResult<Self> {
+        Self::create(py, config, None)
     }
     fn close(&self) {
         let retired = self.state.lock().expect("local owner mutex").close();
@@ -1866,6 +2015,17 @@ impl LocalOwner {
                 .map(|family| family.slots().count())
                 .sum(),
         )
+    }
+    fn _recency(&self, py: Python<'_>) -> Vec<Py<PyAny>> {
+        let state = self.state.lock().expect("local owner mutex");
+        let mut keys = Vec::with_capacity(state.value_count);
+        let mut slot = state.lru.first;
+        while slot != 0 {
+            let row = state.rows.get(slot).expect("recency row");
+            keys.push(row.node.key.clone_ref(py));
+            slot = row.links(Link::Role).next;
+        }
+        keys
     }
     fn record_miss(&self) {
         self.state.lock().expect("local owner mutex").misses += 1;
@@ -1951,6 +2111,7 @@ impl LocalOwner {
             namespace.index_generation = generation;
             namespace.query_token = token;
             namespace.families.clear();
+            state.namespace_written(id);
             state.changed();
         }
         Ok(())
@@ -1961,6 +2122,7 @@ impl LocalOwner {
         {
             let mut state = self.state.lock().expect("local owner mutex");
             self.active(py, &state)?;
+            state.invalidate_probe(&names);
             if let Some(id) = state.register(py, namespace, &names) {
                 state.bump(id, false, &mut retired);
             }
@@ -1976,6 +2138,7 @@ impl LocalOwner {
         {
             let mut state = self.state.lock().expect("local owner mutex");
             self.active(py, &state)?;
+            state.invalidate_probe(&names);
             if let Some(id) = state.namespace(&names.0, &names.1) {
                 state.bump(id, true, &mut retired);
             }
@@ -1996,13 +2159,31 @@ impl LocalOwner {
             .namespace(&names.0, &names.1)
             .filter(|id| state.namespaces[id].epoch == epoch);
         if let Some(id) = matches {
+            state.invalidate_probe(&names);
             state.bump(id, true, &mut retired);
         }
         drop(state);
         Ok(matches.is_some())
     }
-    fn invalidate_namespace_metadata_probe(&self, _namespace: &Bound<'_, PyAny>) {}
-    fn invalidate_namespace_metadata_probes_for_database(&self, _database: &str) {}
+    fn invalidate_namespace_metadata_probe(&self, namespace: &Bound<'_, PyAny>) -> PyResult<()> {
+        let names = namespace_names(namespace)?;
+        self.state
+            .lock()
+            .expect("local owner mutex")
+            .invalidate_probe(&names);
+        Ok(())
+    }
+    fn invalidate_namespace_metadata_probes_for_database(&self, database: &str) {
+        if let Some(shared) = self
+            .state
+            .lock()
+            .expect("local owner mutex")
+            .shared
+            .as_deref_mut()
+        {
+            shared.probes.invalidate_database(database);
+        }
+    }
     fn is_database_available(&self, database: &str) -> bool {
         self.state
             .lock()
@@ -2018,6 +2199,9 @@ impl LocalOwner {
             state
                 .availability
                 .insert(Arc::from(database), (available, generation + 1));
+            if let Some(residency) = state.residency_mut() {
+                residency.availability_changed(database, available);
+            }
             state.changed();
         }
     }
@@ -2141,7 +2325,7 @@ impl LocalOwner {
         };
         self.outcome(
             py,
-            self.admit_namespace_bytes(py, capture, discriminator, &encoded, find_source)?,
+            self.admit_namespace_bytes(py, capture, discriminator, &encoded, find_source, None)?,
         )
     }
     #[pyo3(signature = (capture, discriminator, encoded, *, find_source=None))]
@@ -2155,7 +2339,7 @@ impl LocalOwner {
     ) -> PyResult<Py<PyAny>> {
         self.outcome(
             py,
-            self.admit_namespace_bytes(py, capture, discriminator, encoded, find_source)?,
+            self.admit_namespace_bytes(py, capture, discriminator, encoded, find_source, None)?,
         )
     }
     #[pyo3(signature = (capture, read_shape, value, *, alias=None, codec_options=None))]
@@ -2176,7 +2360,7 @@ impl LocalOwner {
         };
         self.outcome(
             py,
-            self.admit_identity_bytes(py, capture, read_shape, &encoded, alias)?,
+            self.admit_identity_bytes(py, capture, read_shape, &encoded, alias, None)?,
         )
     }
     #[pyo3(signature = (capture, read_shape, encoded, *, alias=None))]
@@ -2192,7 +2376,7 @@ impl LocalOwner {
         let _release = ReleaseCapture(capture);
         self.outcome(
             py,
-            self.admit_identity_bytes(py, capture, read_shape, encoded, alias)?,
+            self.admit_identity_bytes(py, capture, read_shape, encoded, alias, None)?,
         )
     }
     fn lookup_identity_encoded(
@@ -2345,6 +2529,7 @@ impl LocalOwner {
             namespace.generation += 1;
             namespace.query_token = token;
             namespace.families.clear();
+            state.namespace_written(id);
             state.changed();
             id
         };
@@ -2378,6 +2563,7 @@ impl LocalOwner {
                     .expect("written identity")
                     .generation += 1;
                 state.clear_aliases(handle, &mut retired);
+                state.identity_written(handle);
                 state.changed();
             }
             drop(state);
@@ -2435,10 +2621,12 @@ impl LocalOwner {
                 if state.revision != revision {
                     continue;
                 }
-                if let Some(pin) = exact.filter(|pin| state.valid(&pin.node)) {
+                if let Some(pin) = exact.filter(|pin| state.valid(&pin.node))
+                    && let Some(payload) = state.payload(py, &pin.node)
+                {
                     state.touch(pin.slot);
                     state.hits += 1;
-                    return Ok(Some(pin.node.payload().clone_ref(py)));
+                    return Ok(Some(payload));
                 }
             }
             // Prepare a covering-family probe only after an exact miss. The
@@ -2496,10 +2684,11 @@ impl LocalOwner {
             }
             if let Some(pin) =
                 found.filter(|pin| state.node_is_current(pin) && state.valid(&pin.node))
+                && let Some(payload) = state.payload(py, &pin.node)
             {
                 state.touch(pin.slot);
                 state.hits += 1;
-                return Ok(Some(pin.node.payload().clone_ref(py)));
+                return Ok(Some(payload));
             }
             state.misses += 1;
             return Ok(None);
@@ -2741,7 +2930,7 @@ impl LocalOwner {
                 hash: ns_hash,
                 key: key.clone().unbind(),
                 body: Body::Namespace {
-                    payload: encoded.clone().unbind(),
+                    payload: state.store(&encoded),
                     weight,
                     generation: capture.query_token,
                     source: None,
@@ -2755,7 +2944,7 @@ impl LocalOwner {
                 hash: id_hash,
                 key: identity_key.clone().unbind(),
                 body: Body::Identity {
-                    payload: encoded.clone().unbind(),
+                    payload: state.store(&encoded),
                     weight,
                     epoch,
                     identity: handle,
@@ -2848,6 +3037,9 @@ impl LocalOwner {
         visit.call(&self.config)?;
         visit.call(&self.stream_cost)?;
         let state = self.state.lock().expect("local owner mutex");
+        if let Some(residency) = state.residency() {
+            visit.call(&residency.index)?;
+        }
         for namespace in state.namespaces.values() {
             visit.call(&namespace.python)?;
         }
@@ -2861,7 +3053,9 @@ impl LocalOwner {
             match &row.node.body {
                 Body::Namespace { payload, .. } | Body::Identity { payload, .. } => {
                     visit.call(&row.node.key)?;
-                    visit.call(payload)?
+                    if let Stored::Bytes(bytes) = payload {
+                        visit.call(bytes)?;
+                    }
                 }
                 // Each alias reference is traced once by its identity owner.
                 Body::Alias { .. } => {}

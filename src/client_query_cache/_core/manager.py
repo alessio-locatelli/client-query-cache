@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 import threading
-import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
@@ -55,7 +54,6 @@ from client_query_cache._core.stream_cost import (
 from client_query_cache._types import (
     NonNegativeFloat,
     NonNegativeInt,
-    PositiveFloat,
     PositiveInt,
 )
 
@@ -72,12 +70,10 @@ if TYPE_CHECKING:
     )
     from client_query_cache._core.find_reads import FindSource
     from client_query_cache._core.keys import AliasKey, CacheKey, NamespaceId
-    from client_query_cache._core.residency import CacheObserver, PayloadStore
 
 DEFAULT_SHARED_BUDGET_BYTES = 64 * 1024 * 1024
 DEFAULT_MAX_ENTRY_BYTES = 1 * 1024 * 1024
 DEFAULT_MAX_NAMESPACES = 1024
-_NAMESPACE_METADATA_PROBE_TTL_SECONDS: PositiveFloat = 30.0
 
 _NOT_INDEXED = object()
 _DEFAULT_DATABASE_AVAILABILITY = (True, 0)
@@ -152,13 +148,6 @@ class NamespaceCapture:
         return self.generation_key[0]
 
 
-@dataclass(slots=True)
-class _NamespaceMetadataProbe:
-    token: NonNegativeInt
-    active_requests: PositiveInt
-    expires_at: NonNegativeFloat
-
-
 def _maybe_prune_identity_locked(
     state: NamespaceState, identity: Canonical, identity_state: IdentityState
 ) -> None:
@@ -220,40 +209,23 @@ class _CacheCoreBase:
         "_lifecycle_lock",
         "_lru",
         "_max_namespaces",
-        "_namespace_metadata_probes",
         "_namespaces",
         "_namespaces_lock",
-        "_next_namespace_metadata_probe_token",
-        "_observer",
-        "_payloads",
         "_statistics",
         "_stream_cost",
     )
 
-    def __init__(
-        self,
-        config: CacheCoreConfig | None = None,
-        *,
-        observer: CacheObserver | None = None,
-        payloads: PayloadStore | None = None,
-    ) -> None:
+    def __init__(self, config: CacheCoreConfig | None = None) -> None:
         resolved_config = config if config is not None else CacheCoreConfig()
         self._guard = LockOrderGuard()
-        self._observer = observer
-        self._payloads = payloads
         self._lru = WeightedLru(
             shared_budget_bytes=resolved_config.shared_budget_bytes,
             max_entry_bytes=resolved_config.max_entry_bytes,
             guard=self._guard,
-            on_removed=(
-                None if observer is None and payloads is None else self._removed
-            ),
         )
         self._namespaces: dict[NamespaceId, NamespaceState] = {}
         self._database_namespaces: dict[str, dict[NamespaceId, None]] = {}
         self._namespaces_lock = threading.Lock()
-        self._namespace_metadata_probes: dict[NamespaceId, _NamespaceMetadataProbe] = {}
-        self._next_namespace_metadata_probe_token: NonNegativeInt = 0
         self._generation: NonNegativeInt = 0
         self._generation_lock = threading.Lock()
         self._max_namespaces = resolved_config.max_namespaces
@@ -276,24 +248,6 @@ class _CacheCoreBase:
     @property
     def max_namespaces(self) -> PositiveInt:
         return self._max_namespaces
-
-    def _removed(self, key: CacheKey, entry: CacheEntry) -> None:
-        if self._observer is not None:
-            self._observer.removed(key, entry)
-        self._release(entry)
-
-    def _stored(self, encoded: bytes) -> object:
-        payloads = self._payloads
-        return encoded if payloads is None else payloads.store(encoded)
-
-    def _release(self, entry: CacheEntry) -> None:
-        if self._payloads is not None:
-            self._payloads.release(entry.value)
-
-    def _snapshot(self, stored: object) -> bytes | None:
-        payloads = self._payloads
-        assert payloads is not None
-        return payloads.snapshot(stored)
 
     def _is_database_available(self, database: str) -> bool:
         with self._availability_lock:
@@ -430,7 +384,6 @@ class _CacheCoreBase:
         on_admit: Callable[[], None],
     ) -> AdmissionOutcome:
         if not admitted:
-            self._release(entry)
             return AdmissionOutcome.DECLINED_STALE
         still_resident = self._lru.contains_exact(key, entry)
         rolled_back = False
@@ -440,8 +393,6 @@ class _CacheCoreBase:
             else:
                 state.entry_index[entry] = key
                 on_admit()
-                if self._observer is not None:
-                    self._observer.admitted(key, entry)
             if displaced is not None:
                 _discard_entry_locked(state, displaced)
         if rolled_back:
@@ -469,7 +420,6 @@ class _CacheCoreLifecycle(_CacheCoreBase):
         with self._namespaces_lock:
             self._namespaces.clear()
             self._database_namespaces.clear()
-            self._namespace_metadata_probes.clear()
         logger.info("cache manager closed")
 
     def record_miss(self) -> None:
@@ -524,84 +474,11 @@ class _CacheCoreNamespaceLifecycle(_CacheCoreBase):
                 return True
             return len(self._namespaces) < self._max_namespaces
 
-    def _expire_namespace_metadata_probes(self, now: NonNegativeFloat) -> None:
-        while self._namespace_metadata_probes:
-            namespace, probe = next(iter(self._namespace_metadata_probes.items()))
-            if probe.expires_at > now:
-                return
-            del self._namespace_metadata_probes[namespace]
-
-    def begin_namespace_metadata_probe(
-        self, namespace: NamespaceId
-    ) -> NonNegativeInt | None:
-        now = time.monotonic()
-        with self._namespaces_lock:
-            self._expire_namespace_metadata_probes(now)
-            if self._is_closed():
-                return None
-            if namespace not in self._namespaces and len(self._namespaces) >= (
-                self._max_namespaces
-            ):
-                return None
-            try:
-                probe = self._namespace_metadata_probes[namespace]
-            except KeyError:
-                if len(self._namespace_metadata_probes) >= self._max_namespaces:
-                    return None
-                probe = _NamespaceMetadataProbe(
-                    token=self._next_namespace_metadata_probe_token,
-                    active_requests=1,
-                    expires_at=now + _NAMESPACE_METADATA_PROBE_TTL_SECONDS,
-                )
-                self._next_namespace_metadata_probe_token += 1
-            else:
-                probe.active_requests += 1
-                probe.expires_at = now + _NAMESPACE_METADATA_PROBE_TTL_SECONDS
-                del self._namespace_metadata_probes[namespace]
-            self._namespace_metadata_probes[namespace] = probe
-            return probe.token
-
-    def _finish_namespace_metadata_probe(
-        self, namespace: NamespaceId, token: NonNegativeInt
-    ) -> None:
-        with self._namespaces_lock:
-            self._expire_namespace_metadata_probes(time.monotonic())
-            try:
-                probe = self._namespace_metadata_probes[namespace]
-            except KeyError:
-                return
-            if probe.token != token:
-                return
-            if probe.active_requests == 1:
-                del self._namespace_metadata_probes[namespace]
-            else:
-                probe.active_requests -= 1
-
-    def cancel_namespace_metadata_probe(
-        self, namespace: NamespaceId, token: NonNegativeInt
-    ) -> None:
-        self._finish_namespace_metadata_probe(namespace, token)
-
     def invalidate_namespace_metadata_probe(self, namespace: NamespaceId) -> None:
-        with self._namespaces_lock:
-            self._namespace_metadata_probes.pop(namespace, None)
+        pass
 
     def invalidate_namespace_metadata_probes_for_database(self, database: str) -> None:
-        with self._namespaces_lock:
-            for namespace in tuple(self._namespace_metadata_probes):
-                if namespace.database == database:
-                    del self._namespace_metadata_probes[namespace]
-
-    def registered_namespace_metadata(
-        self, namespace: NamespaceId
-    ) -> tuple[NonNegativeInt, NonNegativeInt] | None:
-        state = self._registered_namespace(namespace)
-        if state is None:
-            return None
-        with state.lock:
-            if not state.tracked:
-                return None
-            return state.epoch, state.index_generation
+        pass
 
     def try_current_epoch(self, namespace: NamespaceId) -> NonNegativeInt | None:
         state = self._namespace(namespace)
@@ -609,73 +486,6 @@ class _CacheCoreNamespaceLifecycle(_CacheCoreBase):
             if not state.tracked:
                 return None
             return state.epoch
-
-    @contextmanager
-    def locked_namespace_metadata_after_probe(
-        self,
-        namespace: NamespaceId,
-        probe_token: NonNegativeInt,
-    ) -> Generator[tuple[NonNegativeInt, NonNegativeInt] | None]:
-        state = self._reserve_namespace_for_metadata_probe(namespace, probe_token)
-        try:
-            if state is None:
-                yield None
-                return
-            with state.lock:
-                if (
-                    not self._namespace_metadata_probe_is_active(namespace, probe_token)
-                    or not state.tracked
-                ):
-                    yield None
-                    return
-                yield state.epoch, state.index_generation
-        finally:
-            self._finish_namespace_metadata_probe(namespace, probe_token)
-
-    def _reserve_namespace_for_metadata_probe(
-        self, namespace: NamespaceId, token: NonNegativeInt
-    ) -> NamespaceState | None:
-        with self._namespaces_lock:
-            self._expire_namespace_metadata_probes(time.monotonic())
-            if self._is_closed():
-                return None
-            try:
-                probe = self._namespace_metadata_probes[namespace]
-            except KeyError:
-                return None
-            if probe.token != token:
-                return None
-            try:
-                return self._namespaces[namespace]
-            except KeyError:
-                if len(self._namespaces) >= self._max_namespaces:
-                    return None
-                generation = self._next_generation()
-                state = NamespaceState(
-                    namespace=namespace,
-                    lock=NamespaceLock(self._guard),
-                    generation=generation,
-                    epoch=generation,
-                    index_generation=generation,
-                    query_generation_key=(generation, generation),
-                    tracked=True,
-                )
-                self._namespaces[namespace] = state
-                self._database_namespaces.setdefault(namespace.database, {})[
-                    namespace
-                ] = None
-                return state
-
-    def _namespace_metadata_probe_is_active(
-        self, namespace: NamespaceId, token: NonNegativeInt
-    ) -> bool:
-        with self._namespaces_lock:
-            self._expire_namespace_metadata_probes(time.monotonic())
-            try:
-                probe = self._namespace_metadata_probes[namespace]
-            except KeyError:
-                return False
-            return probe.token == token
 
     def current_epoch(self, namespace: NamespaceId) -> NonNegativeInt:
         epoch = self.try_current_epoch(namespace)
@@ -699,27 +509,19 @@ class _CacheCoreNamespaceLifecycle(_CacheCoreBase):
             )
             state.query_generation_key = (state.generation, state.index_generation)
             state.find_families.clear()
-            if self._observer is not None:
-                self._observer.namespace_written(state.namespace)
 
     def record_write(self, namespace: NamespaceId, identity: object) -> None:
         self._ensure_active()
         identity = order_sensitive_key(identity)
         state = self._namespace(namespace)
-        observer = self._observer
         with state.lock:
             state.generation += 1
             state.query_generation_key = (state.generation, state.index_generation)
             state.find_families.clear()
             if not is_canonicalizable(identity):
-                if observer is not None and state.tracked:
-                    observer.namespace_written(state.namespace)
                 return
-            canonical_identity = canonicalize(identity)
-            if observer is not None and state.tracked:
-                observer.identity_written(state.namespace, canonical_identity)
             try:
-                identity_state = state.identities[canonical_identity]
+                identity_state = state.identities[canonicalize(identity)]
             except KeyError:
                 return
             identity_state.generation += 1
@@ -733,7 +535,6 @@ class _CacheCoreNamespaceLifecycle(_CacheCoreBase):
 
     def drop_namespace(self, namespace: NamespaceId) -> None:
         self._ensure_active()
-        self.invalidate_namespace_metadata_probe(namespace)
         state = self._registered_namespace(namespace)
         if state is None:
             return
@@ -765,8 +566,6 @@ class _CacheCoreNamespaceLifecycle(_CacheCoreBase):
         expected_state: NamespaceState | None = None,
         expected_epoch: NonNegativeInt | None = None,
     ) -> bool:
-        if expected_epoch is None:
-            self.invalidate_namespace_metadata_probe(namespace)
         state = self._namespace(namespace) if expected_state is None else expected_state
         released = False
         with state.lock:
@@ -774,14 +573,11 @@ class _CacheCoreNamespaceLifecycle(_CacheCoreBase):
                 return False
             if expected_epoch is not None and state.epoch != expected_epoch:
                 return False
-            self.invalidate_namespace_metadata_probe(namespace)
             generation = self._next_generation(greater_than=state.generation + 1)
             state.generation = generation
             state.epoch = generation
             state.index_generation = generation
             state.query_generation_key = (generation, generation)
-            if self._observer is not None:
-                self._observer.epoch_changed(state.namespace, state.epoch)
             state.aliases = {}
             reclaimed = list(state.entry_index.items())
             state.entry_index.clear()
@@ -799,23 +595,17 @@ class _CacheCoreNamespaceLifecycle(_CacheCoreBase):
         for entry, key in reclaimed:
             self._lru.remove_exact(key, entry)
         if release:
-            try:
-                if self._observer is not None:
-                    self._observer.namespace_released(namespace, state.epoch)
-            finally:
-                with self._namespaces_lock:
-                    try:
-                        del self._namespaces[namespace]
-                    except KeyError:
-                        pass
-                    else:
-                        database_namespaces = self._database_namespaces[
-                            namespace.database
-                        ]
-                        del database_namespaces[namespace]
-                        if not database_namespaces:
-                            del self._database_namespaces[namespace.database]
-                        released = True
+            with self._namespaces_lock:
+                try:
+                    del self._namespaces[namespace]
+                except KeyError:
+                    pass
+                else:
+                    database_namespaces = self._database_namespaces[namespace.database]
+                    del database_namespaces[namespace]
+                    if not database_namespaces:
+                        del self._database_namespaces[namespace.database]
+                    released = True
         logger.debug(
             "cache namespace reclaimed",
             extra={
@@ -842,8 +632,6 @@ class _CacheCoreDatabaseAvailability(_CacheCoreBase):
                 current_available, generation = _DEFAULT_DATABASE_AVAILABILITY
             if available != current_available:
                 self._database_availability[database] = (available, generation + 1)
-                if self._observer is not None:
-                    self._observer.availability_changed(database, available=available)
 
 
 class _CacheCoreIdentityAdmission(_CacheCoreBase):
@@ -962,7 +750,7 @@ class _CacheCoreIdentityAdmission(_CacheCoreBase):
                 entry = CacheEntry(
                     generation_key=capture.generation_key,
                     weight=weight,
-                    value=self._stored(encoded),
+                    value=encoded,
                     namespace=capture.namespace,
                     identity=capture.identity,
                 )
@@ -1098,7 +886,7 @@ class _CacheCoreNamespaceAdmission(_CacheCoreBase):
             entry = CacheEntry(
                 generation_key=capture.generation_key,
                 weight=weight,
-                value=self._stored(encoded),
+                value=encoded,
                 namespace=capture.namespace,
                 identity=None,
                 find_source=find_source,
@@ -1216,14 +1004,14 @@ class _CacheCoreUniqueKeyAdmission(_CacheCoreBase):
             namespace_entry = CacheEntry(
                 generation_key=namespace_capture.generation_key,
                 weight=weight,
-                value=self._stored(encoded),
+                value=encoded,
                 namespace=namespace,
                 identity=None,
             )
             identity_entry = CacheEntry(
                 generation_key=identity_generation_key,
                 weight=weight,
-                value=self._stored(encoded),
+                value=encoded,
                 namespace=namespace,
                 identity=canonical_identity,
             )
@@ -1361,14 +1149,8 @@ class _CacheCoreLookup(_CacheCoreBase):
             self._statistics.record_miss()
             return None
         self._lru.touch(key)
-        value = entry.value
-        if not isinstance(value, bytes):
-            value = self._snapshot(value)
-            if value is None:
-                self._statistics.record_miss()
-                return None
         self._statistics.record_hit()
-        return value
+        return entry.value
 
     def lookup_identity(
         self,
@@ -1406,14 +1188,8 @@ class _CacheCoreLookup(_CacheCoreBase):
             self._statistics.record_miss()
             return None
         self._lru.touch(key)
-        value = entry.value
-        if not isinstance(value, bytes):
-            value = self._snapshot(value)
-            if value is None:
-                self._statistics.record_miss()
-                return None
         self._statistics.record_hit()
-        return value
+        return entry.value
 
     def lookup_namespace(
         self,
@@ -1452,13 +1228,8 @@ class _CacheCoreLookup(_CacheCoreBase):
         if not valid:
             return self._namespace_miss(defer_miss=defer_miss)
         self._lru.touch(key)
-        value = entry.value
-        if not isinstance(value, bytes):
-            value = self._snapshot(value)
-            if value is None:
-                return self._namespace_miss(defer_miss=defer_miss)
         self._statistics.record_hit()
-        return value
+        return entry.value
 
     def _namespace_miss(self, *, defer_miss: bool) -> LookupResult:
         if defer_miss:

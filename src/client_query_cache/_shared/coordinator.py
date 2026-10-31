@@ -26,20 +26,9 @@ from client_query_cache._core.errors import (
 )
 from client_query_cache._core.find_reads import FindReadShape
 from client_query_cache._core.keys import NamespaceId
-from client_query_cache._core.manager import (
-    DEFAULT_MAX_NAMESPACES,
-    CacheCore,
-    CacheCoreConfig,
-    IdentityCapture,
-    NamespaceCapture,
-)
+from client_query_cache._core.manager import DEFAULT_MAX_NAMESPACES, CacheCoreConfig
 from client_query_cache._core.snapshots import BypassReason
 from client_query_cache._core.stream_cost import LagCaptureWindowConfig
-from client_query_cache._shared.shared_index import (
-    ArenaPayloads,
-    IndexPublisher,
-    SharedIndexLimits,
-)
 from client_query_cache._shared.wire import (
     LENGTH_BYTES,
     PROTOCOL_VERSION,
@@ -51,7 +40,7 @@ from client_query_cache._shared.wire import (
     encode_frame,
     frame_length,
 )
-from client_query_cache._shared_index import OwnerIndex
+from client_query_cache._shared_index import OwnerIndex, SharedOwnerCore
 from client_query_cache._types import (
     BsonDict,
     MaxAwaitTimeMs,
@@ -73,7 +62,8 @@ if TYPE_CHECKING:
     )
 
     from client_query_cache._core.find_reads import FindSource
-    from client_query_cache._shared_index import SessionRing
+    from client_query_cache._shared.shared_index import SharedIndexLimits
+    from client_query_cache._shared_index import LocalCapture, SessionRing
     from client_query_cache.synchronous.streams import DatabaseStreamSupervisor
 
 type Message = dict[str, object]
@@ -86,6 +76,7 @@ _ACTIVATION_RETRY_SECONDS: Final = 1.0
 _HISTORY_LOST: Final = 286
 _KEY_CACHE_ENTRIES: Final = 1024
 _HANDLE_ID: Final = struct.Struct("<QQ")
+_METADATA_PROBE_TTL_SECONDS: Final = 30.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -181,17 +172,18 @@ class UpstreamProgress(CommandListener):
 @dataclass(slots=True)
 class _Handle:
     session: NonNegativeInt
-    capture: IdentityCapture | NamespaceCapture
+    capture: LocalCapture
     database: str
     lease: NonNegativeInt
     expires: NonNegativeFloat
     shape: object = None
     find_source: FindSource | None = None
+    identity_key: bytes | None = None
+    shape_key: bytes = b""
 
 
-def _drop_capture(capture: IdentityCapture | NamespaceCapture) -> None:
-    if isinstance(capture, IdentityCapture):
-        capture.release()
+def _drop_capture(capture: LocalCapture) -> None:
+    capture.release()
 
 
 @dataclass(slots=True)
@@ -252,6 +244,7 @@ class SharedCacheOwner:
         "_activation_lock",
         "_admission_poll_until",
         "_connections",
+        "_database_slots",
         "_handles",
         "_index",
         "_keys",
@@ -262,7 +255,6 @@ class SharedCacheOwner:
         "_next_handle",
         "_next_session",
         "_paused_until",
-        "_publisher",
         "_rings",
         "_selector",
         "client",
@@ -279,9 +271,10 @@ class SharedCacheOwner:
         self._admission_poll_until: NonNegativeFloat = 0.0
         self.incarnation = Int64(secrets.randbits(63))
         self._index: OwnerIndex | None = None
-        self._publisher: IndexPublisher | None = None
         self._rings: dict[NonNegativeInt, SessionRing] = {}
-        payloads: ArenaPayloads | None = None
+        self._database_slots = {
+            database: slot for slot, database in enumerate(config.databases)
+        }
         limits = config.shared_index
         if limits is not None:
             self._index = OwnerIndex(
@@ -292,13 +285,9 @@ class SharedCacheOwner:
                 int(self.incarnation),
                 round(config.limits.progress_expiry_seconds * 1e9),
             )
-            self._publisher = IndexPublisher(
-                self._index, config.databases, limits.namespaces
-            )
             self._index.enable_capture(limits.local_miss_admission)
-            payloads = ArenaPayloads(self._index)
         self.progress = UpstreamProgress(
-            None if self._publisher is None else self._publisher.progress,
+            None if self._index is None else self._publish_progress,
             expiry_seconds=config.limits.progress_expiry_seconds,
         )
         self.client: MongoClient[BsonDict] = MongoClient(
@@ -306,17 +295,18 @@ class SharedCacheOwner:
             event_listeners=[self.progress],
             **config.client_options,  # type: ignore[arg-type]
         )
-        self.core = CacheCore(
+        namespaces = DEFAULT_MAX_NAMESPACES if limits is None else limits.namespaces
+        self.core = SharedOwnerCore(
             CacheCoreConfig(
                 shared_budget_bytes=config.budget_bytes,
                 max_entry_bytes=config.max_entry_bytes,
-                max_namespaces=(
-                    DEFAULT_MAX_NAMESPACES if limits is None else limits.namespaces
-                ),
+                max_namespaces=namespaces,
                 lag_capture_window_config=LagCaptureWindowConfig(*config.lag_capture),
             ),
-            observer=self._publisher,
-            payloads=payloads,
+            self._index,
+            list(config.databases),
+            namespaces,
+            _METADATA_PROBE_TTL_SECONDS,
         )
         self.streams = ChangeStreamCoordinator(
             self.client, self.core, max_await_time_ms=config.max_await_time_ms
@@ -335,6 +325,10 @@ class SharedCacheOwner:
         self._listener: socket.socket | None = None
         self._lock_file: TextIO | None = None
         self._paused_until = 0.0
+
+    def _publish_progress(self, database: str) -> None:
+        assert self._index is not None
+        self._index.set_progress(self._database_slots[database], time.monotonic_ns())
 
     def bind(self) -> None:
         path = pathlib.Path(self.config.socket_path)
@@ -419,11 +413,13 @@ class SharedCacheOwner:
     def _new_handle(
         self,
         connection: _Connection,
-        capture: IdentityCapture | NamespaceCapture,
+        capture: LocalCapture,
         now: NonNegativeFloat,
         *,
         shape: object = None,
         find_source: FindSource | None = None,
+        identity_key: bytes | None = None,
+        shape_key: bytes = b"",
     ) -> bytes | None:
         assert connection.session is not None
         if len(self._handles) >= self.config.limits.captures:
@@ -440,6 +436,8 @@ class SharedCacheOwner:
             now + self.config.limits.capture_seconds,
             shape,
             find_source,
+            identity_key,
+            shape_key,
         )
         connection.handles.add(handle)
         self.counters.peak_captures = max(
@@ -464,15 +462,12 @@ class SharedCacheOwner:
             for connection in self._connections.values():
                 if connection.session == handle.session:
                     connection.handles.discard(handle_id)
-        if self._publisher is not None:
-            self._drain_rings(self._publisher)
+        if self._index is not None:
+            self._drain_rings()
 
-    def _drain_rings(self, publisher: IndexPublisher) -> None:
+    def _drain_rings(self) -> None:
         for ring in self._rings.values():
-            for token in ring.drain():
-                key = publisher.key(token)
-                if key is not None:
-                    self.core._lru.touch(key)
+            self.core.touch(ring)
         limits = self.config.shared_index
         assert limits is not None
         if limits.native_admission_queue:
@@ -597,32 +592,33 @@ class SharedCacheOwner:
                     raise ProtocolError("metadata probe token is invalid") from error
                 if type(probe_token) is not int or probe_token < 0:
                     raise ProtocolError("metadata probe token is invalid")
-                with self.core.locked_namespace_metadata_after_probe(
+                generations = self.core.namespace_metadata_after_probe(
                     namespace, probe_token
-                ) as generations:
-                    if generations is None:
-                        self.counters.bypasses += 1
-                        return {
-                            "r": "bypass",
-                            "reason": BypassReason.METADATA_UNAVAILABLE.value,
-                        }
-                    epoch, index_generation = generations
-                    metadata: Message = {
-                        "r": "ok",
-                        "epoch": epoch,
-                        "index_generation": index_generation,
+                )
+                if generations is None:
+                    self.counters.bypasses += 1
+                    return {
+                        "r": "bypass",
+                        "reason": BypassReason.METADATA_UNAVAILABLE.value,
                     }
-                    if self._publisher is not None:
-                        slot = self._publisher.assign(namespace, epoch)
-                        assert slot is not None
-                        metadata["slot"] = [slot.database, slot.namespace]
-                    return metadata
+                epoch, index_generation, slot = generations
+                metadata: Message = {
+                    "r": "ok",
+                    "epoch": epoch,
+                    "index_generation": index_generation,
+                }
+                if self._index is not None:
+                    assert slot is not None
+                    metadata["slot"] = list(slot)
+                return metadata
             case "select-identity":
                 refresh = self._epoch_reply(namespace, message["epoch"])
                 if refresh is not None:
                     return refresh
-                identity = decode_key(message["identity"])
-                shape = self._keys.decode(message["shape"])
+                identity_key = message["identity"]
+                shape_key = message["shape"]
+                identity = decode_key(identity_key)
+                shape = self._keys.decode(shape_key)
                 value = self.core.lookup_identity_encoded(namespace, identity, shape)
                 if value is not None:
                     self.counters.hits += 1
@@ -631,26 +627,37 @@ class SharedCacheOwner:
                 identity_capture = self.core.begin_identity_admission(
                     namespace, identity
                 )
+                assert isinstance(identity_key, bytes)
+                assert isinstance(shape_key, bytes)
                 return {
                     "r": "miss",
                     "handle": self._new_handle(
-                        connection, identity_capture, now, shape=shape
+                        connection,
+                        identity_capture,
+                        now,
+                        shape=shape,
+                        identity_key=identity_key,
+                        shape_key=shape_key,
                     ),
                 }
             case "select-namespace":
                 refresh = self._epoch_reply(namespace, message["epoch"])
                 if refresh is not None:
                     return refresh
-                shape = self._keys.decode(message["shape"])
+                shape_key = message["shape"]
+                shape = self._keys.decode(shape_key)
                 namespace_value = self.core.lookup_namespace_encoded(namespace, shape)
                 if isinstance(namespace_value, bytes):
                     self.counters.hits += 1
                     return {"r": "hit", "value": namespace_value}
                 self.counters.misses += 1
                 capture = self.core.capture_namespace_generation(namespace)
+                assert isinstance(shape_key, bytes)
                 return {
                     "r": "miss",
-                    "handle": self._new_handle(connection, capture, now, shape=shape),
+                    "handle": self._new_handle(
+                        connection, capture, now, shape=shape, shape_key=shape_key
+                    ),
                 }
             case "select-find":
                 refresh = self._epoch_reply(namespace, message["epoch"])
@@ -674,6 +681,9 @@ class SharedCacheOwner:
                         now,
                         shape=shape.discriminator,
                         find_source=shape.source,
+                        shape_key=b""
+                        if self._index is None
+                        else self._keys.find(shape.family, limit)[1],
                     ),
                 }
         raise ProtocolError("unknown operation")
@@ -727,38 +737,38 @@ class SharedCacheOwner:
         value = message["value"]
         if not isinstance(value, bytes):
             raise ProtocolError("local admission value must be encoded bytes")
-        publisher = self._publisher
-        if publisher is None:
+        if self._index is None:
             raise ProtocolError("local admission requires a shared index")
-        index = self._index
-        assert index is not None
         slot = _capture_words(message["slot"], 2)
-        with self.progress._lock, self.core._availability_lock:
+        with self.progress._lock:
             if self._gate(namespace.database, time.monotonic()) is not None:
                 self.counters.rejected_admissions += 1
                 return
-            assigned = publisher.assigned(namespace)
-            if assigned is None or slot != (assigned.database, assigned.namespace):
+            if self.core.assigned_slot(namespace) != slot:
                 self.counters.rejected_admissions += 1
                 return
             token = _capture_words(message["token"], 3)
             epoch = _capture_word(message["epoch"])
             incarnation = _capture_word(message["incarnation"])
-            identity = decode_key(message["identity"])
-            shape = self._keys.decode(message["shape"])
-            capture = self.core.begin_identity_admission(namespace, identity)
-            if not index.validate_capture(
-                assigned.database,
-                assigned.namespace,
+            identity_key = message["identity"]
+            shape_key = message["shape"]
+            identity = decode_key(identity_key)  # pytriage: TR5 - Decode in order.
+            shape = self._keys.decode(shape_key)
+            assert isinstance(identity_key, bytes)
+            assert isinstance(shape_key, bytes)
+            outcome = self.core.admit_local(
+                namespace,
+                (slot[0], slot[1]),
                 epoch,
                 incarnation,
                 (token[0], token[1], token[2]),
+                identity,
+                shape,
+                value,
+                identity_key,
+                shape_key,
                 round(self.config.limits.capture_seconds * 1e9),
-            ):
-                capture.release()
-                self.counters.rejected_admissions += 1
-                return
-            outcome = self.core.admit_identity_encoded(capture, shape, value)
+            )
         if outcome is AdmissionOutcome.ADMITTED:
             self.counters.admitted += 1
         else:
@@ -785,13 +795,21 @@ class SharedCacheOwner:
             self.counters.rejected_admissions += 1
             _drop_capture(handle.capture)
             return
-        if isinstance(handle.capture, IdentityCapture):
-            outcome = self.core.admit_identity_encoded(
-                handle.capture, handle.shape, value
+        if handle.identity_key is not None:
+            outcome = self.core.admit_identity_published(
+                handle.capture,
+                handle.shape,
+                value,
+                handle.identity_key,
+                handle.shape_key,
             )
         else:
-            outcome = self.core.admit_namespace_encoded(
-                handle.capture, handle.shape, value, find_source=handle.find_source
+            outcome = self.core.admit_namespace_published(
+                handle.capture,
+                handle.shape,
+                value,
+                handle.shape_key,
+                find_source=handle.find_source,
             )
         if outcome is AdmissionOutcome.ADMITTED:
             self.counters.admitted += 1
@@ -819,8 +837,8 @@ class SharedCacheOwner:
                     "progress_fresh": self.lease_fresh(database, now),
                     "fresh_since": self.progress.fresh_since(database),
                     "available_since": None
-                    if self._publisher is None
-                    else self._publisher.available_since(database),
+                    if self._index is None
+                    else self.core.available_since(database),
                 }
                 for database in self.config.databases
             },

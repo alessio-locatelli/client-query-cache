@@ -1,8 +1,18 @@
 from collections.abc import Callable, Hashable, Mapping
 from typing import final
 
+from client_query_cache._core.canonical import Canonical
 from client_query_cache._core.contracts import LocalCacheCore as _LocalCacheCore
-from client_query_cache._types import NonNegativeInt, PositiveInt
+from client_query_cache._core.entries import AdmissionOutcome
+from client_query_cache._core.find_reads import FindSource
+from client_query_cache._core.keys import NamespaceId
+from client_query_cache._core.manager import CacheCoreConfig
+from client_query_cache._types import (
+    NonNegativeFloat,
+    NonNegativeInt,
+    PositiveFloat,
+    PositiveInt,
+)
 
 @final
 class Payload:
@@ -165,9 +175,97 @@ class FindKeyEncoder:
 def find_key_encoder(tags: Mapping[NonNegativeInt, str]) -> FindKeyEncoder: ...
 
 @final
+class LocalCapture:
+    @property
+    def namespace(self) -> NamespaceId: ...
+    @property
+    def identity(self) -> Canonical: ...
+    @property
+    def generation_key(self) -> tuple[NonNegativeInt, NonNegativeInt]: ...
+    @property
+    def generation(self) -> NonNegativeInt: ...
+    @property
+    def availability_generation(self) -> NonNegativeInt: ...
+    @property
+    def released(self) -> bool: ...
+    def release(self) -> None: ...
+
 class LocalCacheCore(_LocalCacheCore):
     def _ownership(
         self,
     ) -> tuple[
         NonNegativeInt, NonNegativeInt, NonNegativeInt, NonNegativeInt, NonNegativeInt
     ]: ...
+    def _recency(self) -> list[object]: ...
+    def begin_identity_admission(
+        self, namespace: NamespaceId, identity: object
+    ) -> LocalCapture: ...
+    def capture_namespace_generation(self, namespace: NamespaceId) -> LocalCapture: ...
+
+@final
+class SharedOwnerCore(LocalCacheCore):
+    def __init__(
+        self,
+        config: CacheCoreConfig,
+        index: OwnerIndex | None,
+        databases: list[str],
+        namespaces: PositiveInt,
+        probe_ttl_seconds: PositiveFloat,
+    ) -> None: ...
+    def begin_namespace_metadata_probe(
+        self, namespace: NamespaceId
+    ) -> NonNegativeInt | None: ...
+    def cancel_namespace_metadata_probe(
+        self, namespace: NamespaceId, token: NonNegativeInt
+    ) -> None: ...
+    def registered_namespace_metadata(
+        self, namespace: NamespaceId
+    ) -> tuple[NonNegativeInt, NonNegativeInt] | None: ...
+    def namespace_metadata_after_probe(
+        self, namespace: NamespaceId, token: NonNegativeInt
+    ) -> (
+        tuple[
+            NonNegativeInt,
+            NonNegativeInt,
+            tuple[NonNegativeInt, NonNegativeInt] | None,
+        ]
+        | None
+    ): ...
+    def assigned_slot(
+        self, namespace: NamespaceId
+    ) -> tuple[NonNegativeInt, NonNegativeInt] | None: ...
+    def admit_identity_published(
+        self,
+        capture: LocalCapture,
+        read_shape: object,
+        encoded: bytes,
+        identity_key: bytes,
+        shape_key: bytes,
+    ) -> AdmissionOutcome: ...
+    def admit_namespace_published(
+        self,
+        capture: LocalCapture,
+        discriminator: object,
+        encoded: bytes,
+        shape_key: bytes,
+        *,
+        find_source: FindSource | None = None,
+    ) -> AdmissionOutcome: ...
+    def admit_local(
+        self,
+        namespace: NamespaceId,
+        slot: tuple[NonNegativeInt, NonNegativeInt],
+        epoch: NonNegativeInt,
+        incarnation: NonNegativeInt,
+        token: tuple[NonNegativeInt, NonNegativeInt, NonNegativeInt],
+        identity: object,
+        shape: object,
+        encoded: bytes,
+        identity_key: bytes,
+        shape_key: bytes,
+        max_age_ns: PositiveInt,
+    ) -> AdmissionOutcome | None: ...
+    def touch(self, ring: SessionRing) -> None: ...
+    def _probes(self) -> list[tuple[str, str, NonNegativeInt, PositiveInt]]: ...
+    def published(self) -> NonNegativeInt: ...
+    def available_since(self, database: str) -> NonNegativeFloat | None: ...
