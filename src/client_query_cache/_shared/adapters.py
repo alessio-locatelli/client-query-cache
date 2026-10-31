@@ -249,6 +249,11 @@ def _metadata_probe_token(reply: Message) -> NonNegativeInt:
     return token
 
 
+_ELIGIBLE = CollectionMetadata(
+    checked_epoch=0, bypass_reason=None, default_collation=None
+)
+
+
 def _cached_metadata(
     metadata_cache: NamespaceMetadataCache[CollectionMetadata], namespace: NamespaceId
 ) -> CollectionMetadata | None:
@@ -1501,6 +1506,14 @@ class SharedCacheManager[DocumentType: Mapping[str, Any]]:
         if local is not None:
             local.close()
 
+    def _cache_eligibility(
+        self,
+        namespace: NamespaceId,
+        probe: Callable[[], CollectionProbeResult | None],
+    ) -> BypassReason | str | CollectionMetadata:
+        reason = self._cache_ineligibility_reason(namespace, probe)
+        return _ELIGIBLE if reason is None else reason
+
     def _cache_ineligibility_reason(
         self,
         namespace: NamespaceId,
@@ -1695,6 +1708,14 @@ class AsyncSharedCacheManager[DocumentType: Mapping[str, Any]]:
             _reattached(self)
         if local is not None:
             await local.close()
+
+    async def _cache_eligibility(
+        self,
+        namespace: NamespaceId,
+        probe: Callable[[], Awaitable[CollectionProbeResult | None]],
+    ) -> BypassReason | str | CollectionMetadata:
+        reason = await self._cache_ineligibility_reason(namespace, probe)
+        return _ELIGIBLE if reason is None else reason
 
     async def _cache_ineligibility_reason(
         self,

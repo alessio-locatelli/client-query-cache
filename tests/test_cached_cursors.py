@@ -966,3 +966,32 @@ async def test_find_execution_prepares_changed_final_options(
     assert await materialize(cursor.clone()) == expected
     assert raw_key_traversals == [1, 1]
     assert view.database.manager.snapshot().hits == after.hits + 1
+
+
+@pytest.mark.parametrize(
+    ("arguments", "options", "cached"),
+    [
+        (({}, None, 0, 0), {}, True),
+        (({}, None, 0, 0, False), {}, False),
+        (({},), {"limit": 0, "session": None}, True),
+        (({},), {"batch_size": 5}, False),
+    ],
+    ids=[
+        "positional-supported",
+        "positional-unsupported",
+        "keyword-supported",
+        "keyword-unsupported",
+    ],
+)
+async def test_supplied_constructor_options_select_cached_or_native_reads(
+    cursors: Binding,
+    arguments: tuple[object, ...],
+    options: dict[str, object],
+    *,
+    cached: bool,
+) -> None:
+    view = cursors["view"]
+    assert await materialize(view.find(*arguments, **options)) == cursors["documents"]
+    before = view.database.manager.snapshot().hits
+    assert await materialize(view.find(*arguments, **options)) == cursors["documents"]
+    assert (view.database.manager.snapshot().hits > before) is cached

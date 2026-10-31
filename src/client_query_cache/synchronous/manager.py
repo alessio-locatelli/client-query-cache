@@ -85,6 +85,14 @@ class CacheManager[DocumentType: Mapping[str, Any]]:
         namespace: NamespaceId,
         collection_probe: Callable[[], CollectionProbeResult | None],
     ) -> BypassReason | None:
+        eligibility = self._cache_eligibility(namespace, collection_probe)
+        return eligibility if isinstance(eligibility, BypassReason) else None
+
+    def _cache_eligibility(
+        self,
+        namespace: NamespaceId,
+        collection_probe: Callable[[], CollectionProbeResult | None],
+    ) -> BypassReason | CollectionMetadata:
         if self._coordinator.activate_database(namespace.database) is None:
             return BypassReason.STREAM_UNAVAILABLE
         if not self._cache.is_database_available(namespace.database):
@@ -107,7 +115,7 @@ class CacheManager[DocumentType: Mapping[str, Any]]:
                 return (
                     BypassReason.METADATA_UNAVAILABLE
                     if probe_result is None
-                    else probe_result.bypass_reason
+                    else BypassReason.MISSING_COLLECTION
                 )
             if probe_result.bypass_reason is not None:
                 released = self._cache.release_namespace_if_epoch_matches(
@@ -122,20 +130,14 @@ class CacheManager[DocumentType: Mapping[str, Any]]:
                     epoch_bound=False,
                 )
                 self._metadata.put_if_version(namespace, cached, metadata_version)
-                return cached.bypass_reason
+                return probe_result.bypass_reason
             cached = CollectionMetadata(
                 checked_epoch=current_epoch,
                 bypass_reason=None,
                 default_collation=probe_result.default_collation,
             )
             self._metadata.put(namespace, cached)
-        return None
-
-    def _default_collation_for(
-        self, namespace: NamespaceId
-    ) -> Mapping[str, Any] | None:
-        cached = self._metadata.get(namespace)
-        return cached.default_collation if cached is not None else None
+        return cached
 
     @overload
     def _unique_keys_for(
