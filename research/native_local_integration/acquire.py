@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import platform
@@ -27,6 +26,12 @@ from benchmarks.public_shared_cache import (
 from benchmarks.stream_cost.topology import IsolatedReplicaSet, ResourceLimits
 from client_query_cache._types import BsonDict, NonNegativeInt, PositiveInt  # noqa: PLC2701 - Use the library constraint aliases for acquisition counts.
 from research.native_local_integration.contention import run_cell
+from research.native_local_integration.registration import (
+    REGISTRATIONS,
+    build,
+    digest,
+    verify_installation,
+)
 
 if TYPE_CHECKING:
     from typing import Literal
@@ -48,11 +53,129 @@ SHAPES = (
     Shape("small-entries", 64000, 1, 16384, 8192),
     Shape("large-keys", 64000, 1, 16384, 8192),
 )
-_NODE_HASH = "595525f35b718ea67cd368334e97298943b07d1f36cdb91281833ebbed7e5bc8"  # pragma: allowlist secret  # noqa: E501 - Preserve the registered node-set digest as one literal.
 
 
-def digest(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+@dataclass(frozen=True, slots=True)
+class Cell:
+    role: Literal["target", "control"]
+    method: str
+    workload: Literal["hot", "cold"]
+    path: Literal["independent", "shared"]
+    hot_keys: PositiveInt
+    documents: PositiveInt
+    document_bytes: PositiveInt
+    samples: PositiveInt
+    budget_bytes: PositiveInt | None = None
+    max_entry_bytes: PositiveInt | None = None
+
+
+CANDIDATES: dict[str, tuple[Cell, ...]] = {
+    "capture": (
+        Cell(
+            "target",
+            "find",
+            "cold",
+            "independent",
+            1,
+            4000,
+            1024,
+            32,
+            256 * 1024 * 1024,
+            8 * 1024 * 1024,
+        ),
+        Cell("control", "find", "hot", "independent", 128, 16, 128, 2048),
+    ),
+    "preparation": (
+        Cell("target", "find_one_in", "hot", "independent", 1024, 1, 4096, 4096),
+        Cell("control", "identity", "hot", "independent", 1024, 1, 4096, 4096),
+        Cell("control", "identity", "hot", "shared", 1024, 1, 4096, 4096),
+    ),
+    "owner": (
+        Cell("target", "identity", "cold", "shared", 1024, 1, 4096, 1024),
+        Cell("control", "identity", "hot", "shared", 1024, 1, 4096, 16384),
+    ),
+}
+_PROFILE_READS = 256
+
+
+def resolved(window: dict[str, object], *, profiled: bool = False) -> dict[str, object]:
+    if window["unresolved_cpu"] and not profiled:
+        message = f"CPU below 100 clock quanta: {window['unresolved_cpu']}"
+        raise AssertionError(message)
+    return window
+
+
+def candidate(
+    replica: IsolatedReplicaSet,
+    output: Path,
+    block: NonNegativeInt,
+    cells: tuple[Cell, ...],
+    profile: Path | None,
+) -> None:
+    windows = []
+    invalid = None
+    active: dict[str, object] = {}
+    models: tuple[Literal["sync", "async"], ...] = (
+        ("async", "sync") if block % 2 else ("sync", "async")
+    )
+    ordered = cells[::-1] if block % 2 else cells
+    try:
+        with MongoClient[BsonDict](replica.uri) as client:
+            for cell, model in product(ordered, models):
+                for samples, profile_directory in (
+                    (cell.samples, None),
+                    *(
+                        ()
+                        if profile is None or cell.role != "target"
+                        else ((min(cell.samples, _PROFILE_READS), profile / model),)
+                    ),
+                ):
+                    active = {"cell": asdict(cell), "model": model, "samples": samples}
+                    _seed(
+                        client,
+                        argparse.Namespace(
+                            method=cell.method,
+                            hot_keys=cell.hot_keys,
+                            samples=samples,
+                            result_documents=cell.documents,
+                            document_bytes=cell.document_bytes,
+                        ),
+                        cell.workload,
+                    )
+                    windows.append(
+                        {
+                            **active,
+                            "profiled": profile_directory is not None,
+                            **resolved(
+                                _run_window(
+                                    replica,
+                                    model,
+                                    cell.workload,
+                                    cell.path,
+                                    samples,
+                                    method=cell.method,
+                                    hot_keys=cell.hot_keys,
+                                    result_documents=cell.documents,
+                                    diagnostics=cell.path == "shared",
+                                    validate=True,
+                                    document_bytes=cell.document_bytes,
+                                    rotation=block * 8192,
+                                    budget_bytes=cell.budget_bytes,
+                                    max_entry_bytes=cell.max_entry_bytes,
+                                    profile_directory=profile_directory,
+                                ),
+                                profiled=profile_directory is not None,
+                            ),
+                        }
+                    )
+    except Exception as error:
+        invalid = {"cell": active, "reason": f"{type(error).__name__}: {error}"}
+        raise
+    finally:
+        output.write_text(
+            json.dumps({"windows": windows, "invalid": invalid}, indent=2) + "\n",
+            encoding="utf-8",
+        )
 
 
 def public(
@@ -114,19 +237,21 @@ def public(
                         workload,
                     )
                     windows.append(
-                        _run_window(
-                            replica,
-                            model,
-                            workload,
-                            path,
-                            samples,
-                            method=shape.method,
-                            hot_keys=shape.hot_keys,
-                            result_documents=shape.documents,
-                            validate=True,
-                            document_bytes=4096,
-                            rotation=block * 8192,
-                            profile_directory=None,
+                        resolved(
+                            _run_window(
+                                replica,
+                                model,
+                                workload,
+                                path,
+                                samples,
+                                method=shape.method,
+                                hot_keys=shape.hot_keys,
+                                result_documents=shape.documents,
+                                validate=True,
+                                document_bytes=4096,
+                                rotation=block * 8192,
+                                profile_directory=None,
+                            )
                         )
                     )
     except Exception as error:
@@ -176,7 +301,8 @@ def command(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--label", choices=("M", "F"), required=True)
+    parser.add_argument("--registration", choices=tuple(REGISTRATIONS), required=True)
+    parser.add_argument("--label", required=True)
     parser.add_argument("--block", type=int, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--wheel", type=Path, required=True)
@@ -186,8 +312,14 @@ def main() -> None:
     parser.add_argument(
         "--components",
         nargs="+",
-        choices=("public", "memory", "contention", "tests"),
+        choices=("public", "memory", "contention", "tests", "candidate"),
         default=("public", "memory", "contention", "tests"),
+    )
+    parser.add_argument("--candidate", choices=tuple(CANDIDATES))
+    parser.add_argument(
+        "--profile",
+        action="store_true",
+        help="Add one bounded profiled window per candidate target and model.",
     )
     arguments = parser.parse_args()
     arguments.output = arguments.output.resolve()
@@ -198,16 +330,29 @@ def main() -> None:
         parser.error("block must not be negative")
     if arguments.uncertainty and arguments.components != ["public"]:
         parser.error("the registered uncertainty cohort contains public cells only")
-    assert digest(arguments.existing_nodes) == _NODE_HASH
-    arguments.output.mkdir(parents=True, exist_ok=False)
+    if ("candidate" in arguments.components) != (arguments.candidate is not None):
+        parser.error("--candidate selects the cells of the candidate component")
+    try:
+        expected = build(arguments.registration, arguments.label)
+    except ValueError as error:
+        parser.error(str(error))
+    registration = REGISTRATIONS[arguments.registration]
+    if digest(arguments.existing_nodes) != registration.node_hash:
+        parser.error(f"{arguments.existing_nodes} is not the registered node selection")
     imported = implementation(None)
     extension = Path(imported["extension"])
-    assert extension.is_relative_to(sys.prefix)
+    if not extension.is_relative_to(sys.prefix):
+        parser.error(f"{extension} is not installed in {sys.prefix}")
+    verify_installation(expected, arguments.wheel, Path(imported["library"]).parent)
+    arguments.output.mkdir(parents=True, exist_ok=False)
     source = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()  # noqa: S607 - Git is the repository tool on the configured executable path.
     (arguments.output / "provenance.json").write_text(
         json.dumps(
             {
+                "registration": arguments.registration,
                 "label": arguments.label,
+                "candidate": arguments.candidate,
+                "expected_core": expected.core,
                 "block": arguments.block,
                 "harness_source": source,
                 "wheel": str(arguments.wheel),
@@ -243,7 +388,15 @@ def main() -> None:
             }
         )
     (arguments.output / "startup.json").write_text(json.dumps(startup, indent=2) + "\n")
-    native = arguments.label == "F"
+    if "candidate" in arguments.components:
+        with IsolatedReplicaSet(ResourceLimits(cpus=2.0, memory="1g")) as replica:
+            candidate(
+                replica,
+                arguments.output / "candidate.json",
+                arguments.block,
+                CANDIDATES[arguments.candidate],
+                arguments.output / "profiles" if arguments.profile else None,
+            )
     if "public" in arguments.components or "contention" in arguments.components:
         with IsolatedReplicaSet(ResourceLimits(cpus=2.0, memory="1g")) as replica:
             if "public" in arguments.components:
@@ -268,7 +421,7 @@ def main() -> None:
                             ),
                             "hot",
                         )
-                        windows.append(run_cell(replica, threads, native=native))
+                        windows.append(run_cell(replica, threads, expected=expected))
                         (arguments.output / "contention.json").write_text(
                             json.dumps({"windows": windows}, indent=2) + "\n"
                         )

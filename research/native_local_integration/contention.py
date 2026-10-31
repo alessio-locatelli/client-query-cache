@@ -36,9 +36,16 @@ from client_query_cache._types import (  # noqa: PLC2701 - Use the library const
     NonNegativeInt,
     PositiveInt,
 )
+from research.native_local_integration.registration import (
+    REGISTRATIONS,
+    build,
+    verify_core,
+)
 
 if TYPE_CHECKING:
     from multiprocessing.connection import Connection
+
+    from research.native_local_integration.registration import Build
 
 _KEYS = 1024
 _PAYLOAD = "0:" + "x" * 4096
@@ -66,7 +73,7 @@ def _memory() -> dict[str, NonNegativeInt]:
 
 
 def _thread_worker(
-    control: Connection, uri: str, threads: PositiveInt, *, native: bool
+    control: Connection, uri: str, threads: PositiveInt, *, expected: Build
 ) -> dict[str, object]:
     commands = ReadCommands(())
     with (
@@ -80,15 +87,7 @@ def _thread_worker(
         ThreadPoolExecutor(max_workers=threads) as pool,
     ):
         provenance = _implementation(manager)
-        assert all(
-            Path(provenance[field]).is_relative_to(sys.prefix)
-            for field in ("library", "extension")
-        )
-        assert provenance["core"] == (
-            "client_query_cache._shared_index.LocalCacheCore"
-            if native
-            else "client_query_cache._core.manager.CacheCore"
-        )
+        verify_core(expected, provenance, Path(sys.prefix))
         assert manager._coordinator._cache is manager.cache_core  # noqa: SLF001 - Prove that the stream and all readers use this same core.
         view = manager.get_cached_collection(
             client.public_shared_cache.items.with_options(
@@ -281,7 +280,7 @@ def _write_sequence(uri: str, start_at: NonNegativeFloat) -> list[dict[str, obje
 
 
 def run_cell(
-    replica: IsolatedReplicaSet, threads: PositiveInt, *, native: bool = False
+    replica: IsolatedReplicaSet, threads: PositiveInt, *, expected: Build
 ) -> dict[str, object]:
     context = multiprocessing.get_context("spawn")
     parent, child = context.Pipe()
@@ -290,7 +289,9 @@ def run_cell(
         child,
         ProcessPoolExecutor(max_workers=1, mp_context=context) as pool,
     ):
-        future = pool.submit(_thread_worker, child, replica.uri, threads, native=native)
+        future = pool.submit(
+            _thread_worker, child, replica.uri, threads, expected=expected
+        )
         assert parent.poll(60), "contention worker did not become ready"
         assert parent.recv() == "ready"
         start_at = time.monotonic() + 0.25
@@ -303,11 +304,16 @@ def run_cell(
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--expect-native", action="store_true")
+    parser.add_argument("--registration", choices=tuple(REGISTRATIONS), required=True)
+    parser.add_argument("--label", required=True)
     parser.add_argument(
         "--threads", type=int, nargs="+", choices=(1, 4), default=(1, 4)
     )
     arguments = parser.parse_args()
+    try:
+        expected = build(arguments.registration, arguments.label)
+    except ValueError as error:
+        parser.error(str(error))
     windows = []
     with (
         IsolatedReplicaSet(ResourceLimits(cpus=2.0, memory="1g")) as replica,
@@ -325,7 +331,7 @@ def main() -> None:
                 ),
                 "hot",
             )
-            windows.append(run_cell(replica, threads, native=arguments.expect_native))
+            windows.append(run_cell(replica, threads, expected=expected))
     arguments.output.parent.mkdir(parents=True, exist_ok=True)
     arguments.output.write_text(json.dumps({"windows": windows}, indent=2) + "\n")
 
