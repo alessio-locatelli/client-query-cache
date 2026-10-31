@@ -308,7 +308,7 @@ class SharedCacheOwner:
         )
         self.core = CacheCore(
             CacheCoreConfig(
-                shared_budget_bytes=config.budget_bytes,
+                budget_bytes=config.budget_bytes,
                 max_entry_bytes=config.max_entry_bytes,
                 max_namespaces=(
                     DEFAULT_MAX_NAMESPACES if limits is None else limits.namespaces
@@ -807,7 +807,7 @@ class SharedCacheOwner:
             "cache": {
                 "used_bytes": snapshot.used_bytes,
                 "entry_count": snapshot.entry_count,
-                "shared_budget_bytes": snapshot.shared_budget_bytes,
+                "budget_bytes": snapshot.budget_bytes,
                 "hits": snapshot.hits,
                 "misses": snapshot.misses,
                 "evictions": snapshot.evictions,

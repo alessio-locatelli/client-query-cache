@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
 import pytest
@@ -12,9 +13,12 @@ from client_query_cache._core.manager import CacheCore, CacheCoreConfig
 from tests.core.conftest import patch_conditional_put_hook
 
 if TYPE_CHECKING:
+    from collections.abc import Generator
+
     from client_query_cache._core.entries import CacheEntry
     from client_query_cache._core.keys import CacheKey, NamespaceId
     from client_query_cache._core.lru import WeightedLru
+    from client_query_cache._core.manager import NamespaceCapture
 
 pytestmark = pytest.mark.unit
 
@@ -112,7 +116,7 @@ def test_a_write_racing_the_capture_declines_the_match_and_publishes_no_alias(
 def test_admit_unique_key_match_declines_an_oversize_value(
     namespace: NamespaceId,
 ) -> None:
-    core = CacheCore(CacheCoreConfig(shared_budget_bytes=1_000, max_entry_bytes=32))
+    core = CacheCore(CacheCoreConfig(budget_bytes=1_000, max_entry_bytes=32))
     alias = canonical_alias_key(("email",), ("a@example.com",), None)
     namespace_capture = core.capture_namespace_generation(namespace)
 
@@ -187,24 +191,13 @@ def test_stale_unique_key_cleanup_cannot_mutate_a_recreated_namespace(
     assert lookup_result.value == {"email": "new@example.com"}
 
 
-def test_namespace_entry_cleanup_ignores_an_entry_invalidated_after_lookup(
+@contextmanager
+def paused_namespace_cleanup(
     core: CacheCore,
-    namespace: NamespaceId,
+    capture: NamespaceCapture,
+    discriminator: object,
     monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    alias = canonical_alias_key(("email",), ("a@example.com",), None)
-    discriminator = (alias, "full")
-    capture = core.capture_namespace_generation(namespace)
-    outcome = core.admit_unique_key_match(
-        capture,
-        discriminator,
-        "doc-1",
-        "full",
-        {"email": "a@example.com"},
-        alias=alias,
-    )
-    assert outcome is AdmissionOutcome.ADMITTED
-
+) -> Generator[threading.Event]:
     lookup_complete = threading.Event()
     resume_cleanup = threading.Event()
     original_peek = type(core._lru).peek
@@ -223,13 +216,36 @@ def test_namespace_entry_cleanup_ignores_an_entry_invalidated_after_lookup(
     )
     cleanup.start()
     try:
-        assert lookup_complete.wait(5)
-        core.clear_namespace(namespace)
+        yield lookup_complete
     finally:
         resume_cleanup.set()
-    cleanup.join(5)
+        cleanup.join(5)
+        assert not cleanup.is_alive()
 
-    assert not cleanup.is_alive()
+
+def test_namespace_entry_cleanup_ignores_an_entry_invalidated_after_lookup(
+    core: CacheCore,
+    namespace: NamespaceId,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    alias = canonical_alias_key(("email",), ("a@example.com",), None)
+    discriminator = (alias, "full")
+    capture = core.capture_namespace_generation(namespace)
+    outcome = core.admit_unique_key_match(
+        capture,
+        discriminator,
+        "doc-1",
+        "full",
+        {"email": "a@example.com"},
+        alias=alias,
+    )
+    assert outcome is AdmissionOutcome.ADMITTED
+
+    with paused_namespace_cleanup(
+        core, capture, discriminator, monkeypatch
+    ) as lookup_complete:
+        assert lookup_complete.wait(5)
+        core.clear_namespace(namespace)
     assert not core.lookup_namespace(namespace, discriminator).hit
 
 

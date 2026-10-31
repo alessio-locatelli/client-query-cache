@@ -51,9 +51,7 @@ def make_core() -> Iterator[Callable[[PositiveInt], CacheCore]]:
     cores: list[CacheCore] = []
 
     def create(limit: PositiveInt) -> CacheCore:
-        core = CacheCore(
-            CacheCoreConfig(shared_budget_bytes=limit * 2, max_entry_bytes=limit)
-        )
+        core = CacheCore(CacheCoreConfig(budget_bytes=limit * 2, max_entry_bytes=limit))
         cores.append(core)
         return core
 

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import logging
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING
 
 import pytest
 
+from client_query_cache._core import manager as core_module
 from client_query_cache._core.canonical import canonicalize
 from client_query_cache._core.codec import encode_value
 from client_query_cache._core.entries import AdmissionOutcome
@@ -12,24 +14,24 @@ from client_query_cache._core.find_reads import find_read_shape
 from client_query_cache._core.keys import IdentityCacheKey, NamespaceCacheKey
 from client_query_cache._core.manager import CacheCore, CacheCoreConfig
 from client_query_cache._core.order_sensitive_keys import order_sensitive_key
+from client_query_cache._types import NonNegativeInt
 from tests.core.conftest import patch_conditional_put_hook
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterator
 
     from faker import Faker
 
     from client_query_cache._core.canonical import Canonical
     from client_query_cache._core.entries import CacheEntry
     from client_query_cache._core.keys import CacheKey, NamespaceId
-    from client_query_cache._types import NonNegativeInt
 
 pytestmark = pytest.mark.unit
 
 SHAPE = "full"
 DISCRIMINATOR = ("find", "shape")
 LARGE_CHARACTERS = 600
-BUDGET = CacheCoreConfig(shared_budget_bytes=1_000, max_entry_bytes=700)
+BUDGET = CacheCoreConfig(budget_bytes=1_000, max_entry_bytes=700)
 
 type Event = tuple[str, object]
 
@@ -42,6 +44,7 @@ class RecordingObserver:
     locked: list[bool] = field(default_factory=list)
     namespaces_locked: list[bool] = field(default_factory=list)
     registered_metadata: list[object] = field(default_factory=list)
+    capacity_depths: list[NonNegativeInt] = field(default_factory=list)
 
     def _record(self, kind: str, subject: object, *, locked: bool) -> None:
         self.events.append((kind, subject))
@@ -52,6 +55,7 @@ class RecordingObserver:
         self.locked.clear()
         self.namespaces_locked.clear()
         self.registered_metadata.clear()
+        self.capacity_depths.clear()
 
     def _namespace_locked(self, namespace: NamespaceId) -> bool:
         assert self.core is not None
@@ -100,6 +104,8 @@ class RecordingObserver:
         self.registered_metadata.append(
             self.core.registered_namespace_metadata(namespace)
         )
+        capacity = self.core._retention.capacity
+        self.capacity_depths.append(0 if capacity is None else capacity._state.depth)
         if self.close_on_release:
             self.core.close()
 
@@ -267,11 +273,16 @@ def test_observer_sees_each_mutation_inside_its_lock_section(
     )
 
 
+@pytest.mark.parametrize("limited", [False, True])
 def test_namespace_release_notifies_after_the_namespace_lock_is_released(
     namespace: NamespaceId,
+    *,
+    limited: bool,
 ) -> None:
     observer = RecordingObserver()
-    core = CacheCore(BUDGET, observer=observer)
+    core = CacheCore(
+        replace(BUDGET, max_entries=4 if limited else None), observer=observer
+    )
     observer.core = core
     core.capture_namespace_generation(namespace)
 
@@ -284,13 +295,19 @@ def test_namespace_release_notifies_after_the_namespace_lock_is_released(
     assert observer.locked == [True, False]
     assert observer.namespaces_locked == [False]
     assert observer.registered_metadata == [None]
+    assert observer.capacity_depths == [0]
 
 
+@pytest.mark.parametrize("limited", [False, True])
 def test_namespace_release_tolerates_close_clearing_its_registry(
     namespace: NamespaceId,
+    *,
+    limited: bool,
 ) -> None:
     observer = RecordingObserver(close_on_release=True)
-    core = CacheCore(BUDGET, observer=observer)
+    core = CacheCore(
+        replace(BUDGET, max_entries=4 if limited else None), observer=observer
+    )
     observer.core = core
     core.capture_namespace_generation(namespace)
 
@@ -389,3 +406,73 @@ def test_every_stored_payload_is_released_once_after_leaving_the_cache(
     core.close()
     assert len(payloads.stored) == 5
     assert sorted(map(id, payloads.released)) == sorted(map(id, payloads.stored))
+
+
+@pytest.fixture
+def limited_observer_core() -> Iterator[tuple[CacheCore, RecordingObserver]]:
+    observer = RecordingObserver()
+    core = CacheCore(replace(BUDGET, max_entries=1), observer=observer)
+    observer.core = core
+    yield core, observer
+    core.close()
+
+
+def test_count_eviction_preserves_storage_notification_order(
+    limited_observer_core: tuple[CacheCore, RecordingObserver],
+    namespace: NamespaceId,
+) -> None:
+    core, observer = limited_observer_core
+    for key in ("first", "second"):
+        assert (
+            core.admit_namespace(core.capture_namespace_generation(namespace), key, 1)
+            is AdmissionOutcome.ADMITTED
+        )
+    first, second = (NamespaceCacheKey(namespace, key) for key in ("first", "second"))
+    assert observer.events == [
+        ("admitted", (first, encode_value(1))),
+        ("removed", (first, encode_value(1))),
+        ("admitted", (second, encode_value(1))),
+    ]
+    assert observer.locked == [True, True, True]
+
+
+class ClosingEvictionHandler(logging.Handler):
+    def __init__(self, core: CacheCore) -> None:
+        super().__init__()
+        self.core = core
+        self.depths: list[NonNegativeInt] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if record.msg == "cache entries evicted":
+            capacity = self.core._retention.capacity
+            assert capacity is not None
+            self.depths.append(capacity._state.depth)
+            self.core.close()
+
+
+@pytest.fixture
+def closing_eviction_handler(
+    limited_observer_core: tuple[CacheCore, RecordingObserver],
+    caplog: pytest.LogCaptureFixture,
+) -> Iterator[ClosingEvictionHandler]:
+    core, _observer = limited_observer_core
+    caplog.set_level(logging.DEBUG, logger=core_module.logger.name)
+    handler = ClosingEvictionHandler(core)
+    core_module.logger.addHandler(handler)
+    yield handler
+    core_module.logger.removeHandler(handler)
+
+
+def test_eviction_logging_can_close_the_core_after_publication(
+    limited_observer_core: tuple[CacheCore, RecordingObserver],
+    closing_eviction_handler: ClosingEvictionHandler,
+    namespace: NamespaceId,
+) -> None:
+    core, _observer = limited_observer_core
+    for key in ("first", "second"):
+        assert (
+            core.admit_namespace(core.capture_namespace_generation(namespace), key, 1)
+            is AdmissionOutcome.ADMITTED
+        )
+    assert closing_eviction_handler.depths == [0]
+    assert core.snapshot().lifecycle == "closed"

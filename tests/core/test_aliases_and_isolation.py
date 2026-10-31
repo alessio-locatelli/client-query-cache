@@ -118,7 +118,7 @@ def test_a_resolution_racing_a_concurrent_write_is_not_published(
 def test_aliases_do_not_grow_unboundedly_under_sustained_distinct_key_reads(
     namespace: NamespaceId,
 ) -> None:
-    core = CacheCore(CacheCoreConfig(shared_budget_bytes=500, max_entry_bytes=100))
+    core = CacheCore(CacheCoreConfig(budget_bytes=500, max_entry_bytes=100))
     admission_count = 500
 
     for index in range(admission_count):
@@ -230,7 +230,7 @@ def test_an_identity_left_without_aliases_retains_no_alias_storage(
     )
     pending = core.begin_identity_admission(namespace, "doc-old")
     identities = core._namespace(namespace).identities
-    assert identities["doc-old"].alias_keys == frozenset({SHARED_ALIAS})
+    assert identities["doc-old"].alias_keys == {SHARED_ALIAS}
 
     release(core, namespace)
 
@@ -238,5 +238,5 @@ def test_an_identity_left_without_aliases_retains_no_alias_storage(
     resolved = core.resolve_alias(namespace, "email", "shared@example.com", None)
     assert resolved == current_owner
     if current_owner is not None:
-        assert identities[current_owner].alias_keys == frozenset({SHARED_ALIAS})
+        assert identities[current_owner].alias_keys == {SHARED_ALIAS}
     pending.release()

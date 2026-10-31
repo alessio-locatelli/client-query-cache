@@ -13,6 +13,14 @@ bodies or OpenSpec. An empty Unreleased section is valid.
 
 ## Unreleased
 
+### Breaking changes
+
+- Rename `CacheCoreConfig.shared_budget_bytes` and `CacheSnapshot.shared_budget_bytes` to `budget_bytes`, without a compatibility alias. Update configuration keywords and snapshot access; the budget continues to bound stored BSON across one manager's collections.
+
+### Features
+
+- Add optional `max_entries` and `max_key_bytes` safeguards for process-local cache retention, with separate admission-decline observations.
+
 ## [0.10.0] - 2026-10-28
 
 ### Features

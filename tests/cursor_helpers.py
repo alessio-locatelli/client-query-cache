@@ -33,6 +33,10 @@ type ReadCursor[DocumentType: Mapping[str, Any]] = (
 )
 
 
+async def resolved[Value](operation: Value | Awaitable[Value]) -> Value:
+    return await operation if isinstance(operation, Awaitable) else operation
+
+
 async def resolve_cursor[DocumentType: Mapping[str, Any]](
     cursor: ReadCursor[DocumentType] | Awaitable[AsyncCommandCursor[DocumentType]],
 ) -> ReadCursor[DocumentType]:

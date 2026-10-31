@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from client_query_cache import BypassReason, BypassReasonCount
+from client_query_cache import BypassReason, BypassReasonCount, RetentionDeclineCount
 from client_query_cache._core.canonical import canonicalize
 from client_query_cache._core.codec import encode_value
 from client_query_cache._core.entries import AdmissionOutcome, CacheEntry
@@ -33,7 +33,12 @@ def test_snapshot_only_exposes_safe_primitive_fields(core: CacheCore) -> None:
     snapshot = core.snapshot()
     for field in dataclasses.fields(snapshot):
         value = getattr(snapshot, field.name)
-        if field.name == "bypass_reasons":
+        if field.name == "retention_declines":
+            assert isinstance(value, tuple)
+            assert all(isinstance(record, RetentionDeclineCount) for record in value)
+        elif field.name in {"max_entries", "max_key_bytes"}:
+            assert value is None or isinstance(value, int)
+        elif field.name == "bypass_reasons":
             assert isinstance(value, tuple)
             assert all(isinstance(record, BypassReasonCount) for record in value)
         else:
@@ -43,7 +48,7 @@ def test_snapshot_only_exposes_safe_primitive_fields(core: CacheCore) -> None:
 def test_snapshot_reports_capacity_and_lifecycle(core: CacheCore) -> None:
     snapshot = core.snapshot()
     assert snapshot.lifecycle == "active"
-    assert snapshot.shared_budget_bytes > 0
+    assert snapshot.budget_bytes > 0
     assert snapshot.max_entry_bytes > 0
     assert snapshot.used_bytes == 0
     assert snapshot.entry_count == 0
@@ -142,7 +147,7 @@ def test_an_unavailable_database_records_a_bypass_instead_of_deferring_a_miss(
 
 
 def test_snapshot_tracks_evictions(namespace: NamespaceId) -> None:
-    core = CacheCore(CacheCoreConfig(shared_budget_bytes=100, max_entry_bytes=50))
+    core = CacheCore(CacheCoreConfig(budget_bytes=100, max_entry_bytes=50))
     for index in range(20):
         capture = core.begin_identity_admission(namespace, f"doc-{index}")
         core.admit_identity(capture, "full", {"v": "x" * 20})

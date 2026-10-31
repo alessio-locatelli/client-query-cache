@@ -56,7 +56,7 @@ class _CoarseCache:
     __slots__ = ("_core", "_namespace")
 
     def __init__(self, entries: int, payload_bytes: int) -> None:
-        self._core = CacheCore(CacheCoreConfig(shared_budget_bytes=256 * 1024 * 1024))
+        self._core = CacheCore(CacheCoreConfig(budget_bytes=256 * 1024 * 1024))
         self._namespace = NamespaceId("diagnostic", "catalogue")
         for key in range(entries):
             capture = self._core.begin_identity_admission(self._namespace, key)
