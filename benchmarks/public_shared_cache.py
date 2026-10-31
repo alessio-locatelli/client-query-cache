@@ -1104,6 +1104,7 @@ def _owner_sampler(
             str(pid),
             "--rate",
             str(_SAMPLER_RATE),
+            "--nonblocking",
             "--format",
             "raw",
             "--output",
