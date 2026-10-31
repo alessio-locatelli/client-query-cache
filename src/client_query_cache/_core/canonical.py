@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Hashable, Mapping, Sequence
 
 from client_query_cache._core.errors import UnsupportedCacheRequestError
+from client_query_cache._shared_index import Canonicalizer
 
 type Canonical = Hashable
 
@@ -31,7 +32,7 @@ _BOOL_TAG = _CanonicalTag("bool")
 _TAGGED_TUPLE_SIZE = 2
 
 
-def canonicalize(value: object) -> Canonical:
+def _reference_canonicalize(value: object) -> Canonical:
     value_type = type(value)
     if value_type is int or value_type is str or value_type is bytes or value is None:
         return value
@@ -41,14 +42,23 @@ def canonicalize(value: object) -> Canonical:
             return value
         if type(tag) is _PendingTag:
             if tag.items:
-                return (tag.canonical, tuple([canonicalize(item) for item in payload]))
-            return (tag.canonical, canonicalize(payload))
+                return (
+                    tag.canonical,
+                    tuple([_reference_canonicalize(item) for item in payload]),
+                )
+            return (tag.canonical, _reference_canonicalize(payload))
     if isinstance(value, Mapping):
-        pairs = [(canonicalize(key), canonicalize(item)) for key, item in value.items()]
+        pairs = [
+            (_reference_canonicalize(key), _reference_canonicalize(item))
+            for key, item in value.items()
+        ]
         items = tuple(sorted(pairs, key=lambda pair: repr(pair[0])))
         return (_MAPPING_TAG, items)
     if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
-        return (_SEQUENCE_TAG, tuple([canonicalize(item) for item in value]))
+        return (
+            _SEQUENCE_TAG,
+            tuple([_reference_canonicalize(item) for item in value]),
+        )
     if isinstance(value, bool):
         return (_BOOL_TAG, value)
     try:
@@ -65,6 +75,20 @@ def canonicalize(value: object) -> Canonical:
         )
         raise UnsupportedCacheRequestError(message)
     return value
+
+
+_CANONICALIZER: Canonicalizer = Canonicalizer(
+    _CanonicalTag,
+    _PendingTag,
+    _MAPPING_TAG,
+    _SEQUENCE_TAG,
+    _BOOL_TAG,
+    Mapping,
+    Sequence,
+    UnsupportedCacheRequestError,
+    _reference_canonicalize,
+)
+canonicalize = _CANONICALIZER.canonical
 
 
 def is_canonicalizable(value: object) -> bool:

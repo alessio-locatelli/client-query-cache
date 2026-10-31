@@ -5,7 +5,12 @@ from collections.abc import Mapping, Sequence
 from bson.decimal128 import Decimal128
 from bson.int64 import Int64
 
-from client_query_cache._core.canonical import _CanonicalTag, _PendingTag
+from client_query_cache._core.canonical import (
+    _CANONICALIZER,
+    _CanonicalTag,
+    _PendingTag,
+)
+from client_query_cache._shared_index import OrderedKeys
 
 _MAPPING_TAG = _PendingTag("ordered-map", items=True)
 _SEQUENCE_TAG = _PendingTag("ordered-seq", items=True)
@@ -62,9 +67,23 @@ def _order_sensitive_key(
     return value
 
 
-def order_sensitive_key(value: object) -> object:
+def _reference_order_sensitive_key(value: object) -> object:
     return _order_sensitive_key(value, distinguish_numeric_subtypes=False)
 
 
-def order_sensitive_discriminator_key(value: object) -> object:
+def _reference_order_sensitive_discriminator_key(value: object) -> object:
     return _order_sensitive_key(value, distinguish_numeric_subtypes=True)
+
+
+_ORDERED = OrderedKeys(
+    _CANONICALIZER,
+    (_MAPPING_TAG, _SEQUENCE_TAG, _FLOAT_TAG, _INT64_TAG),
+    Int64,
+    Decimal128,
+    _reference_order_sensitive_key,
+    _reference_order_sensitive_discriminator_key,
+)
+order_sensitive_key = _ORDERED.pending_key
+order_sensitive_discriminator_key = _ORDERED.pending_discriminator
+canonical_order_sensitive_key = _ORDERED.key
+canonical_discriminator_key = _ORDERED.discriminator

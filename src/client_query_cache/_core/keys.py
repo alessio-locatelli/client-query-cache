@@ -4,7 +4,9 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, NamedTuple
 
 from client_query_cache._core.canonical import canonicalize
-from client_query_cache._core.order_sensitive_keys import order_sensitive_key
+from client_query_cache._core.order_sensitive_keys import (
+    canonical_order_sensitive_key,
+)
 
 if TYPE_CHECKING:
     from client_query_cache._core.canonical import Canonical
@@ -38,6 +40,6 @@ def canonical_alias_key(
 ) -> AliasKey:
     return (
         canonicalize(definition),
-        canonicalize(order_sensitive_key(value)),
+        canonical_order_sensitive_key(value),
         canonicalize(collation),
     )

@@ -10,6 +10,8 @@ use pyo3::prelude::*;
 use pyo3::pybacked::PyBackedStr;
 use pyo3::types::{PyBool, PyBytes, PyDict, PyTuple, PyType, PyWeakrefMethods, PyWeakrefReference};
 
+use crate::keys::OrderedKeys;
+
 const CHUNK: usize = 64;
 const ADMITTED: usize = 0;
 const OVERSIZE: usize = 1;
@@ -1181,22 +1183,21 @@ impl State {
 }
 
 const INITIALIZE: usize = 0;
-const CANONICALIZE: usize = 1;
-const ORDER_SENSITIVE: usize = 2;
-const ENCODE: usize = 3;
-const DECODE: usize = 4;
-const DECODE_FIND: usize = 5;
-const SNAPSHOT: usize = 6;
-const ALIAS_KEY: usize = 7;
-const FIND_KEY: usize = 8;
-const PREPARED_FIND: usize = 9;
-const CLOSED_ERROR: usize = 10;
-const UNSUPPORTED_ERROR: usize = 11;
-const BSON_ERROR: usize = 12;
-const MISS: usize = 13;
-const DEFERRED_MISS: usize = 14;
-const OUTCOMES: usize = 15;
-const REASONS: usize = 16;
+const ORDER_SENSITIVE: usize = 1;
+const ENCODE: usize = 2;
+const DECODE: usize = 3;
+const DECODE_FIND: usize = 4;
+const SNAPSHOT: usize = 5;
+const ALIAS_KEY: usize = 6;
+const FIND_KEY: usize = 7;
+const PREPARED_FIND: usize = 8;
+const CLOSED_ERROR: usize = 9;
+const UNSUPPORTED_ERROR: usize = 10;
+const BSON_ERROR: usize = 11;
+const MISS: usize = 12;
+const DEFERRED_MISS: usize = 13;
+const OUTCOMES: usize = 14;
+const REASONS: usize = 15;
 
 fn namespace_names(namespace: &Bound<'_, PyAny>) -> PyResult<(PyBackedStr, PyBackedStr)> {
     let py = namespace.py();
@@ -1403,6 +1404,7 @@ enum Read {
 )]
 pub(crate) struct LocalOwner {
     state: Arc<Mutex<State>>,
+    keys: Py<OrderedKeys>,
     operations: Vec<Py<PyAny>>,
     config: Py<PyAny>,
     stream_cost: Py<PyAny>,
@@ -1444,17 +1446,14 @@ impl LocalOwner {
         self.active(py, &self.state.lock().expect("local owner mutex"))
     }
     fn canonical<'py>(&self, value: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
-        self.operation(value.py(), CANONICALIZE).call1((value,))
+        self.keys.get().canonicalizer().value(value)
     }
     fn canonical_identity<'py>(
         &self,
         value: &Bound<'py, PyAny>,
         require: bool,
     ) -> PyResult<Bound<'py, PyAny>> {
-        let key = self
-            .operation(value.py(), ORDER_SENSITIVE)
-            .call1((value,))?;
-        let key = self.canonical(&key)?;
+        let key = self.keys.get().canonical(value, false)?;
         if require && key.is_none() {
             return Err(PyErr::from_value(
                 self.operation(value.py(), UNSUPPORTED_ERROR)
@@ -1801,6 +1800,10 @@ impl LocalOwner {
                 unavailable_reason,
                 invalidated_reason,
             })),
+            keys: operations
+                .get_item(ORDER_SENSITIVE)?
+                .cast_into::<OrderedKeys>()?
+                .unbind(),
             operations: operations.iter().map(Bound::unbind).collect(),
             config: setup.get_item(0)?.unbind(),
             stream_cost: setup.get_item(4)?.unbind(),
@@ -2329,7 +2332,7 @@ impl LocalOwner {
         identity: &Bound<'_, PyAny>,
     ) -> PyResult<()> {
         self.ensure_active(py)?;
-        let ordered = self.operation(py, ORDER_SENSITIVE).call1((identity,))?;
+        let ordered = self.keys.get().structure(identity, false)?;
         let names = namespace_names(namespace)?;
         let id = {
             let mut state = self.state.lock().expect("local owner mutex");
@@ -2345,7 +2348,7 @@ impl LocalOwner {
             state.changed();
             id
         };
-        let key = match self.canonical(&ordered) {
+        let key = match self.keys.get().finish(py, ordered) {
             Ok(key) => key,
             Err(error) if error.is_instance(py, self.operation(py, UNSUPPORTED_ERROR)) => {
                 return Ok(());
@@ -2838,6 +2841,7 @@ impl LocalOwner {
             .unbind())
     }
     fn __traverse__(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
+        visit.call(&self.keys)?;
         for operation in &self.operations {
             visit.call(operation)?;
         }

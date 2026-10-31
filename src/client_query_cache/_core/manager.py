@@ -37,7 +37,10 @@ from client_query_cache._core.lifecycle import CacheLifecycleState
 from client_query_cache._core.locking import LockOrderGuard, NamespaceLock
 from client_query_cache._core.lru import WeightedLru
 from client_query_cache._core.namespace import IdentityState, NamespaceState
-from client_query_cache._core.order_sensitive_keys import order_sensitive_key
+from client_query_cache._core.order_sensitive_keys import (
+    canonical_order_sensitive_key,
+    order_sensitive_key,
+)
 from client_query_cache._core.snapshots import (
     BypassReason,
     CacheSnapshot,
@@ -850,7 +853,7 @@ class _CacheCoreIdentityAdmission(_CacheCoreBase):
         self, namespace: NamespaceId, identity: object
     ) -> IdentityCapture:
         self._ensure_active()
-        canonical_identity = canonicalize(order_sensitive_key(identity))
+        canonical_identity = canonical_order_sensitive_key(identity)
         if canonical_identity is None:
             message = "identity must not be None"
             raise UnsupportedCacheRequestError(message)
@@ -1169,7 +1172,7 @@ class _CacheCoreUniqueKeyAdmission(_CacheCoreBase):
     ) -> AdmissionOutcome:
         self._ensure_active()
         assert isinstance(namespace_capture, NamespaceCapture)
-        canonical_identity = canonicalize(order_sensitive_key(identity))
+        canonical_identity = canonical_order_sensitive_key(identity)
         if canonical_identity is None:
             message = "identity must not be None"
             raise UnsupportedCacheRequestError(message)
@@ -1387,7 +1390,7 @@ class _CacheCoreLookup(_CacheCoreBase):
         if not self._is_database_available(namespace.database):
             self._statistics.record_bypass(BypassReason.STREAM_UNAVAILABLE)
             return None
-        canonical_identity = canonicalize(order_sensitive_key(identity))
+        canonical_identity = canonical_order_sensitive_key(identity)
         key = IdentityCacheKey(namespace, canonical_identity, canonicalize(read_shape))
         entry = self._lru.peek(key)
         if entry is None:

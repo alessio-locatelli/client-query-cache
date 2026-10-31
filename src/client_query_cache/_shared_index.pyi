@@ -1,4 +1,4 @@
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Hashable, Mapping
 from typing import final
 
 from client_query_cache._core.contracts import LocalCacheCore as _LocalCacheCore
@@ -107,6 +107,51 @@ class EncodedArray:
     def append(self, envelope: bytes) -> bool: ...
     def finish(self) -> bytes: ...
     def clear(self) -> None: ...
+
+@final
+class Canonicalizer:
+    def __init__(
+        self,
+        canonical_tag: type,
+        pending_tag: type,
+        mapping: object,
+        sequence: object,
+        boolean: object,
+        mapping_abc: type,
+        sequence_abc: type,
+        unsupported: type[Exception],
+        reference: Callable[[object], Hashable],
+    ) -> None: ...
+    def canonical(self, value: object) -> Hashable: ...
+
+@final
+class OrderedKeys:
+    def __init__(
+        self,
+        canonicalizer: Canonicalizer,
+        pending_tags: tuple[object, object, object, object],
+        int64_type: type,
+        decimal_type: type,
+        reference: Callable[[object], object],
+        discriminator_reference: Callable[[object], object],
+    ) -> None: ...
+    def key(self, value: object) -> Hashable: ...
+    def discriminator(self, value: object) -> Hashable: ...
+    def pending_key(self, value: object) -> object: ...
+    def pending_discriminator(self, value: object) -> object: ...
+
+@final
+class UnsafeScan:
+    def __init__(
+        self,
+        key_set: frozenset[str],
+        variables: frozenset[str],
+        prefixes: tuple[str, ...],
+        mapping_abc: type,
+        sequence_abc: type,
+        reference: Callable[[object, frozenset[str]], bool],
+    ) -> None: ...
+    def __call__(self, node: object) -> bool: ...
 
 @final
 class FindKeyEncoder:

@@ -1,13 +1,28 @@
 from __future__ import annotations
 
-import pytest
+from collections import UserDict, UserList
+from typing import TYPE_CHECKING
 
+import pytest
+from bson.son import SON
+from hypothesis import given
+from hypothesis import strategies as st
+
+from client_query_cache._core import read_validation
 from client_query_cache._core.read_validation import (
+    FILTER_UNSAFE_KEYS,
+    PIPELINE_UNSAFE_KEYS,
+    PROJECTION_UNSAFE_KEYS,
+    UNCACHEABLE_SYSTEM_VARIABLES,
     is_filter_cacheable,
     is_pipeline_cacheable,
     is_projection_cacheable,
 )
 from client_query_cache._types import BsonDict
+from tests.key_inputs import Opaque, outcome, same_outcome
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 pytestmark = pytest.mark.unit
 
@@ -243,3 +258,72 @@ def test_safe_projections_are_cacheable(
 )
 def test_unsafe_projections_are_not_cacheable(projection: BsonDict) -> None:
     assert is_projection_cacheable(projection) is False
+
+
+class _Key(str):  # noqa: FURB189 - Keys must exercise str subclasses, which BSON documents accept.
+    __slots__ = ()
+
+
+_SCAN_TEXT = st.text(max_size=6) | st.sampled_from(
+    [
+        *sorted(
+            FILTER_UNSAFE_KEYS
+            | PIPELINE_UNSAFE_KEYS
+            | PROJECTION_UNSAFE_KEYS
+            | UNCACHEABLE_SYSTEM_VARIABLES
+        ),
+        "$$NOW.date",
+        "$$USER_ROLES.x",
+        "$$NOWISH",
+        "�$$NOW.",
+    ]
+)
+_SCAN_LEAVES = (
+    st.none()
+    | st.booleans()
+    | st.integers()
+    | st.floats()
+    | st.binary(max_size=4)
+    | st.binary(max_size=4).map(bytearray)
+    | _SCAN_TEXT
+    | _SCAN_TEXT.map(_Key)
+    | _SCAN_TEXT.map(Opaque)
+)
+_SCAN_INPUTS = st.recursive(
+    _SCAN_LEAVES,
+    lambda children: (
+        st.lists(children, max_size=4)
+        | st.lists(children, max_size=4).map(tuple)
+        | st.lists(children, max_size=4).map(UserList)
+        | st.dictionaries(
+            _SCAN_TEXT | _SCAN_TEXT.map(_Key) | st.integers(), children, max_size=4
+        )
+        | st.dictionaries(_SCAN_TEXT, children, max_size=4).map(SON)
+        | st.dictionaries(_SCAN_TEXT, children, max_size=4).map(UserDict)
+    ),
+    max_leaves=12,
+)
+
+
+@pytest.mark.parametrize(
+    ("scan", "unsafe_keys"),
+    [
+        (read_validation._FILTER_SCAN, FILTER_UNSAFE_KEYS),
+        (read_validation._PIPELINE_SCAN, PIPELINE_UNSAFE_KEYS),
+        (read_validation._PROJECTION_SCAN, PROJECTION_UNSAFE_KEYS),
+    ],
+    ids=["filter", "pipeline", "projection"],
+)
+@given(node=_SCAN_INPUTS)
+def test_native_unsafe_scans_match_the_reference(
+    scan: Callable[[object], bool], unsafe_keys: frozenset[str], node: object
+) -> None:
+    assert same_outcome(
+        outcome(scan, node),
+        outcome(
+            lambda value: read_validation._contains_unsafe_construct(
+                value, unsafe_keys
+            ),
+            node,
+        ),
+    )

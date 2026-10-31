@@ -29,8 +29,8 @@ from client_query_cache._core.identity_reads import (
 )
 from client_query_cache._core.namespace_metadata import NamespaceMetadataCache
 from client_query_cache._core.order_sensitive_keys import (
+    canonical_order_sensitive_key,
     order_sensitive_discriminator_key,
-    order_sensitive_key,
 )
 from client_query_cache._core.read_classification import (
     _prepare_key,
@@ -290,7 +290,7 @@ def _identity_keys(
         return default_shape
     try:
         return (
-            view._shared.keys.encode(canonicalize(order_sensitive_key(cache_identity))),
+            view._shared.keys.encode(canonical_order_sensitive_key(cache_identity)),
             default_shape
             if default_shape is not None
             else view._shared.keys.encode(read_shape),

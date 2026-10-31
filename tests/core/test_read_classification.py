@@ -6,6 +6,9 @@ from pymongo import ReadPreference
 from pymongo.errors import InvalidOperation
 
 from client_query_cache._core.canonical import canonicalize
+from client_query_cache._core.order_sensitive_keys import (
+    order_sensitive_discriminator_key,
+)
 from client_query_cache._core.read_classification import (
     prepare_pipeline_key,
     prepare_query_key,
@@ -167,3 +170,53 @@ def test_unsafe_pipeline_skips_key_preparation(monkeypatch: pytest.MonkeyPatch) 
         BypassReason.UNSAFE_PIPELINE,
     )
     spy.assert_not_called()
+
+
+class _RaisingHash:
+    __slots__ = ("calls",)
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def __hash__(self) -> int:
+        self.calls += 1
+        raise ValueError("leaf hash failed")
+
+
+@pytest.mark.parametrize(
+    ("unsafe_filter", "projection", "expected_reason"),
+    [
+        pytest.param({"$where": "true"}, None, BypassReason.UNSAFE_FILTER, id="filter"),
+        pytest.param(
+            {"when": "$$NOW"}, None, BypassReason.UNSAFE_FILTER, id="system-variable"
+        ),
+        pytest.param(
+            {},
+            {"v": {"$meta": "textScore"}},
+            BypassReason.UNSAFE_PROJECTION,
+            id="projection",
+        ),
+    ],
+)
+def test_unsafe_requests_bypass_before_native_leaf_callbacks(
+    unsafe_filter: dict[str, object],
+    projection: dict[str, object] | None,
+    expected_reason: BypassReason,
+) -> None:
+    leaf = _RaisingHash()
+    filter_query = {**unsafe_filter, "leaf": [leaf]}
+    raw_key = order_sensitive_discriminator_key(("find", filter_query, projection))
+    assert prepare_query_key(filter_query, projection, raw_key) == (
+        None,
+        expected_reason,
+    )
+    assert leaf.calls == 0
+
+
+def test_safe_requests_surface_native_leaf_callback_failures() -> None:
+    leaf = _RaisingHash()
+    filter_query = {"leaf": [leaf]}
+    raw_key = order_sensitive_discriminator_key(("find", filter_query, None))
+    with pytest.raises(ValueError, match="leaf hash failed"):
+        prepare_query_key(filter_query, None, raw_key)
+    assert leaf.calls == 1

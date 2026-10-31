@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from client_query_cache._shared_index import UnsafeScan
+
 PIPELINE_UNSAFE_KEYS = frozenset(
     {
         "$lookup",
@@ -75,16 +77,32 @@ def _contains_unsafe_construct(node: object, unsafe_keys: frozenset[str]) -> boo
     return False
 
 
+def _scan(unsafe_keys: frozenset[str]) -> UnsafeScan:
+    return UnsafeScan(
+        unsafe_keys,
+        UNCACHEABLE_SYSTEM_VARIABLES,
+        _UNCACHEABLE_VARIABLE_PREFIXES,
+        Mapping,
+        Sequence,
+        _contains_unsafe_construct,
+    )
+
+
+_PIPELINE_SCAN = _scan(PIPELINE_UNSAFE_KEYS)
+_FILTER_SCAN = _scan(FILTER_UNSAFE_KEYS)
+_PROJECTION_SCAN = _scan(PROJECTION_UNSAFE_KEYS)
+
+
 def is_pipeline_cacheable(pipeline: Sequence[Mapping[str, Any]]) -> bool:
     return not any(
         "$changeStream" in stage for stage in pipeline
-    ) and not _contains_unsafe_construct(pipeline, PIPELINE_UNSAFE_KEYS)
+    ) and not _PIPELINE_SCAN(pipeline)
 
 
 def is_filter_cacheable(filter_query: Mapping[str, Any] | None) -> bool:
     if filter_query is None:
         return True
-    return not _contains_unsafe_construct(filter_query, FILTER_UNSAFE_KEYS)
+    return not _FILTER_SCAN(filter_query)
 
 
 def is_projection_cacheable(
@@ -92,4 +110,4 @@ def is_projection_cacheable(
 ) -> bool:
     if projection is None:
         return True
-    return not _contains_unsafe_construct(projection, PROJECTION_UNSAFE_KEYS)
+    return not _PROJECTION_SCAN(projection)

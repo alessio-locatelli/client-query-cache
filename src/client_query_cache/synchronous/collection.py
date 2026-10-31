@@ -23,6 +23,7 @@ from client_query_cache._core.errors import UnsupportedCacheRequestError
 from client_query_cache._core.find_one_reads import (
     effective_find_one_collation,
     find_one_read_shape,
+    find_one_read_shape_key,
     generic_find_one_discriminator,
     normalize_find_one_filter,
 )
@@ -33,6 +34,7 @@ from client_query_cache._core.identity_reads import (
 )
 from client_query_cache._core.keys import NamespaceId, canonical_alias_key
 from client_query_cache._core.order_sensitive_keys import (
+    canonical_discriminator_key,
     order_sensitive_discriminator_key,
 )
 from client_query_cache._core.projection import (
@@ -151,20 +153,16 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
                     and projection is None
                     and sort is None
                     and explicit_collation is None
-                    else canonicalize(
-                        find_one_read_shape(
-                            projection,
-                            sort,
-                            explicit_collation,
-                            self._codec_identity,
-                            remainder,
-                        )
+                    else find_one_read_shape_key(
+                        projection,
+                        sort,
+                        explicit_collation,
+                        self._codec_identity,
+                        remainder,
                     )
                 )
                 if identity is NO_IDENTITY:
-                    filter_key = canonicalize(
-                        order_sensitive_discriminator_key(filter_query)
-                    )
+                    filter_key = canonical_discriminator_key(filter_query)
                 elif not is_canonicalizable(identity):
                     reason = BypassReason.UNCANONICALIZABLE_KEY
             except UnsupportedCacheRequestError:
@@ -186,14 +184,12 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
             self._database.manager._default_collation_for(self._namespace()),  # noqa: SLF001 - Manager owns collection collation metadata.
         )
         if collation is None and effective_collation is not None:
-            read_shape = canonicalize(
-                find_one_read_shape(
-                    projection,
-                    sort,
-                    effective_collation,
-                    self._codec_identity,
-                    remainder,
-                )
+            read_shape = find_one_read_shape_key(
+                projection,
+                sort,
+                effective_collation,
+                self._codec_identity,
+                remainder,
             )
         if identity is not NO_IDENTITY and effective_collation is None:
             return self._find_one_by_id(
@@ -213,12 +209,10 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
             else None
         )
         if unique_key_match is None:
-            discriminator = canonicalize(
-                generic_find_one_discriminator(
-                    filter_key,
-                    read_shape,
-                    cache.current_index_generation(namespace),
-                )
+            discriminator = generic_find_one_discriminator(
+                filter_key,
+                read_shape,
+                cache.current_index_generation(namespace),
             )
             discovers_unique_keys = identity is NO_IDENTITY and known_keys is None
             lookup_result = cache.lookup_namespace(

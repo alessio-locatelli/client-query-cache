@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import enum
 import operator
 from typing import TYPE_CHECKING, Any
 
@@ -22,6 +23,7 @@ from client_query_cache._core.order_sensitive_keys import (
     order_sensitive_key,
 )
 from tests.core.test_canonical import bson_like_values
+from tests.key_inputs import key_inputs, outcome, same_outcome, strictly_equal
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -224,3 +226,139 @@ def test_nested_order_sensitive_values_form_one_tagged_node(
         for node in tuple_nodes(key)
         if len(node) == canonical._TAGGED_TUPLE_SIZE
     )
+
+
+_PREPARATIONS = (
+    (
+        order_sensitive_keys.order_sensitive_key,
+        order_sensitive_keys._reference_order_sensitive_key,
+        order_sensitive_keys.canonical_order_sensitive_key,
+    ),
+    (
+        order_sensitive_keys.order_sensitive_discriminator_key,
+        order_sensitive_keys._reference_order_sensitive_discriminator_key,
+        order_sensitive_keys.canonical_discriminator_key,
+    ),
+)
+
+
+def _canonical_reference(
+    reference: Callable[[object], object],
+) -> Callable[[object], object]:
+    return lambda value: canonical._reference_canonicalize(reference(value))
+
+
+@pytest.mark.parametrize(
+    ("pending", "reference", "fused"), _PREPARATIONS, ids=["identity", "discriminator"]
+)
+@given(value=key_inputs(string_keys=True))
+def test_native_order_sensitive_keys_match_the_reference(
+    pending: Callable[[object], object],
+    reference: Callable[[object], object],
+    fused: Callable[[object], object],
+    value: object,
+) -> None:
+    assert same_outcome(outcome(pending, value), outcome(reference, value))
+    assert same_outcome(
+        outcome(fused, value), outcome(_canonical_reference(reference), value)
+    )
+
+
+class _Subtype(enum.IntEnum):
+    ONE = 1
+
+
+class _Float(float):
+    __slots__ = ()
+
+
+@pytest.mark.parametrize(
+    ("pending", "reference", "fused"), _PREPARATIONS, ids=["identity", "discriminator"]
+)
+@pytest.mark.parametrize(
+    "value",
+    [
+        Int64(1),
+        1.0,
+        _Float(1.5),
+        _Subtype.ONE,
+        True,
+        Decimal128("1.0"),
+        Decimal128("NaN"),
+        float("nan"),
+        {"n": [Int64(2), 2.0, 2, Decimal128("2")]},
+    ],
+    ids=[
+        "int64",
+        "float",
+        "float-subclass",
+        "int-subclass",
+        "bool",
+        "decimal",
+        "decimal-nan",
+        "nan",
+        "nested",
+    ],
+)
+def test_numeric_subtypes_match_the_reference(
+    pending: Callable[[object], object],
+    reference: Callable[[object], object],
+    fused: Callable[[object], object],
+    value: object,
+) -> None:
+    assert same_outcome(outcome(pending, value), outcome(reference, value))
+    assert same_outcome(
+        outcome(fused, value), outcome(_canonical_reference(reference), value)
+    )
+
+
+class _Resizing:
+    __slots__ = ("target",)
+
+    def __init__(self, target: dict[str, object]) -> None:
+        self.target = target
+
+    def __hash__(self) -> int:
+        self.target["late"] = len(self.target)
+        return 0
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, _Resizing)
+
+
+def _resizing_filter() -> dict[str, object]:
+    value: dict[str, object] = {"early": 1}
+    value["leaf"] = _Resizing(value)
+    value["tail"] = [1, 2]
+    return value
+
+
+@pytest.mark.parametrize(
+    ("pending", "reference", "fused"), _PREPARATIONS, ids=["identity", "discriminator"]
+)
+def test_fused_keys_snapshot_the_input_before_leaf_callbacks(
+    pending: Callable[[object], object],
+    reference: Callable[[object], object],
+    fused: Callable[[object], object],
+) -> None:
+    del pending
+    expected = outcome(_canonical_reference(reference), _resizing_filter())
+    assert expected[0] == "result"
+    assert same_outcome(outcome(fused, _resizing_filter()), expected)
+
+
+@pytest.mark.parametrize(
+    ("pending", "reference", "fused"), _PREPARATIONS, ids=["identity", "discriminator"]
+)
+def test_each_preparation_reads_the_current_mutable_input(
+    pending: Callable[[object], object],
+    reference: Callable[[object], object],
+    fused: Callable[[object], object],
+) -> None:
+    value: dict[str, object] = {"group": 1, "ordinal": {"$in": [0, 1]}}
+    first = fused(value)
+    value["ordinal"]["$in"].append(2)  # type: ignore[index]
+    second = fused(value)
+    assert first != second
+    assert strictly_equal(second, _canonical_reference(reference)(value))
+    assert strictly_equal(pending(value), reference(value))

@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING
 
 from bson.errors import BSONError
 
-from client_query_cache._core.canonical import canonicalize
 from client_query_cache._core.codec import decode_value, encode_value
 from client_query_cache._core.entries import (
     _DEFERRED_MISS,
@@ -20,7 +19,7 @@ from client_query_cache._core.errors import (
 from client_query_cache._core.find_reads import PreparedFindRead, find_discriminator
 from client_query_cache._core.keys import canonical_alias_key
 from client_query_cache._core.manager import CacheCoreConfig
-from client_query_cache._core.order_sensitive_keys import order_sensitive_key
+from client_query_cache._core.order_sensitive_keys import _ORDERED
 from client_query_cache._core.snapshots import (
     BypassReason,
     BypassReasonCount,
@@ -102,8 +101,7 @@ def snapshot(statistics: NativeStatistics, config: CacheCoreConfig) -> CacheSnap
 
 _OPERATIONS = (
     initialize,
-    canonicalize,
-    order_sensitive_key,
+    _ORDERED,
     encode_value,
     decoded_value,
     decoded_find,
