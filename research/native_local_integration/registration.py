@@ -57,6 +57,10 @@ REGISTRATIONS: Final[Mapping[str, Registration]] = {
                 NATIVE_CORE,
                 "db51c069f9db1ca678b27ad6653a9a619d7345687c9656c7dcf78faab4613511",  # pragma: allowlist secret  # noqa: E501 - Keep each registered digest as one literal.
             ),
+            "owner": Build(
+                NATIVE_CORE,
+                "adec5e74e1671ffb24b75916948472cfe18c2ed9377f2db40438f74af32411e5",  # pragma: allowlist secret  # noqa: E501 - Keep each registered digest as one literal.
+            ),
         },
     ),
 }
