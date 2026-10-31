@@ -4,9 +4,10 @@ This file registers the builds, commands, and resource scope for the [migrate-re
 
 ## Builds
 
-| Label | Source                                                                                                            | Role                 | Wheel SHA-256                                                      | Extension SHA-256                                                  |
-| ----- | ----------------------------------------------------------------------------------------------------------------- | -------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------ |
-| M     | [c931b679](https://github.com/alessio-locatelli/client-query-cache/tree/c931b679ce612dde46246329ea430d4d847c396f) | Frozen main (0.10.0) | `d133597a0fc6119d2dda266abc3ab8cfc6bb508e2f53585cb8487e300d87b2b8` | `4ef9fa159c60547a476e9fe15e430dfe7e8590a237108c66fb4aec4feeb5442b` |
+| Label   | Source                                                                                                            | Role                                | Wheel SHA-256                                                      | Extension SHA-256                                                  |
+| ------- | ----------------------------------------------------------------------------------------------------------------- | ----------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------ |
+| M       | [c931b679](https://github.com/alessio-locatelli/client-query-cache/tree/c931b679ce612dde46246329ea430d4d847c396f) | Frozen main (0.10.0)                | `d133597a0fc6119d2dda266abc3ab8cfc6bb508e2f53585cb8487e300d87b2b8` | `4ef9fa159c60547a476e9fe15e430dfe7e8590a237108c66fb4aec4feeb5442b` |
+| capture | [e4a4f0de](https://github.com/alessio-locatelli/client-query-cache/tree/e4a4f0deccc09845ac3388e7bc9a074ae9577878) | Encoded capture (D2); predecessor M | `449554b295516791183f57d7555c085f26648dde1a40fceac7d9cdd7e46ebf61` | `e78c1b48dbc2e0b499de66af5a369f8a2dd5ba53b5fa60b0fd403564e7faef66` |
 
 Each candidate's predecessor is the latest retained label; M is the predecessor of the first candidate. A candidate row and its `native-internals` entry in `research/native_local_integration/registration.py` are added before that candidate's timing. Labels identify revisions; every label in this registration uses the native `LocalCacheCore`.
 
@@ -76,3 +77,5 @@ The sorted LF-terminated list has 4,445 node IDs with SHA-256 `0932ab7d5cd03042c
 ## Calibration
 
 Event-rate calibration applies only if task 5.1 justifies a routing candidate; it is recorded here before that candidate's timing.
+
+Capture: one M-only synchronous target window, including replica-set startup and seeding of 129 groups × 4,000 documents, took 16.9 seconds; the 128 complete reads used 2.35 CPU-seconds. The registered cells keep D6's ceilings.
