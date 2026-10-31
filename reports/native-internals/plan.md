@@ -10,6 +10,7 @@ This file registers the builds, commands, and resource scope for the [migrate-re
 | capture     | [e4a4f0de](https://github.com/alessio-locatelli/client-query-cache/tree/e4a4f0deccc09845ac3388e7bc9a074ae9577878) | Encoded capture (D2); predecessor M                   | `449554b295516791183f57d7555c085f26648dde1a40fceac7d9cdd7e46ebf61` | `e78c1b48dbc2e0b499de66af5a369f8a2dd5ba53b5fa60b0fd403564e7faef66` |
 | preparation | [9b15985b](https://github.com/alessio-locatelli/client-query-cache/tree/9b15985b995790aad30a267f6f8a03514314a21f) | Native key preparation (D3); predecessor capture      | `db51c069f9db1ca678b27ad6653a9a619d7345687c9656c7dcf78faab4613511` | `8bf0cc3d5c8b02ed0d1c147dcf5a9dfe555c2dd24f8fe38f8a0e9ee35866c56c` |
 | owner       | [29106b20](https://github.com/alessio-locatelli/client-query-cache/tree/29106b20d64418de6b4267e86029c1858419f0e4) | Native shared ownership (D4); predecessor preparation | `adec5e74e1671ffb24b75916948472cfe18c2ed9377f2db40438f74af32411e5` | `9c6a29c88faf13724aa2d09c5559545406975c9305763981a7e52498c4b7ddc9` |
+| dispatch    | [bdf96534](https://github.com/alessio-locatelli/client-query-cache/tree/bdf965340f191b16a8115171fb4fb8a13a183900) | Facade dispatch (D5); predecessor owner               | `a23d14a12c62705c33e956d3e45d0df02c43fd961fdbc4a2577ee9198c258991` | `9c6a29c88faf13724aa2d09c5559545406975c9305763981a7e52498c4b7ddc9` |
 
 Each candidate's predecessor is the latest retained label; M is the predecessor of the first candidate. A candidate row and its `native-internals` entry in `research/native_local_integration/registration.py` are added before that candidate's timing. Labels identify revisions; every label in this registration uses the native `LocalCacheCore`.
 
@@ -50,7 +51,7 @@ The identity cell is the D4 queue check: validated shared cold cells wait for ow
 **Candidate benchmark.** `research/native_local_integration/acquire.py` defines each candidate's target and control cells in `CANDIDATES`. Run three blocks with predecessor/candidate order P/C, C/P, P/C:
 
 ```bash
-<installed-python> -m research.native_local_integration.acquire --registration native-internals --label <label> --block <0-2> --wheel <absolute-wheel> --existing-nodes /tmp/agents/native-internals/existing-nodes.txt --components candidate --candidate <capture|preparation|owner> --profile --output /tmp/agents/native-internals/bench-<candidate>/b<block>-<label>
+<installed-python> -m research.native_local_integration.acquire --registration native-internals --label <label> --block <0-2> --wheel <absolute-wheel> --existing-nodes /tmp/agents/native-internals/existing-nodes.txt --components candidate --candidate <capture|preparation|owner|dispatch> --profile --output /tmp/agents/native-internals/bench-<candidate>/b<block>-<label>
 ```
 
 `--profile` adds one bounded profiled window per target cell and model after its timed window. Profiled windows never enter timing comparisons. Before a candidate's timing, record its baseline-only calibration below and adjust the registered sample counts within D6's ceilings.
@@ -85,3 +86,5 @@ Capture: one M-only synchronous target window, including replica-set startup and
 Preparation: one capture-only synchronous target window, including replica-set startup and seeding, took 13.8 seconds; its 16,384 hot reads used 54 µs of CPU each. The registered cells keep D6's ceilings.
 
 Owner: one preparation-only synchronous target window took 14.4 seconds; its 4,096 drained cold identity reads used 227 µs of group CPU each, 40 µs of it in the owner. The registered cells keep D6's ceilings. Profiled owner windows sample the owner with py-spy 0.4.2, which must be on `PATH`.
+
+Dispatch: one owner-only synchronous target window, including replica-set startup and seeding, took 12.7 seconds; its 8,192 hot `find()` reads of 16 documents used 58 µs of CPU each. The registered cells keep D6's ceilings. Dispatch changes only Python, so its extension matches owner's.
