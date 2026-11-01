@@ -260,14 +260,16 @@ struct AliasPublication<'a, 'py> {
 
 enum Stored {
     Bytes(Py<PyBytes>),
-    Arena(Block),
+    Arena,
 }
+
+const _: () = assert!(std::mem::size_of::<Stored>() == std::mem::size_of::<Py<PyBytes>>());
 
 impl Stored {
     fn clone_ref(&self, py: Python<'_>) -> Self {
         match self {
             Self::Bytes(bytes) => Self::Bytes(bytes.clone_ref(py)),
-            Self::Arena(block) => Self::Arena(*block),
+            Self::Arena => Self::Arena,
         }
     }
 }
@@ -535,20 +537,27 @@ impl State {
     fn residency_mut(&mut self) -> Option<&mut shared::Residency> {
         self.shared.as_deref_mut()?.residency.as_mut()
     }
-    fn payload(&self, py: Python<'_>, node: &Node) -> Option<Py<PyBytes>> {
+    fn payload(&self, py: Python<'_>, slot: u64, node: &Node) -> Option<Py<PyBytes>> {
         match node.payload() {
             Stored::Bytes(bytes) => Some(bytes.clone_ref(py)),
-            Stored::Arena(block) => self.residency()?.snapshot(py, *block),
+            Stored::Arena => {
+                let residency = self.residency()?;
+                residency.snapshot(py, residency.block(slot)?)
+            }
         }
     }
-    fn store(&self, encoded: &Bound<'_, PyBytes>) -> Stored {
-        self.residency()
+    fn store(&self, encoded: &Bound<'_, PyBytes>) -> (Stored, Option<Block>) {
+        match self
+            .residency()
             .and_then(|residency| residency.store(encoded.as_bytes()))
-            .map_or_else(|| Stored::Bytes(encoded.clone().unbind()), Stored::Arena)
+        {
+            Some(block) => (Stored::Arena, Some(block)),
+            None => (Stored::Bytes(encoded.clone().unbind()), None),
+        }
     }
-    fn discard(&mut self, stored: &Stored) {
-        if let Some(residency) = self.residency_mut() {
-            residency.release(None, stored);
+    fn discard(&mut self, block: Option<Block>) {
+        if let (Some(block), Some(residency)) = (block, self.residency_mut()) {
+            residency.release_block(block);
         }
     }
     fn promote(&mut self, py: Python<'_>, handle: Handle) {
@@ -569,15 +578,18 @@ impl State {
             .body
         {
             Body::Namespace { payload, .. } | Body::Identity { payload, .. } => {
-                *payload = Stored::Arena(block);
+                *payload = Stored::Arena;
             }
             Body::Alias { .. } => unreachable!("value payload"),
         }
+        self.residency_mut()
+            .expect("arena residency")
+            .hold(handle.slot, block);
     }
     fn publish(&mut self, py: Python<'_>, handle: Handle, keys: (&[u8], &[u8])) {
         self.promote(py, handle);
         let node = self.node(handle.slot);
-        let Stored::Arena(block) = *node.payload() else {
+        let Stored::Arena = node.payload() else {
             return;
         };
         let identity = match node.body {
@@ -588,24 +600,13 @@ impl State {
         let namespace = &self.namespaces[&namespace_id];
         let (database, epoch) = (namespace.database.clone(), namespace.epoch);
         if let Some(residency) = self.residency_mut() {
-            residency.publish(
-                handle,
-                namespace_id,
-                &database,
-                epoch,
-                identity,
-                keys,
-                block,
-            );
+            residency.publish(handle, namespace_id, &database, epoch, identity, keys);
         }
     }
     fn withdraw_rows(&mut self, rows: Vec<u64>) {
-        for row in rows {
-            let Stored::Arena(block) = *self.node(row).payload() else {
-                continue;
-            };
-            if let Some(residency) = self.residency_mut() {
-                residency.withdraw(row, Some(block));
+        if let Some(residency) = self.residency_mut() {
+            for row in rows {
+                residency.withdraw(row, true);
             }
         }
     }
@@ -910,7 +911,7 @@ impl State {
         self.unindex_node(slot, hash);
         let node = self.rows.take(slot).node;
         if let Some(residency) = self.residency_mut() {
-            residency.release(Some(slot), node.payload());
+            residency.release(slot);
         }
         retired.nodes.push(node);
         if let Some(identity) = identity {
@@ -1207,11 +1208,6 @@ impl State {
         if let Some(shared) = self.shared.as_deref_mut() {
             shared.probes.clear();
             if let Some(residency) = shared.residency.as_mut() {
-                for row in self.rows.iter() {
-                    if !matches!(row.node.body, Body::Alias { .. }) {
-                        residency.release(None, row.node.payload());
-                    }
-                }
                 residency.clear();
             }
         }
@@ -1238,6 +1234,7 @@ impl State {
         &mut self,
         py: Python<'_>,
         node: Node,
+        block: Option<Block>,
         previous: Option<&Pin>,
         retired: &mut Retired,
     ) -> Option<Handle> {
@@ -1266,7 +1263,7 @@ impl State {
                 _ => unreachable!("matching value kinds"),
             };
             if !older {
-                self.discard(node.payload());
+                self.discard(block);
                 return None;
             }
             self.remove_value(previous.slot, true, retired);
@@ -1285,6 +1282,11 @@ impl State {
         }
         let token = node.token;
         let slot = self.index_node(node);
+        if let Some(block) = block {
+            self.residency_mut()
+                .expect("arena residency")
+                .hold(slot, block);
+        }
         while self.used > self.budget {
             self.remove_value(self.lru.first, true, retired);
             self.evictions += 1;
@@ -1708,7 +1710,7 @@ impl LocalOwner {
             }
             if let Some(pin) =
                 found.filter(|pin| state.node_is_current(pin) && state.valid(&pin.node))
-                && let Some(payload) = state.payload(py, &pin.node)
+                && let Some(payload) = state.payload(py, pin.slot, &pin.node)
             {
                 state.touch(pin.slot);
                 state.hits += 1;
@@ -1774,20 +1776,21 @@ impl LocalOwner {
                 return Ok(STALE);
             }
             let token = state.token();
+            let (payload, block) = state.store(encoded);
             let node = Node {
                 token,
                 namespace: capture.namespace_id.expect("valid capture"),
                 hash,
                 key: key.clone().unbind(),
                 body: Body::Namespace {
-                    payload: state.store(encoded),
+                    payload,
                     weight,
                     generation: capture.query_token,
                     source,
                 },
             };
             let handle = state
-                .put(py, node, previous, &mut retired)
+                .put(py, node, block, previous, &mut retired)
                 .filter(|handle| state.resident(*handle));
             if let (Some(handle), Some(keys)) = (handle, publication) {
                 state.publish(py, handle, keys);
@@ -1876,13 +1879,14 @@ impl LocalOwner {
                 );
             }
             let token = state.token();
+            let (payload, block) = state.store(encoded);
             let node = Node {
                 token,
                 namespace,
                 hash,
                 key: key.clone().unbind(),
                 body: Body::Identity {
-                    payload: state.store(encoded),
+                    payload,
                     weight,
                     epoch: capture.generation.0,
                     identity: metadata,
@@ -1890,7 +1894,7 @@ impl LocalOwner {
                 },
             };
             let handle = state
-                .put(py, node, previous, &mut retired)
+                .put(py, node, block, previous, &mut retired)
                 .filter(|handle| state.resident(*handle));
             if let (Some(handle), Some(keys)) = (handle, publication) {
                 state.publish(py, handle, keys);
@@ -2646,7 +2650,7 @@ impl LocalOwner {
                     continue;
                 }
                 if let Some(pin) = exact.filter(|pin| state.valid(&pin.node))
-                    && let Some(payload) = state.payload(py, &pin.node)
+                    && let Some(payload) = state.payload(py, pin.slot, &pin.node)
                 {
                     state.touch(pin.slot);
                     state.hits += 1;
@@ -2708,7 +2712,7 @@ impl LocalOwner {
             }
             if let Some(pin) =
                 found.filter(|pin| state.node_is_current(pin) && state.valid(&pin.node))
-                && let Some(payload) = state.payload(py, &pin.node)
+                && let Some(payload) = state.payload(py, pin.slot, &pin.node)
             {
                 state.touch(pin.slot);
                 state.hits += 1;
@@ -2948,34 +2952,36 @@ impl LocalOwner {
                 &mut retired,
             );
             let token = state.token();
+            let (payload, block) = state.store(&encoded);
             let ns_node = Node {
                 token,
                 namespace,
                 hash: ns_hash,
                 key: key.clone().unbind(),
                 body: Body::Namespace {
-                    payload: state.store(&encoded),
+                    payload,
                     weight,
                     generation: capture.query_token,
                     source: None,
                 },
             };
-            let ns_result = state.put(py, ns_node, previous_ns, &mut retired);
+            let ns_result = state.put(py, ns_node, block, previous_ns, &mut retired);
             let token = state.token();
+            let (payload, block) = state.store(&encoded);
             let id_node = Node {
                 token,
                 namespace,
                 hash: id_hash,
                 key: identity_key.clone().unbind(),
                 body: Body::Identity {
-                    payload: state.store(&encoded),
+                    payload,
                     weight,
                     epoch,
                     identity: handle,
                     generation,
                 },
             };
-            let id_result = state.put(py, id_node, previous_id, &mut retired);
+            let id_result = state.put(py, id_node, block, previous_id, &mut retired);
             let admitted = ns_result.is_some_and(|handle| state.resident(handle))
                 && id_result.is_some_and(|handle| state.resident(handle));
             state
