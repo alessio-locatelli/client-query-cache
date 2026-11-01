@@ -222,4 +222,4 @@ class _WeightedLruMachine(RuleBasedStateMachine):
 
 
 def test_weighted_lru_respects_budget_and_generation_ordering() -> None:
-    run_state_machine_as_test(_WeightedLruMachine)  # type: ignore[no-untyped-call]
+    run_state_machine_as_test(_WeightedLruMachine)

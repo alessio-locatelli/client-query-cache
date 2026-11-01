@@ -183,4 +183,4 @@ class _CacheCoreMachine(RuleBasedStateMachine):
 
 
 def test_cache_core_admission_lookup_and_clear_ordering() -> None:
-    run_state_machine_as_test(_CacheCoreMachine)  # type: ignore[no-untyped-call]
+    run_state_machine_as_test(_CacheCoreMachine)

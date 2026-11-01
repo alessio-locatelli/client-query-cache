@@ -421,7 +421,7 @@ class _SharedIndexMachine(RuleBasedStateMachine):
 
 
 def test_local_reads_never_disagree_with_the_core() -> None:
-    run_state_machine_as_test(_SharedIndexMachine)  # type: ignore[no-untyped-call]
+    run_state_machine_as_test(_SharedIndexMachine)
 
 
 class _SharedFindIndexMachine(_SharedIndexMachine):
@@ -460,7 +460,7 @@ class _SharedFindIndexMachine(_SharedIndexMachine):
 
 
 def test_local_find_reads_never_disagree_with_the_core() -> None:
-    run_state_machine_as_test(_SharedFindIndexMachine)  # type: ignore[no-untyped-call]
+    run_state_machine_as_test(_SharedFindIndexMachine)
 
 
 @given(
