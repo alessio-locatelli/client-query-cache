@@ -30,7 +30,7 @@ export PATH := justfile_directory() / ".rust-tools/bin" + ":" + env("PATH")
 # renovate: datasource=crate depName=cargo-shear
 shear_version := "1.14.0"
 # renovate: datasource=crate depName=cargo-deny
-deny_version := "0.19.9"
+deny_version := "0.20.2"
 # renovate: datasource=crate depName=cargo-llvm-cov
 llvm_cov_version := "0.9.1"
 
