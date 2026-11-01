@@ -33,9 +33,9 @@ Use [design.md](design.md) for architecture, workload definitions and decision r
 
 ## 6. Confirm the combined ordinary distribution
 
-- [ ] 6.1 Execute the single existing combined campaign specified in D6 against frozen main using the retained ordinary release wheel. Record immutable source/build provenance, per-component decisions, adverse and uncertain controls, equal-residency checkpoints, existing-versus-added test costs, and reproduction commands in the report. Resolve any interaction regression without attributing an earlier stage's gain to a later component; ensure the changelog describes only the final supported effects and affected public guides/Context7 rules still agree with the delivered API.
+- [x] 6.1 Execute the single existing combined campaign specified in D6 against frozen main using the retained ordinary release wheel. Record immutable source/build provenance, per-component decisions, adverse and uncertain controls, equal-residency checkpoints, existing-versus-added test costs, and reproduction commands in the report. Resolve any interaction regression without attributing an earlier stage's gain to a later component; ensure the changelog describes only the final supported effects and affected public guides/Context7 rules still agree with the delivered API.
 
 ## 7. Code Quality
 
 - [x] 7.1 Scan the entire file for edited or added tests (including pre-existing tests within the file) and ensure that the Writing Tests guidelines from `AGENTS.md` are applied, including test parametrization.
-- [ ] 7.2 At implementation completion, if using Claude Code, confirm no new prose was added to code. If the implementation agent is OpenAI Codex, mark this item inapplicable then.
+- [x] 7.2 At implementation completion, if using Claude Code, confirm no new prose was added to code. If the implementation agent is OpenAI Codex, mark this item inapplicable then.
