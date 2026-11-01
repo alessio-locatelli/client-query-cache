@@ -111,6 +111,7 @@ repos:
         language: python
         additional_dependencies: ["ast-grep-cli==0.51.0"]
         types: [python]
+        require_serial: true
       - id: ast-grep-test
         name: ast-grep rule tests
         entry: ast-grep test
