@@ -436,7 +436,7 @@ def _prepare_find_shape(
         )
     )
     reason: BypassReason | str | None = cursor._view._request_bypass_reason(
-        session=cursor._session,  # type: ignore[arg-type]
+        session=cursor._session,
         kwargs={"cursor_options": True} if unsupported else {},
     )
     reason = reason or _shared_collation_reason(cursor._collation)

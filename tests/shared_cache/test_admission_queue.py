@@ -117,6 +117,6 @@ class _AdmissionQueueMachine(RuleBasedStateMachine):
 
 def test_admission_queue_operation_order() -> None:
     # Hypothesis does not annotate its state-machine runner.
-    run_state_machine_as_test(  # type: ignore[no-untyped-call]
+    run_state_machine_as_test(
         _AdmissionQueueMachine, settings=settings(max_examples=60)
     )
