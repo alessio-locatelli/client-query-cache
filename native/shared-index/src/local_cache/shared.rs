@@ -4,7 +4,7 @@ use std::sync::Arc;
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 
-use super::{Capture, Handle, LocalOwner, ReleaseCapture, State, Stored, namespace_names};
+use super::{Capture, Handle, LocalOwner, ReleaseCapture, State, namespace_names};
 use crate::clock::monotonic_ns;
 use crate::index::{Block, Query};
 use crate::python::{OwnerIndex, SessionRing};
@@ -160,6 +160,7 @@ pub(super) struct Residency {
     next_slot: usize,
     free_slots: Vec<usize>,
     slots: HashMap<u64, usize>,
+    blocks: HashMap<u64, Block>,
     published: HashMap<u64, Published>,
     tokens: HashMap<u64, Handle>,
     queries: HashMap<u64, HashSet<u64>>,
@@ -193,6 +194,7 @@ impl Residency {
             next_slot: 0,
             free_slots: Vec::new(),
             slots: HashMap::new(),
+            blocks: HashMap::new(),
             published: HashMap::new(),
             tokens: HashMap::new(),
             queries: HashMap::new(),
@@ -257,6 +259,18 @@ impl Residency {
         self.index.get().writer().store(payload)
     }
 
+    pub(super) fn hold(&mut self, row: u64, block: Block) {
+        self.blocks.insert(row, block);
+    }
+
+    pub(super) fn block(&self, row: u64) -> Option<Block> {
+        self.blocks.get(&row).copied()
+    }
+
+    pub(super) fn release_block(&self, block: Block) {
+        self.index.get().writer().release(block);
+    }
+
     pub(super) fn snapshot(&self, py: Python<'_>, block: Block) -> Option<Py<PyBytes>> {
         let writer = self.index.get().writer();
         let snapshot = writer.snapshot(block)?;
@@ -280,9 +294,12 @@ impl Residency {
         epoch: u64,
         identity: Option<u64>,
         keys: (&[u8], &[u8]),
-        block: Block,
     ) {
-        let (Some(database), Some(slot)) = (self.database(database), self.slot(namespace)) else {
+        let (Some(database), Some(slot), Some(block)) = (
+            self.database(database),
+            self.slot(namespace),
+            self.block(row.slot),
+        ) else {
             return;
         };
         let query = Query {
@@ -314,7 +331,7 @@ impl Residency {
         };
     }
 
-    pub(super) fn withdraw(&mut self, row: u64, block: Option<Block>) {
+    pub(super) fn withdraw(&mut self, row: u64, unpublish: bool) {
         let Some(published) = self.published.remove(&row) else {
             return;
         };
@@ -329,17 +346,15 @@ impl Residency {
                 members.remove(&key);
             }
         }
-        if let Some(block) = block {
+        if unpublish && let Some(block) = self.block(row) {
             self.index.get().writer().unpublish(block);
         }
     }
 
-    pub(super) fn release(&mut self, row: Option<u64>, stored: &Stored) {
-        if let Stored::Arena(block) = stored {
-            if let Some(row) = row {
-                self.withdraw(row, None);
-            }
-            self.index.get().writer().release(*block);
+    pub(super) fn release(&mut self, row: u64) {
+        if let Some(block) = self.blocks.remove(&row) {
+            self.withdraw(row, false);
+            self.release_block(block);
         }
     }
 
@@ -397,6 +412,9 @@ impl Residency {
     }
 
     pub(super) fn clear(&mut self) {
+        for (_row, block) in self.blocks.drain() {
+            self.index.get().writer().release(block);
+        }
         self.published.clear();
         self.tokens.clear();
         self.queries.clear();
