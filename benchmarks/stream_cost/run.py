@@ -51,6 +51,8 @@ from client_query_cache._types import BsonDict
 from client_query_cache.synchronous.manager import CacheManager
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from pymongo import MongoClient
     from pymongo.synchronous.collection import Collection
 
@@ -72,7 +74,11 @@ def _revision() -> str:
 
 
 def run_standard_matrix(
-    output_dir: Path, *, limits: ResourceLimits, direct_path_proxy: bool = False
+    output_dir: Path,
+    *,
+    limits: ResourceLimits,
+    direct_path_proxy: bool = False,
+    variants: Sequence[WorkloadVariant] = STANDARD_WORKLOAD_VARIANTS,
 ) -> tuple[Path, ...]:
     output_dir.mkdir(parents=True, exist_ok=True)
     client_topology = BenchmarkClientTopologyConfig(
@@ -106,6 +112,7 @@ def run_standard_matrix(
                 report_paths.extend(
                     _run_matrix_with_client(
                         client,
+                        variants=variants,
                         replica_set=replica_set,
                         proxy=proxy,
                         limits=limits,
@@ -120,6 +127,7 @@ def run_standard_matrix(
 def _run_matrix_with_client(
     client: MongoClient[BsonDict],
     *,
+    variants: Sequence[WorkloadVariant],
     replica_set: IsolatedReplicaSet,
     proxy: DirectPathByteProxy | None,
     limits: ResourceLimits,
@@ -127,7 +135,7 @@ def _run_matrix_with_client(
 ) -> tuple[Path, ...]:
     report_paths: list[Path] = []
     mongodb_version = client.server_info()["version"]
-    for variant in STANDARD_WORKLOAD_VARIANTS:
+    for variant in variants:
         report_path = _run_variant(
             variant,
             client=client,
@@ -346,11 +354,16 @@ def main() -> None:
     parser.add_argument("--cpus", type=float, default=1.0)
     parser.add_argument("--memory", default="1g")
     parser.add_argument("--direct-path-proxy", action="store_true")
+    variants_by_name = {variant.name: variant for variant in STANDARD_WORKLOAD_VARIANTS}
+    parser.add_argument("--workload", action="append", choices=variants_by_name)
     arguments = parser.parse_args()
     run_standard_matrix(
         arguments.output_dir,
         limits=ResourceLimits(cpus=arguments.cpus, memory=arguments.memory),
         direct_path_proxy=arguments.direct_path_proxy,
+        variants=tuple(variants_by_name[name] for name in arguments.workload)
+        if arguments.workload
+        else STANDARD_WORKLOAD_VARIANTS,
     )
 
 

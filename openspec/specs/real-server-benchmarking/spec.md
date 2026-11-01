@@ -141,3 +141,12 @@ Before starting the timed benchmark window, the benchmark SHALL perform a pre-fl
 
 - **WHEN** the pre-flight connectivity check cannot reach the real deployment
 - **THEN** the benchmark reports that failure distinctly from a timing or cache-benefit assertion failure
+
+### Requirement: The benchmark logs median read latency per phase
+
+The benchmark SHALL log the median latency of its measured cached and uncached reads.
+
+#### Scenario: A maintainer reads the benchmark log
+
+- **WHEN** the benchmark completes both reader phases
+- **THEN** its log records the median cached and direct read latency

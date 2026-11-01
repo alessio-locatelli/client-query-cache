@@ -167,6 +167,13 @@ def test_cache_provides_at_least_2x_benefit_over_direct_pymongo(
     overall_duration = (
         time.perf_counter() - overall_start - bandwidth_evidence_overhead_seconds
     )
+    logger.info(
+        "Median read latency over %d measured reads per phase: "
+        "cached %.1f microseconds, direct %.1f microseconds",
+        _UNCACHED_FIND_COMMAND_COUNT,
+        cached_result.median_read_seconds * 1e6,
+        uncached_result.median_read_seconds * 1e6,
+    )
 
     assert overall_duration < _MAXIMUM_TOTAL_DURATION_SECONDS
     assert (

@@ -1,26 +1,28 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 280" width="700" height="280" role="img" aria-label="Illustrative read latency on a logarithmic scale: direct local MongoDB read, 120 microseconds; direct Atlas M0 read, 79.4 milliseconds; cached read in either deployment, about 61 microseconds.">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 280" width="700" height="280" role="img" aria-label="Illustrative read latency on a logarithmic scale: direct local MongoDB read, 103 microseconds; direct Atlas M0 read, 65.5 milliseconds; cached read in either deployment, 8.01 microseconds.">
   <rect x="0" y="0" width="700" height="280" fill="#fcfcfb" rx="8"/>
-  <text x="16" y="32" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="20" font-weight="600" fill="#0b0b0b">Illustrative read latency</text>
+  <text x="16" y="32" font-weight="600" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="20" fill="#0b0b0b">Illustrative read latency</text>
   <line x1="245" y1="55" x2="245" y2="220" stroke="#d8d7d2" stroke-width="1"/>
-  <text x="16" y="89" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="15" fill="#0b0b0b">Direct read &#8212; local server</text>
-  <path d="M245,70 L337.1,70 Q342.1,70 342.1,75 L342.1,93 Q342.1,98 337.1,98 L245,98 Z" fill="#2a78d6"/>
-  <text x="356.1" y="89" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="15" font-weight="600" fill="#0b0b0b">120 &#181;s</text>
-  <text x="16" y="144" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="15" fill="#0b0b0b">Direct read &#8212; M0 deployment</text>
-  <path d="M245,125 L591,125 Q596,125 596,130 L596,148 Q596,153 591,153 L245,153 Z" fill="#2a78d6"/>
-  <text x="610" y="144" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="15" font-weight="600" fill="#0b0b0b">79.4 ms</text>
-  <text x="16" y="199" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="15" fill="#0b0b0b">Cached read &#8212; either one</text>
-  <path d="M245,180 L310.65,180 Q315.65,180 315.65,185 L315.65,203 Q315.65,208 310.65,208 L245,208 Z" fill="#eb6834"/>
-  <text x="329.65" y="199" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="15" font-weight="600" fill="#0b0b0b">61 &#181;s</text>
+  <text x="16" y="89" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="15" fill="#0b0b0b">Direct read — local server</text>
+  <path d="M245,70 L385.91,70 Q389.91,70 389.91,74 L389.91,94 Q389.91,98 385.91,98 L245,98 Z" fill="#2a78d6"/>
+  <text x="403.91" y="89" font-weight="600" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="15" fill="#0b0b0b">103 µs</text>
+  <text x="16" y="144" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="15" fill="#0b0b0b">Direct read — Atlas M0</text>
+  <path d="M245,125 L587.79,125 Q591.79,125 591.79,129 L591.79,149 Q591.79,153 587.79,153 L245,153 Z" fill="#2a78d6"/>
+  <text x="605.79" y="144" font-weight="600" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="15" fill="#0b0b0b">65.5 ms</text>
+  <text x="16" y="199" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="15" fill="#0b0b0b">Cached read — either one</text>
+  <path d="M245,180 L306.08,180 Q310.08,180 310.08,184 L310.08,204 Q310.08,208 306.08,208 L245,208 Z" fill="#eb6834"/>
+  <text x="324.08" y="199" font-weight="600" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="15" fill="#0b0b0b">8.01 µs</text>
   <line x1="245" y1="220" x2="605" y2="220" stroke="#d8d7d2" stroke-width="1"/>
   <line x1="245" y1="220" x2="245" y2="226" stroke="#d8d7d2" stroke-width="1"/>
-  <line x1="335" y1="220" x2="335" y2="226" stroke="#d8d7d2" stroke-width="1"/>
-  <line x1="425" y1="220" x2="425" y2="226" stroke="#d8d7d2" stroke-width="1"/>
-  <line x1="515" y1="220" x2="515" y2="226" stroke="#d8d7d2" stroke-width="1"/>
+  <text x="245" y="240" text-anchor="middle" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="12" fill="#52514e">1µs</text>
+  <line x1="317" y1="220" x2="317" y2="226" stroke="#d8d7d2" stroke-width="1"/>
+  <text x="317" y="240" text-anchor="middle" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="12" fill="#52514e">10µs</text>
+  <line x1="389" y1="220" x2="389" y2="226" stroke="#d8d7d2" stroke-width="1"/>
+  <text x="389" y="240" text-anchor="middle" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="12" fill="#52514e">100µs</text>
+  <line x1="461" y1="220" x2="461" y2="226" stroke="#d8d7d2" stroke-width="1"/>
+  <text x="461" y="240" text-anchor="middle" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="12" fill="#52514e">1ms</text>
+  <line x1="533" y1="220" x2="533" y2="226" stroke="#d8d7d2" stroke-width="1"/>
+  <text x="533" y="240" text-anchor="middle" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="12" fill="#52514e">10ms</text>
   <line x1="605" y1="220" x2="605" y2="226" stroke="#d8d7d2" stroke-width="1"/>
-  <text x="245" y="240" text-anchor="middle" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="12" fill="#52514e">10&#181;s</text>
-  <text x="335" y="240" text-anchor="middle" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="12" fill="#52514e">100&#181;s</text>
-  <text x="425" y="240" text-anchor="middle" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="12" fill="#52514e">1ms</text>
-  <text x="515" y="240" text-anchor="middle" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="12" fill="#52514e">10ms</text>
   <text x="605" y="240" text-anchor="middle" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="12" fill="#52514e">100ms</text>
-  <text x="16" y="266" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="13" fill="#52514e">read_heavy workload &#183; small documents &#183; local is p50, M0 is mean of one batch &#183; log-scaled axis</text>
+  <text x="16" y="266" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="13" fill="#52514e">Medians · cached read measured on a busy CPU · log-scaled axis</text>
 </svg>

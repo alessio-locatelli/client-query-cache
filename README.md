@@ -31,9 +31,10 @@ flowchart TB
 
 [Benchmarks](https://alessio-locatelli.github.io/client-query-cache/benchmarks/shared-cache/) compare direct reads, independent caches and shared caching. Sharing avoids duplicated values and streams, but its owner process and cache misses have costs. Rust does not guarantee a faster application or lower total memory for every workload.
 
-![Illustrative process-local read latency on a logarithmic scale: direct local MongoDB read, about 120 microseconds; direct Atlas M0 read, 79.4 milliseconds; cached reads in either deployment, about 61 microseconds.](docs/user/assets/benchmark-latency-light.svg)
+![Illustrative read latency on a logarithmic scale: direct local MongoDB read, 103 microseconds; direct Atlas M0 read, 65.5 milliseconds; cached read in either deployment, 8.01 microseconds.](docs/user/assets/benchmark-latency-light.svg#gh-light-mode-only)
+![Illustrative read latency on a logarithmic scale: direct local MongoDB read, 103 microseconds; direct Atlas M0 read, 65.5 milliseconds; cached read in either deployment, 8.01 microseconds.](docs/user/assets/benchmark-latency-dark.svg#gh-dark-mode-only)
 
-The graphic shows [process-local measurements from local MongoDB and Atlas deployments](https://alessio-locatelli.github.io/client-query-cache/benchmarks/#illustrative-read-latency); it is separate from the shared-cache comparison above.
+The graphic shows [process-local measurements from local and remote MongoDB deployments](https://alessio-locatelli.github.io/client-query-cache/benchmarks/#illustrative-read-latency); it is separate from the shared-cache comparison above.
 
 ## Quick start
 
