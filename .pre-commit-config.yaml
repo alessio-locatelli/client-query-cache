@@ -136,6 +136,8 @@ repos:
     hooks:
       - id: detect-secrets
         args: ["--baseline", ".secrets.baseline"]
+        # `vulture` whitelist must be auto-generated via `vulture --make-whitelist > .vulture_whitelist`, not edited by hand.
+        exclude: .vulture_whitelist
 
   - repo: https://github.com/lycheeverse/lychee.git
     rev: lychee-v0.24.2
