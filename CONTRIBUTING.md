@@ -236,6 +236,26 @@ unchanged reading here does not mean the cache did something wrong; it means thi
 too coarse to isolate a single local benchmark run. Look for a real bandwidth anomaly on a longer
 timescale in the Atlas UI instead of from a single run's logged evidence.
 
+## Latency chart
+
+The README and the [benchmark guide](docs/user/benchmarks/index.md#illustrative-read-latency) show one read-latency chart in a light and a dark variant. Regenerate both after changes that can affect read latency:
+
+```console
+just latency-chart "Atlas M0"
+```
+
+The argument names the deployment behind `REAL_MONGODB_URI`; the chart labels its direct-read row with it, because the benchmark cannot verify the deployment type.
+
+The recipe takes the local direct read from the `read_heavy-small` report of a fresh [stream cost benchmark](docs/user/benchmarks/stream-cost.md#reproduce) run, the remote direct read from the [real-server benchmark](#real-server-benchmark)'s logged median, and the cached read from `benchmarks/cached_hit_latency.py`. It then rewrites `docs/user/assets/benchmark-latency-light.svg`, `docs/user/assets/benchmark-latency-dark.svg` and the chart's alternative text in both documents, and prints the directory that holds the raw benchmark output. It needs the host Podman socket (`just enable-podman-socket`) and a configured `REAL_MONGODB_URI`; when the real-server benchmark skips, rendering fails with an explanatory error. Direct reads vary between runs: inspect the diff and rerun when a value looks like noise.
+
+To re-render from existing measurements, for example after a style change, pass a retained stream-cost report, a log that contains a real-server run, and a cached-hit report:
+
+```console
+uv run -- python scripts/render_latency_chart.py --local-report <report-dir>/read_heavy-small.report.v1.json --real-server-log pytest.log --remote-deployment "Atlas M0" --cached-hit-report <report-dir>/cached-hit-latency.json
+```
+
+Change colors, labels and layout in `scripts/render_latency_chart.py` instead of editing the SVGs. Keep a single cached-read bar measured on a busy CPU; see the [latency chart composition decision](docs/development/decisions/latency-chart-composition.md) before changing what the chart measures. Both documents select the variant with `#gh-light-mode-only` and `#gh-dark-mode-only` image fragments, which follow GitHub's appearance setting and the documentation site's appearance toggle. Do not switch the README to `<picture>` despite GitHub's deprecation of the fragments: its `prefers-color-scheme` source follows the operating system's theme, so readers whose GitHub theme differs from it see the wrong variant ([community report](https://github.com/orgs/community/discussions/210983)). Keep the README's chart paths repository-relative; see the [README chart path decision](docs/development/decisions/repository-relative-readme-chart.md).
+
 ## Release verification
 
 `just verify-release` builds the source and wheel distributions, installs each into its own isolated environment, and imports the public synchronous and asyncio API from each installation — the same check the "Static checks, packaging, and isolated install" CI job runs on every pull request that changes Python files, `pytest.ini`, `pyproject.toml`, or `uv.lock`. It publishes nothing and needs no credentials.

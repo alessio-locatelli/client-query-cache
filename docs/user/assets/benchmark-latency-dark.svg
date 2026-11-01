@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 280" width="700" height="280" role="img" aria-label="Illustrative read latency on a logarithmic scale: direct local MongoDB read, 103 microseconds; direct Atlas M0 read, 65.5 milliseconds; cached read in either deployment, 8.01 microseconds.">
+  <rect x="0" y="0" width="700" height="280" fill="#1a1a19" rx="8"/>
+  <text x="16" y="32" font-weight="600" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="20" fill="#f0efec">Illustrative read latency</text>
+  <line x1="245" y1="55" x2="245" y2="220" stroke="#383835" stroke-width="1"/>
+  <text x="16" y="89" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="15" fill="#f0efec">Direct read — local server</text>
+  <path d="M245,70 L385.91,70 Q389.91,70 389.91,74 L389.91,94 Q389.91,98 385.91,98 L245,98 Z" fill="#3987e5"/>
+  <text x="403.91" y="89" font-weight="600" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="15" fill="#f0efec">103 µs</text>
+  <text x="16" y="144" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="15" fill="#f0efec">Direct read — Atlas M0</text>
+  <path d="M245,125 L587.79,125 Q591.79,125 591.79,129 L591.79,149 Q591.79,153 587.79,153 L245,153 Z" fill="#3987e5"/>
+  <text x="605.79" y="144" font-weight="600" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="15" fill="#f0efec">65.5 ms</text>
+  <text x="16" y="199" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="15" fill="#f0efec">Cached read — either one</text>
+  <path d="M245,180 L306.08,180 Q310.08,180 310.08,184 L310.08,204 Q310.08,208 306.08,208 L245,208 Z" fill="#d95926"/>
+  <text x="324.08" y="199" font-weight="600" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="15" fill="#f0efec">8.01 µs</text>
+  <line x1="245" y1="220" x2="605" y2="220" stroke="#383835" stroke-width="1"/>
+  <line x1="245" y1="220" x2="245" y2="226" stroke="#383835" stroke-width="1"/>
+  <text x="245" y="240" text-anchor="middle" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="12" fill="#c3c2b7">1µs</text>
+  <line x1="317" y1="220" x2="317" y2="226" stroke="#383835" stroke-width="1"/>
+  <text x="317" y="240" text-anchor="middle" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="12" fill="#c3c2b7">10µs</text>
+  <line x1="389" y1="220" x2="389" y2="226" stroke="#383835" stroke-width="1"/>
+  <text x="389" y="240" text-anchor="middle" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="12" fill="#c3c2b7">100µs</text>
+  <line x1="461" y1="220" x2="461" y2="226" stroke="#383835" stroke-width="1"/>
+  <text x="461" y="240" text-anchor="middle" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="12" fill="#c3c2b7">1ms</text>
+  <line x1="533" y1="220" x2="533" y2="226" stroke="#383835" stroke-width="1"/>
+  <text x="533" y="240" text-anchor="middle" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="12" fill="#c3c2b7">10ms</text>
+  <line x1="605" y1="220" x2="605" y2="226" stroke="#383835" stroke-width="1"/>
+  <text x="605" y="240" text-anchor="middle" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="12" fill="#c3c2b7">100ms</text>
+  <text x="16" y="266" font-family="-apple-system,Segoe UI,Helvetica,Arial,sans-serif" font-size="13" fill="#c3c2b7">Medians · cached read measured on a busy CPU · log-scaled axis</text>
+</svg>

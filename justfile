@@ -6,7 +6,7 @@ set default-list
 
 # Bash 5.3 help set; set -euo pipefail in setup-rust, docs-build-editions, typecheck-examples,
 # verify-release, pytest, test-pymongo-min, test-mongodb-min,
-# enable-podman-socket, podman, test-memory, test-integration, test-e2e and
+# enable-podman-socket, podman, test-memory, test-integration, test-e2e, latency-chart and
 # tests_and_coverage:
 # The default is inherited Bash options, normally all three off. We override it because
 # failed commands, unset variables and failed pipeline stages must stop the recipe.
@@ -409,6 +409,25 @@ test-e2e:
 
 examples:
     just pytest -- tests/examples
+
+latency-chart remote_deployment:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    source "{{ justfile_directory() }}/scripts/testcontainers-bridge.sh"
+    report_dir="$(mktemp -d /tmp/client-query-cache-latency-chart.XXXXXX)"
+    uv run -- python -m benchmarks.stream_cost.run --output-dir "${report_dir}" --workload read_heavy-small
+    uv run -- python -m benchmarks.cached_hit_latency --output "${report_dir}/cached-hit-latency.json"
+    # pytest-xdist 3.8.0: https://pytest-xdist.readthedocs.io/en/stable/distribution.html
+    # -n: The default is the configured automatic worker count. We override it because
+    # latency measurements must run without competing workers.
+    just pytest -- -n 0 tests/benchmark/real_server/test_cache_benefit.py
+    uv run -- python scripts/render_latency_chart.py \
+        --local-report "${report_dir}/read_heavy-small.report.v1.json" \
+        --real-server-log "{{ justfile_directory() }}/pytest.log" \
+        --remote-deployment "$1" \
+        --cached-hit-report "${report_dir}/cached-hit-latency.json"
+    printf 'Benchmark reports: %s\n' "${report_dir}"
 
 tests_and_coverage:
     #!/usr/bin/env bash

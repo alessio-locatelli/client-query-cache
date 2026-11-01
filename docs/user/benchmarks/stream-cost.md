@@ -34,6 +34,6 @@ From a repository checkout with the [development prerequisites](https://github.c
 uv run -- python -m benchmarks.stream_cost.run --output-dir benchmark-reports
 ```
 
-Optional `--direct-path-proxy` measures bytes on the dedicated client/container path. Keep raw outputs untracked. The [maintainer protocols](https://github.com/alessio-locatelli/client-query-cache/blob/main/docs/development/stream-cost-benchmarks.md) contain the decision-evidence, await-time and compression commands, statistical gates and environment limits. The await-time matrix takes roughly three hours on the recorded host; inspect existing evidence before rerunning it.
+Optional `--direct-path-proxy` measures bytes on the dedicated client/container path. Repeat `--workload <name>`, for example `--workload read_heavy-small`, to run only those workloads. Keep raw outputs untracked. The [maintainer protocols](https://github.com/alessio-locatelli/client-query-cache/blob/main/docs/development/stream-cost-benchmarks.md) contain the decision-evidence, await-time and compression commands, statistical gates and environment limits. The await-time matrix takes roughly three hours on the recorded host; inspect existing evidence before rerunning it.
 
 The manual **Stream cost benchmark** GitHub Actions workflow also produces a `stream-cost-reports` artifact for its selected revision. Compare matching rows across comparable runs; timing variation is evidence to investigate, while setup and report-validation errors fail the workflow.

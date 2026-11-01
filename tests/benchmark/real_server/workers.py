@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import statistics
 import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, TypedDict
@@ -38,6 +39,7 @@ _SOCKET_TIMEOUT_MS = 5_000
 @dataclass(frozen=True, slots=True)
 class ReadPhaseResult:
     duration_seconds: NonNegativeFloat
+    median_read_seconds: NonNegativeFloat
     find_command_count: NonNegativeInt
     max_observed_counter: int  # -1 when no counter was observed.
 
@@ -112,10 +114,13 @@ def write_documents_until_stopped(
 def _read_each_document(
     collection: Any,  # noqa: ANN401 - Share this workload across raw and cached collections.
     document_ids: Sequence[str],
+    read_seconds: list[NonNegativeFloat],
 ) -> int:
     max_counter = -1
     for document_id in document_ids:
+        read_start = time.perf_counter()
         document = collection.find_one({"_id": document_id})
+        read_seconds.append(time.perf_counter() - read_start)
         if document is not None:
             counter = _counter_or_default(document)
             max_counter = max(max_counter, counter)
@@ -150,18 +155,22 @@ def _timed_read_cycles(
     measured_cycles: NonNegativeInt,
     counter: _FindCommandCounter,
 ) -> ReadPhaseResult:
+    warmup_read_seconds: list[NonNegativeFloat] = []
     for _ in range(warmup_cycles):
-        _read_each_document(collection, document_ids)
+        _read_each_document(collection, document_ids, warmup_read_seconds)
     counter.find_command_count = 0
+    read_seconds: list[NonNegativeFloat] = []
     start = time.perf_counter()
     max_observed_counter = -1
     for _ in range(measured_cycles):
         max_observed_counter = max(
-            max_observed_counter, _read_each_document(collection, document_ids)
+            max_observed_counter,
+            _read_each_document(collection, document_ids, read_seconds),
         )
     duration = time.perf_counter() - start
     return ReadPhaseResult(
         duration_seconds=duration,
+        median_read_seconds=statistics.median(read_seconds),
         find_command_count=counter.find_command_count,
         max_observed_counter=max_observed_counter,
     )
