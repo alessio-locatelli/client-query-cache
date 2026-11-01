@@ -13,6 +13,8 @@ bodies or OpenSpec. An empty Unreleased section is valid.
 
 ## Unreleased
 
+## [0.11.0] - 2026-11-01
+
 ### Performance
 
 - Reduce CPU and latency for cached `find()` and `find_one()` reads in process-local and shared caches, especially `find_one()` filters on fields other than `_id`, including long `$in` lists.
