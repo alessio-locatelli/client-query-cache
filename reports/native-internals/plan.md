@@ -1,6 +1,6 @@
 # Native internals acquisition plan
 
-This file registers the builds, commands, and resource scope for the [migrate-remaining-hotpaths-to-rust](../../openspec/changes/migrate-remaining-hotpaths-to-rust/design.md) change. Workload selection, budgets, and decision rules belong to design decision D6; this file does not restate them. Observations and dispositions belong to [results.md](results.md).
+This file registers the builds, commands, and resource scope for the [migrate-remaining-hotpaths-to-rust](../../openspec/changes/archive/2026-11-01-migrate-remaining-hotpaths-to-rust/design.md) change. Workload selection, budgets, and decision rules belong to design decision D6; this file does not restate them. Observations and dispositions belong to [results.md](results.md).
 
 ## Builds
 
