@@ -63,6 +63,7 @@ ignore = [
   "private-member-access",
   "boolean-type-hint-positional-argument",
   "import-private-name",
+  "shared-clock-mock",
 ]
 # The default is enabled by ALL. We override it because benchmarks measure internal cache mechanisms alongside the public API.
 "benchmarks/*" = ["private-member-access", "import-private-name"]
