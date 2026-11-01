@@ -1,6 +1,6 @@
 # Native internals results
 
-This report records the evidence and per-component dispositions for the [migrate-remaining-hotpaths-to-rust](../../openspec/changes/migrate-remaining-hotpaths-to-rust/design.md) change. Builds, commands, and resource scope are registered in [plan.md](plan.md). Paths are relative to `src/client_query_cache/` unless prefixed otherwise.
+This report records the evidence and per-component dispositions for the [migrate-remaining-hotpaths-to-rust](../../openspec/changes/archive/2026-11-01-migrate-remaining-hotpaths-to-rust/design.md) change. Builds, commands, and resource scope are registered in [plan.md](plan.md). Paths are relative to `src/client_query_cache/` unless prefixed otherwise.
 
 ## Starting evidence
 
