@@ -47,6 +47,7 @@ _EXPIRY_NS = 60 * 10**9
 _PROBE_TTL_SECONDS = 30.0
 _SLOTS = 64
 _ARENA_BYTES = 64 * 1024
+_SINGLE_PUBLICATION_ARENA = 176
 _RING_TOKENS = 4_096
 _STALE_PROGRESS_NS = 1
 _BOUNDED_FIND_SHAPE = FindReadShape(("find", "sorted"), 8)
@@ -311,6 +312,27 @@ def test_a_full_arena_keeps_owner_served_bytes_without_publication(
     assert core.lookup_identity_encoded(_NAMESPACES[0], 1, _SHAPE) == (
         encode_value(value)
     )
+
+
+def test_a_replacement_in_a_full_arena_is_published_in_the_block_it_frees(
+    make_shared_index: Callable[..., _SharedIndex], faker: Faker
+) -> None:
+    core, index, _ring, reader = make_shared_index(
+        arena_bytes=_SINGLE_PUBLICATION_ARENA
+    )
+    namespace = _NAMESPACES[0]
+    slot = _assign(core, namespace)
+    assert slot is not None
+    epoch = core.current_epoch(namespace)
+    for revision in range(2):
+        core.record_write(namespace, revision)
+        value = {"text": faker.pystr(min_chars=80, max_chars=80)}
+
+        assert _admit(core, namespace, 1, value) is AdmissionOutcome.ADMITTED
+        assert index.published() == 1
+        assert reader.lookup(
+            *slot, epoch, _identity_key(1), _shape_key(_SHAPE)
+        ) == encode_value(value)
 
 
 def test_a_touch_token_of_a_reclaimed_entry_does_not_touch_its_replacement(

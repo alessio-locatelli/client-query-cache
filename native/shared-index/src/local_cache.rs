@@ -551,7 +551,31 @@ impl State {
             residency.release(None, stored);
         }
     }
-    fn publish(&mut self, handle: Handle, keys: (&[u8], &[u8])) {
+    fn promote(&mut self, py: Python<'_>, handle: Handle) {
+        let Stored::Bytes(bytes) = self.node(handle.slot).payload() else {
+            return;
+        };
+        let Some(block) = self
+            .residency()
+            .and_then(|residency| residency.store(bytes.as_bytes(py)))
+        else {
+            return;
+        };
+        match &mut self
+            .rows
+            .get_mut(handle.slot)
+            .expect("resident node")
+            .node
+            .body
+        {
+            Body::Namespace { payload, .. } | Body::Identity { payload, .. } => {
+                *payload = Stored::Arena(block);
+            }
+            Body::Alias { .. } => unreachable!("value payload"),
+        }
+    }
+    fn publish(&mut self, py: Python<'_>, handle: Handle, keys: (&[u8], &[u8])) {
+        self.promote(py, handle);
         let node = self.node(handle.slot);
         let Stored::Arena(block) = *node.payload() else {
             return;
@@ -1766,7 +1790,7 @@ impl LocalOwner {
                 .put(py, node, previous, &mut retired)
                 .filter(|handle| state.resident(*handle));
             if let (Some(handle), Some(keys)) = (handle, publication) {
-                state.publish(handle, keys);
+                state.publish(py, handle, keys);
             }
             let admitted = handle.is_some();
             state.cleanup_empty();
@@ -1869,7 +1893,7 @@ impl LocalOwner {
                 .put(py, node, previous, &mut retired)
                 .filter(|handle| state.resident(*handle));
             if let (Some(handle), Some(keys)) = (handle, publication) {
-                state.publish(handle, keys);
+                state.publish(py, handle, keys);
             }
             let admitted = handle.is_some();
             state.cleanup_empty();
