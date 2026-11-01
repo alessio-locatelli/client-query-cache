@@ -100,6 +100,11 @@ CANDIDATES: dict[str, tuple[Cell, ...]] = {
         Cell("target", "find_one", "hot", "independent", 1024, 1, 4096, 4096),
         Cell("control", "identity", "hot", "independent", 1024, 1, 4096, 4096),
     ),
+    "layout": (
+        Cell("target", "identity", "cold", "shared", 1024, 1, 4096, 1024),
+        Cell("control", "identity", "hot", "shared", 1024, 1, 4096, 16384),
+        Cell("control", "find_one", "hot", "independent", 1024, 1, 4096, 4096),
+    ),
 }
 _PROFILE_READS = 256
 
