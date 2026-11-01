@@ -27,7 +27,7 @@ defaults:
 
 env:
   # renovate: datasource=pypi depName=prek versioning=pep440
-  PREK_VERSION: "0.5.4"
+  PREK_VERSION: "0.5.7"
 
 # Shared rationales for the occurrences listed below.
 # checkout v7.0.1:
