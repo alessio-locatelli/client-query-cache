@@ -158,6 +158,91 @@ Every dispatch `find_one` round uses less CPU than every owner round, with P50 a
 
 **Disposition: retained.** Hot `find` improves in all twelve paired CPU and P50 observations on both paths, the recheck confirms the generic `find_one` improvement, and the identity control shows no regression. The facade-dispatch and metadata rows are resolved by this candidate; shared metadata lookups stay as recorded above. The changelog records the cached-read improvement.
 
+## Combined campaign
+
+The registered campaign compared M (`c931b679`, wheel `45a63471…`, extension `4ef9fa15…`, PyMongo 4.18.3) with F (`c02c7f27`, wheel `3783da9b…`, extension `3e4f79cb…`, PyMongo 4.19.0) from harness `9c08dc15`. Blocks 0–4 ran public, memory and contention components in M/F, F/M, M/F, F/M, M/F order in 8,807 seconds, 849–913 seconds per run; every window validated, resolved its CPU and recorded the same hits, misses and bypasses in all ten runs. F's commit precedes a second rebase onto main that changed only CI and container tool versions; the rebased branch's package sources are identical.
+
+M stays at the registered commit, so every M→F difference includes the PyMongo and development-package update. The direct cells, which read through PyMongo without the library, measure that update: their median CPU per read changed between −2.9% and +0.7%, and their latency medians between −1.2% and +1.9%. The largest direct signal was the asynchronous cold 48-element `$in` read, with P95 +12.9%, P99 +19.2% and throughput −3.8%; it runs no library code and is not attributed to this change.
+
+| Cell                                                                | Model | CPU per read M → F (µs, median) | CPU change            | P50 change            | P99 change             |
+| ------------------------------------------------------------------- | ----- | ------------------------------: | --------------------- | --------------------- | ---------------------- |
+| `find_one` by `_id`, hot independent                                | sync  |                       6.4 → 5.8 | −9.7% [−19.5, +0.6]   | −8.6% [−9.5, −6.5]    | −12.6% [−31.6, −9.4]   |
+| `find_one` by `_id`, hot independent                                | async |                       7.0 → 7.4 | −2.4% [−20.9, +16.0]  | −5.4% [−14.3, −3.0]   | −7.6% [−18.8, +23.2]   |
+| `find_one` by `_id`, hot shared                                     | sync  |                       7.0 → 5.8 | −14.0% [−22.9, −7.8]  | −5.0% [−25.5, −3.1]   | −5.7% [−9.6, +3.0]     |
+| `find_one` by `_id`, hot shared                                     | async |                       6.9 → 6.1 | −16.6% [−28.4, −2.1]  | −3.8% [−24.5, −2.5]   | −7.3% [−21.2, +0.9]    |
+| `find_one` by `_id`, cold independent                               | sync  |                   175.1 → 179.0 | +0.3% [−0.2, +3.9]    | +0.2% [−1.8, +2.3]    | −8.3% [−18.0, +15.0]   |
+| `find_one` by `_id`, cold independent                               | async |                   284.3 → 283.9 | −0.2% [−4.6, +3.6]    | −0.5% [−4.1, +4.0]    | −13.4% [−29.6, +142.6] |
+| generic `find_one`, hot independent                                 | sync  |                      17.6 → 8.8 | −51.2% [−52.9, −47.8] | −51.7% [−53.0, −51.1] | −54.7% [−68.9, −52.5]  |
+| generic `find_one`, hot independent                                 | async |                      18.3 → 9.9 | −45.7% [−51.8, −34.8] | −49.7% [−50.3, −49.4] | −47.9% [−60.9, −31.3]  |
+| generic `find_one`, hot shared                                      | sync  |                      17.2 → 9.4 | −45.5% [−46.4, −37.8] | −40.9% [−41.1, −40.1] | −45.4% [−51.6, −42.0]  |
+| generic `find_one`, hot shared                                      | async |                     19.4 → 11.0 | −43.4% [−45.3, −40.4] | −38.6% [−39.8, −38.1] | −40.2% [−42.1, −39.0]  |
+| generic `find_one`, cold independent                                | sync  |                   220.7 → 204.5 | −8.2% [−12.6, −6.8]   | −4.5% [−8.7, −3.3]    | −15.8% [−31.9, +17.3]  |
+| generic `find_one`, cold independent                                | async |                   338.9 → 319.5 | −6.6% [−15.6, −4.3]   | −4.8% [−15.1, −2.0]   | −2.5% [−42.8, +14.8]   |
+| 16-document `find`, hot independent                                 | sync  |                     52.1 → 43.1 | −17.3% [−43.5, −9.8]  | −30.6% [−34.7, +9.9]  | −29.2% [−50.4, −24.6]  |
+| 16-document `find`, hot independent                                 | async |                     50.8 → 39.5 | −23.9% [−24.9, −19.4] | −31.5% [−32.2, −28.9] | −24.9% [−33.4, −13.1]  |
+| 16-document `find`, hot shared                                      | sync  |                     57.2 → 37.5 | −34.3% [−48.4, −27.7] | −33.2% [−36.6, −32.4] | −31.0% [−52.7, −27.1]  |
+| 16-document `find`, hot shared                                      | async |                     54.2 → 38.7 | −29.9% [−36.4, −20.1] | −29.6% [−32.3, −28.3] | −28.4% [−51.9, −13.8]  |
+| 16-document `find`, cold independent                                | sync  |                   402.9 → 340.9 | −14.5% [−16.8, −3.2]  | −9.1% [−11.1, +5.0]   | −13.0% [−17.2, +34.2]  |
+| 16-document `find`, cold independent                                | async |                   539.4 → 472.4 | −12.4% [−14.6, −5.2]  | −7.6% [−10.4, +2.0]   | −4.4% [−14.2, +25.4]   |
+| small generic `find_one`, 64,000 keys, hot independent              | sync  |                      12.2 → 8.5 | −30.7% [−42.0, +8.5]  | −26.1% [−27.2, −24.9] | −38.7% [−86.6, +152.5] |
+| small generic `find_one`, 64,000 keys, hot independent              | async |                     11.6 → 10.0 | −15.0% [−26.2, −1.5]  | −24.0% [−24.2, −14.1] | −11.3% [−39.3, +10.4]  |
+| small generic `find_one`, 64,000 keys, cold independent             | sync  |                   190.1 → 182.4 | −4.7% [−5.3, −3.3]    | −0.4% [−2.3, +3.0]    | −9.1% [−17.7, +5.5]    |
+| small generic `find_one`, 64,000 keys, cold independent             | async |                   301.0 → 296.8 | −2.3% [−2.9, −0.7]    | +1.3% [−0.1, +3.6]    | +2.3% [−5.0, +6.3]     |
+| generic `find_one`, 48-element `$in`, 64,000 keys, hot independent  | sync  |                     44.6 → 27.7 | −36.6% [−43.5, −31.6] | −43.3% [−44.0, −42.7] | −31.4% [−52.5, +41.3]  |
+| generic `find_one`, 48-element `$in`, 64,000 keys, hot independent  | async |                     45.4 → 27.9 | −40.6% [−43.7, −38.6] | −43.1% [−43.2, −42.1] | −12.3% [−59.1, −9.8]   |
+| generic `find_one`, 48-element `$in`, 64,000 keys, cold independent | sync  |                   272.6 → 232.0 | −13.4% [−15.9, −13.1] | −5.5% [−8.0, −4.8]    | −9.9% [−20.2, +11.3]   |
+| generic `find_one`, 48-element `$in`, 64,000 keys, cold independent | async |                   391.1 → 348.2 | −10.6% [−13.5, −7.2]  | −5.2% [−8.1, −1.7]    | −8.7% [−11.7, +7.9]    |
+
+Cached `find()` and generic `find_one()` reads improve in every hot cell on both paths, and their cold misses use 2–15% less CPU. Hot `_id` reads keep the bimodal windows recorded for the candidate controls: their P50 fell in every pair, and the asynchronous process-local CPU range spans zero. Cold `_id` misses, dominated by the MongoDB round trip, are unchanged. Owner PSS in hot shared cells moved by −0.8 to +0.3 MiB.
+
+**Equal-residency memory.** Each memory checkpoint holds the same entries and payload bytes in both builds. Increments are cached-manager PSS above its baseline, with medians over the five runs:
+
+| Scenario, synchronous                     | Resident entries | M warm (MiB) | F warm (MiB) | F2 warm (MiB) | M close (MiB) | F close (MiB) |
+| ----------------------------------------- | ---------------: | -----------: | -----------: | ------------: | ------------- | ------------- |
+| Documents                                 |           14,001 |        67.31 |        67.52 |         67.08 | 67.34–74.62   | 65.52–73.85   |
+| Small generic `find_one` results          |           64,001 |        38.36 |        40.14 |         38.18 | 10.66–15.33   | 3.48–4.30     |
+| Generic `find_one`, 48-element `$in` keys |           64,001 |       262.48 |       264.33 |        262.39 | 30.45–37.63   | 19.16–22.67   |
+| Five fill/close cycles, last fill         |           17,772 |        10.99 |        10.69 |         10.13 | —             | —             |
+
+For documents, small entries and large keys, asynchronous managers show the same warm increments within 0.07 MiB. F held 1.8 MiB more than M for 64,001 small entries in every pair, about 29 bytes per entry, which the F2 correction below removes. After close, F retains 6.8–27.4 MiB less than M for small entries and large keys in every pair; document close remains allocator-bimodal in both builds, as in the [previous adoption campaign](../native-process-local-cache/results.md#ordinary-wheel-adoption).
+
+**Contention.** Each one- and four-thread window completed 80,000 reads at the offered 4,000 reads/s against 1,000 writes, with 998–999 origin `find` commands and 1,000 `getMore` commands in both builds and 37–47 overlapping invalidations. CPU per read changed −1.7% [−3.3, +16.4] with one thread and −1.4% [−8.3, +7.1] with four; P99 changed −1.1% [−13.7, +8.8] and +1.1% [−7.8, +13.2]. No consistent effect is established.
+
+**Tests.** The existing selection of 4,397 node IDs ran 4,395 passing tests and one real-server skip, with the one registered case deselected, in 335.0 seconds of wall time and 419.0 child CPU-seconds for M and 337.4 seconds and 420.8 CPU-seconds for F. The 155 added tests took 27.6 seconds and 12.1 CPU-seconds on F. One pair is a regression control; it establishes no test-speed change. Two first attempts are excluded. During each, a test process rebuilt the checkout's native extension inside its source overlay, so the overlay no longer matched the wheel (M: 350.8 seconds); both were repeated after restoring the wheel's extension, and neither repetition rebuilt it. F's first attempt also failed `tests/shared_cache/test_adapter_paths.py::test_handshakes_accept_two_descriptors_from_one_reply[split-reply-sync]`: another thread in the same test worker opened a descriptor while the test compared descriptor sets. The case passed in five isolated and three whole-file reruns; this change does not modify it.
+
+### Entry layout correction
+
+The memory difference traced to the native entry layout: since the shared-owner transition, every entry's payload field could hold a 32-byte arena block, which widened process-local entries that never use the arena. F2 (`ed92c9c2`) keeps arena blocks in the owner's residency table and restores the one-reference payload field. A paired F/F2 check in F/F2, F2/F, F/F2 order reran the memory component with the owner admission cells, whose arena storage moved, and a hot process-local control in 2,318 seconds:
+
+| Observation                                                      | Model | F → F2                            |
+| ---------------------------------------------------------------- | ----- | --------------------------------- |
+| Warm increment, 64,001 small entries                             | both  | 40.11–40.19 → 38.18–38.24 MiB     |
+| Warm increment, 64,001 large-key entries                         | both  | 264.32–264.38 → 262.37–262.42 MiB |
+| Warm increment, 14,001 documents                                 | both  | 67.47–67.56 → 67.07–67.14 MiB     |
+| Cold `_id` reads, shared, drained admissions: group CPU per read | sync  | −2.9% [−4.5, −2.3]                |
+|                                                                  | async | −3.4% [−5.5, +4.2]                |
+| Same cells: owner CPU per read                                   | sync  | −3.6% [−5.3, −2.8]                |
+|                                                                  | async | −5.1% [−7.2, +2.4]                |
+| Control: hot generic `find_one`, independent, CPU per read       | sync  | −37.2% [−39.8, −30.0]             |
+|                                                                  | async | −2.6% [−11.0, +14.7]              |
+| Control: hot `_id` reads, shared, CPU per read                   | sync  | +10.2% [−4.5, +15.6]              |
+|                                                                  | async | −13.1% [−24.9, +5.9]              |
+
+Every target window drained 4,096 admitted admissions. The synchronous `find_one` control's F windows sat in the upper mode of its bimodal windows (11.8–13.9 µs against 8.8 µs in the campaign). The synchronous shared `_id` control is a specific adverse signal; a recheck alternated the two builds eight times with 16,384 reads per worker. F used 5.21–6.96 µs and F2 5.10–6.77 µs per read, with F2 lower in seven of eight rounds, and P50 was 4.49–6.95 µs for F and 4.44–5.03 µs for F2. The recheck finds no regression; those hits are served by the unchanged shared reader.
+
+**Disposition: retained.** F2 is the final build. It matches or improves on M's resident memory at equal residency and keeps F's measured effects in the cells it changes.
+
+### Component decisions
+
+| Component                         | Short-run evidence                                        | Campaign                                                                   | Decision  |
+| --------------------------------- | --------------------------------------------------------- | -------------------------------------------------------------------------- | --------- |
+| Encoded capture (D2)              | [Capture](#capture)                                       | Cold `find` misses −12% to −15% CPU                                        | Retained  |
+| Native key preparation (D3)       | [Preparation](#preparation)                               | Hot generic `find_one` −37% to −51% CPU                                    | Retained  |
+| Native shared owner (D4)          | [Shared owner](#shared-owner)                             | Hot shared reads improve; owner PSS within 0.8 MiB; layout corrected in F2 | Retained  |
+| Frames and dispatch in the owner  | [Shared owner](#shared-owner)                             | —                                                                          | No change |
+| Event routing and telemetry       | [Remaining responsibilities](#remaining-responsibilities) | —                                                                          | No change |
+| Facade dispatch and metadata (D5) | [Facade dispatch](#facade-dispatch)                       | Hot `find` −17% to −34% CPU on both paths                                  | Retained  |
+
 ## Candidate map
 
 | Component                   | Current code path                                                                                                                                                                                                                                                                                   | Candidate and control                   | Disposition                                                   |
