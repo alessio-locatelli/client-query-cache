@@ -172,6 +172,7 @@ def test_canonicalize_never_conflates_a_bool_and_an_int(
 @example({"\ud800": 1, "é": 2, "e": 3})
 @example([float("nan")])
 @example({1, 2})
+@example((1, "untagged"))
 @example(_reference_canonicalize({"a": [1, True]}))
 @example(order_sensitive_key({"a": [1.5, {"b": None}]}))
 def test_native_canonicalization_matches_the_reference(value: object) -> None:
