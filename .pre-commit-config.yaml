@@ -38,6 +38,8 @@ repos:
         # --strict: The default is false. We override it because validation warnings must fail the quality gate.
         # --no-global: The default is global validation allowed. We override it because this file may contain only repository options.
         args: [--strict, --no-global]
+        env:
+          npm_config_allow_scripts: re2
 
   - repo: https://github.com/python-jsonschema/check-jsonschema
     rev: "0.38.2"
