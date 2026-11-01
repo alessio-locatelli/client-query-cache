@@ -42,11 +42,11 @@ REGISTRATIONS: Final[Mapping[str, Registration]] = {
         },
     ),
     "native-internals": Registration(
-        "0932ab7d5cd03042c753506af599a7045efe8b9387769b0cec019643f8270ec7",  # pragma: allowlist secret  # noqa: E501 - Keep each registered digest as one literal.
+        "027915fc95f2652e9f922d82e7daea1dfa0c4770ae79431551f19e56726c593a",  # pragma: allowlist secret  # noqa: E501 - Keep each registered digest as one literal.
         {
             "M": Build(
                 NATIVE_CORE,
-                "d133597a0fc6119d2dda266abc3ab8cfc6bb508e2f53585cb8487e300d87b2b8",  # pragma: allowlist secret  # noqa: E501 - Keep each registered digest as one literal.
+                "45a63471198c98781ffd7bea5cc7c5262665cd1d9ee407a2b8434fcbe345c9a0",  # pragma: allowlist secret  # noqa: E501 - Keep each registered digest as one literal.
             ),
             "capture": Build(
                 NATIVE_CORE,
@@ -64,7 +64,12 @@ REGISTRATIONS: Final[Mapping[str, Registration]] = {
                 NATIVE_CORE,
                 "a23d14a12c62705c33e956d3e45d0df02c43fd961fdbc4a2577ee9198c258991",  # pragma: allowlist secret  # noqa: E501 - Keep each registered digest as one literal.
             ),
+            "F": Build(
+                NATIVE_CORE,
+                "3783da9be08d9e58ff24775d33900575868bc76f95eced9d4f9a6e3f5ef741b6",  # pragma: allowlist secret  # noqa: E501 - Keep each registered digest as one literal.
+            ),
         },
+        "bef04dba1829bf47057970e69001e75cf64e1353d9c6b0c4c3228707b17b1da7",  # pragma: allowlist secret  # noqa: E501 - Keep each registered digest as one literal.
     ),
 }
 
