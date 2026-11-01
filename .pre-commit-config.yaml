@@ -42,7 +42,7 @@ repos:
           npm_config_allow_scripts: re2
 
   - repo: https://github.com/python-jsonschema/check-jsonschema
-    rev: "0.38.2"
+    rev: "0.39.0"
     hooks:
       - id: check-jsonschema
         name: Validate Context7 configuration
@@ -50,7 +50,7 @@ repos:
         args: ["--schemafile", "https://context7.com/schema/context7.json"]
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.17.0
+    rev: v0.17.3
     hooks:
       - id: ruff-check
         # Ruff v0.16.10: https://docs.astral.sh/ruff/configuration/
@@ -70,7 +70,7 @@ repos:
       - id: vulture
 
   - repo: https://github.com/astral-sh/uv-pre-commit
-    rev: "0.13.5"
+    rev: "0.13.6"
     hooks:
       - id: uv-lock
         # uv 0.12.23: https://docs.astral.sh/uv/reference/cli/#uv-lock--check
