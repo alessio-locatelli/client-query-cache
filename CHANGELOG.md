@@ -13,6 +13,10 @@ bodies or OpenSpec. An empty Unreleased section is valid.
 
 ## Unreleased
 
+### Performance
+
+- Reduce CPU and latency for cached `find()` and `find_one()` hits, key preparation, admissions and change-event invalidation in the published wheels, which are now built with profile-guided and link-time optimization.
+
 ## [0.11.0] - 2026-11-01
 
 ### Performance
