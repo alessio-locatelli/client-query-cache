@@ -49,6 +49,7 @@ jobs:
       - uses: $/.github/actions/setup-toolchain
         with:
           rust: "true"
+          rust-components: llvm-tools
 
       # uv 0.12.19: https://docs.astral.sh/uv/reference/cli/
       # --locked: The default is inherited UV_LOCKED, otherwise unlocked resolution. We

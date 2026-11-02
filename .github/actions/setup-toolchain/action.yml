@@ -6,6 +6,8 @@ inputs:
     description: Optional compatibility lane; otherwise use .python-version.
   rust:
     description: Set to true in jobs that compile native code to install the rust-toolchain.toml selection.
+  rust-components:
+    description: Space-separated Rust components to add to the selected toolchain, for example llvm-tools in jobs that build a release wheel.
 
 runs:
   using: composite
@@ -14,6 +16,17 @@ runs:
     - if: inputs.rust == 'true'
       shell: bash
       run: rustup toolchain install --no-self-update
+
+    # rustup 1.29 component add: https://rust-lang.github.io/rustup/concepts/components.html
+    # The default is the components of the toolchain's minimal profile. We override it because
+    # the profile-guided release build merges its profile with llvm-profdata from llvm-tools.
+    - if: inputs.rust-components != ''
+      shell: bash
+      run: |
+        read -ra components <<< "${INPUTS_RUST_COMPONENTS}"
+        rustup component add "${components[@]}"
+      env:
+        INPUTS_RUST_COMPONENTS: ${{ inputs.rust-components }}
 
     - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
       with:

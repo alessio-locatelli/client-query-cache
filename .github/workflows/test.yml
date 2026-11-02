@@ -283,6 +283,7 @@ jobs:
       - uses: $/.github/actions/setup-toolchain
         with:
           rust: "true"
+          rust-components: llvm-tools
 
       - run: uv sync --locked --no-default-groups --group test --group build
 
@@ -329,6 +330,7 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
           rust: "true"
+          rust-components: llvm-tools
 
       - run: uv sync --locked --no-default-groups --group typing --group build
 
