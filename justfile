@@ -146,9 +146,14 @@ rust-tests:
     just rust-models
 
 build:
-    # Maturin 1.15: https://www.maturin.rs/distribution
+    # Maturin 1.16: https://www.maturin.rs/distribution
+    # maturin pep517 write-sdist: The default maturin build writes only wheels. We write the
+    # sdist to verify a source build too. The plain `maturin sdist` command probes
+    # ./Cargo.toml and reports a missing manifest before reading pyproject.toml.
     # --release: The default is the dev profile. We override it for optimized artifacts.
-    # --sdist: The default is wheel-only. We override it to verify a source build too.
+    # --pgo: The default is a build without profile guidance. We override it because release
+    # wheels are trained with the pgo-command in pyproject.toml; the editable and sdist builds
+    # stay unprofiled.
     # --zig: The default is the host linker. We override it for portable glibc symbols.
     # --compatibility: The default is the lowest detected tag, possibly linux. We
     # override it because PyPI requires a portable wheel for our glibc 2.28 target.
@@ -156,7 +161,16 @@ build:
     # cargo-zigbuild python_path: https://github.com/rust-cross/cargo-zigbuild/blob/main/src/zig/locate.rs
     # CARGO_ZIGBUILD_PYTHON_PATH: The default is python3, used to invoke ziglang.
     # We override it because the release linker needs the argument fix in scripts/zig-linker.sh.
-    CARGO_ZIGBUILD_PYTHON_PATH="{{ justfile_directory() }}/scripts/zig-linker.sh" uv run -- maturin build --release --sdist --zig --compatibility manylinux_2_28 --locked --out dist
+    # uv: https://docs.astral.sh/uv/reference/environment/#uv_link_mode
+    # UV_LINK_MODE: The default is clone on Linux, with a warning when the training environment in
+    # /tmp sits on another filesystem than uv's cache. We override it to copy to avoid that warning.
+    # uv: https://docs.astral.sh/uv/reference/environment/#uv_no_default_groups
+    # UV_NO_DEFAULT_GROUPS: The default is false, so uv adds the dev group to every group
+    # selection, including the one Maturin 1.16 exports for the training environment. We
+    # override it so that environment holds only the wheel's dependencies. --group build
+    # supplies Maturin itself.
+    uv run --group build -- maturin pep517 write-sdist --sdist-directory dist
+    UV_NO_DEFAULT_GROUPS=1 UV_LINK_MODE=copy CARGO_ZIGBUILD_PYTHON_PATH="{{ justfile_directory() }}/scripts/zig-linker.sh" uv run --group build -- maturin build --release --pgo --zig --compatibility manylinux_2_28 --locked --out dist
 
 docs-serve:
     # uv 0.12.9 locally / 0.12.19 in CI --only-group docs in docs-serve/docs-build/docs-build-editions:

@@ -68,6 +68,8 @@ Native Cargo tools are cached in `.rust-tools/`, keyed by runner OS, architectur
 
 The Rust compiler is deliberately not cached. Every job that compiles native code runs `rustup toolchain install`, which downloads the [selected release](native-quality.md#rust-toolchain) with rustup's minimal profile: the compiler, the standard library, and Cargo. The runners' preinstalled Rust is not reused, because rustup stores it as `stable` rather than under the selected version, even when the versions match. Depending on the selected tiers and Python lanes, a pull request run installs the toolchain in up to 12 x86-64 jobs and one ARM64 job. The jobs run in parallel, so the installation lengthens the run by roughly one installation, not by the sum.
 
+The jobs that build a release wheel (`just verify-release`) also add the `llvm-tools` component, which provides `llvm-profdata` for the [profile-guided release build](native-quality.md#release-build). It installs 26 MiB on x86-64 and is not cached for the same reasons.
+
 Measurements for Rust 1.99.1 on the GitHub-hosted `ubuntu-24.04` and `ubuntu-24.04-arm` runners, 2026-10-29:
 
 | Measurement                                 | x86-64                            | ARM64                            |

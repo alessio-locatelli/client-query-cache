@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Maturin 1.15 bundles cargo-zigbuild without the upstream fix:
-# https://github.com/rust-cross/cargo-zigbuild/pull/486
-# Zig 0.12+ ignores this Rust linker flag. Preserve all other arguments and
-# diagnostics, including optimization of the Rust code itself.
+# Zig rejects a separate `-u` operand: https://github.com/alessio-locatelli/client-query-cache/issues/402
 arguments=()
-for argument in "$@"; do
-    if [[ "${argument}" != -Wl,-O1 ]]; then
-        arguments+=("${argument}")
-    fi
+while (($#)); do
+    case "$1" in
+        -u)
+            arguments+=("-Wl,-u,$2")
+            shift
+            ;;
+        *) arguments+=("$1") ;;
+    esac
+    shift
 done
 exec python "${arguments[@]}"

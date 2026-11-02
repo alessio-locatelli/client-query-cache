@@ -260,6 +260,8 @@ Change colors, labels and layout in `scripts/render_latency_chart.py` instead of
 
 `just verify-release` builds the source and wheel distributions, installs each into its own isolated environment, and imports the public synchronous and asyncio API from each installation — the same check the "Static checks, packaging, and isolated install" CI job runs on every pull request that changes Python files, `pytest.ini`, `pyproject.toml`, or `uv.lock`. It publishes nothing and needs no credentials.
 
+The wheel is built with profile-guided optimization, which needs rustup's `llvm-tools` component (`just setup-rust` installs it) and compiles the extension three times; see the [release build](docs/development/native-quality.md#release-build).
+
 Pass a candidate release tag to also check it against the version declared in `pyproject.toml`:
 
 ```console
