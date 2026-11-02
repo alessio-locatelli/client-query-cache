@@ -1,6 +1,6 @@
 # Process memory beyond the cache budget
 
-The October 10–11 sections preserve the historical measurements and names. See the [October 29 qualification](#retention-safeguards-qualification-on-2026-10-29) for the current optional retention limits and their measured costs.
+The October 10–11 sections preserve the historical measurements and names. See the [November 3 qualification](#retention-safeguards-qualification-on-2026-11-03) for the current optional retention limits and their measured costs.
 
 Measured on 2026-10-10 and 2026-10-11 with CPython 3.14.7 (pymalloc), PyMongo 4.18.2, psutil 7.2.2, and MongoDB 8.0.4 (`mongo:8.0.4-noble`, single-member replica set), on Linux 7.2.9 with an AMD Ryzen 3 210 (8 logical CPUs) and rootless Podman. Measured processes ran with glibc 2.39 from the Ubuntu 24.04 user space of the `mongo:8.0.4-noble` image.
 
@@ -167,100 +167,300 @@ Confirmed existing behavior, unchanged here:
 - Container file memory stayed near zero because the host page cache already held the mounted interpreter and libraries. A container image that loads them itself charges those pages to its own counter.
 - MongoDB memory is excluded; this report says nothing about server memory.
 
-## Retention safeguards qualification on 2026-10-29
+## Retention safeguards qualification on 2026-11-03
 
-This is checkpoint evidence for [issue #337](https://github.com/alessio-locatelli/client-query-cache/issues/337). Its measured performance regressions remain unaccepted. Further safeguard work is on hold until `migrate-remaining-hotpaths-to-rust` lands; resume with a new frozen baseline and a separate incremental comparison. The measurements below preserve the current cost and uncertainty, rather than qualifying a release. The measured wheel predates checkpoint lint cleanup and the subsequent MSRV-syntax and version-1 report-serialization corrections.
+This section records measurements for [issue #337](https://github.com/alessio-locatelli/client-query-cache/issues/337) against the optimized `main`, whose release wheels use fat LTO, a single code generation unit and profile-guided optimization (PGO). The preceding tables describe the October 10–11 implementation and retain its configuration names. The current capacity and sizing contracts are in the [API reference](../../docs/user/reference/api.md#optional-retention-limits).
 
-This section records measurements for issue [#337](https://github.com/alessio-locatelli/client-query-cache/issues/337). The preceding tables describe the October 10–11 implementation and retain its configuration names. The current capacity and sizing contracts are in the [API reference](../../docs/user/reference/api.md#optional-retention-limits).
+Summary of the incremental costs against frozen `main`:
 
-### Builds and acquisition
+- With both limits disabled, the public read paths stay within about 3% of `main`, the spread between independent `main` builds. `CacheSnapshot` construction costs about 9% (0.3 µs) more because it reports four more fields. Three native micro-workloads on code the pull request does not change run up to 3% slower; the instruction streams are identical, and public shared-cache reads and publications, and the public warm hits, show no stable difference ([details](#differences-on-unchanged-code)).
+- `max_entries` alone adds no measurable cost to a cache miss or a hit. `max_key_bytes` adds the cost of sizing the key on every admitted miss, 2–5 µs between real requests (about 2–3% of a cold read), and nothing to hits except about 30 ns for unique-key hits with `max_entries` set. The in-process floor and the rejected reductions are in [the admission analysis](#enabled-admission-cost).
+- On the workload of issue #337 (small cached results behind long `$in` filters), bounding the entry count to 10,000 cut the memory added by the cache from 297 MiB to 46 MiB, and a 2,048-byte key limit cut it to 5 MiB. Both bounds trade cache coverage for memory; the [workload section](#memory-protection-on-the-issue-337-workload) lists the lost hits and added database queries.
+- The example limits of the deployment guide (50,000 entries, 16 KiB keys) leave 212 MiB of that workload's growth, because 50,000 long-filter entries are not a small bound.
 
-Frozen `main` was `90007305e3c4dcb1adf20b46a1001faa13295ff8`. Both builds used release-mode Zig wheels, `client_query_cache-0.10.0-cp314-abi3-manylinux_2_28_x86_64.whl`, built with the same dependencies and linker:
+### Builds, environment and method
 
-```bash
-CARGO_ZIGBUILD_PYTHON_PATH="$PWD/scripts/zig-linker.sh" uv run -- maturin build --release --zig --compatibility manylinux_2_28 --locked --out /tmp/agents/issue-337/wheels/current-candidate
-```
+Frozen `main` was `4e071dfd5904527545177cd2e6f5bdb78a2239c9`. The candidate was the pull request's `feat(core)` commit; later commits in the pull request change documentation and the OpenSpec change only. Every wheel came from the project's release pipeline, `just build`, which runs `maturin build --release --pgo --zig` with the training of `scripts/pgo_training.py`. Profile-guided layouts differ between builds of identical source, so the comparisons use independent builds as the noise floor: five builds of `main` (A–E) and five of the candidate (16–20). Each wheel was installed into its own target directory with `uv pip install --no-deps --target`; the processes record the imported extension.
 
-The wheel SHA-256 values were `63976c67cb664c95dff474ad6e0d75f0132c97a25f8710cf78b83d7d9c245559` for frozen main and `1b1337c9f8b3017e4bbc2cef9ad1104c6cd4dc7723b7393eabedbd56a0ee67c2` for the candidate. Installed package files were compared with the wheel and candidate source. The recorded wheel fixes the measured implementation; the checkpoint status above identifies subsequent lint cleanup.
+| Build        | Wheel SHA-256                                                      |
+| ------------ | ------------------------------------------------------------------ |
+| `main` A     | `2960347e762693d70bb639c35c0ee2cf0200d571f78a31aada691a3889f57ddb` |
+| `main` B     | `fac23dab77853c27e628d19f3af55b20755926a094ab14fbce2ec825ccf534ad` |
+| `main` C     | `ff113d0bbb926885db5f7a11faa75d1569e25ca79c5ed5e0613b7ffec5e1f788` |
+| `main` D     | `fa68c4597e33a883383fc01b35a1cbff51a250e5c0866a3cab064f87553911ba` |
+| `main` E     | `f5921cadcb584d0711c030610eb341c82fa5a0147b6f20c1a4b7f5ebd9a440c7` |
+| Candidate 16 | `6e3c8f800ea7778904e1b7482f4a5540977f8158af72221f3f0881c7669cad7d` |
+| Candidate 17 | `93cbfeefaaa4f53bfea213e0a10257eb23b710a17fad85fd1ce8aa3e0610628e` |
+| Candidate 18 | `e875f07df62c562a670ecd52bd70823fd340566ab1f8cef6343084f805c27671` |
+| Candidate 19 | `4065954d8b936f36f61828f579833934f4ea6fb04c970360ffebb6c1a8df34a8` |
+| Candidate 20 | `fae054e9331be60ccac1b2fb1118e786f1bad454fc6fdf6719aa286d833453c6` |
 
-The environment was CPython 3.14.7, PyMongo 4.18.3, psutil 7.2.2, Rust 1.99.1, maturin 1.15.0, Linux 7.2.13 and glibc 2.43 in Fedora Toolbx on an Intel Core i3-13100 (eight logical CPUs). MongoDB was 9.0.4, from `mongo:9.0.4@sha256:dc28ed5a9d0fc616903c3f463bb1e53b92b49f441721b91926e87d90bf957ce8`. Final wheel acquisition completed in 277.2s. Long default controls completed in 56.9s. The additional six-pair generic control took 264.4 seconds; the combined final acquisition took 598.5 seconds, within the registered 30-minute bound.
+The environment was CPython 3.14.7, PyMongo 4.19.0, psutil 7.2.2, Rust 1.99.1, maturin 1.16.0, Linux 7.2.15 and glibc 2.43 in Fedora Toolbx on an Intel Core i3-13100 (eight logical CPUs). MongoDB was 9.0.4, from `mongo:9.0.4@sha256:dc28ed5a9d0fc616903c3f463bb1e53b92b49f441721b91926e87d90bf957ce8`, in one disposable replica set per acquisition. Measured processes were pinned to CPU 2. During the end-to-end cells a `nice -n 19` busy loop shared that CPU, which keeps its clock and process-CPU accounting stable; wall-clock latency is therefore not reported, and every end-to-end cost below is process CPU per read. Every comparison alternates its builds inside one acquisition.
 
-Each measurement used a fresh Python process, the common candidate harness, one of those independently installed wheels, `PYTHONHASHSEED=337`, and a separate disposable MongoDB replica set. Three repetitions reversed build order on alternate repetitions. Startup, index discovery, change-stream readiness, and observation of write invalidations were outside measured read phases. CPU is whole-process CPU; latencies include the complete public call. Memory checkpoints collect garbage and report absolute RSS, USS, PSS and phase peak RSS. These child processes share the enclosing Toolbx cgroup, so its counters cannot establish per-child memory consumption and are excluded from the comparisons.
+The measurements use five harnesses:
 
-The BSON budget was 4 MiB and the per-value maximum 1 MiB. The nonunique workload stored 8,194 documents shaped as `{"_id": index, "code": "C0000000", "state": "active", "revision": 0}` with a `code` index. A one-field canonical key charged 1,491 bytes; the 48-value filter charged 4,947 bytes. The 2,048-byte threshold was frozen between those charges before candidate timing.
+- **Native workloads.** `research.native_build_profile.compare` runs the 25 native workloads of `scripts/pgo_training.py` that do not need a limit, five rounds in shuffled build order, and compares each build with build A.
+- **Admission cost per limit.** `research.native_build_profile.limits` times the native admission and hit paths in-process with no limit, `max_entries` alone, `max_key_bytes` alone and both, using generous limits, and with the count limit at capacity.
+- **Public reads.** The `retention-child` cells of `research/process_memory/measure.py`: 8,192 distinct `find_one` reads with a `code` index, a 4 MiB BSON budget and 4,096 retained keys, for the 59-byte results of `small-entries` and the 48-value `$in` filters of `large-keys`. Ten fresh processes per build and cell; forty for the equal-residency cell that isolates each limit. The enabled limits are `max_entries=4096` and `max_key_bytes=2048`, which admits the one-field key and declines the 48-value key.
+- **Unique-key, alias and contention cells.** Both APIs also ran a unique-index stream: cold unique-key queries, repeated queries, `_id` reads, a processed unrelated write and a processed matched-identity write. One- and two-slot controls used one distinct query with 4,096 reads per phase; prefilled controls used 128 queries with eight preexisting aliases and 48 or 112 unrelated identity values, against a 128-record limit and 32 passes per phase. A many-to-one control used 128 distinct aliases for one document, against 256 records. Frozen `main` and the disabled candidate received the same requests with no record limit. The cold phases of the one- and two-slot cells contain a single read and are omitted from the comparisons. The core-only controls published and individually removed 256, 1,024 and 4,096 aliases for one identity, with a capture held, three cycles per process; the enabled capacity was the alias count plus two. The contention controls performed 32,768 complete capture, encode and admit operations per thread with one or four threads across two namespaces, a 16 MiB BSON budget and a 131,072-record cap, so every build retained the same records without eviction. They measured the private Python reference core and the public native owner separately; the exported managers use only the native owner. Ten processes per build and cell.
+- **Pull-request guard workload.** `research.native_build_profile.end_to_end` alternates builds on `benchmarks.stream_cost.guard_workload` against an isolated replica set, five rounds with the best of three runs per cell.
+- **Issue #337 workload.** The `child` scenarios of `research/process_memory/measure.py`, three repetitions per configuration.
 
-| Cell                             | Distinct / retained keys | Candidate limits                                                      | Measured phases                                       |
-| -------------------------------- | -----------------------: | --------------------------------------------------------------------- | ----------------------------------------------------- |
-| Disabled small and large filters |            8,192 / 4,096 | Both `None`                                                           | Cold; two retained-suffix passes of 16,384 reads each |
-| Equal residency                  |            4,096 / 4,096 | `max_entries=4096`, `max_key_bytes=2048`, plus both disabled controls | Cold; two 16,384-read hit passes                      |
-| Count pressure                   |            8,192 / 4,096 | `max_entries=4096`                                                    | Cold; two retained-suffix hit passes                  |
-| Key pressure                     |            8,192 / 4,096 | `max_key_bytes=2048`                                                  | Cold; two repeated rejected-read passes               |
+### Disabled limits
 
-Both APIs also ran a unique-index stream: cold unique-key queries, repeated queries, `_id` reads, a processed unrelated write, and a processed matched-identity write. One- and two-slot controls used one distinct query; prefilled controls used 128 queries with eight preexisting aliases and 48 or 112 unrelated identity values, against a 128-record limit. A many-to-one control used 128 distinct aliases for one document, against 256 records. Each repeated phase contained 4,096 reads. Frozen main and the disabled candidate received the same requests with no record limit. The existing unrestricted policy already reuses identities through aliases after unrelated writes.
+Both limits are `None`. The first table compares the native workloads: each cell is the median over five rounds of the percentage by which a build is slower than build A (negative means faster), shown as the median and range across the four other builds of `main` and across the five candidate builds. The spread among the `main` builds is the noise floor for build-to-build differences.
 
-The core-only controls published and individually removed 256, 1,024 and 4,096 aliases for one identity, with a capture held, for three cycles per process. Enabled capacity was alias count plus two. Release and clear checkpoints checked reuse and teardown. Contention controls performed 32,768 complete capture/encode/admit operations per thread with one or four threads across two namespaces, a 16 MiB BSON budget and a 131,072-record cap, so all builds retained the same records without eviction. They measured the private Python reference core and the public native owner separately.
+| Workload                     | Other `main` builds B–E | Candidate builds 16–20 | Difference of medians |
+| ---------------------------- | ----------------------: | ---------------------: | --------------------: |
+| `admit_churn_medium`         |     -0.6 (-1.5 to +0.2) |    -1.0 (-1.2 to -0.5) |                  -0.4 |
+| `admit_churn_small`          |     -0.0 (-0.4 to +0.9) |    -0.4 (-1.7 to +0.4) |                  -0.4 |
+| `capture_array`              |     -0.3 (-0.5 to +0.2) |    +0.4 (+0.3 to +0.8) |                  +0.7 |
+| `echo_roundtrip`             |     -0.4 (-1.5 to -0.2) |    -0.2 (-1.1 to +0.4) |                  +0.3 |
+| `facade_find_miss`           |     +0.2 (-1.9 to +0.6) |    -1.6 (-3.4 to -0.7) |                  -1.9 |
+| `facade_hit`                 |     -0.0 (-0.7 to +0.6) |    -1.3 (-1.3 to -0.6) |                  -1.3 |
+| `facade_invalidation`        |     -0.0 (-1.6 to +0.8) |    +1.4 (-0.2 to +1.7) |                  +1.4 |
+| `find_exact_hit`             |     -0.5 (-0.8 to -0.3) |    +0.6 (+0.3 to +0.9) |                  +1.0 |
+| `find_subsumed_hit`          |     -1.3 (-2.0 to -0.7) |    -0.7 (-2.0 to -0.3) |                  +0.6 |
+| `identity_hit_decoded_small` |     -0.7 (-0.8 to -0.7) |    -2.7 (-3.1 to -1.4) |                  -2.0 |
+| `identity_hit_medium`        |     +0.4 (-0.7 to +1.6) |    +0.5 (-0.5 to +1.4) |                  +0.2 |
+| `identity_hit_small`         |     +0.6 (-0.3 to +1.6) |    +0.4 (-0.3 to +2.0) |                  -0.2 |
+| `identity_miss`              |     +0.4 (+0.1 to +0.8) |    +0.4 (-0.1 to +1.8) |                  +0.1 |
+| `key_preparation_large`      |     -0.2 (-1.8 to +0.7) |    +0.1 (-0.5 to +0.6) |                  +0.3 |
+| `key_preparation_small`      |     +0.1 (-0.5 to +0.1) |    +0.6 (-0.6 to +2.5) |                  +0.5 |
+| `namespace_hit`              |     -1.2 (-2.2 to -0.6) |    -0.2 (-0.3 to +0.2) |                  +1.0 |
+| `namespace_lifecycle`        |     -0.5 (-0.6 to +0.8) |    -3.1 (-3.4 to -0.1) |                  -2.6 |
+| `owner_admission`            |     +0.4 (+0.1 to +1.7) |    +0.3 (-0.8 to +2.5) |                  -0.1 |
+| `shared_hit_medium`          |     -1.2 (-2.2 to -0.1) |    +2.0 (+1.4 to +3.1) |                  +3.2 |
+| `shared_hit_small`           |     +0.2 (-1.2 to +1.4) |    +1.1 (+0.4 to +2.3) |                  +0.9 |
+| `shared_miss`                |     -0.7 (-1.2 to +0.5) |    -0.1 (-0.6 to +0.7) |                  +0.6 |
+| `shared_publish_cycle`       |     +0.1 (-3.0 to +0.4) |    +2.4 (+1.1 to +4.1) |                  +2.3 |
+| `snapshot`                   |     -1.7 (-2.0 to -1.4) |    +8.2 (+7.8 to +9.7) |                  +9.9 |
+| `wire_keys`                  |     +0.2 (-0.4 to +0.4) |    -0.4 (-1.2 to +0.2) |                  -0.6 |
+| `write_invalidation`         |     -0.2 (-2.4 to +1.4) |    -2.6 (-2.9 to -1.4) |                  -2.4 |
 
-### Public read costs
+The geometric mean over the 25 workloads is −0.2% for the other `main` builds and +0.3% for the candidate builds. An exact permutation test over the nine builds finds a candidate difference of +0.6% (p = 0.06), and +0.2% without `snapshot` (p = 0.52). Ten of the 25 workloads differ at p < 0.05, against about one expected by chance: six are slower and four faster in the candidate builds. The report does not credit the faster ones against the slower ones. An A/A control, a second copy of build A measured as its own label, differs from A by up to +3.8% (`find_exact_hit`) in the same acquisition, so differences of about 1% on a single workload are not resolved.
 
-Values below are medians, with minimum–maximum ranges in parentheses, across three independent processes per build and API. CPU and latency units are microseconds per read. `repeat` is the second retained-subset pass. Thousand reads/second is complete-phase throughput, including database waits on cold reads.
+- **`snapshot`, 3.49 → 3.81 µs (+0.32 µs, +9–10%).** The source explains it: the snapshot gained `max_entries`, `max_key_bytes`, `alias_count` and `retention_declines`, and the native call and the Python dataclass carry them. The decline counts are shared tuples that are rebuilt only when a count changes. The cost belongs to the reporting API and is not on the request path.
+- **`shared_hit_medium` (+3.2%), `shared_publish_cycle` (+2.3%) and `capture_array` (+0.7%)** run the shared-index reader and publisher and `EncodedArray`, code that the pull request does not change; its only edit in the shared-index sources renames an argument in `shared.rs`. [Differences on unchanged code](#differences-on-unchanged-code) investigates them.
+- **`find_exact_hit` (+1.0%) and `namespace_hit` (+1.0%)** are inside the A/A control's own differences (+3.8% and +1.6%) in this acquisition.
+- **`identity_hit_decoded_small` (−2.0%), `facade_hit` (−1.3%), `namespace_lifecycle` (−2.6%) and `write_invalidation` (−2.4%)** are faster in the candidate builds.
 
-| API / filter / phase           | Main CPU               | Disabled CPU           | Main → disabled P50 / P95 / P99                     | Main → disabled thousand reads/s |
-| ------------------------------ | ---------------------- | ---------------------- | --------------------------------------------------- | -------------------------------- |
-| sync / small-entries / cold    | 113.45 (113.20–118.98) | 120.46 (112.32–121.85) | 131.62 / 232.84 / 397.75 → 137.66 / 271.75 / 412.76 | 6.51 → 6.01                      |
-| sync / small-entries / repeat  | 8.62 (8.61–8.71)       | 9.41 (8.88–9.55)       | 8.49 / 8.99 / 11.92 → 8.85 / 14.25 / 15.44          | 115.73 → 106.03                  |
-| sync / large-keys / cold       | 174.80 (169.28–177.00) | 169.83 (167.15–172.36) | 221.81 / 377.76 / 698.31 → 215.77 / 383.55 / 719.32 | 3.81 → 3.97                      |
-| sync / large-keys / repeat     | 42.50 (42.28–42.65)    | 43.22 (42.57–45.26)    | 40.59 / 47.23 / 83.17 → 41.74 / 48.08 / 85.07       | 23.46 → 23.09                    |
-| async / small-entries / cold   | 203.61 (202.68–203.68) | 210.71 (210.59–216.04) | 204.13 / 301.08 / 433.04 → 209.21 / 323.92 / 498.47 | 4.58 → 4.37                      |
-| async / small-entries / repeat | 9.38 (9.33–9.45)       | 9.58 (9.24–10.36)      | 9.10 / 9.85 / 14.26 → 9.12 / 14.23 / 15.72          | 106.40 → 103.93                  |
-| async / large-keys / cold      | 261.58 (257.56–264.87) | 267.35 (262.48–270.07) | 289.25 / 454.10 / 674.06 → 291.85 / 470.23 / 765.30 | 3.16 → 3.04                      |
-| async / large-keys / repeat    | 42.78 (41.66–43.65)    | 42.82 (41.83–43.54)    | 41.32 / 46.60 / 82.08 → 41.58 / 45.87 / 82.92       | 23.32 → 23.31                    |
+The profile-guided training decides which functions are optimized for speed: a function whose count falls below the profile's cold threshold is optimized for size. The training therefore covers the new native entry points (see [PGO training coverage](#pgo-training-coverage)), and the [native quality guide](../../docs/development/native-quality.md#release-build) records why its opt-in admission workloads run for a fifth of the default time.
 
-The equal-residency cell holds 4,096 identical values, no aliases and 299,008 charged BSON bytes on every build. It isolates the optional admission checks from changes in cache coverage.
+The public end-to-end cells compare `main` with the disabled candidate and with a second independent `main` build. The table shows process CPU in µs per read as the median and range of ten processes, and the paired percentage change against `main` with its bootstrap interval.
 
-| API / build / phase       | CPU (range)            | Wall time/read | P50 / P95 / P99          |
-| ------------------------- | ---------------------- | -------------- | ------------------------ |
-| sync / main / cold        | 115.18 (113.24–115.45) | 154.36         | 130.50 / 245.29 / 473.15 |
-| sync / main / repeat      | 9.08 (8.74–9.24)       | 9.10           | 8.45 / 14.21 / 15.71     |
-| sync / disabled / cold    | 112.97 (111.24–120.56) | 152.04         | 132.28 / 234.63 / 378.89 |
-| sync / disabled / repeat  | 9.21 (9.06–9.40)       | 9.23           | 8.72 / 13.71 / 15.27     |
-| sync / enabled / cold     | 128.13 (126.23–129.67) | 165.84         | 149.43 / 245.15 / 388.07 |
-| sync / enabled / repeat   | 9.28 (8.91–9.29)       | 9.30           | 8.78 / 13.86 / 15.20     |
-| async / main / cold       | 206.96 (203.84–209.43) | 224.66         | 205.28 / 310.47 / 485.63 |
-| async / main / repeat     | 9.38 (8.98–9.51)       | 9.52           | 9.02 / 11.06 / 15.64     |
-| async / disabled / cold   | 207.46 (201.97–210.05) | 226.06         | 206.65 / 301.35 / 437.17 |
-| async / disabled / repeat | 9.73 (9.23–9.78)       | 9.76           | 9.12 / 14.72 / 16.14     |
-| async / enabled / cold    | 227.14 (221.48–230.10) | 247.96         | 224.01 / 361.94 / 550.71 |
-| async / enabled / repeat  | 9.30 (9.13–9.44)       | 9.32           | 9.04 / 9.90 / 14.43      |
+| API / filter / phase           | Main                   | Other main build       | Disabled candidate     | Disabled vs main % | Other main build vs main % |
+| ------------------------------ | ---------------------- | ---------------------- | ---------------------- | ------------------ | -------------------------- |
+| sync / small-entries / cold    | 119.50 (106.94–178.27) | 117.77 (112.24–157.06) | 121.83 (110.38–175.87) | -1.2 [-3.4, +5.9]  | -1.3 [-8.2, +2.3]          |
+| sync / small-entries / repeat  | 6.12 (6.01–9.39)       | 6.18 (6.01–9.12)       | 6.22 (6.04–7.16)       | +0.8 [-6.3, +8.2]  | +1.0 [-4.4, +3.3]          |
+| sync / large-keys / cold       | 156.75 (145.27–176.72) | 155.09 (142.74–176.89) | 158.17 (142.94–198.43) | +1.8 [+0.0, +9.1]  | -1.0 [-2.1, +2.1]          |
+| sync / large-keys / repeat     | 23.22 (21.94–27.93)    | 22.92 (22.16–24.55)    | 23.27 (22.14–23.86)    | -0.6 [-2.6, +1.3]  | -0.2 [-3.0, +1.0]          |
+| async / small-entries / cold   | 209.23 (203.07–293.74) | 211.83 (203.93–251.54) | 217.11 (201.87–237.28) | +0.8 [-0.8, +2.8]  | +0.8 [-0.6, +1.9]          |
+| async / small-entries / repeat | 6.47 (6.22–7.42)       | 6.54 (6.26–6.67)       | 6.67 (6.40–7.13)       | +2.9 [+0.8, +4.4]  | +0.4 [-4.1, +2.8]          |
+| async / large-keys / cold      | 248.33 (236.34–285.81) | 248.32 (231.66–261.05) | 246.72 (230.57–338.62) | +0.2 [-2.3, +2.2]  | -1.5 [-4.8, +1.2]          |
+| async / large-keys / repeat    | 23.70 (22.47–25.19)    | 23.43 (22.67–33.20)    | 23.53 (22.33–25.21)    | -0.5 [-2.2, +1.1]  | -1.0 [-3.3, +3.1]          |
 
-Both limits add a miss-only shallow key walk and capacity planning. Compared with the disabled candidate, equal-residency cold CPU increased from 112.97 to 128.13 µs synchronously and 207.46 to 227.14 µs asynchronously. Warm medians were 9.21 → 9.28 µs and 9.73 → 9.30 µs. These measurements establish an enabled admission cost; they do not establish a warm-hit speedup. The one-slot namespace fallback also has a longer query-hit path than an unrestricted identity/alias hit, quantified below.
+Only the asynchronous warm hit of `small-entries` differs from `main` beyond its interval (+2.9% [+0.8, +4.4], 0.2 µs of 6.5 µs), and the second `main` build differs there by +0.4% [−4.1, +2.8]. [Differences on unchanged code](#differences-on-unchanged-code) shows that this difference does not reproduce at the public level with equal-length overlay paths. With limits disabled, the candidate admits and retains exactly what `main` does (8,192 values, 598,016 charged bytes and 8,192 origin queries in every cell).
+
+The pull-request guard workload (percentage slower than `main` build A, median and bootstrap interval over five rounds; negative means faster) shows the same picture. Its `find_admission` cells vary by more than ±10% between rounds for every build, including the second `main` build.
+
+| Workload                |  Other `main` build | Candidate build 16 | Candidate build 17 |
+| ----------------------- | ------------------: | -----------------: | -----------------: |
+| `async_hit/medium`      |   +1.1 [-8.3, +5.3] |  -2.0 [-7.2, +0.4] | -1.5 [-11.2, +2.1] |
+| `async_hit/small`       |   +0.5 [-1.9, +0.9] |  -0.6 [-1.8, +2.5] |  +0.2 [-2.2, +2.0] |
+| `find_admission/medium` |  +5.2 [-1.2, +25.3] | +2.0 [+0.3, +15.8] | +7.8 [-4.4, +31.0] |
+| `find_admission/small`  | +19.6 [-7.0, +32.4] | +4.9 [-1.8, +15.4] | +0.4 [-7.4, +23.2] |
+| `invalidation/medium`   |   +1.4 [-8.0, +3.0] |  -0.3 [-5.9, +1.5] | -2.0 [-10.0, -0.6] |
+| `invalidation/small`    |   +2.4 [+0.9, +4.9] |  +0.5 [-1.1, +1.3] |  -0.5 [-2.6, +0.8] |
+| `sync_hit/medium`       |   +1.7 [-1.7, +2.5] |  -0.4 [-5.7, +0.2] |  -1.6 [-4.4, +7.3] |
+| `sync_hit/small`        |   +0.1 [-1.8, +1.2] |  +0.4 [-9.2, +1.7] |  -0.3 [-9.5, +3.0] |
+| geometric mean          |   +2.9 [+0.0, +8.1] |  +0.1 [-1.0, +3.6] |  +0.5 [-1.8, +3.7] |
+
+### Differences on unchanged code
+
+The three workloads above were slower in the candidate builds in each of five acquisitions with the standard harness (difference of medians against the other `main` builds, percent):
+
+| Acquisition (candidate builds) | `shared_hit_medium` | `shared_publish_cycle` | `capture_array` |
+| ------------------------------ | ------------------: | ---------------------: | --------------: |
+| 1 (builds 5–9)                 |                +3.5 |                   +1.2 |            +1.3 |
+| 2 (builds 11–15)               |                +1.6 |                   +1.2 |            +0.7 |
+| 3 (builds 16–20, table above)  |                +3.2 |                   +2.3 |            +0.7 |
+| 4 (builds 16–20)               |                +1.7 |                   +0.1 |            +0.6 |
+| 5 (builds 16–20)               |                +1.0 |                   +1.1 |            +0.5 |
+
+Hardware counters, an instruction trace and the public shared-cache paths explain or bound them. The counters are user-space `perf_event_open` events read from Python, because `perf` was not installed; `perf stat -e instructions:u,cycles:u,branch-misses:u,L1-dcache-load-misses:u` reads the same events. Measured processes were pinned to CPU 2.
+
+**The executed code is the same.** Single-stepping one `ReaderIndex.lookup` call with `ptrace` executes 5,906 instructions in the candidate and in `main`, of which 2,993 are in the extension, 2,141 in CPython and 709 in glibc. The lookup trampoline has 1,423 static instructions in `main` and 1,418 in the candidate; the differences are mostly register allocation.
+
+**The 1.0% instruction gap per read is allocator state, not code.** In the 1,024-read loop `main` retires 4,515 instructions per read and the candidate 4,560. Perturbing the glibc heap before the workload moves the same binary across that whole range and swaps the order of the two builds (instructions per read, `main` build A and candidate build 16):
+
+| Heap perturbation before the workload | `main` | Candidate |
+| ------------------------------------- | -----: | --------: |
+| none                                  |  4,515 |     4,560 |
+| one 1,100-byte object                 |  4,560 |     4,520 |
+| 2,200 and 100 bytes                   |  4,515 |     4,576 |
+| one 5,000-byte object twice           |  4,515 |     4,495 |
+| one 9,000-byte object                 |  4,510 |     4,560 |
+
+**Counters per operation** over three repetitions with five builds per side, with the default glibc allocator and with its heap growth and trim behavior fixed (`MALLOC_TOP_PAD_=16 MiB`, `MALLOC_TRIM_THRESHOLD_=64 MiB`):
+
+| Workload / allocator            | Instructions                    | Cycles                          | Branch misses      | L1D misses                   |
+| ------------------------------- | ------------------------------- | ------------------------------- | ------------------ | ---------------------------- |
+| `shared_hit_medium`, default    | 4,515 → 4,560 (+1.0%)           | 1,226 → 1,231 (+0.4%, p = 0.18) | 2.97 → 2.72        | 24.4 → 24.9                  |
+| `shared_hit_medium`, fixed      | 4,508 → 4,553 (+1.0%)           | 1,214 → 1,214 (−0.0%, p = 0.43) | 2.99 → 2.63        | 21.3 → 24.6 (+15%, p = 0.01) |
+| `shared_publish_cycle`, default | 6,570 → 6,563 (−0.1%)           | 1,676 → 1,696 (+1.2%, p = 0.37) | 1.00 → 1.15        | 1.99 → 2.04                  |
+| `shared_publish_cycle`, fixed   | 6,538 → 6,563 (+0.4%, p = 0.22) | 1,634 → 1,689 (+3.4%, p = 0.02) | 1.77 → 1.00 (−44%) | 1.98 → 1.92                  |
+| `capture_array`, default        | 561.8 → 561.8                   | 288.1 → 288.2 (+0.0%)           | 0.014 → 0.014      | 2.76 → 2.78                  |
+
+**`capture_array` follows glibc's heap trimming.** After `shared_hit_medium` in one process, the candidate builds measure 110 ns against 47 ns for `main` because the process grows and shrinks its heap around every 8 MiB array (4,458 `brk` calls against 104). With a trim threshold of 64 MiB or a heap growth pad of 16 MiB the two agree (48.1 against 47.8 ns). `capture_array` alone, or earlier in a longer workload list, does not enter that state.
+
+**With the allocator fixed, the timing gaps shrink** (equal-length overlay paths, seven rounds, paired against build A, difference of medians and permutation p): `shared_hit_medium` +1.4% (p = 0.05; 266.4 → 267.9 ns, +0.6%), `shared_publish_cycle` +1.6% (p = 0.04; 366.6 → 378.4 ns), `capture_array` +0.7% (p = 0.02), `shared_hit_small` −0.5%, `shared_miss` +0.1%, `find_exact_hit` −1.1% and `namespace_hit` −0.4%.
+
+**Public shared-cache paths show no detectable difference.** The public benchmark `benchmarks/public_shared_cache.py` ran the actual release wheels with four workers and an isolated replica set, two rounds per build, equal-length overlay paths. Median latency per read in µs (median over the five builds per side, with range):
+
+| Method / API / window   | `main` builds             | Candidate builds          | Difference         |    p |
+| ----------------------- | ------------------------- | ------------------------- | ------------------ | ---: |
+| find_one / async / cold | 534.932 (532.383–541.645) | 535.604 (533.173–542.701) | +0.672 µs (+0.1%)  | 0.60 |
+| find_one / async / hot  | 8.856 (8.433–10.252)      | 8.816 (8.474–12.166)      | -0.040 µs (-0.5%)  | 0.78 |
+| find_one / sync / cold  | 407.905 (406.171–412.353) | 405.195 (405.077–410.500) | -2.710 µs (-0.7%)  | 0.27 |
+| find_one / sync / hot   | 10.180 (7.938–12.642)     | 8.517 (8.315–12.572)      | -1.663 µs (-16.3%) | 0.44 |
+| identity / async / cold | 306.957 (302.924–310.048) | 304.393 (303.427–305.738) | -2.564 µs (-0.8%)  | 0.13 |
+| identity / async / hot  | 6.166 (5.103–7.442)       | 7.421 (6.286–7.525)       | +1.255 µs (+20.4%) | 0.07 |
+| identity / sync / cold  | 224.263 (222.788–225.097) | 222.927 (221.713–224.315) | -1.336 µs (-0.6%)  | 0.12 |
+| identity / sync / hot   | 6.680 (5.768–6.898)       | 6.664 (5.574–7.002)       | -0.016 µs (-0.2%)  | 0.71 |
+
+A hot read costs 6–10 µs, so a 9 ns native gap is 0.1%; a cold read, which includes the origin query and the owner's publication, costs 180–540 µs, so a 12 ns gap in publication is 0.003%.
+
+The public warm hit of `small-entries` (CPU µs per read, ten builds, eight repetitions per build) shows no stable difference either. With overlay paths of unequal length the asynchronous hit was 2.2% slower (p = 0.02) and the synchronous one 0.2%; with equal-length paths the asynchronous hit was 0.5% slower (p = 0.98) and the synchronous one 0.9% slower (p = 0.01). The instructions per read are equal (asynchronous 78,498 against 78,425, synchronous 71,608 against 71,628) and the cycles differ by −0.1% asynchronously and +1.6% synchronously (p = 0.01), so the sign follows the API and the process layout rather than the code.
+
+The remaining unexplained item is `shared_publish_cycle`: with the allocator fixed it takes 3.4% more cycles (55 cycles, about 13 ns) with no more instructions (+0.4%, p = 0.22), fewer branch misses and fewer L1D misses. The cause was not identified; the difference is invisible in a complete publication.
+
+### Enabled admission cost
+
+The next table isolates each limit between real requests: 40 processes per build with 4,096 distinct keys, all of which fit, so every build holds the same values. The cold phase admits every key; the repeat phase hits. Each cell is median CPU µs per read, with the paired change against the disabled candidate and its bootstrap interval in parentheses.
+
+| API / phase    | Main                        | Other main build            | Disabled | Count only                  | Key only                    | Both                        |
+| -------------- | --------------------------- | --------------------------- | -------- | --------------------------- | --------------------------- | --------------------------- |
+| sync / cold    | 128.85 (-1.0 [-2.9, +1.1]%) | 129.99 (-0.6 [-2.0, +1.7]%) | 129.80   | 130.49 (-0.3 [-2.0, +0.8]%) | 133.33 (+3.2 [+1.4, +5.4]%) | 131.80 (+2.2 [+0.4, +3.6]%) |
+| sync / repeat  | 6.24 (-0.3 [-0.6, +1.7]%)   | 6.24 (+0.3 [-0.4, +1.4]%)   | 6.26     | 6.25 (+0.7 [-0.4, +1.8]%)   | 6.26 (+0.7 [+0.0, +1.3]%)   | 6.27 (+0.9 [-0.2, +2.2]%)   |
+| async / cold   | 222.78 (+0.1 [-1.7, +0.7]%) | 222.69 (-0.1 [-1.0, +1.0]%) | 222.22   | 223.66 (+0.5 [-0.4, +1.0]%) | 225.95 (+2.0 [+1.5, +3.5]%) | 227.20 (+1.9 [+0.3, +3.3]%) |
+| async / repeat | 6.59 (-1.6 [-2.7, -0.2]%)   | 6.66 (-0.8 [-1.3, +0.5]%)   | 6.67     | 6.69 (-0.1 [-1.1, +1.3]%)   | 6.67 (-0.3 [-1.2, +0.9]%)   | 6.69 (+0.5 [-0.8, +1.3]%)   |
+
+The count limit alone costs nothing measurable. Sizing the key alone costs 3.5 µs (sync) and 3.7 µs (async) per admitted miss, and both limits together 2.0 µs and 5.0 µs; the paired changes (+3.2% and +2.0%, then +2.2% and +1.9%) show that run-to-run noise is as large as the difference between the two configurations. Repeat reads agree with the disabled candidate within noise.
+
+The in-process view shows where the key cost sits. Medians over nine rounds of one native admission or hit, with the paired change against no limit (bootstrap interval in brackets); "at capacity" admits into a full cache of 2,048 entries, so every admission also evicts.
+
+| Workload                   | Disabled |                   Count only |                           Key only |                               Both |               Count at capacity |                   Both at capacity |
+| -------------------------- | -------: | ---------------------------: | ---------------------------------: | ---------------------------------: | ------------------------------: | ---------------------------------: |
+| `generic_miss_admission`   |   345 ns |  344 ns (-0.4% [-0.8, +1.8]) | 1234 ns (+257.5% [+255.3, +263.7]) | 1238 ns (+257.6% [+255.8, +262.9]) |     338 ns (-1.9% [-3.0, +1.8]) | 1240 ns (+259.1% [+252.0, +263.1]) |
+| `identity_alias_admission` |  1661 ns | 1689 ns (+0.7% [-0.6, +2.6]) |    2870 ns (+72.6% [+71.9, +79.0]) |    2876 ns (+73.2% [+69.9, +75.2]) |    1582 ns (-4.6% [-6.6, -2.6]) |    2784 ns (+68.0% [+67.0, +71.7]) |
+| `unique_key_admission`     |  4594 ns | 4587 ns (-1.3% [-2.6, +0.3]) |    6361 ns (+37.8% [+37.1, +39.9]) |    5873 ns (+27.1% [+26.4, +29.7]) | 4124 ns (-10.6% [-12.2, -10.3]) |    5915 ns (+28.6% [+27.4, +29.6]) |
+| `generic_hit`              |   161 ns |  161 ns (-0.0% [-0.5, +0.4]) |        161 ns (+0.1% [-0.1, +0.5]) |        160 ns (-0.4% [-1.3, -0.1]) |     161 ns (+0.2% [-0.7, +1.1]) |        161 ns (-0.2% [-0.9, +0.6]) |
+| `unique_key_hit`           |  2745 ns | 2741 ns (+0.5% [-1.4, +1.2]) |       2718 ns (-0.8% [-2.8, +1.2]) |       2766 ns (+1.2% [+0.6, +3.9]) |    2767 ns (+0.6% [-0.6, +2.9]) |       2781 ns (+0.7% [-1.0, +1.8]) |
+
+Findings behind the optimization of the enabled path:
+
+- **Count planning is free.** With the count limit alone, admissions cost as much as unrestricted ones, and an admission that evicts is faster than an unrestricted publication (−1.9% to −10.6%).
+- **Key sizing dominates, and it is a floor.** The walk makes one `sys.getsizeof` call for each object of the canonical key that is not a tuple, and sizes tuples from a calibrated formula. It costs 0.9 µs for the generic key (about 20 objects), 1.2 µs for the identity key with its alias and 1.8 µs for the unique-key pair, which sizes two keys. Walking natively replaced a Python callback that cost 14–20 µs per admitted miss.
+- **The end-to-end cost exceeds the in-process one** (2–5 µs against 0.9 µs) because the in-process loop revisits keys whose objects are in cache, while a real request walks objects last touched during the previous read. The in-process figure is the floor; the end-to-end figure is the cost to expect.
+- **Hits are unchanged**, with one exception. A unique-key hit that resolves an alias and reads the identity costs 1.0–1.3% more (about 30 ns) when `max_entries` is set, because the facade then calls a separate native entry point, `lookup_identity_deferred`, for the deferred miss. An untrained copy of the plain lookup with an identical body was 57–68 ns slower than the original, and across the five candidate builds the deferred entry point's gap to the plain lookup ranges from 10 to 34 ns, so the cost follows the extra entry point rather than the deferral logic. Passing the deferral as a keyword to the shared entry point costs about 17 ns per call plus a per-call choice in the facade, within the separate entry point's own 10–34 ns range, so it offers no reliable gain. The end-to-end effect is about 0.4% of a 7.5 µs unique-key hit.
+- **The rejected reductions are documented** in the [design record](../../openspec/changes/archive/2026-11-04-bound-process-local-key-overhead/design.md), including a hand-written hasher, inline containers, memoized subtree charges, native string sizes, batched `getsizeof` calls and unsafe pointer walking, each with its measurement or reason.
 
 ### Retained memory and pressure
 
-The following table gives absolute MiB at equal residency. Growth subtracts each child’s own pre-read baseline. RSS, USS and PSS are medians; the RSS growth range is shown to expose allocator sensitivity. The peak is the kernel phase high-watermark during the repeated hit pass. Clear and close release all resident records and charged BSON; RSS can remain mapped for allocator reuse.
+At equal residency, enabling the limits changes no footprint. The candidate process starts 0.3 MiB larger than `main` (50.63 against 50.89 MiB of RSS before the first read), whether or not a limit is set, because its extension is 67 KiB larger (1,099,552 against 1,167,912 bytes) and the library imports more. The growth during the reads is the same. The table gives absolute MiB; RSS growth subtracts each child's own pre-read baseline, and the peak is the kernel's phase high-watermark during the repeated hit pass.
 
 | API / build      | Cold RSS / USS / PSS  | Cold RSS growth (range) | Repeat peak RSS | Clear / close RSS |
 | ---------------- | --------------------- | ----------------------- | --------------- | ----------------- |
-| sync / main      | 56.80 / 38.48 / 46.42 | 1.95 (1.94–1.95)        | 57.07           | 57.00 / 57.00     |
-| sync / disabled  | 54.97 / 36.68 / 44.60 | 2.72 (2.72–2.72)        | 55.63           | 54.71 / 55.03     |
-| sync / enabled   | 54.99 / 36.68 / 44.62 | 2.73 (2.72–2.73)        | 55.66           | 54.74 / 55.06     |
-| async / main     | 56.96 / 38.56 / 46.49 | 1.96 (1.96–1.97)        | 57.25           | 57.25 / 57.26     |
-| async / disabled | 55.06 / 36.71 / 44.64 | 2.73 (2.72–2.73)        | 55.79           | 54.91 / 55.17     |
-| async / enabled  | 55.11 / 36.77 / 44.70 | 2.74 (2.73–2.76)        | 55.82           | 55.14 / 55.40     |
+| sync / main      | 53.12 / 34.35 / 40.43 | 2.48 (2.46–2.52)        | 53.76           | 53.03 / 53.29     |
+| sync / disabled  | 53.37 / 34.61 / 40.69 | 2.48 (2.45–2.49)        | 54.01           | 53.27 / 53.13     |
+| sync / count     | 53.42 / 34.61 / 40.68 | 2.47 (2.46–2.55)        | 54.06           | 53.32 / 52.63     |
+| sync / key       | 53.37 / 34.61 / 40.69 | 2.47 (2.46–2.51)        | 54.01           | 53.27 / 53.19     |
+| sync / enabled   | 53.37 / 34.61 / 41.15 | 2.48 (2.47–2.50)        | 54.06           | 53.26 / 52.59     |
+| async / main     | 53.29 / 34.54 / 40.63 | 2.54 (2.52–2.57)        | 53.94           | 53.94 / 53.91     |
+| async / disabled | 53.54 / 34.78 / 41.30 | 2.53 (2.52–2.57)        | 54.19           | 54.18 / 54.18     |
+| async / count    | 53.53 / 34.78 / 41.31 | 2.53 (2.52–2.57)        | 54.18           | 54.16 / 54.16     |
+| async / key      | 53.58 / 34.78 / 40.88 | 2.54 (2.52–2.56)        | 54.21           | 54.20 / 54.18     |
+| async / enabled  | 53.60 / 34.79 / 41.33 | 2.54 (2.52–2.55)        | 54.24           | 54.21 / 54.21     |
 
-At equal residency, enabling the limits produces little footprint difference at this scale. The absolute and baseline-subtracted values above are whole-process observations, not evidence that each entry became larger or smaller. An exploratory prebuilt-key diagnostic using `tracemalloc` and glibc `mallinfo2` found essentially equal live native allocation growth (1,404,384 bytes on main; 1,402,592 on the candidate), while initially available free heap differed by about 1 MiB. Growth alone therefore cannot attribute a per-entry cost. That exploratory diagnostic supports an attribution boundary; the tables above use the final release wheels.
+Under pressure, `max_entries=4096` evicted 4,096 of 8,192 values, retained the newest 4,096-key suffix and served every suffix read from the cache. `max_key_bytes=2048` declined every 48-value key, retained nothing and delivered every result from the database; its repeated reads are database reads, not slower hits.
 
-| API / pressure         | Values / charged BSON | Origin queries: cold / warm / repeat | Cold / repeat CPU (ranges)                      | Repeat RSS / USS / PSS MiB |
-| ---------------------- | --------------------- | ------------------------------------ | ----------------------------------------------- | -------------------------- |
-| sync / count-pressure  | 4096 / 299008 B       | 8192 / 0 / 0                         | 116.54 (116.22–123.78) / 8.71 (8.56–9.04)       | 55.77 / 37.38 / 45.31      |
-| sync / key-pressure    | 0 / 0 B               | 8192 / 4096 / 4096                   | 180.74 (176.54–180.82) / 180.18 (180.15–181.84) | 53.24 / 34.89 / 42.83      |
-| async / count-pressure | 4096 / 299008 B       | 8192 / 0 / 0                         | 206.46 (205.38–214.50) / 9.57 (9.20–9.76)       | 55.81 / 37.49 / 45.41      |
-| async / key-pressure   | 0 / 0 B               | 8192 / 4096 / 4096                   | 278.51 (277.76–281.07) / 273.03 (272.66–284.09) | 53.31 / 35.00 / 42.94      |
+| API / pressure         | Values / charged BSON | Origin queries: cold / warm / repeat | Cold / repeat CPU                               | Declines |
+| ---------------------- | --------------------- | ------------------------------------ | ----------------------------------------------- | -------: |
+| sync / count-pressure  | 4096 / 299008 B       | 8192 / 0 / 0                         | 119.15 (112.04–131.14) / 6.10 (5.96–6.78)       |        0 |
+| sync / key-pressure    | 0 / 0 B               | 8192 / 16384 / 16384                 | 152.39 (139.43–170.31) / 155.17 (146.96–176.61) |    40960 |
+| async / count-pressure | 4096 / 299008 B       | 8192 / 0 / 0                         | 213.46 (201.71–228.16) / 6.56 (6.21–6.64)       |        0 |
+| async / key-pressure   | 0 / 0 B               | 8192 / 16384 / 16384                 | 247.84 (236.11–263.66) / 247.17 (237.93–260.13) |    40960 |
 
-Count pressure evicted 4,096 values, retained the known 4,096-key suffix and made every measured suffix read a hit. The unrestricted controls retained 8,192 values and charged 598,016 bytes. Key pressure retained no values, recorded 8,192 cold declines and 4,096 more per repeated pass, and delivered every native result. Its repeated reads are database reads, rather than slower cache hits. The approximately 30 MiB difference from the large-filter control comes from rejecting those keys, not from storing them more efficiently.
+### Memory protection on the issue #337 workload
+
+The scenarios read 100,000 seeded documents (`{"_id": i, "code": "C%07d", "state": "active"}`, `code` indexed) through a cached `find_one` view in three phases: 64,000 distinct reads (cold), the same 64,000 again (warm) and 36,000 further distinct reads (evict). The BSON budget is 4 MiB, which holds 71,089 of the 59-byte results. The four scenarios cross the filter with the access order:
+
+| Scenario         | Filter                                                            | Access order                                                  |
+| ---------------- | ----------------------------------------------------------------- | ------------------------------------------------------------- |
+| `small-entries`  | `{"code": ...}`                                                   | Sequential, each key once per phase                           |
+| `large-keys`     | `{"code": ..., "state": {"$in": [48 values]}}`, built per request | Sequential                                                    |
+| `skewed-entries` | `{"code": ...}`                                                   | 164,000 reads at log-uniformly distributed indexes (seed 337) |
+| `skewed-keys`    | The 48-value filter                                               | The same skewed reads                                         |
+
+The configurations are a plain PyMongo process (`direct`, the reference for Δ RSS), frozen `main`, the candidate with limits disabled, `max_entries=10000` (count), `max_key_bytes=2048` (key), both, and the deployment guide's example (`example`), `max_entries=50000` with `max_key_bytes=16384`. Δ RSS is the cached process's RSS minus the direct process's at the end of the last phase; the table gives the median and range of three repetitions of the synchronous API, and the asynchronous API agrees within 0.5 MiB with identical counts. The phase peak equals the end value in every row. "Warm hit rate" is the share of the 64,000 warm reads served from the cache.
+
+`large-keys` reproduces the issue: 71,089 small results behind long filters hold 297 MiB of RSS above the plain driver, although only 4 MiB of BSON.
+
+| Configuration | Δ RSS at end / peak, MiB    | Values + aliases | Charged BSON | Warm hit rate % | Origin queries: cold / warm / evict | Declines   |
+| ------------- | --------------------------- | ---------------- | ------------ | --------------: | ----------------------------------- | ---------- |
+| main          | 296.5 / 296.5 (296.5–296.6) | 71089 + 0        | 4194251 B    |           100.0 | 64000 / 0 / 36000                   | 0 / 0      |
+| disabled      | 296.7 / 296.7 (296.7–296.9) | 71089 + 0        | 4194251 B    |           100.0 | 64000 / 0 / 36000                   | 0 / 0      |
+| example       | 211.6 / 211.6 (211.6–211.7) | 50000 + 0        | 2950000 B    |             0.0 | 64000 / 64000 / 36000               | 0 / 0      |
+| count         | 46.5 / 46.5 (46.4–46.5)     | 10000 + 0        | 590000 B     |             0.0 | 64000 / 64000 / 36000               | 0 / 0      |
+| key           | 4.8 / 4.8 (4.6–4.8)         | 0 + 0            | 0 B          |             0.0 | 64000 / 64000 / 36000               | 164000 / 0 |
+| both          | 4.7 / 4.7 (4.6–4.8)         | 0 + 0            | 0 B          |             0.0 | 64000 / 64000 / 36000               | 164000 / 0 |
+
+`skewed-keys` is the same filter under a realistic access pattern:
+
+| Configuration | Δ RSS at end / peak, MiB    | Values + aliases | Charged BSON | Warm hit rate % | Origin queries: cold / warm / evict | Declines   |
+| ------------- | --------------------------- | ---------------- | ------------ | --------------: | ----------------------------------- | ---------- |
+| main          | 146.5 / 146.5 (146.4–146.8) | 34746 + 0        | 2050014 B    |            82.5 | 18594 / 11177 / 4975                | 0 / 0      |
+| disabled      | 146.9 / 146.9 (146.8–147.0) | 34746 + 0        | 2050014 B    |            82.5 | 18594 / 11177 / 4975                | 0 / 0      |
+| example       | 146.9 / 146.9 (146.8–147.0) | 34746 + 0        | 2050014 B    |            82.5 | 18594 / 11177 / 4975                | 0 / 0      |
+| count         | 46.1 / 46.1 (45.9–46.2)     | 10000 + 0        | 590000 B     |            72.2 | 20109 / 17771 / 9842                | 0 / 0      |
+| key           | 4.7 / 4.7 (4.5–4.8)         | 0 + 0            | 0 B          |             0.0 | 64000 / 64000 / 36000               | 164000 / 0 |
+| both          | 4.8 / 4.8 (4.5–4.8)         | 0 + 0            | 0 B          |             0.0 | 64000 / 64000 / 36000               | 164000 / 0 |
+
+`skewed-entries` and `small-entries` use short filters, whose keys are small; the limits then trade hit rate for memory only through the entry count.
+
+`skewed-entries`:
+
+| Configuration | Δ RSS at end / peak, MiB | Values + aliases | Charged BSON | Warm hit rate % | Origin queries: cold / warm / evict | Declines |
+| ------------- | ------------------------ | ---------------- | ------------ | --------------: | ----------------------------------- | -------- |
+| main          | 24.5 / 24.5 (24.4–24.6)  | 34746 + 0        | 2050014 B    |            82.5 | 18594 / 11177 / 4975                | 0 / 0    |
+| disabled      | 24.7 / 24.7 (24.7–24.8)  | 34746 + 0        | 2050014 B    |            82.5 | 18594 / 11177 / 4975                | 0 / 0    |
+| example       | 24.8 / 24.8 (24.6–24.8)  | 34746 + 0        | 2050014 B    |            82.5 | 18594 / 11177 / 4975                | 0 / 0    |
+| count         | 10.6 / 10.6 (10.5–10.6)  | 10000 + 0        | 590000 B     |            72.2 | 20109 / 17771 / 9842                | 0 / 0    |
+| key           | 24.9 / 24.9 (24.7–24.9)  | 34746 + 0        | 2050014 B    |            82.5 | 18594 / 11177 / 4975                | 0 / 0    |
+| both          | 10.5 / 10.5 (10.5–10.6)  | 10000 + 0        | 590000 B     |            72.2 | 20109 / 17771 / 9842                | 0 / 0    |
+
+`small-entries`:
+
+| Configuration | Δ RSS at end / peak, MiB | Values + aliases | Charged BSON | Warm hit rate % | Origin queries: cold / warm / evict | Declines |
+| ------------- | ------------------------ | ---------------- | ------------ | --------------: | ----------------------------------- | -------- |
+| main          | 45.6 / 45.6 (45.5–45.8)  | 71089 + 0        | 4194251 B    |           100.0 | 64000 / 0 / 36000                   | 0 / 0    |
+| disabled      | 46.0 / 46.0 (45.9–46.0)  | 71089 + 0        | 4194251 B    |           100.0 | 64000 / 0 / 36000                   | 0 / 0    |
+| example       | 35.1 / 35.2 (35.1–35.2)  | 50000 + 0        | 2950000 B    |             0.0 | 64000 / 64000 / 36000               | 0 / 0    |
+| count         | 11.1 / 11.1 (11.0–11.1)  | 10000 + 0        | 590000 B     |             0.0 | 64000 / 64000 / 36000               | 0 / 0    |
+| key           | 45.9 / 45.9 (45.9–46.0)  | 71089 + 0        | 4194251 B    |           100.0 | 64000 / 0 / 36000                   | 0 / 0    |
+| both          | 11.0 / 11.0 (11.0–11.2)  | 10000 + 0        | 590000 B     |             0.0 | 64000 / 64000 / 36000               | 0 / 0    |
+
+What the tables establish:
+
+- **The entry count bounds memory in proportion to the entries kept.** 10,000 entries leave 46 MiB with long filters (−84% in `large-keys`, −69% in `skewed-keys`) and 11 MiB with short ones (−76% in `small-entries`, −57% in `skewed-entries`).
+- **The key limit removes the long-filter entries entirely.** With 2,048 bytes, `large-keys` and `skewed-keys` retain nothing and decline 164,000 admissions; Δ RSS falls to 5 MiB. It does nothing for short keys (`key` equals `disabled` in the short-filter scenarios), because those keys already fit.
+- **Coverage is the price.** The sequential scans cycle 64,000 keys through a smaller LRU, so no warm read hits: with 10,000 or 50,000 entries the warm hit rate falls from 100% to 0% and every warm read becomes a database query (64,000 more). Under the skewed pattern, 10,000 entries keep 72.2% of warm reads in the cache instead of 82.5%, at 17,771 instead of 11,177 warm queries. A key limit that declines every long filter returns all reads to the database (0% hits), as the declines show.
+- **The deployment guide's example limits bound entries, not memory.** With long filters, 50,000 retained entries still cost 212 MiB; the right limits come from the key size of the application's own filters.
 
 ### Unique-key policy, alias churn and writes
 
-The following occupancies are after cold admission and agree between sync and async. Main and the disabled candidate agree. Values and aliases are separate counts. BSON is charged once per resident value record; the unrestricted one-query case shares one encoded payload while charging two value records.
+The following occupancies are after cold admission and agree between sync and async and across repetitions. Main and the disabled candidate agree. Values and aliases are separate counts. BSON is charged once per resident value record; the unrestricted one-query case shares one encoded payload while charging two value records. Evictions and declines are counted within the cold phase.
 
 | Cell         | Main / disabled values + aliases; BSON | Enabled values + aliases; BSON | Enabled cold evictions / declines |
 | ------------ | -------------------------------------- | ------------------------------ | --------------------------------- |
@@ -270,106 +470,135 @@ The following occupancies are after cold admission and agree between sync and as
 | full-prefill | 384 + 136; 28032 B                     | 128 + 0; 9344 B                | 120 / 121                         |
 | many-to-one  | 129 + 128; 291411 B                    | 1 + 128; 2259 B                | 0 / 0                             |
 
-| API / cell           | Main repeat CPU (range) | Disabled repeat CPU (range) | Enabled repeat CPU (range) | Enabled repeat P50 / P95 / P99 |
-| -------------------- | ----------------------- | --------------------------- | -------------------------- | ------------------------------ |
-| sync / one-empty     | 11.63 (11.40–11.86)     | 13.17 (11.65–13.36)         | 13.28 (12.89–13.43)        | 12.94 / 13.87 / 16.63          |
-| sync / pair-empty    | 12.14 (11.08–13.27)     | 11.79 (11.67–13.62)         | 11.88 (11.83–13.81)        | 11.66 / 12.27 / 17.15          |
-| sync / half-prefill  | 13.07 (11.71–13.63)     | 11.91 (11.83–13.13)         | 13.09 (12.96–13.30)        | 12.84 / 13.75 / 15.30          |
-| sync / full-prefill  | 12.62 (11.73–13.80)     | 12.23 (12.19–13.67)         | 13.09 (13.04–14.22)        | 12.84 / 13.62 / 19.56          |
-| sync / many-to-one   | 15.75 (15.50–16.16)     | 17.08 (15.43–17.25)         | 15.74 (15.62–17.18)        | 15.44 / 16.63 / 23.32          |
-| async / one-empty    | 12.29 (12.20–13.49)     | 12.35 (12.27–14.06)         | 15.35 (13.64–16.01)        | 13.45 / 23.45 / 25.59          |
-| async / pair-empty   | 12.50 (12.07–13.90)     | 14.00 (13.86–14.12)         | 12.13 (12.06–12.37)        | 12.00 / 12.67 / 14.09          |
-| async / half-prefill | 12.39 (12.34–12.50)     | 12.56 (12.26–12.59)         | 14.45 (13.92–16.24)        | 13.75 / 22.34 / 24.06          |
-| async / full-prefill | 12.73 (12.31–14.14)     | 12.52 (12.42–14.42)         | 13.62 (13.60–15.80)        | 13.50 / 14.21 / 16.27          |
-| async / many-to-one  | 16.58 (16.40–16.91)     | 16.30 (16.18–16.30)         | 16.44 (16.26–17.54)        | 15.98 / 18.55 / 27.68          |
+Origin queries per phase, as main / disabled / enabled and identical in sync and async. The `warm + repeat` column sums the two warm phases.
 
-Every repeated unique-query phase hit without origin traffic. With one slot, the subsequent `_id` phase needs one origin query and replaces the namespace value; the unrelated and matched-write query phases each need one origin query. The two-slot pair has no origin query after the unrelated write and one after the matched write, just as the unrestricted control. The one-slot saving therefore trades identity reuse for original-query cacheability.
+| Cell         | cold            | warm + repeat | `_id`       | unrelated write | matched write   |
+| ------------ | --------------- | ------------- | ----------- | --------------- | --------------- |
+| one-empty    | 1 / 1 / 1       | 0 / 0 / 0     | 0 / 0 / 1   | 0 / 0 / 1       | 1 / 1 / 1       |
+| pair-empty   | 1 / 1 / 1       | 0 / 0 / 0     | 0 / 0 / 0   | 0 / 0 / 0       | 1 / 1 / 1       |
+| half-prefill | 128 / 128 / 128 | 0 / 0 / 71    | 0 / 0 / 128 | 0 / 0 / 128     | 1 / 1 / 128     |
+| full-prefill | 128 / 128 / 128 | 0 / 0 / 7     | 0 / 0 / 128 | 0 / 0 / 128     | 1 / 1 / 128     |
+| many-to-one  | 128 / 128 / 128 | 0 / 0 / 0     | 0 / 0 / 0   | 0 / 0 / 0       | 128 / 128 / 128 |
 
-At half/full prefill, the enabled cold pass ends with 128 namespace values and no aliases. Each subsequent `_id`, unrelated-write and matched-write phase needs 128 origin queries, versus 0 / 0 / 1 on both unrestricted builds. The unrelated-write phase costs 17.10 / 17.32 µs per read synchronously and 20.47 / 20.36 µs asynchronously, versus 12.00 / 12.27 and 12.33 / 12.44 on the disabled candidate. This is the coverage cost of alias-first reclamation and namespace fallback. No additional unrelated value is evicted solely to obtain an alias.
+Process CPU per read of the repeat phase, median and range of ten processes, and the paired change of the disabled candidate against `main`:
 
-For 128 aliases to one identity, the enabled policy retains one value and 128 aliases rather than 129 values and 128 aliases, reducing the BSON charge from 291,411 to 2,259 bytes. All builds make zero origin queries after an unrelated write and 128 after a matched write. Enabled repeated-query CPU is 15.74 µs (sync) and 16.44 µs (async), versus 17.08 and 16.30 with limits disabled. The saving is removal of redundant namespace records and charges; alias-based reuse after unrelated writes already exists on main.
+| API / cell           | Main                | Other main build    | Disabled            | Enabled             | Disabled vs main % |
+| -------------------- | ------------------- | ------------------- | ------------------- | ------------------- | ------------------ |
+| sync / one-empty     | 7.58 (7.41–7.90)    | 7.51 (7.32–7.97)    | 7.41 (7.19–7.90)    | 7.88 (7.64–8.09)    | -1.9 [-4.3, +1.2]  |
+| sync / pair-empty    | 7.54 (7.13–8.06)    | 7.51 (7.32–7.86)    | 7.50 (7.21–9.15)    | 7.44 (7.36–7.57)    | +0.0 [-2.2, +2.6]  |
+| sync / half-prefill  | 7.61 (7.44–7.75)    | 7.48 (7.19–7.83)    | 7.37 (7.29–8.06)    | 7.87 (7.69–8.02)    | -2.1 [-3.5, -0.4]  |
+| sync / full-prefill  | 7.69 (7.46–8.32)    | 7.48 (7.40–7.61)    | 7.46 (7.27–8.55)    | 7.92 (7.75–8.47)    | -3.3 [-4.8, +2.7]  |
+| sync / many-to-one   | 11.31 (11.13–11.56) | 11.63 (11.22–15.07) | 11.34 (10.88–11.72) | 11.34 (11.09–11.63) | -0.7 [-2.0, +2.6]  |
+| async / one-empty    | 7.97 (7.69–8.18)    | 7.91 (7.69–8.68)    | 7.96 (7.70–8.88)    | 8.33 (8.16–8.65)    | +2.4 [-1.8, +8.6]  |
+| async / pair-empty   | 8.05 (7.76–8.35)    | 7.91 (7.71–12.88)   | 7.84 (7.80–12.77)   | 7.88 (7.72–8.18)    | -0.6 [-3.4, +1.3]  |
+| async / half-prefill | 8.06 (7.72–8.17)    | 8.02 (7.79–8.79)    | 7.93 (7.81–8.13)    | 8.45 (8.23–8.94)    | -0.7 [-2.2, +1.3]  |
+| async / full-prefill | 8.10 (7.93–8.69)    | 7.95 (7.78–8.24)    | 7.96 (7.80–8.70)    | 8.41 (8.17–9.21)    | -2.1 [-3.3, +1.2]  |
+| async / many-to-one  | 12.24 (11.27–15.65) | 12.09 (11.77–15.87) | 11.99 (11.76–13.04) | 11.89 (11.66–12.51) | -2.4 [-3.5, +1.2]  |
 
-### Alias membership and transaction contention
+Enabled reads cost the same as unrestricted ones where the repeat is served through the same path (pair-empty and many-to-one). Where the enabled cache holds values without aliases (one-empty and the prefilled cells), the repeat resolves no alias and falls back to the namespace entry, and costs 0.4–0.5 µs more per read.
 
-For alias churn, each cell below summarizes nine complete cycles: three cycles in each of three fresh processes. Times are cumulative process CPU milliseconds for publishing all aliases and then individually removing all aliases. The capture stays held during removal. Keys have fixed-size hashing costs.
+With one slot, the subsequent `_id` phase needs one origin query and replaces the namespace value; the unrelated and matched write phases each need one. The two-slot pair has no origin query after the unrelated write and one after the matched write, just as the unrestricted control. The one-slot saving therefore trades identity reuse for original-query cacheability.
+
+At half and full prefill the enabled cold pass ends with 128 values and no aliases. Capacity pressure reclaims aliases that earlier reads relied on, so the warm phases need 71 and 7 origin queries and each subsequent `_id`, unrelated-write and matched-write phase needs 128, versus 0 / 0 / 1 on both unrestricted builds. The extra CPU of those phases is the cost of 128 origin queries spread over 4,096 reads (about 120 µs each synchronously and 200 µs asynchronously), not admission overhead:
+
+| API / cell / phase               | Main | Disabled | Enabled | Origin queries (main / enabled) |
+| -------------------------------- | ---- | -------- | ------- | ------------------------------- |
+| sync / half-prefill / identity   | 4.52 | 4.46     | 8.08    | 0 / 128                         |
+| sync / half-prefill / unrelated  | 7.64 | 7.54     | 11.84   | 0 / 128                         |
+| sync / half-prefill / matched    | 7.71 | 7.57     | 11.88   | 1 / 128                         |
+| sync / full-prefill / identity   | 4.52 | 4.50     | 7.87    | 0 / 128                         |
+| sync / full-prefill / unrelated  | 7.71 | 7.53     | 11.90   | 0 / 128                         |
+| sync / full-prefill / matched    | 7.70 | 7.62     | 11.81   | 1 / 128                         |
+| async / half-prefill / identity  | 4.93 | 4.89     | 11.10   | 0 / 128                         |
+| async / half-prefill / unrelated | 8.02 | 7.91     | 15.22   | 0 / 128                         |
+| async / half-prefill / matched   | 8.25 | 8.12     | 15.40   | 1 / 128                         |
+| async / full-prefill / identity  | 4.93 | 4.82     | 11.58   | 0 / 128                         |
+| async / full-prefill / unrelated | 7.98 | 7.92     | 15.50   | 0 / 128                         |
+| async / full-prefill / matched   | 8.14 | 8.05     | 15.03   | 1 / 128                         |
+
+This is the coverage cost of alias-first reclamation and namespace fallback. No additional unrelated value is evicted solely to obtain an alias.
+
+For 128 aliases to one identity, the enabled policy retains one value and 128 aliases rather than 129 values and 128 aliases, reducing the BSON charge from 291,411 to 2,259 bytes. All builds make zero origin queries after an unrelated write and 128 after a matched write, and enabled CPU matches the other builds. The saving is removal of redundant namespace records and charges; alias-based reuse after unrelated writes already exists on `main`.
+
+For alias churn, each cell summarizes thirty complete cycles: three cycles in each of ten fresh processes. Times are cumulative process CPU milliseconds for publishing all aliases and then individually removing all aliases. The capture stays held during removal. Every released checkpoint has zero values and charged BSON.
 
 | Core / build         | 256 publish / remove ms             | 1,024 publish / remove ms              | 4,096 publish / remove ms                       |
 | -------------------- | ----------------------------------- | -------------------------------------- | ----------------------------------------------- |
-| reference / main     | 2.17 (2.07–3.00) / 0.50 (0.47–0.84) | 10.61 (10.09–12.49) / 4.19 (4.14–4.30) | 129.42 (126.72–131.89) / 117.03 (112.11–120.39) |
-| reference / disabled | 2.01 (1.96–2.65) / 0.27 (0.25–0.49) | 7.84 (7.60–9.12) / 1.02 (0.97–1.05)    | 31.34 (30.54–36.53) / 3.96 (3.79–7.48)          |
-| reference / enabled  | 4.18 (3.96–5.35) / 0.48 (0.47–0.50) | 16.54 (15.69–18.95) / 1.86 (1.80–2.89) | 65.88 (64.57–73.48) / 7.47 (7.41–8.19)          |
-| native / main        | 0.60 (0.57–0.62) / 0.09 (0.08–0.09) | 2.29 (2.24–4.29) / 0.32 (0.31–0.34)    | 9.48 (9.17–15.33) / 1.28 (1.27–1.31)            |
-| native / disabled    | 0.61 (0.58–0.64) / 0.09 (0.08–0.09) | 2.41 (2.31–2.45) / 0.32 (0.30–0.33)    | 9.67 (9.34–12.81) / 1.26 (1.20–1.33)            |
-| native / enabled     | 0.64 (0.61–1.12) / 0.09 (0.09–0.10) | 2.47 (2.38–2.53) / 0.37 (0.33–0.37)    | 10.12 (9.59–10.56) / 1.48 (1.40–2.76)           |
+| reference / main     | 2.12 (2.06–2.50) / 0.50 (0.48–0.53) | 10.46 (10.26–14.00) / 4.21 (4.16–4.46) | 131.16 (129.32–145.84) / 116.97 (114.83–125.60) |
+| reference / disabled | 2.03 (1.96–2.99) / 0.26 (0.25–0.35) | 7.83 (7.64–8.97) / 1.01 (0.96–1.20)    | 31.46 (30.52–34.42) / 4.01 (3.82–5.35)          |
+| reference / enabled  | 4.00 (3.89–4.48) / 0.48 (0.46–0.55) | 15.88 (15.36–17.78) / 1.88 (1.82–2.18) | 63.19 (61.23–71.09) / 7.56 (7.35–10.71)         |
+| native / main        | 0.52 (0.50–0.70) / 0.08 (0.08–0.13) | 2.03 (1.92–2.56) / 0.32 (0.30–0.41)    | 8.20 (7.84–9.76) / 1.26 (1.16–1.35)             |
+| native / disabled    | 0.52 (0.50–0.83) / 0.08 (0.08–0.08) | 2.01 (1.95–2.29) / 0.29 (0.28–0.54)    | 8.14 (7.58–9.49) / 1.16 (1.13–1.50)             |
+| native / enabled     | 0.52 (0.50–0.69) / 0.08 (0.08–0.17) | 2.02 (1.96–2.32) / 0.29 (0.28–0.33)    | 8.16 (7.82–11.43) / 1.16 (1.13–1.34)            |
 
-The Python reference’s 4,096-alias removal falls from 117.03 ms to 3.96 ms with limits disabled and 7.47 ms with limits enabled. Its new per-alias cost stays roughly constant as cardinality grows; the implementation mutates one lazy set under the namespace lock rather than copying surviving membership. Native removal already scales linearly. Every released checkpoint has zero values and charged BSON; candidate snapshots also have zero aliases. The three cycles reuse capacity. The benchmark keeps its input alias list through each cycle. RSS and GC object checkpoints measure retained storage, not total transient allocation volume; timing plus the in-place membership operation establish removal of cumulative set copying.
+The Python reference's 4,096-alias removal falls from 116.97 ms on `main` to 4.01 ms with limits disabled and 7.56 ms with them enabled, and its per-alias cost stays roughly constant as cardinality grows; it mutates one lazy set under the namespace lock rather than copying surviving membership. Native removal already scales linearly, and enabling the count limit leaves native publication and removal unchanged: the oldest-first alias order is threaded through the alias rows' unused namespace links rather than a separate map.
 
-| Core / build / threads   | CPU/read µs (range) | Wall/read µs (range) | P50 / P95 / P99 µs     |
-| ------------------------ | ------------------- | -------------------- | ---------------------- |
-| reference / main / 1     | 9.19 (9.12–9.48)    | 9.23 (9.14–9.50)     | 8.50 / 11.48 / 15.47   |
-| reference / main / 4     | 14.41 (14.38–16.81) | 14.40 (14.37–16.79)  | 9.30 / 36.79 / 76.48   |
-| reference / disabled / 1 | 9.20 (9.06–9.32)    | 9.22 (9.09–9.34)     | 8.45 / 12.24 / 15.56   |
-| reference / disabled / 4 | 14.21 (14.15–14.23) | 14.20 (14.18–14.24)  | 9.33 / 31.95 / 76.34   |
-| reference / enabled / 1  | 15.23 (14.88–15.43) | 15.28 (14.93–15.46)  | 14.41 / 17.72 / 25.15  |
-| reference / enabled / 4  | 26.02 (25.61–26.19) | 25.98 (25.57–26.15)  | 15.99 / 63.92 / 150.02 |
-| native / main / 1        | 3.15 (2.79–3.15)    | 3.16 (2.80–3.16)     | 2.48 / 4.67 / 6.07     |
-| native / main / 4        | 4.12 (3.93–4.37)    | 4.12 (3.93–4.37)     | 2.65 / 8.12 / 18.18    |
-| native / disabled / 1    | 2.88 (2.85–2.97)    | 2.88 (2.86–2.99)     | 2.53 / 3.52 / 5.26     |
-| native / disabled / 4    | 3.98 (3.60–4.16)    | 3.99 (3.60–4.15)     | 2.66 / 6.74 / 16.73    |
-| native / enabled / 1     | 2.99 (2.83–3.12)    | 3.00 (2.84–3.13)     | 2.50 / 4.53 / 5.88     |
-| native / enabled / 4     | 4.05 (3.13–4.74)    | 4.05 (3.13–4.73)     | 2.89 / 7.58 / 13.72    |
+Complete admissions with 32,768 operations per thread across two namespaces, a 16 MiB BSON budget and a 131,072-record cap, so every build retains the same records without eviction:
 
-All contention cells retained exactly 32,768 or 131,072 values without eviction. Native enabled admission costs 2.99 µs with one thread versus 2.88 µs disabled; four-thread CPU medians are 4.05 versus 3.98 µs. The private Python reference’s longer transaction costs 15.23 versus 9.20 µs with one thread and 26.02 versus 14.21 µs with four. The exported `CacheCore` and both public managers use the native owner; the reference result documents its transaction cost rather than a public fallback path.
+| Core / build / threads   | CPU µs per operation |
+| ------------------------ | -------------------- |
+| reference / main / 1     | 8.44 (8.24–8.98)     |
+| reference / disabled / 1 | 8.71 (8.55–9.10)     |
+| reference / enabled / 1  | 13.62 (13.35–15.13)  |
+| reference / main / 4     | 8.96 (8.83–9.38)     |
+| reference / disabled / 4 | 9.21 (9.14–9.51)     |
+| reference / enabled / 4  | 14.15 (14.00–14.59)  |
+| native / main / 1        | 2.06 (2.03–2.31)     |
+| native / disabled / 1    | 2.04 (2.01–2.07)     |
+| native / enabled / 1     | 2.05 (2.02–2.78)     |
+| native / main / 4        | 2.16 (2.10–2.23)     |
+| native / disabled / 4    | 2.14 (2.11–2.26)     |
+| native / enabled / 4     | 2.16 (2.09–2.45)     |
 
-### Disabled hit-path investigation
+Native enabled admission costs 2.05 µs with one thread and 2.16 µs with four, against 2.04 and 2.14 µs disabled and 2.06 and 2.16 µs on `main`. The private Python reference's longer transaction (13.62 against 8.71 µs with one thread) documents the reference core's cost, not a public path.
 
-Short controls varied between similar cells. A separate six-pair acquisition extended the generic controls to 65,536 reads per warm phase; their paired changes had mixed signs. The unique-key controls were then extended to 32,768 reads per phase. A ten-pair direct-call comparison found a median saving of about 0.015 µs by omitting the unused keyword in disabled facades. A six-pair public comparison also favored reusing the existing constant-false native identity lookup path synchronously, so both improvements are retained. The asynchronous changes overlapped run variation.
+### PGO training coverage
 
-The final short small-filter hit cell showed a 9% median CPU increase. To check its duration sensitivity, the same final wheels ran six counterbalanced pairs with 65,536 reads per warm phase. The longer control confirms a smaller synchronous hit cost; cold and asynchronous paired changes are less consistent. The table reports CPU µs/read and the median paired percentage change, with ranges.
+The instrumented build of the final source (`RUSTFLAGS=-Cprofile-generate`, trained by `scripts/pgo_training.py`) records which native functions the training reaches. Every new native path is reached. Training the opt-in workloads at a fifth of the default time (hit workloads at the full time) raises the profile total from 4.50 to 4.84 billion counts (+7.5%), and moves the hot threshold (the count covering 99% of the total) from 299,520 to 274,432 and the cold threshold (99.9%) from 58,368 to 55,296. The public end-to-end and guard cells are not training inputs; the native workloads of `compare` and `limits` share their data constructors with the training script, so they time trained code. Entry counts of the new paths:
 
-| API / filter / phase          | Main CPU                  | Disabled CPU              | Paired change %       |
-| ----------------------------- | ------------------------- | ------------------------- | --------------------- |
-| sync / matched-long / cold    | 117.618 (114.511–128.630) | 115.543 (111.798–118.736) | -2.741 (-7.692–2.984) |
-| sync / matched-long / repeat  | 8.928 (8.851–9.065)       | 9.141 (9.061–9.285)       | 2.427 (0.766–4.712)   |
-| sync / large-long / cold      | 169.207 (165.286–179.740) | 175.442 (163.932–177.667) | 0.700 (-1.995–6.366)  |
-| sync / large-long / repeat    | 43.185 (42.199–43.435)    | 43.444 (43.263–43.525)    | 0.547 (0.209–2.976)   |
-| async / matched-long / cold   | 213.950 (208.598–218.508) | 205.381 (204.316–219.241) | -3.300 (-5.844–4.097) |
-| async / matched-long / repeat | 9.373 (9.155–9.843)       | 9.424 (9.298–9.774)       | 1.178 (-4.751–2.411)  |
-| async / large-long / cold     | 268.981 (263.269–278.473) | 268.520 (258.595–271.650) | -0.863 (-4.054–3.170) |
-| async / large-long / repeat   | 42.995 (42.103–43.467)    | 43.442 (42.660–44.559)    | 0.848 (-0.664–3.517)  |
+| Native function                                         |      Training count |
+| ------------------------------------------------------- | ------------------: |
+| `Sizer::decide` (key walk; hottest block)               | 223,232 (7,786,011) |
+| `key_decision`                                          |             428,544 |
+| `retention_preflight`                                   |             222,208 |
+| `value_plan` / `pair_fits`                              |        87,040 / 510 |
+| `admit_unique_limited` (hottest block)                  |              93,184 |
+| `AdmissionPlan::remove_value` / `remove_alias`          |          1,022 each |
+| `identity_read` (hottest block)                         |           2,270,209 |
+| `lookup_identity_deferred` and `resolve_alias` wrappers |        856,064 each |
 
-The final six-pair control below uses the final wheel. It reports CPU µs/read as median (minimum–maximum); unlike the short three-repetition cells, this exposes the remaining small default-path cost.
-
-| API / phase       | Main                   | Disabled candidate     |
-| ----------------- | ---------------------- | ---------------------- |
-| sync / repeat     | 11.956 (11.625–12.207) | 12.359 (12.095–12.953) |
-| sync / identity   | 5.432 (5.207–5.496)    | 5.474 (5.245–5.630)    |
-| sync / unrelated  | 11.941 (11.752–12.503) | 12.090 (11.903–12.334) |
-| sync / matched    | 12.012 (11.651–12.434) | 12.357 (12.145–12.438) |
-| async / repeat    | 12.516 (12.442–13.234) | 12.724 (12.393–13.020) |
-| async / identity  | 5.725 (5.377–6.099)    | 5.760 (5.685–5.843)    |
-| async / unrelated | 12.726 (12.521–13.536) | 12.672 (12.527–12.781) |
-| async / matched   | 12.830 (12.410–13.542) | 12.705 (12.492–13.186) |
-
-The remaining few tenths of a microsecond are a measured regression, with the strongest repeatability in the synchronous hit paths. Its exact source has not been isolated further. The tests establish that sizing is absent when limits are disabled and on warm hits; that invariant alone does not prove zero hit-path cost. The enabled key walk also has the cold-admission cost shown above. The safeguards therefore trade CPU and, under pressure, cache coverage for bounded retained records and key charges. No disabled-path speedup is claimed.
+The eviction path (`apply_plan`, hottest block 1,535) is rarely hot because it runs only at capacity. With the hit workload at a fifth of the time, the deferred lookup body ran 46,080 times, below the cold threshold, and was optimized for size.
 
 ### Test cost and reproduction
 
-Three counterbalanced runs timed the same 1,239 pre-existing cases in `tests/core`, sync/async `test_unique_key_reads.py`, `test_cached_cursors.py`, `test_public_annotations.py` and `test_otel.py`. Selection matched collected node IDs after the budget-field rename, the default observer parameter and the cursor fixture’s reordered parameter labels. The 308 additional cases, including the three new test modules, were timed separately. Runs used one worker (`-n 0`) to remove scheduling differences, `--hypothesis-seed=337`, identical dependencies and the same disposable-server setup. Times include process and fixture startup. This timing campaign preceded the two final hit-path micro-optimizations. Its recorded corpus excludes the twelve retained-report compatibility cases added afterward.
+Five counterbalanced runs timed the same 1,331 pre-existing cases of the files listed below on `main` and on the candidate, and the 358 added cases separately. Selection matched collected node IDs after the budget-field rename and the cursor fixture's reordered parameter labels. Runs used one worker (`-n 0`), `--hypothesis-seed=337`, identical dependencies and the disposable-server setup, and the files `tests/core`, sync and async `test_unique_key_reads.py`, `test_cached_cursors.py`, `test_public_annotations.py`, `test_otel.py` and `test_pgo_training.py` (plus the new modules for the candidate). Times include process and fixture startup in the wall column.
 
-| Selection                 | Main seconds, median (range) | Candidate seconds, median (range) |
-| ------------------------- | ---------------------------- | --------------------------------- |
-| Same 1,239 existing cases | 63.26 (61.55–63.76)          | 62.65 (61.70–63.26)               |
-| 308 added cases           | —                            | 25.82 (25.77–26.22)               |
+| Selection                 | Main: wall s, median (range) | Candidate: wall s, median (range) | Main: test s        | Candidate: test s   |
+| ------------------------- | ---------------------------- | --------------------------------- | ------------------- | ------------------- |
+| Same 1,331 existing cases | 63.55 (62.63–82.20)          | 63.78 (62.38–64.29)               | 52.90 (52.00–54.52) | 53.14 (51.68–53.48) |
+| 358 added cases           | —                            | 49.56 (49.10–50.01)               | —                   | 39.14 (38.61–39.42) |
 
-The existing-case ranges overlap. The full Python coverage gate reached 100.00% with no incorrectly excluded lines. The final release wheel passed 1,539 affected core/read cases. The timed corpus additionally includes eight cases from `tests/benchmark/test_process_memory.py`, giving its total of 1,547. Rust unit tests and concurrency models also passed. Native Rust coverage completion is tracked separately in [issue #328](https://github.com/alessio-locatelli/client-query-cache/issues/328), as the [native quality guide](../../docs/development/native-quality.md#native-coverage) explains. Completed tests and resource acquisitions emitted no failures or warnings.
+The ranges overlap. Two earlier sets of five rounds on preceding revisions measured 63.06 against 63.07 and 61.84 against 62.70 seconds of wall time. The full Python coverage gate reached 100.00%, and the Rust unit tests and concurrency models passed. Native Rust coverage completion is tracked separately in [issue #328](https://github.com/alessio-locatelli/client-query-cache/issues/328), as the [native quality guide](../../docs/development/native-quality.md#native-coverage) explains.
 
-Raw outputs are disposable files under `/tmp/agents/issue-337/`: `current/` contains the final three-repetition wheel campaign, `current-refined/` contains the six-pair unique-key hit controls, `current-generic/` contains the six-pair generic controls, and `test-duration/` contains node selection and timing logs. Earlier controls and optimization experiments are retained beside them. The common harness’s completion record is required before accepting any child’s output; its tests reject missing or inconsistent completion records.
+To reproduce, build each tree with `just build`, then install each wheel into a separate target directory:
 
-To reproduce, build the current wheel with the command above and frozen main from a detached checkout, using the same interpreter and release flags. Install each wheel into a separate target directory with `uv pip install --no-deps --target <site> <wheel>`. Use the [contributor environment](../../CONTRIBUTING.md) and the repository’s disposable replica-set fixture. This example seeds the exact nonunique workload and runs the enabled equal-residency cell:
+```bash
+uv pip install --no-deps --target overlays/<label> dist/<wheel>.whl
+```
+
+Native workloads, with `control` an extra copy of build A's overlay:
+
+```bash
+uv run -- python -m research.native_build_profile.compare --overlay-root overlays --baseline baselineA --labels baselineB baselineC baselineD baselineE control candidate16 candidate17 candidate18 candidate19 candidate20 --rounds 5 --cpu 2 --workloads <the 25 workloads> --output micro.json
+PYTHONPATH=overlays/candidate16:. PYTHONHASHSEED=0 setarch --addr-no-randomize taskset -c 2 uv run -- python -m research.native_build_profile.limits --rounds 9 --output limits.json
+uv run -- python -m research.native_build_profile.end_to_end --overlay-root overlays --baseline baselineA --labels baselineB candidate16 candidate17 --output guard.json
+```
+
+The `<the 25 workloads>` are the names of `scripts/pgo_training.py`'s `WORKLOADS` that do not start with `limited_`; `main` has no limits to time. Public reads need the Podman socket and the contributor environment. This example seeds the nonunique workload and runs the enabled equal-residency cell; the build is selected by `PYTHONPATH`:
 
 ```bash
 source scripts/testcontainers-bridge.sh
+nice -n 19 taskset -c 2 python3 -c 'while True: pass' &
 uv run --env-file=.env python - <<'PY'
 import os
 import subprocess
@@ -378,7 +607,7 @@ from pathlib import Path
 from research.collection_adapter.live_error import fixture
 
 root = Path.cwd()
-site = Path('/tmp/agents/issue-337/sites/current-candidate')
+site = Path('overlays/candidate16').resolve()
 with fixture() as server:
     collection = server.process_memory.codes
     collection.insert_many(
@@ -390,7 +619,7 @@ with fixture() as server:
     uri = f'mongodb://{host}:{port}/?directConnection=true'
     for api in ('sync', 'async'):
         subprocess.run(
-            [sys.executable, '-m', 'research.process_memory.measure',
+            ['taskset', '-c', '2', sys.executable, '-m', 'research.process_memory.measure',
              'retention-child', uri, '--api', api, '--scenario', 'small-entries',
              '--distinct', '4096', '--retained', '4096', '--warm-repeats', '4',
              '--max-entries', '4096', '--max-key-bytes', '2048'],
@@ -398,19 +627,34 @@ with fixture() as server:
             check=True,
         )
 PY
+kill %1
 ```
 
-Run the other nonunique rows with their table parameters, choosing `--scenario large-keys` for the long-filter cells. Omit both limit arguments for the disabled control. Select the frozen main site and add `--budget-field shared_budget_bytes` for main. Repeat three times, reversing the three-build order on alternate repetitions. Redirect stdout to disposable JSONL files and stderr to separate logs.
+Run the other nonunique rows with their table parameters, choosing `--scenario large-keys` for the long-filter cells and `--distinct 8192 --retained 4096` for the pressure cells. Omit the limit arguments for the disabled control, `--max-entries` or `--max-key-bytes` alone for the per-limit cells, and add `--budget-field shared_budget_bytes` for `main`. Repeat ten (equal-residency per-limit: forty) times, reversing the build order on alternate repetitions, with stdout redirected to disposable JSONL files.
 
 For the unique cells, replace the nonunique index with `collection.create_index('code', unique=True)` and add `--unique`. Set `(distinct, retained, max_entries, prefill, warm_repeats)` to `(1,1,1,0,4096)`, `(1,1,2,0,4096)`, `(128,128,128,48,32)` and `(128,128,128,112,32)` for the one-slot, pair, half-prefill and full-prefill cells. For many-to-one, insert document `_id=8194` with `code=[f'S{i:07d}' for i in range(128)]`, then use `(128,128,256,0,32)` plus `--single-identity`. Only the enabled build receives `--max-entries`; the harness supplies the `_id` and processed-write phases.
 
-The core commands require no server. Run each for both cores and all three build configurations with the same target-site selection, `PYTHONHASHSEED=337` and three counterbalanced repetitions:
+The core commands need no server. Run each for both cores and all three build configurations, ten repetitions each:
 
 ```bash
-PYTHONPATH=/tmp/agents/issue-337/sites/current-candidate:. PYTHONHASHSEED=337 uv run -- python -m research.process_memory.measure retention-core --core reference --scenario aliases --enabled
-PYTHONPATH=/tmp/agents/issue-337/sites/current-candidate:. PYTHONHASHSEED=337 uv run -- python -m research.process_memory.measure retention-core --core native --scenario contention --threads 4 --distinct 32768 --max-entries 131072 --budget 16777216 --enabled
+PYTHONPATH=overlays/candidate16:. PYTHONHASHSEED=337 uv run -- python -m research.process_memory.measure retention-core --core reference --scenario aliases --enabled
+PYTHONPATH=overlays/candidate16:. PYTHONHASHSEED=337 uv run -- python -m research.process_memory.measure retention-core --core native --scenario contention --threads 4 --distinct 32768 --max-entries 131072 --budget 16777216 --enabled
 ```
 
-Use `--core reference|native`, contention `--threads 1|4`, omit `--enabled` for disabled builds, and select main’s budget keyword as above. The alias command runs all three cardinalities and capture/cleanup cycles internally. For test timings, collect the listed paths with `pytest --collect-only -q -n 0`, match the existing nodes using the normalization described above, then time those nodes and the remaining candidate nodes separately with `--hypothesis-seed=337 -n 0`.
+Use `--core reference|native`, contention `--threads 1|4`, omit `--enabled` for disabled builds, and select `main`'s budget keyword as above. The issue #337 workload seeds 100,000 documents (`_id` and `code` as above, `code` indexed) into `process_memory.codes` and runs one child per scenario, API and configuration:
 
-For the longer final default-hit controls, use the unique one-query setup with `--warm-repeats 32768`, both limits omitted and six counterbalanced repetitions of main and candidate. The exploratory long generic controls use `--warm-repeats 16` with the equal-residency and large-filter setups.
+```bash
+taskset -c 2 python -m research.process_memory.measure child <uri> large-keys sync direct
+taskset -c 2 python -m research.process_memory.measure child <uri> large-keys sync cached --max-entries 10000
+taskset -c 2 python -m research.process_memory.measure child <uri> large-keys sync cached --max-key-bytes 2048
+```
+
+Select the scenario (`small-entries`, `large-keys`, `skewed-entries`, `skewed-keys`) and API, and add `--budget-field shared_budget_bytes` for `main`. The PGO coverage check builds with `RUSTFLAGS=-Cprofile-generate=<directory>` through `maturin build --release --zig`, installs that wheel, runs `scripts/pgo_training.py` with `LLVM_PROFILE_FILE=<directory>/cov-%p.profraw`, merges with `llvm-profdata merge` and reads `llvm-profdata show --detailed-summary` and `--all-functions --counts`.
+
+### Limitations of this section
+
+- One host and one run order per run index. The end-to-end costs carry ±2–3% noise between independent builds of the same source, as the second `main` build shows; costs below that are not resolved.
+- The key charge is shallow `sys.getsizeof` over the canonical key, not the memory of the retained objects. Δ RSS is the measured effect, and it depends on the allocator and the application's own filters.
+- A cyclic scan larger than the entry limit never hits an LRU cache. The skewed rows show a realistic trade; the cyclic rows show the worst case.
+- The `max_entries` unique-key hit carries the 30 ns described above, and `shared_publish_cycle` keeps a 13 ns difference whose cause is not identified ([details](#differences-on-unchanged-code)).
+- glibc 2.43 and CPython's small-object allocator. Other allocators, glibc versions or Python versions can change retention.

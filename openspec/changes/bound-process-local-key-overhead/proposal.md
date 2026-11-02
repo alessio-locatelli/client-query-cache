@@ -12,7 +12,7 @@ The BSON budget leaves retained query keys and entry bookkeeping unbounded by a 
 
 ## Implementation sequencing
 
-The implementation follows `migrate-remaining-hotpaths-to-rust`: it builds on that migration's preparation and residency seams and is qualified against the resulting main, which is frozen as the control. The [resource report](../../../reports/process-memory/summary.md#retention-safeguards-qualification-on-2026-11-02) records the safeguard's incremental costs. Keep this change active and unarchived until those costs are accepted.
+The implementation follows `migrate-remaining-hotpaths-to-rust`: it builds on that migration's preparation and residency seams and is qualified against the resulting main, which is frozen as the control. The [resource report](../../../reports/process-memory/summary.md#retention-safeguards-qualification-on-2026-11-03) records the safeguard's incremental costs. Keep this change active and unarchived until those costs are accepted.
 
 ## Capabilities
 
