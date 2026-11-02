@@ -89,6 +89,10 @@ ignore = [
 "research/process_memory/measure.py" = ["import-outside-top-level", "any-type"]
 # This diagnostic compares cache internals directly with an experimental native index.
 "research/shared_index_floors/floors.py" = ["import-private-name"]
+# The default is enabled by ALL. We override it because the profile-guided training workload
+# and its measurement harness drive the native extension's internal entry points.
+"scripts/pgo_training.py" = ["import-private-name"]
+"research/native_build_profile/*" = ["import-private-name"]
 # These launch studies deliberately exercise the internal transport.
 # The default is enabled by ALL. We override it for research instrumentation.
 "research/shared_cache_launch/*" = ["import-private-name"]
