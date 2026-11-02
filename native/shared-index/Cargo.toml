@@ -28,3 +28,11 @@ loom = "0.7.2"
 # Rust 1.95 check-cfg: https://doc.rust-lang.org/rustc/check-cfg/cargo-specifics.html
 # The default is warning on every cfg name Cargo does not declare. We override it because the loom model tests are selected with --cfg loom.
 unexpected_cfgs = { level = "warn", check-cfg = ["cfg(loom)"] }
+
+[profile.release]
+# Cargo 1.99 lto: https://doc.rust-lang.org/cargo/reference/profiles.html#lto
+# The default is false, which optimizes across a crate's own code generation units only. We override it because whole-program optimization across the crate and PyO3 shortens the native cache entry points (reports/rust-build-profile/summary.md).
+lto = "fat"
+# Cargo 1.99 codegen-units: https://doc.rust-lang.org/cargo/reference/profiles.html#codegen-units
+# The default is 16. We override it because a single unit lets the optimizer inline across the whole extension.
+codegen-units = 1
