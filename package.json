@@ -2,7 +2,7 @@
   "name": "client-query-cache",
   "private": true,
   "devDependencies": {
-    "@fission-ai/openspec": "^1.14.3",
+    "@fission-ai/openspec": "^1.15.0",
     "markdownlint-cli2": "^0.24.0",
     "prettier": "3.9.10"
   },
