@@ -76,7 +76,7 @@ def make_core(
 
     def create(limit: PositiveInt) -> LocalCacheCore:
         core = core_factory(
-            CacheCoreConfig(shared_budget_bytes=limit * 2, max_entry_bytes=limit)
+            CacheCoreConfig(budget_bytes=limit * 2, max_entry_bytes=limit)
         )
         cores.append(core)
         return core

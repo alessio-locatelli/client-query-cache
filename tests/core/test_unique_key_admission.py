@@ -112,7 +112,7 @@ def test_a_write_racing_the_capture_declines_the_match_and_publishes_no_alias(
 def test_admit_unique_key_match_declines_an_oversize_value(
     namespace: NamespaceId,
 ) -> None:
-    core = CacheCore(CacheCoreConfig(shared_budget_bytes=1_000, max_entry_bytes=32))
+    core = CacheCore(CacheCoreConfig(budget_bytes=1_000, max_entry_bytes=32))
     alias = canonical_alias_key(("email",), ("a@example.com",), None)
     namespace_capture = core.capture_namespace_generation(namespace)
 

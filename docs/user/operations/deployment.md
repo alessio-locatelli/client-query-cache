@@ -32,13 +32,13 @@ Closing a manager first disables caching, then waits for pending startup and str
 
 ## Capacity estimation
 
-`CacheCoreConfig(shared_budget_bytes=..., max_entry_bytes=...)` bounds stored BSON across all collections and databases within one manager. Despite its name, `shared_budget_bytes` does not share values between processes. The separate `max_namespaces` setting bounds tracked database/collection pairs; when full, other names bypass caching until a collection drop releases a slot. See the [configuration reference](../reference/api.md#configuration). These settings are not an RSS limit; keys, active cursors and application-held results add memory.
+`CacheCoreConfig(budget_bytes=..., max_entry_bytes=...)` bounds stored BSON across all collections and databases within one manager. The separate `max_namespaces` setting bounds tracked database/collection pairs; when full, other names bypass caching until a collection drop releases a slot. See the [configuration reference](../reference/api.md#configuration). These settings are not an RSS limit; keys, active cursors and application-held results add memory.
 
 One manager watching three databases opens three streams. Four workers watching those databases open twelve streams and hold four independent cache budgets. Sync and asyncio managers are also independent, even in one process. Avoid constructing a manager per request: startup and independent warming can consume the benefit before the process reuses any data.
 
 ### Memory beyond the cache budget
 
-`shared_budget_bytes` and `max_entry_bytes` count stored BSON, not process memory. Each cached result also keeps its query and some bookkeeping: from about 0.6 KB for a document read by `_id` to about 0.9 KB for a result found by a short filter, plus the filter values your application passed. Large results barely notice this; many small results multiply it. In the project's measurements, a full budget added this much process memory beyond the same reads without the cache:
+`budget_bytes` and `max_entry_bytes` count stored BSON, not process memory. Each cached result also keeps its query and some bookkeeping: from about 0.6 KB for a document read by `_id` to about 0.9 KB for a result found by a short filter, plus the filter values your application passed. Large results barely notice this; many small results multiply it. In the project's measurements, a full budget added this much process memory beyond the same reads without the cache:
 
 | Cached results                                    | Added memory per cached result | Added memory per 1 MiB of cached BSON |
 | ------------------------------------------------- | -----------------------------: | ------------------------------------: |
@@ -47,7 +47,7 @@ One manager watching three databases opens three streams. Four workers watching 
 | 60-byte results read with a one-field filter      |                   about 0.9 KB |                          about 15 MiB |
 | 60-byte results read with a 48-value `$in` filter |                   about 4.5 KB |                          about 77 MiB |
 
-For example, the default 64 MiB budget filled with 4.4 KB documents added about 74 MiB, while a 4 MiB budget filled with 60-byte results from the larger filter added about 310 MiB. If most cached results are small, or filters carry long lists of values, lower `shared_budget_bytes` and compare `entry_count` from [`snapshot()`](monitoring.md#observability) with your process memory.
+For example, the default 64 MiB budget filled with 4.4 KB documents added about 74 MiB, while a 4 MiB budget filled with 60-byte results from the larger filter added about 310 MiB. If most cached results are small, or filters carry long lists of values, lower `budget_bytes` and compare `entry_count` from [`snapshot()`](monitoring.md#observability) with your process memory.
 
 Other memory comes on top of the budget:
 
@@ -65,7 +65,7 @@ Monitor [cache outcomes and stream health](monitoring.md) alongside your applica
 
 ### Worked worker estimate
 
-Suppose four workers each use one manager, actively cache two databases, and have a 32 MiB `shared_budget_bytes` setting. Together they can store up to 128 MiB of BSON and open eight database change streams. The budget is shared by the two databases within each worker; it is not 32 MiB per database. Size each client's pool for two concurrent stream polls alongside that worker's ordinary database traffic.
+Suppose four workers each use one manager, actively cache two databases, and have a 32 MiB `budget_bytes` setting. Together they can store up to 128 MiB of BSON and open eight database change streams. The budget is shared by the two databases within each worker; it is not 32 MiB per database. Size each client's pool for two concurrent stream polls alongside that worker's ordinary database traffic.
 
 For the measured 4.4 KB `_id` document shape above, 128 MiB of stored BSON corresponds to about 147 MiB of added process memory across the four workers when all budgets are full. Application baseline memory, retained responses, concurrent miss captures, and other services come on top. Use observed per-worker peaks to set limits; small results or large filters can multiply the cache's memory cost much more.
 

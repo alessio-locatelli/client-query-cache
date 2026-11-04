@@ -200,7 +200,7 @@ def _faulty_worker(
                 "CacheCoreConfig",
                 partial(
                     CacheCoreConfig,
-                    shared_budget_bytes=1,
+                    budget_bytes=1,
                     max_entry_bytes=1,
                 ),
             )

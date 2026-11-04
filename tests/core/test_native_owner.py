@@ -114,7 +114,7 @@ class Key:
 def native() -> Generator[LocalCacheCore]:
     with managed_core(
         NativeCacheCore,
-        CacheCoreConfig(shared_budget_bytes=256, max_entry_bytes=128),
+        CacheCoreConfig(budget_bytes=256, max_entry_bytes=128),
     ) as core:
         yield core
 
@@ -623,7 +623,7 @@ def bounded_core(value: object) -> AbstractContextManager[LocalCacheCore]:
     weight = len(encode_value(value))
     return managed_core(
         NativeCacheCore,
-        CacheCoreConfig(shared_budget_bytes=weight * 2, max_entry_bytes=weight),
+        CacheCoreConfig(budget_bytes=weight * 2, max_entry_bytes=weight),
     )
 
 
@@ -772,7 +772,7 @@ _CANDIDATE_CORES: dict[str, Callable[[CacheCoreConfig], LocalCacheCore]] = {
 def test_native_matches_reference_across_collision_and_eviction_schedules(
     candidate: str, operations: list[tuple[str, int, int]]
 ) -> None:
-    config = CacheCoreConfig(shared_budget_bytes=128, max_entry_bytes=64)
+    config = CacheCoreConfig(budget_bytes=128, max_entry_bytes=64)
     with (
         managed_core(CacheCore, config) as reference,
         managed_core(_CANDIDATE_CORES[candidate], config) as native,
@@ -794,7 +794,7 @@ def test_capture_keeps_alias_alive_after_last_entry_eviction(
     value = faker.pystr(min_chars=30, max_chars=30)
     weight = len(encode_value(value))
     with managed_core(
-        factory, CacheCoreConfig(shared_budget_bytes=weight, max_entry_bytes=weight)
+        factory, CacheCoreConfig(budget_bytes=weight, max_entry_bytes=weight)
     ) as core:
         alias = canonical_alias_key("code", identity, None)
         for _ in range(2):

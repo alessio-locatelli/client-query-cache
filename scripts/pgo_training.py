@@ -93,9 +93,7 @@ def documents(target_bytes: int, count: int) -> list[Document]:
 
 def new_core(budget_bytes: int = 64 * 1024 * 1024) -> native.LocalCacheCore:
     return native.LocalCacheCore(
-        CacheCoreConfig(
-            shared_budget_bytes=budget_bytes, max_entry_bytes=budget_bytes // 4
-        )
+        CacheCoreConfig(budget_bytes=budget_bytes, max_entry_bytes=budget_bytes // 4)
     )
 
 
@@ -427,9 +425,7 @@ def owner_admission() -> Workload:
         SLOTS, ARENA_BYTES, 1, 1, random.getrandbits(63), PROGRESS_EXPIRY_NS
     )
     core = native.SharedOwnerCore(
-        CacheCoreConfig(
-            shared_budget_bytes=4 * 1024 * 1024, max_entry_bytes=1024 * 1024
-        ),
+        CacheCoreConfig(budget_bytes=4 * 1024 * 1024, max_entry_bytes=1024 * 1024),
         index,
         [NAMESPACE.database],
         16,

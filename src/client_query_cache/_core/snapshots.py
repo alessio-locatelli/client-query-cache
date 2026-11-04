@@ -43,7 +43,7 @@ _EMPTY_BYPASS_REASONS = tuple(BypassReasonCount(reason, 0) for reason in BypassR
 class CacheSnapshot:
     lifecycle: str
     used_bytes: NonNegativeInt
-    shared_budget_bytes: PositiveInt
+    budget_bytes: PositiveInt
     max_entry_bytes: PositiveInt
     entry_count: NonNegativeInt
     hits: NonNegativeInt

@@ -67,7 +67,7 @@ def test_identity_admission_rejects_none_as_an_identity_value(
 
 
 def test_admission_rejects_an_oversize_value(namespace: NamespaceId) -> None:
-    core = CacheCore(CacheCoreConfig(shared_budget_bytes=1_000, max_entry_bytes=32))
+    core = CacheCore(CacheCoreConfig(budget_bytes=1_000, max_entry_bytes=32))
     capture = core.begin_identity_admission(namespace, "doc-1")
     outcome = core.admit_identity(capture, "full", {"payload": "x" * 100})
     assert outcome is AdmissionOutcome.DECLINED_OVERSIZE

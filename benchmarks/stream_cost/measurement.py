@@ -173,7 +173,7 @@ def snapshot_logical_metrics(
             "bypasses": cache.bypasses,
             "oversized_bypasses": cache.oversized_bypasses,
             "used_bytes": cache.used_bytes,
-            "shared_budget_bytes": cache.shared_budget_bytes,
+            "shared_budget_bytes": cache.budget_bytes,
             "entry_count": cache.entry_count,
         },
         "streams": streams,

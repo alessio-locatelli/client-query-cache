@@ -58,7 +58,7 @@ def initialize(config: CacheCoreConfig | None) -> NativeSetup:
     # Keep the caller's unbounded integer configuration for inspection.
     return (
         resolved,
-        min(resolved.shared_budget_bytes, sys.maxsize),
+        min(resolved.budget_bytes, sys.maxsize),
         min(resolved.max_entry_bytes, sys.maxsize),
         min(resolved.max_namespaces, sys.maxsize),
         StreamCostRegistry(resolved.lag_capture_window_config),
@@ -87,7 +87,7 @@ def snapshot(statistics: NativeStatistics, config: CacheCoreConfig) -> CacheSnap
     return CacheSnapshot(
         lifecycle="closed" if closed else "active",
         used_bytes=used,
-        shared_budget_bytes=config.shared_budget_bytes,
+        budget_bytes=config.budget_bytes,
         max_entry_bytes=config.max_entry_bytes,
         entry_count=count,
         hits=hits,

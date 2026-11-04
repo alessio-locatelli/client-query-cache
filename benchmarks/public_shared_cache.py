@@ -281,13 +281,13 @@ class Window:
 def _core_config(window: Window) -> CacheCoreConfig | None:
     if window.method in _CODE_METHODS:
         return CacheCoreConfig(
-            shared_budget_bytes=BUDGETS[window.method],
+            budget_bytes=BUDGETS[window.method],
             max_entry_bytes=MAX_ENTRY_BYTES,
         )
     if window.budget_bytes is None or window.max_entry_bytes is None:
         return None
     return CacheCoreConfig(
-        shared_budget_bytes=window.budget_bytes,
+        budget_bytes=window.budget_bytes,
         max_entry_bytes=window.max_entry_bytes,
     )
 

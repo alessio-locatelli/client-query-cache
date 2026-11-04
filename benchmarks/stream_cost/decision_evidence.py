@@ -226,7 +226,7 @@ def _oversized_evidence(
     ]
     client[config["database"]][config["collection"]].insert_many(documents)
     cache_config = CacheCoreConfig(
-        shared_budget_bytes=config["max_entry_bytes"] * 4,
+        budget_bytes=config["max_entry_bytes"] * 4,
         max_entry_bytes=config["max_entry_bytes"],
     )
     with CacheManager(client, cache_config=cache_config) as manager:

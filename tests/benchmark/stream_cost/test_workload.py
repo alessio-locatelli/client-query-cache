@@ -57,7 +57,7 @@ def _snapshot(
     return CacheSnapshot(
         lifecycle="active",
         used_bytes=0,
-        shared_budget_bytes=1,
+        budget_bytes=1,
         max_entry_bytes=1,
         entry_count=entry_count,
         hits=hits,

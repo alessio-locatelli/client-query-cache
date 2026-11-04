@@ -61,9 +61,7 @@ def test_shared_find_one_annotations_resolve_at_runtime(
 @pytest.mark.parametrize(
     ("cls", "field", "expected"),
     [
-        pytest.param(
-            CacheCoreConfig, "shared_budget_bytes", (int, Gt(0)), id="shared-budget"
-        ),
+        pytest.param(CacheCoreConfig, "budget_bytes", (int, Gt(0)), id="shared-budget"),
         pytest.param(CacheCoreConfig, "max_entry_bytes", (int, Gt(0)), id="entry-size"),
         pytest.param(CacheSnapshot, "hits", (int, Ge(0)), id="snapshot-counter"),
         pytest.param(BypassReasonCount, "count", (int, Ge(0)), id="bypass-count"),

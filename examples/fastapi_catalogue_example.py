@@ -327,7 +327,7 @@ def report(label: str, manager: CacheManager[ProductDocument]) -> None:
         f"{label}: hits {snapshot.hits}, misses {snapshot.misses}, "
         f"bypasses {snapshot.bypasses} ({reasons or 'none'}), "
         f"entries {snapshot.entry_count}, resident bytes {snapshot.used_bytes} "
-        f"of {snapshot.shared_budget_bytes}, "
+        f"of {snapshot.budget_bytes}, "
         f"stream {manager.stream_health_snapshot(DATABASE_NAME).status}"
     )
 

@@ -393,7 +393,7 @@ def test_reset_stream_cost_statistics_never_interleaves_with_an_in_flight_record
 
 
 def test_oversized_admission_increments_only_the_oversized_bypass_counter() -> None:
-    core = CacheCore(CacheCoreConfig(shared_budget_bytes=1024, max_entry_bytes=32))
+    core = CacheCore(CacheCoreConfig(budget_bytes=1024, max_entry_bytes=32))
     namespace = NamespaceId("db", "coll")
     capture = core.begin_identity_admission(namespace, "doc-1")
 

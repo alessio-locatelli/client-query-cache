@@ -6,6 +6,8 @@ Start with the [public workload guide](../user/benchmarks/index.md) to choose wh
 
 The [initial versioned reports](https://github.com/alessio-locatelli/client-query-cache/tree/main/reports/stream-cost/v1/) cover idle, read-heavy, balanced, and write-dominant workloads at small, medium, and large document sizes. Each JSON file names its workload and records the revision, versions, resource limits, workload parameters, warmup counters, latency distributions, aggregate elapsed time, process CPU, MongoDB container CPU, and logical cache and stream measurements.
 
+The version-1 report format retains `measurement.logical_metrics.cache.shared_budget_bytes` as its serialized budget field. The collector fills it from the current `CacheSnapshot.budget_bytes` attribute; the report field is independent of the Python API name.
+
 The logical `stream_polls` counter counts manager calls to change-stream iteration. One call can issue multiple MongoDB `getMore` commands before returning an event, so this counter cannot measure wire-command traffic. Actual command counts require command-level observation.
 
 Run the same matrix locally with an isolated MongoDB replica set:
