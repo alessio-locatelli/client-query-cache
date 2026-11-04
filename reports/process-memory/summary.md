@@ -333,7 +333,7 @@ A hot read costs 6–10 µs, so a 9 ns native gap is 0.1%; a cold read, which in
 
 The public warm hit of `small-entries` (CPU µs per read, ten builds, eight repetitions per build) shows no stable difference either. With overlay paths of unequal length the asynchronous hit was 2.2% slower (p = 0.02) and the synchronous one 0.2%; with equal-length paths the asynchronous hit was 0.5% slower (p = 0.98) and the synchronous one 0.9% slower (p = 0.01). The instructions per read are equal (asynchronous 78,498 against 78,425, synchronous 71,608 against 71,628) and the cycles differ by −0.1% asynchronously and +1.6% synchronously (p = 0.01), so the sign follows the API and the process layout rather than the code.
 
-The remaining unexplained item is `shared_publish_cycle`: with the allocator fixed it takes 3.4% more cycles (55 cycles, about 13 ns) with no more instructions (+0.4%, p = 0.22), fewer branch misses and fewer L1D misses. The cause was not identified; the difference is invisible in a complete publication.
+The remaining unexplained item is `shared_publish_cycle`: with the allocator fixed it takes 3.4% more cycles (55 cycles, about 13 ns) with no more instructions (+0.4%, p = 0.22), fewer branch misses and fewer L1D misses. The cause was not identified and is tracked in [issue #410](https://github.com/alessio-locatelli/client-query-cache/issues/410); the difference is invisible in a complete publication.
 
 ### Enabled admission cost
 
