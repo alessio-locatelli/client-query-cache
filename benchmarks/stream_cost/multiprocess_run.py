@@ -450,7 +450,7 @@ async def worker_window(
             primed: Payload = (
                 asdict(manager.snapshot())
                 if manager is not None
-                else {"entry_count": 0, "used_bytes": 0, "shared_budget_bytes": 0}
+                else {"entry_count": 0, "used_bytes": 0, "budget_bytes": 0}
             )
             if manager is not None:
                 if manager.stream_health_snapshot(_DATABASE).status.value != "healthy":
@@ -873,7 +873,7 @@ def run_cell(replica: IsolatedReplicaSet, cell: Cell, protocol: Protocol) -> Pay
                 "summed_cache_budget_bytes": sum(
                     cast(
                         "PositiveInt",
-                        cast("Payload", sample["primed"])["shared_budget_bytes"],
+                        cast("Payload", sample["primed"])["budget_bytes"],
                     )
                     for sample in samples
                 ),

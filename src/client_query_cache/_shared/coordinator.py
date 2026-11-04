@@ -298,7 +298,7 @@ class SharedCacheOwner:
         namespaces = DEFAULT_MAX_NAMESPACES if limits is None else limits.namespaces
         self.core = SharedOwnerCore(
             CacheCoreConfig(
-                shared_budget_bytes=config.budget_bytes,
+                budget_bytes=config.budget_bytes,
                 max_entry_bytes=config.max_entry_bytes,
                 max_namespaces=namespaces,
                 lag_capture_window_config=LagCaptureWindowConfig(*config.lag_capture),
@@ -825,7 +825,7 @@ class SharedCacheOwner:
             "cache": {
                 "used_bytes": snapshot.used_bytes,
                 "entry_count": snapshot.entry_count,
-                "shared_budget_bytes": snapshot.shared_budget_bytes,
+                "budget_bytes": snapshot.budget_bytes,
                 "hits": snapshot.hits,
                 "misses": snapshot.misses,
                 "evictions": snapshot.evictions,

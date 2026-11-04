@@ -170,7 +170,7 @@ async def tight_budget_cache_manager(
     # the 50-byte entry limit, so neither individual nor combined reads cache.
     manager = CacheManager(
         raw_mongo_client,
-        cache_config=CacheCoreConfig(shared_budget_bytes=200, max_entry_bytes=50),
+        cache_config=CacheCoreConfig(budget_bytes=200, max_entry_bytes=50),
     )
     yield manager
     await manager.close()

@@ -118,7 +118,7 @@ def test_a_resolution_racing_a_concurrent_write_is_not_published(
 def test_aliases_do_not_grow_unboundedly_under_sustained_distinct_key_reads(
     namespace: NamespaceId,
 ) -> None:
-    core = CacheCore(CacheCoreConfig(shared_budget_bytes=500, max_entry_bytes=100))
+    core = CacheCore(CacheCoreConfig(budget_bytes=500, max_entry_bytes=100))
     admission_count = 500
 
     for index in range(admission_count):

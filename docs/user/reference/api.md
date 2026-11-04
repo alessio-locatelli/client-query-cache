@@ -176,19 +176,19 @@ Pass a `CacheCoreConfig` to size a manager's cache:
 from client_query_cache import CacheCoreConfig, CacheManager
 
 cache_manager = CacheManager(
-    client, cache_config=CacheCoreConfig(shared_budget_bytes=128 * 1024 * 1024)
+    client, cache_config=CacheCoreConfig(budget_bytes=128 * 1024 * 1024)
 )
 ```
 
 | Field                       | Default                  | Meaning                                                                                                                                                                                                                                                                                                   |
 | --------------------------- | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `shared_budget_bytes`       | 64 MiB                   | Total BSON-encoded size the manager's cache may hold at once, shared across every database and collection that manager caches.                                                                                                                                                                            |
+| `budget_bytes`              | 64 MiB                   | Total BSON-encoded size the manager's cache may hold at once, shared across every database and collection that manager caches.                                                                                                                                                                            |
 | `max_entry_bytes`           | 1 MiB                    | The largest single cached value (one document, or one `find`/`aggregate`/`distinct` result) the cache accepts.                                                                                                                                                                                            |
 | `max_namespaces`            | 1,024                    | Maximum number of database/collection pairs whose cache state the manager tracks at once. A dropped collection releases its slot; other names bypass caching while all slots are in use.                                                                                                                  |
 | `lag_capture_window_config` | 10 windows of 100 events | Sizes the invalidation-lag sample windows used by the stream-cost telemetry described in [Observability](../operations/monitoring.md#observability). Most applications never need to change this; it exists for the benchmark suite documented in [stream cost benchmarks](../benchmarks/stream-cost.md). |
 
-`shared_budget_bytes` and `max_entry_bytes` must be positive, and `max_entry_bytes` must not exceed
-`shared_budget_bytes`. `max_namespaces` must be positive. Equal budgets are allowed.
+`budget_bytes` and `max_entry_bytes` must be positive, and `max_entry_bytes` must not exceed
+`budget_bytes`. `max_namespaces` must be positive. Equal budgets are allowed.
 
 The `lag_capture_window_config` has three numeric fields: `window_count` and `events_per_window` must be
 positive; `min_separation_events` must be nonnegative. The default separation is zero, allowing adjacent windows.
@@ -224,7 +224,7 @@ your client's timeout settings unchanged.
 - A read whose result would exceed `max_entry_bytes` once BSON-encoded is not cached; it still returns the correct
   result, counted as an oversized bypass rather than a hit.
 - Cursor candidates also cap their retained encoded payload at `max_entry_bytes`; exceeding it discards the candidate while native delivery continues. Native batches, decoded hit snapshots, wrappers, and temporary encoding allocations consume additional memory. This is not a process-memory limit; see [memory beyond the cache budget](../operations/deployment.md#memory-beyond-the-cache-budget).
-- Once the cache's total stored BSON size would exceed `shared_budget_bytes`, admitting a new entry evicts the
+- Once the cache's total stored BSON size would exceed `budget_bytes`, admitting a new entry evicts the
   least-recently-used entries to make room. Query keys and Python metadata consume additional memory outside
   this budget, especially for large predicates with small results; see
   [memory beyond the cache budget](../operations/deployment.md#memory-beyond-the-cache-budget) for measured examples.
@@ -239,7 +239,7 @@ deployment.
 
 Create the client and manager inside the process that uses them, and reuse them across requests. The manager owns cached data and one change stream per active database. Close it before closing its caller-owned client, using `with` or `async with` where practical.
 
-Each process-local manager has an independent budget and streams, even when another manager uses the same client or deployment. The `shared_budget_bytes` name means the budget is shared across collections **within that manager**; it does not enable sharing across processes. Use [shared managers](shared-cache.md) for that deployment.
+Each process-local manager has an independent budget and streams, even when another manager uses the same client or deployment. Use [shared managers](shared-cache.md) for that deployment.
 
 Advanced direct construction of exported cache-core and coordinator types is covered by the [maintainer architecture reference](https://github.com/alessio-locatelli/client-query-cache/blob/main/docs/development/architecture.md#low-level-design). Do not share one core between multiple coordinators.
 

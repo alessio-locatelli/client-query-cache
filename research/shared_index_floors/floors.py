@@ -293,7 +293,7 @@ class Floors:
         self.misses = 0
         self.core = CacheCore(
             CacheCoreConfig(
-                shared_budget_bytes=config["budget_bytes"],
+                budget_bytes=config["budget_bytes"],
                 max_entry_bytes=config["max_entry_bytes"],
             )
         )

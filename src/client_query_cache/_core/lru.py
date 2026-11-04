@@ -14,22 +14,22 @@ if TYPE_CHECKING:
 
 class WeightedLru:
     __slots__ = (
+        "_budget_bytes",
         "_guard",
         "_lock",
         "_max_entry_bytes",
         "_order",
-        "_shared_budget_bytes",
         "_used_bytes",
     )
 
     def __init__(
         self,
         *,
-        shared_budget_bytes: PositiveInt,
+        budget_bytes: PositiveInt,
         max_entry_bytes: PositiveInt,
         guard: LockOrderGuard,
     ) -> None:
-        self._shared_budget_bytes = shared_budget_bytes
+        self._budget_bytes = budget_bytes
         self._max_entry_bytes = max_entry_bytes
         self._guard = guard
         self._order: OrderedDict[CacheKey, CacheEntry] = OrderedDict()
@@ -41,8 +41,8 @@ class WeightedLru:
         return self._max_entry_bytes
 
     @property
-    def shared_budget_bytes(self) -> PositiveInt:
-        return self._shared_budget_bytes
+    def budget_bytes(self) -> PositiveInt:
+        return self._budget_bytes
 
     def is_oversize(self, weight: NonNegativeInt) -> bool:
         return weight > self._max_entry_bytes
@@ -79,7 +79,7 @@ class WeightedLru:
                 del self._order[key]
             self._order[key] = entry
             self._used_bytes += entry.weight
-            while self._used_bytes > self._shared_budget_bytes:
+            while self._used_bytes > self._budget_bytes:
                 oldest_key, oldest_entry = next(iter(self._order.items()))
                 del self._order[oldest_key]
                 self._used_bytes -= oldest_entry.weight

@@ -57,7 +57,7 @@ def tight_budget_cache_manager(
 ) -> Iterator[CacheManager[BsonDict]]:
     manager = CacheManager(
         raw_mongo_client,
-        cache_config=CacheCoreConfig(shared_budget_bytes=800, max_entry_bytes=200),
+        cache_config=CacheCoreConfig(budget_bytes=800, max_entry_bytes=200),
     )
     yield manager
     manager.close()

@@ -112,7 +112,7 @@ def sample(phase: str, manager: Any, **extra: object) -> None:
             "misses": snapshot.misses,
             "bypasses": snapshot.bypasses,
             "oversized_bypasses": snapshot.oversized_bypasses,
-            "budget": snapshot.shared_budget_bytes,
+            "budget": snapshot.budget_bytes,
         }
     record["objects"] = len(gc.get_objects())
     print(json.dumps(record), flush=True)
@@ -240,7 +240,7 @@ async def child(uri: str, scenario: str, api: str, mode: str) -> None:
             manager = (SyncManager if api == "sync" else AsyncManager)(
                 client,
                 cache_config=CacheCoreConfig(
-                    shared_budget_bytes=BUDGETS[scenario],
+                    budget_bytes=BUDGETS[scenario],
                     max_entry_bytes=MAX_ENTRY_BYTES,
                 ),
             )

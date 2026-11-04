@@ -25,7 +25,7 @@ def evict_identity_preserving_namespace(
 
     # Admit equal-sized entries until exactly one entry exceeds the budget.
     # The namespace lookup above makes the identity the least recently used.
-    filler_count = before.shared_budget_bytes // len(encoded) - 1
+    filler_count = before.budget_bytes // len(encoded) - 1
     capture = cache.capture_namespace_generation(namespace)
     for index in range(filler_count):
         assert (

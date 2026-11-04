@@ -34,7 +34,7 @@ def _make_cache_snapshot(**overrides: object) -> CacheSnapshot:
     defaults: dict[str, object] = {
         "lifecycle": "active",
         "used_bytes": 1_024,
-        "shared_budget_bytes": 1_048_576,
+        "budget_bytes": 1_048_576,
         "max_entry_bytes": 65_536,
         "entry_count": 3,
         "hits": 7,

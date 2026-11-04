@@ -71,7 +71,7 @@ if TYPE_CHECKING:
     from client_query_cache._core.find_reads import FindSource
     from client_query_cache._core.keys import AliasKey, CacheKey, NamespaceId
 
-DEFAULT_SHARED_BUDGET_BYTES = 64 * 1024 * 1024
+DEFAULT_BUDGET_BYTES = 64 * 1024 * 1024
 DEFAULT_MAX_ENTRY_BYTES = 1 * 1024 * 1024
 DEFAULT_MAX_NAMESPACES = 1024
 
@@ -83,7 +83,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True, slots=True)
 class CacheCoreConfig:
-    shared_budget_bytes: PositiveInt = DEFAULT_SHARED_BUDGET_BYTES
+    budget_bytes: PositiveInt = DEFAULT_BUDGET_BYTES
     max_entry_bytes: PositiveInt = DEFAULT_MAX_ENTRY_BYTES
     lag_capture_window_config: LagCaptureWindowConfig = (
         DEFAULT_LAG_CAPTURE_WINDOW_CONFIG
@@ -91,8 +91,8 @@ class CacheCoreConfig:
     max_namespaces: PositiveInt = DEFAULT_MAX_NAMESPACES
 
     def __post_init__(self) -> None:
-        if type(self.shared_budget_bytes) is not int:
-            message = "shared_budget_bytes must be a built-in integer"
+        if type(self.budget_bytes) is not int:
+            message = "budget_bytes must be a built-in integer"
             raise CacheConfigurationError(message)
         if type(self.max_entry_bytes) is not int:
             message = "max_entry_bytes must be a built-in integer"
@@ -100,8 +100,8 @@ class CacheCoreConfig:
         if type(self.max_namespaces) is not int:
             message = "max_namespaces must be a built-in integer"
             raise CacheConfigurationError(message)
-        if self.shared_budget_bytes <= 0:
-            message = "shared_budget_bytes must be positive"
+        if self.budget_bytes <= 0:
+            message = "budget_bytes must be positive"
             raise CacheConfigurationError(message)
         if self.max_entry_bytes <= 0:
             message = "max_entry_bytes must be positive"
@@ -109,8 +109,8 @@ class CacheCoreConfig:
         if self.max_namespaces <= 0:
             message = "max_namespaces must be positive"
             raise CacheConfigurationError(message)
-        if self.max_entry_bytes > self.shared_budget_bytes:
-            message = "max_entry_bytes must not exceed shared_budget_bytes"
+        if self.max_entry_bytes > self.budget_bytes:
+            message = "max_entry_bytes must not exceed budget_bytes"
             raise CacheConfigurationError(message)
 
 
@@ -219,7 +219,7 @@ class _CacheCoreBase:
         resolved_config = config if config is not None else CacheCoreConfig()
         self._guard = LockOrderGuard()
         self._lru = WeightedLru(
-            shared_budget_bytes=resolved_config.shared_budget_bytes,
+            budget_bytes=resolved_config.budget_bytes,
             max_entry_bytes=resolved_config.max_entry_bytes,
             guard=self._guard,
         )
@@ -439,7 +439,7 @@ class _CacheCoreLifecycle(_CacheCoreBase):
         return CacheSnapshot(
             lifecycle=self._lifecycle.value,
             used_bytes=used_bytes,
-            shared_budget_bytes=self._lru.shared_budget_bytes,
+            budget_bytes=self._lru.budget_bytes,
             max_entry_bytes=self._lru.max_entry_bytes,
             entry_count=entry_count,
             hits=hits,

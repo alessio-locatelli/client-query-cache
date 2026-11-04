@@ -174,9 +174,7 @@ def test_compatible_lookup_promotes_source_under_pressure(
     namespace: NamespaceId,
 ) -> None:
     weight = len(encode_value([0]))
-    core = CacheCore(
-        CacheCoreConfig(shared_budget_bytes=weight * 2, max_entry_bytes=weight)
-    )
+    core = CacheCore(CacheCoreConfig(budget_bytes=weight * 2, max_entry_bytes=weight))
     admit(core, namespace, shape(100))
     admit(core, namespace, shape(100, "other"))
     assert core.lookup_find(namespace, shape(10)).hit
@@ -190,9 +188,7 @@ def test_eviction_reclaims_an_already_invalidated_family(
     namespace: NamespaceId,
 ) -> None:
     weight = len(encode_value([0]))
-    core = CacheCore(
-        CacheCoreConfig(shared_budget_bytes=weight * 2, max_entry_bytes=weight)
-    )
+    core = CacheCore(CacheCoreConfig(budget_bytes=weight * 2, max_entry_bytes=weight))
     admit(core, namespace, shape(100, "invalidated"))
     core.record_write(namespace, 0)
     admit(core, namespace, shape(100, "fresh-one"))
@@ -365,9 +361,7 @@ def test_generated_source_ownership_schedules(
     operations: list[tuple[str, int]],
 ) -> None:
     weight = len(encode_value([0]))
-    core = CacheCore(
-        CacheCoreConfig(shared_budget_bytes=weight * 4, max_entry_bytes=weight)
-    )
+    core = CacheCore(CacheCoreConfig(budget_bytes=weight * 4, max_entry_bytes=weight))
     namespace = NamespaceId("generated", "sources")
     generation = 0
     for operation, limit in operations:
