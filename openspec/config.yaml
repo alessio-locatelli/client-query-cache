@@ -7,6 +7,8 @@ rules:
   specs:
     - >-
       Keep each requirement's text within 500 characters. Split distinct obligations into focused requirements, preserving their meaning and assigning each scenario to the requirement it verifies.
+    - >-
+      Keep permanent specifications focused on current, enduring system behavior and guarantees, not historical migrations, removed interfaces, or implementation decisions. Preserve change-specific rationale and compatibility decisions in archived changes and release notes. Integrate new requirements into existing specifications where appropriate instead of appending redundant requirements or turning specs into a changelog.
   tasks:
     - >-
       Assume that tasks will be executed by a coding agent with no access to the current conversation. Write `tasks.md` to be concrete and mechanical. When relevant, include command examples. Avoid vague or abstract prose that may require additional planning or interpretation.
