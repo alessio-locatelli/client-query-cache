@@ -75,6 +75,8 @@ independently of the lockfile. It checks synchronous and asyncio collection read
 cursors, and bound sessions against disposable MongoDB, using the same host runtime
 as the full suite.
 
+Run `just test-pymongo-releases` to run the same tests against every other PyMongo release inside the declared range, apart from the minimum and the locked release. It looks up the releases on PyPI, so it needs network access, and it stops at the first release that fails.
+
 The test suite, benchmarks, and the local service use the MongoDB server pinned in `docker-compose.yaml`. Run `just test-mongodb-min` to run the MongoDB-backed library tests against the minimum supported server pinned in `tests/mongodb-minimum/docker-compose.yaml` instead.
 
 To discover focused recipes, run:

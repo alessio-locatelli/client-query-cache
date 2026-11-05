@@ -1,0 +1,5 @@
+tests/synchronous/test_collection.py
+tests/asynchronous/test_collection.py
+tests/test_cached_cursors.py
+tests/test_bound_sessions.py
+tests/shared_cache/test_public.py

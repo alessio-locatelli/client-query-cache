@@ -401,7 +401,7 @@ jobs:
           retention-days: 7
 
   pymongo-min:
-    name: Minimum PyMongo behavioral compatibility
+    name: PyMongo minimum and release compatibility
     needs: [scope, prek, prettier, rust-static]
     if: needs.scope.outputs.python == 'true'
     runs-on: ubuntu-24.04
@@ -421,6 +421,8 @@ jobs:
 
       - run: just test-pymongo-min
 
+      - run: just test-pymongo-releases
+
       - if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -428,6 +430,7 @@ jobs:
           path: |
             pytest-pymongo-min.log
             pytest-pymongo-min-gw*.log
+            pytest-pymongo-releases-*.log
           if-no-files-found: ignore
           retention-days: 7
 
@@ -490,7 +493,7 @@ jobs:
             status=1
           fi
           if [[ "${PYTHON_SELECTED}" == true && "${PYMONGO_MIN_RESULT}" != success ]]; then
-            echo "::error title=Python compatibility::Minimum PyMongo behavioral compatibility finished with '${PYMONGO_MIN_RESULT}'; open that job for the cause."
+            echo "::error title=Python compatibility::PyMongo minimum and release compatibility finished with '${PYMONGO_MIN_RESULT}'; open that job for the cause."
             status=1
           fi
           if [[ "${PYTHON_SELECTED}" == true && "${MONGODB_MIN_RESULT}" != success ]]; then
