@@ -2,7 +2,7 @@
 
 Use `SharedCacheServer` when [trusted workers](#security-and-monitoring) on one host repeatedly make [eligible collection reads](../reference/shared-cache.md#worker-managers-and-reads). The server starts one cache-owner process; workers reuse its values and one change stream per active database. Sync and asyncio workers can share the same server. Each worker still owns a PyMongo client for misses, writes and uncached reads.
 
-Compare [the two managers](../getting-started/choose-a-manager.md) before adopting this model. Sharing supports fewer cached operations and requires an application parent that stays alive until every worker has stopped.
+Compare [the two managers](../getting-started/choose-a-manager.md) before adopting this model. Shared views cache the same six read methods as `CacheManager`, with additional eligibility restrictions. Sharing also requires an application parent that stays alive until every worker has stopped.
 
 ## Supported deployment
 

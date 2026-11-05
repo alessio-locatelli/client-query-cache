@@ -2,7 +2,7 @@
 
 Cache repeated PyMongo queries in your application, with synchronous and asyncio APIs. MongoDB change streams invalidate affected results when data changes, including writes by other clients.
 
-For multiple trusted workers on one host, a **Rust-backed native shared cache** lets processes reuse the same cached documents and one change stream per active database. Workers avoid storing their own copies of the hot data. A process-local manager also supports caching broader queries, cursors, aggregations and counts.
+For multiple trusted workers on one host, a **Rust-backed native shared cache** lets processes reuse the same cached documents and one change stream per active database. Workers avoid storing their own copies of the hot data. Process-local and shared managers cache the same six PyMongo read methods, including `find`, `aggregate` and counts; shared reads add [eligibility restrictions](reference/shared-cache.md#worker-managers-and-reads). The [manager comparison](getting-started/choose-a-manager.md) covers the differences.
 
 Sharing has an owner process and admission costs. The [measured comparisons](benchmarks/shared-cache.md) show hot-read benefits and cold-read costs; neither Rust nor sharing guarantees a win for every workload.
 
