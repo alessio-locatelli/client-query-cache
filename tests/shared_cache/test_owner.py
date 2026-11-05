@@ -12,6 +12,7 @@ import stat
 import struct
 import threading
 import time
+from collections import Counter
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, TypedDict
@@ -53,6 +54,7 @@ from client_query_cache._shared.wire import (
 )
 from client_query_cache._shared_index import ReaderIndex
 from client_query_cache._types import NonNegativeFloat, NonNegativeInt, PositiveFloat
+from tests.descriptors import file_identity, references
 from tests.shared_cache.conftest import LIMITS, Racing, wait_for
 
 if TYPE_CHECKING:
@@ -854,27 +856,29 @@ def test_a_peer_lost_before_its_descriptors_are_sent_closes_them(
         raise BlockingIOError
 
     monkeypatch.setattr(socket, "send_fds", blocked)
-    # Count descriptors before the failed handshake can leak them.
-    before = _open_descriptors()  # pytriage: TR11
     peer = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     peer.connect(shared_owner.config.socket_path)
     peer.sendall(encode_frame(attachment_for(shared_owner.config).hello("control")))
-    wait_for(lambda: _pending_handover(shared_owner))
+    wait_for(lambda: len(_pending_handovers(shared_owner)) == 1)
+    [handover] = _pending_handovers(shared_owner)
+    files = {
+        file_identity(handover.index_descriptor),
+        file_identity(handover.ring.descriptor()),
+    }
+    held = references(files)  # pytriage: TR5 (before the peer is lost)
     peer.close()
 
     wait_for(lambda: not shared_owner._connections)
-    assert _open_descriptors() <= before
+    assert held - references(files) == Counter(files)
     assert _index_stats(shared_owner)["sessions"] == 0
 
 
-def _open_descriptors() -> set[str]:
-    return {entry.name for entry in Path("/proc/self/fd").iterdir()}
-
-
-def _pending_handover(owner: SharedCacheOwner) -> bool:
-    return any(
-        connection.handover is not None for connection in owner._connections.values()
-    )
+def _pending_handovers(owner: SharedCacheOwner) -> list[coordinator._Handover]:
+    return [
+        connection.handover
+        for connection in owner._connections.values()
+        if connection.handover is not None
+    ]
 
 
 @pytest.mark.parametrize("shared_owner", [{"namespaces": 1}], indirect=True)
