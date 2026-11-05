@@ -10,7 +10,6 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import AsyncExitStack
 from dataclasses import replace
-from pathlib import Path
 from typing import TYPE_CHECKING, cast
 from unittest.mock import AsyncMock, Mock
 
@@ -55,6 +54,7 @@ from client_query_cache._types import BsonDict, NonNegativeInt
 from tests.call_counting import count_current_thread_calls
 from tests.codec_helpers import Decimal128ToDecimalDecoder
 from tests.cursor_helpers import materialize
+from tests.descriptors import file_identity, references
 from tests.polling import wait_until_async
 from tests.shared_cache.conftest import (
     COLLECTION,
@@ -67,6 +67,7 @@ from tests.shared_cache.conftest import (
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable, Coroutine, Iterator, Mapping
+    from pathlib import Path
 
     from faker import Faker
 
@@ -1285,10 +1286,6 @@ def test_owner_exit_detaches_local_reads(
     assert reads.manager.observation.bypasses[OWNER_UNAVAILABLE] == 1
 
 
-def _descriptors() -> set[str]:
-    return {entry.name for entry in Path("/proc/self/fd").iterdir()}
-
-
 def _serve_handshake(
     listener: socket.socket, reply: bytes, descriptors: list[int], *, split: bool
 ) -> None:
@@ -1353,11 +1350,13 @@ def test_handshakes_accept_two_descriptors_from_one_reply(
 ) -> None:
     listener, config = owner_endpoint
     sent = handshake_descriptors * 3
-    before = _descriptors()  # pytriage: TR5, TR11 (before handshake)
+    files = {file_identity(descriptor) for descriptor in sent}
+    held = references(files)  # pytriage: TR5, TR11 (before handshake)
     server = threading.Thread(
         target=_serve_handshake,
         args=(listener, reply, sent[:count]),
         kwargs={"split": split},
+        daemon=True,
     )
     server.start()
 
@@ -1371,7 +1370,8 @@ def test_handshakes_accept_two_descriptors_from_one_reply(
             _attach(model, config)
     server.join(5)
 
-    assert _descriptors() <= before
+    assert not server.is_alive()
+    assert references(files) == held
 
 
 @pytest.fixture
