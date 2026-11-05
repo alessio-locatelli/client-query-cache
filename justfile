@@ -5,7 +5,7 @@ set positional-arguments
 set default-list
 
 # Bash 5.3 help set; set -euo pipefail in setup-rust, docs-build-editions, typecheck-examples,
-# verify-release, pytest, test-pymongo-min, test-mongodb-min,
+# verify-release, pytest, test-pymongo-min, test-pymongo-releases, test-mongodb-min,
 # enable-podman-socket, podman, test-memory, test-integration, test-e2e, latency-chart and
 # tests_and_coverage:
 # The default is inherited Bash options, normally all three off. We override it because
@@ -272,6 +272,36 @@ test-pymongo-min:
     # -e: The default is tox.ini envlist. We override it because this command runs
     # only the minimum-driver lane.
     exec uv run -- tox run -r -e pymongo-min
+
+test-pymongo-releases:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    source "{{ justfile_directory() }}/scripts/testcontainers-bridge.sh"
+    listing="$(curl --fail --silent --show-error --retry 3 --max-time 60 https://pypi.org/pypi/pymongo/json)" || {
+        printf 'Could not query https://pypi.org/pypi/pymongo/json for the PyMongo release list.\n' >&2
+        exit 1
+    }
+    selected="$(uv run -- python -m scripts.pymongo_releases <<<"${listing}")"
+    if [[ -z "${selected}" ]]; then
+        printf 'No PyMongo release besides the declared minimum and the locked release is in range.\n'
+        exit 0
+    fi
+    mapfile -t releases <<<"${selected}"
+    for version in "${releases[@]}"; do
+        printf 'Testing PyMongo %s\n' "${version}"
+        if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
+            printf '::group::pytest with PyMongo %s\n' "${version}"
+        fi
+        status=0
+        uv run --with "pymongo==${version}" -- pytest @tests/pymongo-compat.args --log-file="pytest-pymongo-releases-${version}.log" --log-file-level=WARNING || status=$?
+        if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
+            printf '::endgroup::\n'
+        fi
+        if (( status != 0 )); then
+            exit "${status}"
+        fi
+    done
 
 test-mongodb-min:
     #!/usr/bin/env bash
