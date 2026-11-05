@@ -104,7 +104,7 @@ def test_run_consolidated_stream_pair_produces_a_lag_distribution_per_run(
         pair_count=3,
         warmup_duration_seconds=0.05,
     )
-    schedule = generate_relevant_write_schedule(4, total_duration_seconds=0.3, seed=1)
+    schedule = generate_relevant_write_schedule(4, total_duration_seconds=1.0, seed=1)
     order = counterbalanced_pair_order(config.pair_count)[0]
     cache_config = CacheCoreConfig(
         lag_capture_window_config=LagCaptureWindowConfig(
