@@ -8,7 +8,7 @@ import struct
 import time
 from contextlib import ExitStack
 from dataclasses import asdict
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, TypedDict, cast
 
 from pymongo import MongoClient
 from pymongo.errors import PyMongoError
@@ -44,6 +44,11 @@ if TYPE_CHECKING:
     from benchmarks.stream_cost.topology import IsolatedReplicaSet
     from client_query_cache._shared.attachment import AttachmentConfig
     from client_query_cache._shared.coordinator import Message
+
+
+class StressObservation(TypedDict):
+    observed: dict[NonNegativeInt, set[bytes]]
+    reads: NonNegativeInt
 
 
 def _require(condition: object, message: str) -> None:
@@ -610,10 +615,24 @@ class FaultTrial:
             if capture is not None and capture["r"] == "miss":
                 return capture
             _require(
+                capture is None or capture["r"] == "bypass",
+                f"stress admission received an unexpected reply: {capture!r}",
+            )
+            _require(
                 time.monotonic() < self.deadline,
                 f"stress admission did not obtain a capture: {capture!r}",
             )
             time.sleep(self.registration.number("phases", "fault", "poll_seconds"))
+
+    def collect_stress_observations(self) -> list[StressObservation]:
+        observations: list[StressObservation] = []
+        for connection in self.group.connections:
+            _require(
+                connection.poll(max(0.0, self.deadline - time.monotonic())),
+                "stress reader did not return",
+            )
+            observations.append(cast("StressObservation", connection.recv()))
+        return observations
 
     def stress(self) -> None:
         _require(
@@ -673,12 +692,7 @@ class FaultTrial:
             for connection in self.group.connections:
                 connection.send("stop")
             observed_reads = 0
-            for connection in self.group.connections:
-                _require(
-                    connection.poll(max(0.0, self.deadline - time.monotonic())),
-                    "stress reader did not return",
-                )
-                observation = connection.recv()
+            for observation in self.collect_stress_observations():
                 verify_published_payloads(observation["observed"], published)
                 _require(
                     observation["reads"] > 0,

@@ -411,8 +411,8 @@ def test_capture_safety_failure(trial: faults.FaultTrial, reply: object) -> None
 
 @pytest.mark.parametrize(
     "reply",
-    [None, {"r": "bypass", "reason": "progress-expired"}, {"r": "refresh"}],
-    ids=["timeout", "bypass", "refresh"],
+    [None, {"r": "bypass", "reason": "progress-expired"}],
+    ids=["timeout", "bypass"],
 )
 def test_stress_capture_retries_until_miss(
     trial: faults.FaultTrial, reply: Message | None
@@ -422,6 +422,21 @@ def test_stress_capture_retries_until_miss(
     endpoint.request.side_effect = [reply, miss]
     assert trial.select_stress_capture(endpoint, {"op": "select-identity"}) is miss
     assert endpoint.request.call_count == 2
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [{"r": "hit", "value": b"stale"}, {"r": "refresh", "epoch": 0}],
+    ids=["hit", "refresh"],
+)
+def test_stress_capture_rejects_replies_retrying_cannot_explain(
+    trial: faults.FaultTrial, reply: Message
+) -> None:
+    endpoint = Mock()
+    endpoint.request.return_value = reply
+    with pytest.raises(LookupError, match="unexpected reply"):
+        trial.select_stress_capture(endpoint, {"op": "select-identity"})
+    assert endpoint.request.call_count == 1
 
 
 def test_stress_capture_reports_the_last_reply_at_the_deadline(
@@ -434,6 +449,26 @@ def test_stress_capture_reports_the_last_reply_at_the_deadline(
         LookupError, match=r"did not obtain a capture.*progress-expired"
     ):
         trial.select_stress_capture(endpoint, {"op": "select-identity"})
+
+
+def test_stress_observations_are_collected_from_every_reader(
+    trial: faults.FaultTrial,
+) -> None:
+    observations: list[faults.StressObservation] = [
+        {"observed": {}, "reads": 1},
+        {"observed": {}, "reads": 2},
+    ]
+    trial.group.connections = [
+        Mock(**{"poll.return_value": True, "recv.return_value": observation})
+        for observation in observations
+    ]
+    assert trial.collect_stress_observations() == observations
+
+
+def test_stress_reader_timeout(trial: faults.FaultTrial) -> None:
+    trial.group.connections = [Mock(**{"poll.return_value": False})]
+    with pytest.raises(LookupError, match="stress reader did not return"):
+        trial.collect_stress_observations()
 
 
 def test_capture_timeout(trial: faults.FaultTrial) -> None:
