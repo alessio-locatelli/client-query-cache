@@ -409,6 +409,33 @@ def test_capture_safety_failure(trial: faults.FaultTrial, reply: object) -> None
         trial.capture()
 
 
+@pytest.mark.parametrize(
+    "reply",
+    [None, {"r": "bypass", "reason": "progress-expired"}, {"r": "refresh"}],
+    ids=["timeout", "bypass", "refresh"],
+)
+def test_stress_capture_retries_until_miss(
+    trial: faults.FaultTrial, reply: Message | None
+) -> None:
+    miss: Message = {"r": "miss", "handle": b"handle"}
+    endpoint = Mock()
+    endpoint.request.side_effect = [reply, miss]
+    assert trial.select_stress_capture(endpoint, {"op": "select-identity"}) is miss
+    assert endpoint.request.call_count == 2
+
+
+def test_stress_capture_reports_the_last_reply_at_the_deadline(
+    trial: faults.FaultTrial,
+) -> None:
+    endpoint = Mock()
+    endpoint.request.return_value = {"r": "bypass", "reason": "progress-expired"}
+    trial.deadline = 0
+    with pytest.raises(
+        LookupError, match=r"did not obtain a capture.*progress-expired"
+    ):
+        trial.select_stress_capture(endpoint, {"op": "select-identity"})
+
+
 def test_capture_timeout(trial: faults.FaultTrial) -> None:
     connection = Mock()
     connection.poll.return_value = False
