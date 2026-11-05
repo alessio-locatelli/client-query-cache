@@ -602,6 +602,62 @@ def test_local_traffic_prepares_lookup_inputs_once(
 
 
 @pytest.fixture
+def stress_manager() -> MagicMock:
+    manager = MagicMock()
+    manager._slots.find.return_value = (0, 0, 0)
+    manager._metadata.find.return_value = Mock(checked_epoch=0)
+    manager.local.reader.lookup.return_value = None
+    return manager
+
+
+@pytest.fixture
+def stress_spec() -> Mock:
+    return Mock(database="database", collection="collection", keys=(0, 1))
+
+
+def stress_connection(*commands: object) -> Mock:
+    connection = Mock()
+    connection.poll.return_value = True
+    connection.recv.side_effect = commands
+    return connection
+
+
+@pytest.mark.parametrize(
+    ("command", "completed", "sent"),
+    [("stop", True, 2), ("close", False, 1)],
+    ids=["stop", "close"],
+)
+def test_stress_reads_report_only_after_stop(
+    stress_manager: MagicMock,
+    stress_spec: Mock,
+    command: str,
+    completed: bool,
+    sent: PositiveInt,
+) -> None:
+    connection = stress_connection(command)
+    assert (
+        fault_worker.stress_reads(connection, stress_spec, stress_manager) is completed
+    )
+    assert connection.send.call_count == sent
+
+
+def test_sync_fault_worker_exits_when_closed_during_stress(
+    stress_manager: MagicMock, stress_spec: Mock
+) -> None:
+    connection = stress_connection({"op": "stress"}, "close")
+    fault_worker.sync_fault_worker(connection, stress_spec, stress_manager)
+    assert connection.recv.call_count == 2
+
+
+async def test_async_fault_worker_exits_when_closed_during_stress(
+    stress_manager: MagicMock, stress_spec: Mock
+) -> None:
+    connection = stress_connection({"op": "stress"}, "close")
+    await fault_worker.async_fault_worker(connection, stress_spec, stress_manager)
+    assert connection.recv.call_count == 2
+
+
+@pytest.fixture
 def read_evidence() -> fault_worker.ReadEvidence:
     return fault_worker.ReadEvidence()
 
