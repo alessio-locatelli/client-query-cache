@@ -243,7 +243,7 @@ def stress_reads(
     connection: Connection,
     spec: WorkerSpec,
     manager: SharedCacheManager[BsonDict] | AsyncSharedCacheManager[BsonDict],
-) -> None:
+) -> bool:
     namespace = NamespaceId(spec.database, spec.collection)
     assignment = manager._slots.find(namespace)
     metadata = manager._metadata.find(namespace)
@@ -264,8 +264,10 @@ def stress_reads(
             if payload is not None:
                 observed[key].add(payload)
                 reads += 1
-    connection.recv()
+    if connection.recv() == "close":
+        return False
     connection.send({"observed": observed, "reads": reads})
+    return True
 
 
 def sync_fault_worker(
@@ -293,7 +295,8 @@ def sync_fault_worker(
             connection.send(local_snapshot(manager, spec))
             continue
         if operation == "stress":
-            stress_reads(connection, spec, manager)
+            if not stress_reads(connection, spec, manager):
+                break
             continue
         if operation == "capture":
             connection.send(manager.endpoint.request(selection(manager, spec)))
@@ -358,7 +361,8 @@ async def async_fault_worker(
             connection.send(local_snapshot(manager, spec))
             continue
         if operation == "stress":
-            await asyncio.to_thread(stress_reads, connection, spec, manager)
+            if not await asyncio.to_thread(stress_reads, connection, spec, manager):
+                break
             continue
         if operation == "cancel":
             before = manager.endpoint.counters.late_replies
