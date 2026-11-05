@@ -12,7 +12,7 @@ Consider this library when an application repeatedly reads the same MongoDB data
 | Do workers need to share the same hot documents?                     | Choose [shared or process-local caching](choose-a-manager.md). Sharing avoids duplicate documents and streams but adds an owner process; measure total memory and miss costs.                                                                     |
 | Does the cache improve the application?                              | Compare application latency, database traffic, CPU, memory, hit rate, and bypasses with caching enabled and disabled. The [catalogue rollout example](../examples/fastapi.md#feature-flagged-rollout) demonstrates this application-owned switch. |
 
-Try the [shared FastAPI application](../examples/fastapi-shared.md) for cross-worker reuse, or the [compact application](../examples/fastapi-minimal.md) and [eligibility exercise](../usage/eligibility.md) for broad process-local caching.
+Try the [shared FastAPI application](../examples/fastapi-shared.md) for cross-worker reuse, or the [compact application](../examples/fastapi-minimal.md) and [eligibility exercise](../usage/eligibility.md) for process-local caching.
 
 ## Choose the caching layer
 

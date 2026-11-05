@@ -66,7 +66,7 @@ with (
 
 Check the [platform and MongoDB requirements](https://alessio-locatelli.github.io/client-query-cache/getting-started/installation/#requirements) before installing. [Read eligibility](https://alessio-locatelli.github.io/client-query-cache/reference/api/#bypass-conditions) determines which requests can use the cache.
 
-Invalidation is asynchronous: cached reads can briefly return a preceding value after a write. Use direct PyMongo reads with suitable consistency controls for read-after-write and current authorization; see [consistency](https://alessio-locatelli.github.io/client-query-cache/usage/consistency/).
+Eligible cache misses read from the primary with majority read concern; collections configured with another read preference or read concern bypass the cache. Invalidation is asynchronous, with no guaranteed delay: after a write, cached reads can return the preceding value until its change event is processed. There is no time-to-live, entry-age limit or manual invalidation call. Use direct PyMongo reads with suitable consistency controls for read-after-write and current authorization; see [consistency](https://alessio-locatelli.github.io/client-query-cache/usage/consistency/).
 
 ## Run an application
 

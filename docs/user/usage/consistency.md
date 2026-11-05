@@ -1,6 +1,6 @@
 # Consistency
 
-Both managers invalidate asynchronously through MongoDB change streams. A cached read can return the value from before a write even after the write has returned. Once the relevant event is processed, affected entries are invalidated; a later read fetches or reuses a subsequently admitted result. There is no per-write catch-up barrier or guaranteed invalidation delay.
+Both managers invalidate asynchronously through MongoDB change streams. A cached read can return the value from before a write even after the write has returned. Once the relevant event is processed, affected entries are invalidated; a later read fetches or reuses a subsequently admitted result. There is no per-write catch-up barrier or guaranteed invalidation delay. Entries have no time-to-live or age limit, and the API offers no call to invalidate selected entries: change-stream events invalidate them, and capacity limits evict them.
 
 Eligible misses use primary, majority reads, including when read concern is unspecified. Direct PyMongo reads use the collection's chosen concern, normally the deployment default. Majority admission keeps data that could roll back out of the cache; it does not make hits current. See [read profiles and bypass conditions](../reference/api.md#bypass-conditions).
 
