@@ -602,6 +602,19 @@ class FaultTrial:
                 "post-recovery invalidation returned current revision on every worker"
             )
 
+    def select_stress_capture(
+        self, endpoint: SyncEndpoint, request: Message
+    ) -> Message:
+        while True:
+            capture = endpoint.request(request)
+            if capture is not None and capture["r"] == "miss":
+                return capture
+            _require(
+                time.monotonic() < self.deadline,
+                f"stress admission did not obtain a capture: {capture!r}",
+            )
+            time.sleep(self.registration.number("phases", "fault", "poll_seconds"))
+
     def stress(self) -> None:
         _require(
             self.cell.path == "shared-index", "torn-read-stress requires shared-index"
@@ -642,20 +655,16 @@ class FaultTrial:
             ):
                 for key, identity in encoded:
                     self.owner("invalidate", collection=namespace[1], key=key)
-                    capture = endpoint.request(
+                    capture = self.select_stress_capture(
+                        endpoint,
                         {
                             "op": "select-identity",
                             "ns": namespace,
                             "epoch": metadata["epoch"],
                             "identity": identity,
                             "shape": shape,
-                        }
+                        },
                     )
-                    _require(
-                        capture is not None and capture["r"] == "miss",
-                        "stress admission did not obtain a capture",
-                    )
-                    assert capture is not None
                     value = f"{key}:{churn}:".encode() * (300 + churn % 7 * 11)
                     published[key].add(value)
                     endpoint.send(
