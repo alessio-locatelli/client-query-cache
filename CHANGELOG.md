@@ -13,17 +13,19 @@ bodies or OpenSpec. An empty Unreleased section is valid.
 
 ## Unreleased
 
+## [0.12.0] - 2026-11-05
+
 ### Breaking changes
 
-- Rename `CacheCoreConfig.shared_budget_bytes` and `CacheSnapshot.shared_budget_bytes` to `budget_bytes`, without a compatibility alias. Update configuration keywords and snapshot access; the budget continues to bound stored BSON across one manager's collections.
+- Renamed `CacheCoreConfig.shared_budget_bytes` and `CacheSnapshot.shared_budget_bytes` to `budget_bytes`, without a compatibility alias. Updated configuration keywords and snapshot access; the budget continues to bound stored BSON across one manager's collections.
 
 ### Features
 
-- Add optional `max_entries` and `max_key_bytes` safeguards for process-local cache retention, with separate admission-decline observations.
+- Added optional `max_entries` and `max_key_bytes` safeguards for process-local cache retention, with separate admission-decline observations.
 
 ### Performance
 
-- Reduce CPU and latency for cached `find()` and `find_one()` hits, key preparation, admissions and change-event invalidation in the published wheels, which are now built with profile-guided and link-time optimization.
+- Reduced CPU and latency for cached `find()` and `find_one()` hits, key preparation, admissions and change-event invalidation in the published wheels, which are now built with profile-guided and link-time optimization.
 
 ## [0.11.0] - 2026-11-01
 
