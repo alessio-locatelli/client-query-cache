@@ -313,12 +313,20 @@ Before the first release, complete the [one-time PyPI publishing setup](docs/dev
 5. Tag the validated commit: `git tag vX.Y.Z`.
 6. Push the tag: `git push origin vX.Y.Z`.
 
-Pushing the tag triggers the `publish.yml` workflow, which builds and verifies the release
-artifacts on every supported architecture, then pauses for the `pypi` environment's required reviewer to approve before uploading to
-PyPI and creating the matching GitHub Release.
+Pushing the tag triggers the `publish.yml` workflow, which builds and verifies the release artifacts on every supported architecture, signs their [SLSA build provenance](docs/user/getting-started/installation.md#verify-release-provenance) and checks it, and creates a draft GitHub Release. It then pauses for the `pypi` environment's required reviewer to approve before uploading to PyPI and publishing the GitHub Release.
 
 Link the acceptance record from the publishing run's `pypi` approval context.
 Before approving, the reviewer must compare its tested commit with the release
 tag's resolved commit and confirm the interpreter is stable CPython 3.15. Refuse
 publication if stable validation is unavailable or failed, the record is absent,
 the interpreter is a prerelease, or the tested revision differs from the tag.
+
+### Failed releases
+
+A release tag is spent once the `attest` job's `actions/attest` step has started: never delete or recreate it at another commit after that point, even if signing failed, because the provenance verification policy checks the tag name rather than the commit. Before acting on any failure, check which files PyPI holds for the version at `https://pypi.org/pypi/client-query-cache/X.Y.Z/json` (HTTP 404 means none). Compare their filenames and `urls[].digests.sha256` values with the `sha256sum` of the run's artifacts, downloaded with `gh run download <run-id> --pattern 'dist-*'`. Then choose the matching case:
+
+- PyPI holds no file of the version, and the failure is a transient outage: re-run the failed jobs of the same run with `gh run rerun <run-id> --failed`. The tag and commit stay unchanged, so this is allowed even after signing.
+- PyPI holds no file, the failure needs a fix on `main`, and the run never reached the `actions/attest` step: delete the tag with `git push --delete origin vX.Y.Z` and `git tag -d vX.Y.Z`, fix the problem on `main`, repeat the per-release validation for the fixed commit, and tag it with the same version.
+- PyPI holds no file, and the failure needs a fix on `main` or the approval was rejected after the `actions/attest` step started: keep the tag, delete any draft with `gh release delete vX.Y.Z --yes` (which keeps the tag), fix the problem on `main`, and release the next patch version. Bump `pyproject.toml` and rename the unpublished `CHANGELOG.md` section to the new version and date.
+- PyPI holds every distribution with matching filenames and digests: never re-run `publish`. If only `publish-github-release` failed, re-run it with `gh run rerun <run-id> --failed`. If `publish` itself reported failure, publish the draft with `gh release edit vX.Y.Z --draft=false`. Then start the documentation workflow with `gh workflow run docs.yml --ref main`, because it publishes the stable edition only after a successful publish run. Confirm with `gh run watch` that its deployment succeeds. Never delete the tag or the release.
+- PyPI holds only some distributions, or any digest differs: never re-run `publish`, because PyPI rejects the filenames it already accepted. [Yank](https://docs.pypi.org/project-management/yanking/) the incomplete version on PyPI. Then keep the tag, delete the draft, and release the next patch version, as in the third case.
