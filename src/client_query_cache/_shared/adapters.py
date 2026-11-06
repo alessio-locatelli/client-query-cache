@@ -43,6 +43,14 @@ from client_query_cache._shared.attachment import (
     LocalIndex,
     attachment_unavailable,
 )
+from client_query_cache._shared.diagnostics import (
+    REASONS_BY_VALUE,
+    SharedBypassReason,
+    SharedCacheStatistics,
+    SharedOwnerSnapshot,
+    owner_snapshot_from_wire,
+    reason_counts,
+)
 from client_query_cache._shared.wire import (
     KeyCache,
     ProtocolError,
@@ -86,10 +94,10 @@ if TYPE_CHECKING:
     type View = SharedCachedCollection[Any] | AsyncSharedCachedCollection[Any]
 
 _STALE = CollectionMetadata(checked_epoch=0, bypass_reason=None, default_collation=None)
-UNPORTABLE_KEY = "unportable-key"
-PROTOTYPE_SCOPE = "shared-scope"
-METADATA_REFRESH = "metadata-refresh"
-OWNER_UNAVAILABLE = "owner-unavailable"
+UNPORTABLE_KEY = SharedBypassReason.UNPORTABLE_KEY
+PROTOTYPE_SCOPE = SharedBypassReason.SHARED_SCOPE
+METADATA_REFRESH = SharedBypassReason.METADATA_REFRESH
+OWNER_UNAVAILABLE = SharedBypassReason.OWNER_UNAVAILABLE
 NO_LOCAL_HIT = object()
 _KEY_CACHE_ENTRIES = 8192
 _REATTACH_SECONDS = 0.1
@@ -101,26 +109,31 @@ class LocalObservation:
     max_entries: ClassVar[None] = None
     hits: NonNegativeInt = 0
     misses: NonNegativeInt = 0
-    bypasses: dict[str, NonNegativeInt] = field(default_factory=dict)
+    oversized: NonNegativeInt = 0
+    bypasses: dict[SharedBypassReason, NonNegativeInt] = field(default_factory=dict)
 
-    def record_bypass(self, reason: BypassReason | str) -> None:
-        key = reason.value if isinstance(reason, BypassReason) else reason
+    def record_bypass(self, reason: str) -> None:
         try:
-            self.bypasses[key] += 1
+            member = REASONS_BY_VALUE[reason]
         except KeyError:
-            self.bypasses[key] = 1
+            member = SharedBypassReason.UNSPECIFIED
+        try:
+            self.bypasses[member] += 1
+        except KeyError:
+            self.bypasses[member] = 1
 
     def record_oversized_bypass(self) -> None:
-        self.record_bypass("oversized")
+        self.oversized += 1
 
-
-@dataclass(frozen=True, slots=True)
-class SharedCacheStatistics:
-    """Read counts for this worker attachment."""
-
-    hits: NonNegativeInt
-    misses: NonNegativeInt
-    bypasses: NonNegativeInt
+    def snapshot(self) -> SharedCacheStatistics:
+        recorded = self.bypasses.copy()
+        return SharedCacheStatistics(
+            self.hits,
+            self.misses,
+            sum(recorded.values()),
+            self.oversized,
+            reason_counts(recorded),
+        )
 
 
 class _RemoteCaptureCore:
@@ -1473,11 +1486,12 @@ class SharedCacheManager[DocumentType: Mapping[str, Any]]:
             raise CacheClosedError("the shared cache manager is closed")
 
     def snapshot(self) -> SharedCacheStatistics:
-        return SharedCacheStatistics(
-            self.observation.hits,
-            self.observation.misses,
-            sum(self.observation.bypasses.values()),
-        )
+        return self.observation.snapshot()
+
+    def owner_snapshot(self) -> SharedOwnerSnapshot | None:
+        self._check_open()
+        reply = self.endpoint.request({"op": "observe"})
+        return None if reply is None else owner_snapshot_from_wire(reply)
 
     @property
     def client(self) -> MongoClient[DocumentType]:
@@ -1678,11 +1692,12 @@ class AsyncSharedCacheManager[DocumentType: Mapping[str, Any]]:
             raise CacheClosedError("the shared cache manager is closed")
 
     def snapshot(self) -> SharedCacheStatistics:
-        return SharedCacheStatistics(
-            self.observation.hits,
-            self.observation.misses,
-            sum(self.observation.bypasses.values()),
-        )
+        return self.observation.snapshot()
+
+    async def owner_snapshot(self) -> SharedOwnerSnapshot | None:
+        self._check_open()
+        reply = await self.endpoint.request({"op": "observe"})
+        return None if reply is None else owner_snapshot_from_wire(reply)
 
     @property
     def client(self) -> AsyncMongoClient[DocumentType]:

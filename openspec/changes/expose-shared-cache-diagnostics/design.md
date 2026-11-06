@@ -14,7 +14,7 @@ The library has no adopters yet, so each field must answer a question an operato
 
 **Goals:** a worker-local diagnostic that costs nothing on the hit path; an owner diagnostic collected only on request; reasons and owner statuses an operator can correlate; one definition per concept shared by owner, worker, tests and docs.
 
-**Non-Goals:** cross-worker aggregation, owner-wide hit rates, history or rates, owner-scope OpenTelemetry (#424), a parent-side accessor on `SharedCacheServer`, and any freshness claim.
+**Non-Goals:** cross-worker aggregation, owner-wide hit rates, history or rates, owner-scope OpenTelemetry, a parent-side accessor on `SharedCacheServer`, and any freshness claim.
 
 ## Decisions
 
@@ -29,7 +29,7 @@ Alternatives:
 
 ### D2. `None` means no answer; a snapshot means an owner answered
 
-`owner_snapshot()` returns `None` when the endpoint yields no reply (timeout, refused connection, lost connection, cooldown after a failure). Returned snapshots carry `incarnation` (an opaque `int`, compared for equality) and `uptime_seconds` computed by the owner. A restarted owner reports a new incarnation and a small uptime with empty usage and zero counters, so consumers detect counter resets without keeping a baseline. The first call after an owner restart can return `None` because the stale connection fails before reconnecting; callers treat `None` as "this attempt got no answer". A closed manager raises `CacheClosedError`, because `None` would misreport it as an owner outage.
+`None` covers every outcome in which the endpoint yields no reply: timeout, refused or lost connection and the retry cooldown after a failure. The first call after an owner restart can therefore return `None`, because the stale connection fails before the endpoint reconnects; callers treat `None` as "this attempt got no answer". `incarnation` is an opaque `int` meant for equality comparison, and the owner computes `uptime_seconds` itself so no clocks are compared. Together they let a consumer detect counter resets without keeping a baseline. A closed manager raises `CacheClosedError` because `None` would misreport it as an owner outage.
 
 Alternatives:
 
@@ -41,7 +41,7 @@ Alternatives:
 
 Add `SharedBypassReason` (a `StrEnum`) and `SharedBypassReasonCount`, ordered like `BypassReasonCount`. Its members are the ordinary reasons a shared manager can record: the `BypassReason` members that shared reads reach, plus `unportable_key`, `shared_scope`, `metadata_refresh`, `owner_unavailable`, `database_not_authorized`, `stream_starting` and `progress_expired`. Spellings use underscores everywhere. Module constants in the adapter and the owner's gate strings take their values from the enum, so the raw dict key, wire reason and public value are the same string and the snapshot maps keys with a dict lookup, falling back to `unspecified` on `KeyError`. The hit path and `record_bypass` are unchanged.
 
-`bypasses` excludes oversized results and a new `oversized_bypasses` field reports them, matching `CacheSnapshot`. This corrects an undocumented divergence and lets the OpenTelemetry bridge treat both manager kinds identically. The snapshot copies the raw dict with `dict.copy()` before summing, which does not iterate Python-level state and so cannot raise during a concurrent insert.
+Aligning `bypasses` with `CacheSnapshot` corrects an undocumented divergence and lets the OpenTelemetry bridge treat both manager kinds identically. The snapshot copies the raw dict with `dict.copy()` before summing; the copy runs in C and cannot raise during a concurrent insert, whereas iterating the live dict could.
 
 Alternatives:
 
@@ -60,7 +60,7 @@ Alternatives:
 | `streams`                             | Why do reads count `stream_starting`, `stream_unavailable` or `progress_expired`? Check owner logs, MongoDB access or load. |
 | `incarnation`, `uptime_seconds`       | Did the owner restart, so zeros mean a fresh cache?                                                                         |
 
-`SharedCapacityUsage(in_use, limit)` is a frozen record used for the four capacities. `streams` is a tuple of `SharedDatabaseHealth(database_name, status)` in configuration order; `SharedStreamStatus` has the six values in the specs. A single owner helper derives the status from activation state, availability and progress freshness in the same order as the request gate, and a parametrized test pins each status to the reason the gate returns, so the two cannot drift. Derivation does not start activation.
+`SharedCapacityUsage(in_use, limit)` is a frozen record shared by the four capacities, and `streams` is a tuple of `SharedDatabaseHealth(database_name, status)`. A single owner helper derives the status from activation state, availability and progress freshness in the same order as the request gate, without starting activation, and a parametrized test pins each status to the reason the gate returns so the two cannot drift.
 
 The owner's `observation()` gains `uptime_seconds`, `limits`, tracked-namespace count and per-database `status`. Everything else it already returns stays for benchmarks and tests; no new request type is added. Tracked namespaces are counted per configured database on demand, O(namespaces), which is acceptable for an explicit diagnostic.
 
@@ -74,17 +74,17 @@ Rejected as not actionable or misleading:
 
 ### D5. OpenTelemetry carries worker scope only
 
-`register_cache_metrics` accepts either shared manager. For these it registers hits, misses, ordinary bypasses, oversized bypasses and `by_reason`, reusing the existing callbacks, whose snapshot field names the shared snapshot shares. It skips the evictions counter, the entry and resident-byte gauges and all stream instruments, and never contacts the owner. Existing instrument identities and process-local output are unchanged. Owner-scope metrics need periodic requests from every worker and a thread-safe path for asyncio endpoints; see #424.
+The existing counter and by-reason callbacks work unchanged for shared managers because their snapshot shares the field names, so registration only selects which instruments to create. Owner-scope metrics are deferred (see the proposal) because they need periodic requests from every worker and a thread-safe path for asyncio endpoints.
 
 Alternative: register owner gauges whose callbacks call `owner_snapshot()`. This duplicates identical series per worker and violates the no-polling requirement. Rejected for this change.
 
 ### D6. Example, tests and documents
 
-The shared FastAPI example, an existing CI-verified integration with real workers, gains a `/diagnostics` route that returns the manager's `snapshot()` reasons and `await owner_snapshot()`; its self-check asserts a healthy stream, capacity within limits and consistent incarnations. Owner interruption and restart are demonstrated by focused tests with a real `SharedCacheServer` (`restart()` and `close()`), because the example's parent process cannot be driven over HTTP. The monitoring guide interprets each symptom from a table keyed by reason and status, and its examples are executed by those tests.
+The shared FastAPI example, an existing CI-verified integration with real workers, gains a `/diagnostics` route returning the worker's non-zero reason counts and a summary of `await owner_snapshot()`. Its self-check asserts healthy streams, a populated cache and one incarnation across workers. Owner interruption and restart are covered by focused tests with a real `SharedCacheServer` (`restart()` and `close()`), because the example's parent process cannot be driven over HTTP. The monitoring guide's health-check snippet is executed by a test so it cannot drift.
 
 ### D7. Cost
 
-Hits and misses add no work. Bypass recording is unchanged. `snapshot()` is O(reasons) with a fixed vocabulary. `owner_snapshot()` costs one request, an owner-side O(databases + namespaces) walk and a reply of about 1 KiB, far below the frame limit. The change touches no hit-path code, so verification is inspection plus a before/after run of one shared hit/miss measurement on `main`.
+Hits and misses add no work. Bypass recording is unchanged. `snapshot()` is O(reasons) with a fixed vocabulary. `owner_snapshot()` costs one request, an owner-side O(databases + namespaces) walk and a reply of about 1 KiB, far below the frame limit.
 
 ## Risks / Trade-offs
 

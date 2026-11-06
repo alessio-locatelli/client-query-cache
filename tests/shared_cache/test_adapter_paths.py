@@ -41,6 +41,10 @@ from client_query_cache._shared.attachment import (
     LocalIndex,
     SyncEndpoint,
 )
+from client_query_cache._shared.diagnostics import (
+    SharedBypassReason,
+    SharedStreamStatus,
+)
 from client_query_cache._shared.shared_index import SharedIndexLimits
 from client_query_cache._shared.wire import (
     LENGTH_BYTES,
@@ -61,6 +65,7 @@ from tests.shared_cache.conftest import (
     DOCUMENTS,
     async_shared_manager,
     ready,
+    reason_totals,
     select_identity,
     wait_for,
 )
@@ -137,7 +142,8 @@ def test_oversized_find_results_are_not_admitted(
     assert len(documents) == 8
     assert big is not None
     assert after is not None
-    assert manager.observation.bypasses["oversized"] == 2
+    assert manager.observation.oversized == 2
+    assert manager.snapshot().oversized_bypasses == 2
     assert owner.counters()["detached"] == 0
     wait_for(lambda: owner.observation()["captures"] == 0)
     wait_for(lambda: owner.counters()["admitted"] == 1)
@@ -225,14 +231,42 @@ def test_owner_bypasses_reach_find_one_and_find(
     wait_for(
         lambda: (
             collection.find_one({"_id": 20}) is not None
-            and "progress-expired" in manager.observation.bypasses
+            and SharedBypassReason.PROGRESS_EXPIRED in manager.observation.bypasses
         )
     )
     documents = collection.find({}, **_SORTED, limit=2).to_list()
     owner.request("resume-watch")
 
     assert len(documents) == 2
-    assert manager.observation.bypasses["progress-expired"] >= 2
+    assert manager.observation.bypasses[SharedBypassReason.PROGRESS_EXPIRED] >= 2
+
+
+def test_owner_snapshot_reports_a_stalled_stream_and_its_recovery(
+    open_manager: Callable[..., SharedCacheManager[BsonDict]],
+    client: MongoClient[BsonDict],
+    start_owner: Callable[..., Owner],
+    seeded_database: str,
+) -> None:
+    owner = start_owner(shared_index=_SHARED_INDEX)
+    manager = open_manager(client, owner)
+    collection = manager[seeded_database][COLLECTION]
+    ready(manager, seeded_database)
+
+    def stream_status() -> SharedStreamStatus:
+        snapshot = manager.owner_snapshot()
+        assert snapshot is not None
+        assert [stream.database_name for stream in snapshot.streams] == [
+            seeded_database
+        ]
+        return snapshot.streams[0].status
+
+    assert stream_status() is SharedStreamStatus.HEALTHY
+    owner.request("pause-watch")
+    wait_for(lambda: stream_status() is SharedStreamStatus.PROGRESS_EXPIRED)
+    assert collection.find_one({"_id": 0}) is not None
+    assert reason_totals(manager.snapshot())[SharedBypassReason.PROGRESS_EXPIRED] >= 1
+    owner.request("resume-watch")
+    wait_for(lambda: stream_status() is SharedStreamStatus.HEALTHY)
 
 
 def test_exhausted_captures_leave_reads_native(
@@ -1074,7 +1108,9 @@ def test_namespaces_without_a_slot_bypass_with_bounded_owner_state(
     assert second == first == {"_id": 1, "payload": "other"}
     assert reads.manager.endpoint.counters.requests == requests
     assert reads.manager.observation.hits == 0
-    assert reads.manager.observation.bypasses["namespace_capacity"] == 2
+    assert (
+        reads.manager.observation.bypasses[SharedBypassReason.NAMESPACE_CAPACITY] == 2
+    )
     assert reads.manager._metadata._capacity == 1
     assert reads.manager._slots._capacity == 1
     assert len(reads.manager._metadata) <= 1

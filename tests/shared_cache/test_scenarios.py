@@ -31,7 +31,6 @@ from benchmarks.stream_cost.shared_cache.safety import (
     raw_connection as _raw_connection,
 )
 from client_query_cache._core.keys import NamespaceId
-from client_query_cache._core.snapshots import BypassReason
 from client_query_cache._shared.adapters import (
     METADATA_REFRESH,
     OWNER_UNAVAILABLE,
@@ -46,6 +45,7 @@ from client_query_cache._shared.attachment import (
     LocalIndex,
     SyncEndpoint,
 )
+from client_query_cache._shared.diagnostics import SharedBypassReason
 from client_query_cache._shared.shared_index import SharedIndexLimits
 from client_query_cache._shared.wire import encode_frame, encode_key
 from client_query_cache._types import BsonDict
@@ -297,7 +297,7 @@ def test_a_stalled_watch_disables_selection_and_fences_captures(
                     select_identity(manager.endpoint, manager, seeded_database, 7),
                 )
             )
-            and reply["reason"] == "progress-expired"
+            and reply["reason"] == SharedBypassReason.PROGRESS_EXPIRED
         )
     )
     manager.endpoint.send(
@@ -613,7 +613,7 @@ def test_unauthorized_databases_bypass(
     document = manager["other_database"][COLLECTION].find_one({"_id": 0})
 
     assert document is None
-    assert manager.observation.bypasses["database-not-authorized"] == 1
+    assert manager.observation.bypasses[SharedBypassReason.DATABASE_NOT_AUTHORIZED] == 1
 
 
 def test_owner_shutdown_during_activation_leaves_reads_native(
@@ -838,7 +838,7 @@ def test_portable_reads_cache_and_unsupported_reads_execute_natively(
     assert len(collection.find({}, hint=[("_id", 1)]).to_list()) == DOCUMENTS
     assert manager.observation.bypasses[UNPORTABLE_KEY] == 1
     assert manager.observation.misses == 5
-    assert manager.observation.bypasses[BypassReason.UNSUPPORTED_OPTIONS.value] == 1
+    assert manager.observation.bypasses[SharedBypassReason.UNSUPPORTED_OPTIONS] == 1
 
 
 def test_collection_metadata_failures_bypass_shared_selection(
@@ -856,8 +856,8 @@ def test_collection_metadata_failures_bypass_shared_selection(
 
     assert missing is None
     assert probed is None
-    assert manager.observation.bypasses["missing_collection"] == 1
-    assert manager.observation.bypasses["metadata_unavailable"] == 1
+    assert manager.observation.bypasses[SharedBypassReason.MISSING_COLLECTION] == 1
+    assert manager.observation.bypasses[SharedBypassReason.METADATA_UNAVAILABLE] == 1
 
 
 def test_shared_find_cursors_admit_complete_results_only(

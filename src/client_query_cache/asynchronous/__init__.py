@@ -14,6 +14,15 @@ from client_query_cache._core.stream_health import (
     StreamHealthSnapshot,
     StreamHealthStatus,
 )
+from client_query_cache._shared.diagnostics import (
+    SharedBypassReason,
+    SharedBypassReasonCount,
+    SharedCacheStatistics,
+    SharedCapacityUsage,
+    SharedDatabaseHealth,
+    SharedOwnerSnapshot,
+    SharedStreamStatus,
+)
 from client_query_cache._shared_index import LocalCacheCore as CacheCore
 
 from .collection import CachedCollection
@@ -35,8 +44,15 @@ __all__ = [
     "RetentionDeclineCount",
     "RetentionDeclineReason",
     "RetentionRecordKind",
+    "SharedBypassReason",
+    "SharedBypassReasonCount",
     "SharedCacheManager",
+    "SharedCacheStatistics",
     "SharedCachedCollection",
+    "SharedCapacityUsage",
+    "SharedDatabaseHealth",
+    "SharedOwnerSnapshot",
+    "SharedStreamStatus",
     "StreamCostSnapshot",
     "StreamHealthSnapshot",
     "StreamHealthStatus",

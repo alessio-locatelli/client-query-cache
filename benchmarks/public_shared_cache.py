@@ -42,10 +42,10 @@ from client_query_cache import (
     SharedCacheConfig,
     SharedCacheManager,
     SharedCacheServer,
-    SharedCacheStatistics,
 )
 from client_query_cache._core.codec import encode_value
 from client_query_cache._shared.attachment import Message, SyncEndpoint
+from client_query_cache._shared.diagnostics import SharedBypassReason
 from client_query_cache._types import (
     BsonDict,
     NonNegativeFloat,
@@ -105,6 +105,13 @@ def _process_cpu_clock(pid: PositiveInt) -> int:
     if status:
         raise OSError(status, os.strerror(status))
     return clock.value
+
+
+@dataclass(frozen=True, slots=True)
+class ReadCounts:
+    hits: NonNegativeInt
+    misses: NonNegativeInt
+    bypasses: NonNegativeInt
 
 
 @dataclass(frozen=True, slots=True)
@@ -385,8 +392,8 @@ def _validate_checkpoint(window: Window, checkpoint: dict[str, NonNegativeInt]) 
 
 def _validate_observation(
     window: Window,
-    before: SharedCacheStatistics,
-    after: SharedCacheStatistics,
+    before: ReadCounts,
+    after: ReadCounts,
     origin: dict[str, NonNegativeInt],
     checkpoints: list[dict[str, NonNegativeInt]],
 ) -> None:
@@ -566,13 +573,13 @@ def _counts(
     | AsyncCacheManager[BsonDict]
     | SharedCacheManager[BsonDict]
     | AsyncSharedCacheManager[BsonDict],
-) -> SharedCacheStatistics:
+) -> ReadCounts:
     snapshot = (
         manager.snapshot()
         if isinstance(manager, (SharedCacheManager, AsyncSharedCacheManager))
         else manager.cache_core.snapshot()
     )
-    return SharedCacheStatistics(snapshot.hits, snapshot.misses, snapshot.bypasses)
+    return ReadCounts(snapshot.hits, snapshot.misses, snapshot.bypasses)
 
 
 def _follows_up(window: Window) -> bool:
@@ -581,8 +588,8 @@ def _follows_up(window: Window) -> bool:
 
 def _follow_up(
     window: Window,
-    before: SharedCacheStatistics,
-    after: SharedCacheStatistics,
+    before: ReadCounts,
+    after: ReadCounts,
     origin: dict[str, NonNegativeInt],
 ) -> dict[str, NonNegativeInt]:
     observed = {
@@ -669,7 +676,7 @@ def _measure_sync(window: Window) -> Observation:
         if window.validate and window.path == "shared":
             startup_deadline = time.monotonic() + _READY_TIMEOUT
             reason = manager.get_cached_collection(raw)._cache_ineligibility_reason()
-            while reason == "stream-starting":
+            while reason == SharedBypassReason.STREAM_STARTING.value:
                 if time.monotonic() >= startup_deadline:
                     raise TimeoutError(
                         "shared metadata did not become ready before warmup"
@@ -730,7 +737,7 @@ def _measure_sync(window: Window) -> Observation:
         measurement_started = time.monotonic()
         latencies: list[NonNegativeFloat] = []
         before_counts = (
-            SharedCacheStatistics(0, 0, 0)
+            ReadCounts(0, 0, 0)
             if window.path == "direct"
             else _counts(manager if window.path == "shared" else independent)
         )
@@ -763,7 +770,7 @@ def _measure_sync(window: Window) -> Observation:
                     ):
                         checkpoints.append(_checkpoint(observed_manager, offset + 1))
         after_counts = (
-            SharedCacheStatistics(0, 0, 0)
+            ReadCounts(0, 0, 0)
             if window.path == "direct"
             else _counts(manager if window.path == "shared" else independent)
         )
@@ -905,7 +912,7 @@ async def _measure_async(
             reason = await manager.get_cached_collection(
                 raw
             )._cache_ineligibility_reason()
-            while reason == "stream-starting":
+            while reason == SharedBypassReason.STREAM_STARTING.value:
                 if time.monotonic() >= startup_deadline:
                     raise TimeoutError(
                         "shared metadata did not become ready before warmup"
@@ -966,7 +973,7 @@ async def _measure_async(
         measurement_started = time.monotonic()
         latencies: list[NonNegativeFloat] = []
         before_counts = (
-            SharedCacheStatistics(0, 0, 0)
+            ReadCounts(0, 0, 0)
             if window.path == "direct"
             else _counts(manager if window.path == "shared" else independent)
         )
@@ -999,7 +1006,7 @@ async def _measure_async(
                     ):
                         checkpoints.append(_checkpoint(observed_manager, offset + 1))
         after_counts = (
-            SharedCacheStatistics(0, 0, 0)
+            ReadCounts(0, 0, 0)
             if window.path == "direct"
             else _counts(manager if window.path == "shared" else independent)
         )

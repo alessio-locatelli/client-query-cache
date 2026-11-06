@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 import pytest
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import InMemoryMetricReader, NumberDataPoint
+from pymongo import AsyncMongoClient, MongoClient
 
 from client_query_cache import BypassReason
 from client_query_cache._core.entries import AdmissionOutcome
@@ -20,12 +21,24 @@ from client_query_cache._core.stream_cost import (
     RESIDENT_BYTES_SCOPE,
     StreamCostSnapshot,
 )
-from client_query_cache._types import Probability
+from client_query_cache._shared.adapters import (
+    AsyncSharedCacheManager,
+    SharedCacheManager,
+)
+from client_query_cache._shared.attachment import (
+    AsyncEndpoint,
+    AttachmentConfig,
+    SyncEndpoint,
+)
+from client_query_cache._shared.diagnostics import SharedBypassReason
+from client_query_cache._types import BsonDict, Probability
 from client_query_cache.otel import register_cache_metrics
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import AsyncIterator, Iterator
+    from pathlib import Path
 
+    from faker import Faker
     from opentelemetry.metrics import Meter
     from opentelemetry.sdk.metrics.export import Metric
 
@@ -427,3 +440,74 @@ def test_retention_declines_do_not_increment_bypass_instruments(
         (point,) = _number_data_points(metrics[name])
         assert point.value == 0
     assert not any("retention" in name for name in metrics)
+
+
+@pytest.fixture(params=["sync", "async"])
+async def shared_manager(
+    request: pytest.FixtureRequest, tmp_path: Path, faker: Faker
+) -> AsyncIterator[SharedCacheManager[BsonDict] | AsyncSharedCacheManager[BsonDict]]:
+    config = AttachmentConfig(
+        socket_path=str(tmp_path / "absent.sock"),
+        capability=faker.binary(length=32),
+        budget_bytes=1,
+        max_entry_bytes=1,
+        max_await_time_ms=100,
+        rpc_deadline_seconds=0.05,
+        frame_limit=65_537,
+    )
+    if request.param == "sync":
+        with MongoClient[BsonDict](connect=False) as client:
+            manager = SharedCacheManager(
+                client, SyncEndpoint(config, require_owner=False)
+            )
+            yield manager
+            manager.close()
+    else:
+        async with AsyncMongoClient[BsonDict](connect=False) as async_client:
+            async_manager = AsyncSharedCacheManager(
+                async_client, await AsyncEndpoint.attach(config, require_owner=False)
+            )
+            yield async_manager
+            await async_manager.close()
+
+
+def test_shared_managers_export_worker_counters_without_contacting_the_owner(
+    meter: Meter,
+    reader: InMemoryMetricReader,
+    shared_manager: SharedCacheManager[BsonDict] | AsyncSharedCacheManager[BsonDict],
+) -> None:
+    observation = shared_manager.observation
+    observation.hits = 3
+    observation.misses = 2
+    observation.record_bypass(SharedBypassReason.OWNER_UNAVAILABLE)
+    observation.record_bypass(SharedBypassReason.OWNER_UNAVAILABLE)
+    observation.record_bypass(SharedBypassReason.SESSION)
+    observation.record_oversized_bypass()
+    attempts = shared_manager.endpoint.counters.failures
+    snapshot = shared_manager.snapshot()
+
+    register_cache_metrics(meter, shared_manager)
+    _collect_metrics(reader)
+    metrics = _collect_metrics(reader)
+
+    assert set(metrics) == {
+        "client_query_cache.cache.hits",
+        "client_query_cache.cache.misses",
+        "client_query_cache.cache.bypasses",
+        "client_query_cache.cache.bypasses.oversized",
+        "client_query_cache.cache.bypasses.by_reason",
+    }
+    for name, expected in [
+        ("hits", snapshot.hits),
+        ("misses", snapshot.misses),
+        ("bypasses", snapshot.bypasses),
+        ("bypasses.oversized", snapshot.oversized_bypasses),
+    ]:
+        (point,) = _number_data_points(metrics[f"client_query_cache.cache.{name}"])
+        assert point.value == expected
+    points = _number_data_points(metrics["client_query_cache.cache.bypasses.by_reason"])
+    assert {
+        _attributes(point)["cache.bypass.reason"]: point.value for point in points
+    } == {record.reason.value: record.count for record in snapshot.bypass_reasons}
+    assert len(points) == len(SharedBypassReason)
+    assert shared_manager.endpoint.counters.failures == attempts

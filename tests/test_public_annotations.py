@@ -10,6 +10,9 @@ from client_query_cache import (
     BypassReasonCount,
     CacheCoreConfig,
     CacheSnapshot,
+    SharedBypassReasonCount,
+    SharedCapacityUsage,
+    SharedOwnerSnapshot,
     StreamCostSnapshot,
 )
 from client_query_cache._core.find_one_reads import CollationInput
@@ -65,6 +68,11 @@ def test_shared_find_one_annotations_resolve_at_runtime(
         pytest.param(CacheCoreConfig, "max_entry_bytes", (int, Gt(0)), id="entry-size"),
         pytest.param(CacheSnapshot, "hits", (int, Ge(0)), id="snapshot-counter"),
         pytest.param(BypassReasonCount, "count", (int, Ge(0)), id="bypass-count"),
+        pytest.param(
+            SharedBypassReasonCount, "count", (int, Ge(0)), id="shared-bypass-count"
+        ),
+        pytest.param(SharedCapacityUsage, "limit", (int, Gt(0)), id="capacity-limit"),
+        pytest.param(SharedOwnerSnapshot, "evictions", (int, Ge(0)), id="evictions"),
         pytest.param(
             StreamCostSnapshot, "logical_event_bytes", (int, Ge(0)), id="stream-bytes"
         ),
