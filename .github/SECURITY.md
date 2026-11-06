@@ -13,3 +13,7 @@ For non-sensitive bugs and security-related questions, you can [open a GitHub is
 ## Supported Versions
 
 Security fixes are prioritized for the latest released version. Users are encouraged to keep the library up to date.
+
+## Release provenance
+
+See [Verify release provenance](https://alessio-locatelli.github.io/client-query-cache/getting-started/installation/#verify-release-provenance) to verify a downloaded source distribution or wheel.
