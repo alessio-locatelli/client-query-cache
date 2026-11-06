@@ -122,9 +122,13 @@ def _shift_event_time(
 
 
 async def _alter_stream_observations(
-    stream: multiprocess_run.Stream, observed: list[NonNegativeFloat]
+    stream: multiprocess_run.Stream,
+    observed: list[NonNegativeFloat],
+    *,
+    expected: NonNegativeInt,
 ) -> None:
-    observed.append(time.monotonic())
+    # Exceed the expected count even when no real events have arrived.
+    observed.extend([time.monotonic()] * (expected + 1))
     await _ORIGINAL_CONSUME(stream, observed)
 
 
@@ -230,7 +234,7 @@ def _faulty_worker(
             patches.setattr(
                 multiprocess_run,
                 "consume_stream",
-                _alter_stream_observations,
+                partial(_alter_stream_observations, expected=protocol.updates),
             )
         else:
             patches.setattr(MongoClient, "close", _close_then_fail)
