@@ -411,7 +411,7 @@ def test_capture_safety_failure(trial: faults.FaultTrial, reply: object) -> None
 
 @pytest.mark.parametrize(
     "reply",
-    [None, {"r": "bypass", "reason": "progress-expired"}],
+    [None, {"r": "bypass", "reason": "progress_expired"}],
     ids=["timeout", "bypass"],
 )
 def test_stress_capture_retries_until_miss(
@@ -443,10 +443,10 @@ def test_stress_capture_reports_the_last_reply_at_the_deadline(
     trial: faults.FaultTrial,
 ) -> None:
     endpoint = Mock()
-    endpoint.request.return_value = {"r": "bypass", "reason": "progress-expired"}
+    endpoint.request.return_value = {"r": "bypass", "reason": "progress_expired"}
     trial.deadline = 0
     with pytest.raises(
-        LookupError, match=r"did not obtain a capture.*progress-expired"
+        LookupError, match=r"did not obtain a capture.*progress_expired"
     ):
         trial.select_stress_capture(endpoint, {"op": "select-identity"})
 

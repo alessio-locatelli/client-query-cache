@@ -13,6 +13,14 @@ bodies or OpenSpec. An empty Unreleased section is valid.
 
 ## Unreleased
 
+### Breaking changes
+
+- `SharedCacheStatistics.bypasses` no longer includes oversized results, which `oversized_bypasses` now reports separately, matching `CacheSnapshot`. Constructing `SharedCacheStatistics` now requires `oversized_bypasses` and `bypass_reasons`.
+
+### Features
+
+- Added shared-cache diagnostics. `SharedCacheManager.snapshot()` reports bounded bypass reasons, and the new `owner_snapshot()` (awaitable with asyncio) reports owner capacity use, per-database stream status, owner incarnation and uptime, or `None` when the owner does not answer. `register_cache_metrics` now accepts shared managers and exports their worker-local counters.
+
 ## [0.12.0] - 2026-11-05
 
 ### Breaking changes

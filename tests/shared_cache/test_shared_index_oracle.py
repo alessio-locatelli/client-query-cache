@@ -537,7 +537,9 @@ class _SharedFindIndexMachine(_SharedIndexMachine):
                     local = self.reader.lookup(
                         *slot, epoch, b"", _shape_key(find_shape.discriminator)
                     )
-                    if local is not None:
+                    if (
+                        local is not None
+                    ):  # pragma: lax no cover (examples may publish no find value)
                         assert local == self.core.lookup_find_encoded(
                             namespace, find_shape
                         )

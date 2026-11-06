@@ -18,15 +18,17 @@ The self-check starts Granian with two spawned workers on a free localhost port 
 2. Worker A warms a product and records a cache hit.
 3. Worker B's first product read records a shared hit and **zero MongoDB `find` commands**.
 4. A raw PATCH returns the updated document, invalidation forces a refetch, and both workers subsequently hit the updated value.
-5. Both workers close their managers before their clients, and the parent closes the cache server after worker shutdown.
+5. `/diagnostics` shows each worker the same owner incarnation, healthy streams and a populated cache.
+6. Both workers close their managers before their clients, and the parent closes the cache server after worker shutdown.
 
-The response includes worker-local cumulative counters. The optional `worker_pid` query parameter rejects a request handled by another worker before accessing storage, so verification can target each process without warming the second worker accidentally. This is demonstration instrumentation, not a routing mechanism for an application. Snapshot differences only identify individual requests in this isolated, sequential self-check.
+The product response includes worker-local cumulative counters, and `/diagnostics` combines the worker's bypass reasons from `snapshot()` with `await manager.owner_snapshot()`; see [shared-manager diagnostics](../operations/monitoring.md#shared-manager-diagnostics) for how to read them. The optional `worker_pid` query parameter rejects a request handled by another worker before accessing storage, so verification can target each process without warming the second worker accidentally. This is demonstration instrumentation, not a routing mechanism for an application. Snapshot differences only identify individual requests in this isolated, sequential self-check.
 
 The program prints evidence resembling:
 
 ```text
 shared hit: worker 123 warmed; worker 124 read with zero MongoDB finds
 invalidation: both workers hit the updated document after a raw PATCH
+diagnostics: both workers report one owner with a healthy stream and bypass reasons [{...}, {...}]
 worker 123: shared manager closed before client
 worker 124: shared manager closed before client
 parent: shared cache server closed after workers
@@ -40,6 +42,7 @@ Startup and admission can take several reads. The check allows preceding cached 
 uv run examples/fastapi_shared_example.py --serve --workers 4 --port 8000
 curl http://127.0.0.1:8000/health
 curl http://127.0.0.1:8000/products/book
+curl http://127.0.0.1:8000/diagnostics
 ```
 
 Serve mode leaves existing data intact. Insert a product into `client_query_cache_example_fastapi_shared.products` using your normal MongoDB tools, for example `{_id: "book", description: "A product description", tenant_id: "demo"}`; a missing product returns 404. Update it with:

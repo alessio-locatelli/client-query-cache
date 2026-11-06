@@ -88,4 +88,4 @@ Keep `SharedCacheConnection` private; do not log or persist it. All participants
 
 The private Unix endpoint is restricted to its operating-system user and requires the connection credential. Workers receive read-only shared value mappings, but every credential holder is trusted to read all shared values and submit values for caching. Sharing is not an authorization boundary. Follow the [freshness and authorization guidance](../usage/consistency.md#freshness-and-authorization) when access changes.
 
-Use the [shared-manager monitoring guide](monitoring.md#shared-manager-diagnostics) to interpret worker counters and investigate low reuse. The [release workload measurements](../benchmarks/shared-cache.md) provide a comparison to reproduce for your application.
+Use the [shared-manager monitoring guide](monitoring.md#shared-manager-diagnostics) to interpret worker statistics and the owner snapshot and to investigate low reuse. The [release workload measurements](../benchmarks/shared-cache.md) provide a comparison to reproduce for your application.

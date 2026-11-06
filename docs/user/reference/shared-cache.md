@@ -64,6 +64,6 @@ These settings do not cap RSS or total container memory. Native layout upper bou
 
 ## Diagnostics and failures
 
-`manager.snapshot()` returns an immutable `SharedCacheStatistics`, synchronously in both APIs. See [shared-manager diagnostics](../operations/monitoring.md#shared-manager-diagnostics) for its fields, scope and telemetry limitations.
+`manager.snapshot()` returns worker-local `SharedCacheStatistics`, including bounded bypass reasons, synchronously in both APIs. `manager.owner_snapshot()` asks the owner for a `SharedOwnerSnapshot` of its capacity use, stream status and incarnation, or returns `None` when the owner does not answer; call it directly with the synchronous manager and `await` it with the asyncio manager. See [shared-manager diagnostics](../operations/monitoring.md#shared-manager-diagnostics) for fields, interpretation and telemetry.
 
 Invalid credentials, malformed protocol replies and persistent endpoint permission failures remain errors. Invalid server configuration or failed owner startup raises `CacheConfigurationError`; use after close, inherited manager/server use or an incorrect asyncio loop raises `CacheClosedError`. PyMongo reads retain driver errors and timeouts. See [recovery and its progress-expiry safeguard](../operations/shared-cache.md#consistency-and-recovery).

@@ -43,6 +43,10 @@ from client_query_cache._shared.coordinator import (
     OwnerConfig,
     SharedCacheOwner,
 )
+from client_query_cache._shared.diagnostics import (
+    SharedBypassReason,
+    SharedStreamStatus,
+)
 from client_query_cache._shared.shared_index import SharedIndexLimits
 from client_query_cache._shared.wire import (
     PROTOCOL_VERSION,
@@ -64,6 +68,7 @@ if TYPE_CHECKING:
     from faker import Faker
 
     from client_query_cache._shared.attachment import Message
+    from client_query_cache._shared.coordinator import ActivationState
     from client_query_cache._shared_index import SessionRing
 
 pytestmark = pytest.mark.unit
@@ -369,7 +374,91 @@ def test_failed_stream_activation_bypasses_and_retries(
 
     assert first is not None
     assert held is not None
-    assert first["reason"] == held["reason"] == "stream-starting"
+    assert first["reason"] == held["reason"] == SharedBypassReason.STREAM_STARTING
+
+
+@pytest.mark.parametrize(
+    ("activation", "available", "progress", "expected"),
+    [
+        pytest.param(
+            None,
+            False,
+            False,
+            (SharedStreamStatus.NOT_STARTED, SharedBypassReason.STREAM_STARTING),
+            id="untouched",
+        ),
+        pytest.param(
+            "pending",
+            False,
+            False,
+            (SharedStreamStatus.STARTING, SharedBypassReason.STREAM_STARTING),
+            id="starting",
+        ),
+        pytest.param(
+            "failed",
+            False,
+            False,
+            (SharedStreamStatus.STARTUP_FAILED, SharedBypassReason.STREAM_STARTING),
+            id="startup-failed",
+        ),
+        pytest.param(
+            "active",
+            False,
+            True,
+            (SharedStreamStatus.UNAVAILABLE, SharedBypassReason.STREAM_UNAVAILABLE),
+            id="unavailable",
+        ),
+        pytest.param(
+            "active",
+            True,
+            False,
+            (SharedStreamStatus.PROGRESS_EXPIRED, SharedBypassReason.PROGRESS_EXPIRED),
+            id="progress-expired",
+        ),
+        pytest.param(
+            "active", True, True, (SharedStreamStatus.HEALTHY, None), id="healthy"
+        ),
+    ],
+)
+def test_stream_status_matches_the_reason_reads_bypass(
+    owner: SharedCacheOwner,
+    activation: ActivationState | None,
+    available: bool,
+    progress: bool,
+    expected: tuple[SharedStreamStatus, SharedBypassReason | None],
+) -> None:
+    status, gate_reason = expected
+    now = time.monotonic()
+    if activation is not None:
+        owner._activation[_DATABASE] = (activation, now)
+    owner.core.set_database_available(_DATABASE, available=available)
+    if progress:
+        owner.progress.observed[_DATABASE] = now
+
+    databases = owner.observation(now)["databases"]
+
+    assert isinstance(databases, dict)
+    assert owner._stream_status(_DATABASE, now) is status
+    assert databases[_DATABASE]["status"] == status.value
+    assert owner._gate(_DATABASE, now) == gate_reason
+
+
+def test_observation_reports_uptime_limits_and_tracked_namespaces(
+    shared_owner: SharedCacheOwner,
+) -> None:
+    before = shared_owner.observation(shared_owner._started)
+    shared_owner.core.create_namespace(_NAMESPACE)
+    after = shared_owner.observation(shared_owner._started + 1.5)
+
+    assert before["uptime_seconds"] == 0
+    assert after["uptime_seconds"] == pytest.approx(1.5)
+    assert before["namespaces"] == 0
+    assert after["namespaces"] == 1
+    assert after["limits"] == {
+        "index_entries": _SHARED_INDEX.slots,
+        "namespaces": _SHARED_INDEX.namespaces,
+        "connections": LIMITS.connections,
+    }
 
 
 def test_a_second_owner_cannot_bind_a_held_endpoint(
@@ -443,7 +532,7 @@ def test_selection_reports_unavailable_streams_and_stale_epochs(
     assert stale is not None
     assert stale["r"] == "refresh"
     assert unavailable is not None
-    assert unavailable["reason"] == "stream-unavailable"
+    assert unavailable["reason"] == SharedBypassReason.STREAM_UNAVAILABLE
 
 
 def test_stale_request_does_not_recreate_a_dropped_namespace(session: _Session) -> None:
@@ -1074,7 +1163,7 @@ def test_gate_bypass_releases_only_its_metadata_probe_request(
     def toggle_database(
         _owner: SharedCacheOwner, _database: str, _now: NonNegativeFloat
     ) -> str | None:
-        return None if gate_open else "stream-unavailable"
+        return None if gate_open else SharedBypassReason.STREAM_UNAVAILABLE
 
     monkeypatch.setattr(SharedCacheOwner, "_gate", toggle_database)
     namespace = NamespaceId(_DATABASE, "gated-probe")
@@ -1149,9 +1238,15 @@ def test_gate_bypass_releases_only_its_metadata_probe_request(
             time.monotonic(),
         )
 
-    assert blocked == {"r": "bypass", "reason": "stream-unavailable"}
-    assert missing_token == {"r": "bypass", "reason": "stream-unavailable"}
-    assert invalid_token == {"r": "bypass", "reason": "stream-unavailable"}
+    assert blocked == {"r": "bypass", "reason": SharedBypassReason.STREAM_UNAVAILABLE}
+    assert missing_token == {
+        "r": "bypass",
+        "reason": SharedBypassReason.STREAM_UNAVAILABLE,
+    }
+    assert invalid_token == {
+        "r": "bypass",
+        "reason": SharedBypassReason.STREAM_UNAVAILABLE,
+    }
     assert admitted is not None
     assert admitted["r"] == "ok"
     assert replacement_admission is not None

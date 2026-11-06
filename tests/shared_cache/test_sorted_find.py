@@ -23,6 +23,7 @@ from client_query_cache._shared.attachment import (
     LocalIndex,
     SyncEndpoint,
 )
+from client_query_cache._shared.diagnostics import SharedBypassReason
 from client_query_cache._shared.shared_index import SharedIndexLimits
 from client_query_cache._types import BsonDict
 from tests.codec_helpers import Decimal128ToDecimalDecoder
@@ -291,4 +292,4 @@ async def test_unportable_bounded_find_preserves_native_results(
     documents = await materialize(custom_view.find({}).sort("_id", 1).limit(_LIMIT))
     assert [document["_id"] for document in documents] == list(range(_LIMIT))
     assert owner.counters()["requests"] == requests
-    assert view._shared.observation.bypasses["unportable-key"] == 1
+    assert view._shared.observation.bypasses[SharedBypassReason.UNPORTABLE_KEY] == 1

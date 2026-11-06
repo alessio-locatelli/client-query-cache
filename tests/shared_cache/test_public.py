@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import errno
 import importlib
+import importlib.util
 import multiprocessing
 import os
 import platform
@@ -11,7 +12,7 @@ import socket
 import threading
 import time
 from collections import UserDict
-from dataclasses import dataclass, replace
+from dataclasses import FrozenInstanceError, dataclass, replace
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict, override
@@ -31,9 +32,11 @@ from pymongo.synchronous.cursor import Cursor
 from client_query_cache import (
     CacheClosedError,
     CacheConfigurationError,
+    SharedBypassReason,
     SharedCacheConfig,
     SharedCacheManager,
     SharedCacheServer,
+    SharedStreamStatus,
     shared,
 )
 from client_query_cache._core.snapshots import BypassReason
@@ -51,8 +54,8 @@ from client_query_cache.asynchronous import (
 from client_query_cache.asynchronous import (
     SharedCacheManager as AsyncSharedCacheManager,
 )
-from tests.polling import wait_until_value_async
-from tests.shared_cache.conftest import wait_for
+from tests.polling import wait_until, wait_until_value_async
+from tests.shared_cache.conftest import reason_totals, wait_for
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Buffer, Callable, Iterator
@@ -61,6 +64,7 @@ if TYPE_CHECKING:
 
     from faker import Faker
 
+    from client_query_cache import SharedOwnerSnapshot
     from client_query_cache._core.find_one_reads import CollationInput
     from client_query_cache.asynchronous import SharedCachedCollection as AsyncView
     from client_query_cache.shared import SharedCacheConnection
@@ -68,6 +72,13 @@ if TYPE_CHECKING:
     from tests.conftest import DatabaseName, MongoDbUri
 
 pytestmark = pytest.mark.integration
+
+_REPOSITORY = Path(__file__).resolve().parents[2]
+_MANY_DATABASES = 1000
+_LARGE_DOCUMENTS = 40
+_LARGE_PAYLOAD_BYTES = 40_000
+_SERVER_OPTIONS = {"directConnection": True, "serverSelectionTimeoutMS": 5000}
+_UNREACHABLE_URI = "mongodb://127.0.0.1:1"
 
 
 def _spawned_read(
@@ -324,6 +335,25 @@ async def _read(
     return view.find_one(filter_query, None, collation=collation, **kwargs)
 
 
+async def _owner_snapshot(
+    manager: SharedCacheManager[BsonDict] | AsyncSharedCacheManager[BsonDict],
+) -> SharedOwnerSnapshot | None:
+    if isinstance(manager, AsyncSharedCacheManager):
+        return await manager.owner_snapshot()
+    return manager.owner_snapshot()
+
+
+async def _answered_owner_snapshot(
+    manager: SharedCacheManager[BsonDict] | AsyncSharedCacheManager[BsonDict],
+) -> SharedOwnerSnapshot:
+    await wait_until_value_async(
+        lambda: _owner_snapshot(manager), lambda snapshot: snapshot is not None
+    )
+    snapshot = await _owner_snapshot(manager)
+    assert snapshot is not None
+    return snapshot
+
+
 async def _warm(
     manager: SharedCacheManager[BsonDict] | AsyncSharedCacheManager[BsonDict],
     view: SyncView[BsonDict] | AsyncView[BsonDict],
@@ -382,6 +412,10 @@ async def test_explicit_non_simple_collation_uses_the_driver(
     }
     assert manager.snapshot().hits == before.hits
     assert manager.snapshot().bypasses == before.bypasses + 1
+    assert (
+        reason_totals(manager.snapshot())[SharedBypassReason.SHARED_SCOPE]
+        == reason_totals(before)[SharedBypassReason.SHARED_SCOPE] + 1
+    )
 
 
 @pytest.mark.parametrize("collation", [{"locale": "simple"}, Collation("simple")])
@@ -434,7 +468,10 @@ async def test_default_identity_reads_with_a_hint_use_the_driver(
     assert await _read(view, {"_id": 0}, hint="_id_") is not None
     assert manager.snapshot().hits == before.hits
     assert manager.snapshot().bypasses == before.bypasses + 1
-    assert manager.observation.bypasses["unsupported_options"] == 1
+    assert manager.observation.bypasses[SharedBypassReason.UNSUPPORTED_OPTIONS] == 1
+    assert (
+        reason_totals(manager.snapshot())[SharedBypassReason.UNSUPPORTED_OPTIONS] == 1
+    )
 
 
 @pytest.fixture
@@ -460,7 +497,8 @@ async def test_default_identity_reads_respect_bound_sessions(
     assert await _read(bound_shared_view, {"_id": 0}) is not None
     assert manager.snapshot().hits == before.hits
     assert manager.snapshot().bypasses == before.bypasses + 1
-    assert manager.observation.bypasses["session"] == 1
+    assert manager.observation.bypasses[SharedBypassReason.SESSION] == 1
+    assert reason_totals(manager.snapshot())[SharedBypassReason.SESSION] == 1
 
 
 @dataclass(init=False)
@@ -511,7 +549,7 @@ async def test_default_identity_reads_preserve_policy_and_codec_bypasses(
     assert await _read(view, {"_id": 0}) is not None
     assert manager.snapshot().hits == before.hits
     assert manager.snapshot().bypasses == before.bypasses + 1
-    assert manager.observation.bypasses[reason.value] == 1
+    assert manager.observation.bypasses[SharedBypassReason(reason)] == 1
 
 
 async def test_default_identity_reads_refresh_collection_collation(
@@ -554,8 +592,317 @@ async def test_new_workers_read_directly_and_recover_after_owner_outage(
     assert await _read(view, {"_id": 0}) is not None
     assert time.monotonic() - started < 2
     assert manager.snapshot().hits == 0
+    assert reason_totals(manager.snapshot())[SharedBypassReason.OWNER_UNAVAILABLE] >= 1
     server.restart()
     await _warm(manager, view)
+
+
+@pytest.mark.parametrize(
+    ("database", "collection", "reason"),
+    [
+        pytest.param(
+            None,
+            "absent",
+            SharedBypassReason.MISSING_COLLECTION,
+            id="missing-collection",
+        ),
+        pytest.param(
+            "unlisted",
+            "catalogue",
+            SharedBypassReason.DATABASE_NOT_AUTHORIZED,
+            id="unlisted-database",
+        ),
+    ],
+)
+async def test_snapshot_reasons_separate_missing_collections_from_unlisted_databases(
+    manager: SharedCacheManager[BsonDict] | AsyncSharedCacheManager[BsonDict],
+    seeded_database: DatabaseName,
+    database: str | None,
+    collection: str,
+    reason: SharedBypassReason,
+) -> None:
+    await _warm(manager, manager[seeded_database]["catalogue"])
+    before = manager.snapshot()
+    view = manager[database or seeded_database][collection]
+    assert await _read(view, {"_id": 0}) is None
+    after = manager.snapshot()
+    assert after.bypasses == before.bypasses + 1
+    assert reason_totals(after)[reason] == reason_totals(before)[reason] + 1
+
+
+async def test_owner_snapshot_reports_a_serving_owner(
+    manager: SharedCacheManager[BsonDict] | AsyncSharedCacheManager[BsonDict],
+    server: SharedCacheServer,
+    seeded_database: DatabaseName,
+) -> None:
+    await _warm(manager, manager[seeded_database]["catalogue"])
+    snapshot = await _answered_owner_snapshot(manager)
+    config = server._config
+
+    assert config.shared_index is not None
+    assert manager.local is not None
+    assert snapshot.incarnation == manager.local.incarnation
+    assert snapshot.uptime_seconds > 0
+    assert [(stream.database_name, stream.status) for stream in snapshot.streams] == [
+        (seeded_database, SharedStreamStatus.HEALTHY)
+    ]
+    assert snapshot.cache_bytes.limit == config.budget_bytes
+    assert snapshot.index_entries.limit == config.shared_index.slots
+    assert snapshot.namespaces.limit == config.shared_index.namespaces
+    assert snapshot.connections.limit == config.limits.connections
+    assert snapshot.index_entries.in_use >= 1
+    assert snapshot.namespaces.in_use == 1
+    assert snapshot.connections.in_use >= 1
+    assert snapshot.evictions == snapshot.rejected_connections == 0
+    with pytest.raises(FrozenInstanceError):
+        snapshot.evictions = 1  # type: ignore[misc]
+
+
+async def test_diagnostics_expose_neither_credentials_nor_collection_names(
+    manager: SharedCacheManager[BsonDict] | AsyncSharedCacheManager[BsonDict],
+    server: SharedCacheServer,
+    seeded_database: DatabaseName,
+) -> None:
+    await _warm(manager, manager[seeded_database]["catalogue"])
+    rendered = repr(await _answered_owner_snapshot(manager)) + repr(manager.snapshot())
+    attachment = server.connection._attachment
+
+    assert attachment.capability.hex() not in rendered
+    assert attachment.socket_path not in rendered
+    assert "catalogue" not in rendered
+
+
+async def test_owner_requests_happen_only_when_diagnostics_are_requested(
+    manager: SharedCacheManager[BsonDict] | AsyncSharedCacheManager[BsonDict],
+    seeded_database: DatabaseName,
+) -> None:
+    view = manager[seeded_database]["catalogue"]
+    await _warm(manager, view)
+    requests = manager.endpoint.counters.requests
+    for _ in range(3):
+        assert await _read(view, {"_id": 0}) is not None
+        manager.snapshot()
+    assert manager.endpoint.counters.requests == requests
+
+    assert await _owner_snapshot(manager) is not None
+    assert manager.endpoint.counters.requests == requests + 1
+
+
+async def test_owner_snapshot_is_none_when_the_owner_is_gone(
+    manager: SharedCacheManager[BsonDict] | AsyncSharedCacheManager[BsonDict],
+    server: SharedCacheServer,
+) -> None:
+    assert await _answered_owner_snapshot(manager)
+    server.close()
+    assert await _owner_snapshot(manager) is None
+
+
+async def test_owner_restart_is_visible_through_incarnation_and_uptime(
+    manager: SharedCacheManager[BsonDict] | AsyncSharedCacheManager[BsonDict],
+    server: SharedCacheServer,
+    seeded_database: DatabaseName,
+) -> None:
+    await _warm(manager, manager[seeded_database]["catalogue"])
+    before = await _answered_owner_snapshot(manager)
+    taken_at = time.monotonic()
+    server.restart()
+    after = await _answered_owner_snapshot(manager)
+
+    assert after.incarnation != before.incarnation
+    assert after.uptime_seconds < time.monotonic() - taken_at
+    assert after.index_entries.in_use == 0
+    assert after.evictions == 0
+
+
+async def test_owner_snapshot_rejects_a_closed_manager(
+    manager: SharedCacheManager[BsonDict] | AsyncSharedCacheManager[BsonDict],
+) -> None:
+    if isinstance(manager, AsyncSharedCacheManager):
+        await manager.close()
+    else:
+        manager.close()
+    with pytest.raises(CacheClosedError, match="closed"):
+        await _owner_snapshot(manager)
+
+
+def test_many_configured_databases_still_fit_the_owner_reply(
+    client: MongoClient[BsonDict],
+) -> None:
+    with (
+        SharedCacheServer(
+            _UNREACHABLE_URI,
+            tuple(f"database_{index:06d}" for index in range(_MANY_DATABASES)),
+            config=SharedCacheConfig(budget_bytes=1, max_entry_bytes=1, arena_bytes=1),
+        ) as large_server,
+        SharedCacheManager(client, large_server.connection) as manager,
+    ):
+        snapshot = manager.owner_snapshot()
+
+    assert snapshot is not None
+    assert len(snapshot.streams) == _MANY_DATABASES
+
+
+def test_the_smallest_configuration_still_fits_the_owner_reply(
+    mongodb_uri: MongoDbUri, client: MongoClient[BsonDict]
+) -> None:
+    with (
+        SharedCacheServer(
+            mongodb_uri,
+            ("smallest",),
+            config=SharedCacheConfig(
+                budget_bytes=1,
+                max_entry_bytes=1,
+                arena_bytes=1,
+                slots=1,
+                namespaces=1,
+                connections=2,
+            ),
+        ) as small_server,
+        SharedCacheManager(client, small_server.connection) as small_manager,
+    ):
+        assert small_manager.owner_snapshot() is not None
+
+
+def test_budget_pressure_is_reported_as_evictions(
+    client: MongoClient[BsonDict],
+    server: SharedCacheServer,
+    seeded_database: DatabaseName,
+) -> None:
+    client[seeded_database].large.insert_many(
+        {"_id": key, "payload": "x" * _LARGE_PAYLOAD_BYTES}
+        for key in range(_LARGE_DOCUMENTS)
+    )
+    with SharedCacheManager(client, server.connection) as manager:
+        view = manager[seeded_database]["large"]
+
+        def evicted() -> bool:
+            for key in range(_LARGE_DOCUMENTS):
+                assert view.find_one({"_id": key}) is not None
+            snapshot = manager.owner_snapshot()
+            return snapshot is not None and snapshot.evictions > 0
+
+        wait_until(evicted)
+        snapshot = manager.owner_snapshot()
+
+    assert snapshot is not None
+    assert snapshot.cache_bytes.in_use <= snapshot.cache_bytes.limit
+
+
+def test_namespace_capacity_is_reported(
+    client: MongoClient[BsonDict],
+    mongodb_uri: MongoDbUri,
+    seeded_database: DatabaseName,
+) -> None:
+    client[seeded_database].second.insert_one({"_id": 0})
+    with (
+        SharedCacheServer(
+            mongodb_uri,
+            (seeded_database,),
+            config=SharedCacheConfig(namespaces=1),
+            client_options=_SERVER_OPTIONS,
+        ) as small_server,
+        SharedCacheManager(client, small_server.connection) as manager,
+    ):
+
+        def bypassed() -> bool:
+            manager[seeded_database]["catalogue"].find_one({"_id": 0})
+            manager[seeded_database]["second"].find_one({"_id": 0})
+            return (
+                reason_totals(manager.snapshot())[SharedBypassReason.NAMESPACE_CAPACITY]
+                >= 1
+            )
+
+        wait_until(bypassed)
+        snapshot = manager.owner_snapshot()
+
+    assert snapshot is not None
+    assert snapshot.namespaces.in_use == snapshot.namespaces.limit == 1
+
+
+def test_connection_capacity_is_reported(
+    client: MongoClient[BsonDict],
+    mongodb_uri: MongoDbUri,
+    seeded_database: DatabaseName,
+) -> None:
+    with (
+        SharedCacheServer(
+            mongodb_uri,
+            (seeded_database,),
+            config=SharedCacheConfig(connections=2),
+            client_options=_SERVER_OPTIONS,
+        ) as small_server,
+        SharedCacheManager(client, small_server.connection) as attached,
+        SharedCacheManager(client, small_server.connection) as refused,
+    ):
+        snapshot = attached.owner_snapshot()
+        refused_snapshot = refused.owner_snapshot()
+
+    assert snapshot is not None
+    assert snapshot.connections.in_use == snapshot.connections.limit == 2
+    assert snapshot.rejected_connections >= 1
+    assert refused_snapshot is None
+
+
+def test_failed_stream_startup_is_reported(
+    client: MongoClient[BsonDict], seeded_database: DatabaseName
+) -> None:
+    with (
+        SharedCacheServer(
+            _UNREACHABLE_URI,
+            (seeded_database,),
+            client_options={"serverSelectionTimeoutMS": 200},
+        ) as broken,
+        SharedCacheManager(client, broken.connection) as manager,
+    ):
+
+        def failed() -> bool:
+            manager[seeded_database]["catalogue"].find_one({"_id": 0})
+            snapshot = manager.owner_snapshot()
+            return (
+                snapshot is not None
+                and snapshot.streams[0].status is SharedStreamStatus.STARTUP_FAILED
+            )
+
+        wait_until(failed)
+        assert (
+            reason_totals(manager.snapshot())[SharedBypassReason.STREAM_STARTING] >= 1
+        )
+
+
+def test_documented_health_check_runs_as_written(
+    sync_attached: SharedCacheManager[BsonDict],
+    server: SharedCacheServer,
+    seeded_database: DatabaseName,
+    tmp_path: Path,
+) -> None:
+    guide = (_REPOSITORY / "docs/user/operations/monitoring.md").read_text()
+    header = "def shared_cache_health"
+    snippet = header + guide.split(f"```python\n{header}", 1)[1].split("```", 1)[0]
+    module_path = tmp_path / "documented_health_check.py"
+    module_path.write_text(snippet)
+    specification = importlib.util.spec_from_file_location(
+        "documented_health_check", module_path
+    )
+    assert specification is not None
+    assert specification.loader is not None
+    documented = importlib.util.module_from_spec(specification)
+    specification.loader.exec_module(documented)
+    view = sync_attached[seeded_database]["catalogue"]
+
+    def serving() -> bool:
+        view.find_one({"_id": 0})
+        report = documented.shared_cache_health(sync_attached)
+        return bool(
+            "streams" in report and report["streams"] == {seeded_database: "healthy"}
+        )
+
+    wait_until(serving)
+    server.close()
+
+    assert documented.shared_cache_health(sync_attached) == {
+        "owner": "no answer",
+        "bypasses": sync_attached.snapshot().bypasses,
+    }
 
 
 async def test_public_find_bypasses_and_close_preserves_client(
