@@ -13,6 +13,8 @@ bodies or OpenSpec. An empty Unreleased section is valid.
 
 ## Unreleased
 
+## [0.13.0] - 2026-11-06
+
 ### Breaking changes
 
 - `SharedCacheStatistics.bypasses` no longer includes oversized results, which `oversized_bypasses` now reports separately, matching `CacheSnapshot`. Constructing `SharedCacheStatistics` now requires `oversized_bypasses` and `bypass_reasons`.
