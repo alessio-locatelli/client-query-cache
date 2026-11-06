@@ -39,7 +39,7 @@ Alternatives:
 
 ### D3. Worker reasons: a dedicated enum, one spelling, normalized at the source
 
-Add `SharedBypassReason` (a `StrEnum`) and `SharedBypassReasonCount`, ordered like `BypassReasonCount`. Its members are the ordinary reasons a shared manager can record: the `BypassReason` members that shared reads reach, plus `unportable_key`, `shared_scope`, `metadata_refresh`, `owner_unavailable`, `database_not_authorized`, `stream_starting` and `progress_expired`. Spellings use underscores everywhere. Module constants in the adapter and the owner's gate strings take their values from the enum, so the raw dict key, wire reason and public value are the same string and the snapshot maps keys with a dict lookup, falling back to `unspecified` on `KeyError`. The hit path and `record_bypass` are unchanged.
+Add `SharedBypassReason` (a `StrEnum`) and `SharedBypassReasonCount`, ordered like `BypassReasonCount`. Its members are the ordinary reasons a shared manager can record: the `BypassReason` members that shared reads reach, plus `unportable_key`, `shared_scope`, `metadata_refresh`, `owner_unavailable`, `database_not_authorized`, `stream_starting` and `progress_expired`. Spellings use underscores everywhere. Module constants in the adapter and the owner's gate strings take their values from the enum, so the raw dict key, wire reason and public value are the same string. Recording looks the reason up in a by-value table and counts anything unknown as `unspecified`, so storage stays bounded whatever the owner sends; oversized results have their own counter. The hit path is unchanged.
 
 Aligning `bypasses` with `CacheSnapshot` corrects an undocumented divergence and lets the OpenTelemetry bridge treat both manager kinds identically. The snapshot copies the raw dict with `dict.copy()` before summing; the copy runs in C and cannot raise during a concurrent insert, whereas iterating the live dict could.
 
@@ -47,7 +47,7 @@ Alternatives:
 
 - Extend `BypassReason`: no second enum, but process-local snapshots and their `by_reason` metric would gain seven permanently zero series, changing existing output for users who cannot hit them. Rejected.
 - Build the enum dynamically from `BypassReason`: no duplicated names, but type checkers cannot see dynamic members. Rejected; a test asserts every shared-reachable `BypassReason` value is present.
-- Translate reasons when recording: removes spelling drift risk but adds a lookup to every bypass. Unnecessary once spellings agree.
+- Normalize unknown strings only when building the snapshot: free on the bypass path, but owner-supplied strings would still accumulate as raw keys. Rejected; one dictionary lookup per bypass is negligible next to the bypass itself.
 
 ### D4. Owner snapshot content is limited to actionable fields
 
@@ -90,7 +90,7 @@ Hits and misses add no work. Bypass recording is unchanged. `snapshot()` is O(re
 
 - [Reason spelling change breaks tests or hidden consumers of the raw strings] → The strings are private; update the tests that pin them.
 - [Aligning `bypasses` changes a shipped number] → Document it in the changelog; the previous value mixed two meanings.
-- [A reply larger than the frame limit would look like an outage] → `max_entry_bytes` plus 65,536 bytes dwarfs the reply; a test with the smallest valid configuration pins this.
+- [A reply larger than the frame limit would look like an outage and detach the connection] → The reply grows with the configured databases, so the server adds a per-database allowance for each configured name to the frame overhead; a test with the smallest valid entry limit and a thousand databases pins this.
 - [`healthy` is read as "caught up"] → The monitoring guide states the limit once and the shared guides link to it.
 - [Owner `observe` calls inflate its `requests` counter] → Accepted; the counter is not exposed publicly.
 
