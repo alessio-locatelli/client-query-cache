@@ -4,6 +4,7 @@
 [![Supported Python versions](https://img.shields.io/pypi/pyversions/client-query-cache)](https://alessio-locatelli.github.io/client-query-cache/getting-started/installation/)
 [![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen)](https://github.com/alessio-locatelli/client-query-cache/actions/workflows/test.yml)
 [![Typing](https://img.shields.io/pypi/types/client-query-cache)](https://pypi.org/project/client-query-cache/)
+[![SLSA Build Level 2](https://slsa.dev/images/gh-badge-level2.svg)](https://alessio-locatelli.github.io/client-query-cache/getting-started/installation/#verify-release-provenance)
 
 **Speed up read-heavy, high-throughput Python applications.** `client-query-cache` serves eligible repeated PyMongo reads from memory, reducing read latency and avoiding MongoDB round trips on cache hits.
 
