@@ -20,12 +20,20 @@ from annotated_types import Ge, Le
 from client_query_cache._core.errors import CacheClosedError, CacheConfigurationError
 from client_query_cache._core.manager import CacheCoreConfig
 from client_query_cache._core.stream_cost import DEFAULT_LAG_CAPTURE_WINDOW_CONFIG
-from client_query_cache._shared.adapters import SharedCacheStatistics
 from client_query_cache._shared.attachment import AttachmentConfig
 from client_query_cache._shared.coordinator import (
     OwnerConfig,
     SharedCacheOwner,
     TransportLimits,
+)
+from client_query_cache._shared.diagnostics import (
+    SharedBypassReason,
+    SharedBypassReasonCount,
+    SharedCacheStatistics,
+    SharedCapacityUsage,
+    SharedDatabaseHealth,
+    SharedOwnerSnapshot,
+    SharedStreamStatus,
 )
 from client_query_cache._shared.shared_index import SharedIndexLimits
 from client_query_cache._types import PositiveInt
@@ -36,10 +44,16 @@ if TYPE_CHECKING:
     from multiprocessing.process import BaseProcess
 
 __all__ = [
+    "SharedBypassReason",
+    "SharedBypassReasonCount",
     "SharedCacheConfig",
     "SharedCacheConnection",
     "SharedCacheServer",
     "SharedCacheStatistics",
+    "SharedCapacityUsage",
+    "SharedDatabaseHealth",
+    "SharedOwnerSnapshot",
+    "SharedStreamStatus",
 ]
 
 _SERVERS: weakref.WeakSet[SharedCacheServer] = weakref.WeakSet()
@@ -47,6 +61,8 @@ _LOGGER = logging.getLogger(__name__)
 _MAX_NAMESPACES = (1 << 32) - 1
 _MAX_ARENA_BYTES = _MAX_NAMESPACES * 8
 _MAX_SLOTS = 1 << ((sys.maxsize // 64).bit_length() - 1)
+_FRAME_OVERHEAD_BYTES = 65_536
+_DATABASE_OBSERVATION_BYTES = 128
 
 
 def _detach_servers_after_fork() -> (
@@ -177,15 +193,18 @@ class SharedCacheServer:
         self._directory_cleanup = weakref.finalize(self, shutil.rmtree, self._directory)
         _SERVERS.add(self)
         path = str(self._directory / "owner.sock")
+        frame_overhead_bytes = _FRAME_OVERHEAD_BYTES + sum(
+            _DATABASE_OBSERVATION_BYTES + len(name.encode()) for name in databases
+        )
         limits = TransportLimits(
             rpc_deadline_seconds=0.25,
             progress_expiry_seconds=3.0,
-            queued_bytes_per_connection=config.max_entry_bytes + 65_536,
+            queued_bytes_per_connection=config.max_entry_bytes + frame_overhead_bytes,
             requests_per_connection=256,
             connections=config.connections,
             captures=4096,
             capture_seconds=30.0,
-            frame_overhead_bytes=65_536,
+            frame_overhead_bytes=frame_overhead_bytes,
         )
         self._config = OwnerConfig(
             socket_path=path,

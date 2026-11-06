@@ -1,6 +1,6 @@
 # Monitoring
 
-Choose diagnostics for the manager you use. Process-local `CacheManager` exposes capacity, detailed bypass reasons and stream health. `SharedCacheManager` exposes only worker-local outcome totals; see [shared diagnostics](#shared-manager-diagnostics).
+Choose diagnostics for the manager you use. Process-local `CacheManager` exposes capacity, detailed bypass reasons and stream health. `SharedCacheManager` separates worker-local statistics from an on-demand owner snapshot; see [shared diagnostics](#shared-manager-diagnostics).
 
 Measure hit rate alongside request latency, application and MongoDB CPU, and memory. A healthy stream does not mean a writer's latest event has arrived; see [consistency](../usage/consistency.md).
 
@@ -94,13 +94,90 @@ using `manager.cache_core`, including the `cache_core=` keyword, are supported.
 
 ## Shared manager diagnostics
 
+A shared manager reports two scopes that differ in lifetime, collection time and failure mode:
+
 ```python
-counts = manager.snapshot()  # SharedCacheStatistics; synchronous in both APIs.
-print(counts.hits, counts.misses, counts.bypasses)
+# Local and synchronous in both APIs: returns SharedCacheStatistics.
+statistics = manager.snapshot()
+# One owner request: returns SharedOwnerSnapshot or None.
+owner = manager.owner_snapshot()
+# With the asyncio manager: owner = await manager.owner_snapshot()
 ```
 
-These cumulative totals belong to this worker's manager. They do not aggregate other workers or report owner capacity, entry count, bypass reasons, stream health or invalidation lag. `register_cache_metrics` requires the process-local statistics interface and does not support shared managers. Export the three counters through your application's telemetry if needed, identifying workers and handling restarts as counter resets.
+`snapshot()` reads this worker's counters and never contacts the owner. `owner_snapshot()` sends one request to the owner each time you call it and nothing else polls the owner. Call it from a health or debug endpoint, not on every read. A synchronous call blocks its thread for at most the owner request deadline of 250 ms plus one connection attempt; the asyncio call blocks nothing. A closed manager raises `CacheClosedError`.
 
-To investigate low reuse, check the [shared query scope](../reference/shared-cache.md#worker-managers-and-reads), owner logs and liveness, worker plus owner memory, and configured capacities. Returning a document alone is not proof of a hit. The [shared web self-check](../examples/fastapi-shared.md) combines worker snapshots with actual MongoDB command counts to verify reuse across processes.
+### Worker statistics
+
+`SharedCacheStatistics` holds cumulative `hits`, `misses`, ordinary `bypasses` and `oversized_bypasses` for this manager only. Workers are not aggregated, and a restarted worker starts from zero. `bypass_reasons` lists every `SharedBypassReason` once, in enum order and including zeros; the counts sum to `bypasses`. Oversized results are counted separately, as with the process-local manager. The reasons also used by process-local managers keep the meanings in the [table above](#bypass-reasons-and-stream-health). The rest are specific to shared managers:
+
+| Reason                    | Meaning                                                                                                                                                |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `unportable_key`          | The request cannot be encoded as a key shared between workers; see the [shared read contract](../reference/shared-cache.md#worker-managers-and-reads). |
+| `shared_scope`            | The read or the collection uses a non-simple collation, which shared caching does not support.                                                         |
+| `database_not_authorized` | The database is not in the server's `databases`. Add it, or expect these reads to bypass.                                                              |
+| `stream_starting`         | The owner has not yet started the database's stream, or startup failed. Check that database's [owner status](#owner-snapshot).                         |
+| `stream_unavailable`      | The owner's stream for the database is not available, for example while reconnecting.                                                                  |
+| `progress_expired`        | The stream made no upstream progress for three seconds, so hits are disabled until it does.                                                            |
+| `namespace_capacity`      | Every `namespaces` slot is taken. Raise `namespaces` or reduce collection churn.                                                                       |
+| `metadata_refresh`        | The worker's collection metadata was stale and refreshed. Occasional occurrences are normal, for example after a collection change.                    |
+| `owner_unavailable`       | The owner did not answer: an outage, a restart, a retry cooldown or an exhausted connection limit.                                                     |
+
+### Owner snapshot
+
+`owner_snapshot()` returns `None` when the owner does not answer within its deadline. This covers a stopped or restarting owner, the short retry cooldown after a failed request and an exhausted connection limit. It never returns zeros in place of an answer, so treat `None` as "no answer from this attempt" and ask again. A returned `SharedOwnerSnapshot` describes the owner at the moment it answered:
+
+- `incarnation` is an opaque integer that identifies one owner process. Compare it for equality only. `uptime_seconds` is the owner's age. A restarted owner has a new incarnation, a small uptime, an empty cache and counters that start from zero, so an empty snapshot after a restart is a fresh cache, not a healthy idle one.
+- `cache_bytes`, `index_entries`, `namespaces` and `connections` are `SharedCapacityUsage(in_use, limit)` pairs. Their limits are `budget_bytes`, `slots`, `namespaces` and `connections` from [`SharedCacheConfig`](../reference/shared-cache.md#configuration). `evictions` and `rejected_connections` count events since the owner started.
+- `streams` has one `SharedDatabaseHealth` per configured database with a `SharedStreamStatus`.
+
+| Stream status      | Meaning                                                                              | Worker reads count             |
+| ------------------ | ------------------------------------------------------------------------------------ | ------------------------------ |
+| `not_started`      | No read has touched the database since the owner started.                            | `stream_starting` on first use |
+| `starting`         | The stream is being opened.                                                          | `stream_starting`              |
+| `startup_failed`   | The last attempt failed. Check owner logs and MongoDB access; the next read retries. | `stream_starting`              |
+| `unavailable`      | The stream was established and is currently broken or reconnecting.                  | `stream_unavailable`           |
+| `progress_expired` | The stream is available but made no upstream progress within three seconds.          | `progress_expired`             |
+| `healthy`          | The stream is available and recently made progress.                                  | hits are possible              |
+
+`healthy` reports stream operation. It does not guarantee that an independent writer's latest change has been processed; see [consistency](../usage/consistency.md).
+
+### Interpreting the diagnostics
+
+| Observation                                                                                                      | Likely cause and action                                                                                                                                          |
+| ---------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Rising `session`, `unsupported_options`, `shared_scope` or `unportable_key`                                      | The application's reads are ineligible. Change the reads, not the cache; see the [shared read contract](../reference/shared-cache.md#worker-managers-and-reads). |
+| Rising `database_not_authorized`                                                                                 | A database is missing from the server's `databases`.                                                                                                             |
+| Rising `namespace_capacity`; `namespaces` at its limit                                                           | Raise `namespaces`.                                                                                                                                              |
+| Rising `owner_unavailable`; `owner_snapshot()` is `None` for every worker                                        | The owner is down or restarting. Check the parent process and owner logs; see [recovery](shared-cache.md#consistency-and-recovery).                              |
+| Rising `owner_unavailable`; a snapshot answers with `connections` at its limit and `rejected_connections` rising | Raise `connections` or reduce connections per worker.                                                                                                            |
+| Hit rate dropped and `incarnation` changed or `uptime_seconds` is small                                          | The owner restarted and its cache is warming again. Counters from before the restart are gone.                                                                   |
+| `evictions` rising with `cache_bytes` near its limit                                                             | The budget is too small for the working set. Raise `budget_bytes`, or lower per-entry size.                                                                      |
+| `index_entries` near its limit while `cache_bytes` has headroom                                                  | The index is full. Raise `slots`.                                                                                                                                |
+| Rising `stream_starting` with `startup_failed`                                                                   | The owner cannot open the stream. Check MongoDB reachability and permissions.                                                                                    |
+| Rising `progress_expired` with `progress_expired` status                                                         | The owner's stream stalled. Check owner load and MongoDB health.                                                                                                 |
+
+A worker-health endpoint can combine both scopes:
+
+```python
+def shared_cache_health(manager):
+    statistics = manager.snapshot()
+    owner = manager.owner_snapshot()
+    if owner is None:
+        return {"owner": "no answer", "bypasses": statistics.bypasses}
+    return {
+        "owner": str(owner.incarnation),
+        "uptime_seconds": owner.uptime_seconds,
+        "streams": {s.database_name: s.status.value for s in owner.streams},
+        "cache_bytes": [owner.cache_bytes.in_use, owner.cache_bytes.limit],
+    }
+```
+
+The [shared web self-check](../examples/fastapi-shared.md) serves these diagnostics from real workers and combines worker snapshots with actual MongoDB command counts to verify reuse across processes.
+
+### Telemetry
+
+`register_cache_metrics(meter, manager)` accepts shared managers and exports only the worker's `hits`, `misses`, ordinary bypasses, oversized bypasses and per-reason bypasses under the [instrument names above](#opentelemetry-metrics), using the `SharedBypassReason` values for `cache.bypass.reason`. Values are cumulative for one worker, so give each worker's telemetry its own resource identity and treat a restart as a counter reset. Capacity, entry, resident-byte and stream instruments are not registered for shared managers, and collection never contacts the owner. Owner-scope metrics are tracked in [#424](https://github.com/alessio-locatelli/client-query-cache/issues/424).
+
+To investigate low reuse, work through the reasons first, then the [shared query scope](../reference/shared-cache.md#worker-managers-and-reads), owner logs and liveness, worker plus owner memory, and configured capacities. Returning a document alone is not proof of a hit.
 
 Monitor the parent as well as workers: losing it stops the owner. Temporary owner outages can leave HTTP requests succeeding through direct reads while cache hit rates fall. Persistent access, credential and protocol errors remain visible failures; see [shared recovery](shared-cache.md#consistency-and-recovery).

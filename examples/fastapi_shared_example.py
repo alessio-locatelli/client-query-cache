@@ -79,6 +79,18 @@ class Observation(WorkerIdentity):
     database_reads: NonNegativeInt
 
 
+class OwnerDiagnostics(BaseModel):
+    incarnation: int
+    streams: dict[NonEmptyStr, NonEmptyStr]
+    cache_bytes: NonNegativeInt
+    connections: NonNegativeInt
+
+
+class Diagnostics(WorkerIdentity):
+    bypass_reasons: dict[NonEmptyStr, NonNegativeInt]
+    owner: OwnerDiagnostics | None
+
+
 class DatabaseReads(CommandListener):
     """Count actual find commands without retaining queries or credentials."""
 
@@ -137,6 +149,7 @@ def create_app(connection: SharedCacheConnection) -> FastAPI:
 
     app = FastAPI(lifespan=lifespan)
     app.get("/health")(health)
+    app.get("/diagnostics")(diagnostics)
     app.get("/products/{product_id}")(read_product)
     app.patch("/products/{product_id}")(update_product)
     return app
@@ -146,14 +159,43 @@ def health() -> WorkerIdentity:
     return WorkerIdentity(pid=os.getpid())
 
 
+def require_targeted_worker(worker_pid: PositiveInt | None) -> None:
+    # Targeting is only for the demonstration: a rejected worker performs no read.
+    if worker_pid is not None and worker_pid != os.getpid():
+        raise HTTPException(status_code=409, detail="Try another worker")
+
+
+async def diagnostics(
+    request: Request, worker_pid: PositiveInt | None = None
+) -> Diagnostics:
+    require_targeted_worker(worker_pid)
+    manager = resources(request).manager
+    statistics = manager.snapshot()
+    owner = await manager.owner_snapshot()
+    return Diagnostics(
+        pid=os.getpid(),
+        bypass_reasons={
+            count.reason.value: count.count
+            for count in statistics.bypass_reasons
+            if count.count
+        },
+        owner=None
+        if owner is None
+        else OwnerDiagnostics(
+            incarnation=owner.incarnation,
+            streams={stream.database_name: stream.status for stream in owner.streams},
+            cache_bytes=owner.cache_bytes.in_use,
+            connections=owner.connections.in_use,
+        ),
+    )
+
+
 async def read_product(
     product_id: NonEmptyStr,
     request: Request,
     worker_pid: PositiveInt | None = None,
 ) -> Observation:
-    # Targeting is only for the demonstration: a rejected worker performs no read.
-    if worker_pid is not None and worker_pid != os.getpid():
-        raise HTTPException(status_code=409, detail="Try another worker")
+    require_targeted_worker(worker_pid)
     owned = resources(request)
     product = await owned.cached.find_one({"_id": product_id, "tenant_id": "demo"})
     if product is None:
@@ -255,6 +297,21 @@ def wait_for_hit(
     raise AssertionError(message)
 
 
+def worker_diagnostics(port: PositiveInt, pid: PositiveInt) -> Diagnostics:
+    deadline = monotonic() + 15
+    while monotonic() < deadline:
+        try:
+            return Diagnostics.model_validate_json(
+                response_body(port, f"/diagnostics?worker_pid={pid}")
+            )
+        except urllib.error.HTTPError as error:
+            if error.code != 409:
+                raise
+        sleep(0.01)
+    message = f"No request reached worker {pid}"
+    raise AssertionError(message)
+
+
 def worker_pids(port: PositiveInt) -> tuple[PositiveInt, PositiveInt]:
     pids: set[PositiveInt] = set()
     deadline = monotonic() + 30
@@ -344,6 +401,26 @@ def verify(port: PositiveInt) -> None:
         message="Invalidation must force a MongoDB refetch",
     )
     print("invalidation: both workers hit the updated document after a raw PATCH")
+
+    reports = tuple(worker_diagnostics(port, pid) for pid in (first_pid, second_pid))
+    owners = [report.owner for report in reports]
+    require(
+        condition=all(
+            owner is not None
+            and set(owner.streams.values()) == {"healthy"}
+            and owner.cache_bytes > 0
+            for owner in owners
+        ),
+        message="Both workers must see a healthy stream and a populated cache",
+    )
+    require(
+        condition=len({owner.incarnation for owner in owners if owner}) == 1,
+        message="Both workers must report the same owner incarnation",
+    )
+    print(
+        "diagnostics: both workers report one owner with a healthy stream "
+        f"and bypass reasons {[report.bypass_reasons for report in reports]}"
+    )
 
 
 def self_check() -> None:

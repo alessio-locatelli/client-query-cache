@@ -29,7 +29,7 @@ from client_query_cache._shared.attachment import (
 )
 from client_query_cache._shared.coordinator import OwnerConfig, TransportLimits
 from client_query_cache._shared.wire import encode_key
-from client_query_cache._types import BsonDict
+from client_query_cache._types import BsonDict, NonNegativeInt
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Callable, Iterator
@@ -39,6 +39,10 @@ if TYPE_CHECKING:
     from client_query_cache._shared.attachment import (
         AttachmentConfig,
         Message,
+    )
+    from client_query_cache._shared.diagnostics import (
+        SharedBypassReason,
+        SharedCacheStatistics,
     )
     from client_query_cache._shared.shared_index import SharedIndexLimits
     from tests.conftest import DatabaseName, MongoDbUri
@@ -124,6 +128,12 @@ def wait_for(predicate: Callable[[], bool], timeout: float = 10.0) -> None:
     while not predicate():
         assert time.monotonic() < deadline, "condition was not reached in time"
         time.sleep(0.02)
+
+
+def reason_totals(
+    statistics: SharedCacheStatistics,
+) -> dict[SharedBypassReason, NonNegativeInt]:
+    return {count.reason: count.count for count in statistics.bypass_reasons}
 
 
 def ready(manager: SharedCacheManager[BsonDict], database: str) -> None:

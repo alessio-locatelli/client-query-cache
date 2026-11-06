@@ -29,6 +29,10 @@ from client_query_cache._core.keys import NamespaceId
 from client_query_cache._core.manager import DEFAULT_MAX_NAMESPACES, CacheCoreConfig
 from client_query_cache._core.snapshots import BypassReason
 from client_query_cache._core.stream_cost import LagCaptureWindowConfig
+from client_query_cache._shared.diagnostics import (
+    SharedBypassReason,
+    SharedStreamStatus,
+)
 from client_query_cache._shared.wire import (
     LENGTH_BYTES,
     PROTOCOL_VERSION,
@@ -257,6 +261,7 @@ class SharedCacheOwner:
         "_paused_until",
         "_rings",
         "_selector",
+        "_started",
         "client",
         "config",
         "core",
@@ -325,6 +330,7 @@ class SharedCacheOwner:
         self._listener: socket.socket | None = None
         self._lock_file: TextIO | None = None
         self._paused_until = 0.0
+        self._started = time.monotonic()
 
     def _publish_progress(self, database: str) -> None:
         assert self._index is not None
@@ -401,13 +407,13 @@ class SharedCacheOwner:
 
     def _gate(self, database: str, now: NonNegativeFloat) -> str | None:
         if database not in self.config.databases:
-            return "database-not-authorized"
+            return SharedBypassReason.DATABASE_NOT_AUTHORIZED.value
         if self._activate(database, now) != "active":
-            return "stream-starting"
+            return SharedBypassReason.STREAM_STARTING.value
         if not self.core.is_database_available(database):
-            return "stream-unavailable"
+            return SharedBypassReason.STREAM_UNAVAILABLE.value
         if not self.lease_fresh(database, now):
-            return "progress-expired"
+            return SharedBypassReason.PROGRESS_EXPIRED.value
         return None
 
     def _new_handle(
@@ -504,7 +510,10 @@ class SharedCacheOwner:
                 self.counters.refreshes += 1
                 return {"r": "refresh", "epoch": 0, "index_generation": 0}
             self.counters.bypasses += 1
-            return {"r": "bypass", "reason": "namespace_capacity"}
+            return {
+                "r": "bypass",
+                "reason": SharedBypassReason.NAMESPACE_CAPACITY.value,
+            }
         current, index_generation = metadata
         if epoch != current:
             self.counters.refreshes += 1
@@ -579,7 +588,7 @@ class SharedCacheOwner:
                 if probe_token is None:
                     self.counters.bypasses += 1
                     reason = (
-                        "namespace_capacity"
+                        SharedBypassReason.NAMESPACE_CAPACITY.value
                         if not self.core.can_register_namespace(namespace)
                         else BypassReason.METADATA_UNAVAILABLE.value
                     )
@@ -816,12 +825,41 @@ class SharedCacheOwner:
         else:
             self.counters.rejected_admissions += 1
 
+    def _stream_status(
+        self, database: str, now: NonNegativeFloat
+    ) -> SharedStreamStatus:
+        with self._activation_lock:
+            try:
+                state, _since = self._activation[database]
+            except KeyError:
+                return SharedStreamStatus.NOT_STARTED
+        if state == "pending":
+            return SharedStreamStatus.STARTING
+        if state == "failed":
+            return SharedStreamStatus.STARTUP_FAILED
+        if not self.core.is_database_available(database):
+            return SharedStreamStatus.UNAVAILABLE
+        if not self.lease_fresh(database, now):
+            return SharedStreamStatus.PROGRESS_EXPIRED
+        return SharedStreamStatus.HEALTHY
+
     def observation(self, now: NonNegativeFloat) -> Message:
         snapshot = self.core.snapshot()
+        shared_index = self.config.shared_index
         return {
             "scope": "group",
             "incarnation": self.incarnation,
             "observed_monotonic": now,
+            "uptime_seconds": now - self._started,
+            "limits": {
+                "index_entries": None if shared_index is None else shared_index.slots,
+                "namespaces": self.core.max_namespaces,
+                "connections": self.config.limits.connections,
+            },
+            "namespaces": sum(
+                len(self.core.namespaces_for_database(database))
+                for database in self.config.databases
+            ),
             "cache": {
                 "used_bytes": snapshot.used_bytes,
                 "entry_count": snapshot.entry_count,
@@ -839,6 +877,7 @@ class SharedCacheOwner:
                     "available_since": None
                     if self._index is None
                     else self.core.available_since(database),
+                    "status": self._stream_status(database, now).value,
                 }
                 for database in self.config.databases
             },

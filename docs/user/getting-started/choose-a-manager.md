@@ -13,7 +13,7 @@ Both offer synchronous and asyncio versions. Import the synchronous manager from
 | Platform          | [Package requirements](installation.md#requirements)                                                | [Additional shared-host requirements](installation.md#requirements)                                                  |
 | Performance       | No owner process; workers warm and store data independently                                         | Avoids duplicate document storage and streams; owner startup, memory and miss handling add costs                     |
 | Lifecycle         | Close manager before its client                                                                     | Close worker managers before clients, stop workers, then close server                                                |
-| Diagnostics       | [Detailed cache and stream diagnostics](../operations/monitoring.md#observability)                  | [Worker counters](../operations/monitoring.md#shared-manager-diagnostics)                                            |
+| Diagnostics       | [Detailed cache and stream diagnostics](../operations/monitoring.md#observability)                  | [Worker statistics and owner snapshot](../operations/monitoring.md#shared-manager-diagnostics)                       |
 
 For example, `find_one({"_id": order_id, "tenant_id": tenant_id})` can share a tenant-filtered order across workers, and `find({"status": "active"}).sort("_id").limit(20)` can share a page. Never remove an authorization predicate to obtain a cache hit.
 

@@ -1,5 +1,8 @@
 import pytest
 
+import client_query_cache
+import client_query_cache.asynchronous
+import client_query_cache.synchronous
 from client_query_cache import CachedCollection, CachedDatabase, CacheManager
 from client_query_cache.asynchronous import (
     CachedCollection as AsyncCachedCollection,
@@ -69,3 +72,24 @@ def test_manager_no_longer_offers_the_former_cached_accessor(
     manager_cls: type,
 ) -> None:
     assert not hasattr(manager_cls, "cached")
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "SharedBypassReason",
+        "SharedBypassReasonCount",
+        "SharedCacheStatistics",
+        "SharedCapacityUsage",
+        "SharedDatabaseHealth",
+        "SharedOwnerSnapshot",
+        "SharedStreamStatus",
+    ],
+)
+def test_shared_diagnostic_types_are_exported_by_every_public_package(
+    name: str,
+) -> None:
+    exported = getattr(client_query_cache, name)
+    assert getattr(client_query_cache.synchronous, name) is exported
+    assert getattr(client_query_cache.asynchronous, name) is exported
+    assert name in client_query_cache.__all__

@@ -422,7 +422,7 @@ async def test_oversized_results_are_delivered_without_admission(
     for _ in range(2):
         assert await _execute(oversized_view, method, {}) == expected
     assert oversized_view._shared.snapshot().misses == before.misses + 2
-    assert oversized_view._shared.observation.bypasses["oversized"] == 2
+    assert oversized_view._shared.observation.oversized == 2
 
 
 @pytest.mark.parametrize("method", ["find", "aggregate"])

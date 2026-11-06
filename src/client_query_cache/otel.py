@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 try:
     from opentelemetry.metrics import Observation
@@ -17,6 +17,10 @@ from client_query_cache._core.stream_cost import (
     INVALIDATION_LAG_CLOCK_SKEW_LIMITATION,
     RESIDENT_BYTES_SCOPE,
 )
+from client_query_cache._shared.adapters import (
+    AsyncSharedCacheManager,
+    SharedCacheManager,
+)
 from client_query_cache._types import Probability
 
 if TYPE_CHECKING:
@@ -29,6 +33,9 @@ if TYPE_CHECKING:
 __all__ = ["register_cache_metrics"]
 
 _DB_NAMESPACE_ATTRIBUTE = "db.namespace"
+
+type SharedStatisticsSource = SharedCacheManager[Any] | AsyncSharedCacheManager[Any]
+type CounterSource = StatisticsSource | SharedStatisticsSource
 
 _CACHE_COUNTER_FIELDS: tuple[tuple[str, str, str], ...] = (
     ("client_query_cache.cache.hits", "hits", "Cumulative cache hits."),
@@ -48,6 +55,10 @@ _CACHE_COUNTER_FIELDS: tuple[tuple[str, str, str], ...] = (
         "oversized_bypasses",
         "Cumulative cache bypasses caused by a result exceeding the max entry size.",
     ),
+)
+
+_WORKER_COUNTER_FIELDS = tuple(
+    counter for counter in _CACHE_COUNTER_FIELDS if counter[1] != "evictions"
 )
 
 _STREAM_COUNTER_FIELDS: tuple[tuple[str, str, str, str], ...] = (
@@ -84,7 +95,7 @@ def _percentile(sorted_samples: tuple[float, ...], percentile: Probability) -> f
 
 
 def _make_cache_counter_callback(
-    cache_core: StatisticsSource, field: str
+    cache_core: CounterSource, field: str
 ) -> Callable[[CallbackOptions], Iterable[Observation]]:
     def callback(_options: CallbackOptions) -> Iterable[Observation]:
         yield Observation(getattr(cache_core.snapshot(), field))
@@ -93,7 +104,7 @@ def _make_cache_counter_callback(
 
 
 def _make_bypass_reason_callback(
-    cache_core: StatisticsSource,
+    cache_core: CounterSource,
 ) -> Callable[[CallbackOptions], Iterable[Observation]]:
     def callback(_options: CallbackOptions) -> Iterable[Observation]:
         for record in cache_core.snapshot().bypass_reasons:
@@ -104,8 +115,12 @@ def _make_bypass_reason_callback(
     return callback
 
 
-def _register_cache_counters(meter: Meter, cache_core: StatisticsSource) -> None:
-    for name, field, description in _CACHE_COUNTER_FIELDS:
+def _register_cache_counters(
+    meter: Meter,
+    cache_core: CounterSource,
+    fields: tuple[tuple[str, str, str], ...],
+) -> None:
+    for name, field, description in fields:
         meter.create_observable_counter(
             name,
             callbacks=[_make_cache_counter_callback(cache_core, field)],
@@ -206,14 +221,7 @@ def _validate_lag_percentiles(lag_percentiles: tuple[float, ...]) -> None:
             raise CacheConfigurationError(message)
 
 
-def register_cache_metrics(
-    meter: Meter,
-    cache_core: StatisticsSource,
-    *,
-    lag_percentiles: tuple[Probability, ...] = (0.5, 0.95, 1.0),
-) -> None:
-    _validate_lag_percentiles(lag_percentiles)
-    _register_cache_counters(meter, cache_core)
+def _register_bypass_reasons(meter: Meter, cache_core: CounterSource) -> None:
     meter.create_observable_counter(
         "client_query_cache.cache.bypasses.by_reason",
         callbacks=[_make_bypass_reason_callback(cache_core)],
@@ -222,6 +230,21 @@ def register_cache_metrics(
             "Cumulative ordinary cache bypass recording events by fixed reason."
         ),
     )
+
+
+def register_cache_metrics(
+    meter: Meter,
+    cache_core: StatisticsSource | SharedStatisticsSource,
+    *,
+    lag_percentiles: tuple[Probability, ...] = (0.5, 0.95, 1.0),
+) -> None:
+    _validate_lag_percentiles(lag_percentiles)
+    if isinstance(cache_core, (SharedCacheManager, AsyncSharedCacheManager)):
+        _register_cache_counters(meter, cache_core, _WORKER_COUNTER_FIELDS)
+        _register_bypass_reasons(meter, cache_core)
+        return
+    _register_cache_counters(meter, cache_core, _CACHE_COUNTER_FIELDS)
+    _register_bypass_reasons(meter, cache_core)
     _register_cache_gauges(meter, cache_core)
     _register_stream_counters(meter, cache_core)
     _register_lag_gauges(meter, cache_core, lag_percentiles)
