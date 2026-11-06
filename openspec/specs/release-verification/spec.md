@@ -27,12 +27,17 @@ The repository SHALL build source and wheel distributions, install each artifact
 
 ### Requirement: Release verification does not publish
 
-The release workflow SHALL validate artifacts without uploading packages, using publishing credentials, or assuming registry ownership. A future publishing workflow SHALL require a separately approved change.
+The release workflow SHALL validate artifacts without uploading packages, creating provenance attestations, using publishing credentials, or assuming registry ownership.
 
 #### Scenario: Release verification completes
 
 - **WHEN** the non-publishing release command completes successfully
 - **THEN** it leaves no package published or external release state changed
+
+#### Scenario: Release verification builds distributions
+
+- **WHEN** the non-publishing release workflow builds and uploads its inspection artifacts
+- **THEN** no provenance attestation exists for them, so they cannot pass the documented release provenance verification
 
 ### Requirement: Native extension builds use whole-program optimization
 
