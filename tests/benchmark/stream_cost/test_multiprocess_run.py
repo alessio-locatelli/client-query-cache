@@ -121,7 +121,7 @@ async def test_schedule_rejects_lateness_without_relaxing_tolerance() -> None:
         await wait_until(60.0, 0.05, "end")
 
 
-def _park() -> None:
+def _park() -> None:  # pragma: lax no cover - Killed before child coverage is saved.
     multiprocessing.Event().wait(60)
 
 
