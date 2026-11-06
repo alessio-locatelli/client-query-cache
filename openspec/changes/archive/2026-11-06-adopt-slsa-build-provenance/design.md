@@ -88,14 +88,14 @@ The workflow repeats the repository and signer-workflow values as the same liter
 
 Conclusion: as chosen. No further research is needed.
 
-### D8. A release tag is spent once signing has started
+### D8. A pushed release tag is never reused
 
-If a tag were recreated at another commit after signing, the earlier build's provenance would still pass a source-ref check for that version.
+If a tag were recreated at another commit, the provenance of an earlier build of that tag would still pass a source-ref check for that version. Re-running a failed run, which GitHub allows for up to 30 days, signs the commit that run originally built, so a failure before signing does not make recreation safe.
 
-- **Spent once the run reaches `actions/attest` (chosen).** Recovery from a failure before that step may recreate the tag, because no provenance exists for it. After that step has started, the fix ships under the next patch version. Pros: one tag always maps to one commit with provenance, and the user policy stays version-based. Starting the step, rather than finishing it, counts, because a signature may already be in Rekor when a later sub-step fails. Cons: a failure after signing consumes a version number that never reaches PyPI.
+- **Never reuse a pushed release tag (chosen).** Recovery from any failure that needs a fix ships under the next patch version. Pros: one tag always maps to one commit with provenance, with no reasoning about historical re-runs, and the user policy stays version-based. Cons: a failure that needs a fix consumes a version number that may never reach PyPI.
+- **Allow tag reuse before signing starts.** Pros: it saves a version number for early failures. Cons: a later re-run of the earlier run can still sign the superseded commit under the reused tag. Rejected.
 - **Allow tag reuse and add the expected commit (`--source-digest`) to the user policy.** Cons: users would have to look up the commit before every verification. Rejected.
-- **Never recreate any pushed release tag.** Pros: a simpler rule. Cons: it consumes a version even for failures before any provenance exists. Rejected.
-- **A tag ruleset blocking deletion of `v*` tags.** Pros: technical enforcement. Cons: it also blocks the safe pre-signing recovery, and it lives in repository settings outside review. Rejected.
+- **A tag ruleset blocking deletion of `v*` tags.** Pros: technical enforcement. Cons: it lives in repository settings outside review. Rejected.
 
 This is a procedural invariant that the maintainer upholds. Neither the workflow nor the documented verification policy detects a moved tag, because the policy checks the tag name rather than the commit. The guide says so.
 

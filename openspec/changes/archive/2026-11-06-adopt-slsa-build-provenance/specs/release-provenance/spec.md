@@ -52,16 +52,16 @@ Before any distribution is uploaded and before the GitHub Release is created, ev
 - **WHEN** every distribution passes the documented verification policy
 - **THEN** the release continues to the GitHub Release draft and the PyPI approval gate
 
-### Requirement: Release tags are not moved after signing starts
+### Requirement: Release tags are never reused
 
-The release procedure SHALL NOT delete or recreate a release tag at another commit once provenance signing has started for it, even if signing failed. A release that cannot complete after signing started SHALL continue under a new version. This procedural rule, not verification, keeps one commit per tag, because verification checks the tag name rather than the commit.
+The release procedure SHALL NOT delete or recreate a pushed release tag at another commit. A release that cannot complete SHALL continue under a new version. This procedural rule, not verification, keeps one commit per tag, because verification checks the tag name rather than the commit.
 
-#### Scenario: A release fails after signing
+#### Scenario: A release fails or is rejected
 
-- **WHEN** a release needs a fix or is rejected after provenance signing started, including when signing itself failed
+- **WHEN** a release needs a fix or is rejected at any point after its tag was pushed
 - **THEN** its tag keeps pointing at the original commit, and the fix is released under the next version
 
-#### Scenario: A release fails before signing
+#### Scenario: An earlier run is re-run after a fix
 
-- **WHEN** a release fails before provenance signing started for its tag
-- **THEN** recreating that tag at a fixed commit leaves only one commit with provenance under that tag
+- **WHEN** a failed run of a release tag is re-run later
+- **THEN** it signs the commit it originally built, and no other commit has provenance under that tag

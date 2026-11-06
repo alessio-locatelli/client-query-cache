@@ -7,7 +7,7 @@ Users cannot currently check how a published `client-query-cache` distribution w
 ## What Changes
 
 - Every release publishes signed SLSA build provenance for its source distribution and wheels, and stops before publication if that provenance does not verify.
-- The release procedure never moves a release tag once provenance signing has started for it.
+- The release procedure never reuses a pushed release tag.
 - Users get a guide for verifying downloaded distributions. Once the first release with provenance is published, the README shows an SLSA Build Level 2 badge that links to that guide ([issue #420](https://github.com/alessio-locatelli/client-query-cache/issues/420)).
 
 ## Capabilities
