@@ -29,8 +29,8 @@ jobs:
       fail-fast: false
       matrix:
         runner: [ubuntu-24.04, ubuntu-24.04-arm]
-    # timeout-minutes for build-and-verify (15m), publish (10m), publish-github-release
-    # (10m): The default is 360. We override it because stalled jobs must stop within
+    # timeout-minutes for build-and-verify (15m), attest (5m), publish (10m),
+    # publish-github-release (10m): The default is 360. We override it because stalled jobs must stop within
     # their assigned validation/publication budgets.
     timeout-minutes: 15
     env:
@@ -83,9 +83,53 @@ jobs:
           # bounded storage lifetimes.
           retention-days: 7
 
+  attest:
+    name: Attest build provenance
+    needs: build-and-verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      # id-token, attestations: The default is none under workflow permissions. We
+      # override them because actions/attest requires an OIDC token to sign with
+      # Sigstore and Attestations write access to store the result.
+      # https://github.com/actions/attest/blob/1e69f48acb82d1966a394da916b4c1698aa569d6/action.yml
+      id-token: write # Required to sign provenance with the workflow identity.
+      attestations: write # Required to store provenance in the GitHub attestation API.
+    steps:
+      # download-artifact in attest and publish: pattern defaults to all artifacts;
+      # merge-multiple defaults to false. We override them because both architectures'
+      # verified distributions must land in one directory.
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: dist-*
+          merge-multiple: true
+          path: dist/
+
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        id: attest
+        with:
+          subject-path: dist/*
+
+      # gh 2.97.0: https://cli.github.com/manual/gh_attestation_verify
+      # --bundle: The default is fetching attestations from the GitHub attestation API.
+      # We override it because the freshly created attestation may not be queryable yet.
+      # --signer-workflow: The default is no constraint on the signing workflow. We
+      # override it because only publish.yml may vouch for a release.
+      # --source-ref: The default is no constraint on the source ref. We override it
+      # because the provenance must name the release tag.
+      # --deny-self-hosted-runners: The default is accepting self-hosted runners. We
+      # override it because the signing job must run on a GitHub-hosted runner.
+      - run: |
+          for file in dist/*; do
+            gh attestation verify "${file}" --bundle "${BUNDLE_PATH}" --repo alessio-locatelli/client-query-cache --signer-workflow alessio-locatelli/client-query-cache/.github/workflows/publish.yml --source-ref "${GITHUB_REF}" --deny-self-hosted-runners
+          done
+        env:
+          BUNDLE_PATH: ${{ steps.attest.outputs.bundle-path }}
+          GH_TOKEN: ${{ github.token }}
+
   prepare-github-release:
     name: Prepare GitHub release
-    needs: build-and-verify
+    needs: attest
     runs-on: ubuntu-24.04
     # The default is 360 minutes. Draft preparation needs only checkout and the API.
     timeout-minutes: 5
@@ -124,8 +168,7 @@ jobs:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           # download-artifact: https://github.com/actions/download-artifact
-          # pattern defaults to all artifacts; merge-multiple defaults to false.
-          # Collect both verified architectures into one publishing directory.
+          # Same inputs and rationale as the attest job's download step.
           pattern: dist-*
           merge-multiple: true
           path: dist/
