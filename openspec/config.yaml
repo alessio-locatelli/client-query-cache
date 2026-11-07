@@ -1,17 +1,22 @@
 schema: spec-driven
 
-context: |
-  Never duplicate information across design, proposal, and tasks. Not verbatim, not in a reworded form, and not in a shorter form. A subsequent coding agent will read all files in full, so any kind of repetition contributes only to context bloat. If you need some information in more than one file, designate a single source of truth for it and reference it from other files.
-
 rules:
+  proposal:
+    - &single-source-of-truth >-
+      Never duplicate information across `proposal.md`, `design.md`, `tasks.md`, and the delta specs. Not verbatim, not in a reworded form, and not in a shorter form. A subsequent coding agent will read all files in full, so any kind of repetition contributes only to context bloat. If you need some information in more than one file, designate a single source of truth for it and reference it from other files (for example, "see `design.md` D3"). This rule takes precedence over filling in every template section: keep the section heading, but when its content already lives elsewhere, write only the reference.
+    - >-
+      Within the proposal, state each change once. Capabilities and Impact must add only what What Changes does not already say: capability names for Capabilities, and affected files, dependencies, and systems for Impact.
   specs:
+    - >-
+      Delta specs are the single source of truth for requirements: `proposal.md`, `design.md`, and `tasks.md` reference them instead of restating them. Do not reference those files from specs, because specs are merged into permanent specifications on archive while the other files are not.
     - >-
       Keep each requirement's text within 500 characters. Split distinct obligations into focused requirements, preserving their meaning and assigning each scenario to the requirement it verifies.
     - >-
       Keep permanent specifications focused on current, enduring system behavior and guarantees, not historical migrations, removed interfaces, or implementation decisions. Preserve change-specific rationale and compatibility decisions in archived changes and release notes. Integrate new requirements into existing specifications where appropriate instead of appending redundant requirements or turning specs into a changelog.
   tasks:
+    - *single-source-of-truth
     - >-
-      Assume that tasks will be executed by a coding agent with no access to the current conversation. Write `tasks.md` to be concrete and mechanical. When relevant, include command examples. Avoid vague or abstract prose that may require additional planning or interpretation.
+      Assume that tasks will be executed by a coding agent with no access to the current conversation, but with full access to the proposal, design, and specs of this change. Write `tasks.md` to be concrete and mechanical. When relevant, include command examples. Avoid vague or abstract prose that may require additional planning or interpretation. Reference design decisions and spec requirements by their headings instead of restating them; a task holds only its concrete action, the details needed to execute it that no other file holds, and its verification.
     - >-
       Common obvious development steps (e.g., "run tests", "close completed issue", "archive specs") are already covered by the project's documentation and are mandatory to follow; these must not be duplicated into the list of tasks, as that would be nothing more than extra noise.
     - >-
@@ -24,6 +29,9 @@ rules:
 
       Inapplicable tasks are marked as completed with a short reason (e.g., "touches no code" or "specs applied by GPT").
   design:
+    - *single-source-of-truth
+    - >-
+      Context describes only the current state and constraints; reference the proposal's Why for motivation. Goals / Non-Goals add only design-level boundaries; when the proposal already defines the scope, write only a reference to it.
     - |-
       Ensure a future reader will be able to judge only from the OpenSpec files why a certain decision was made.
 
