@@ -38,17 +38,17 @@ def run_guard(
 ) -> GuardReport:
     try:
         selected_python = revision_python_version(repo_root, head_revision)
-        base_environment = prepare_environment(
-            repo_root,
-            base_revision,
-            worktree_dir=base_worktree,
-            python_version=selected_python,
-        )
         head_environment = prepare_environment(
             repo_root,
             head_revision,
             worktree_dir=head_worktree,
-            workload_source_root=base_environment.repo_root,
+            python_version=selected_python,
+        )
+        base_environment = prepare_environment(
+            repo_root,
+            base_revision,
+            worktree_dir=base_worktree,
+            workload_source_root=head_environment.repo_root,
             python_version=selected_python,
         )
     except BenchmarkSetupError as error:

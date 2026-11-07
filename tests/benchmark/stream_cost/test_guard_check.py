@@ -75,7 +75,10 @@ def test_run_guard_measures_every_case_and_profile(
         workload_source_root: Path | None = None,
         python_version: str | None = None,
     ) -> RevisionEnvironment:
-        del worktree_dir, workload_source_root
+        del worktree_dir
+        assert workload_source_root == (
+            head_environment.repo_root if revision == "abc123" else None
+        )
         assert python_version == _TEST_PYTHON_VERSION
         return prepared["abc123"] if revision == "abc123" else prepared["head"]
 
@@ -140,7 +143,7 @@ def test_run_guard_reports_a_setup_failure_across_every_case(
     assert report.passed is False
     assert len(report.cases) == len(CASE_NAMES) * len(PROFILES)
     assert all(case.decision is Decision.MEASUREMENT_ERROR for case in report.cases)
-    assert all("does not exist on main" in case.reason for case in report.cases)
+    assert all("does not exist on pr-merge" in case.reason for case in report.cases)
 
 
 @pytest.mark.parametrize(

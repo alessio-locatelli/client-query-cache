@@ -9,12 +9,16 @@ from benchmarks.stream_cost.errors import BenchmarkSetupError
 from benchmarks.stream_cost.guard_workload import CASE_NAMES, PROFILES, run_case
 from client_query_cache._core.stream_events import route_change_event
 from client_query_cache._types import BsonDict, NonNegativeInt
+from client_query_cache.asynchronous.collection import (
+    CachedCollection as AsyncCachedCollection,
+)
 from client_query_cache.synchronous.collection import CachedCollection
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
     from typing import Any
 
+    from client_query_cache import CacheCoreConfig
     from client_query_cache._core.manager import CacheCore
     from tests.conftest import MongoDbUri
 
@@ -31,6 +35,21 @@ def _wrong_find_one(
     collection: CachedCollection[BsonDict], query: Mapping[str, Any]
 ) -> BsonDict:
     document = collection.raw.find_one(query)
+    assert document is not None
+    document["padding"] = "wrong"
+    return document
+
+
+async def _uncached_async_find_one(
+    collection: AsyncCachedCollection[BsonDict], query: Mapping[str, Any]
+) -> BsonDict | None:
+    return await collection.raw.find_one(query)
+
+
+async def _wrong_async_find_one(
+    collection: AsyncCachedCollection[BsonDict], query: Mapping[str, Any]
+) -> BsonDict:
+    document = await collection.raw.find_one(query)
     assert document is not None
     document["padding"] = "wrong"
     return document
@@ -53,16 +72,28 @@ def _ignore_event(_cache: CacheCore, _database: str, _event: BsonDict) -> bool:
 @pytest.mark.parametrize("case", CASE_NAMES)
 @pytest.mark.parametrize("profile", [profile.name for profile in PROFILES])
 def test_guard_case_checks_real_cache_outcome(
-    mongodb_uri: MongoDbUri, case: str, profile: str
+    mongodb_uri: MongoDbUri,
+    monkeypatch: pytest.MonkeyPatch,
+    case: str,
+    profile: str,
 ) -> None:
+    configure = guard_workload._cache_config
+    policies: list[bool] = []
+
+    def configured(*, enable_telemetry: bool = True) -> CacheCoreConfig:
+        config = configure(enable_telemetry=enable_telemetry)
+        policies.append(config.enable_telemetry)
+        return config
+
+    monkeypatch.setattr(guard_workload, "_cache_config", configured)
+
     assert run_case(mongodb_uri, case, profile) > 0
+    assert policies == [case not in {"sync_hit", "async_hit"}]
 
 
 @pytest.mark.parametrize(
     ("case", "target", "replacement", "reason"),
     [
-        ("sync_hit", "find_one", _uncached_find_one, "sync hit was bypassed"),
-        ("sync_hit", "find_one", _wrong_find_one, "wrong data"),
         ("find_admission", "find", _uncached_find, "admission was missing"),
         ("invalidation", "route_change_event", _ignore_event, "did not invalidate"),
     ],
@@ -78,6 +109,44 @@ def test_guard_rejects_invalid_outcome(
 ) -> None:
     owner = guard_workload if target == "route_change_event" else CachedCollection
     monkeypatch.setattr(owner, target, replacement)
+    with pytest.raises(BenchmarkSetupError, match=reason):
+        run_case(mongodb_uri, case, "small")
+
+
+@pytest.mark.parametrize(
+    ("case", "owner", "bypass", "wrong"),
+    [
+        ("sync_hit", CachedCollection, _uncached_find_one, _wrong_find_one),
+        ("sync_hit_telemetry", CachedCollection, _uncached_find_one, _wrong_find_one),
+        (
+            "async_hit",
+            AsyncCachedCollection,
+            _uncached_async_find_one,
+            _wrong_async_find_one,
+        ),
+        (
+            "async_hit_telemetry",
+            AsyncCachedCollection,
+            _uncached_async_find_one,
+            _wrong_async_find_one,
+        ),
+    ],
+)
+@pytest.mark.parametrize("fault", ["bypass", "wrong-value"])
+def test_hit_oracle_rejects_bypassed_or_incorrect_reads(
+    mongodb_uri: MongoDbUri,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    case: str,
+    owner: type[CachedCollection[BsonDict] | AsyncCachedCollection[BsonDict]],
+    bypass: Callable[..., object],
+    wrong: Callable[..., object],
+    fault: str,
+) -> None:
+    replacement = bypass if fault == "bypass" else wrong
+    reason = "hit was bypassed" if fault == "bypass" else "wrong data"
+    monkeypatch.setattr(owner, "find_one", replacement)
+
     with pytest.raises(BenchmarkSetupError, match=reason):
         run_case(mongodb_uri, case, "small")
 
