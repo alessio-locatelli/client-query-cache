@@ -13,8 +13,6 @@ rules:
     - >-
       Delta specs are the single source of truth for requirements: `proposal.md`, `design.md`, and `tasks.md` reference them instead of restating them. Do not reference those files from specs, because specs are merged into permanent specifications on archive while the other files are not.
     - >-
-      Keep each requirement's text within 500 characters. Split distinct obligations into focused requirements, preserving their meaning and assigning each scenario to the requirement it verifies.
-    - >-
       Keep permanent specifications focused on current, enduring system behavior and guarantees, not historical migrations, removed interfaces, or implementation decisions. Preserve change-specific rationale and compatibility decisions in archived changes and release notes. Integrate new requirements into existing specifications where appropriate instead of appending redundant requirements or turning specs into a changelog.
   tasks:
     - *single-source-of-truth
