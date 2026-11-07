@@ -152,6 +152,9 @@ access or credentials blocks activation, not repository delivery.
    changes can interact with previously validated code. Recheck the effective
    main rules afterward.
 
+   The effective main rules currently require up-to-date branches. Reconciliation
+   with this policy is tracked in [#435](https://github.com/alessio-locatelli/client-query-cache/issues/435).
+
 2. Install or verify the [official hosted Renovate app](https://docs.renovatebot.com/getting-started/installing-onboarding/)
    for this repository. Provision or reuse a **separate acceptance App** with
    Contents and Pull requests write permissions, installed for this repository
@@ -183,6 +186,15 @@ access or credentials blocks activation, not repository delivery.
    auto-merge for that commit, rechecks, and then approves that commit. It
    executes no PR code and consumes no run artifacts or caches. Human pushes to
    bot PRs do not qualify. Normal contributors retain their approval requirement.
+
+   Acceptance also requires every changed file to appear in the workflow's
+   [`DEPENDENCY_FILES` allowlist](https://github.com/alessio-locatelli/client-query-cache/blob/main/.github/workflows/dependency-automerge.yml).
+   PRs touching other files, including library source or tests, need human review.
+   Both paths of a renamed file must be allowed. An incomplete file listing or
+   a change to the checked head or base stops acceptance. Re-run bot-initiated
+   validation after the PR stabilizes. When adding an updater target, extend the
+   allowlist explicitly. This check limits filenames; it does not verify that
+   edits within allowed files are only version bumps.
 
    To accept a bot PR opened before activation, re-run its bot-initiated
    validation. The rerun keeps the bot as the run's actor and qualifies at the
