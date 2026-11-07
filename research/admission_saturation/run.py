@@ -237,7 +237,9 @@ def window(
             replica.uri,
             ("admission_study",),
             config=SharedCacheConfig(
-                budget_bytes=256 * 1024 * 1024, arena_bytes=320 * 1024 * 1024
+                budget_bytes=256 * 1024 * 1024,
+                arena_bytes=320 * 1024 * 1024,
+                enable_telemetry=True,
             ),
         )
         if mode == "reduced":
