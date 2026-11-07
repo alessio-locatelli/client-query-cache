@@ -23,4 +23,4 @@ Cache and change-stream operations collect diagnostic data even when application
 
 ## Impact
 
-This affects configuration, Python and Rust cores, synchronous and asyncio stream supervision, shared-server attachment configuration, diagnostics, tests, examples and public usage rules. No dependency or production-service changes are required. The [design](design.md) owns the audit, architecture and validation constraints; the [tasks](tasks.md) own implementation and consumer updates. This PR contains planning artifacts only.
+This affects configuration, Python and Rust cores, synchronous and asyncio stream supervision, shared-server attachment configuration, diagnostics, tests, examples and public usage rules. No dependency or production-service changes are required. The [design](design.md) owns the audit, architecture and validation constraints; the [tasks](tasks.md) own implementation and consumer updates.

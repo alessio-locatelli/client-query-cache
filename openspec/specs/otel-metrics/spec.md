@@ -20,6 +20,20 @@ The base package SHALL remain importable and fully functional without `opentelem
 - **WHEN** `opentelemetry-api` is not installed and an application imports the OpenTelemetry adapter module
 - **THEN** the import fails with an error naming `opentelemetry-api` and the extra that installs it, rather than an unguided `ImportError` or `ModuleNotFoundError`
 
+### Requirement: Registration requires enabled telemetry
+
+Registration SHALL reject a disabled statistics source with `CacheConfigurationError` directing the caller to `enable_telemetry=True`, before creating any instrument. Registration SHALL NOT enable collection implicitly, allocate collection state, or request owner diagnostics. Enabled sources SHALL retain the instrument and collection contracts of this capability.
+
+#### Scenario: A disabled source is registered
+
+- **WHEN** a caller registers a disabled process-local manager, advanced core, or shared manager
+- **THEN** registration raises the configuration error and the supplied meter receives no instruments
+
+#### Scenario: A source is enabled before registration
+
+- **WHEN** a caller registers an enabled source
+- **THEN** instruments use its collected observations without changing its collection policy
+
 ### Requirement: The adapter registers instruments against a caller-supplied Meter
 
 The adapter SHALL accept a caller-supplied OpenTelemetry `Meter` and SHALL register every instrument it exposes against that `Meter`. It SHALL NOT construct or configure its own `MeterProvider`, `Meter`, exporter, or reader, so the application retains sole ownership of OpenTelemetry SDK configuration.

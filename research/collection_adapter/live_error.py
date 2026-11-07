@@ -15,7 +15,7 @@ from pymongo.read_concern import ReadConcern
 from testcontainers.core.container import DockerContainer
 
 from benchmarks.mongodb_image import MONGODB_IMAGE
-from client_query_cache import CachedCollection, CacheManager
+from client_query_cache import CacheCoreConfig, CachedCollection, CacheManager
 from tests.conftest import _wait_for_mongodb_ping  # noqa: PLC2701 - Reuse the repository fixture readiness check.
 
 if TYPE_CHECKING:
@@ -122,7 +122,9 @@ def run(control: MongoClient[Document]) -> None:
             read_concern=ReadConcern("majority")
         )
         raw.insert_one({"_id": "one-record"})
-        with CacheManager(client) as manager:
+        with CacheManager(
+            client, cache_config=CacheCoreConfig(enable_telemetry=True)
+        ) as manager:
             view = manager.get_cached_collection(raw)
             warm(view, manager)
             with failure(control):
