@@ -28,6 +28,16 @@ env:
     (.user.login == "dependabot[bot]" or .user.login == "renovate[bot]") and
     .head.repo.full_name == $repo and .base.repo.full_name == $repo and
     .base.ref == "main" and .head.sha == $head
+  DEPENDENCY_FILES: >-
+    ["pyproject.toml", "uv.lock", "package.json", "package-lock.json",
+     ".pre-commit-config.yaml", ".python-version", ".node-version",
+     "rust-toolchain.toml", "native/shared-index/Cargo.toml",
+     "native/shared-index/Cargo.lock", "docker-compose.yaml",
+     "tests/mongodb-minimum/docker-compose.yaml", "Containerfile", "justfile",
+     ".github/actions/setup-toolchain/action.yml",
+     ".github/workflows/dependency-automerge.yml", ".github/workflows/docs.yml",
+     ".github/workflows/publish.yml", ".github/workflows/release-verification.yml",
+     ".github/workflows/stream-cost-benchmark.yml", ".github/workflows/test.yml"]
 
 jobs:
   select:
@@ -109,11 +119,38 @@ jobs:
           # override it because rejected metadata must stop acceptance before credential
           # issuance and before each privileged request.
           pr="$(gh api "repos/$GH_REPO/pulls/$PR_NUMBER")"
-          if jq -e --arg repo "$GH_REPO" --arg head "$HEAD_SHA" "$PR_POLICY" <<< "$pr" > /dev/null; then
-            echo "eligible=true" >> "$GITHUB_OUTPUT"
-          else
+          if ! jq -e --arg repo "$GH_REPO" --arg head "$HEAD_SHA" "$PR_POLICY" <<< "$pr" > /dev/null; then
             echo "::notice::PR metadata changed; no acceptance requested."
+            exit 0
           fi
+          files="$(gh api --paginate --slurp "repos/$GH_REPO/pulls/$PR_NUMBER/files?per_page=100" | jq 'add')"
+          if ! jq -e --argjson pr "$pr" \
+            'type == "array" and length > 0 and length <= 3000 and length == $pr.changed_files
+             and all(.[]; (.filename | type) == "string"
+               and ((has("previous_filename") | not) or (.previous_filename | type) == "string"))' \
+            <<< "$files" > /dev/null; then
+            echo "::error::The complete PR file list could not be verified; acceptance refused."
+            exit 1
+          fi
+          if ! jq -e --argjson allowed "$DEPENDENCY_FILES" '
+            def allowed: . as $path | $allowed | index($path) != null;
+            all(.[]; (.filename | allowed) and ((.previous_filename // .filename) | allowed))
+          ' <<< "$files" > /dev/null; then
+            echo "::notice::PR changes files outside the dependency-update allowlist; human review required."
+            exit 0
+          fi
+          base_sha="$(jq -er '.base.sha | strings | select(length > 0)' <<< "$pr")"
+          current_pr="$(gh api "repos/$GH_REPO/pulls/$PR_NUMBER")"
+          if ! jq -e --arg repo "$GH_REPO" --arg head "$HEAD_SHA" --argjson before "$pr" \
+            "($PR_POLICY) and .base.sha == \$before.base.sha and .changed_files == \$before.changed_files" \
+            <<< "$current_pr" > /dev/null; then
+            echo "::notice::PR metadata changed during file verification; no acceptance requested."
+            exit 0
+          fi
+          {
+            echo "eligible=true"
+            echo "base_sha=$base_sha"
+          } >> "$GITHUB_OUTPUT"
 
       # if for the configuration, app-token and auto-merge/approval steps: The default is
       # implicit success() without the eligibility check. We override it because
@@ -148,6 +185,7 @@ jobs:
       - if: steps.metadata.outputs.eligible == 'true'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          BASE_SHA: ${{ steps.metadata.outputs.base_sha }}
           AUTO_MERGE_MUTATION: >-
             mutation($id: ID!, $head: GitObjectID!) {
             enablePullRequestAutoMerge(input: {pullRequestId: $id, expectedHeadOid: $head, mergeMethod: REBASE})
@@ -155,7 +193,8 @@ jobs:
         run: |
           verify_pr() {
             gh api "repos/$GH_REPO/pulls/$PR_NUMBER" \
-              | jq -e --arg repo "$GH_REPO" --arg head "$HEAD_SHA" "$PR_POLICY" > /dev/null
+              | jq -e --arg repo "$GH_REPO" --arg head "$HEAD_SHA" --arg base "$BASE_SHA" \
+                "($PR_POLICY) and .base.sha == \$base" > /dev/null
           }
           verify_pr
           # GitHub GraphQL: https://docs.github.com/en/graphql/reference/mutations#enablepullrequestautomerge
