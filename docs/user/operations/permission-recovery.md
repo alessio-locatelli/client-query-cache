@@ -42,10 +42,15 @@ from time import monotonic, sleep
 
 from pymongo import MongoClient
 
-from client_query_cache import CacheManager, StreamHealthStatus
+from client_query_cache import CacheCoreConfig, CacheManager, StreamHealthStatus
 
 database_name = "client_query_cache_permission_lab"
-with MongoClient(os.environ["MONGODB_URI"]) as client, CacheManager(client) as manager:
+with (
+    MongoClient(os.environ["MONGODB_URI"]) as client,
+    CacheManager(
+        client, cache_config=CacheCoreConfig(enable_telemetry=True)
+    ) as manager,
+):
     cached = manager.get_cached_collection(client[database_name].products)
     print(cached.find_one({"_id": "book"}))
     print(manager.stream_health_snapshot(database_name).status)

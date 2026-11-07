@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from client_query_cache._core.keys import NamespaceId
-from client_query_cache._core.manager import CacheCore
+from client_query_cache._core.manager import CacheCore, CacheCoreConfig
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -48,9 +48,9 @@ def other_namespace() -> NamespaceId:
     return NamespaceId("test_db", "other_collection")
 
 
-@pytest.fixture
-def core() -> CacheCore:
-    return CacheCore()
+@pytest.fixture(params=[False], ids=["default"])
+def core(request: pytest.FixtureRequest) -> CacheCore:
+    return CacheCore(CacheCoreConfig(enable_telemetry=request.param))
 
 
 def patch_conditional_put_hook(

@@ -9,11 +9,12 @@ from pymongo import AsyncMongoClient, ReadPreference
 from pymongo.asynchronous.database import AsyncDatabase
 
 from client_query_cache._core.collection_metadata import CollectionProbeResult
+from client_query_cache._core.errors import CacheConfigurationError
 from client_query_cache._core.keys import NamespaceId
 from client_query_cache._core.lifecycle import CacheLifecycleState
 from client_query_cache._core.manager import CacheCoreConfig
 from client_query_cache._core.snapshots import BypassReason
-from client_query_cache._types import BsonDict
+from client_query_cache._types import BsonDict, NonEmptyStr
 from client_query_cache.asynchronous import (
     CacheManager,
     CacheSnapshot,
@@ -70,7 +71,9 @@ def test_manager_builds_a_database_facade_around_the_caller_client(
 async def test_manager_used_as_a_context_manager_closes_its_own_cache(
     client: AsyncMongoClient[BsonDict],
 ) -> None:
-    async with CacheManager(client) as manager:
+    async with CacheManager(
+        client, cache_config=CacheCoreConfig(enable_telemetry=True)
+    ) as manager:
         core = manager.cache_core
 
     assert core.snapshot().lifecycle == CacheLifecycleState.CLOSED.value
@@ -251,7 +254,7 @@ def test_repeated_cached_views_share_the_manager_and_raw_collection(
 async def test_stream_health_echoes_the_requested_name_without_validation(
     client: AsyncMongoClient[BsonDict], requested: str
 ) -> None:
-    manager = CacheManager(client)
+    manager = CacheManager(client, cache_config=CacheCoreConfig(enable_telemetry=True))
     health = manager.stream_health_snapshot(requested)
     assert health.requested_database_name == requested
     assert health.status is StreamHealthStatus.NOT_STARTED
@@ -264,7 +267,7 @@ async def test_stream_health_echoes_the_requested_name_without_validation(
 async def test_manager_inspection_delegates_without_activation(
     client: AsyncMongoClient[BsonDict],
 ) -> None:
-    manager = CacheManager(client)
+    manager = CacheManager(client, cache_config=CacheCoreConfig(enable_telemetry=True))
     manager.cache_core.record_bypass()
     manager.cache_core.record_stream_poll("example")
     assert isinstance(manager.snapshot(), CacheSnapshot)
@@ -315,3 +318,35 @@ async def test_ineligible_probe_cannot_release_a_recreated_namespace(
         assert reason is BypassReason.VIEW_COLLECTION
         assert manager.cache_core.has_namespace(namespace)
         assert manager._metadata.get(namespace) is None
+
+
+@pytest.fixture(params=[False, True], ids=["open", "closed"])
+async def unmeasured_manager(
+    client: AsyncMongoClient[BsonDict],
+    request: pytest.FixtureRequest,
+) -> AsyncIterator[CacheManager[BsonDict]]:
+    manager = CacheManager(client)
+    if request.param:
+        await manager.close()
+    yield manager
+    await manager.close()
+
+
+@pytest.mark.parametrize(
+    ("method", "arguments"),
+    [
+        ("snapshot", ()),
+        ("stream_health_snapshot", ("db",)),
+        ("stream_cost_snapshot", ("db",)),
+        ("active_stream_cost_databases", ()),
+    ],
+    ids=["cache", "health", "cost", "databases"],
+)
+def test_default_manager_rejects_diagnostics(
+    unmeasured_manager: CacheManager[BsonDict],
+    method: NonEmptyStr,
+    arguments: tuple[object, ...],
+) -> None:
+    assert unmeasured_manager.enable_telemetry is False
+    with pytest.raises(CacheConfigurationError, match="enable_telemetry=True"):
+        getattr(unmeasured_manager, method)(*arguments)

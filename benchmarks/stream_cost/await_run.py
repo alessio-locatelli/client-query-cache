@@ -39,6 +39,7 @@ from benchmarks.stream_cost.client import BenchmarkClientTopologyConfig, WireCom
 from benchmarks.stream_cost.errors import BenchmarkSetupError
 from benchmarks.stream_cost.proxy import DirectPathByteProxy, DirectPathProxyConfig
 from benchmarks.stream_cost.topology import IsolatedReplicaSet, ResourceLimits
+from client_query_cache import CacheCoreConfig
 from client_query_cache._types import (
     BsonDict,
     JsonDict,
@@ -107,14 +108,22 @@ def _build_manager(
             serverSelectionTimeoutMS=10000,
             event_listeners=[listener],
         )
-        return client, CacheManager(client, max_await_time_ms=candidate)
+        return client, CacheManager(
+            client,
+            max_await_time_ms=candidate,
+            cache_config=CacheCoreConfig(enable_telemetry=True),
+        )
     async_client = AsyncMongoClient[BsonDict](
         uri,
         directConnection=True,
         serverSelectionTimeoutMS=10000,
         event_listeners=[listener],
     )
-    return async_client, AsyncCacheManager(async_client, max_await_time_ms=candidate)
+    return async_client, AsyncCacheManager(
+        async_client,
+        max_await_time_ms=candidate,
+        cache_config=CacheCoreConfig(enable_telemetry=True),
+    )
 
 
 @dataclass(frozen=True, slots=True)

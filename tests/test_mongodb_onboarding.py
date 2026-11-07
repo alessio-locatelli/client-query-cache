@@ -13,6 +13,7 @@ from testcontainers.core.container import DockerContainer
 
 from benchmarks.mongodb_image import MONGODB_IMAGE
 from client_query_cache import CacheManager, StreamHealthStatus
+from client_query_cache._core.manager import CacheCoreConfig
 from client_query_cache._types import BsonDict, NonEmptyStr
 from client_query_cache.asynchronous import CacheManager as AsyncCacheManager
 from tests.conftest import MongoDbUri
@@ -142,7 +143,9 @@ async def test_standalone_guidance_preserves_sync_and_async_uncached_reads(
     database_name = "onboarding_standalone"
     with (
         MongoClient[BsonDict](uninitialized_mongodb_uri) as client,
-        CacheManager(client) as manager,
+        CacheManager(
+            client, cache_config=CacheCoreConfig(enable_telemetry=True)
+        ) as manager,
     ):
         collection = client[database_name]["items"]
         collection.insert_one({"_id": "example"})
@@ -153,7 +156,9 @@ async def test_standalone_guidance_preserves_sync_and_async_uncached_reads(
         )
     async with (
         AsyncMongoClient[BsonDict](uninitialized_mongodb_uri) as async_client,
-        AsyncCacheManager(async_client) as async_manager,
+        AsyncCacheManager(
+            async_client, cache_config=CacheCoreConfig(enable_telemetry=True)
+        ) as async_manager,
     ):
         cached = async_manager[database_name]["items"]
         assert await cached.find_one({"_id": "example"})

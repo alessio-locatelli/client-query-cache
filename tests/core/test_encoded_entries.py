@@ -176,6 +176,7 @@ def test_encoded_admission_stores_the_bytes_of_the_codec_transformed_value(
         ),
     ],
 )
+@pytest.mark.parametrize("core", [True], indirect=True, ids=["telemetry"])
 def test_encoded_admission_rejects_a_capture_from_an_older_generation(
     core: CacheCore,
     namespace: NamespaceId,
@@ -287,6 +288,7 @@ def _admit_marked_find(core: CacheCore, namespace: NamespaceId, marker: int) -> 
     assert outcome is AdmissionOutcome.ADMITTED
 
 
+@pytest.mark.parametrize("core", [True], indirect=True, ids=["telemetry"])
 def test_encoded_namespace_lookup_defers_a_requested_miss(
     core: CacheCore, namespace: NamespaceId
 ) -> None:

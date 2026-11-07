@@ -767,7 +767,7 @@ def test_owner_evidence_uses_snapshot_time_not_receipt_time(
 
 @pytest.fixture
 def progress() -> UpstreamProgress:
-    return UpstreamProgress(expiry_seconds=1.0)
+    return UpstreamProgress(expiry_seconds=1.0, enable_telemetry=True)
 
 
 def test_progress_window_resets_only_after_expiry(
@@ -777,7 +777,7 @@ def test_progress_window_resets_only_after_expiry(
     event = Mock(command_name="getMore", database_name=database)
     monkeypatch.setattr(
         "client_query_cache._shared.coordinator.time",
-        Mock(monotonic=Mock(side_effect=[1.0, 1.5, 3.0])),
+        Mock(monotonic_ns=Mock(side_effect=[10**9, 15 * 10**8, 3 * 10**9])),
     )
     assert progress.fresh_since(database) is None
     progress.succeeded(event)

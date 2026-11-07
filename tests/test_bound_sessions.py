@@ -14,6 +14,7 @@ from pymongo.asynchronous.client_session import AsyncClientSession
 from pymongo.errors import InvalidOperation, OperationFailure
 from pymongo.synchronous.client_session import ClientSession
 
+from client_query_cache import CacheCoreConfig
 from client_query_cache._types import BsonDict
 from client_query_cache.asynchronous import CachedCollection as AsyncCachedCollection
 from client_query_cache.asynchronous import CacheManager as AsyncCacheManager
@@ -78,7 +79,11 @@ async def binding(
     async with AsyncExitStack() as stack:
         if api == "sync":
             sync_client = stack.enter_context(MongoClient[BsonDict](mongodb_uri))
-            sync_manager = stack.enter_context(CacheManager(sync_client))
+            sync_manager = stack.enter_context(
+                CacheManager(
+                    sync_client, cache_config=CacheCoreConfig(enable_telemetry=True)
+                )
+            )
             handles: Binding = {
                 "client": sync_client,
                 "view": sync_manager[cached_database_name][
@@ -90,7 +95,9 @@ async def binding(
                 AsyncMongoClient[BsonDict](mongodb_uri)
             )
             async_manager = await stack.enter_async_context(
-                AsyncCacheManager(async_client)
+                AsyncCacheManager(
+                    async_client, cache_config=CacheCoreConfig(enable_telemetry=True)
+                )
             )
             handles = {
                 "client": async_client,

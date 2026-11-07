@@ -13,6 +13,7 @@ from benchmarks.stream_cost.generators import (
     generate_seeded_documents,
 )
 from benchmarks.stream_cost.topology import IsolatedReplicaSet, ResourceLimits
+from client_query_cache import CacheCoreConfig
 from client_query_cache._types import (
     BsonDict,
     NonNegativeFloat,
@@ -40,7 +41,12 @@ def measure_hit_seconds(uri: str) -> list[NonNegativeFloat]:
         SMALL_DOCUMENT_PROFILE, count=_DOCUMENT_COUNT, seed=_DOCUMENT_SEED
     )
     filters = [{"_id": document["_id"]} for document in documents]
-    with MongoClient[BsonDict](uri) as client, CacheManager(client) as manager:
+    with (
+        MongoClient[BsonDict](uri) as client,
+        CacheManager(
+            client, cache_config=CacheCoreConfig(enable_telemetry=True)
+        ) as manager,
+    ):
         collection = client[_DATABASE_NAME][_COLLECTION_NAME]
         collection.insert_many(documents)
         cached_collection = manager.get_cached_collection(collection)

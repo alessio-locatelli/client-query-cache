@@ -85,6 +85,7 @@ class Sample:
 def limited_core(limits: Limits) -> native.LocalCacheCore:
     return native.LocalCacheCore(
         CacheCoreConfig(
+            enable_telemetry=True,
             budget_bytes=BUDGET_BYTES,
             max_entry_bytes=BUDGET_BYTES // 4,
             max_entries=limits.max_entries,

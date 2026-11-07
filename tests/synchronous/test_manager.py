@@ -7,11 +7,12 @@ from pymongo import MongoClient, ReadPreference
 from pymongo.synchronous.database import Database
 
 from client_query_cache._core.collection_metadata import CollectionProbeResult
+from client_query_cache._core.errors import CacheConfigurationError
 from client_query_cache._core.keys import NamespaceId
 from client_query_cache._core.lifecycle import CacheLifecycleState
 from client_query_cache._core.manager import CacheCoreConfig
 from client_query_cache._core.snapshots import BypassReason
-from client_query_cache._types import BsonDict
+from client_query_cache._types import BsonDict, NonEmptyStr
 from client_query_cache.synchronous import (
     CacheManager,
     CacheSnapshot,
@@ -58,7 +59,9 @@ def test_manager_builds_a_database_facade_around_the_caller_client(
 def test_manager_used_as_a_context_manager_closes_its_own_cache(
     client: MongoClient[BsonDict],
 ) -> None:
-    with CacheManager(client) as manager:
+    with CacheManager(
+        client, cache_config=CacheCoreConfig(enable_telemetry=True)
+    ) as manager:
         core = manager.cache_core
 
     assert core.snapshot().lifecycle == CacheLifecycleState.CLOSED.value
@@ -270,7 +273,7 @@ def test_repeated_cached_views_share_the_manager_and_raw_collection(
 def test_stream_health_echoes_the_requested_name_without_validation(
     client: MongoClient[BsonDict], requested: str
 ) -> None:
-    manager = CacheManager(client)
+    manager = CacheManager(client, cache_config=CacheCoreConfig(enable_telemetry=True))
     health = manager.stream_health_snapshot(requested)
     assert health.requested_database_name == requested
     assert health.status is StreamHealthStatus.NOT_STARTED
@@ -283,7 +286,7 @@ def test_stream_health_echoes_the_requested_name_without_validation(
 def test_manager_inspection_delegates_without_activation(
     client: MongoClient[BsonDict],
 ) -> None:
-    manager = CacheManager(client)
+    manager = CacheManager(client, cache_config=CacheCoreConfig(enable_telemetry=True))
     manager.cache_core.record_bypass()
     manager.cache_core.record_stream_poll("example")
     assert isinstance(manager.snapshot(), CacheSnapshot)
@@ -316,3 +319,35 @@ def test_manager_inspection_delegates_without_activation(
         manager.active_stream_cost_databases()
         == manager.cache_core.active_stream_cost_databases()
     )
+
+
+@pytest.fixture(params=[False, True], ids=["open", "closed"])
+def unmeasured_manager(
+    client: MongoClient[BsonDict],
+    request: pytest.FixtureRequest,
+) -> Iterator[CacheManager[BsonDict]]:
+    manager = CacheManager(client)
+    if request.param:
+        manager.close()
+    yield manager
+    manager.close()
+
+
+@pytest.mark.parametrize(
+    ("method", "arguments"),
+    [
+        ("snapshot", ()),
+        ("stream_health_snapshot", ("db",)),
+        ("stream_cost_snapshot", ("db",)),
+        ("active_stream_cost_databases", ()),
+    ],
+    ids=["cache", "health", "cost", "databases"],
+)
+def test_default_manager_rejects_diagnostics(
+    unmeasured_manager: CacheManager[BsonDict],
+    method: NonEmptyStr,
+    arguments: tuple[object, ...],
+) -> None:
+    assert unmeasured_manager.enable_telemetry is False
+    with pytest.raises(CacheConfigurationError, match="enable_telemetry=True"):
+        getattr(unmeasured_manager, method)(*arguments)

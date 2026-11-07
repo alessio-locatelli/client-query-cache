@@ -182,6 +182,7 @@ cache_manager = CacheManager(
 
 | Field                       | Default                  | Meaning                                                                                                                                                                                                                                                                                                   |
 | --------------------------- | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `enable_telemetry`          | `False`                  | Enables the [monitoring interfaces](../operations/monitoring.md).                                                                                                                                                                                                                                         |
 | `budget_bytes`              | 64 MiB                   | Total BSON-encoded size the manager's cache may hold at once, shared across every database and collection that manager caches.                                                                                                                                                                            |
 | `max_entry_bytes`           | 1 MiB                    | The largest single cached value (one document, or one `find`/`aggregate`/`distinct` result) the cache accepts.                                                                                                                                                                                            |
 | `max_entries`               | `None`                   | Optional manager-wide limit on resident values plus unique-key aliases.                                                                                                                                                                                                                                   |
@@ -224,7 +225,7 @@ your client's timeout settings unchanged.
 ## Limits
 
 - A read whose result would exceed `max_entry_bytes` once BSON-encoded is not cached; it still returns the correct
-  result, counted as an oversized bypass rather than a hit.
+  result. [Monitoring](../operations/monitoring.md) reports oversized bypasses separately from hits.
 - Cursor candidates also cap their retained encoded payload at `max_entry_bytes`; exceeding it discards the candidate while native delivery continues. Native batches, decoded hit snapshots, wrappers, and temporary encoding allocations consume additional memory. This is not a process-memory limit; see [memory beyond the cache budget](../operations/deployment.md#memory-beyond-the-cache-budget).
 - Once the cache's total stored BSON size would exceed `budget_bytes`, admitting a new entry evicts the
   least-recently-used entries to make room. Query keys and Python metadata consume additional memory outside
@@ -283,12 +284,12 @@ from client_query_cache import (
 The three cache exceptions below inherit from `CacheError`, which you can catch to handle them together.
 The same exception classes apply to synchronous and asyncio managers.
 
-| Exception                      | Raised when                                                                                                                  | What to do                                                         |
-| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| `CacheConfigurationError`      | A cache budget, lag-window field, the manager's `max_await_time_ms`, or an OpenTelemetry `lag_percentiles` value is invalid. | Fix the configuration value.                                       |
-| `CacheClosedError`             | A cached read is attempted after `cache_manager.close()`.                                                                    | Don't use a manager (or a view obtained from it) after closing it. |
-| `UnsupportedCacheRequestError` | An explicit low-level cache operation receives an unsupported key value.                                                     | Use a supported key or the native collection.                      |
-| `ValueError`                   | `cache_manager.get_cached_collection(collection)` receives a collection from a different client.                             | Pass a collection from `cache_manager.client`.                     |
+| Exception                      | Raised when                                                                                      | What to do                                                                |
+| ------------------------------ | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------- |
+| `CacheConfigurationError`      | A configuration value is invalid, or diagnostics are requested with telemetry disabled.          | Fix the configuration or [enable telemetry](../operations/monitoring.md). |
+| `CacheClosedError`             | A cached read is attempted after `cache_manager.close()`.                                        | Don't use a manager (or a view obtained from it) after closing it.        |
+| `UnsupportedCacheRequestError` | An explicit low-level cache operation receives an unsupported key value.                         | Use a supported key or the native collection.                             |
+| `ValueError`                   | `cache_manager.get_cached_collection(collection)` receives a collection from a different client. | Pass a collection from `cache_manager.client`.                            |
 
 Every other unsupported or ambiguous condition — a tailable, exhaust, or partial-result `find()`, a `$changeStream` aggregation, an incompatible read preference or read concern, a session-bound
 read, a nondeterministic filter or pipeline, a view, a time-series collection, an oversized result, a database whose
@@ -298,7 +299,7 @@ are retried internally rather than surfaced to callers at all.
 
 ## Diagnostics
 
-Both process-local variants provide synchronous, read-only local inspection, including after close:
+With [telemetry enabled](../operations/monitoring.md), both process-local variants provide synchronous, read-only local inspection, including after close:
 
 ```python
 from client_query_cache import CacheSnapshot, StreamCostSnapshot, StreamHealthSnapshot

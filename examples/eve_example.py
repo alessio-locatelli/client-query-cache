@@ -17,7 +17,7 @@ from eve.io.mongo import Mongo  # type: ignore[import-untyped]
 from flask import has_request_context, request
 from pymongo import MongoClient
 
-from client_query_cache import CacheManager
+from client_query_cache import CacheCoreConfig, CacheManager
 
 if TYPE_CHECKING:
     from flask.testing import FlaskClient
@@ -182,7 +182,9 @@ def main() -> None:
     mongodb_uri = os.getenv("MONGODB_URI", DEFAULT_MONGODB_URI)
     with MongoClient[dict[str, Any]](mongodb_uri, tz_aware=True) as client:
         client.drop_database(DATABASE_NAME)
-        with CacheManager(client) as manager:
+        with CacheManager(
+            client, cache_config=CacheCoreConfig(enable_telemetry=True)
+        ) as manager:
             app = Eve(
                 settings={
                     "CACHE_MANAGER": manager,

@@ -23,7 +23,7 @@ from client_query_cache._core import stream_activation
 from client_query_cache._core.entries import AdmissionOutcome
 from client_query_cache._core.errors import StreamLifecycleError, StreamStartupError
 from client_query_cache._core.keys import NamespaceId
-from client_query_cache._core.manager import CacheCore
+from client_query_cache._core.manager import CacheCore, CacheCoreConfig
 from client_query_cache._core.stream_health import RetryBackoff, StreamHealth
 from client_query_cache._types import (
     BsonDict,
@@ -125,8 +125,9 @@ class _StreamStopsThenFails:
         pass
 
 
-def _mock_cache() -> Mock:
+def _mock_cache(*, enable_telemetry: bool = False) -> Mock:
     cache = Mock()
+    cache.enable_telemetry = enable_telemetry
     cache.namespaces_for_database.return_value = []
     return cache
 
@@ -359,11 +360,26 @@ def test_coordinator_rejects_activation_after_close(
         coordinator.activate_database("first")
 
 
+@pytest.mark.parametrize("enable_telemetry", [False, True], ids=["disabled", "enabled"])
 def test_start_becomes_healthy_and_routes_events(
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
+    *,
+    enable_telemetry: bool,
 ) -> None:
-    cache = _mock_cache()
-    stream = ScriptedStream([_insert_event()])
+    cache = _mock_cache(enable_telemetry=enable_telemetry)
+    event = _insert_event()
+    if not enable_telemetry:
+        event.pop("wallTime")
+        for method in (
+            "record_stream_poll",
+            "record_logical_event_bytes",
+            "record_invalidation_applied",
+            "reset_stream_cost_statistics",
+        ):
+            getattr(cache, method).side_effect = AssertionError(
+                "disabled stream collected telemetry"
+            )
+    stream = ScriptedStream([event])
     database = ScriptedDatabase("db", [stream])
     supervisor = make_supervisor(as_database(database), cache)
 
@@ -599,7 +615,7 @@ def test_unexpected_stream_closure_triggers_reconnect_instead_of_staying_healthy
 def test_stream_poll_is_counted_even_when_next_raises(
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
 ) -> None:
-    cache = CacheCore()
+    cache = CacheCore(CacheCoreConfig(enable_telemetry=True))
     stream1 = ScriptedStream([StopIteration()])
     database = ScriptedDatabase("db", [stream1, ScriptedStream([])])
     supervisor = make_supervisor(as_database(database), cache, backoff=_FAST_BACKOFF)
@@ -611,7 +627,7 @@ def test_stream_poll_is_counted_even_when_next_raises(
 def test_stream_survives_events_with_non_default_codec_values(
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
 ) -> None:
-    cache = CacheCore()
+    cache = CacheCore(CacheCoreConfig(enable_telemetry=True))
     event = {
         "operationType": "insert",
         "ns": {"db": "db", "coll": "coll"},
@@ -644,7 +660,7 @@ def test_invalidation_survives_unencodable_logical_bytes(
     make_supervisor: Callable[..., DatabaseStreamSupervisor],
     unencodable_value: object,
 ) -> None:
-    cache = CacheCore()
+    cache = CacheCore(CacheCoreConfig(enable_telemetry=True))
     namespace = NamespaceId("db", "coll")
     capture = cache.begin_identity_admission(namespace, "doc-1")
     cache.admit_identity(capture, "full", {"v": 1})
@@ -665,7 +681,7 @@ def test_invalidation_survives_unencodable_logical_bytes(
 
 
 def test_clearing_namespaces_resets_stream_cost_statistics() -> None:
-    cache = CacheCore()
+    cache = CacheCore(CacheCoreConfig(enable_telemetry=True))
     cache.record_stream_poll("db")
     cache.record_invalidation_applied("db", 1.0, 1.0, 2.0)
     database = ScriptedDatabase("db", [ScriptedStream([])])
@@ -774,7 +790,7 @@ def test_coordinator_starts_one_independent_stream_per_active_database(
     }
     client = Mock()
     client.__getitem__ = Mock(side_effect=databases.__getitem__)
-    coordinator = make_coordinator(client, _mock_cache())
+    coordinator = make_coordinator(client, _mock_cache(enable_telemetry=True))
 
     first = coordinator.activate_database("first")
     second = coordinator.activate_database("second")
@@ -816,7 +832,7 @@ def test_activate_database_bypasses_when_startup_is_unsupported(
     )
     client = Mock()
     client.__getitem__ = Mock(return_value=as_database(database))
-    cache = CacheCore()
+    cache = CacheCore(CacheCoreConfig(enable_telemetry=True))
     coordinator = make_coordinator(client, cache)
 
     assert coordinator.activate_database("db") is None
@@ -981,7 +997,9 @@ def test_coordinator_health_replaces_startup_failure_on_retry(
     )
     client = Mock()
     client.__getitem__ = Mock(return_value=as_database(database))
-    coordinator = make_coordinator(client, CacheCore())
+    coordinator = make_coordinator(
+        client, CacheCore(CacheCoreConfig(enable_telemetry=True))
+    )
     assert (
         coordinator.stream_health_snapshot("db").status
         is StreamHealthStatus.NOT_STARTED
@@ -1022,7 +1040,9 @@ def paused_coordinator(
     database = ScriptedDatabase("db", list(streams), before_watch=before_watch)
     client = Mock()
     client.__getitem__ = Mock(return_value=as_database(database))
-    coordinator = make_coordinator(client, CacheCore())
+    coordinator = make_coordinator(
+        client, CacheCore(CacheCoreConfig(enable_telemetry=True))
+    )
     with ThreadPoolExecutor(max_workers=1) as executor:
         activation = executor.submit(coordinator.activate_database, "db")
         assert entered.wait(5)

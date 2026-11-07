@@ -115,6 +115,7 @@ def read(
 
 
 @pytest.mark.parametrize("method", READ_METHODS, ids=READ_METHODS)
+@pytest.mark.parametrize("cache_manager", [True], indirect=True, ids=["telemetry"])
 def test_timeseries_reads_bypass_with_healthy_stream(
     collection: CachedCollection[BsonDict],
     measurement: BsonDict,
@@ -202,6 +203,7 @@ def test_timeseries_delegation_preserves_options_and_errors(
     indirect=True,
     ids=["ordinary", "timeseries", "absent"],
 )
+@pytest.mark.parametrize("cache_manager", [True], indirect=True, ids=["telemetry"])
 def test_collection_metadata_probe_counts(
     collection: CachedCollection[BsonDict],
     measurement: BsonDict,
@@ -242,6 +244,7 @@ def test_collection_metadata_probe_counts(
 @pytest.mark.parametrize(
     "replacement", ["timeseries", "collection"], ids=["to-timeseries", "to-ordinary"]
 )
+@pytest.mark.parametrize("cache_manager", [True], indirect=True, ids=["telemetry"])
 def test_collection_type_is_rechecked_after_absence(
     collection: CachedCollection[BsonDict],
     measurement: BsonDict,

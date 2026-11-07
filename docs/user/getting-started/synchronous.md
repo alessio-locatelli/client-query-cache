@@ -7,11 +7,13 @@ This program writes a document to your local MongoDB replica set and reads it th
 ```python
 from pymongo import MongoClient
 
-from client_query_cache import CacheManager
+from client_query_cache import CacheCoreConfig, CacheManager
 
 with (
     MongoClient("mongodb://localhost:27017") as client,
-    CacheManager(client) as cache_manager,
+    CacheManager(
+        client, cache_config=CacheCoreConfig(enable_telemetry=True)
+    ) as cache_manager,
 ):
     collection = client["client_query_cache_tutorial"]["items"]
     cached_collection = cache_manager.get_cached_collection(collection)

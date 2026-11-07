@@ -17,7 +17,7 @@ from client_query_cache._core.find_one_reads import (
     generic_find_one_discriminator,
 )
 from client_query_cache._core.keys import NamespaceId
-from client_query_cache._core.manager import CacheCore
+from client_query_cache._core.manager import CacheCore, CacheCoreConfig
 from client_query_cache._types import NonNegativeInt
 
 pytestmark = pytest.mark.unit
@@ -52,7 +52,7 @@ _DISCRIMINATOR_STRATEGY = st.sampled_from(_DISCRIMINATORS)
 class _CacheCoreMachine(RuleBasedStateMachine):
     def __init__(self) -> None:
         super().__init__()
-        self.core = CacheCore()
+        self.core = CacheCore(CacheCoreConfig(enable_telemetry=True))
         self.namespace_generation: dict[NamespaceId, NonNegativeInt] = defaultdict(int)
         self.identity_epoch: dict[tuple[NamespaceId, str], NonNegativeInt] = (
             defaultdict(int)

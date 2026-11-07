@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 import pytest
 from pymongo import MongoClient
 
+from client_query_cache import CacheCoreConfig
 from client_query_cache._types import BsonDict
 from client_query_cache.synchronous.manager import CacheManager
 
@@ -23,11 +24,14 @@ def raw_mongo_client(
         yield client
 
 
-@pytest.fixture
+@pytest.fixture(params=[False], ids=["default"])
 def cache_manager(
+    request: pytest.FixtureRequest,
     raw_mongo_client: MongoClient[BsonDict],
 ) -> Iterator[CacheManager[BsonDict]]:
     logger.debug("[SETUP] %s wrapping %s.", CacheManager.__name__, raw_mongo_client)
-    manager = CacheManager(raw_mongo_client)
+    manager = CacheManager(
+        raw_mongo_client, cache_config=CacheCoreConfig(enable_telemetry=request.param)
+    )
     yield manager
     manager.close()

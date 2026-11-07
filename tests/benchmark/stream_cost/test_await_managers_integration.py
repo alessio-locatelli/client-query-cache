@@ -9,6 +9,7 @@ from pymongo import AsyncMongoClient, MongoClient
 
 from benchmarks.stream_cost.await_commands import AwaitCommandListener
 from benchmarks.stream_cost.await_run import _invoke, _wait_for
+from client_query_cache import CacheCoreConfig
 from client_query_cache._core.stream_options import DEFAULT_MAX_AWAIT_TIME_MS
 from client_query_cache._types import BsonDict, MaxAwaitTimeMs, NonEmptyStr
 from client_query_cache.asynchronous.manager import CacheManager as AsyncCacheManager
@@ -51,18 +52,31 @@ async def managed_streams(
                     MongoClient[BsonDict](mongodb_uri, event_listeners=[listener])
                 )
                 manager = (
-                    CacheManager(client)
+                    CacheManager(
+                        client, cache_config=CacheCoreConfig(enable_telemetry=True)
+                    )
                     if override is None
-                    else CacheManager(client, max_await_time_ms=override)
+                    else CacheManager(
+                        client,
+                        max_await_time_ms=override,
+                        cache_config=CacheCoreConfig(enable_telemetry=True),
+                    )
                 )
             else:
                 async_client = await resources.enter_async_context(
                     AsyncMongoClient[BsonDict](mongodb_uri, event_listeners=[listener])
                 )
                 manager = (
-                    AsyncCacheManager(async_client)
+                    AsyncCacheManager(
+                        async_client,
+                        cache_config=CacheCoreConfig(enable_telemetry=True),
+                    )
                     if override is None
-                    else AsyncCacheManager(async_client, max_await_time_ms=override)
+                    else AsyncCacheManager(
+                        async_client,
+                        max_await_time_ms=override,
+                        cache_config=CacheCoreConfig(enable_telemetry=True),
+                    )
                 )
             resources.push_async_callback(_invoke, manager.close)
             database = f"{cached_database_name}_{index}"

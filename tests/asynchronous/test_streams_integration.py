@@ -163,7 +163,9 @@ async def test_configured_wall_time_stream_records_invalidation_lag(
     ]
     await writer_collection.insert_one({"_id": document_id, "v": before_value})
     cache = CacheCore(
-        CacheCoreConfig(lag_capture_window_config=SINGLE_EVENT_LAG_WINDOW)
+        CacheCoreConfig(
+            lag_capture_window_config=SINGLE_EVENT_LAG_WINDOW, enable_telemetry=True
+        )
     )
     supervisor = make_supervisor(wall_time_client[cached_database_name], cache)
     await supervisor.start()

@@ -90,7 +90,8 @@ class CachedCursor[DocumentType: Mapping[str, Any]](Cursor[DocumentType]):
         if reason is None:
             reason = self._view._cache_ineligibility_reason()
         if reason is not None:
-            self._view._record_bypass(reason)
+            if self._view._database.manager.enable_telemetry:
+                self._view._record_bypass(reason)
             return
         prepared = PreparedFindRead(family, shape.limit)
         cache = self._view.database.manager.cache_core

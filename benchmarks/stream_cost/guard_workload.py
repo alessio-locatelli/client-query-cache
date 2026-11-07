@@ -17,6 +17,7 @@ from benchmarks.stream_cost.generators import (
     DocumentSizeProfile,
     generate_seeded_documents,
 )
+from client_query_cache import CacheCoreConfig
 from client_query_cache._core.stream_events import route_change_event
 from client_query_cache._types import BsonDict, NonNegativeFloat, NonNegativeInt
 from client_query_cache.asynchronous.manager import CacheManager as AsyncCacheManager
@@ -66,7 +67,9 @@ def _seeded_collection(
 def _sync_hit(
     client: MongoClient[BsonDict], documents: list[BsonDict]
 ) -> NonNegativeFloat:
-    with CacheManager(client) as manager:
+    with CacheManager(
+        client, cache_config=CacheCoreConfig(enable_telemetry=True)
+    ) as manager:
         cached = manager["guard"]["documents"]
         expected = documents[0]
         query = {"_id": expected["_id"]}
@@ -97,7 +100,9 @@ def _sync_hit(
 async def _async_hit(uri: str, documents: list[BsonDict]) -> NonNegativeFloat:
     async with (
         AsyncMongoClient[BsonDict](uri) as client,
-        AsyncCacheManager(client) as manager,
+        AsyncCacheManager(
+            client, cache_config=CacheCoreConfig(enable_telemetry=True)
+        ) as manager,
     ):
         cached = manager["guard"]["documents"]
         expected = documents[0]
@@ -154,7 +159,9 @@ def _verify_find_admission(
 def _find_admission(
     client: MongoClient[BsonDict], documents: list[BsonDict]
 ) -> NonNegativeFloat:
-    with CacheManager(client) as manager:
+    with CacheManager(
+        client, cache_config=CacheCoreConfig(enable_telemetry=True)
+    ) as manager:
         cached = manager["guard"]["documents"]
         before = manager.cache_core.snapshot()
         started = time.perf_counter()
@@ -198,7 +205,9 @@ def _verify_refresh_after_invalidation(
 def _invalidation(
     client: MongoClient[BsonDict], documents: list[BsonDict]
 ) -> NonNegativeFloat:
-    with CacheManager(client) as manager:
+    with CacheManager(
+        client, cache_config=CacheCoreConfig(enable_telemetry=True)
+    ) as manager:
         cached = manager["guard"]["documents"]
         ids = [document["_id"] for document in documents[:_INVALIDATION_ENTRIES]]
         for document, document_id in zip(

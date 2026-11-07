@@ -7,7 +7,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from client_query_cache import CacheCore, CacheManager
+from client_query_cache import CacheCore, CacheCoreConfig, CacheManager
 from client_query_cache._core.errors import StreamLifecycleError
 from client_query_cache.asynchronous import CacheManager as AsyncCacheManager
 from client_query_cache.asynchronous.streams import (
@@ -41,11 +41,19 @@ async def startup(
     request: pytest.FixtureRequest,
 ) -> AsyncIterator[StartupHarness]:
     client = Mock()
-    cache = CacheCore()
+    cache = CacheCore(CacheCoreConfig(enable_telemetry=True))
     is_async, is_manager = request.param
     owner: ShutdownOwner
     if is_manager:
-        owner = AsyncCacheManager(client) if is_async else CacheManager(client)
+        owner = (
+            AsyncCacheManager(
+                client, cache_config=CacheCoreConfig(enable_telemetry=True)
+            )
+            if is_async
+            else CacheManager(
+                client, cache_config=CacheCoreConfig(enable_telemetry=True)
+            )
+        )
         coordinator = owner._coordinator
         cache = owner.cache_core
     else:

@@ -217,7 +217,10 @@ def _worker(
 
 @pytest.fixture
 def server(
-    mongodb_uri: MongoDbUri, seeded_database: str, request: pytest.FixtureRequest
+    mongodb_uri: MongoDbUri,
+    seeded_database: str,
+    request: pytest.FixtureRequest,
+    telemetry_enabled: bool,
 ) -> Iterator[SharedCacheServer]:
     with SharedCacheServer(
         mongodb_uri,
@@ -228,6 +231,7 @@ def server(
             arena_bytes=2 * 1024 * 1024,
             slots=256,
             connections=16,
+            enable_telemetry=telemetry_enabled,
         ),
     ) as owner:
         yield owner
@@ -486,16 +490,20 @@ async def _execute(
 @pytest.mark.parametrize(
     "method", ["find_one", "find", "aggregate", "count_documents", "distinct"]
 )
+@pytest.mark.parametrize(
+    "telemetry_enabled", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
 async def test_user_roles_reads_retain_native_behavior(view: View, method: str) -> None:
     unsafe: BsonDict = {"$expr": {"$eq": ["$$USER_ROLES", []]}}
-    before = view._shared.snapshot()
+    before = view._shared.snapshot() if view._shared.enable_telemetry else None
     expected = await _native_outcome(view.raw, method, unsafe)
     assert await _native_outcome(view, method, unsafe) == expected
     assert await _native_outcome(view, method, unsafe) == expected
-    after = view._shared.snapshot()
-    assert after.hits == before.hits
-    assert after.misses == before.misses
-    assert after.bypasses == before.bypasses + 2
+    if before is not None:
+        after = view._shared.snapshot()
+        assert after.hits == before.hits
+        assert after.misses == before.misses
+        assert after.bypasses == before.bypasses + 2
 
 
 @pytest.fixture
@@ -511,15 +519,19 @@ async def session(view: View) -> AsyncIterator[object]:
 @pytest.mark.parametrize(
     "method", ["find_one", "find", "aggregate", "count_documents", "distinct"]
 )
+@pytest.mark.parametrize(
+    "telemetry_enabled", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
 async def test_session_reads_bypass_shared_results(
     view: View, method: str, session: object
 ) -> None:
-    before = view._shared.snapshot()
+    before = view._shared.snapshot() if view._shared.enable_telemetry else None
     first = await _execute(view, method, {}, session=session)
     assert await _execute(view, method, {}, session=session) == first
-    assert view._shared.snapshot().bypasses == before.bypasses + 2
-    assert view._shared.snapshot().hits == before.hits
-    assert view._shared.snapshot().misses == before.misses
+    if before is not None:
+        assert view._shared.snapshot().bypasses == before.bypasses + 2
+        assert view._shared.snapshot().hits == before.hits
+        assert view._shared.snapshot().misses == before.misses
 
 
 @pytest.mark.parametrize(
@@ -547,15 +559,19 @@ async def test_simple_collation_and_option_keys_share_results(
 @pytest.mark.parametrize(
     "method", ["find_one", "find", "aggregate", "count_documents", "distinct"]
 )
+@pytest.mark.parametrize(
+    "telemetry_enabled", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
 async def test_non_simple_collation_uses_native_reads(view: View, method: str) -> None:
-    before = view._shared.snapshot()
+    before = view._shared.snapshot() if view._shared.enable_telemetry else None
     first = await _execute(view, method, {"revision": 0}, collation={"locale": "en"})
     assert (
         await _execute(view, method, {"revision": 0}, collation={"locale": "en"})
         == first
     )
-    assert view._shared.snapshot().bypasses == before.bypasses + 2
-    assert view._shared.snapshot().misses == before.misses
+    if before is not None:
+        assert view._shared.snapshot().bypasses == before.bypasses + 2
+        assert view._shared.snapshot().misses == before.misses
 
 
 @pytest.mark.usefixtures("unique_index")
@@ -796,14 +812,18 @@ async def test_session_bypass_does_not_prepare_query_keys(
     assert first == expected
 
 
+@pytest.mark.parametrize(
+    "telemetry_enabled", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
 async def test_unportable_identity_reads_preserve_driver_error(view: View) -> None:
-    before = view._shared.snapshot()
+    before = view._shared.snapshot() if view._shared.enable_telemetry else None
     query: BsonDict = {"_id": Decimal("1.25")}
     with pytest.raises(InvalidDocument):
         await _execute(view.raw, "find_one", query)
     with pytest.raises(InvalidDocument):
         await _execute(view, "find_one", query)
-    assert view._shared.snapshot().bypasses == before.bypasses + 1
+    if before is not None:
+        assert view._shared.snapshot().bypasses == before.bypasses + 1
 
 
 @pytest.fixture
@@ -826,29 +846,45 @@ async def unportable_view(view: View) -> View:  # noqa: RUF029 - Async manager c
 @pytest.mark.parametrize(
     "method", ["find_one", "aggregate", "count_documents", "distinct"]
 )
+@pytest.mark.parametrize(
+    "telemetry_enabled", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
 async def test_unportable_namespace_codec_reads_use_native_results(
     unportable_view: View, method: str
 ) -> None:
-    before = unportable_view._shared.snapshot()
+    before = (
+        unportable_view._shared.snapshot()
+        if unportable_view._shared.enable_telemetry
+        else None
+    )
     expected = await _execute(unportable_view.raw, method, {"revision": 0})
     assert await _execute(unportable_view, method, {"revision": 0}) == expected
-    assert unportable_view._shared.snapshot().bypasses == before.bypasses + 1
+    if before is not None:
+        assert unportable_view._shared.snapshot().bypasses == before.bypasses + 1
 
 
+@pytest.mark.parametrize(
+    "telemetry_enabled", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
 async def test_find_one_native_sort_mapping_bypasses_shared_cache(view: View) -> None:
-    before = view._shared.snapshot()
+    before = view._shared.snapshot() if view._shared.enable_telemetry else None
     expected = await _execute(view.raw, "find_one", {}, sort={"payload": 1})
     assert await _execute(view, "find_one", {}, sort={"payload": 1}) == expected
-    assert view._shared.snapshot().bypasses == before.bypasses + 1
+    if before is not None:
+        assert view._shared.snapshot().bypasses == before.bypasses + 1
 
 
 @pytest.mark.parametrize(
     "options", [{"let": {"revision": 0}}, {"comment": "shared-bypass"}]
 )
+@pytest.mark.parametrize(
+    "telemetry_enabled", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
 async def test_aggregate_command_options_use_native_cursor(
     view: View, options: Mapping[str, Any]
 ) -> None:
-    before = view._shared.snapshot()
+    before = view._shared.snapshot() if view._shared.enable_telemetry else None
     expected = await _execute(view.raw, "aggregate", {}, **options)
     assert await _execute(view, "aggregate", {}, **options) == expected
-    assert view._shared.snapshot().bypasses == before.bypasses + 1
+    if before is not None:
+        assert view._shared.snapshot().bypasses == before.bypasses + 1

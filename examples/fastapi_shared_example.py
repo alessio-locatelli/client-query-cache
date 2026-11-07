@@ -38,7 +38,11 @@ from pymongo.monitoring import (
 from pymongo.read_concern import ReadConcern
 from pymongo.write_concern import WriteConcern
 
-from client_query_cache import SharedCacheConnection, SharedCacheServer
+from client_query_cache import (
+    SharedCacheConfig,
+    SharedCacheConnection,
+    SharedCacheServer,
+)
 from client_query_cache._types import NonNegativeInt, PositiveInt
 from client_query_cache.asynchronous import SharedCachedCollection, SharedCacheManager
 
@@ -231,6 +235,7 @@ def serve(workers: PositiveInt, port: PositiveInt) -> None:
         MONGODB_URI,
         (DATABASE_NAME,),
         client_options={"serverSelectionTimeoutMS": 5000, "timeoutMS": 5000},
+        config=SharedCacheConfig(enable_telemetry=True),
     ) as cache_server:
         Granian(
             "shared-products",

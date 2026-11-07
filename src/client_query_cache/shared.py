@@ -86,9 +86,19 @@ class SharedCacheConfig:
     arena_bytes: Annotated[PositiveInt, Le(_MAX_ARENA_BYTES)] = 80 * 1024 * 1024
     namespaces: Annotated[PositiveInt, Le(_MAX_NAMESPACES)] = 1024
     connections: Annotated[PositiveInt, Ge(2)] = 256
+    enable_telemetry: bool = False
 
     def __post_init__(self) -> None:
-        for name in self.__dataclass_fields__:
+        if type(self.enable_telemetry) is not bool:
+            raise CacheConfigurationError("enable_telemetry must be a built-in boolean")
+        for name in (
+            "budget_bytes",
+            "max_entry_bytes",
+            "slots",
+            "arena_bytes",
+            "namespaces",
+            "connections",
+        ):
             value = getattr(self, name)
             if type(value) is not int or value <= 0:
                 message = f"{name} must be a positive built-in integer"
@@ -207,6 +217,7 @@ class SharedCacheServer:
             frame_overhead_bytes=frame_overhead_bytes,
         )
         self._config = OwnerConfig(
+            enable_telemetry=config.enable_telemetry,
             socket_path=path,
             capability=secrets.token_bytes(32),
             mongodb_uri=mongodb_uri,
@@ -232,6 +243,7 @@ class SharedCacheServer:
         )
         self.connection = SharedCacheConnection(
             AttachmentConfig(
+                enable_telemetry=config.enable_telemetry,
                 socket_path=path,
                 capability=self._config.capability,
                 budget_bytes=config.budget_bytes,

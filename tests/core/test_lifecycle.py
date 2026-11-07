@@ -8,7 +8,7 @@ import pytest
 from client_query_cache import CacheClosedError
 from client_query_cache._core.keys import NamespaceId
 from client_query_cache._core.lifecycle import CacheLifecycleState
-from client_query_cache._core.manager import CacheCore
+from client_query_cache._core.manager import CacheCore, CacheCoreConfig
 from tests.core.conftest import patch_conditional_put_hook
 
 if TYPE_CHECKING:
@@ -21,13 +21,16 @@ pytestmark = pytest.mark.unit
 
 
 def test_a_new_manager_starts_active() -> None:
-    assert CacheCore().snapshot().lifecycle == CacheLifecycleState.ACTIVE.value
+    assert (
+        CacheCore(CacheCoreConfig(enable_telemetry=True)).snapshot().lifecycle
+        == CacheLifecycleState.ACTIVE.value
+    )
 
 
 def test_close_transitions_to_closed_and_releases_storage(
     namespace: NamespaceId,
 ) -> None:
-    core = CacheCore()
+    core = CacheCore(CacheCoreConfig(enable_telemetry=True))
     capture = core.begin_identity_admission(namespace, "doc-1")
     core.admit_identity(capture, "full", {"v": 1})
 
@@ -40,7 +43,7 @@ def test_close_transitions_to_closed_and_releases_storage(
 
 
 def test_close_is_idempotent() -> None:
-    core = CacheCore()
+    core = CacheCore(CacheCoreConfig(enable_telemetry=True))
     core.close()
     core.close()
     assert core.snapshot().lifecycle == CacheLifecycleState.CLOSED.value
@@ -116,7 +119,7 @@ def test_close_releases_database_namespace_index(namespace: NamespaceId) -> None
 def test_an_admission_racing_close_does_not_survive_in_the_closed_snapshot(
     namespace: NamespaceId, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    core = CacheCore()
+    core = CacheCore(CacheCoreConfig(enable_telemetry=True))
     capture = core.begin_identity_admission(namespace, "doc-1")
 
     def hook(_key: CacheKey, _entry: CacheEntry) -> None:

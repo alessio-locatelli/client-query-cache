@@ -203,8 +203,13 @@ impl OwnerIndex {
             .validate_capture(incarnation, &query, token, monotonic_ns(), max_age_ns)
     }
 
-    #[pyo3(signature = (tokens, admission_bytes = 0))]
-    fn session_ring(&self, tokens: usize, admission_bytes: usize) -> PyResult<SessionRing> {
+    #[pyo3(signature = (tokens, admission_bytes = 0, enable_telemetry = false))]
+    fn session_ring(
+        &self,
+        tokens: usize,
+        admission_bytes: usize,
+        enable_telemetry: bool,
+    ) -> PyResult<SessionRing> {
         let ring_words =
             Ring::<Shared>::words_for(tokens).ok_or_else(|| invalid("invalid ring capacity"))?;
         let words = if admission_bytes == 0 {
@@ -227,8 +232,8 @@ impl OwnerIndex {
                     .expect("admission mapping matches the validated capacity"),
             ))
         };
-        let ring =
-            Ring::create(memory, tokens).expect("ring mapping matches the validated capacity");
+        let ring = Ring::create(memory, tokens, enable_telemetry)
+            .expect("ring mapping matches the validated capacity");
         Ok(SessionRing {
             ring,
             admissions,
@@ -310,14 +315,19 @@ struct ReaderIndex {
 #[pymethods]
 impl ReaderIndex {
     #[new]
-    fn new(index_descriptor: RawFd, ring_descriptor: RawFd) -> PyResult<Self> {
+    #[pyo3(signature = (index_descriptor, ring_descriptor, enable_telemetry = false))]
+    fn new(
+        index_descriptor: RawFd,
+        ring_descriptor: RawFd,
+        enable_telemetry: bool,
+    ) -> PyResult<Self> {
         let mapping = Mapping::from_descriptor(borrowed(index_descriptor)?, ReadOnly)?;
         let index = Index::attach(Arc::new(mapping))
             .ok_or_else(|| invalid("the descriptor holds no index"))?;
         let ring_mapping = Mapping::from_descriptor(borrowed(ring_descriptor)?, Writable)?;
         let memory = Arc::new(ring_mapping);
-        let ring =
-            Ring::attach(memory.clone()).ok_or_else(|| invalid("the descriptor holds no ring"))?;
+        let ring = Ring::attach(memory.clone(), enable_telemetry)
+            .ok_or_else(|| invalid("the descriptor holds no ring"))?;
         let ring_words = ring.words();
         let admissions = if memory.words().len() == ring_words {
             None

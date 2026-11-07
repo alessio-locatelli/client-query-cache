@@ -10,6 +10,7 @@ import struct
 import tempfile
 import time
 from contextlib import ExitStack
+from contextvars import ContextVar
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -71,6 +72,10 @@ SELECTION = struct.Struct("<IIQII")
 LENGTH = struct.Struct("<I")
 OPTIONS: CodecOptions[Mapping[str, Any]] = CodecOptions()
 CLEANUP = ExitStack()
+CORE_TELEMETRY_POLICY: ContextVar[bool] = ContextVar(
+    "training_telemetry", default=False
+)
+DEFAULT_DISABLED_SHARE = 0.8
 
 
 def require(*, condition: bool, reason: str) -> None:
@@ -101,7 +106,11 @@ def documents(target_bytes: int, count: int) -> list[Document]:
 
 def new_core(budget_bytes: int = 64 * 1024 * 1024) -> native.LocalCacheCore:
     return native.LocalCacheCore(
-        CacheCoreConfig(budget_bytes=budget_bytes, max_entry_bytes=budget_bytes // 4)
+        CacheCoreConfig(
+            budget_bytes=budget_bytes,
+            max_entry_bytes=budget_bytes // 4,
+            enable_telemetry=CORE_TELEMETRY_POLICY.get(),
+        )
     )
 
 
@@ -114,6 +123,9 @@ def read_shape() -> object:
 def verified(
     core: native.LocalCacheCore, run: Pass, *, hits: int = 0, misses: int = 0
 ) -> None:
+    if not core.enable_telemetry:
+        run()
+        return
     before = core.snapshot()
     run()
     after = core.snapshot()
@@ -260,7 +272,8 @@ def admit_churn(target_bytes: int) -> Workload:
 
     for _ in range(CHURN_WINDOWS):
         run()
-    require(condition=core.snapshot().evictions > 0, reason="churn never evicted")
+    if core.enable_telemetry:
+        require(condition=core.snapshot().evictions > 0, reason="churn never evicted")
     return run, RESIDENT_KEYS
 
 
@@ -433,7 +446,11 @@ def owner_admission() -> Workload:
         SLOTS, ARENA_BYTES, 1, 1, random.getrandbits(63), PROGRESS_EXPIRY_NS
     )
     core = native.SharedOwnerCore(
-        CacheCoreConfig(budget_bytes=4 * 1024 * 1024, max_entry_bytes=1024 * 1024),
+        CacheCoreConfig(
+            budget_bytes=4 * 1024 * 1024,
+            max_entry_bytes=1024 * 1024,
+            enable_telemetry=CORE_TELEMETRY_POLICY.get(),
+        ),
         index,
         [NAMESPACE.database],
         16,
@@ -518,7 +535,10 @@ def facade_find_miss() -> Workload:
     for _ in range(4):
         run()
     verified(core, run, misses=RESIDENT_KEYS)
-    require(condition=core.snapshot().evictions > 0, reason="find misses never evicted")
+    if core.enable_telemetry:
+        require(
+            condition=core.snapshot().evictions > 0, reason="find misses never evicted"
+        )
     return run, RESIDENT_KEYS
 
 
@@ -547,12 +567,13 @@ def facade_invalidation() -> Workload:
     def invalidations() -> int:
         return core.stream_cost_snapshot(NAMESPACE.database).invalidations
 
-    before = invalidations()  # pytriage: TR5 - The count is read before the pass runs.
+    before = invalidations() if core.enable_telemetry else None
     run()
-    require(
-        condition=invalidations() - before == len(events),
-        reason="change events did not invalidate",
-    )
+    if before is not None:
+        require(
+            condition=invalidations() - before == len(events),
+            reason="change events did not invalidate",
+        )
     return run, len(events)
 
 
@@ -574,6 +595,7 @@ def limited_core(max_entries: int) -> native.LocalCacheCore:
             max_entry_bytes=LIMITED_BUDGET // 4,
             max_entries=max_entries,
             max_key_bytes=LIMITED_KEY_BYTES,
+            enable_telemetry=CORE_TELEMETRY_POLICY.get(),
         )
     )
 
@@ -608,9 +630,11 @@ def limited_namespace_admission(*, entries: int) -> Workload:
     run = rotating(pipelines, run_window)
     for _ in range(LIMITED_WINDOWS):
         run()
-    require(
-        condition=core.snapshot().evictions > 0, reason="limited churn never evicted"
-    )
+    if core.enable_telemetry:
+        require(
+            condition=core.snapshot().evictions > 0,
+            reason="limited churn never evicted",
+        )
     return run, RESIDENT_KEYS
 
 
@@ -635,7 +659,10 @@ def limited_identity_alias_admission() -> Workload:
     run = rotating(pairs, run_window)
     for _ in range(LIMITED_WINDOWS):
         run()
-    require(condition=core.snapshot().entry_count > 0, reason="no value was retained")
+    if core.enable_telemetry:
+        require(
+            condition=core.snapshot().entry_count > 0, reason="no value was retained"
+        )
     return run, RESIDENT_KEYS
 
 
@@ -669,7 +696,10 @@ def limited_unique_admission(*, entries: int) -> Workload:
     run = rotating(unique_entries(LIMITED_WINDOWS * RESIDENT_KEYS), run_window)
     for _ in range(LIMITED_WINDOWS):
         run()
-    require(condition=core.snapshot().entry_count > 0, reason="no value was retained")
+    if core.enable_telemetry:
+        require(
+            condition=core.snapshot().entry_count > 0, reason="no value was retained"
+        )
     return run, RESIDENT_KEYS
 
 
@@ -788,15 +818,49 @@ BRIEF = frozenset(
 )
 
 
-def train(names: Sequence[str], seconds: float) -> None:
+CORE_POLICY_INDEPENDENT = frozenset(
+    {
+        "key_preparation_large",
+        "key_preparation_small",
+        "wire_keys",
+        "capture_array",
+        "shared_hit_small",
+        "shared_hit_medium",
+        "shared_miss",
+        "shared_publish_cycle",
+        "echo_roundtrip",
+    }
+)
+
+
+def train(
+    names: Sequence[str],
+    seconds: float,
+    *,
+    disabled_share: float = DEFAULT_DISABLED_SHARE,
+) -> None:
+    require(
+        condition=0 < disabled_share < 1,
+        reason="disabled share must be between zero and one",
+    )
     with CLEANUP:
         for name in names:
-            run, _operations = WORKLOADS[name]()
-            run()
-            share = BRIEF_SHARE if name in BRIEF else 1.0
-            deadline = time.monotonic() + seconds * share
-            while time.monotonic() < deadline:
+            modes = (
+                ((False, disabled_share), (True, 1 - disabled_share))
+                if name not in CORE_POLICY_INDEPENDENT
+                else ((False, 1.0),)
+            )
+            for enabled, weight in modes:
+                token = CORE_TELEMETRY_POLICY.set(enabled)
+                try:
+                    run, _operations = WORKLOADS[name]()
+                finally:
+                    CORE_TELEMETRY_POLICY.reset(token)
                 run()
+                share = BRIEF_SHARE if name in BRIEF else 1.0
+                deadline = time.monotonic() + seconds * share * weight
+                while time.monotonic() < deadline:
+                    run()
 
 
 def main() -> None:
@@ -805,8 +869,11 @@ def main() -> None:
     )
     parser.add_argument("--seconds", type=float, default=0.5)
     parser.add_argument("--workloads", nargs="*", default=list(WORKLOADS))
+    parser.add_argument("--disabled-share", type=float, default=DEFAULT_DISABLED_SHARE)
     arguments = parser.parse_args()
-    train(arguments.workloads, arguments.seconds)
+    train(
+        arguments.workloads, arguments.seconds, disabled_share=arguments.disabled_share
+    )
 
 
 if __name__ == "__main__":

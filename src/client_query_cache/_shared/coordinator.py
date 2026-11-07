@@ -21,8 +21,10 @@ from pymongo.monitoring import CommandListener
 
 from client_query_cache._core.entries import AdmissionOutcome
 from client_query_cache._core.errors import (
+    CacheConfigurationError,
     StreamLifecycleError,
     UnsupportedCacheRequestError,
+    require_telemetry,
 )
 from client_query_cache._core.find_reads import FindReadShape
 from client_query_cache._core.keys import NamespaceId
@@ -108,6 +110,7 @@ class OwnerConfig:
     limits: TransportLimits
     lag_capture: tuple[PositiveInt, PositiveInt, NonNegativeInt]
     shared_index: SharedIndexLimits | None = None
+    enable_telemetry: bool = False
 
     @property
     def frame_limit(self) -> PositiveInt:
@@ -117,18 +120,22 @@ class OwnerConfig:
 class UpstreamProgress(CommandListener):
     def __init__(
         self,
-        publish: Callable[[str], None] | None = None,
+        publish: Callable[[str, NonNegativeInt], None] | None = None,
         *,
         expiry_seconds: PositiveFloat,
+        enable_telemetry: bool = False,
     ) -> None:
         self.observed: dict[str, NonNegativeFloat] = {}
-        self._fresh_since: dict[str, NonNegativeFloat] = {}
+        self._fresh_since: dict[str, NonNegativeFloat] | None = (
+            {} if enable_telemetry else None
+        )
         self._expiry_seconds = expiry_seconds
-        self.counts: dict[str, NonNegativeInt] = {}
+        self.counts: dict[str, NonNegativeInt] | None = {} if enable_telemetry else None
         self._lock = threading.Lock()
         self._publish = publish
 
     def _count(self, key: str) -> None:
+        assert self.counts is not None
         with self._lock:
             try:
                 self.counts[key] += 1
@@ -136,6 +143,8 @@ class UpstreamProgress(CommandListener):
                 self.counts[key] = 1
 
     def started(self, event: CommandStartedEvent) -> None:
+        if self.counts is None:
+            return
         self._count(f"{event.command_name}:requested")
         if event.command_name == "aggregate" and any(
             "$changeStream" in stage for stage in event.command["pipeline"]
@@ -143,22 +152,27 @@ class UpstreamProgress(CommandListener):
             self._count("stream:opened")
 
     def succeeded(self, event: CommandSucceededEvent) -> None:
-        self._count(f"{event.command_name}:completed")
+        if self.counts is not None:
+            self._count(f"{event.command_name}:completed")
         if event.command_name in {"getMore", "aggregate"}:
             with self._lock:
-                now = time.monotonic()
-                try:
-                    previous = self.observed[event.database_name]
-                except KeyError:
-                    self._fresh_since[event.database_name] = now
-                else:
-                    if now - previous > self._expiry_seconds:
+                now_ns = time.monotonic_ns()
+                now = now_ns / 1e9
+                if self._fresh_since is not None:
+                    try:
+                        previous = self.observed[event.database_name]
+                    except KeyError:
                         self._fresh_since[event.database_name] = now
+                    else:
+                        if now - previous > self._expiry_seconds:
+                            self._fresh_since[event.database_name] = now
                 self.observed[event.database_name] = now
                 if self._publish is not None:
-                    self._publish(event.database_name)
+                    self._publish(event.database_name, now_ns)
 
     def fresh_since(self, database: str) -> NonNegativeFloat | None:
+        require_telemetry(enabled=self._fresh_since is not None)
+        assert self._fresh_since is not None
         with self._lock:
             try:
                 return self._fresh_since[database]
@@ -166,9 +180,12 @@ class UpstreamProgress(CommandListener):
                 return None
 
     def failed(self, event: CommandFailedEvent) -> None:
-        self._count(f"{event.command_name}:failed")
+        if self.counts is not None:
+            self._count(f"{event.command_name}:failed")
 
     def snapshot(self) -> dict[str, NonNegativeInt]:
+        require_telemetry(enabled=self.counts is not None)
+        assert self.counts is not None
         with self._lock:
             return dict(self.counts)
 
@@ -248,6 +265,7 @@ class SharedCacheOwner:
         "_activation_lock",
         "_admission_poll_until",
         "_connections",
+        "_counters",
         "_database_slots",
         "_handles",
         "_index",
@@ -265,7 +283,6 @@ class SharedCacheOwner:
         "client",
         "config",
         "core",
-        "counters",
         "incarnation",
         "progress",
         "streams",
@@ -294,6 +311,7 @@ class SharedCacheOwner:
         self.progress = UpstreamProgress(
             None if self._index is None else self._publish_progress,
             expiry_seconds=config.limits.progress_expiry_seconds,
+            enable_telemetry=config.enable_telemetry,
         )
         self.client: MongoClient[BsonDict] = MongoClient(
             config.mongodb_uri,
@@ -303,6 +321,7 @@ class SharedCacheOwner:
         namespaces = DEFAULT_MAX_NAMESPACES if limits is None else limits.namespaces
         self.core = SharedOwnerCore(
             CacheCoreConfig(
+                enable_telemetry=config.enable_telemetry,
                 budget_bytes=config.budget_bytes,
                 max_entry_bytes=config.max_entry_bytes,
                 max_namespaces=namespaces,
@@ -316,7 +335,7 @@ class SharedCacheOwner:
         self.streams = ChangeStreamCoordinator(
             self.client, self.core, max_await_time_ms=config.max_await_time_ms
         )
-        self.counters = OwnerCounters()
+        self._counters = OwnerCounters() if config.enable_telemetry else None
         self._activation: dict[str, tuple[ActivationState, NonNegativeFloat]] = {}
         self._activation_lock = threading.Lock()
         self._lease_live: dict[str, bool] = {}
@@ -330,11 +349,17 @@ class SharedCacheOwner:
         self._listener: socket.socket | None = None
         self._lock_file: TextIO | None = None
         self._paused_until = 0.0
-        self._started = time.monotonic()
+        self._started = time.monotonic() if config.enable_telemetry else 0.0
 
-    def _publish_progress(self, database: str) -> None:
+    @property
+    def counters(self) -> OwnerCounters:
+        require_telemetry(enabled=self.config.enable_telemetry)
+        assert self._counters is not None
+        return self._counters
+
+    def _publish_progress(self, database: str, now_ns: NonNegativeInt) -> None:
         assert self._index is not None
-        self._index.set_progress(self._database_slots[database], time.monotonic_ns())
+        self._index.set_progress(self._database_slots[database], now_ns)
 
     def bind(self) -> None:
         path = pathlib.Path(self.config.socket_path)
@@ -368,7 +393,8 @@ class SharedCacheOwner:
         if live and not fresh:
             self._lease_live[database] = False
             self._lease_epoch[database] = self._lease(database) + 1
-            self.counters.lease_expiries += 1
+            if self._counters is not None:
+                self._counters.lease_expiries += 1
         elif fresh and not live:
             self._lease_live[database] = True
         return fresh
@@ -389,18 +415,18 @@ class SharedCacheOwner:
                 return state
             self._activation[database] = ("pending", now)
         threading.Thread(
-            target=self._run_activation, args=(database,), daemon=True
+            target=self._run_activation, args=(database, now), daemon=True
         ).start()
         return "pending"
 
-    def _run_activation(self, database: str) -> None:
+    def _run_activation(self, database: str, attempted_at: NonNegativeFloat) -> None:
         try:
             supervisor = self.streams.activate_database(database)
         except StreamLifecycleError:
             supervisor = None
         with self._activation_lock:
             self._activation[database] = (
-                ("active", time.monotonic())
+                ("active", attempted_at)
                 if supervisor is not None
                 else ("failed", time.monotonic())
             )
@@ -429,7 +455,8 @@ class SharedCacheOwner:
     ) -> bytes | None:
         assert connection.session is not None
         if len(self._handles) >= self.config.limits.captures:
-            self.counters.capture_limit_misses += 1
+            if self._counters is not None:
+                self._counters.capture_limit_misses += 1
             _drop_capture(capture)
             return None
         handle = _HANDLE_ID.pack(self.incarnation, self._next_handle)
@@ -446,9 +473,10 @@ class SharedCacheOwner:
             shape_key,
         )
         connection.handles.add(handle)
-        self.counters.peak_captures = max(
-            self.counters.peak_captures, len(self._handles)
-        )
+        if self._counters is not None:
+            self._counters.peak_captures = max(
+                self._counters.peak_captures, len(self._handles)
+            )
         return handle
 
     def _release(self, handle_id: bytes) -> _Handle:
@@ -464,7 +492,8 @@ class SharedCacheOwner:
         )
         for handle_id in expired:
             handle = self._release(handle_id)
-            self.counters.expired_captures += 1
+            if self._counters is not None:
+                self._counters.expired_captures += 1
             for connection in self._connections.values():
                 if connection.session == handle.session:
                     connection.handles.discard(handle_id)
@@ -495,7 +524,8 @@ class SharedCacheOwner:
             if frames:
                 self._admission_poll_until = time.monotonic() + _SWEEP_SECONDS
             for frame in frames:
-                self.counters.ipc_bytes_received += len(frame)
+                if self._counters is not None:
+                    self._counters.ipc_bytes_received += len(frame)
                 try:
                     message = decode_queued_frame(frame, self.config.frame_limit)
                     self._reply(connection, message, time.monotonic(), queued=True)
@@ -507,16 +537,19 @@ class SharedCacheOwner:
         metadata = self.core.registered_namespace_metadata(namespace)
         if metadata is None:
             if self.core.can_register_namespace(namespace):
-                self.counters.refreshes += 1
+                if self._counters is not None:
+                    self._counters.refreshes += 1
                 return {"r": "refresh", "epoch": 0, "index_generation": 0}
-            self.counters.bypasses += 1
+            if self._counters is not None:
+                self._counters.bypasses += 1
             return {
                 "r": "bypass",
                 "reason": SharedBypassReason.NAMESPACE_CAPACITY.value,
             }
         current, index_generation = metadata
         if epoch != current:
-            self.counters.refreshes += 1
+            if self._counters is not None:
+                self._counters.refreshes += 1
             return {
                 "r": "refresh",
                 "epoch": current,
@@ -535,14 +568,16 @@ class SharedCacheOwner:
         operation = message["op"]
         if connection.session is None:
             if operation != "hello":
-                self.counters.unauthorized += 1
+                if self._counters is not None:
+                    self._counters.unauthorized += 1
                 raise ProtocolError("attachment must authenticate first")
             return self._hello(connection, message)
         if connection.control and not (
             queued and operation == "admit-local" and message["id"] == 0
         ):
             raise ProtocolError("control connections carry no requests")
-        self.counters.requests += 1
+        if self._counters is not None:
+            self._counters.requests += 1
         match operation:
             case "admit-local":
                 self._admit_local(message)
@@ -557,6 +592,7 @@ class SharedCacheOwner:
                     self._release(handle_id)
                 return None
             case "observe":
+                require_telemetry(enabled=self.config.enable_telemetry)
                 return {"r": "ok", **self.observation(now)}
         namespace = _namespace(message["ns"])
         if operation == "metadata-cancel":
@@ -580,13 +616,15 @@ class SharedCacheOwner:
                         self.core.cancel_namespace_metadata_probe(
                             namespace, probe_token
                         )
-            self.counters.bypasses += 1
+            if self._counters is not None:
+                self._counters.bypasses += 1
             return {"r": "bypass", "reason": reason}
         match operation:
             case "metadata-probe":
                 probe_token = self.core.begin_namespace_metadata_probe(namespace)
                 if probe_token is None:
-                    self.counters.bypasses += 1
+                    if self._counters is not None:
+                        self._counters.bypasses += 1
                     reason = (
                         SharedBypassReason.NAMESPACE_CAPACITY.value
                         if not self.core.can_register_namespace(namespace)
@@ -605,7 +643,8 @@ class SharedCacheOwner:
                     namespace, probe_token
                 )
                 if generations is None:
-                    self.counters.bypasses += 1
+                    if self._counters is not None:
+                        self._counters.bypasses += 1
                     return {
                         "r": "bypass",
                         "reason": BypassReason.METADATA_UNAVAILABLE.value,
@@ -630,9 +669,11 @@ class SharedCacheOwner:
                 shape = self._keys.decode(shape_key)
                 value = self.core.lookup_identity_encoded(namespace, identity, shape)
                 if value is not None:
-                    self.counters.hits += 1
+                    if self._counters is not None:
+                        self._counters.hits += 1
                     return {"r": "hit", "value": value}
-                self.counters.misses += 1
+                if self._counters is not None:
+                    self._counters.misses += 1
                 identity_capture = self.core.begin_identity_admission(
                     namespace, identity
                 )
@@ -657,9 +698,11 @@ class SharedCacheOwner:
                 shape = self._keys.decode(shape_key)
                 namespace_value = self.core.lookup_namespace_encoded(namespace, shape)
                 if isinstance(namespace_value, bytes):
-                    self.counters.hits += 1
+                    if self._counters is not None:
+                        self._counters.hits += 1
                     return {"r": "hit", "value": namespace_value}
-                self.counters.misses += 1
+                if self._counters is not None:
+                    self._counters.misses += 1
                 capture = self.core.capture_namespace_generation(namespace)
                 assert isinstance(shape_key, bytes)
                 return {
@@ -678,9 +721,11 @@ class SharedCacheOwner:
                 shape = FindReadShape(self._keys.decode(message["family"]), limit)
                 value = self.core.lookup_find_encoded(namespace, shape)
                 if value is not None:
-                    self.counters.hits += 1
+                    if self._counters is not None:
+                        self._counters.hits += 1
                     return {"r": "hit", "value": value}
-                self.counters.misses += 1
+                if self._counters is not None:
+                    self._counters.misses += 1
                 namespace_capture = self.core.capture_namespace_generation(namespace)
                 return {
                     "r": "miss",
@@ -702,21 +747,25 @@ class SharedCacheOwner:
         if not isinstance(capability, bytes) or not hmac.compare_digest(
             capability, self.config.capability
         ):
-            self.counters.unauthorized += 1
+            if self._counters is not None:
+                self._counters.unauthorized += 1
             return {"r": "error", "reason": "unauthorized"}
         if (
             message["budget_bytes"] != self.config.budget_bytes
             or message["max_entry_bytes"] != self.config.max_entry_bytes
             or message["max_await_time_ms"] != self.config.max_await_time_ms
+            or message["enable_telemetry"] is not self.config.enable_telemetry
         ):
-            self.counters.configuration_mismatches += 1
+            if self._counters is not None:
+                self._counters.configuration_mismatches += 1
             return {"r": "error", "reason": "configuration-mismatch"}
         try:
             control = message["role"] == "control"
         except KeyError:
             control = False
         if control and (self._index is None or self.config.shared_index is None):
-            self.counters.configuration_mismatches += 1
+            if self._counters is not None:
+                self._counters.configuration_mismatches += 1
             return {"r": "error", "reason": "shared-index-disabled"}
         connection.session = self._next_session
         self._next_session += 1
@@ -728,6 +777,7 @@ class SharedCacheOwner:
                 self.config.limits.queued_bytes_per_connection
                 if self.config.shared_index.native_admission_queue
                 else 0,
+                enable_telemetry=self.config.enable_telemetry,
             )
             self._rings[connection.session] = ring
             connection.control = True
@@ -741,7 +791,8 @@ class SharedCacheOwner:
         }
 
     def _admit_local(self, message: Message) -> None:
-        self.counters.admissions += 1
+        if self._counters is not None:
+            self._counters.admissions += 1
         namespace = _namespace(message["ns"])
         value = message["value"]
         if not isinstance(value, bytes):
@@ -751,10 +802,12 @@ class SharedCacheOwner:
         slot = _capture_words(message["slot"], 2)
         with self.progress._lock:
             if self._gate(namespace.database, time.monotonic()) is not None:
-                self.counters.rejected_admissions += 1
+                if self._counters is not None:
+                    self._counters.rejected_admissions += 1
                 return
             if self.core.assigned_slot(namespace) != slot:
-                self.counters.rejected_admissions += 1
+                if self._counters is not None:
+                    self._counters.rejected_admissions += 1
                 return
             token = _capture_words(message["token"], 3)
             epoch = _capture_word(message["epoch"])
@@ -779,20 +832,23 @@ class SharedCacheOwner:
                 round(self.config.limits.capture_seconds * 1e9),
             )
         if outcome is AdmissionOutcome.ADMITTED:
-            self.counters.admitted += 1
-        else:
-            self.counters.rejected_admissions += 1
+            if self._counters is not None:
+                self._counters.admitted += 1
+        elif self._counters is not None:
+            self._counters.rejected_admissions += 1
 
     def _admit(
         self, connection: _Connection, message: Message, now: NonNegativeFloat
     ) -> None:
-        self.counters.admissions += 1
+        if self._counters is not None:
+            self._counters.admissions += 1
         value = message["value"]
         if not isinstance(value, bytes):
             raise ProtocolError("admission value must be encoded bytes")
         handle_id = message["handle"]
         if not isinstance(handle_id, bytes) or handle_id not in connection.handles:
-            self.counters.rejected_admissions += 1
+            if self._counters is not None:
+                self._counters.rejected_admissions += 1
             return
         connection.handles.discard(handle_id)
         handle = self._handles.pop(handle_id)
@@ -801,7 +857,8 @@ class SharedCacheOwner:
             or self._gate(handle.database, now) is not None
             or handle.lease != self._lease(handle.database)
         ):
-            self.counters.rejected_admissions += 1
+            if self._counters is not None:
+                self._counters.rejected_admissions += 1
             _drop_capture(handle.capture)
             return
         if handle.identity_key is not None:
@@ -821,9 +878,10 @@ class SharedCacheOwner:
                 find_source=handle.find_source,
             )
         if outcome is AdmissionOutcome.ADMITTED:
-            self.counters.admitted += 1
-        else:
-            self.counters.rejected_admissions += 1
+            if self._counters is not None:
+                self._counters.admitted += 1
+        elif self._counters is not None:
+            self._counters.rejected_admissions += 1
 
     def _stream_status(
         self, database: str, now: NonNegativeFloat
@@ -844,6 +902,8 @@ class SharedCacheOwner:
         return SharedStreamStatus.HEALTHY
 
     def observation(self, now: NonNegativeFloat) -> Message:
+        require_telemetry(enabled=self.config.enable_telemetry)
+        assert self._counters is not None
         snapshot = self.core.snapshot()
         shared_index = self.config.shared_index
         return {
@@ -884,7 +944,7 @@ class SharedCacheOwner:
             "captures": len(self._handles),
             "connections": len(self._connections),
             "upstream_commands": self.progress.snapshot(),
-            "counters": asdict(self.counters),
+            "counters": asdict(self._counters),
             "shared_index": None
             if self._index is None
             else {
@@ -905,18 +965,21 @@ class SharedCacheOwner:
                 "3i", sock.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12)
             )
             if uid != os.geteuid():
-                self.counters.unauthorized += 1
+                if self._counters is not None:
+                    self._counters.unauthorized += 1
                 sock.close()
                 continue
             if len(self._connections) >= self.config.limits.connections:
-                self.counters.connections_rejected += 1
+                if self._counters is not None:
+                    self._counters.connections_rejected += 1
                 sock.close()
                 continue
             sock.settimeout(0.0)
             connection = _Connection(sock)
             self._connections[sock.fileno()] = connection
             self._selector.register(sock, selectors.EVENT_READ, connection)
-            self.counters.connections_accepted += 1
+            if self._counters is not None:
+                self._counters.connections_accepted += 1
 
     def detach(self, connection: _Connection) -> None:
         if connection.closed:
@@ -940,14 +1003,16 @@ class SharedCacheOwner:
         frame = encode_frame(reply)
         connection.queued += len(frame)
         connection.replies += 1
-        self.counters.peak_queued_bytes = max(
-            self.counters.peak_queued_bytes, connection.queued
-        )
+        if self._counters is not None:
+            self._counters.peak_queued_bytes = max(
+                self._counters.peak_queued_bytes, connection.queued
+            )
         if (
             connection.queued > self.config.limits.queued_bytes_per_connection
             or connection.replies > self.config.limits.requests_per_connection
         ):
-            self.counters.detached += 1
+            if self._counters is not None:
+                self._counters.detached += 1
             self.detach(connection)
             return False
         connection.outbox.append(memoryview(frame))
@@ -963,7 +1028,8 @@ class SharedCacheOwner:
             except OSError:  # pragma: lax no cover (peer reset timing)
                 self.detach(connection)
                 return False
-            self.counters.ipc_bytes_sent += sent
+            if self._counters is not None:
+                self._counters.ipc_bytes_sent += sent
             connection.queued -= sent
             if sent == len(view):
                 connection.outbox.popleft()
@@ -1006,7 +1072,8 @@ class SharedCacheOwner:
         if not chunk:
             self.detach(connection)
             return
-        self.counters.ipc_bytes_received += len(chunk)
+        if self._counters is not None:
+            self._counters.ipc_bytes_received += len(chunk)
         connection.inbox += chunk
         try:
             messages = self._frames(connection)
@@ -1059,13 +1126,16 @@ class SharedCacheOwner:
             raise ProtocolError("frame is missing a required field") from error
         except UnsupportedCacheRequestError as error:
             raise ProtocolError("frame carries an unsupported cache key") from error
+        except CacheConfigurationError as error:
+            reply = {"r": "error", "reason": str(error)}
         if reply is not None:
             reply["v"] = PROTOCOL_VERSION
             reply["id"] = request_id
         return reply
 
     def _reject(self, connection: _Connection) -> None:
-        self.counters.protocol_errors += 1
+        if self._counters is not None:
+            self._counters.protocol_errors += 1
         self.detach(connection)
 
     def serve(
@@ -1108,7 +1178,8 @@ class SharedCacheOwner:
                 next_sweep = started + _SWEEP_SECONDS
             elif polling_admissions:
                 self._drain_admissions()
-            self.counters.busy_seconds += time.monotonic() - started
+            if self._counters is not None:
+                self._counters.busy_seconds += time.monotonic() - started
 
     def pause(self, seconds: PositiveFloat) -> NonNegativeFloat:
         self._paused_until = time.monotonic() + seconds

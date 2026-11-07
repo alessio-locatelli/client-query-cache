@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Literal, TypedDict
 
 import pytest
 
+from client_query_cache import CacheCoreConfig
 from client_query_cache._core import manager as core_module
 from client_query_cache._core.entries import AdmissionOutcome
 from client_query_cache._core.find_reads import find_read_shape
@@ -28,7 +29,7 @@ HEAP_NAMESPACE = NamespaceId("heap", "empty")
 
 @pytest.fixture
 def traced_family_core() -> Iterator[CacheCore]:
-    core = CacheCore()
+    core = CacheCore(CacheCoreConfig(enable_telemetry=True))
     core.admit_namespace(
         core.capture_namespace_generation(NamespaceId("warm", "codec")), "warm", []
     )

@@ -37,6 +37,7 @@ def _wait_until(
     )
 
 
+@pytest.mark.parametrize("cache_manager", [True], indirect=True, ids=["telemetry"])
 def test_verify_single_consolidated_stream_rejects_an_inactive_database(
     cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
@@ -45,6 +46,7 @@ def test_verify_single_consolidated_stream_rejects_an_inactive_database(
         verify_single_consolidated_stream(cache_manager, database=cached_database_name)
 
 
+@pytest.mark.parametrize("cache_manager", [True], indirect=True, ids=["telemetry"])
 def test_verify_single_consolidated_stream_passes_for_two_cached_collections(
     cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
@@ -69,6 +71,7 @@ def test_verify_single_consolidated_stream_passes_for_two_cached_collections(
     verify_single_consolidated_stream(cache_manager, database=cached_database_name)
 
 
+@pytest.mark.parametrize("cache_manager", [True], indirect=True, ids=["telemetry"])
 def test_reset_run_state_drops_the_database_and_returns_an_empty_cache(
     raw_mongo_client: MongoClient[BsonDict],
     cache_manager: CacheManager[BsonDict],

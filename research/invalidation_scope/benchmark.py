@@ -29,7 +29,7 @@ from benchmarks.stream_cost.measurement import (
     scalar_latency_distribution,
 )
 from benchmarks.stream_cost.topology import IsolatedReplicaSet, ResourceLimits
-from client_query_cache import CacheManager
+from client_query_cache import CacheCoreConfig, CacheManager
 from client_query_cache._types import (
     BsonDict,
     NonNegativeFloat,
@@ -310,7 +310,13 @@ def run_cell(
         seed(target)
         seed(sibling)
         manager = (
-            None if path == "direct" else stack.enter_context(CacheManager(client))
+            None
+            if path == "direct"
+            else stack.enter_context(
+                CacheManager(
+                    client, cache_config=CacheCoreConfig(enable_telemetry=True)
+                )
+            )
         )
         view = (
             target.with_options(
@@ -441,7 +447,9 @@ def micro() -> dict[str, NonNegativeFloat]:
         replica.build_client(TOPOLOGY) as client,
     ):
         seed(client.bench.target)
-        with CacheManager(client) as manager:
+        with CacheManager(
+            client, cache_config=CacheCoreConfig(enable_telemetry=True)
+        ) as manager:
             view = manager["bench"]["target"]
             filters = {
                 "by_id": {"_id": 0},
@@ -466,7 +474,9 @@ def find_cost(reps: PositiveInt) -> dict[str, object]:
     with (
         IsolatedReplicaSet(ResourceLimits(cpus=2.0, memory="2g")) as replica,
         replica.build_client(TOPOLOGY, event_listeners=(listener,)) as client,
-        CacheManager(client) as manager,
+        CacheManager(
+            client, cache_config=CacheCoreConfig(enable_telemetry=True)
+        ) as manager,
     ):
         seed(client.bench.target)
         view = manager["bench"]["target"]

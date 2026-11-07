@@ -122,9 +122,9 @@ class Observation:
     hits: NonNegativeInt
     measured_cpu_seconds: NonNegativeFloat
     streams: NonNegativeInt
-    cache_hits: NonNegativeInt = 0
-    cache_misses: NonNegativeInt = 0
-    cache_bypasses: NonNegativeInt = 0
+    cache_hits: NonNegativeInt | None = 0
+    cache_misses: NonNegativeInt | None = 0
+    cache_bypasses: NonNegativeInt | None = 0
     endpoint_counts: dict[str, NonNegativeInt] = field(default_factory=dict)
     owner_requests: NonNegativeInt = 0
     origin_commands: dict[str, NonNegativeInt] = field(default_factory=dict)
@@ -199,9 +199,9 @@ def _collect(
     measured_cpu_started: NonNegativeFloat,
     streams: NonNegativeInt,
     *,
-    cache_hits: NonNegativeInt = 0,
-    cache_misses: NonNegativeInt = 0,
-    cache_bypasses: NonNegativeInt = 0,
+    cache_hits: NonNegativeInt | None = 0,
+    cache_misses: NonNegativeInt | None = 0,
+    cache_bypasses: NonNegativeInt | None = 0,
     endpoint_counts: dict[str, NonNegativeInt] | None = None,
     owner_requests: NonNegativeInt = 0,
     origin_commands: dict[str, NonNegativeInt] | None = None,
@@ -283,17 +283,20 @@ class Window:
     budget_bytes: PositiveInt | None = None
     max_entry_bytes: PositiveInt | None = None
     require_installed: bool = True
+    enable_telemetry: bool = True
 
 
 def _core_config(window: Window) -> CacheCoreConfig | None:
     if window.method in _CODE_METHODS:
         return CacheCoreConfig(
+            enable_telemetry=window.enable_telemetry,
             budget_bytes=BUDGETS[window.method],
             max_entry_bytes=MAX_ENTRY_BYTES,
         )
     if window.budget_bytes is None or window.max_entry_bytes is None:
-        return None
+        return CacheCoreConfig(enable_telemetry=window.enable_telemetry)
     return CacheCoreConfig(
+        enable_telemetry=window.enable_telemetry,
         budget_bytes=window.budget_bytes,
         max_entry_bytes=window.max_entry_bytes,
     )
@@ -319,6 +322,8 @@ def _checkpoint(
     manager: object, completed: NonNegativeInt
 ) -> dict[str, NonNegativeInt]:
     if not isinstance(manager, (CacheManager, AsyncCacheManager)):
+        return {}
+    if not manager.enable_telemetry:
         return {}
     snapshot = manager.snapshot()
     return {
@@ -380,7 +385,7 @@ def _validate_value(
 
 
 def _validate_checkpoint(window: Window, checkpoint: dict[str, NonNegativeInt]) -> None:
-    if window.path != "independent":
+    if window.path != "independent" or not window.enable_telemetry:
         return
     if window.method in _CODE_METHODS:
         assert checkpoint["entries"] == COLD_CODES + 1
@@ -392,11 +397,18 @@ def _validate_checkpoint(window: Window, checkpoint: dict[str, NonNegativeInt]) 
 
 def _validate_observation(
     window: Window,
-    before: ReadCounts,
-    after: ReadCounts,
+    before: ReadCounts | None,
+    after: ReadCounts | None,
     origin: dict[str, NonNegativeInt],
     checkpoints: list[dict[str, NonNegativeInt]],
 ) -> None:
+    assert origin_reads(origin) == (
+        window.samples if window.path == "direct" or window.workload == "cold" else 0
+    )
+    if not window.enable_telemetry:
+        return
+    assert before is not None
+    assert after is not None
     cached = window.path != "direct"
     assert after.hits - before.hits == (
         window.samples if cached and window.workload == "hot" else 0
@@ -405,9 +417,6 @@ def _validate_observation(
         window.samples if cached and window.workload == "cold" else 0
     )
     assert after.bypasses == before.bypasses
-    assert origin_reads(origin) == (
-        window.samples if window.path == "direct" or window.workload == "cold" else 0
-    )
     if window.path == "independent" and window.method not in _CODE_METHODS:
         payloads = tuple(
             f"{ordinal}:" + "x" * window.document_bytes
@@ -470,8 +479,10 @@ def validate_predicates(window: Window, predicates: dict[str, NonNegativeInt]) -
 
 
 def _endpoint_snapshot(window: Window, manager: object) -> dict[str, NonNegativeInt]:
-    if window.diagnostics and isinstance(
-        manager, (SharedCacheManager, AsyncSharedCacheManager)
+    if (
+        window.enable_telemetry
+        and window.diagnostics
+        and isinstance(manager, (SharedCacheManager, AsyncSharedCacheManager))
     ):
         return asdict(manager.endpoint.counters)
     return {}
@@ -573,7 +584,9 @@ def _counts(
     | AsyncCacheManager[BsonDict]
     | SharedCacheManager[BsonDict]
     | AsyncSharedCacheManager[BsonDict],
-) -> ReadCounts:
+) -> ReadCounts | None:
+    if not manager.enable_telemetry:
+        return None
     snapshot = (
         manager.snapshot()
         if isinstance(manager, (SharedCacheManager, AsyncSharedCacheManager))
@@ -582,16 +595,36 @@ def _counts(
     return ReadCounts(snapshot.hits, snapshot.misses, snapshot.bypasses)
 
 
+def _warm_complete(
+    window: Window,
+    before: ReadCounts | None,
+    after: ReadCounts | None,
+    origin: dict[str, NonNegativeInt],
+) -> bool:
+    if not window.enable_telemetry:
+        return origin_reads(origin) == 0
+    assert before is not None
+    assert after is not None
+    return (
+        after.hits - before.hits == window.hot_keys
+        and after.misses == before.misses
+        and after.bypasses == before.bypasses
+    )
+
+
 def _follows_up(window: Window) -> bool:
     return window.validate and window.workload == "cold" and window.path != "direct"
 
 
 def _follow_up(
     window: Window,
-    before: ReadCounts,
-    after: ReadCounts,
+    before: ReadCounts | None,
+    after: ReadCounts | None,
     origin: dict[str, NonNegativeInt],
 ) -> dict[str, NonNegativeInt]:
+    if before is None or after is None:
+        assert origin_reads(origin) == 0
+        return {"origin_reads": 0}
     observed = {
         "hits": after.hits - before.hits,
         "misses": after.misses - before.misses,
@@ -699,16 +732,20 @@ def _measure_sync(window: Window) -> Observation:
             deadline = time.monotonic() + _READY_TIMEOUT
             while True:
                 before_warm = _counts(warming)
+                warm_origin = {} if commands is None else commands.snapshot()
                 for identity in range(window.hot_keys):
                     value = _read_sync(view, window, identity)
                     assert value is not None
                     if window.validate:
                         _validate_value(value, window, identity, payloads)
                 after_warm = _counts(warming)
-                if (
-                    after_warm.hits - before_warm.hits == window.hot_keys
-                    and after_warm.misses == before_warm.misses
-                    and after_warm.bypasses == before_warm.bypasses
+                if _warm_complete(
+                    window,
+                    before_warm,
+                    after_warm,
+                    {}
+                    if commands is None
+                    else command_delta(warm_origin, commands.snapshot()),
                 ):
                     break
                 if time.monotonic() > deadline:
@@ -722,7 +759,9 @@ def _measure_sync(window: Window) -> Observation:
             _validate_checkpoint(window, checkpoints[-1])
         implementation = _implementation(observed_manager) if window.validate else {}
         requests_before = (
-            manager.endpoint.counters.requests if window.path == "shared" else 0
+            manager.endpoint.counters.requests
+            if window.path == "shared" and window.enable_telemetry
+            else 0
         )
         endpoint_before = _endpoint_snapshot(
             window, manager if window.path == "shared" else None
@@ -786,18 +825,28 @@ def _measure_sync(window: Window) -> Observation:
                 window, before_counts, after_counts, origin, checkpoints
             )
             validate_predicates(window, commands.predicates)
-        hits = 0 if window.path != "shared" else after_counts.hits - before_counts.hits
+        hits = (
+            0
+            if window.path != "shared" or before_counts is None or after_counts is None
+            else after_counts.hits - before_counts.hits
+        )
         observation = _collect(
             latencies,
             hits,
             cpu_started,
             measured_cpu_started,
             len(independent.active_stream_cost_databases())
-            if window.path == "independent"
+            if window.path == "independent" and window.enable_telemetry
             else 0,
-            cache_hits=after_counts.hits - before_counts.hits,
-            cache_misses=after_counts.misses - before_counts.misses,
-            cache_bypasses=after_counts.bypasses - before_counts.bypasses,
+            cache_hits=None
+            if before_counts is None or after_counts is None
+            else after_counts.hits - before_counts.hits,
+            cache_misses=None
+            if before_counts is None or after_counts is None
+            else after_counts.misses - before_counts.misses,
+            cache_bypasses=None
+            if before_counts is None or after_counts is None
+            else after_counts.bypasses - before_counts.bypasses,
             endpoint_counts={
                 name: count - endpoint_before[name]
                 for name, count in _endpoint_snapshot(
@@ -805,7 +854,7 @@ def _measure_sync(window: Window) -> Observation:
                 ).items()
             },
             owner_requests=manager.endpoint.counters.requests - requests_before
-            if window.path == "shared"
+            if window.path == "shared" and window.enable_telemetry
             else 0,
             origin_commands=origin,
             checkpoints=checkpoints,
@@ -935,16 +984,20 @@ async def _measure_async(
             deadline = time.monotonic() + _READY_TIMEOUT
             while True:
                 before_warm = _counts(warming)
+                warm_origin = {} if commands is None else commands.snapshot()
                 for identity in range(window.hot_keys):
                     value = await _read_async(view, window, identity)
                     assert value is not None
                     if window.validate:
                         _validate_value(value, window, identity, payloads)
                 after_warm = _counts(warming)
-                if (
-                    after_warm.hits - before_warm.hits == window.hot_keys
-                    and after_warm.misses == before_warm.misses
-                    and after_warm.bypasses == before_warm.bypasses
+                if _warm_complete(
+                    window,
+                    before_warm,
+                    after_warm,
+                    {}
+                    if commands is None
+                    else command_delta(warm_origin, commands.snapshot()),
                 ):
                     break
                 if time.monotonic() > deadline:
@@ -958,7 +1011,9 @@ async def _measure_async(
             _validate_checkpoint(window, checkpoints[-1])
         implementation = _implementation(observed_manager) if window.validate else {}
         requests_before = (
-            manager.endpoint.counters.requests if window.path == "shared" else 0
+            manager.endpoint.counters.requests
+            if window.path == "shared" and window.enable_telemetry
+            else 0
         )
         endpoint_before = _endpoint_snapshot(
             window, manager if window.path == "shared" else None
@@ -1022,18 +1077,28 @@ async def _measure_async(
                 window, before_counts, after_counts, origin, checkpoints
             )
             validate_predicates(window, commands.predicates)
-        hits = 0 if window.path != "shared" else after_counts.hits - before_counts.hits
+        hits = (
+            0
+            if window.path != "shared" or before_counts is None or after_counts is None
+            else after_counts.hits - before_counts.hits
+        )
         observation = _collect(
             latencies,
             hits,
             cpu_started,
             measured_cpu_started,
             len(independent.active_stream_cost_databases())
-            if window.path == "independent"
+            if window.path == "independent" and window.enable_telemetry
             else 0,
-            cache_hits=after_counts.hits - before_counts.hits,
-            cache_misses=after_counts.misses - before_counts.misses,
-            cache_bypasses=after_counts.bypasses - before_counts.bypasses,
+            cache_hits=None
+            if before_counts is None or after_counts is None
+            else after_counts.hits - before_counts.hits,
+            cache_misses=None
+            if before_counts is None or after_counts is None
+            else after_counts.misses - before_counts.misses,
+            cache_bypasses=None
+            if before_counts is None or after_counts is None
+            else after_counts.bypasses - before_counts.bypasses,
             endpoint_counts={
                 name: count - endpoint_before[name]
                 for name, count in _endpoint_snapshot(
@@ -1041,7 +1106,7 @@ async def _measure_async(
                 ).items()
             },
             owner_requests=manager.endpoint.counters.requests - requests_before
-            if window.path == "shared"
+            if window.path == "shared" and window.enable_telemetry
             else 0,
             origin_commands=origin,
             checkpoints=checkpoints,
@@ -1231,6 +1296,11 @@ def reconcile_admissions(
     drain["worker_queued"] = worker["native_admissions"]
 
 
+def _measured_count(count: NonNegativeInt | None) -> NonNegativeInt:
+    assert count is not None
+    return count
+
+
 def _run_window(
     replica: IsolatedReplicaSet,
     model: Literal["sync", "async"],
@@ -1252,6 +1322,7 @@ def _run_window(
     budget_bytes: PositiveInt | None = None,
     max_entry_bytes: PositiveInt | None = None,
     require_installed: bool = True,
+    enable_telemetry: bool = True,
 ) -> dict[str, object]:
     setup_started = time.monotonic()
     setup_cpu_started = time.process_time()
@@ -1265,6 +1336,7 @@ def _run_window(
                     replica.uri,
                     ("public_shared_cache",),
                     config=SharedCacheConfig(
+                        enable_telemetry=enable_telemetry,
                         budget_bytes=32 * 1024 * 1024,
                         arena_bytes=40 * 1024 * 1024,
                         slots=16_384,
@@ -1327,6 +1399,7 @@ def _run_window(
                     budget_bytes,
                     max_entry_bytes,
                     require_installed,
+                    enable_telemetry,
                 ),
             )
             for worker in range(workers)
@@ -1345,7 +1418,7 @@ def _run_window(
         owner = None
         endpoint = None
         owner_before = None
-        if server is not None and (diagnostics or validate):
+        if enable_telemetry and server is not None and (diagnostics or validate):
             endpoint = SyncEndpoint(server.connection._attachment)
             resources.callback(endpoint.close)
             owner_before = endpoint.request({"op": "observe"})
@@ -1384,7 +1457,7 @@ def _run_window(
         writer_cpu = time.process_time() - writer_cpu_before if write_interval else 0
         elapsed = time.monotonic() - started
         drain = None
-        if validate and server is not None and workload == "cold":
+        if enable_telemetry and validate and server is not None and workload == "cold":
             assert endpoint is not None
             assert owner_before is not None
             drain = await_admissions(
@@ -1405,7 +1478,7 @@ def _run_window(
             owner_pss = owner.memory_full_info().pss
         owner_streams = 0
         owner_after = None
-        if server is not None:
+        if enable_telemetry and server is not None:
             if endpoint is None:
                 endpoint = SyncEndpoint(server.connection._attachment)
                 resources.callback(endpoint.close)
@@ -1458,6 +1531,7 @@ def _run_window(
             "workers": workers,
             "budget_bytes": budget_bytes,
             "max_entry_bytes": max_entry_bytes,
+            "enable_telemetry": enable_telemetry,
             "throughput": workers * samples / elapsed,
             "admission_drain": drain,
             "server_cpu_seconds": server_cpu,
@@ -1504,13 +1578,23 @@ def _run_window(
             "owner_before": owner_before,
             "owner_after": owner_after if diagnostics or validate else None,
             "shared_hits": sum(observation.hits for observation in observations),
-            "cache_hits": sum(observation.cache_hits for observation in observations),
+            "cache_hits": sum(
+                _measured_count(observation.cache_hits) for observation in observations
+            )
+            if enable_telemetry
+            else None,
             "cache_misses": sum(
-                observation.cache_misses for observation in observations
-            ),
+                _measured_count(observation.cache_misses)
+                for observation in observations
+            )
+            if enable_telemetry
+            else None,
             "cache_bypasses": sum(
-                observation.cache_bypasses for observation in observations
-            ),
+                _measured_count(observation.cache_bypasses)
+                for observation in observations
+            )
+            if enable_telemetry
+            else None,
             "streams": owner_streams
             + sum(observation.streams for observation in observations),
             "worker_observations": [
@@ -1589,6 +1673,14 @@ def main() -> None:
         action="store_true",
         help="Verify installed artifacts, results, origins and cache trajectories.",
     )
+    parser.add_argument(
+        "--disable-telemetry",
+        action="store_true",
+        help=(
+            "Measure without library telemetry; "
+            "verify cache use through MongoDB commands."
+        ),
+    )
     parser.add_argument("--rotation", type=int, default=0)
     parser.add_argument(
         "--diagnostics",
@@ -1658,6 +1750,12 @@ def main() -> None:
         or not math.isfinite(arguments.write_interval)
     ):
         parser.error("samples and repetitions must be positive")
+    if arguments.disable_telemetry and not arguments.validate:
+        parser.error(
+            "--disable-telemetry requires --validate for matched cache-use checks"
+        )
+    if arguments.disable_telemetry and arguments.diagnostics:
+        parser.error("--diagnostics requires telemetry")
     if arguments.rotation < 0:
         parser.error("rotation must not be negative")
     if (arguments.budget_bytes is None) != (arguments.max_entry_bytes is None) or (
@@ -1701,6 +1799,7 @@ def main() -> None:
         and "shared" in arguments.paths
         and "cold" in arguments.workloads
         and not arguments.diagnostics
+        and not arguments.disable_telemetry
     ):
         parser.error("validated shared cold cells require --diagnostics")
     if (
@@ -1741,6 +1840,7 @@ def main() -> None:
                                 write_interval=arguments.write_interval,
                                 read_rate=arguments.read_rate,
                                 diagnostics=arguments.diagnostics,
+                                enable_telemetry=not arguments.disable_telemetry,
                                 validate=arguments.validate,
                                 document_bytes=arguments.document_bytes,
                                 rotation=arguments.rotation,
@@ -1784,6 +1884,7 @@ def main() -> None:
                     "document_bytes": arguments.document_bytes,
                     "hot_keys": arguments.hot_keys,
                     "validated": arguments.validate,
+                    "enable_telemetry": not arguments.disable_telemetry,
                     "rotation": arguments.rotation,
                     "windows": windows,
                     "invalid_reason": invalid_reason,

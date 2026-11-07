@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pickle  # noqa: S403 - Serialize only our own trusted descriptor.
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING
 
@@ -10,8 +11,11 @@ from hypothesis import strategies as st
 from client_query_cache._core.snapshots import BypassReason
 from client_query_cache._shared.adapters import LocalObservation
 from client_query_cache._shared.diagnostics import SharedBypassReason
+from client_query_cache.shared import SharedCacheConfig, SharedCacheServer
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from faker import Faker
 
     from client_query_cache._types import NonNegativeInt
@@ -22,6 +26,38 @@ _SHARED_VALUES = {reason.value for reason in SharedBypassReason}
 _UNREACHABLE_FROM_SHARED_READS = {BypassReason.ADMISSION_INVALIDATED.value}
 _WRITERS = 4
 _RECORDINGS_PER_WRITER = 500
+
+
+@pytest.fixture(params=[False, True], ids=["disabled", "enabled"])
+def configured_server(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[SharedCacheServer]:
+    monkeypatch.setattr(SharedCacheServer, "_start", lambda _self: None)
+    server = SharedCacheServer(
+        "mongodb://127.0.0.1:9",
+        databases=("catalogue",),
+        config=SharedCacheConfig(enable_telemetry=request.param),
+    )
+    yield server
+    server.close()
+
+
+def test_server_descriptor_round_trip_preserves_policy(
+    configured_server: SharedCacheServer,
+) -> None:
+    connection = pickle.loads(pickle.dumps(configured_server.connection))  # noqa: S301 - Bytes produced immediately above from our descriptor.
+    assert (
+        connection._attachment.enable_telemetry
+        is configured_server._config.enable_telemetry
+    )
+    assert (
+        connection._attachment.hello()["enable_telemetry"]
+        is configured_server._config.enable_telemetry
+    )
+    assert (
+        configured_server.connection._attachment.enable_telemetry
+        is connection._attachment.enable_telemetry
+    )
 
 
 def test_vocabulary_covers_every_reason_shared_reads_can_record() -> None:

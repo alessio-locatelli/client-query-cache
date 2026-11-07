@@ -2,11 +2,27 @@
 
 Choose diagnostics for the manager you use. Process-local `CacheManager` exposes capacity, detailed bypass reasons and stream health. `SharedCacheManager` separates worker-local statistics from an on-demand owner snapshot; see [shared diagnostics](#shared-manager-diagnostics).
 
+Telemetry is disabled by default. Enable it when constructing a process-local manager:
+
+```python
+from client_query_cache import CacheCoreConfig, CacheManager
+
+cache_manager = CacheManager(
+    client, cache_config=CacheCoreConfig(enable_telemetry=True)
+)
+```
+
+For shared managers, set `SharedCacheConfig(enable_telemetry=True)` on the server; every worker inherits that policy, including after restart. The policy is fixed for the core or server lifetime; the read-only `manager.enable_telemetry` property reports it. Both configuration classes accept only built-in booleans for this setting.
+
+Disabled diagnostic access raises `CacheConfigurationError` directing you to `enable_telemetry=True`. This includes cache, stream-health, stream-cost and owner snapshots, stream-cost database discovery and reset, advanced inspection, and OpenTelemetry registration, even after close. Rejection makes no diagnostic request and does not enable collection. Enabled sources retain their post-close inspection behavior.
+
+Caching, invalidation, recovery and capacity limits work in both modes. Actionable errors and warnings remain visible; routine diagnostic logging requires telemetry.
+
 Measure hit rate alongside request latency, application and MongoDB CPU, and memory. A healthy stream does not mean a writer's latest event has arrived; see [consistency](../usage/consistency.md).
 
 ## Observability
 
-The remainder of this section describes synchronous and asyncio **process-local `CacheManager`** instances.
+The remainder of this section describes telemetry-enabled synchronous and asyncio **process-local `CacheManager`** instances.
 
 - **Logging**: every component logs through the standard `logging` module under `client_query_cache.*` logger
   names (for example, `client_query_cache.synchronous.streams` logs stream reconnects and shutdown warnings). Attach

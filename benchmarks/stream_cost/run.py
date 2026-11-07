@@ -47,6 +47,7 @@ from benchmarks.stream_cost.workload import (
     verify_primed,
     wait_for_invalidations_to_settle,
 )
+from client_query_cache import CacheCoreConfig
 from client_query_cache._types import BsonDict
 from client_query_cache.synchronous.manager import CacheManager
 
@@ -180,7 +181,9 @@ def _measure_change_stream_cost_comparison(
     database.drop_collection(cache_collection_name)
     cache_only_raw_collection = database[cache_collection_name]
     insert_dataset(cache_only_raw_collection, dataset)
-    with CacheManager(client) as manager:
+    with CacheManager(
+        client, cache_config=CacheCoreConfig(enable_telemetry=True)
+    ) as manager:
         cache_only_collection = manager[database_name][cache_collection_name]
         before = manager.cache_core.snapshot()
         for _ in range(variant.warmup.reads):
@@ -227,7 +230,9 @@ def _run_variant(
     raw_collection = database["measured"]
     dataset = seed_dataset(variant)
     insert_dataset(raw_collection, dataset)
-    with CacheManager(client) as manager:
+    with CacheManager(
+        client, cache_config=CacheCoreConfig(enable_telemetry=True)
+    ) as manager:
         cache_collection = manager[database_name]["measured"]
         outcome, measurement = measure_controlled(
             lambda: _sample_variant(

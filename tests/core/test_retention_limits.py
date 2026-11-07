@@ -68,13 +68,19 @@ def decline_count(
     "maximum", [None, 1, 2, 3], ids=["disabled", "one", "two", "three"]
 )
 @pytest.mark.parametrize("key_limit", [None, 1024])
+@pytest.mark.parametrize("telemetry", [False, True], ids=["disabled", "enabled"])
 def test_unique_match_retains_a_useful_representation(
     core_factory: CoreFactory,
     namespace: NamespaceId,
     maximum: PositiveInt | None,
     key_limit: PositiveInt | None,
+    telemetry: bool,
 ) -> None:
-    core = core_factory(CacheCoreConfig(max_entries=maximum, max_key_bytes=key_limit))
+    core = core_factory(
+        CacheCoreConfig(
+            max_entries=maximum, max_key_bytes=key_limit, enable_telemetry=telemetry
+        )
+    )
     assert core.max_entries == maximum
     alias = canonical_alias_key("email", "alice@example.com", None)
     discriminator = (alias, "full")
@@ -88,10 +94,11 @@ def test_unique_match_retains_a_useful_representation(
         alias=alias,
     )
     assert outcome is AdmissionOutcome.ADMITTED
-    snapshot = core.snapshot()
-    assert snapshot.entry_count == (2 if maximum is None else 1)
-    assert snapshot.alias_count == (0 if maximum == 1 else 1)
-    assert snapshot.used_bytes == len(encode_value(document)) * snapshot.entry_count
+    if telemetry:
+        snapshot = core.snapshot()
+        assert snapshot.entry_count == (2 if maximum is None else 1)
+        assert snapshot.alias_count == (0 if maximum == 1 else 1)
+        assert snapshot.used_bytes == len(encode_value(document)) * snapshot.entry_count
     assert core.lookup_namespace(namespace, discriminator).hit is (
         maximum is None or maximum == 1
     )
@@ -101,7 +108,7 @@ def test_unique_match_retains_a_useful_representation(
 def test_full_cache_does_not_evict_an_extra_value_for_an_alias(
     core_factory: CoreFactory, namespace: NamespaceId
 ) -> None:
-    core = core_factory(CacheCoreConfig(max_entries=2))
+    core = core_factory(CacheCoreConfig(max_entries=2, enable_telemetry=True))
     for discriminator in ("oldest", "newer"):
         assert (
             core.admit_namespace(
@@ -131,7 +138,7 @@ def test_full_cache_does_not_evict_an_extra_value_for_an_alias(
 def test_count_capacity_is_shared_across_namespaces(
     core_factory: CoreFactory, namespace: NamespaceId, other_namespace: NamespaceId
 ) -> None:
-    core = core_factory(CacheCoreConfig(max_entries=1))
+    core = core_factory(CacheCoreConfig(max_entries=1, enable_telemetry=True))
     for target in (namespace, other_namespace, namespace):
         assert (
             core.admit_namespace(core.capture_namespace_generation(target), "query", 1)
@@ -144,7 +151,7 @@ def test_count_capacity_is_shared_across_namespaces(
 def test_large_key_declines_without_reclassifying_the_miss(
     core_factory: CoreFactory, namespace: NamespaceId
 ) -> None:
-    core = core_factory(CacheCoreConfig(max_key_bytes=1024))
+    core = core_factory(CacheCoreConfig(max_key_bytes=1024, enable_telemetry=True))
     capture = core.capture_namespace_generation(namespace)
     assert (
         core.admit_namespace(capture, "x" * 4096, 1)
@@ -196,7 +203,7 @@ def test_raising_size_callback_declines_only_retention(
     *,
     existing: bool,
 ) -> None:
-    core = core_factory(CacheCoreConfig(max_key_bytes=1024))
+    core = core_factory(CacheCoreConfig(max_key_bytes=1024, enable_telemetry=True))
     if existing:
         assert (
             core.admit_namespace(
@@ -226,7 +233,7 @@ def test_raising_size_callback_declines_only_retention(
 def test_sizing_interruption_propagates_without_declining_retention(
     core_factory: CoreFactory, namespace: NamespaceId, sized_key: SizedKey
 ) -> None:
-    core = core_factory(CacheCoreConfig(max_key_bytes=1024))
+    core = core_factory(CacheCoreConfig(max_key_bytes=1024, enable_telemetry=True))
     sized_key.callback = interrupt_sizing
     with pytest.raises(KeyboardInterrupt):
         core.admit_namespace(core.capture_namespace_generation(namespace), sized_key, 1)
@@ -241,7 +248,9 @@ def test_sizing_interruption_propagates_without_declining_retention(
 def test_reentrant_sizing_rechecks_the_capture(
     core_factory: CoreFactory, namespace: NamespaceId, sized_key: SizedKey
 ) -> None:
-    core = core_factory(CacheCoreConfig(max_entries=2, max_key_bytes=1024))
+    core = core_factory(
+        CacheCoreConfig(max_entries=2, max_key_bytes=1024, enable_telemetry=True)
+    )
     capture = core.capture_namespace_generation(namespace)
     sized_key.callback = partial(core.record_write, namespace, "other-document")
     assert (
@@ -298,7 +307,9 @@ class GrowingKey:
 def test_each_record_measures_a_custom_scalar_independently(
     core_factory: CoreFactory, namespace: NamespaceId
 ) -> None:
-    core = core_factory(CacheCoreConfig(max_entries=4, max_key_bytes=4096))
+    core = core_factory(
+        CacheCoreConfig(max_entries=4, max_key_bytes=4096, enable_telemetry=True)
+    )
     identity = GrowingKey()
     alias = canonical_alias_key("email", "alice@example.com", None)
     assert (
@@ -332,7 +343,7 @@ def test_identity_lookup_defers_only_a_requested_available_miss(
     resident: bool,
     available: bool,
 ) -> None:
-    core = core_factory(CacheCoreConfig())
+    core = core_factory(CacheCoreConfig(enable_telemetry=True))
     if resident:
         core.admit_identity(core.begin_identity_admission(namespace, "id"), "full", 1)
     core.set_database_available(namespace.database, available=available)
@@ -360,7 +371,7 @@ def test_hits_and_disabled_admissions_do_not_size_keys(
     sized_key: SizedKey,
     maximum: PositiveInt | None,
 ) -> None:
-    core = core_factory(CacheCoreConfig(max_key_bytes=maximum))
+    core = core_factory(CacheCoreConfig(max_key_bytes=maximum, enable_telemetry=True))
     assert (
         core.admit_namespace(core.capture_namespace_generation(namespace), sized_key, 1)
         is AdmissionOutcome.ADMITTED
@@ -404,10 +415,18 @@ def test_key_charge_boundary_and_tuple_identity_deduplication(
 
 
 @pytest.mark.parametrize("max_entries", [None, 1, 2, 3])
+@pytest.mark.parametrize("telemetry", [False, True], ids=["disabled", "enabled"])
 def test_alias_only_decline_keeps_identity_and_bypass_meanings(
-    core_factory: CoreFactory, namespace: NamespaceId, max_entries: PositiveInt | None
+    core_factory: CoreFactory,
+    namespace: NamespaceId,
+    max_entries: PositiveInt | None,
+    telemetry: bool,
 ) -> None:
-    core = core_factory(CacheCoreConfig(max_entries=max_entries, max_key_bytes=1024))
+    core = core_factory(
+        CacheCoreConfig(
+            max_entries=max_entries, max_key_bytes=1024, enable_telemetry=telemetry
+        )
+    )
     alias = canonical_alias_key("email", "x" * 4096, None)
     capture = core.begin_identity_admission(namespace, "document")
     assert (
@@ -416,14 +435,15 @@ def test_alias_only_decline_keeps_identity_and_bypass_meanings(
     )
     assert core.lookup_identity(namespace, "document", "full").value == 1
     assert core.resolve_alias(namespace, "email", "x" * 4096, None) is None
-    snapshot = core.snapshot()
-    assert snapshot.bypasses == snapshot.oversized_bypasses == 0
-    assert (
-        decline_count(
-            core, RetentionRecordKind.ALIAS, RetentionDeclineReason.KEY_SIZE_LIMIT
+    if telemetry:
+        snapshot = core.snapshot()
+        assert snapshot.bypasses == snapshot.oversized_bypasses == 0
+        assert (
+            decline_count(
+                core, RetentionRecordKind.ALIAS, RetentionDeclineReason.KEY_SIZE_LIMIT
+            )
+            == 1
         )
-        == 1
-    )
 
 
 @pytest.mark.parametrize("maximum", [1, 2, 3])
@@ -434,7 +454,11 @@ def test_unique_replacement_and_lifecycle_release_capacity(
     maximum: PositiveInt,
     key_limit: PositiveInt | None,
 ) -> None:
-    core = core_factory(CacheCoreConfig(max_entries=maximum, max_key_bytes=key_limit))
+    core = core_factory(
+        CacheCoreConfig(
+            max_entries=maximum, max_key_bytes=key_limit, enable_telemetry=True
+        )
+    )
     alias = canonical_alias_key("email", "alice@example.com", None)
     for identity in ("A", "B", "B"):
         capture = core.capture_namespace_generation(namespace)
@@ -463,7 +487,10 @@ def test_unique_pair_uses_one_payload_budget(
     weight = len(encode_value(document))
     core = core_factory(
         CacheCoreConfig(
-            budget_bytes=weight, max_entry_bytes=weight, max_entries=maximum
+            budget_bytes=weight,
+            max_entry_bytes=weight,
+            max_entries=maximum,
+            enable_telemetry=True,
         )
     )
     alias = canonical_alias_key("email", "alice@example.com", None)
@@ -490,7 +517,7 @@ def test_concurrent_cross_namespace_admissions_obey_the_global_bound(
     admission_pool: ThreadPoolExecutor,
     maximum: PositiveInt,
 ) -> None:
-    core = core_factory(CacheCoreConfig(max_entries=maximum))
+    core = core_factory(CacheCoreConfig(max_entries=maximum, enable_telemetry=True))
     barrier = threading.Barrier(2)
     futures = [
         admission_pool.submit(admit_after_barrier, core, target, barrier, index)
@@ -543,7 +570,9 @@ def test_generated_operation_orders_preserve_capacity_and_fresh_hits(
     operations: list[tuple[str, NonNegativeInt, NonNegativeInt]],
 ) -> None:
     # The fixture is a factory: each generated example obtains its own core.
-    core = core_factory(CacheCoreConfig(max_entries=3, max_key_bytes=2048))
+    core = core_factory(
+        CacheCoreConfig(max_entries=3, max_key_bytes=2048, enable_telemetry=True)
+    )
     namespaces = [NamespaceId("generated", name) for name in ("a", "b")]
     versions = [[0] * 4 for _ in namespaces]
     generations = [0, 0]
@@ -594,13 +623,19 @@ def test_generated_operation_orders_preserve_capacity_and_fresh_hits(
 @pytest.mark.parametrize(
     "large_record", ["identity", "alias", "namespace", "identity-and-namespace"]
 )
+@pytest.mark.parametrize("telemetry", [False, True], ids=["disabled", "enabled"])
 def test_composite_key_declines_and_fallback_observations(
     core_factory: CoreFactory,
     namespace: NamespaceId,
     maximum: PositiveInt | None,
     large_record: str,
+    telemetry: bool,
 ) -> None:
-    core = core_factory(CacheCoreConfig(max_entries=maximum, max_key_bytes=1024))
+    core = core_factory(
+        CacheCoreConfig(
+            max_entries=maximum, max_key_bytes=1024, enable_telemetry=telemetry
+        )
+    )
     identity = "I" * (4096 if "identity" in large_record else 1)
     discriminator = "Q" * (4096 if "namespace" in large_record else 1)
     alias_value = "A" * (4096 if large_record == "alias" else 1)
@@ -629,37 +664,42 @@ def test_composite_key_declines_and_fallback_observations(
             if pair_fits or namespace_fits
             else AdmissionOutcome.DECLINED_RETENTION
         )
-    snapshot = core.snapshot()
-    assert snapshot.bypasses == snapshot.oversized_bypasses == 0
-    assert snapshot.entry_count == (
-        (int(namespace_fits) + int("identity" not in large_record))
-        if maximum is None
-        else int(pair_fits or namespace_fits)
-    )
-    assert snapshot.alias_count == int(pair_fits)
-    if maximum == 1:
-        assert (
-            decline_count(
-                core, RetentionRecordKind.ALIAS, RetentionDeclineReason.ENTRY_CAPACITY
-            )
-            == 1
+    if telemetry:
+        snapshot = core.snapshot()
+        assert snapshot.bypasses == snapshot.oversized_bypasses == 0
+        assert snapshot.entry_count == (
+            (int(namespace_fits) + int("identity" not in large_record))
+            if maximum is None
+            else int(pair_fits or namespace_fits)
         )
-    elif "identity" in large_record:
-        assert (
-            decline_count(
-                core,
-                RetentionRecordKind.IDENTITY_VALUE,
-                RetentionDeclineReason.KEY_SIZE_LIMIT,
+        assert snapshot.alias_count == int(pair_fits)
+        if maximum == 1:
+            assert (
+                decline_count(
+                    core,
+                    RetentionRecordKind.ALIAS,
+                    RetentionDeclineReason.ENTRY_CAPACITY,
+                )
+                == 1
             )
-            == 1
-        )
-    elif large_record == "alias":
-        assert (
-            decline_count(
-                core, RetentionRecordKind.ALIAS, RetentionDeclineReason.KEY_SIZE_LIMIT
+        elif "identity" in large_record:
+            assert (
+                decline_count(
+                    core,
+                    RetentionRecordKind.IDENTITY_VALUE,
+                    RetentionDeclineReason.KEY_SIZE_LIMIT,
+                )
+                == 1
             )
-            == 1
-        )
+        elif large_record == "alias":
+            assert (
+                decline_count(
+                    core,
+                    RetentionRecordKind.ALIAS,
+                    RetentionDeclineReason.KEY_SIZE_LIMIT,
+                )
+                == 1
+            )
 
 
 @pytest.mark.parametrize("maximum", [1, 2])
@@ -668,7 +708,7 @@ def test_alias_capacity_decline_never_evicts_an_extra_value(
     namespace: NamespaceId,
     maximum: PositiveInt,
 ) -> None:
-    core = core_factory(CacheCoreConfig(max_entries=maximum))
+    core = core_factory(CacheCoreConfig(max_entries=maximum, enable_telemetry=True))
     if maximum == 2:
         assert (
             core.admit_namespace(
@@ -697,7 +737,7 @@ def test_oldest_alias_reclamation_preserves_resident_values(
     core_factory: CoreFactory,
     namespace: NamespaceId,
 ) -> None:
-    core = core_factory(CacheCoreConfig(max_entries=3))
+    core = core_factory(CacheCoreConfig(max_entries=3, enable_telemetry=True))
     alias = canonical_alias_key("email", "alice@example.com", None)
     assert (
         core.admit_identity(
@@ -723,7 +763,12 @@ def test_last_value_eviction_and_capture_release_reclaim_alias_ownership(
 ) -> None:
     weight = len(encode_value(1))
     core = core_factory(
-        CacheCoreConfig(max_entries=5, budget_bytes=weight, max_entry_bytes=weight)
+        CacheCoreConfig(
+            max_entries=5,
+            budget_bytes=weight,
+            max_entry_bytes=weight,
+            enable_telemetry=True,
+        )
     )
     alias = canonical_alias_key("email", "alice@example.com", None)
     assert (
@@ -747,7 +792,9 @@ def test_last_value_eviction_and_capture_release_reclaim_alias_ownership(
 
 @pytest.fixture
 def reference_core() -> Generator[CacheCore]:
-    core = CacheCore(CacheCoreConfig(max_entries=2, max_key_bytes=2048))
+    core = CacheCore(
+        CacheCoreConfig(max_entries=2, enable_telemetry=True, max_key_bytes=2048)
+    )
     yield core
     core.close()
 
@@ -832,7 +879,12 @@ def record_reference_finalization(core: CacheCore, observations: list[bool]) -> 
 def retiring_core() -> Generator[CacheCore]:
     weight = len(encode_value(1))
     core = CacheCore(
-        CacheCoreConfig(max_entries=4, budget_bytes=weight, max_entry_bytes=weight)
+        CacheCoreConfig(
+            max_entries=4,
+            budget_bytes=weight,
+            max_entry_bytes=weight,
+            enable_telemetry=True,
+        )
     )
     yield core
     core.close()
@@ -924,7 +976,9 @@ def test_unique_policy_does_not_size_unused_representations(
     sized_key: SizedKey,
     maximum: PositiveInt,
 ) -> None:
-    core = core_factory(CacheCoreConfig(max_entries=maximum, max_key_bytes=2048))
+    core = core_factory(
+        CacheCoreConfig(max_entries=maximum, max_key_bytes=2048, enable_telemetry=True)
+    )
     sizing = Mock(side_effect=fail_sizing)
     sized_key.callback = sizing
     alias = canonical_alias_key("email", "alice@example.com", None)
@@ -961,7 +1015,9 @@ def test_reentrant_alias_sizing_uses_current_cross_namespace_occupancy(
     other_namespace: NamespaceId,
     sized_key: SizedKey,
 ) -> None:
-    core = core_factory(CacheCoreConfig(max_entries=2, max_key_bytes=2048))
+    core = core_factory(
+        CacheCoreConfig(max_entries=2, max_key_bytes=2048, enable_telemetry=True)
+    )
     sized_key.callback = partial(populate_other_namespace, core, other_namespace)
     alias = canonical_alias_key("email", sized_key, None)
     assert (
@@ -990,7 +1046,7 @@ def test_alias_republication_refreshes_reclamation_order_in_both_cores(
     core_factory: CoreFactory,
     namespace: NamespaceId,
 ) -> None:
-    core = core_factory(CacheCoreConfig(max_entries=4))
+    core = core_factory(CacheCoreConfig(max_entries=4, enable_telemetry=True))
     aliases = [
         canonical_alias_key("email", value, None)
         for value in ("first", "second", "first")
@@ -1016,7 +1072,10 @@ def test_replacement_planning_skips_already_removed_values(
     weight = len(encode_value(1))
     core = core_factory(
         CacheCoreConfig(
-            max_entries=3, budget_bytes=3 * weight, max_entry_bytes=3 * weight
+            max_entries=3,
+            budget_bytes=3 * weight,
+            max_entry_bytes=3 * weight,
+            enable_telemetry=True,
         )
     )
     core.admit_identity(core.begin_identity_admission(namespace, "A"), "full", 1)
@@ -1047,7 +1106,10 @@ def test_bson_eviction_deduplicates_aliases_already_reclaimed_for_count(
     weight = len(encode_value(1))
     core = core_factory(
         CacheCoreConfig(
-            max_entries=4, budget_bytes=3 * weight, max_entry_bytes=3 * weight
+            max_entries=4,
+            budget_bytes=3 * weight,
+            max_entry_bytes=3 * weight,
+            enable_telemetry=True,
         )
     )
     for value in ("first", "second"):
@@ -1110,6 +1172,7 @@ def test_retention_preflight_preserves_existing_admission_guards(
             max_key_bytes=1024,
             budget_bytes=1024,
             max_entry_bytes=128,
+            enable_telemetry=True,
         )
     )
     value = b"x" * 4096 if event == "oversize" else 1
@@ -1144,7 +1207,9 @@ def test_key_sizing_allows_concurrent_invalidation_without_holding_core_locks(
     sized_key: SizedKey,
     admission_pool: ThreadPoolExecutor,
 ) -> None:
-    core = core_factory(CacheCoreConfig(max_entries=2, max_key_bytes=2048))
+    core = core_factory(
+        CacheCoreConfig(max_entries=2, max_key_bytes=2048, enable_telemetry=True)
+    )
     capture = core.capture_namespace_generation(namespace)
     sized_key.callback = partial(
         write_on_another_thread, admission_pool, core, namespace
@@ -1172,7 +1237,9 @@ def test_invalidated_sizing_cannot_remove_a_newer_namespace_replacement(
     *,
     composite: bool,
 ) -> None:
-    core = core_factory(CacheCoreConfig(max_entries=2, max_key_bytes=2048))
+    core = core_factory(
+        CacheCoreConfig(max_entries=2, max_key_bytes=2048, enable_telemetry=True)
+    )
     capture = core.capture_namespace_generation(namespace)
     sized_key.callback = partial(publish_newer_result, core, namespace, sized_key)
     if composite:
@@ -1194,13 +1261,19 @@ def test_invalidated_sizing_cannot_remove_a_newer_namespace_replacement(
 
 @pytest.mark.parametrize("maximum", [None, 2])
 @pytest.mark.parametrize("kind", ["namespace", "identity"])
+@pytest.mark.parametrize("telemetry", [False, True], ids=["disabled", "enabled"])
 def test_individual_key_declines_preserve_existing_residency(
     core_factory: CoreFactory,
     namespace: NamespaceId,
     maximum: PositiveInt | None,
     kind: str,
+    telemetry: bool,
 ) -> None:
-    core = core_factory(CacheCoreConfig(max_entries=maximum, max_key_bytes=1024))
+    core = core_factory(
+        CacheCoreConfig(
+            max_entries=maximum, max_key_bytes=1024, enable_telemetry=telemetry
+        )
+    )
     core.admit_namespace(core.capture_namespace_generation(namespace), "kept", 1)
     if kind == "identity":
         outcome = core.admit_identity(
@@ -1212,15 +1285,16 @@ def test_individual_key_declines_preserve_existing_residency(
         )
     assert outcome is AdmissionOutcome.DECLINED_RETENTION
     assert core.lookup_namespace(namespace, "kept").value == 1
-    assert core.snapshot().entry_count == 1
-    assert sum(record.count for record in core.snapshot().retention_declines) == 1
+    if telemetry:
+        assert core.snapshot().entry_count == 1
+        assert sum(record.count for record in core.snapshot().retention_declines) == 1
 
 
 def test_count_limited_find_sources_remain_available_to_prefix_reads(
     core_factory: CoreFactory,
     namespace: NamespaceId,
 ) -> None:
-    core = core_factory(CacheCoreConfig(max_entries=2))
+    core = core_factory(CacheCoreConfig(max_entries=2, enable_telemetry=True))
     source = find_read_shape({}, None, {"_id": 1}, 0, 0, collation=None, codec="codec")
     request = find_read_shape({}, None, {"_id": 1}, 0, 1, collation=None, codec="codec")
     assert (
@@ -1245,7 +1319,9 @@ def test_repeated_identity_admission_records_each_declined_alias(
     *,
     composite: bool,
 ) -> None:
-    core = core_factory(CacheCoreConfig(max_entries=maximum, max_key_bytes=1024))
+    core = core_factory(
+        CacheCoreConfig(max_entries=maximum, max_key_bytes=1024, enable_telemetry=True)
+    )
     assert (
         core.admit_identity(core.begin_identity_admission(namespace, "A"), "full", 1)
         is AdmissionOutcome.ADMITTED
@@ -1287,7 +1363,9 @@ def test_key_only_composite_declines_keep_legacy_duplicate_outcomes(
     maximum: PositiveInt | None,
     blocked: str,
 ) -> None:
-    core = core_factory(CacheCoreConfig(max_entries=maximum, max_key_bytes=1024))
+    core = core_factory(
+        CacheCoreConfig(max_entries=maximum, max_key_bytes=1024, enable_telemetry=True)
+    )
     discriminator = "x" * 4096 if blocked == "namespace" else "query"
     identity = "x" * 4096 if blocked == "identity" else "A"
     if blocked == "identity":

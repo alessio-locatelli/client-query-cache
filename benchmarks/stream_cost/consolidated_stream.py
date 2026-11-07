@@ -16,6 +16,7 @@ from benchmarks.stream_cost.errors import (
     BenchmarkConfigurationError,
     BenchmarkSetupError,
 )
+from client_query_cache._core.manager import CacheCoreConfig
 from client_query_cache._types import (
     BsonDict,
     ExclusiveProbability,
@@ -32,7 +33,6 @@ if TYPE_CHECKING:
     from pymongo import MongoClient
     from pymongo.synchronous.collection import Collection
 
-    from client_query_cache._core.manager import CacheCoreConfig
 
 MINIMUM_REPEATED_PAIRS = 3
 _MAX_UNRELATED_WRITE_TIMESTAMPS = 10_000
@@ -303,4 +303,9 @@ def reset_run_state(
     if previous_manager is not None:
         previous_manager.close()
     client.drop_database(database)
-    return CacheManager(client, cache_config=cache_config)
+    return CacheManager(
+        client,
+        cache_config=CacheCoreConfig(enable_telemetry=True)
+        if cache_config is None
+        else cache_config,
+    )

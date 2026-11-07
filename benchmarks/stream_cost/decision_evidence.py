@@ -189,7 +189,9 @@ def _consolidated_evidence(
         unrelated_collection_name=config["unrelated_collection"],
         config=pair_config,
         schedule=schedule,
-        cache_config=CacheCoreConfig(lag_capture_window_config=lag_config),
+        cache_config=CacheCoreConfig(
+            lag_capture_window_config=lag_config, enable_telemetry=True
+        ),
     )
     pair_evidence = [
         _pair_evidence(pair, config, pair_index=index)
@@ -228,6 +230,7 @@ def _oversized_evidence(
     cache_config = CacheCoreConfig(
         budget_bytes=config["max_entry_bytes"] * 4,
         max_entry_bytes=config["max_entry_bytes"],
+        enable_telemetry=True,
     )
     with CacheManager(client, cache_config=cache_config) as manager:
         collection = manager[config["database"]][config["collection"]]

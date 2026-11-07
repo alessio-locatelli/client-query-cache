@@ -47,16 +47,17 @@ Use the raw collection for writes and administration. Eligible misses use primar
 
 ## Configuration
 
-`SharedCacheConfig` configures the server, not individual workers. Every field requires a positive built-in integer; booleans and numeric coercions are rejected with `CacheConfigurationError`.
+`SharedCacheConfig` configures the server, not individual workers. Capacity fields require positive built-in integers; booleans and numeric coercions are rejected with `CacheConfigurationError`.
 
-| Field             | Default | Application meaning                                                                                |
-| ----------------- | ------- | -------------------------------------------------------------------------------------------------- |
-| `budget_bytes`    | 64 MiB  | Accounted cached BSON across all configured databases and workers                                  |
-| `max_entry_bytes` | 1 MiB   | Largest encoded cached value; must not exceed the budget or arena                                  |
-| `arena_bytes`     | 80 MiB  | Shared storage for encoded values, separate from the accounted budget                              |
-| `slots`           | 65,536  | Shared index capacity; must be a supported power of two                                            |
-| `namespaces`      | 1,024   | Maximum tracked database/collection pairs; drops free capacity and additional names bypass caching |
-| `connections`     | 256     | Attachment and request connections across workers; at least two                                    |
+| Field              | Default | Application meaning                                                                                |
+| ------------------ | ------- | -------------------------------------------------------------------------------------------------- |
+| `enable_telemetry` | `False` | Enables [monitoring](../operations/monitoring.md) for the owner and every worker                   |
+| `budget_bytes`     | 64 MiB  | Accounted cached BSON across all configured databases and workers                                  |
+| `max_entry_bytes`  | 1 MiB   | Largest encoded cached value; must not exceed the budget or arena                                  |
+| `arena_bytes`      | 80 MiB  | Shared storage for encoded values, separate from the accounted budget                              |
+| `slots`            | 65,536  | Shared index capacity; must be a supported power of two                                            |
+| `namespaces`       | 1,024   | Maximum tracked database/collection pairs; drops free capacity and additional names bypass caching |
+| `connections`      | 256     | Attachment and request connections across workers; at least two                                    |
 
 The arena stores encoded documents. Increasing it adds storage headroom without increasing the accounted cache budget. An entry can fit the budget but fail publication because the index or arena is full. Reads still deliver their result; repeated reads may miss. See [collection-name examples and connection sizing guidance](../operations/shared-cache.md#collection-names-and-capacity) before increasing limits.
 
@@ -64,6 +65,6 @@ These settings do not cap RSS or total container memory. Native layout upper bou
 
 ## Diagnostics and failures
 
-`manager.snapshot()` returns worker-local `SharedCacheStatistics`, including bounded bypass reasons, synchronously in both APIs. `manager.owner_snapshot()` asks the owner for a `SharedOwnerSnapshot` of its capacity use, stream status and incarnation, or returns `None` when the owner does not answer; call it directly with the synchronous manager and `await` it with the asyncio manager. See [shared-manager diagnostics](../operations/monitoring.md#shared-manager-diagnostics) for fields, interpretation and telemetry.
+With [telemetry enabled](../operations/monitoring.md), `manager.snapshot()` returns worker-local `SharedCacheStatistics`, including bounded bypass reasons, synchronously in both APIs. `manager.owner_snapshot()` asks the owner for a `SharedOwnerSnapshot` of its capacity use, stream status and incarnation, or returns `None` when the owner does not answer; call it directly with the synchronous manager and `await` it with the asyncio manager. See [shared-manager diagnostics](../operations/monitoring.md#shared-manager-diagnostics) for fields, interpretation and telemetry.
 
 Invalid credentials, malformed protocol replies and persistent endpoint permission failures remain errors. Invalid server configuration or failed owner startup raises `CacheConfigurationError`; use after close, inherited manager/server use or an incorrect asyncio loop raises `CacheClosedError`. PyMongo reads retain driver errors and timeouts. See [recovery and its progress-expiry safeguard](../operations/shared-cache.md#consistency-and-recovery).

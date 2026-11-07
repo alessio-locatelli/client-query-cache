@@ -94,6 +94,9 @@ def test_lookups_are_unaffected_by_default(
 
 
 @pytest.mark.parametrize(("seed", "lookup"), _LOOKUPS)
+@pytest.mark.parametrize(
+    "core", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
 def test_lookups_are_bypassed_while_the_database_is_unavailable(
     core: CacheCore,
     namespace: NamespaceId,
@@ -104,18 +107,20 @@ def test_lookups_are_bypassed_while_the_database_is_unavailable(
     core.set_database_available(namespace.database, available=False)
 
     assert lookup(core, namespace).hit is False
-    assert core.snapshot().bypasses == 1
-    assert (
-        next(
-            record.count
-            for record in core.snapshot().bypass_reasons
-            if record.reason is BypassReason.STREAM_UNAVAILABLE
+    if core.enable_telemetry:
+        assert core.snapshot().bypasses == 1
+        assert (
+            next(
+                record.count
+                for record in core.snapshot().bypass_reasons
+                if record.reason is BypassReason.STREAM_UNAVAILABLE
+            )
+            == 1
         )
-        == 1
-    )
 
 
 @pytest.mark.parametrize("admit", _ADMISSIONS)
+@pytest.mark.parametrize("core", [True], indirect=True, ids=["telemetry"])
 def test_admissions_are_declined_while_the_database_is_unavailable(
     core: CacheCore,
     namespace: NamespaceId,
@@ -141,6 +146,7 @@ def test_admissions_are_declined_while_the_database_is_unavailable(
     [False, True],
     ids=["recovery-during-read", "unavailable-at-start"],
 )
+@pytest.mark.parametrize("core", [True], indirect=True, ids=["telemetry"])
 def test_admissions_spanning_unavailability_are_declined_after_recovery(
     core: CacheCore,
     namespace: NamespaceId,
@@ -178,6 +184,9 @@ def test_availability_can_be_restored(core: CacheCore, namespace: NamespaceId) -
     assert core.lookup_identity(namespace, "doc-1", "full").hit
 
 
+@pytest.mark.parametrize(
+    "core", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
 def test_resolve_alias_is_bypassed_while_the_database_is_unavailable(
     core: CacheCore, namespace: NamespaceId
 ) -> None:
@@ -187,15 +196,16 @@ def test_resolve_alias_is_bypassed_while_the_database_is_unavailable(
     resolved = core.resolve_alias(namespace, "email", "a@example.com", None)
 
     assert resolved is None
-    assert core.snapshot().bypasses == 1
-    assert (
-        next(
-            record.count
-            for record in core.snapshot().bypass_reasons
-            if record.reason is BypassReason.STREAM_UNAVAILABLE
+    if core.enable_telemetry:
+        assert core.snapshot().bypasses == 1
+        assert (
+            next(
+                record.count
+                for record in core.snapshot().bypass_reasons
+                if record.reason is BypassReason.STREAM_UNAVAILABLE
+            )
+            == 1
         )
-        == 1
-    )
 
 
 def test_marking_one_database_unavailable_does_not_affect_another(
@@ -211,6 +221,7 @@ def test_marking_one_database_unavailable_does_not_affect_another(
     assert core.lookup_identity(other_database_namespace, "doc-1", "full").hit
 
 
+@pytest.mark.parametrize("core", [True], indirect=True, ids=["telemetry"])
 def test_lookup_alias_and_raced_admission_keep_recording_event_totals(
     core: CacheCore, namespace: NamespaceId
 ) -> None:

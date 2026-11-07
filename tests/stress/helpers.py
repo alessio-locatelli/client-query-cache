@@ -13,6 +13,7 @@ from pymongo.collection import Collection
 from pymongo.errors import ConnectionFailure, OperationFailure
 from pymongo.synchronous.database import Database
 
+from client_query_cache import CacheCoreConfig
 from client_query_cache._core.stream_events import route_change_event
 from client_query_cache._types import NonNegativeInt
 from client_query_cache.asynchronous import streams as async_streams
@@ -434,11 +435,13 @@ async def stress_run(
                 client: MongoClient[Document] | AsyncMongoClient[Document]
                 client = MongoClient[Document](uri, socketTimeoutMS=5000)
                 manager: SyncManager[Document] | AsyncManager[Document] = SyncManager(
-                    client
+                    client, cache_config=CacheCoreConfig(enable_telemetry=True)
                 )
             else:
                 client = AsyncMongoClient[Document](uri, socketTimeoutMS=5000)
-                manager = AsyncManager(client)
+                manager = AsyncManager(
+                    client, cache_config=CacheCoreConfig(enable_telemetry=True)
+                )
             run = StressRun(
                 manager, writer, database, mode, faker=faker, patches=patches
             )

@@ -9,13 +9,15 @@ import asyncio
 
 from pymongo import AsyncMongoClient
 
-from client_query_cache.asynchronous import CacheManager
+from client_query_cache.asynchronous import CacheCoreConfig, CacheManager
 
 
 async def main() -> None:
     async with (
         AsyncMongoClient("mongodb://localhost:27017") as client,
-        CacheManager(client) as cache_manager,
+        CacheManager(
+            client, cache_config=CacheCoreConfig(enable_telemetry=True)
+        ) as cache_manager,
     ):
         collection = client["client_query_cache_tutorial"]["items"]
         cached_collection = cache_manager.get_cached_collection(collection)

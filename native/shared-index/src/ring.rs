@@ -11,6 +11,7 @@ const HEADER_WORDS: usize = 4;
 pub(crate) struct Ring<M> {
     memory: M,
     capacity: usize,
+    enable_telemetry: bool,
 }
 
 impl<M: Words> Ring<M> {
@@ -21,21 +22,29 @@ impl<M: Words> Ring<M> {
         capacity.checked_add(HEADER_WORDS)
     }
 
-    pub(crate) fn create(memory: M, capacity: usize) -> Option<Self> {
+    pub(crate) fn create(memory: M, capacity: usize, enable_telemetry: bool) -> Option<Self> {
         if memory.words().len() < Self::words_for(capacity)? {
             return None;
         }
         memory.words()[R_CAPACITY].store(capacity as u64, Ordering::Release);
-        Some(Self { memory, capacity })
+        Some(Self {
+            memory,
+            capacity,
+            enable_telemetry,
+        })
     }
 
-    pub(crate) fn attach(memory: M) -> Option<Self> {
+    pub(crate) fn attach(memory: M, enable_telemetry: bool) -> Option<Self> {
         let words = memory.words();
         let capacity = usize::try_from(words.get(R_CAPACITY)?.load(Ordering::Acquire)).ok()?;
         if words.len() < Self::words_for(capacity)? {
             return None;
         }
-        Some(Self { memory, capacity })
+        Some(Self {
+            memory,
+            capacity,
+            enable_telemetry,
+        })
     }
 
     fn word(&self, at: usize) -> &AtomicU64 {
@@ -54,7 +63,9 @@ impl<M: Words> Ring<M> {
         let tail = self.word(R_TAIL).load(Ordering::Relaxed);
         let head = self.word(R_HEAD).load(Ordering::Acquire);
         if tail.wrapping_sub(head) >= self.capacity as u64 {
-            self.word(R_DROPPED).fetch_add(1, Ordering::Relaxed);
+            if self.enable_telemetry {
+                self.word(R_DROPPED).fetch_add(1, Ordering::Relaxed);
+            }
             return false;
         }
         self.token(tail).store(token, Ordering::Relaxed);

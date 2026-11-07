@@ -215,7 +215,7 @@ def test_run_stream_watching_window_rejects_an_unhealthy_stream_before_sampling(
     monkeypatch.setattr(
         runner_module,
         "CacheManager",
-        lambda _client: _FakeCacheManager(["other_database"]),
+        lambda _client, **_kwargs: _FakeCacheManager(["other_database"]),
     )
     window = _window()
     dataset = _seed_window_dataset(window)

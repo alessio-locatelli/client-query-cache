@@ -8,7 +8,11 @@ import bson
 from bson.errors import BSONError
 from pymongo.errors import OperationFailure, PyMongoError
 
-from client_query_cache._core.errors import StreamLifecycleError, StreamStartupError
+from client_query_cache._core.errors import (
+    StreamLifecycleError,
+    StreamStartupError,
+    require_telemetry,
+)
 from client_query_cache._core.stream_activation import StreamActivation
 from client_query_cache._core.stream_events import (
     build_change_stream_pipeline,
@@ -54,6 +58,7 @@ class DatabaseStreamSupervisor:
         "_lifecycle_lock",
         "_max_await_time_ms",
         "_metadata_cache",
+        "_pipeline",
         "_resume_token",
         "_stop_event",
         "_stream",
@@ -78,6 +83,9 @@ class DatabaseStreamSupervisor:
         self._health_lock = threading.Lock()
         self._lifecycle_lock = threading.RLock()
         self._stream: DatabaseChangeStream[Any] | None = None
+        self._pipeline = build_change_stream_pipeline(
+            enable_telemetry=cache.enable_telemetry
+        )
         self._resume_token: Mapping[str, Any] | None = None
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
@@ -163,7 +171,7 @@ class DatabaseStreamSupervisor:
             else:
                 kwargs["resume_after"] = resume_token
         previous_stream = self._stream
-        self._stream = self._database.watch(build_change_stream_pipeline(), **kwargs)
+        self._stream = self._database.watch(self._pipeline, **kwargs)
         if previous_stream is not None:
             try:
                 previous_stream.close()
@@ -190,7 +198,8 @@ class DatabaseStreamSupervisor:
     def _run(self) -> None:
         while not self._stop_event.is_set():
             assert self._stream is not None
-            self._cache.record_stream_poll(self._database.name)
+            if self._cache.enable_telemetry:
+                self._cache.record_stream_poll(self._database.name)
             try:
                 event = self._stream.next()
             except StopIteration:
@@ -206,7 +215,8 @@ class DatabaseStreamSupervisor:
                 event,
                 metadata_cache=self._metadata_cache,
             )
-            self._record_logical_event_bytes(event)
+            if self._cache.enable_telemetry:
+                self._record_logical_event_bytes(event)
             if must_reopen:
                 self._reopen_after_invalidate()
 
@@ -267,7 +277,8 @@ class DatabaseStreamSupervisor:
             self._metadata_cache.remove_database(self._database.name)
         for namespace in self._cache.namespaces_for_database(self._database.name):
             self._cache.clear_namespace(namespace)
-        self._cache.reset_stream_cost_statistics(self._database.name)
+        if self._cache.enable_telemetry:
+            self._cache.reset_stream_cost_statistics(self._database.name)
 
 
 class ChangeStreamCoordinator:
@@ -301,7 +312,9 @@ class ChangeStreamCoordinator:
         ] = {}
         self._supervisors: dict[str, DatabaseStreamSupervisor] = {}
         self._closed = False
-        self._health_registry = StreamHealthRegistry()
+        self._health_registry = (
+            StreamHealthRegistry() if cache.enable_telemetry else None
+        )
         self._lock = threading.Lock()
         self._shutdown_complete = threading.Event()
 
@@ -334,7 +347,8 @@ class ChangeStreamCoordinator:
                 activation.supervisor = supervisor
                 activation.pending = True
                 activation.completion.clear()
-            self._health_registry.record_connecting(name)
+            if self._health_registry is not None:
+                self._health_registry.record_connecting(name)
         published = False
         try:
             try:
@@ -343,7 +357,8 @@ class ChangeStreamCoordinator:
                 with self._lock:
                     if not self._closed:
                         activation.retry.failed()
-                        self._health_registry.record_startup_failure(name)
+                        if self._health_registry is not None:
+                            self._health_registry.record_startup_failure(name)
                 logger.warning(
                     "change stream startup failed for database %r; reads for "
                     "this database will bypass the cache",
@@ -356,7 +371,10 @@ class ChangeStreamCoordinator:
                     raise StreamLifecycleError("coordinator is closed")
                 self._supervisors[name] = supervisor
                 del self._activations[name]
-                self._health_registry.record_starting(name, supervisor.health_status)
+                if self._health_registry is not None:
+                    self._health_registry.record_starting(
+                        name, supervisor.health_status
+                    )
                 published = True
             return supervisor
         finally:
@@ -365,7 +383,7 @@ class ChangeStreamCoordinator:
                     supervisor.stop()
                 finally:
                     with self._lock:
-                        if not self._closed:
+                        if not self._closed and self._health_registry is not None:
                             self._health_registry.record_startup_failure(name)
                         activation.pending = False
                         activation.completion.set()
@@ -373,6 +391,8 @@ class ChangeStreamCoordinator:
                 activation.completion.set()
 
     def stream_health_snapshot(self, database_name: str) -> StreamHealthSnapshot:
+        require_telemetry(enabled=self._cache.enable_telemetry)
+        assert self._health_registry is not None
         return self._health_registry.snapshot(database_name)
 
     def close(self) -> None:
@@ -380,7 +400,8 @@ class ChangeStreamCoordinator:
             owns_cleanup = not self._closed
             if owns_cleanup:
                 self._closed = True
-                self._health_registry.close()
+                if self._health_registry is not None:
+                    self._health_registry.close()
                 supervisors = tuple(self._supervisors.values())
                 activations = tuple(self._activations.values())
                 for supervisor in supervisors:

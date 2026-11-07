@@ -65,7 +65,8 @@ class CursorCapture:
             self.abandon()
             return
         if not retained:
-            self._core.record_oversized_bypass()
+            if self._core.enable_telemetry:
+                self._core.record_oversized_bypass()
             self.abandon()
 
     def abandon(self) -> None:

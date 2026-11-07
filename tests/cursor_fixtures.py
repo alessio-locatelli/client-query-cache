@@ -82,7 +82,9 @@ async def cursors(
         else (request.param, DOCUMENT_COUNT, 0, 1024 * 1024)
     )
     config = CacheCoreConfig(
-        max_entry_bytes=entry_limit, **(retention[0] if retention else {})
+        max_entry_bytes=entry_limit,
+        **(retention[0] if retention else {}),
+        enable_telemetry=True,
     )
     async with AsyncExitStack() as stack:
         if api == "sync":

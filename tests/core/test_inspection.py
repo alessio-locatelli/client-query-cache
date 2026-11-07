@@ -23,12 +23,14 @@ if TYPE_CHECKING:
 pytestmark = pytest.mark.unit
 
 
+@pytest.mark.parametrize("core", [True], indirect=True, ids=["telemetry"])
 def test_snapshot_is_immutable(core: CacheCore) -> None:
     snapshot = core.snapshot()
     with pytest.raises(dataclasses.FrozenInstanceError):
         snapshot.hits = 99  # type: ignore[misc]
 
 
+@pytest.mark.parametrize("core", [True], indirect=True, ids=["telemetry"])
 def test_snapshot_only_exposes_safe_primitive_fields(core: CacheCore) -> None:
     snapshot = core.snapshot()
     for field in dataclasses.fields(snapshot):
@@ -45,6 +47,7 @@ def test_snapshot_only_exposes_safe_primitive_fields(core: CacheCore) -> None:
             assert isinstance(value, (str, int))
 
 
+@pytest.mark.parametrize("core", [True], indirect=True, ids=["telemetry"])
 def test_snapshot_reports_capacity_and_lifecycle(core: CacheCore) -> None:
     snapshot = core.snapshot()
     assert snapshot.lifecycle == "active"
@@ -54,6 +57,7 @@ def test_snapshot_reports_capacity_and_lifecycle(core: CacheCore) -> None:
     assert snapshot.entry_count == 0
 
 
+@pytest.mark.parametrize("core", [True], indirect=True, ids=["telemetry"])
 def test_snapshot_tracks_hits_and_misses(
     core: CacheCore, namespace: NamespaceId
 ) -> None:
@@ -101,6 +105,7 @@ def _seed_stale_entry(core: CacheCore, namespace: NamespaceId) -> None:
         pytest.param(_seed_valid_entry, True, id="valid"),
     ],
 )
+@pytest.mark.parametrize("core", [True], indirect=True, ids=["telemetry"])
 def test_namespace_lookup_defers_only_a_requested_miss(
     core: CacheCore,
     namespace: NamespaceId,
@@ -123,6 +128,7 @@ def test_namespace_lookup_defers_only_a_requested_miss(
     assert snapshot.bypasses == 0
 
 
+@pytest.mark.parametrize("core", [True], indirect=True, ids=["telemetry"])
 def test_a_deferred_miss_is_recorded_once_on_request(
     core: CacheCore, namespace: NamespaceId
 ) -> None:
@@ -133,6 +139,7 @@ def test_a_deferred_miss_is_recorded_once_on_request(
     assert core.snapshot().misses == 1
 
 
+@pytest.mark.parametrize("core", [True], indirect=True, ids=["telemetry"])
 def test_an_unavailable_database_records_a_bypass_instead_of_deferring_a_miss(
     core: CacheCore, namespace: NamespaceId
 ) -> None:
@@ -147,7 +154,9 @@ def test_an_unavailable_database_records_a_bypass_instead_of_deferring_a_miss(
 
 
 def test_snapshot_tracks_evictions(namespace: NamespaceId) -> None:
-    core = CacheCore(CacheCoreConfig(budget_bytes=100, max_entry_bytes=50))
+    core = CacheCore(
+        CacheCoreConfig(budget_bytes=100, max_entry_bytes=50, enable_telemetry=True)
+    )
     for index in range(20):
         capture = core.begin_identity_admission(namespace, f"doc-{index}")
         core.admit_identity(capture, "full", {"v": "x" * 20})
@@ -160,6 +169,7 @@ def test_snapshot_tracks_evictions(namespace: NamespaceId) -> None:
     [None, *BypassReason],
     ids=("default", *(reason.value for reason in BypassReason)),
 )
+@pytest.mark.parametrize("core", [True], indirect=True, ids=["telemetry"])
 def test_snapshot_tracks_bypasses(core: CacheCore, reason: BypassReason | None) -> None:
     bypass_count = 2
     for _ in range(bypass_count):
@@ -187,6 +197,7 @@ def test_snapshot_tracks_bypasses(core: CacheCore, reason: BypassReason | None) 
         snapshot.bypass_reasons[0].count = 99  # type: ignore[misc]
 
 
+@pytest.mark.parametrize("core", [True], indirect=True, ids=["telemetry"])
 def test_logs_never_include_document_query_credential_or_resume_token_content(
     core: CacheCore, namespace: NamespaceId, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -236,6 +247,7 @@ def record_until_finished(
 
 
 @pytest.mark.usefixtures("concurrent_recordings")
+@pytest.mark.parametrize("core", [True], indirect=True, ids=["telemetry"])
 def test_concurrent_snapshot_reason_totals(core: CacheCore) -> None:
     for _ in range(100):
         snapshot = core.snapshot()
@@ -244,6 +256,7 @@ def test_concurrent_snapshot_reason_totals(core: CacheCore) -> None:
         )
 
 
+@pytest.mark.parametrize("core", [True], indirect=True, ids=["telemetry"])
 def test_oversized_admission_does_not_record_an_ordinary_reason(
     core: CacheCore, namespace: NamespaceId
 ) -> None:

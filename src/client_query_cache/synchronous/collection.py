@@ -173,7 +173,8 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
                 reason = BypassReason.UNCANONICALIZABLE_KEY
         eligibility = self._cache_eligibility() if reason is None else reason
         if not isinstance(eligibility, CollectionMetadata):
-            self._record_bypass(eligibility)
+            if self._database.manager.enable_telemetry:
+                self._record_bypass(eligibility)
             return self._collection.find_one(
                 filter,
                 projection,
@@ -229,7 +230,11 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
                 unique_key_match = self._match_unique_key(
                     filter_query, effective_collation
                 )
-                if unique_key_match is None and lookup_result.deferred_miss:
+                if (
+                    unique_key_match is None
+                    and lookup_result.deferred_miss
+                    and cache.enable_telemetry
+                ):
                     cache.record_miss()
         if unique_key_match is not None:
             key_definition, key_values = unique_key_match
@@ -274,7 +279,8 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
             unsupported["comment"] = comment
         reason = self._request_bypass_reason(session=session, kwargs=unsupported)
         if reason is not None:
-            self._record_bypass(reason)
+            if self._database.manager.enable_telemetry:
+                self._record_bypass(reason)
             return self.raw.aggregate(
                 pipeline,
                 session=session,
@@ -297,7 +303,8 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
         if reason is None:
             reason = self._cache_ineligibility_reason()
         if reason is not None:
-            self._record_bypass(reason)
+            if self._database.manager.enable_telemetry:
+                self._record_bypass(reason)
             return self.raw.aggregate(
                 pipeline,
                 session=session,
@@ -357,7 +364,8 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
         if reason is None:
             reason = self._cache_ineligibility_reason()
         if reason is not None:
-            self._record_bypass(reason)
+            if self._database.manager.enable_telemetry:
+                self._record_bypass(reason)
             return self._collection.count_documents(filter, session=session, **kwargs)
         namespace = self._namespace()
         cache = self._database.manager.cache_core
@@ -383,7 +391,8 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
             or self._cache_ineligibility_reason()
         )
         if reason is not None:
-            self._record_bypass(reason)
+            if self._database.manager.enable_telemetry:
+                self._record_bypass(reason)
             return self._collection.estimated_document_count(**kwargs)
         namespace = self._namespace()
         discriminator = ("estimated_document_count",)
@@ -429,7 +438,8 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
         if reason is None:
             reason = self._cache_ineligibility_reason()
         if reason is not None:
-            self._record_bypass(reason)
+            if self._database.manager.enable_telemetry:
+                self._record_bypass(reason)
             return self._collection.distinct(
                 key,
                 filter,
@@ -478,7 +488,8 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
             identity, codec_options, self._database.manager.client.codec_options
         )
         if not is_canonicalizable(cache_identity):
-            self._record_bypass(BypassReason.UNCANONICALIZABLE_KEY)
+            if self._database.manager.enable_telemetry:
+                self._record_bypass(BypassReason.UNCANONICALIZABLE_KEY)
             return self._collection.find_one(
                 filter_query, projection, sort=sort, collation=collation
             )
