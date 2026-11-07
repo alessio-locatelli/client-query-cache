@@ -1,11 +1,14 @@
 schema: spec-driven
 
+context: |
+  When editing `proposal.md`, `design.md`, `tasks.md`, or delta specs outside their creation step (for example, during apply), keep each piece of information in a single file and reference it from the others instead of restating it.
+
 rules:
   proposal:
     - &single-source-of-truth >-
-      Never duplicate information across `proposal.md`, `design.md`, `tasks.md`, and the delta specs. Not verbatim, not in a reworded form, and not in a shorter form. A subsequent coding agent will read all files in full, so any kind of repetition contributes only to context bloat. If you need some information in more than one file, designate a single source of truth for it and reference it from other files (for example, "see `design.md` D3"). This rule takes precedence over filling in every template section: keep the section heading, but when its content already lives elsewhere, write only the reference.
+      Never duplicate information across `proposal.md`, `design.md`, `tasks.md`, and the delta specs. Not verbatim, not in a reworded form, and not in a shorter form. A subsequent coding agent will read all files in full, so any kind of repetition contributes only to context bloat. If you need some information in more than one file, designate a single source of truth for it and reference it from other files (for example, "see `design.md` D3"). This rule takes precedence over filling in every template section: keep the section heading, but when its content already lives elsewhere, write only the reference. Never replace content that OpenSpec or later workflow steps consume, such as the proposal's capability list or task checkboxes, with a reference.
     - >-
-      Within the proposal, state each change once. Capabilities and Impact must add only what What Changes does not already say: capability names for Capabilities, and affected files, dependencies, and systems for Impact.
+      Within the proposal, state each change once. Capabilities and Impact must add only what What Changes does not already say: each capability's path and a brief description of what it covers for Capabilities, and affected files, dependencies, and systems for Impact.
   specs:
     - >-
       Delta specs are the single source of truth for requirements: `proposal.md`, `design.md`, and `tasks.md` reference them instead of restating them. Do not reference those files from specs, because specs are merged into permanent specifications on archive while the other files are not.
@@ -30,8 +33,6 @@ rules:
       Inapplicable tasks are marked as completed with a short reason (e.g., "touches no code" or "specs applied by GPT").
   design:
     - *single-source-of-truth
-    - >-
-      Context describes only the current state and constraints; reference the proposal's Why for motivation. Goals / Non-Goals add only design-level boundaries; when the proposal already defines the scope, write only a reference to it.
     - |-
       Ensure a future reader will be able to judge only from the OpenSpec files why a certain decision was made.
 
