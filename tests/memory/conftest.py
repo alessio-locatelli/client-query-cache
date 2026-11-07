@@ -34,7 +34,11 @@ def synthetic_payload() -> SyntheticPayload:
 @pytest.fixture
 def memory_core() -> Iterator[CacheCore]:
     core = CacheCore(
-        CacheCoreConfig(budget_bytes=SHARED_BUDGET_BYTES, max_entry_bytes=128 * 1024)
+        CacheCoreConfig(
+            budget_bytes=SHARED_BUDGET_BYTES,
+            max_entry_bytes=128 * 1024,
+            enable_telemetry=True,
+        )
     )
     yield core
     core.close()
