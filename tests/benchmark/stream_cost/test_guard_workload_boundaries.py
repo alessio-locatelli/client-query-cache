@@ -4,15 +4,20 @@ import ast
 import inspect
 import json
 import sys
+from dataclasses import make_dataclass
 from typing import TYPE_CHECKING
+from unittest.mock import Mock
 
 import pytest
+from pymongo.monitoring import CommandStartedEvent
 
 from benchmarks.stream_cost import guard_workload
 from benchmarks.stream_cost.guard_workload import run_case
 
 if TYPE_CHECKING:
     from types import ModuleType
+
+    from faker import Faker
 
 pytestmark = pytest.mark.unit
 
@@ -44,6 +49,48 @@ def test_guard_workload_reuses_shared_generators_and_cache_snapshots() -> None:
     imported = _imported_module_names(guard_workload)
     assert "benchmarks.stream_cost.generators" in imported
     assert "client_query_cache._core.stream_events" in imported
+
+
+@pytest.mark.parametrize("policy", ["opt-in", "always-on"])
+@pytest.mark.parametrize("enabled", [False, True], ids=["default", "enabled"])
+def test_guard_enables_diagnostics_for_both_configuration_apis(
+    monkeypatch: pytest.MonkeyPatch, policy: str, *, enabled: bool
+) -> None:
+    if policy == "always-on":
+        monkeypatch.setattr(
+            guard_workload,
+            "CacheCoreConfig",
+            make_dataclass("AlwaysOnTelemetryConfig", (), frozen=True, slots=True),
+        )
+
+    config = guard_workload._cache_config(enable_telemetry=enabled)
+
+    if policy == "opt-in":
+        assert config.enable_telemetry is enabled
+    else:
+        assert not hasattr(config, "enable_telemetry")
+
+
+@pytest.mark.parametrize("database", ["guard", "unrelated"])
+@pytest.mark.parametrize("command", ["find", "aggregate"])
+def test_hit_oracle_counts_only_reads_of_the_guard_database(
+    faker: Faker, database: str, command: str
+) -> None:
+    commands = guard_workload._ReadCommands()
+
+    commands.started(
+        CommandStartedEvent(
+            {command: "documents"},
+            database,
+            faker.random_int(),
+            (faker.hostname(), faker.port_number()),
+            operation_id=faker.random_int(),
+        )
+    )
+    commands.succeeded(Mock())
+    commands.failed(Mock())
+
+    assert commands.finds == (command == "find" and database == "guard")
 
 
 @pytest.mark.parametrize(

@@ -4,6 +4,10 @@ Every pull request runs the **Cache hot-path performance guard** check ([merge e
 
 The guard measures repeated, alternating blocks of both revisions and only fails a case when the proposed revision is stably 30% or more slower than the base revision. Ordinary run-to-run noise is reported as an inconclusive warning instead of a failure, so occasional runner variance does not block unrelated work. A missing baseline, an incompatible workload, or another setup problem is reported as a distinct measurement failure rather than a silent pass.
 
+Both revisions run the proposed revision's workload and generators; the runner copies those files into each isolated checkout and verifies matching digests. Each checkout retains its own library, dependencies and native build. Workload changes therefore need review alongside library changes.
+
+The sync and asyncio hit cases run with each revision's default configuration and with telemetry enabled. Default hit cases use MongoDB command observation to reject reads that bypass the cache, without requesting cache diagnostics. Admission and invalidation cases enable telemetry for their diagnostic outcome checks. Revisions with always-on telemetry use their default configuration in both sets of hit cases. These six cases run at both document sizes, for twelve measured cells.
+
 The check's step log and job summary list, per case, the base and head timings, the relative change, the decision, and both compared revisions. The full result, containing no application documents or credentials, is attached as a downloadable artifact. Rejected completed measurements remain in the artifact, and the failure reason identifies the offending block.
 
 This guard covers four representative hot paths on one runner; it does not replace the stream-cost benchmark's controlled matrix or decision evidence in the [public measurement guide](../user/benchmarks/stream-cost.md). Use the manual workflow to investigate a broader cost question or a specific workload.

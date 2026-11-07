@@ -9,6 +9,7 @@ from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
 from pymongo import AsyncMongoClient, MongoClient
+from pymongo.monitoring import CommandListener
 
 from benchmarks.stream_cost.errors import BenchmarkSetupError
 from benchmarks.stream_cost.generators import (
@@ -26,6 +27,12 @@ from client_query_cache.synchronous.manager import CacheManager
 if TYPE_CHECKING:
     from collections.abc import Generator
 
+    from pymongo.monitoring import (
+        CommandFailedEvent,
+        CommandStartedEvent,
+        CommandSucceededEvent,
+    )
+
     from client_query_cache._core.snapshots import CacheSnapshot
     from client_query_cache.synchronous.collection import CachedCollection
 
@@ -33,7 +40,14 @@ PROFILES: tuple[DocumentSizeProfile, ...] = (
     SMALL_DOCUMENT_PROFILE,
     MEDIUM_DOCUMENT_PROFILE,
 )
-CASE_NAMES = ("sync_hit", "async_hit", "find_admission", "invalidation")
+CASE_NAMES = (
+    "sync_hit",
+    "async_hit",
+    "sync_hit_telemetry",
+    "async_hit_telemetry",
+    "find_admission",
+    "invalidation",
+)
 DOCUMENT_COUNT = 64
 _HIT_OPERATIONS = 2048
 _ADMISSION_OPERATIONS = 48
@@ -50,12 +64,34 @@ def _delta(before: CacheSnapshot, after: CacheSnapshot, field: str) -> NonNegati
     return int(getattr(after, field)) - int(getattr(before, field))
 
 
+class _ReadCommands(CommandListener):
+    def __init__(self) -> None:
+        self.finds: NonNegativeInt = 0
+
+    def started(self, event: CommandStartedEvent) -> None:
+        if event.command_name == "find" and event.database_name == "guard":
+            self.finds += 1
+
+    def succeeded(self, event: CommandSucceededEvent) -> None:
+        pass
+
+    def failed(self, event: CommandFailedEvent) -> None:
+        pass
+
+
+def _cache_config(*, enable_telemetry: bool = True) -> CacheCoreConfig:
+    if enable_telemetry and hasattr(CacheCoreConfig, "enable_telemetry"):
+        return CacheCoreConfig(enable_telemetry=True)
+    return CacheCoreConfig()
+
+
 @contextmanager
 def _seeded_collection(
-    uri: str, profile: DocumentSizeProfile
+    uri: str, profile: DocumentSizeProfile, commands: _ReadCommands | None
 ) -> Generator[tuple[MongoClient[BsonDict], list[BsonDict]]]:
     documents = generate_seeded_documents(profile, count=DOCUMENT_COUNT, seed=90210)
-    with MongoClient[BsonDict](uri) as client:
+    listeners = () if commands is None else (commands,)
+    with MongoClient[BsonDict](uri, event_listeners=listeners) as client:
         client["guard"]["documents"].drop()
         client["guard"]["documents"].insert_many(documents)
         try:
@@ -65,10 +101,14 @@ def _seeded_collection(
 
 
 def _sync_hit(
-    client: MongoClient[BsonDict], documents: list[BsonDict]
+    client: MongoClient[BsonDict],
+    documents: list[BsonDict],
+    commands: _ReadCommands,
+    *,
+    enable_telemetry: bool,
 ) -> NonNegativeFloat:
     with CacheManager(
-        client, cache_config=CacheCoreConfig(enable_telemetry=True)
+        client, cache_config=_cache_config(enable_telemetry=enable_telemetry)
     ) as manager:
         cached = manager["guard"]["documents"]
         expected = documents[0]
@@ -77,31 +117,32 @@ def _sync_hit(
             condition=cached.find_one(query) == expected,
             reason="sync hit priming returned wrong data",
         )
-        before = manager.cache_core.snapshot()
+        before = commands.finds  # pytriage: TR5 - Capture before reads.
         started = time.perf_counter()
         actual = [cached.find_one(query) for _ in range(_HIT_OPERATIONS)]
         elapsed = time.perf_counter() - started
-        after = manager.cache_core.snapshot()
         _checked(
             condition=all(value == expected for value in actual),
             reason="sync hit returned wrong data",
         )
         _checked(
-            condition=_delta(before, after, "hits") == _HIT_OPERATIONS,
-            reason="sync hit was bypassed",
-        )
-        _checked(
-            condition=_delta(before, after, "bypasses") == 0,
+            condition=commands.finds == before,
             reason="sync hit was bypassed",
         )
         return elapsed
 
 
-async def _async_hit(uri: str, documents: list[BsonDict]) -> NonNegativeFloat:
+async def _async_hit(
+    uri: str,
+    documents: list[BsonDict],
+    commands: _ReadCommands,
+    *,
+    enable_telemetry: bool,
+) -> NonNegativeFloat:
     async with (
-        AsyncMongoClient[BsonDict](uri) as client,
+        AsyncMongoClient[BsonDict](uri, event_listeners=(commands,)) as client,
         AsyncCacheManager(
-            client, cache_config=CacheCoreConfig(enable_telemetry=True)
+            client, cache_config=_cache_config(enable_telemetry=enable_telemetry)
         ) as manager,
     ):
         cached = manager["guard"]["documents"]
@@ -111,21 +152,16 @@ async def _async_hit(uri: str, documents: list[BsonDict]) -> NonNegativeFloat:
             condition=await cached.find_one(query) == expected,
             reason="async hit priming returned wrong data",
         )
-        before = manager.cache_core.snapshot()
+        before = commands.finds
         started = time.perf_counter()
         actual = [await cached.find_one(query) for _ in range(_HIT_OPERATIONS)]
         elapsed = time.perf_counter() - started
-        after = manager.cache_core.snapshot()
         _checked(
             condition=all(value == expected for value in actual),
             reason="async hit returned wrong data",
         )
         _checked(
-            condition=_delta(before, after, "hits") == _HIT_OPERATIONS,
-            reason="async hit was bypassed",
-        )
-        _checked(
-            condition=_delta(before, after, "bypasses") == 0,
+            condition=commands.finds == before,
             reason="async hit was bypassed",
         )
         return elapsed
@@ -159,9 +195,7 @@ def _verify_find_admission(
 def _find_admission(
     client: MongoClient[BsonDict], documents: list[BsonDict]
 ) -> NonNegativeFloat:
-    with CacheManager(
-        client, cache_config=CacheCoreConfig(enable_telemetry=True)
-    ) as manager:
+    with CacheManager(client, cache_config=_cache_config()) as manager:
         cached = manager["guard"]["documents"]
         before = manager.cache_core.snapshot()
         started = time.perf_counter()
@@ -205,9 +239,7 @@ def _verify_refresh_after_invalidation(
 def _invalidation(
     client: MongoClient[BsonDict], documents: list[BsonDict]
 ) -> NonNegativeFloat:
-    with CacheManager(
-        client, cache_config=CacheCoreConfig(enable_telemetry=True)
-    ) as manager:
+    with CacheManager(client, cache_config=_cache_config()) as manager:
         cached = manager["guard"]["documents"]
         ids = [document["_id"] for document in documents[:_INVALIDATION_ENTRIES]]
         for document, document_id in zip(
@@ -251,11 +283,27 @@ def run_case(uri: str, case: str, profile_name: str) -> NonNegativeFloat:
     profile = next((item for item in PROFILES if item.name == profile_name), None)
     if profile is None or case not in CASE_NAMES:
         raise ValueError("unknown guard case or document profile")
-    with _seeded_collection(uri, profile) as (client, documents):
-        if case == "async_hit":
-            return asyncio.run(_async_hit(uri, documents))
+    commands = _ReadCommands() if "hit" in case else None
+    with _seeded_collection(uri, profile, commands) as (client, documents):
+        if case in {"async_hit", "async_hit_telemetry"}:
+            assert commands is not None
+            return asyncio.run(
+                _async_hit(
+                    uri,
+                    documents,
+                    commands,
+                    enable_telemetry=case.endswith("_telemetry"),
+                )
+            )
+        if case in {"sync_hit", "sync_hit_telemetry"}:
+            assert commands is not None
+            return _sync_hit(
+                client,
+                documents,
+                commands,
+                enable_telemetry=case.endswith("_telemetry"),
+            )
         cases = {
-            "sync_hit": _sync_hit,
             "find_admission": _find_admission,
             "invalidation": _invalidation,
         }
