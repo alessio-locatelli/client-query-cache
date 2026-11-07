@@ -60,7 +60,10 @@ class OwnerIndex:
         max_age_ns: PositiveInt,
     ) -> bool: ...
     def session_ring(
-        self, tokens: PositiveInt, admission_bytes: NonNegativeInt = 0
+        self,
+        tokens: PositiveInt,
+        admission_bytes: NonNegativeInt = 0,
+        enable_telemetry: bool = False,
     ) -> SessionRing: ...
     def serve(self, path: str) -> EchoOwner: ...
 
@@ -76,7 +79,12 @@ class SessionRing:
 
 @final
 class ReaderIndex:
-    def __init__(self, index_descriptor: int, ring_descriptor: int) -> None: ...
+    def __init__(
+        self,
+        index_descriptor: int,
+        ring_descriptor: int,
+        enable_telemetry: bool = False,
+    ) -> None: ...
     @property
     def incarnation(self) -> int: ...
     @property

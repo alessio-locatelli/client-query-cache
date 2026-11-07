@@ -216,10 +216,18 @@ def sync_attached(
 
 
 @pytest.fixture
+def server_telemetry(request: pytest.FixtureRequest) -> bool:
+    enabled = request.param if hasattr(request, "param") else True
+    assert isinstance(enabled, bool)
+    return enabled
+
+
+@pytest.fixture
 def server(
     mongodb_uri: MongoDbUri,
     seeded_database: DatabaseName,
     request: pytest.FixtureRequest,
+    server_telemetry: bool,
 ) -> Iterator[SharedCacheServer]:
     with SharedCacheServer(
         mongodb_uri,
@@ -230,6 +238,7 @@ def server(
             arena_bytes=2 * 1024 * 1024,
             slots=256,
             connections=getattr(request, "param", 16),
+            enable_telemetry=server_telemetry,
         ),
         client_options={"directConnection": True, "serverSelectionTimeoutMS": 5000},
     ) as owner:
@@ -732,7 +741,9 @@ def test_many_configured_databases_still_fit_the_owner_reply(
         SharedCacheServer(
             _UNREACHABLE_URI,
             tuple(f"database_{index:06d}" for index in range(_MANY_DATABASES)),
-            config=SharedCacheConfig(budget_bytes=1, max_entry_bytes=1, arena_bytes=1),
+            config=SharedCacheConfig(
+                budget_bytes=1, max_entry_bytes=1, arena_bytes=1, enable_telemetry=True
+            ),
         ) as large_server,
         SharedCacheManager(client, large_server.connection) as manager,
     ):
@@ -756,6 +767,7 @@ def test_the_smallest_configuration_still_fits_the_owner_reply(
                 slots=1,
                 namespaces=1,
                 connections=2,
+                enable_telemetry=True,
             ),
         ) as small_server,
         SharedCacheManager(client, small_server.connection) as small_manager,
@@ -798,7 +810,7 @@ def test_namespace_capacity_is_reported(
         SharedCacheServer(
             mongodb_uri,
             (seeded_database,),
-            config=SharedCacheConfig(namespaces=1),
+            config=SharedCacheConfig(namespaces=1, enable_telemetry=True),
             client_options=_SERVER_OPTIONS,
         ) as small_server,
         SharedCacheManager(client, small_server.connection) as manager,
@@ -828,7 +840,7 @@ def test_connection_capacity_is_reported(
         SharedCacheServer(
             mongodb_uri,
             (seeded_database,),
-            config=SharedCacheConfig(connections=2),
+            config=SharedCacheConfig(connections=2, enable_telemetry=True),
             client_options=_SERVER_OPTIONS,
         ) as small_server,
         SharedCacheManager(client, small_server.connection) as attached,
@@ -851,6 +863,7 @@ def test_failed_stream_startup_is_reported(
             _UNREACHABLE_URI,
             (seeded_database,),
             client_options={"serverSelectionTimeoutMS": 200},
+            config=SharedCacheConfig(enable_telemetry=True),
         ) as broken,
         SharedCacheManager(client, broken.connection) as manager,
     ):
@@ -1104,7 +1117,7 @@ def test_native_layout_limits_are_checked_before_allocation(
     field: str, value: PositiveInt
 ) -> None:
     with pytest.raises(CacheConfigurationError, match=field):
-        replace(SharedCacheConfig(), **{field: value})
+        replace(SharedCacheConfig(), **{field: value})  # type: ignore[arg-type]
 
 
 async def test_supported_hot_set_reuses_identity_encodings(  # noqa: RUF029 - Shared asyncio managers require a running event loop.
@@ -1402,3 +1415,30 @@ async def test_failed_stream_open_closes_handshake_socket(
     with pytest.raises(failed_unix_connection):
         await AsyncLocalIndex.attach(server.connection._attachment)
     assert handshake_gate["controls"][0].sock.fileno() == -1
+
+
+@pytest.mark.parametrize(
+    "server_telemetry", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
+async def test_shared_policy_survives_restart_without_diagnostic_requests(
+    manager: SharedCacheManager[BsonDict] | AsyncSharedCacheManager[BsonDict],
+    server: SharedCacheServer,
+    seeded_database: DatabaseName,
+    client: MongoClient[BsonDict],
+    server_telemetry: bool,
+) -> None:
+    view = manager[seeded_database]["catalogue"]
+    expected = client[seeded_database].catalogue.find_one({"_id": 0})
+    assert expected is not None
+    assert await _read(view, {"_id": 0}) == expected
+    assert manager.enable_telemetry is server_telemetry
+    assert manager.local is not None
+    incarnation = manager.local.incarnation
+    server.restart()
+    deadline = time.monotonic() + 10
+    while manager.local.incarnation == incarnation:
+        assert await _read(view, {"_id": 0}) == expected
+        assert time.monotonic() < deadline
+        await asyncio.sleep(0.02)
+    assert manager.enable_telemetry is server_telemetry
+    assert manager.endpoint.config.enable_telemetry is server_telemetry

@@ -81,7 +81,8 @@ def _thread_worker(
         CacheManager(
             client,
             cache_config=CacheCoreConfig(
-                lag_capture_window_config=LagCaptureWindowConfig(4096, 1, 0)
+                lag_capture_window_config=LagCaptureWindowConfig(4096, 1, 0),
+                enable_telemetry=True,
             ),
         ) as manager,
         ThreadPoolExecutor(max_workers=threads) as pool,

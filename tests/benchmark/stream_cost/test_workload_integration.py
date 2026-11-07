@@ -52,6 +52,7 @@ def _idle_small_variant() -> WorkloadVariant:
     )
 
 
+@pytest.mark.parametrize("cache_manager", [True], indirect=True, ids=["telemetry"])
 def test_priming_yields_positive_admission_and_hit_deltas(
     cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
@@ -71,6 +72,7 @@ def test_priming_yields_positive_admission_and_hit_deltas(
     verify_primed(before, after, variant_name=variant.name)
 
 
+@pytest.mark.parametrize("cache_manager", [True], indirect=True, ids=["telemetry"])
 def test_run_paired_reads_returns_identical_data_for_raw_and_cache(
     cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
@@ -107,6 +109,7 @@ def test_issue_writes_updates_the_requested_number_of_seeded_documents(
     assert touched_count > 0
 
 
+@pytest.mark.parametrize("cache_manager", [True], indirect=True, ids=["telemetry"])
 def test_run_workload_variant_composes_the_configured_read_write_mix(
     cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
@@ -134,6 +137,7 @@ def test_run_workload_variant_composes_the_configured_read_write_mix(
     assert touched_count > 0
 
 
+@pytest.mark.parametrize("cache_manager", [True], indirect=True, ids=["telemetry"])
 def test_run_workload_variant_still_primes_the_idle_variant(
     cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
@@ -158,6 +162,7 @@ def test_run_workload_variant_still_primes_the_idle_variant(
     assert after.hits > before.hits
 
 
+@pytest.mark.parametrize("cache_manager", [True], indirect=True, ids=["telemetry"])
 def test_run_workload_variant_executes_configured_warmup_writes(
     cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
@@ -183,6 +188,7 @@ def test_run_workload_variant_executes_configured_warmup_writes(
     assert touched_count > 0
 
 
+@pytest.mark.parametrize("cache_manager", [True], indirect=True, ids=["telemetry"])
 def test_run_paired_reads_rejects_mismatched_raw_and_cache_data(
     cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,

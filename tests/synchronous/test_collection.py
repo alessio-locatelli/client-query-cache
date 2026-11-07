@@ -614,6 +614,7 @@ def test_generic_find_one_caches_and_isolates_documents(
         ),
     ],
 )
+@pytest.mark.parametrize("cache_manager", [True], indirect=True, ids=["telemetry"])
 def test_facade_bypasses_are_recorded_in_cache_statistics(
     cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
@@ -1175,6 +1176,9 @@ def test_find_filters_on_distinct_equivalent_looking_values_do_not_collide(
     assert second == [{"_id": "doc2", "x": second_value}]
 
 
+@pytest.mark.parametrize(
+    "cache_manager", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
 def test_find_one_bypasses_when_identity_normalization_yields_an_unhashable_value(
     cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
@@ -1291,6 +1295,7 @@ def test_aggregate_with_equal_int_and_other_numeric_literals_do_not_collide(
         pytest.param({"allow_partial_results": True}, id="allow-partial-results"),
     ],
 )
+@pytest.mark.parametrize("cache_manager", [True], indirect=True, ids=["telemetry"])
 def test_find_executes_cursor_only_requests_natively(
     cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
@@ -1312,6 +1317,7 @@ def test_find_executes_cursor_only_requests_natively(
     _assert_only_bypass(cache_manager, BypassReason.UNSUPPORTED_OPTIONS)
 
 
+@pytest.mark.parametrize("cache_manager", [True], indirect=True, ids=["telemetry"])
 def test_aggregate_executes_change_stream_pipeline_natively(
     cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
@@ -1352,6 +1358,7 @@ def test_aggregate_executes_change_stream_pipeline_natively(
         pytest.param([{"$listSearchIndexes": {}}], id="list-search-indexes"),
     ],
 )
+@pytest.mark.parametrize("cache_manager", [True], indirect=True, ids=["telemetry"])
 def test_aggregate_executes_search_pipelines_natively(
     cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
@@ -2263,6 +2270,7 @@ def interrupted_generic_collection(
     indirect=True,
     ids=["write-during-read", "recovery-during-read"],
 )
+@pytest.mark.parametrize("cache_manager", [True], indirect=True, ids=["telemetry"])
 def test_generic_find_one_does_not_admit_a_read_spanning_invalidation(
     interrupted_generic_collection: CachedCollection[BsonDict],
 ) -> None:
@@ -2357,6 +2365,7 @@ def test_find_one_explicit_collation_changes_matching_without_alias_leaks(
 @pytest.mark.parametrize(
     "method", ["count_documents", "distinct"], ids=["count", "distinct"]
 )
+@pytest.mark.parametrize("cache_manager", [True], indirect=True, ids=["telemetry"])
 def test_scalar_read_reuses_one_raw_discriminator(
     cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
@@ -2384,6 +2393,7 @@ def test_scalar_read_reuses_one_raw_discriminator(
 @pytest.mark.parametrize(
     "method", ["count_documents", "distinct"], ids=["count", "distinct"]
 )
+@pytest.mark.parametrize("cache_manager", [True], indirect=True, ids=["telemetry"])
 def test_scalar_key_failure_preserves_native_arguments_and_error(
     cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
@@ -2521,6 +2531,7 @@ def test_id_anchored_find_one_entries_are_separate(
     indirect=["interrupted_generic_collection"],
     ids=["anchored-write-during-read", "other-write-during-read"],
 )
+@pytest.mark.parametrize("cache_manager", [True], indirect=True, ids=["telemetry"])
 def test_id_anchored_find_one_admission_spanning_writes(
     interrupted_generic_collection: CachedCollection[BsonDict],
     *,

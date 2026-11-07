@@ -23,6 +23,7 @@ from aiohttp_client_cache.backends.mongodb import (
 from aiohttp_client_cache.session import CachedSession
 from pymongo import AsyncMongoClient
 
+from client_query_cache import CacheCoreConfig
 from client_query_cache._types import NonNegativeInt
 from client_query_cache.asynchronous import CacheManager
 
@@ -153,7 +154,9 @@ async def main() -> None:
         await client.drop_database(DATABASE_NAME)
         await client[DATABASE_NAME].create_collection("responses")
         async with (
-            CacheManager(client) as manager,
+            CacheManager(
+                client, cache_config=CacheCoreConfig(enable_telemetry=True)
+            ) as manager,
             local_origin() as origin,
             CachedSession(cache=CachedMongoDBBackend(manager)) as session,
         ):

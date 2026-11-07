@@ -296,7 +296,7 @@ def test_a_mutation_during_admission_prevents_its_publication(
 
     assert outcome is not AdmissionOutcome.ADMITTED
     assert index.published() == 0
-    assert core.snapshot().entry_count == 0
+    assert not core.lookup_identity(namespace, 1, _SHAPE).hit
 
 
 def test_a_full_arena_keeps_owner_served_bytes_without_publication(

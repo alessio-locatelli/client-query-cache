@@ -3,14 +3,17 @@ from __future__ import annotations
 import dataclasses
 import importlib
 import sys
+from contextlib import AsyncExitStack
 from typing import TYPE_CHECKING
+from unittest.mock import Mock
 
 import pytest
+from opentelemetry.metrics import Meter
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import InMemoryMetricReader, NumberDataPoint
 from pymongo import AsyncMongoClient, MongoClient
 
-from client_query_cache import BypassReason
+from client_query_cache import BypassReason, CacheManager
 from client_query_cache._core.entries import AdmissionOutcome
 from client_query_cache._core.errors import CacheConfigurationError
 from client_query_cache._core.keys import NamespaceId, canonical_alias_key
@@ -31,7 +34,9 @@ from client_query_cache._shared.attachment import (
     SyncEndpoint,
 )
 from client_query_cache._shared.diagnostics import SharedBypassReason
+from client_query_cache._shared_index import LocalCacheCore, SharedOwnerCore
 from client_query_cache._types import BsonDict, Probability
+from client_query_cache.asynchronous import CacheManager as AsyncCacheManager
 from client_query_cache.otel import register_cache_metrics
 
 if TYPE_CHECKING:
@@ -39,8 +44,9 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from faker import Faker
-    from opentelemetry.metrics import Meter
     from opentelemetry.sdk.metrics.export import Metric
+
+    from client_query_cache._core.snapshots import StatisticsSource
 
 pytestmark = pytest.mark.unit
 
@@ -84,6 +90,7 @@ def _make_stream_snapshot(
 class _FakeCacheCore:
     _snapshot: CacheSnapshot
     _stream_snapshots: dict[str, StreamCostSnapshot]
+    enable_telemetry: bool = True
 
     def snapshot(self) -> CacheSnapshot:
         return self._snapshot
@@ -364,7 +371,7 @@ def test_invalidation_lag_gauge_description_carries_the_clock_skew_limitation(
 
 
 def test_collecting_metrics_does_not_mutate_manager_state() -> None:
-    core = CacheCore()
+    core = CacheCore(CacheCoreConfig(enable_telemetry=True))
     core.record_bypass()
     core.record_stream_poll("db")
     core.record_logical_event_bytes("db", 256)
@@ -388,7 +395,7 @@ def test_collecting_metrics_does_not_mutate_manager_state() -> None:
 def test_bypass_reason_metric_has_only_the_fixed_reason_dimension(
     meter: Meter, reader: InMemoryMetricReader, keyword: bool
 ) -> None:
-    core = CacheCore()
+    core = CacheCore(CacheCoreConfig(enable_telemetry=True))
     for reason in BypassReason:
         core.record_bypass(reason)
     core.record_bypass(BypassReason.MISSING_COLLECTION)
@@ -411,7 +418,9 @@ def test_bypass_reason_metric_has_only_the_fixed_reason_dimension(
 
 @pytest.fixture
 def retention_core() -> Iterator[CacheCore]:
-    core = CacheCore(CacheCoreConfig(max_entries=1, max_key_bytes=1024))
+    core = CacheCore(
+        CacheCoreConfig(max_entries=1, max_key_bytes=1024, enable_telemetry=True)
+    )
     yield core
     core.close()
 
@@ -447,6 +456,7 @@ async def shared_manager(
     request: pytest.FixtureRequest, tmp_path: Path, faker: Faker
 ) -> AsyncIterator[SharedCacheManager[BsonDict] | AsyncSharedCacheManager[BsonDict]]:
     config = AttachmentConfig(
+        enable_telemetry=True,
         socket_path=str(tmp_path / "absent.sock"),
         capability=faker.binary(length=32),
         budget_bytes=1,
@@ -511,3 +521,120 @@ def test_shared_managers_export_worker_counters_without_contacting_the_owner(
     } == {record.reason.value: record.count for record in snapshot.bypass_reasons}
     assert len(points) == len(SharedBypassReason)
     assert shared_manager.endpoint.counters.failures == attempts
+
+
+type Source = (
+    StatisticsSource | SharedCacheManager[BsonDict] | AsyncSharedCacheManager[BsonDict]
+)
+
+
+@pytest.fixture(
+    params=["python", "native", "owner", "sync", "async", "shared-sync", "shared-async"]
+)
+async def disabled_source(
+    request: pytest.FixtureRequest, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> AsyncIterator[Source]:
+    async with AsyncExitStack() as stack:
+        if request.param in {"python", "native", "owner"}:
+            if request.param == "python":
+                core: CacheCore | LocalCacheCore = CacheCore()
+            elif request.param == "native":
+                core = LocalCacheCore()
+            else:
+                core = SharedOwnerCore(CacheCoreConfig(), None, ["db"], 1, 30.0)
+            stack.callback(core.close)
+            yield core
+            return
+        if request.param in {"sync", "shared-sync"}:
+            client = stack.enter_context(MongoClient[BsonDict](connect=False))
+            if request.param == "sync":
+                yield stack.enter_context(CacheManager(client))
+                return
+        else:
+            async_client = await stack.enter_async_context(
+                AsyncMongoClient[BsonDict](connect=False)
+            )
+            if request.param == "async":
+                yield await stack.enter_async_context(AsyncCacheManager(async_client))
+                return
+        attachment = AttachmentConfig(
+            socket_path=str(tmp_path / "absent.sock"),
+            capability=b"test-capability",
+            budget_bytes=1024,
+            max_entry_bytes=512,
+            max_await_time_ms=100,
+            rpc_deadline_seconds=0.01,
+            frame_limit=65536,
+        )
+        forbidden_request = Mock(
+            side_effect=AssertionError("disabled diagnostics contacted the owner")
+        )
+        monkeypatch.setattr(SyncEndpoint, "request", forbidden_request)
+        monkeypatch.setattr(AsyncEndpoint, "request", forbidden_request)
+        if request.param == "shared-sync":
+            manager = SharedCacheManager(
+                client, SyncEndpoint(attachment, require_owner=False)
+            )
+            stack.callback(manager.close)
+            yield manager
+        else:
+            async_manager = AsyncSharedCacheManager(
+                async_client,
+                await AsyncEndpoint.attach(attachment, require_owner=False),
+            )
+            stack.push_async_callback(async_manager.close)
+            yield async_manager
+
+
+def test_disabled_registration_creates_no_instruments(disabled_source: Source) -> None:
+    meter = Mock(spec=Meter)
+    with pytest.raises(CacheConfigurationError, match="enable_telemetry=True"):
+        register_cache_metrics(meter, disabled_source)
+    assert meter.mock_calls == []
+
+
+@pytest.mark.parametrize(
+    "disabled_source", ["shared-sync", "shared-async"], indirect=True
+)
+def test_disabled_shared_advanced_recording_preserves_the_core_interface(
+    disabled_source: Source,
+) -> None:
+    assert isinstance(disabled_source, (SharedCacheManager, AsyncSharedCacheManager))
+    core = disabled_source.cache_core
+    assert core.max_entries is None
+    assert core.enable_telemetry is False
+    core.record_bypass(SharedBypassReason.SESSION)
+    core.record_oversized_bypass()
+    assert disabled_source._observation is None
+    with pytest.raises(CacheConfigurationError, match="enable_telemetry=True"):
+        core.snapshot()
+
+
+@pytest.fixture(params=[False, True], ids=["open", "closed"])
+async def inspected_shared_source(
+    disabled_source: Source, request: pytest.FixtureRequest
+) -> SharedCacheManager[BsonDict] | AsyncSharedCacheManager[BsonDict]:
+    assert isinstance(disabled_source, (SharedCacheManager, AsyncSharedCacheManager))
+    if request.param:
+        if isinstance(disabled_source, AsyncSharedCacheManager):
+            await disabled_source.close()
+        else:
+            disabled_source.close()
+    return disabled_source
+
+
+@pytest.mark.parametrize(
+    "disabled_source", ["shared-sync", "shared-async"], indirect=True
+)
+async def test_shared_diagnostics_reject_locally(
+    inspected_shared_source: SharedCacheManager[BsonDict]
+    | AsyncSharedCacheManager[BsonDict],
+) -> None:
+    with pytest.raises(CacheConfigurationError, match="enable_telemetry=True"):
+        inspected_shared_source.snapshot()
+    if isinstance(inspected_shared_source, AsyncSharedCacheManager):
+        with pytest.raises(CacheConfigurationError, match="enable_telemetry=True"):
+            await inspected_shared_source.owner_snapshot()
+    else:
+        with pytest.raises(CacheConfigurationError, match="enable_telemetry=True"):
+            inspected_shared_source.owner_snapshot()

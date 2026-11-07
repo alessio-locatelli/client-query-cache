@@ -110,11 +110,13 @@ class Key:
         return self.value == other.value
 
 
-@pytest.fixture
-def native() -> Generator[LocalCacheCore]:
+@pytest.fixture(params=[False], ids=["default"])
+def native(request: pytest.FixtureRequest) -> Generator[LocalCacheCore]:
     with managed_core(
         NativeCacheCore,
-        CacheCoreConfig(budget_bytes=256, max_entry_bytes=128),
+        CacheCoreConfig(
+            budget_bytes=256, max_entry_bytes=128, enable_telemetry=request.param
+        ),
     ) as core:
         yield core
 
@@ -175,6 +177,7 @@ def insert_colliding_namespace(core: LocalCacheCore) -> None:
 
 
 @pytest.mark.parametrize("operation", ["lookup", "admission"])
+@pytest.mark.parametrize("native", [True], indirect=True, ids=["telemetry"])
 def test_negative_comparison_retries_after_a_matching_key_is_inserted(
     native: LocalCacheCore, operation: str
 ) -> None:
@@ -222,6 +225,7 @@ def test_negative_identity_comparison_retries_before_reserving_metadata(
 
 
 @pytest.mark.parametrize("drop", [False, True], ids=["generation", "recreation"])
+@pytest.mark.parametrize("native", [True], indirect=True, ids=["telemetry"])
 def test_reentrant_comparison_retries_against_current_owner(
     native: LocalCacheCore, *, drop: bool
 ) -> None:
@@ -235,6 +239,7 @@ def test_reentrant_comparison_retries_against_current_owner(
     assert native.snapshot().misses == 0
 
 
+@pytest.mark.parametrize("native", [True], indirect=True, ids=["telemetry"])
 def test_parallel_mutation_can_finish_while_python_equality_is_blocked(
     native: LocalCacheCore,
     comparison_gate: tuple[Gate, ThreadPoolExecutor],
@@ -257,6 +262,7 @@ def fail_comparison() -> None:
     raise ValueError("opaque equality failed")
 
 
+@pytest.mark.parametrize("native", [True], indirect=True, ids=["telemetry"])
 def test_failed_equality_records_no_pending_lookup(native: LocalCacheCore) -> None:
     key = Key(1)
     native.admit_namespace(native.capture_namespace_generation(_NAMESPACE), key, "old")
@@ -300,6 +306,7 @@ def record_finalization(
     observations.append(core.snapshot().entry_count)
 
 
+@pytest.mark.parametrize("native", [True], indirect=True, ids=["telemetry"])
 def test_last_key_finalizer_can_reenter_the_native_owner(
     native: LocalCacheCore,
 ) -> None:
@@ -498,6 +505,7 @@ def test_reentrant_admission_cannot_displace_fresher_data(
         assert native.lookup_namespace(_NAMESPACE, Key(1)).value == "fresh"
 
 
+@pytest.mark.parametrize("native", [True], indirect=True, ids=["telemetry"])
 def test_alias_metadata_tracks_residents_and_is_reclaimed(
     native: LocalCacheCore,
 ) -> None:
@@ -623,7 +631,9 @@ def bounded_core(value: object) -> AbstractContextManager[LocalCacheCore]:
     weight = len(encode_value(value))
     return managed_core(
         NativeCacheCore,
-        CacheCoreConfig(budget_bytes=weight * 2, max_entry_bytes=weight),
+        CacheCoreConfig(
+            budget_bytes=weight * 2, max_entry_bytes=weight, enable_telemetry=True
+        ),
     )
 
 
@@ -772,7 +782,9 @@ _CANDIDATE_CORES: dict[str, Callable[[CacheCoreConfig], LocalCacheCore]] = {
 def test_native_matches_reference_across_collision_and_eviction_schedules(
     candidate: str, operations: list[tuple[str, int, int]]
 ) -> None:
-    config = CacheCoreConfig(budget_bytes=128, max_entry_bytes=64)
+    config = CacheCoreConfig(
+        budget_bytes=128, max_entry_bytes=64, enable_telemetry=True
+    )
     with (
         managed_core(CacheCore, config) as reference,
         managed_core(_CANDIDATE_CORES[candidate], config) as native,
@@ -836,7 +848,8 @@ def key_sizing_calls(monkeypatch: pytest.MonkeyPatch) -> list[Key]:
 @pytest.fixture
 def one_slot_native() -> Generator[LocalCacheCore]:
     with managed_core(
-        NativeCacheCore, CacheCoreConfig(max_entries=1, max_key_bytes=1024)
+        NativeCacheCore,
+        CacheCoreConfig(max_entries=1, max_key_bytes=1024, enable_telemetry=True),
     ) as core:
         yield core
 

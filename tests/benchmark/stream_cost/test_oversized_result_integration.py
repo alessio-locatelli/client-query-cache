@@ -43,6 +43,7 @@ def small_max_entry_cache_manager(
         cache_config=CacheCoreConfig(
             budget_bytes=_MAX_ENTRY_BYTES * 4,
             max_entry_bytes=_MAX_ENTRY_BYTES,
+            enable_telemetry=True,
         ),
     )
     yield manager

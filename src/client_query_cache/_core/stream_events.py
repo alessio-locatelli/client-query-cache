@@ -41,10 +41,18 @@ CHANGE_STREAM_PROJECTION: Mapping[str, NonNegativeInt] = {
 }
 
 
-def build_change_stream_pipeline() -> list[Mapping[str, Any]]:
+def build_change_stream_pipeline(
+    *, enable_telemetry: bool = False
+) -> list[Mapping[str, Any]]:
     return [
         {"$match": {"operationType": {"$in": sorted(RELEVANT_OPERATION_TYPES)}}},
-        {"$project": dict(CHANGE_STREAM_PROJECTION)},
+        {
+            "$project": {
+                key: value
+                for key, value in CHANGE_STREAM_PROJECTION.items()
+                if enable_telemetry or key not in {"wallTime", "clusterTime"}
+            }
+        },
     ]
 
 
@@ -75,7 +83,8 @@ def _route_write(cache: CacheCore, database: str, event: Mapping[str, Any]) -> N
     namespace = _namespace_from_ns(event["ns"])
     if cache.has_namespace(namespace):
         cache.record_write(namespace, event["documentKey"]["_id"])
-        _record_invalidation(cache, database, event)
+        if cache.enable_telemetry:
+            _record_invalidation(cache, database, event)
 
 
 def _route_create(cache: CacheCore, database: str, event: Mapping[str, Any]) -> None:
@@ -83,7 +92,8 @@ def _route_create(cache: CacheCore, database: str, event: Mapping[str, Any]) -> 
     cache.invalidate_namespace_metadata_probe(namespace)
     if cache.has_namespace(namespace):
         cache.create_namespace(namespace)
-        _record_invalidation(cache, database, event)
+        if cache.enable_telemetry:
+            _record_invalidation(cache, database, event)
 
 
 def _route_drop(cache: CacheCore, database: str, event: Mapping[str, Any]) -> None:
@@ -91,7 +101,8 @@ def _route_drop(cache: CacheCore, database: str, event: Mapping[str, Any]) -> No
     cache.invalidate_namespace_metadata_probe(namespace)
     if cache.has_namespace(namespace):
         cache.drop_namespace(namespace)
-        _record_invalidation(cache, database, event)
+        if cache.enable_telemetry:
+            _record_invalidation(cache, database, event)
 
 
 def _route_index_change(
@@ -100,7 +111,8 @@ def _route_index_change(
     namespace = _namespace_from_ns(event["ns"])
     if cache.has_namespace(namespace):
         cache.record_index_change(namespace)
-        _record_invalidation(cache, database, event)
+        if cache.enable_telemetry:
+            _record_invalidation(cache, database, event)
 
 
 def _route_rename(cache: CacheCore, database: str, event: Mapping[str, Any]) -> None:
@@ -115,7 +127,7 @@ def _route_rename(cache: CacheCore, database: str, event: Mapping[str, Any]) -> 
     if destination.database == database and cache.has_namespace(destination):
         cache.clear_namespace(destination)
         invalidated = True
-    if invalidated:
+    if invalidated and cache.enable_telemetry:
         _record_invalidation(cache, database, event)
 
 
@@ -127,7 +139,7 @@ def _route_invalidate(
     namespaces = cache.namespaces_for_database(database)
     for namespace in namespaces:
         cache.drop_namespace(namespace)
-    if namespaces:
+    if namespaces and cache.enable_telemetry:
         _record_invalidation(cache, database, event)
 
 

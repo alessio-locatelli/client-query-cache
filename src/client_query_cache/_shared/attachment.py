@@ -10,7 +10,11 @@ import weakref
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Final
 
-from client_query_cache._core.errors import CacheClosedError, CacheConfigurationError
+from client_query_cache._core.errors import (
+    CacheClosedError,
+    CacheConfigurationError,
+    require_telemetry,
+)
 from client_query_cache._shared.wire import (
     LENGTH_BYTES,
     PROTOCOL_VERSION,
@@ -67,6 +71,7 @@ class AttachmentConfig:
     rpc_deadline_seconds: PositiveFloat
     frame_limit: PositiveInt
     max_namespaces: PositiveInt = 1024
+    enable_telemetry: bool = False
 
     def hello(self, role: str | None = None) -> Message:
         message: Message = {
@@ -75,6 +80,7 @@ class AttachmentConfig:
             "op": "hello",
             "capability": self.capability,
             "pid": os.getpid(),
+            "enable_telemetry": self.enable_telemetry,
             "budget_bytes": self.budget_bytes,
             "max_entry_bytes": self.max_entry_bytes,
             "max_await_time_ms": self.max_await_time_ms,
@@ -136,7 +142,7 @@ class AdmissionRecovery:
 def _one_way_frame(
     message: Message,
     config: AttachmentConfig,
-    counters: EndpointCounters,
+    counters: EndpointCounters | None,
     reader: ReaderIndex | None,
     recovery: AdmissionRecovery,
 ) -> tuple[bytes, PositiveInt] | None:
@@ -145,16 +151,21 @@ def _one_way_frame(
     frame = encode_frame(message)
     frame_bytes = len(frame)
     if frame_bytes - LENGTH_BYTES > config.frame_limit:
-        counters.dropped_one_way += 1
+        if counters is not None:
+            counters.dropped_one_way += 1
         return None
     if reader is not None:
         generation = recovery.generation if recovery.awaiting_capacity else None
         if reader.enqueue_admission(frame):
-            counters.native_admissions += 1
-            if generation is not None and recovery.enqueued(generation):
-                counters.native_admission_recoveries += 1
-            counters.one_way += 1
-            counters.bytes_sent += frame_bytes
+            if counters is not None:
+                counters.native_admissions += 1
+            if generation is not None:
+                recovered = recovery.enqueued(generation)
+                if recovered and counters is not None:
+                    counters.native_admission_recoveries += 1
+            if counters is not None:
+                counters.one_way += 1
+                counters.bytes_sent += frame_bytes
             return None
     return frame, frame_bytes
 
@@ -197,10 +208,12 @@ def _handshake_reply(
     return _accepted(decode_frame(bytes(inbox[LENGTH_BYTES:end])))
 
 
-def _reader(received: list[int], reply: Message) -> ReaderIndex:
+def _reader(
+    received: list[int], reply: Message, *, enable_telemetry: bool
+) -> ReaderIndex:
     if len(received) != _CONTROL_DESCRIPTORS:
         raise ProtocolError("the handshake carries exactly two descriptors")
-    reader = ReaderIndex(received[0], received[1])
+    reader = ReaderIndex(received[0], received[1], enable_telemetry)
     if reader.incarnation != reply["incarnation"]:
         raise ProtocolError("the index belongs to another owner incarnation")
     return reader
@@ -213,7 +226,11 @@ def control_handshake(config: AttachmentConfig) -> ControlAttachment:
         sock.settimeout(_ATTACH_DEADLINE_SECONDS)
         sock.connect(config.socket_path)
         sock.sendall(encode_frame(config.hello(role="control")))
-        reader = _reader(received, _handshake_reply(sock, config, received))
+        reader = _reader(
+            received,
+            _handshake_reply(sock, config, received),
+            enable_telemetry=config.enable_telemetry,
+        )
     except BaseException:
         sock.close()
         raise
@@ -375,7 +392,10 @@ class _SyncConnection:
         self.next_id = 1
 
     def receive(
-        self, deadline: NonNegativeFloat, limit: PositiveInt, counters: EndpointCounters
+        self,
+        deadline: NonNegativeFloat,
+        limit: PositiveInt,
+        counters: EndpointCounters | None,
     ) -> Message:
         while True:
             if len(self.inbox) >= LENGTH_BYTES:
@@ -390,7 +410,8 @@ class _SyncConnection:
             chunk = self.sock.recv(_RECEIVE_BYTES)
             if not chunk:
                 raise ConnectionResetError("owner closed the attachment")
-            counters.bytes_received += len(chunk)
+            if counters is not None:
+                counters.bytes_received += len(chunk)
             self.inbox += chunk
 
 
@@ -411,13 +432,13 @@ class SyncEndpoint:
     __slots__ = (
         "_closed",
         "_connections",
+        "_counters",
         "_local",
         "_lock",
         "_pid",
         "_retry_after",
         "admission_recovery",
         "config",
-        "counters",
         "incarnation",
     )
 
@@ -429,7 +450,7 @@ class SyncEndpoint:
         self._connections: set[_SyncConnection] = set()
         self._retry_after = 0.0
         self._closed = False
-        self.counters = EndpointCounters()
+        self._counters = EndpointCounters() if config.enable_telemetry else None
         self.admission_recovery = AdmissionRecovery()
         self.incarnation: object = None
         deadline = (
@@ -438,6 +459,12 @@ class SyncEndpoint:
         if self._connect(time.monotonic() + deadline) is None and require_owner:
             message = "shared cache owner is not reachable"
             raise AttachmentConfigurationError(message)
+
+    @property
+    def counters(self) -> EndpointCounters:
+        require_telemetry(enabled=self.config.enable_telemetry)
+        assert self._counters is not None
+        return self._counters
 
     def _check_owner(self) -> None:
         if os.getpid() != self._pid:
@@ -454,7 +481,8 @@ class SyncEndpoint:
             if not attachment_unavailable(error):
                 raise
             self._retry_after = time.monotonic() + _RETRY_SECONDS
-            self.counters.failures += 1
+            if self._counters is not None:
+                self._counters.failures += 1
             return None
         except BaseException:
             sock.close()
@@ -464,7 +492,8 @@ class SyncEndpoint:
         except AttachmentConfigurationError:
             sock.close()
             raise
-        self.counters.connects += 1
+        if self._counters is not None:
+            self._counters.connects += 1
         self.incarnation = reply["incarnation"]
         with self._lock:
             self._connections.add(connection)
@@ -494,8 +523,9 @@ class SyncEndpoint:
         connection.sock.connect(self.config.socket_path)
         frame = encode_frame(self.config.hello())
         connection.sock.sendall(frame)
-        self.counters.bytes_sent += len(frame)
-        return connection.receive(deadline, self.config.frame_limit, self.counters)
+        if self._counters is not None:
+            self._counters.bytes_sent += len(frame)
+        return connection.receive(deadline, self.config.frame_limit, self._counters)
 
     def _current(self, deadline: NonNegativeFloat) -> _SyncConnection | None:
         connection = self._leased()
@@ -515,7 +545,8 @@ class SyncEndpoint:
         connection = self._current(deadline)
         if connection is None:
             return None
-        self.counters.requests += 1
+        if self._counters is not None:
+            self._counters.requests += 1
         message["v"] = PROTOCOL_VERSION
         message["id"] = connection.next_id
         connection.next_id += 1
@@ -523,37 +554,43 @@ class SyncEndpoint:
         try:
             connection.sock.settimeout(max(deadline - time.monotonic(), 0.000001))
             connection.sock.sendall(frame)
-            self.counters.bytes_sent += len(frame)
-            return connection.receive(deadline, self.config.frame_limit, self.counters)
+            if self._counters is not None:
+                self._counters.bytes_sent += len(frame)
+            return connection.receive(deadline, self.config.frame_limit, self._counters)
         except TimeoutError:
-            self.counters.timeouts += 1
+            if self._counters is not None:
+                self._counters.timeouts += 1
         except OSError:
-            self.counters.failures += 1
+            if self._counters is not None:
+                self._counters.failures += 1
         self._drop()
         return None
 
     def send(self, message: Message, reader: ReaderIndex | None = None) -> None:
         self._check_owner()
         if self._closed:
-            self.counters.dropped_one_way += 1
+            if self._counters is not None:
+                self._counters.dropped_one_way += 1
             return
         prepared = None
         if reader is not None and reader.admissions_enabled:
             prepared = _one_way_frame(
-                message, self.config, self.counters, reader, self.admission_recovery
+                message, self.config, self._counters, reader, self.admission_recovery
             )
             if prepared is None:
                 return
         connection = self._leased()
         if connection is None:
-            self.counters.dropped_one_way += 1
+            if self._counters is not None:
+                self._counters.dropped_one_way += 1
             if prepared is not None:
-                self.counters.native_admission_drops += 1
+                if self._counters is not None:
+                    self._counters.native_admission_drops += 1
                 self.admission_recovery.dropped()
             return
         if prepared is None:
             prepared = _one_way_frame(
-                message, self.config, self.counters, reader, self.admission_recovery
+                message, self.config, self._counters, reader, self.admission_recovery
             )
             if prepared is None:
                 return
@@ -562,11 +599,13 @@ class SyncEndpoint:
             connection.sock.settimeout(self.config.rpc_deadline_seconds)
             connection.sock.sendall(frame)
         except OSError:
-            self.counters.dropped_one_way += 1
+            if self._counters is not None:
+                self._counters.dropped_one_way += 1
             self._drop()
             return
-        self.counters.one_way += 1
-        self.counters.bytes_sent += frame_bytes
+        if self._counters is not None:
+            self._counters.one_way += 1
+            self._counters.bytes_sent += frame_bytes
 
     def close(self) -> None:
         with self._lock:
@@ -581,6 +620,7 @@ class AsyncEndpoint:
     __slots__ = (
         "_closed",
         "_connect_lock",
+        "_counters",
         "_pending",
         "_pid",
         "_reader_task",
@@ -588,7 +628,6 @@ class AsyncEndpoint:
         "_writer",
         "admission_recovery",
         "config",
-        "counters",
         "incarnation",
         "next_id",
     )
@@ -604,7 +643,7 @@ class AsyncEndpoint:
         self._writer: asyncio.StreamWriter | None = None
         self._reader_task: asyncio.Task[None] | None = None
         self._retry_after = 0.0
-        self.counters = EndpointCounters()
+        self._counters = EndpointCounters() if config.enable_telemetry else None
         self.admission_recovery = AdmissionRecovery()
         self.incarnation: object = None
         self.next_id = 1
@@ -629,6 +668,12 @@ class AsyncEndpoint:
             raise AttachmentConfigurationError(message)
         return endpoint
 
+    @property
+    def counters(self) -> EndpointCounters:
+        require_telemetry(enabled=self.config.enable_telemetry)
+        assert self._counters is not None
+        return self._counters
+
     def _check_owner(self) -> None:
         if os.getpid() != self._pid:
             message = "attachment was inherited from another process"
@@ -650,7 +695,8 @@ class AsyncEndpoint:
                 return self._unreachable()
             frame = encode_frame(self.config.hello())
             writer.write(frame)
-            self.counters.bytes_sent += len(frame)
+            if self._counters is not None:
+                self._counters.bytes_sent += len(frame)
             try:
                 reply = _accepted(await self._read_frame(reader))
             except asyncio.IncompleteReadError:
@@ -668,7 +714,8 @@ class AsyncEndpoint:
 
     def _unreachable(self) -> bool:
         self._retry_after = time.monotonic() + _RETRY_SECONDS
-        self.counters.failures += 1
+        if self._counters is not None:
+            self._counters.failures += 1
         return False
 
     def _install(
@@ -680,7 +727,8 @@ class AsyncEndpoint:
         if self._closed:
             writer.close()
             return False
-        self.counters.connects += 1
+        if self._counters is not None:
+            self._counters.connects += 1
         self.incarnation = reply["incarnation"]
         self._writer = writer
         self._reader_task = asyncio.create_task(self._read_loop(reader, writer))
@@ -689,7 +737,8 @@ class AsyncEndpoint:
     async def _read_frame(self, reader: asyncio.StreamReader) -> Message:
         header = await reader.readexactly(LENGTH_BYTES)
         body = await reader.readexactly(frame_length(header, self.config.frame_limit))
-        self.counters.bytes_received += LENGTH_BYTES + len(body)
+        if self._counters is not None:
+            self._counters.bytes_received += LENGTH_BYTES + len(body)
         return decode_frame(body)
 
     async def _read_loop(
@@ -718,7 +767,8 @@ class AsyncEndpoint:
             if not future.done():
                 future.set_result(message)
                 return
-        self.counters.late_replies += 1
+        if self._counters is not None:
+            self._counters.late_replies += 1
         if message["r"] == "miss" and message["handle"] is not None:
             self.send({"op": "discard", "handle": message["handle"]})
 
@@ -750,7 +800,8 @@ class AsyncEndpoint:
             async with asyncio.timeout(self.config.rpc_deadline_seconds):
                 reply = await self._exchange(request_id, message, future)
         except TimeoutError:
-            self.counters.timeouts += 1
+            if self._counters is not None:
+                self._counters.timeouts += 1
             self._retry_after = time.monotonic() + _RETRY_SECONDS
             if self._writer is not None:
                 self._abandon(self._writer)
@@ -761,7 +812,8 @@ class AsyncEndpoint:
             except KeyError:
                 pass
         if reply is _LOST:
-            self.counters.failures += 1
+            if self._counters is not None:
+                self._counters.failures += 1
             return None
         return reply
 
@@ -775,37 +827,42 @@ class AsyncEndpoint:
             return None
         writer = self._writer
         assert writer is not None
-        self.counters.requests += 1
+        if self._counters is not None:
+            self._counters.requests += 1
         message["v"] = PROTOCOL_VERSION
         message["id"] = request_id
         frame = encode_frame(message)
         self._pending[request_id] = (writer, future)
         writer.write(frame)
-        self.counters.bytes_sent += len(frame)
+        if self._counters is not None:
+            self._counters.bytes_sent += len(frame)
         return await future
 
     def send(self, message: Message, reader: ReaderIndex | None = None) -> None:
         self._check_owner()
         if self._closed:
-            self.counters.dropped_one_way += 1
+            if self._counters is not None:
+                self._counters.dropped_one_way += 1
             return
         prepared = None
         if reader is not None and reader.admissions_enabled:
             prepared = _one_way_frame(
-                message, self.config, self.counters, reader, self.admission_recovery
+                message, self.config, self._counters, reader, self.admission_recovery
             )
             if prepared is None:
                 return
         writer = self._writer
         if writer is None:
-            self.counters.dropped_one_way += 1
+            if self._counters is not None:
+                self._counters.dropped_one_way += 1
             if prepared is not None:
-                self.counters.native_admission_drops += 1
+                if self._counters is not None:
+                    self._counters.native_admission_drops += 1
                 self.admission_recovery.dropped()
             return
         if prepared is None:
             prepared = _one_way_frame(
-                message, self.config, self.counters, reader, self.admission_recovery
+                message, self.config, self._counters, reader, self.admission_recovery
             )
             if prepared is None:
                 return
@@ -814,17 +871,20 @@ class AsyncEndpoint:
             writer.transport.get_write_buffer_size() + frame_bytes
             > self.config.frame_limit + LENGTH_BYTES
         ):
-            self.counters.dropped_one_way += 1
+            if self._counters is not None:
+                self._counters.dropped_one_way += 1
             if reader is not None and reader.admissions_enabled:
-                self.counters.native_admission_drops += 1
+                if self._counters is not None:
+                    self._counters.native_admission_drops += 1
                 self.admission_recovery.dropped()
             if "handle" in message:
                 writer.transport.abort()
                 self._abandon(writer)
             return
         writer.write(frame)
-        self.counters.one_way += 1
-        self.counters.bytes_sent += frame_bytes
+        if self._counters is not None:
+            self._counters.one_way += 1
+            self._counters.bytes_sent += frame_bytes
 
     async def close(self) -> None:
         self._closed = True

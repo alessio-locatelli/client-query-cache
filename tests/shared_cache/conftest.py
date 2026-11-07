@@ -141,6 +141,22 @@ def ready(manager: SharedCacheManager[BsonDict], database: str) -> None:
     wait_for(lambda: collection._cache_ineligibility_reason() is None)
 
 
+def refresh_metadata(
+    exchange: Callable[[Message], Message | None], namespace: NamespaceId
+) -> Message | None:
+    request = {"ns": [namespace.database, namespace.collection]}
+    probe = exchange({"op": "metadata-probe", **request})
+    if probe is None or probe["r"] != "probe":
+        return probe
+    return exchange(
+        {
+            "op": "metadata",
+            **request,
+            "probe_token": probe["probe_token"],
+        }
+    )
+
+
 def select_identity(
     endpoint: SyncEndpoint,
     manager: SharedCacheManager[BsonDict],
@@ -233,9 +249,18 @@ def socket_directory() -> Iterator[Path]:
     shutil.rmtree(directory)
 
 
+@pytest.fixture(params=[True], ids=["enabled"])
+def telemetry_enabled(request: pytest.FixtureRequest) -> bool:
+    assert isinstance(request.param, bool)
+    return request.param
+
+
 @pytest.fixture
 def start_owner(
-    mongodb_uri: MongoDbUri, seeded_database: str, socket_directory: Path
+    mongodb_uri: MongoDbUri,
+    seeded_database: str,
+    socket_directory: Path,
+    telemetry_enabled: bool,
 ) -> Iterator[Callable[..., Owner]]:
     owners: list[Owner] = []
     capability = secrets.token_bytes(32)
@@ -261,6 +286,7 @@ def start_owner(
             max_await_time_ms=AWAIT_MS,
             limits=replace(LIMITS, **limits),  # type: ignore[arg-type]
             lag_capture=(1, 1, 0),
+            enable_telemetry=telemetry_enabled,
             shared_index=shared_index,
         )
         context = multiprocessing.get_context("spawn")

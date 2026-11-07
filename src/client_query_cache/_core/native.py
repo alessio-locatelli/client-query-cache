@@ -16,6 +16,7 @@ from client_query_cache._core.entries import (
 from client_query_cache._core.errors import (
     CacheClosedError,
     UnsupportedCacheRequestError,
+    telemetry_disabled,
 )
 from client_query_cache._core.find_reads import PreparedFindRead, find_discriminator
 from client_query_cache._core.keys import canonical_alias_key
@@ -57,7 +58,7 @@ type NativeSetup = tuple[
     PositiveInt,
     PositiveInt,
     PositiveInt,
-    StreamCostRegistry,
+    StreamCostRegistry | None,
     PositiveInt | None,
     PositiveInt | None,
 ]
@@ -72,7 +73,9 @@ def initialize(config: CacheCoreConfig | None) -> NativeSetup:
         min(resolved.budget_bytes, sys.maxsize),
         min(resolved.max_entry_bytes, sys.maxsize),
         min(resolved.max_namespaces, sys.maxsize),
-        StreamCostRegistry(resolved.lag_capture_window_config),
+        StreamCostRegistry(resolved.lag_capture_window_config)
+        if resolved.enable_telemetry
+        else None,
         None
         if resolved.max_entries is None
         else min(resolved.max_entries, sys.maxsize),
@@ -152,4 +155,5 @@ _OPERATIONS = (
     _REASONS,
     sys.getsizeof,
     _CanonicalTag,
+    telemetry_disabled,
 )

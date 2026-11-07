@@ -3,6 +3,8 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING, Any
 
+from client_query_cache._core.errors import require_telemetry
+
 try:
     from opentelemetry.metrics import Observation
 except ImportError as error:
@@ -238,6 +240,7 @@ def register_cache_metrics(
     *,
     lag_percentiles: tuple[Probability, ...] = (0.5, 0.95, 1.0),
 ) -> None:
+    require_telemetry(enabled=cache_core.enable_telemetry)
     _validate_lag_percentiles(lag_percentiles)
     if isinstance(cache_core, (SharedCacheManager, AsyncSharedCacheManager)):
         _register_cache_counters(meter, cache_core, _WORKER_COUNTER_FIELDS)

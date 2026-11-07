@@ -25,6 +25,7 @@ from benchmarks.stream_cost.workload import (
     verify_primed,
     wait_for_invalidations_to_settle,
 )
+from client_query_cache import CacheCoreConfig
 from client_query_cache._types import BsonDict, NonNegativeFloat, NonNegativeInt
 from client_query_cache.synchronous.manager import CacheManager
 
@@ -231,7 +232,9 @@ def _run_stream_watching_window(
     list[OperationLatency],
     tuple[NonNegativeFloat, ...],
 ]:
-    with CacheManager(client) as manager:
+    with CacheManager(
+        client, cache_config=CacheCoreConfig(enable_telemetry=True)
+    ) as manager:
         cache_collection = manager[database_name][_COLLECTION_NAME]
         raw_collection = manager[database_name].raw[_COLLECTION_NAME]
 

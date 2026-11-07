@@ -57,7 +57,9 @@ def tight_budget_cache_manager(
 ) -> Iterator[CacheManager[BsonDict]]:
     manager = CacheManager(
         raw_mongo_client,
-        cache_config=CacheCoreConfig(budget_bytes=800, max_entry_bytes=200),
+        cache_config=CacheCoreConfig(
+            budget_bytes=800, max_entry_bytes=200, enable_telemetry=True
+        ),
     )
     yield manager
     manager.close()
@@ -73,6 +75,7 @@ def tight_budget_cache_manager(
         pytest.param(False, id="negative-result"),
     ],
 )
+@pytest.mark.parametrize("cache_manager", [True], indirect=True, ids=["telemetry"])
 def test_unique_key_read_is_cached_after_the_first_lookup(
     cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
@@ -111,6 +114,7 @@ def test_unique_key_read_is_cached_after_the_first_lookup(
 
 @pytest.mark.parametrize("unique_index_on_other_field", [False, True])
 @pytest.mark.parametrize("anchored", [False, True], ids=["generic", "anchored"])
+@pytest.mark.parametrize("cache_manager", [True], indirect=True, ids=["telemetry"])
 def test_cold_read_without_a_unique_key_match_records_one_miss(
     cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,
@@ -730,6 +734,7 @@ def test_unique_key_match_skips_admission_for_an_uncacheable_identity(
         ),
     ],
 )
+@pytest.mark.parametrize("cache_manager", [True], indirect=True, ids=["telemetry"])
 def test_generic_read_caches_when_index_inspection_fails(
     cache_manager: CacheManager[BsonDict],
     cached_database_name: DatabaseName,

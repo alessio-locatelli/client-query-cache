@@ -35,6 +35,7 @@ from pymongo.errors import InvalidOperation
 from pymongo.read_concern import ReadConcern
 from pymongo.write_concern import WriteConcern
 
+from client_query_cache import CacheCoreConfig
 from client_query_cache.asynchronous import (
     BypassReason,
     CacheManager,
@@ -153,7 +154,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     mongodb_uri = os.getenv("MONGODB_URI", DEFAULT_MONGODB_URI)
     async with (
         AsyncMongoClient[ProductDocument](mongodb_uri) as client,
-        CacheManager(client) as manager,
+        CacheManager(
+            client, cache_config=CacheCoreConfig(enable_telemetry=True)
+        ) as manager,
     ):
         app.state.repository = CatalogueRepository(
             manager,

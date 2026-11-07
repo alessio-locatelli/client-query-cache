@@ -15,7 +15,11 @@ from client_query_cache._core.codec import decode_value, encode_value
 from client_query_cache._core.collection_metadata import CollectionMetadata
 from client_query_cache._core.count_reads import count_read_options
 from client_query_cache._core.cursor_capture import CursorCapture
-from client_query_cache._core.errors import CacheClosedError
+from client_query_cache._core.errors import (
+    CacheClosedError,
+    require_telemetry,
+    telemetry_disabled,
+)
 from client_query_cache._core.find_one_reads import (
     CollationInput,
     find_one_options_cacheable,
@@ -106,6 +110,7 @@ _NEGATIVE_METADATA_TTL_SECONDS: PositiveFloat = 1.0
 
 @dataclass(slots=True)
 class LocalObservation:
+    enable_telemetry: ClassVar[bool] = True
     max_entries: ClassVar[None] = None
     hits: NonNegativeInt = 0
     misses: NonNegativeInt = 0
@@ -136,6 +141,25 @@ class LocalObservation:
         )
 
 
+class _DisabledObservation:
+    __slots__ = ()
+    enable_telemetry: ClassVar[bool] = False
+    max_entries: ClassVar[None] = None
+
+    @staticmethod
+    def snapshot() -> SharedCacheStatistics:
+        telemetry_disabled()
+
+    def record_bypass(self, reason: str) -> None:
+        pass
+
+    def record_oversized_bypass(self) -> None:
+        pass
+
+
+_DISABLED_OBSERVATION = _DisabledObservation()
+
+
 class _RemoteCaptureCore:
     __slots__ = ("_send", "max_entry_bytes", "observation")
 
@@ -143,13 +167,18 @@ class _RemoteCaptureCore:
         self,
         send: Callable[[Message], None],
         max_entry_bytes: NonNegativeInt,
-        observation: LocalObservation,
+        observation: LocalObservation | None,
     ) -> None:
         self._send = send
         self.max_entry_bytes = max_entry_bytes
         self.observation = observation
 
+    @property
+    def enable_telemetry(self) -> bool:
+        return self.observation is not None
+
     def record_oversized_bypass(self) -> None:
+        assert self.observation is not None
         self.observation.record_oversized_bypass()
 
     def discard(self, handle: object) -> None:
@@ -210,7 +239,7 @@ def _admission(
     value: object,
     codec_options: CodecOptions[Any],
     max_entry_bytes: NonNegativeInt,
-    observation: LocalObservation,
+    observation: LocalObservation | None,
 ) -> Message | None:
     return _encoded_admission(
         handle, encode_value(value, codec_options), max_entry_bytes, observation
@@ -221,10 +250,11 @@ def _encoded_admission(
     handle: object,
     encoded: bytes,
     max_entry_bytes: NonNegativeInt,
-    observation: LocalObservation,
+    observation: LocalObservation | None,
 ) -> Message | None:
     if len(encoded) > max_entry_bytes:
-        observation.record_oversized_bypass()
+        if observation is not None:
+            observation.record_oversized_bypass()
         if isinstance(handle, LocalMiss):
             return None
         return {"op": "discard", "handle": handle}
@@ -390,7 +420,8 @@ def _local_select(view: View, keys: tuple[bytes, bytes] | str) -> object:
                 ),
             )
         return NO_LOCAL_HIT
-    shared.observation.hits += 1
+    if shared._observation is not None:
+        shared._observation.hits += 1
     return decode_value(payload, view._collection.codec_options)
 
 
@@ -484,18 +515,22 @@ def _shape(cursor: Cursor) -> FindReadShape:
 
 def _outcome(shared: Shared, namespace: NamespaceId, reply: Message | None) -> str:
     if reply is None:
-        shared.observation.record_bypass(OWNER_UNAVAILABLE)
+        if shared._observation is not None:
+            shared._observation.record_bypass(OWNER_UNAVAILABLE)
         return "bypass"
     kind = str(reply["r"])
     if kind == "refresh":
         shared._metadata.store(namespace, _STALE)
-        shared.observation.record_bypass(METADATA_REFRESH)
+        if shared._observation is not None:
+            shared._observation.record_bypass(METADATA_REFRESH)
     elif kind == "bypass":
-        shared.observation.record_bypass(str(reply["reason"]))
+        if shared._observation is not None:
+            shared._observation.record_bypass(str(reply["reason"]))
     elif kind == "hit":
-        shared.observation.hits += 1
-    else:
-        shared.observation.misses += 1
+        if shared._observation is not None:
+            shared._observation.hits += 1
+    elif shared._observation is not None:
+        shared._observation.misses += 1
     return kind
 
 
@@ -519,7 +554,7 @@ def _apply_find_reply(
         return
     cursor._capture = RemoteCursorCapture(
         _RemoteCaptureCore(
-            shared.endpoint.send, shared.max_entry_bytes, shared.observation
+            shared.endpoint.send, shared.max_entry_bytes, shared._observation
         ),
         reply["handle"],
         None,
@@ -547,10 +582,12 @@ def _identity_outcome(
     native_miss: LocalMiss | None = None,
 ) -> tuple[str, object]:
     if isinstance(message, str):
-        view._shared.observation.record_bypass(message)
+        if view._shared._observation is not None:
+            view._shared._observation.record_bypass(message)
         return "bypass", None
     if reply is None and native_miss is not None:
-        view._shared.observation.misses += 1
+        if view._shared._observation is not None:
+            view._shared._observation.misses += 1
         return "miss", native_miss
     outcome = _outcome(view._shared, view._namespace(), reply)
     if outcome == "hit":
@@ -594,7 +631,7 @@ def _remote_capture(
         _RemoteCaptureCore(
             view._shared.endpoint.send,
             view._shared.max_entry_bytes,
-            view._shared.observation,
+            view._shared._observation,
         ),
         handle,
         discriminator,
@@ -660,7 +697,7 @@ def _publish_scalar(view: View, handle: object, value: object) -> None:
         value,
         view.raw.codec_options,
         view._shared.max_entry_bytes,
-        view._shared.observation,
+        view._shared._observation,
     )
     assert admission is not None
     view._shared.endpoint.send(admission)
@@ -720,13 +757,15 @@ class SharedCachedCursor[DocumentType: Mapping[str, Any]](
         if reason is None:
             reason = self._view._cache_ineligibility_reason()
         if reason is not None:
-            self._shared.observation.record_bypass(reason)
+            if self._shared._observation is not None:
+                self._shared._observation.record_bypass(reason)
             return
         message = _find_message(self, shape)
         if message is None:
             return
         if isinstance(message, str):
-            self._shared.observation.record_bypass(message)
+            if self._shared._observation is not None:
+                self._shared._observation.record_bypass(message)
             return
         _apply_find_reply(self, self._shared.endpoint.request(message), shape)
 
@@ -760,13 +799,15 @@ class AsyncSharedCachedCursor[DocumentType: Mapping[str, Any]](
         if reason is None:
             reason = await self._view._cache_ineligibility_reason()
         if reason is not None:
-            self._shared.observation.record_bypass(reason)
+            if self._shared._observation is not None:
+                self._shared._observation.record_bypass(reason)
             return
         message = _find_message(self, shape)
         if message is None:
             return
         if isinstance(message, str):
-            self._shared.observation.record_bypass(message)
+            if self._shared._observation is not None:
+                self._shared._observation.record_bypass(message)
             return
         _apply_find_reply(self, await self._shared.endpoint.request(message), shape)
 
@@ -803,7 +844,8 @@ class SharedCachedCollection[DocumentType: Mapping[str, Any]](
         if reason is None:
             reason = self._cache_ineligibility_reason()
         if reason is not None:
-            self._shared.observation.record_bypass(reason)
+            if self._shared._observation is not None:
+                self._shared._observation.record_bypass(reason)
             return read(self.raw)
         message = _namespace_message(self, discriminator)
         snapshot = _namespace_local(self, message)
@@ -856,7 +898,8 @@ class SharedCachedCollection[DocumentType: Mapping[str, Any]](
                 return self._find_one_by_id(
                     identity, filter_query, projection, shape, sort=None, collation=None
                 )
-            self._shared.observation.record_bypass(reason)
+            if self._shared._observation is not None:
+                self._shared._observation.record_bypass(reason)
         else:
             anchor, _remainder = extract_id_anchor(filter)
             if (
@@ -923,7 +966,8 @@ class SharedCachedCollection[DocumentType: Mapping[str, Any]](
         endpoint = self._shared.endpoint
         value: object
         if isinstance(document, LocalMiss) and not document.recover_socket:
-            self._shared.observation.misses += 1
+            if self._shared._observation is not None:
+                self._shared._observation.misses += 1
             outcome, value = "miss", document
         else:
             message = _identity_message(self, keys)
@@ -954,7 +998,7 @@ class SharedCachedCollection[DocumentType: Mapping[str, Any]](
                 document,
                 self._collection.codec_options,
                 self._shared.max_entry_bytes,
-                self._shared.observation,
+                self._shared._observation,
             )
             if admission is not None:
                 endpoint.send(
@@ -982,7 +1026,8 @@ class SharedCachedCollection[DocumentType: Mapping[str, Any]](
             session=session, kwargs=unsupported
         )
         if reason is not None:
-            self._shared.observation.record_bypass(reason)
+            if self._shared._observation is not None:
+                self._shared._observation.record_bypass(reason)
             return self.raw.aggregate(
                 pipeline, session=session, let=let, comment=comment, **kwargs
             )
@@ -1001,7 +1046,8 @@ class SharedCachedCollection[DocumentType: Mapping[str, Any]](
         if reason is None:
             reason = self._cache_ineligibility_reason()
         if reason is not None:
-            self._shared.observation.record_bypass(reason)
+            if self._shared._observation is not None:
+                self._shared._observation.record_bypass(reason)
             return self.raw.aggregate(
                 pipeline, session=session, let=let, comment=comment, **kwargs
             )
@@ -1112,7 +1158,8 @@ class AsyncSharedCachedCollection[DocumentType: Mapping[str, Any]](
         if reason is None:
             reason = await self._cache_ineligibility_reason()
         if reason is not None:
-            self._shared.observation.record_bypass(reason)
+            if self._shared._observation is not None:
+                self._shared._observation.record_bypass(reason)
             return await read(self.raw)
         message = _namespace_message(self, discriminator)
         snapshot = _namespace_local(self, message)
@@ -1165,7 +1212,8 @@ class AsyncSharedCachedCollection[DocumentType: Mapping[str, Any]](
                 return await self._find_one_by_id(
                     identity, filter_query, projection, shape, sort=None, collation=None
                 )
-            self._shared.observation.record_bypass(reason)
+            if self._shared._observation is not None:
+                self._shared._observation.record_bypass(reason)
         else:
             anchor, _remainder = extract_id_anchor(filter)
             if (
@@ -1236,7 +1284,8 @@ class AsyncSharedCachedCollection[DocumentType: Mapping[str, Any]](
         endpoint = self._shared.endpoint
         value: object
         if isinstance(document, LocalMiss) and not document.recover_socket:
-            self._shared.observation.misses += 1
+            if self._shared._observation is not None:
+                self._shared._observation.misses += 1
             outcome, value = "miss", document
         else:
             message = _identity_message(self, keys)
@@ -1269,7 +1318,7 @@ class AsyncSharedCachedCollection[DocumentType: Mapping[str, Any]](
                 document,
                 self._collection.codec_options,
                 self._shared.max_entry_bytes,
-                self._shared.observation,
+                self._shared._observation,
             )
             if admission is not None:
                 endpoint.send(
@@ -1297,7 +1346,8 @@ class AsyncSharedCachedCollection[DocumentType: Mapping[str, Any]](
             session=session, kwargs=unsupported
         )
         if reason is not None:
-            self._shared.observation.record_bypass(reason)
+            if self._shared._observation is not None:
+                self._shared._observation.record_bypass(reason)
             return await self.raw.aggregate(
                 pipeline, session=session, let=let, comment=comment, **kwargs
             )
@@ -1316,7 +1366,8 @@ class AsyncSharedCachedCollection[DocumentType: Mapping[str, Any]](
         if reason is None:
             reason = await self._cache_ineligibility_reason()
         if reason is not None:
-            self._shared.observation.record_bypass(reason)
+            if self._shared._observation is not None:
+                self._shared._observation.record_bypass(reason)
             return await self.raw.aggregate(
                 pipeline, session=session, let=let, comment=comment, **kwargs
             )
@@ -1446,6 +1497,7 @@ class SharedCacheManager[DocumentType: Mapping[str, Any]]:
         "_client",
         "_closed",
         "_metadata",
+        "_observation",
         "_reattach",
         "_reattach_after",
         "_reattaching",
@@ -1454,7 +1506,6 @@ class SharedCacheManager[DocumentType: Mapping[str, Any]]:
         "keys",
         "local",
         "max_entry_bytes",
-        "observation",
     )
 
     def __init__(
@@ -1468,7 +1519,9 @@ class SharedCacheManager[DocumentType: Mapping[str, Any]]:
         self.endpoint = endpoint
         self.local = local
         self.max_entry_bytes = endpoint.config.max_entry_bytes
-        self.observation = LocalObservation()
+        self._observation = (
+            LocalObservation() if endpoint.config.enable_telemetry else None
+        )
         self.keys = KeyCache(_KEY_CACHE_ENTRIES)
         self._metadata = NamespaceMetadataCache[CollectionMetadata](
             endpoint.config.max_namespaces
@@ -1485,10 +1538,23 @@ class SharedCacheManager[DocumentType: Mapping[str, Any]]:
         if self._closed:
             raise CacheClosedError("the shared cache manager is closed")
 
+    @property
+    def observation(self) -> LocalObservation:
+        require_telemetry(enabled=self.enable_telemetry)
+        assert self._observation is not None
+        return self._observation
+
+    @property
+    def enable_telemetry(self) -> bool:
+        return self.endpoint.config.enable_telemetry
+
     def snapshot(self) -> SharedCacheStatistics:
-        return self.observation.snapshot()
+        require_telemetry(enabled=self.enable_telemetry)
+        assert self._observation is not None
+        return self._observation.snapshot()
 
     def owner_snapshot(self) -> SharedOwnerSnapshot | None:
+        require_telemetry(enabled=self.enable_telemetry)
         self._check_open()
         reply = self.endpoint.request({"op": "observe"})
         return None if reply is None else owner_snapshot_from_wire(reply)
@@ -1498,8 +1564,8 @@ class SharedCacheManager[DocumentType: Mapping[str, Any]]:
         return self._client
 
     @property
-    def cache_core(self) -> LocalObservation:
-        return self.observation
+    def cache_core(self) -> LocalObservation | _DisabledObservation:
+        return _DISABLED_OBSERVATION if self._observation is None else self._observation
 
     def _reattach_local(self, local: LocalIndex | None) -> None:
         if not self._reattaching.acquire(blocking=False):
@@ -1652,6 +1718,7 @@ class AsyncSharedCacheManager[DocumentType: Mapping[str, Any]]:
         "_client",
         "_closed",
         "_metadata",
+        "_observation",
         "_reattach",
         "_reattach_after",
         "_reattaching",
@@ -1660,7 +1727,6 @@ class AsyncSharedCacheManager[DocumentType: Mapping[str, Any]]:
         "keys",
         "local",
         "max_entry_bytes",
-        "observation",
     )
 
     def __init__(
@@ -1674,7 +1740,9 @@ class AsyncSharedCacheManager[DocumentType: Mapping[str, Any]]:
         self.endpoint = endpoint
         self.local = local
         self.max_entry_bytes = endpoint.config.max_entry_bytes
-        self.observation = LocalObservation()
+        self._observation = (
+            LocalObservation() if endpoint.config.enable_telemetry else None
+        )
         self.keys = KeyCache(_KEY_CACHE_ENTRIES)
         self._metadata = NamespaceMetadataCache[CollectionMetadata](
             endpoint.config.max_namespaces
@@ -1691,10 +1759,23 @@ class AsyncSharedCacheManager[DocumentType: Mapping[str, Any]]:
         if self._closed:
             raise CacheClosedError("the shared cache manager is closed")
 
+    @property
+    def observation(self) -> LocalObservation:
+        require_telemetry(enabled=self.enable_telemetry)
+        assert self._observation is not None
+        return self._observation
+
+    @property
+    def enable_telemetry(self) -> bool:
+        return self.endpoint.config.enable_telemetry
+
     def snapshot(self) -> SharedCacheStatistics:
-        return self.observation.snapshot()
+        require_telemetry(enabled=self.enable_telemetry)
+        assert self._observation is not None
+        return self._observation.snapshot()
 
     async def owner_snapshot(self) -> SharedOwnerSnapshot | None:
+        require_telemetry(enabled=self.enable_telemetry)
         self._check_open()
         reply = await self.endpoint.request({"op": "observe"})
         return None if reply is None else owner_snapshot_from_wire(reply)
@@ -1704,8 +1785,8 @@ class AsyncSharedCacheManager[DocumentType: Mapping[str, Any]]:
         return self._client
 
     @property
-    def cache_core(self) -> LocalObservation:
-        return self.observation
+    def cache_core(self) -> LocalObservation | _DisabledObservation:
+        return _DISABLED_OBSERVATION if self._observation is None else self._observation
 
     async def _reattach_local(self, local: AsyncLocalIndex | None) -> None:
         if self._reattaching.locked():

@@ -16,6 +16,7 @@ from collections import Counter
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, TypedDict
+from unittest.mock import Mock
 
 import pytest
 
@@ -59,7 +60,7 @@ from client_query_cache._shared.wire import (
 from client_query_cache._shared_index import ReaderIndex
 from client_query_cache._types import NonNegativeFloat, NonNegativeInt, PositiveFloat
 from tests.descriptors import file_identity, references
-from tests.shared_cache.conftest import LIMITS, Racing, wait_for
+from tests.shared_cache.conftest import LIMITS, Racing, refresh_metadata, wait_for
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable, Iterator
@@ -110,6 +111,7 @@ def _config(socket_directory: Path, **changes: object) -> OwnerConfig:
         max_await_time_ms=100,
         limits=LIMITS,
         lag_capture=(1, 1, 0),
+        enable_telemetry=True,
     )
     return replace(config, **changes)  # type: ignore[arg-type]
 
@@ -128,17 +130,29 @@ def _serving(config: OwnerConfig) -> Iterator[SharedCacheOwner]:
     instance.close()
 
 
+@pytest.fixture(params=[True], ids=["enabled"])
+def owner_telemetry(request: pytest.FixtureRequest) -> bool:
+    assert isinstance(request.param, bool)
+    return request.param
+
+
 @pytest.fixture
 def owner(
-    socket_directory: Path, request: pytest.FixtureRequest
+    socket_directory: Path, request: pytest.FixtureRequest, owner_telemetry: bool
 ) -> Iterator[SharedCacheOwner]:
     limits = getattr(request, "param", {})
-    yield from _serving(_config(socket_directory, limits=replace(LIMITS, **limits)))
+    yield from _serving(
+        _config(
+            socket_directory,
+            limits=replace(LIMITS, **limits),
+            enable_telemetry=owner_telemetry,
+        )
+    )
 
 
 @pytest.fixture
 def shared_owner(
-    socket_directory: Path, request: pytest.FixtureRequest
+    socket_directory: Path, request: pytest.FixtureRequest, owner_telemetry: bool
 ) -> Iterator[SharedCacheOwner]:
     changes = getattr(request, "param", {})
     yield from _serving(
@@ -147,6 +161,7 @@ def shared_owner(
             budget_bytes=_SHARED_BUDGET,
             max_entry_bytes=_SHARED_MAX_ENTRY,
             shared_index=replace(_SHARED_INDEX, **changes),
+            enable_telemetry=owner_telemetry,
         )
     )
 
@@ -180,11 +195,12 @@ class _PollingLoop:
 
 @pytest.fixture
 def polling_loop(
-    socket_directory: Path, monkeypatch: pytest.MonkeyPatch
+    socket_directory: Path, monkeypatch: pytest.MonkeyPatch, owner_telemetry: bool
 ) -> Iterator[_PollingLoop]:
     instance = SharedCacheOwner(
         _config(
             socket_directory,
+            enable_telemetry=owner_telemetry,
             shared_index=replace(
                 _SHARED_INDEX, local_miss_admission=True, native_admission_queue=True
             ),
@@ -215,6 +231,9 @@ def polling_loop(
     instance.close()
 
 
+@pytest.mark.parametrize(
+    "owner_telemetry", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
 def test_recent_admissions_poll_without_accelerating_maintenance(
     polling_loop: _PollingLoop,
 ) -> None:
@@ -266,6 +285,9 @@ def raw_peer() -> Iterator[socket.socket]:
         yield peer
 
 
+@pytest.mark.parametrize(
+    "owner_telemetry", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
 def test_peer_uid_rejection_preserves_same_user_attachment(
     owner: SharedCacheOwner,
     raw_peer: socket.socket,
@@ -276,9 +298,11 @@ def test_peer_uid_rejection_preserves_same_user_attachment(
     monkeypatch.setattr(os, "geteuid", lambda: original_uid() + 1)
     raw_peer.connect(owner.config.socket_path)
     assert raw_peer.recv(1) == b""
-    assert owner.counters.unauthorized == 1
+    if owner.config.enable_telemetry:
+        assert owner.counters.unauthorized == 1
     monkeypatch.setattr(os, "geteuid", original_uid)
-    assert endpoints(owner).request({"op": "observe"}) is not None
+    _activate(owner)
+    assert _metadata(endpoints(owner)) is not None
 
 
 @pytest.fixture
@@ -308,7 +332,11 @@ def writable_control(
     _reply, descriptors, _flags, _address = socket.recv_fds(peer, 262_144, 2)
     assert len(descriptors) == 2
     try:
-        reader = ReaderIndex(*descriptors)
+        reader = ReaderIndex(
+            descriptors[0],
+            descriptors[1],
+            enable_telemetry=shared_owner.config.enable_telemetry,
+        )
         yield ControlAttachment(peer, reader), descriptors[1]
     finally:
         peer.close()
@@ -339,24 +367,13 @@ def handshake_listener(socket_directory: Path) -> Iterator[socket.socket]:
     listener.close()
 
 
-def _metadata_for(endpoint: SyncEndpoint, namespace: NamespaceId) -> Message | None:
-    request = {"ns": [namespace.database, namespace.collection]}
-    probe = endpoint.request({"op": "metadata-probe", **request})
-    if probe is None or probe["r"] != "probe":
-        return probe
-    return endpoint.request(
-        {
-            "op": "metadata",
-            **request,
-            "probe_token": probe["probe_token"],
-        }
-    )
-
-
 def _metadata(endpoint: SyncEndpoint) -> Message | None:
-    return _metadata_for(endpoint, NamespaceId(_DATABASE, "catalogue"))
+    return refresh_metadata(endpoint.request, NamespaceId(_DATABASE, "catalogue"))
 
 
+@pytest.mark.parametrize(
+    "owner_telemetry", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
 def test_failed_stream_activation_bypasses_and_retries(
     owner: SharedCacheOwner, endpoints: Callable[[SharedCacheOwner], SyncEndpoint]
 ) -> None:
@@ -461,6 +478,9 @@ def test_observation_reports_uptime_limits_and_tracked_namespaces(
     }
 
 
+@pytest.mark.parametrize(
+    "owner_telemetry", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
 def test_a_second_owner_cannot_bind_a_held_endpoint(
     contender: SharedCacheOwner,
 ) -> None:
@@ -468,6 +488,9 @@ def test_a_second_owner_cannot_bind_a_held_endpoint(
         contender.bind()
 
 
+@pytest.mark.parametrize(
+    "owner_telemetry", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
 def test_a_peer_that_disappears_before_its_reply_is_detached(
     owner: SharedCacheOwner,
 ) -> None:
@@ -476,14 +499,149 @@ def test_a_peer_that_disappears_before_its_reply_is_detached(
     peer.sendall(encode_frame(attachment_for(owner.config).hello()))
     peer.close()
 
-    wait_for(
-        lambda: owner.counters.connections_accepted == 1 and not owner._connections
-    )
+    wait_for(lambda: not owner._connections)
 
 
 def _activate(owner: SharedCacheOwner) -> None:
     owner._activation[_DATABASE] = ("active", time.monotonic())
     owner.progress.observed[_DATABASE] = time.monotonic() + 3600
+
+
+@pytest.fixture(params=[False, True], ids=["disabled", "enabled"])
+def policy_owner(
+    socket_directory: Path,
+    request: pytest.FixtureRequest,
+) -> Iterator[SharedCacheOwner]:
+    yield from _serving(
+        _config(
+            socket_directory,
+            enable_telemetry=request.param,
+            shared_index=_SHARED_INDEX,
+        )
+    )
+
+
+def test_owner_keeps_progress_fencing_and_authorization_in_both_modes(
+    policy_owner: SharedCacheOwner,
+    endpoints: Callable[[SharedCacheOwner], SyncEndpoint],
+) -> None:
+    owner = policy_owner
+    _activate(owner)
+    endpoint = endpoints(owner)
+    assert endpoint.config.enable_telemetry is owner.core.enable_telemetry
+    metadata = _metadata(endpoint)
+    assert metadata is not None
+    assert metadata["r"] == "ok"
+    now = time.monotonic()
+    assert owner.lease_fresh(_DATABASE, now)
+    pending = endpoint.request(_select_find())
+    assert pending is not None
+    assert pending["r"] == "miss"
+    previous_lease = owner._lease(_DATABASE)
+    owner.progress.observed[_DATABASE] = (
+        now - owner.config.limits.progress_expiry_seconds * 2
+    )
+    assert not owner.lease_fresh(_DATABASE, now)
+    assert owner._lease(_DATABASE) == previous_lease + 1
+    bypass = _metadata(endpoint)
+    assert bypass is not None
+    assert bypass["reason"] == SharedBypassReason.PROGRESS_EXPIRED
+    endpoint.send(
+        {
+            "op": "admit",
+            "handle": pending["handle"],
+            "value": encode_value({"stale": True}),
+        }
+    )
+    assert _metadata(endpoint) is not None
+    assert not owner._handles
+    endpoint.send(
+        {
+            "op": "admit",
+            "handle": pending["handle"],
+            "value": encode_value({"stale": True}),
+        }
+    )
+    assert _metadata(endpoint) is not None
+    _activate(owner)
+    recovered = _metadata(endpoint)
+    assert recovered is not None
+    assert recovered["r"] == "ok"
+    unauthorized = replace(attachment_for(owner.config), capability=b"wrong-capability")
+    with pytest.raises(AttachmentConfigurationError, match="unauthorized"):
+        SyncEndpoint(unauthorized)
+    if not owner.config.enable_telemetry:
+        assert owner._counters is None
+        assert owner.progress.counts is None
+        assert owner.progress._fresh_since is None
+
+
+@pytest.mark.parametrize("policy_owner", [False], indirect=True, ids=["disabled"])
+def test_disabled_owner_diagnostic_request_does_not_stop_serving(
+    policy_owner: SharedCacheOwner,
+    endpoints: Callable[[SharedCacheOwner], SyncEndpoint],
+) -> None:
+    reply = endpoints(policy_owner).request({"op": "observe"})
+    assert reply is not None
+    assert reply["r"] == "error"
+    reason = reply["reason"]
+    assert isinstance(reason, str)
+    assert "enable_telemetry=True" in reason
+    _activate(policy_owner)
+    metadata = _metadata(endpoints(policy_owner))
+    assert metadata is not None
+    assert metadata["r"] == "ok"
+
+
+def test_disabled_command_listener_publishes_progress_with_one_clock_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    published = Mock()
+    progress = coordinator.UpstreamProgress(published, expiry_seconds=1.0)
+    forbidden = Mock(side_effect=AssertionError("disabled command accounting ran"))
+    monkeypatch.setattr(progress, "_count", forbidden)
+    clock = Mock(return_value=1_500_000_000)
+    monkeypatch.setattr(coordinator, "time", Mock(monotonic_ns=clock))
+    event = Mock(command_name="getMore", database_name=_DATABASE)
+    progress.started(event)
+    progress.failed(event)
+    progress.succeeded(event)
+    assert progress.observed == {_DATABASE: 1.5}
+    assert progress.counts is None
+    assert progress._fresh_since is None
+    published.assert_called_once_with(_DATABASE, 1_500_000_000)
+    clock.assert_called_once_with()
+    forbidden.assert_not_called()
+
+
+@pytest.fixture(params=[False, True], ids=["disabled", "enabled"])
+def activation_owner(
+    socket_directory: Path,
+    request: pytest.FixtureRequest,
+) -> Iterator[SharedCacheOwner]:
+    instance = SharedCacheOwner(
+        _config(socket_directory, enable_telemetry=request.param)
+    )
+    yield instance
+    instance.close()
+
+
+@pytest.mark.parametrize("succeeds", [False, True], ids=["failed", "active"])
+def test_activation_reads_a_new_clock_only_for_retry_expiry(
+    activation_owner: SharedCacheOwner,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    succeeds: bool,
+) -> None:
+    activate = Mock(return_value=Mock() if succeeds else None)
+    monkeypatch.setattr(type(activation_owner.streams), "activate_database", activate)
+    retry_clock = Mock(return_value=3.0)
+    monkeypatch.setattr(coordinator, "time", Mock(monotonic=retry_clock))
+    activation_owner._run_activation(_DATABASE, 1.5)
+    assert activation_owner._activation[_DATABASE] == (
+        ("active", 1.5) if succeeds else ("failed", 3.0)
+    )
+    assert retry_clock.call_count == (0 if succeeds else 1)
 
 
 def _select_find(**changes: object) -> Message:
@@ -511,6 +669,9 @@ def _read_exactly(peer: socket.socket, size: int) -> bytes:
     return received
 
 
+@pytest.mark.parametrize(
+    "owner_telemetry", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
 @pytest.mark.parametrize("operation", ["select-find", "select-namespace"])
 def test_selection_reports_unavailable_streams_and_stale_epochs(
     owner: SharedCacheOwner,
@@ -535,6 +696,9 @@ def test_selection_reports_unavailable_streams_and_stale_epochs(
     assert unavailable["reason"] == SharedBypassReason.STREAM_UNAVAILABLE
 
 
+@pytest.mark.parametrize(
+    "owner_telemetry", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
 def test_stale_request_does_not_recreate_a_dropped_namespace(session: _Session) -> None:
     _activate(session.owner)
     namespace = NamespaceId(_DATABASE, "dropped")
@@ -552,25 +716,37 @@ def test_stale_request_does_not_recreate_a_dropped_namespace(session: _Session) 
 
 
 @pytest.mark.parametrize(
+    "owner_telemetry", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
+@pytest.mark.parametrize(
     "message",
     [
         pytest.param(_select_find(limit="four"), id="find-limit"),
         pytest.param({"op": "rename", "ns": [_DATABASE, "catalogue"]}, id="operation"),
     ],
 )
+@pytest.mark.parametrize(
+    "authenticated", [False, True], ids=["unauthenticated", "authenticated"]
+)
 def test_invalid_requests_after_the_gate_detach_the_peer(
     owner: SharedCacheOwner,
     peers: Callable[[SharedCacheOwner], socket.socket],
+    raw_peer: socket.socket,
     message: Message,
+    *,
+    authenticated: bool,
 ) -> None:
     _activate(owner)
     assert owner.core.try_current_epoch(NamespaceId(_DATABASE, "catalogue")) is not None
-    peer = peers(owner)
+    peer = peers(owner) if authenticated else raw_peer
+    if not authenticated:
+        peer.connect(owner.config.socket_path)
 
     peer.sendall(encode_frame({"v": 1, "id": 2, **message}))
 
     assert peer.recv(1) == b""
-    assert owner.counters.protocol_errors == 1
+    if owner.config.enable_telemetry:
+        assert owner.counters.protocol_errors == 1
 
 
 def test_split_frames_are_reassembled(
@@ -604,6 +780,9 @@ def test_a_reader_that_falls_behind_receives_every_queued_reply(
     assert owner.counters.detached == 0
 
 
+@pytest.mark.parametrize(
+    "owner_telemetry", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
 @pytest.mark.parametrize("owner", [{"capture_seconds": 0.2}], indirect=True)
 def test_capture_expiry_releases_handles_of_each_session(
     owner: SharedCacheOwner, endpoints: Callable[[SharedCacheOwner], SyncEndpoint]
@@ -613,13 +792,22 @@ def test_capture_expiry_releases_handles_of_each_session(
     sessions = [endpoints(owner) for _ in range(2)]
 
     replies = [endpoint.request(_select_find()) for endpoint in sessions]
-    wait_for(lambda: owner.counters.expired_captures == 2)
+    wait_for(lambda: not owner._handles)
 
     assert all(reply is not None and reply["r"] == "miss" for reply in replies)
     assert not owner._handles
 
 
-def test_a_reply_larger_than_the_send_buffer_is_flushed_in_parts(
+@pytest.mark.parametrize(
+    "owner_telemetry", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
+@pytest.mark.parametrize(
+    "owner",
+    [{}, {"queued_bytes_per_connection": _HIT_BYTES // 2}],
+    indirect=True,
+    ids=["fits", "queue-full"],
+)
+def test_large_replies_obey_queue_bounds_and_flush_in_parts(
     owner: SharedCacheOwner,
     peers: Callable[[SharedCacheOwner], socket.socket],
     faker: Faker,
@@ -639,6 +827,9 @@ def test_a_reply_larger_than_the_send_buffer_is_flushed_in_parts(
     )
 
     peer.sendall(encode_frame({"v": 1, "id": 2, **_select_find()}))
+    if owner.config.limits.queued_bytes_per_connection < len(value):
+        assert peer.recv(1) == b""
+        return
     wait_for(lambda: connection.writable)
     reply = decode_frame(_read_reply(peer))
 
@@ -682,31 +873,121 @@ def test_an_owner_lost_during_the_handshake_leaves_requests_native(
     assert endpoint.counters.connects == 0
 
 
+@pytest.fixture
+def owner_reply_sent(
+    owner: SharedCacheOwner, monkeypatch: pytest.MonkeyPatch
+) -> threading.Event:
+    sent = threading.Event()
+    flush = SharedCacheOwner._flush
+
+    def notify(instance: SharedCacheOwner, connection: coordinator._Connection) -> None:
+        flush(instance, connection)
+        sent.set()
+
+    monkeypatch.setattr(type(owner), "_flush", notify)
+    return sent
+
+
+@pytest.mark.parametrize(
+    "owner_telemetry", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
 def test_a_reply_delivered_after_its_deadline_is_counted_as_late(
-    owner: SharedCacheOwner,
+    owner: SharedCacheOwner, owner_reply_sent: threading.Event
 ) -> None:
     config = replace(
         attachment_for(owner.config), rpc_deadline_seconds=_RPC_DEADLINE_SECONDS
     )
 
-    async def scenario() -> tuple[Message | None, EndpointCounters]:
+    async def scenario() -> tuple[Message | None, EndpointCounters | None]:
         endpoint = await AsyncEndpoint.attach(config)
-        sent = owner.counters.ipc_bytes_sent
+        owner_reply_sent.clear()
         expiry = time.monotonic() + _RPC_DEADLINE_SECONDS
-        request = asyncio.create_task(endpoint.request({"op": "observe"}))
-        await asyncio.sleep(0)
-        wait_for(
-            lambda: owner.counters.ipc_bytes_sent > sent and time.monotonic() > expiry
+        request = asyncio.create_task(
+            endpoint.request({"op": "metadata-probe", "ns": [_DATABASE, _COLLECTION]})
         )
+        await asyncio.sleep(0)
+        wait_for(lambda: owner_reply_sent.is_set() and time.monotonic() > expiry)
         reply = await request
         await endpoint.close()
-        return reply, endpoint.counters
+        return reply, endpoint._counters
 
     reply, counters = asyncio.run(scenario())
 
     assert reply is None
-    assert counters.timeouts == 1
-    assert counters.late_replies == 1
+    if counters is not None:
+        assert counters.timeouts == 1
+        assert counters.late_replies == 1
+
+
+@pytest.fixture(params=[False, True], ids=["timeout", "disconnected"])
+def disconnected_transport(request: pytest.FixtureRequest) -> bool:
+    assert isinstance(request.param, bool)
+    return request.param
+
+
+@pytest.fixture
+def faulted_endpoint(
+    owner: SharedCacheOwner,
+    disconnected_transport: bool,
+    monkeypatch: pytest.MonkeyPatch,
+) -> Iterator[SyncEndpoint]:
+    endpoint = SyncEndpoint(
+        replace(
+            attachment_for(owner.config), rpc_deadline_seconds=_RPC_DEADLINE_SECONDS
+        )
+    )
+    if disconnected_transport:
+        (connection,) = owner._connections.values()
+        owner.detach(connection)
+    else:
+        handle = SharedCacheOwner._handle_request
+
+        def delayed(
+            instance: SharedCacheOwner,
+            connection: coordinator._Connection,
+            message: Message,
+            now: NonNegativeFloat,
+            *,
+            queued: bool = False,
+        ) -> Message | None:
+            time.sleep(_RPC_DEADLINE_SECONDS * 2)
+            return handle(instance, connection, message, now, queued=queued)
+
+        monkeypatch.setattr(type(owner), "_handle_request", delayed)
+    yield endpoint
+    endpoint.close()
+
+
+@pytest.mark.parametrize(
+    "owner_telemetry", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
+def test_transport_failure_bypasses_in_both_modes(
+    faulted_endpoint: SyncEndpoint, disconnected_transport: bool
+) -> None:
+    assert (
+        faulted_endpoint.request(
+            {"op": "metadata-cancel", "ns": [_DATABASE, _COLLECTION], "probe_token": 0}
+        )
+        is None
+    )
+    if faulted_endpoint.config.enable_telemetry:
+        assert faulted_endpoint.counters.failures == int(disconnected_transport)
+        assert faulted_endpoint.counters.timeouts == int(not disconnected_transport)
+
+
+@pytest.mark.parametrize(
+    "owner_telemetry", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
+@pytest.mark.parametrize("owner", [{"connections": 1}], indirect=True)
+def test_connection_capacity_keeps_the_attached_peer_usable(
+    owner: SharedCacheOwner,
+    endpoints: Callable[[SharedCacheOwner], SyncEndpoint],
+) -> None:
+    endpoint = endpoints(owner)  # pytriage: TR5 - Attach before testing capacity.
+    with pytest.raises(AttachmentConfigurationError, match="not reachable"):
+        SyncEndpoint(attachment_for(owner.config))
+    assert len(owner._connections) == 1
+    assert _metadata(endpoint) is not None
 
 
 def _index_stats(owner: SharedCacheOwner) -> Message:
@@ -741,18 +1022,10 @@ class _Session:
         return reply
 
     def admit(self, key: int, value: bytes) -> None:
-        processed = (
-            self.owner.counters.admitted + self.owner.counters.rejected_admissions
-        )
         reply = self.select(key)
         assert reply["r"] == "miss"
         self.endpoint.send({"op": "admit", "handle": reply["handle"], "value": value})
-        wait_for(
-            lambda: (
-                self.owner.counters.admitted + self.owner.counters.rejected_admissions
-                > processed
-            )
-        )
+        assert _metadata(self.endpoint) is not None
 
     def local(self, key: int) -> bytes | None:
         database, namespace = self.slot
@@ -841,6 +1114,9 @@ def _recovered(session: _Session, value: bytes, _patch: pytest.MonkeyPatch) -> b
 
 
 @pytest.mark.parametrize(
+    "owner_telemetry", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
+@pytest.mark.parametrize(
     "scenario",
     [
         pytest.param(_committed, id="committed-admission"),
@@ -901,6 +1177,9 @@ def test_a_full_hit_ring_drops_touches_without_failing_hits(
     )
 
 
+@pytest.mark.parametrize(
+    "owner_telemetry", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
 def test_an_rpc_hit_never_returns_a_reused_block(
     session: _Session, faker: Faker, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -926,6 +1205,9 @@ def test_an_rpc_hit_never_returns_a_reused_block(
     assert reply["r"] == "miss" or reply["value"] == value
 
 
+@pytest.mark.parametrize(
+    "owner_telemetry", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
 def test_control_attachments_need_a_shared_index(owner: SharedCacheOwner) -> None:
     with pytest.raises(AttachmentConfigurationError, match="shared-index-disabled"):
         control_handshake(attachment_for(owner.config))
@@ -971,11 +1253,14 @@ def _pending_handovers(owner: SharedCacheOwner) -> list[coordinator._Handover]:
 
 
 @pytest.mark.parametrize("shared_owner", [{"namespaces": 1}], indirect=True)
+@pytest.mark.parametrize(
+    "owner_telemetry", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
 def test_namespaces_beyond_the_slot_capacity_bypass_without_retention(
     session: _Session,
 ) -> None:
     other = NamespaceId(_DATABASE, "other")
-    metadata = _metadata_for(session.endpoint, other)
+    metadata = refresh_metadata(session.endpoint.request, other)
     assert metadata is not None
     assert metadata["r"] == "bypass"
     assert metadata["reason"] == "namespace_capacity"
@@ -986,7 +1271,8 @@ def test_namespaces_beyond_the_slot_capacity_bypass_without_retention(
     assert not session.owner.core.has_namespace(other)
     assert session.owner.core._ownership()[0] == 1
     assert session.owner.core.assigned_slot(other) is None
-    assert _index_stats(session.owner)["published"] == 0
+    if session.owner.config.enable_telemetry:
+        assert _index_stats(session.owner)["published"] == 0
 
 
 def _metadata_reply(
@@ -1013,6 +1299,9 @@ def _probe_token(
     return probe["probe_token"]
 
 
+@pytest.mark.parametrize(
+    "owner_telemetry", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
 @pytest.mark.parametrize("shared_owner", [{"namespaces": 1}], indirect=True)
 def test_metadata_slot_assignment_is_serialized_with_namespace_drop(
     shared_owner: SharedCacheOwner,
@@ -1056,6 +1345,9 @@ def test_metadata_slot_assignment_is_serialized_with_namespace_drop(
     assert shared_owner.core.assigned_slot(replacement) == tuple(first["slot"])  # type: ignore[arg-type]
 
 
+@pytest.mark.parametrize(
+    "owner_telemetry", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
 @pytest.mark.parametrize("shared_owner", [{"namespaces": 1}], indirect=True)
 def test_stale_metadata_probe_cannot_reregister_a_dropped_namespace(
     shared_owner: SharedCacheOwner,
@@ -1106,6 +1398,9 @@ def test_stale_metadata_probe_cannot_reregister_a_dropped_namespace(
     assert shared_owner.core._ownership()[0] == 1
 
 
+@pytest.mark.parametrize(
+    "owner_telemetry", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
 def test_metadata_cancel_releases_a_probe_reservation(
     shared_owner: SharedCacheOwner,
     monkeypatch: pytest.MonkeyPatch,
@@ -1153,6 +1448,9 @@ def test_metadata_cancel_releases_a_probe_reservation(
     shared_owner.core.cancel_namespace_metadata_probe(available, available_token)
 
 
+@pytest.mark.parametrize(
+    "owner_telemetry", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
 @pytest.mark.parametrize("shared_owner", [{"namespaces": 1}], indirect=True)
 def test_gate_bypass_releases_only_its_metadata_probe_request(
     shared_owner: SharedCacheOwner,
@@ -1255,6 +1553,9 @@ def test_gate_bypass_releases_only_its_metadata_probe_request(
 
 
 @pytest.mark.parametrize(
+    "owner_telemetry", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
+@pytest.mark.parametrize(
     "fields",
     [
         pytest.param({}, id="missing"),
@@ -1277,6 +1578,9 @@ def test_metadata_cancel_rejects_invalid_probe_tokens(
             )
 
 
+@pytest.mark.parametrize(
+    "owner_telemetry", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
 @pytest.mark.parametrize("shared_owner", [{"namespaces": 1}], indirect=True)
 def test_drop_of_an_untracked_probe_releases_metadata_probe_capacity(
     shared_owner: SharedCacheOwner,
@@ -1357,6 +1661,9 @@ def test_drop_of_an_untracked_probe_releases_metadata_probe_capacity(
     assert shared_owner.core._ownership()[0] == 1
 
 
+@pytest.mark.parametrize(
+    "owner_telemetry", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
 @pytest.mark.parametrize("shared_owner", [{"namespaces": 2}], indirect=True)
 def test_independent_concurrent_metadata_probes_can_both_be_admitted(
     shared_owner: SharedCacheOwner,
@@ -1421,6 +1728,9 @@ def test_independent_concurrent_metadata_probes_can_both_be_admitted(
     assert shared_owner.core.has_namespace(second_namespace)
 
 
+@pytest.mark.parametrize(
+    "owner_telemetry", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
 @pytest.mark.parametrize(
     "fields",
     [
@@ -1505,6 +1815,9 @@ def test_all_complete_find_admissions_are_published(
 
 
 @pytest.mark.parametrize(
+    "owner_telemetry", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
+@pytest.mark.parametrize(
     "lifecycle_change", ["clear", "create"], ids=["clear", "create"]
 )
 def test_shared_find_admission_after_write_and_lifecycle_change_is_rejected(
@@ -1514,7 +1827,6 @@ def test_shared_find_admission_after_write_and_lifecycle_change_is_rejected(
     reply = session.endpoint.request(_select_find(epoch=session.epoch))
     assert reply is not None
     assert reply["r"] == "miss"
-    rejected_before = session.owner.counters.rejected_admissions
 
     session.owner.core.record_write(_NAMESPACE, "written")
     if lifecycle_change == "clear":
@@ -1529,12 +1841,16 @@ def test_shared_find_admission_after_write_and_lifecycle_change_is_rejected(
             "value": encode_value({"revision": "stale"}),
         }
     )
-    wait_for(lambda: session.owner.counters.rejected_admissions > rejected_before)
+    wait_for(lambda: not session.owner._handles)
 
-    assert session.owner.core.snapshot().entry_count == 0
+    if session.owner.core.enable_telemetry:
+        assert session.owner.core.snapshot().entry_count == 0
     assert not session.owner._handles
 
 
+@pytest.mark.parametrize(
+    "owner_telemetry", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
 @pytest.mark.parametrize(
     ("write", "most_recent"),
     [pytest.param(False, 1, id="published"), pytest.param(True, 2, id="written")],
@@ -1591,6 +1907,9 @@ def _exit_unless_detached(local: LocalIndex) -> None:
     raise SystemExit(int(not local.reader.detached or inherited))
 
 
+@pytest.mark.parametrize(
+    "owner_telemetry", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
 @pytest.mark.filterwarnings("ignore:This process .* is multi-threaded")
 def test_forked_children_never_read_an_inherited_index(local_index: LocalIndex) -> None:
     child = multiprocessing.get_context("fork").Process(
@@ -1648,6 +1967,9 @@ def test_a_local_miss_needs_no_owner_selection(
 
 
 @pytest.mark.parametrize(
+    "owner_telemetry", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
+@pytest.mark.parametrize(
     "shared_owner",
     [{"local_miss_admission": True, "native_admission_queue": True}],
     indirect=True,
@@ -1659,12 +1981,12 @@ def test_nonempty_admission_drains_extend_fast_polling(
     assert owner._admission_poll_until == 0
 
     session.endpoint.send(local_miss, session.control.reader)
-    wait_for(lambda: owner.counters.admissions == 1)
+    wait_for(lambda: owner._admission_poll_until > 0)
     first_deadline = owner._admission_poll_until
     assert first_deadline > 0
 
     session.endpoint.send(local_miss, session.control.reader)
-    wait_for(lambda: owner.counters.admissions == 2)
+    wait_for(lambda: owner._admission_poll_until > first_deadline)
     assert owner._admission_poll_until > first_deadline
 
 
@@ -1727,6 +2049,9 @@ def test_damaged_queue_positions_detach_only_the_control_peer(
 
 
 @pytest.mark.parametrize(
+    "owner_telemetry", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
+@pytest.mark.parametrize(
     "mutation",
     [
         "write",
@@ -1779,13 +2104,18 @@ def test_obsolete_local_misses_cannot_populate_the_owner(
         case _:
             owner.progress.observed[_DATABASE] = 0.0
     owner._admit_local(local_miss)
-    assert owner.counters.rejected_admissions == 1
-    assert owner.core.snapshot().entry_count == 0
+    if owner.config.enable_telemetry:
+        assert owner.counters.rejected_admissions == 1
+    if owner.core.enable_telemetry:
+        assert owner.core.snapshot().entry_count == 0
     assert not owner._handles
     assert owner.core._ownership()[1] == 0
     assert session.local(0) is None
 
 
+@pytest.mark.parametrize(
+    "owner_telemetry", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
 @pytest.mark.parametrize(
     "mutation", ["write", "availability"], ids=["write", "availability"]
 )
@@ -1804,7 +2134,8 @@ def test_core_mutations_after_token_validation_prevent_local_publication(
 
     _racing_decode(monkeypatch, _SHAPE, Racing(_SHAPE, mutate))
     session.owner._admit_local(local_miss)
-    assert session.owner.counters.rejected_admissions == 1
+    if session.owner.config.enable_telemetry:
+        assert session.owner.counters.rejected_admissions == 1
     assert session.local(0) is None
 
 
@@ -1837,6 +2168,9 @@ def test_malformed_local_admissions_detach_the_peer(
     assert not session.owner._handles
 
 
+@pytest.mark.parametrize(
+    "owner_telemetry", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
 def test_progress_publication_waits_for_local_admission_commit(
     session: _Session, local_miss: Message, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1845,7 +2179,7 @@ def test_progress_publication_waits_for_local_admission_commit(
     def publish() -> None:
         attempted.set()
         with session.owner.progress._lock:
-            session.owner._publish_progress(_DATABASE)
+            session.owner._publish_progress(_DATABASE, time.monotonic_ns())
         published.set()
 
     thread = threading.Thread(target=publish)
@@ -1859,7 +2193,8 @@ def test_progress_publication_waits_for_local_admission_commit(
     session.owner._admit_local(local_miss)
     thread.join(1)
     assert published.is_set()
-    assert session.owner.counters.admitted == 1
+    if session.owner.config.enable_telemetry:
+        assert session.owner.counters.admitted == 1
 
 
 def test_local_admissions_require_shared_publication(
@@ -1880,6 +2215,9 @@ def test_local_admissions_require_shared_publication(
     assert owner.core.snapshot().entry_count == 0
 
 
+@pytest.mark.parametrize(
+    "owner_telemetry", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
 @pytest.mark.parametrize("shared_owner", [{"namespaces": 1}], indirect=True)
 def test_a_namespace_without_a_slot_cannot_admit_local_captures(
     session: _Session, local_miss: Message, faker: Faker
@@ -1888,8 +2226,10 @@ def test_a_namespace_without_a_slot_cannot_admit_local_captures(
     session.owner.core.record_write(unpublished, faker.pyint())
     local_miss["ns"] = list(unpublished)
     session.owner._admit_local(local_miss)
-    assert session.owner.counters.rejected_admissions == 1
-    assert session.owner.core.snapshot().entry_count == 0
+    if session.owner.config.enable_telemetry:
+        assert session.owner.counters.rejected_admissions == 1
+    if session.owner.core.enable_telemetry:
+        assert session.owner.core.snapshot().entry_count == 0
     assert not session.owner._handles
 
 
@@ -1902,10 +2242,16 @@ def full_admission_queue(
     frame = encode_frame({**local_miss, "v": 1, "id": 0})
     # Fit exactly one complete record, including its native length word.
     queue_bytes = (1 + (len(frame) + 7) // 8) * 8
-    ring = index.session_ring(4, queue_bytes)
+    ring = index.session_ring(
+        4, queue_bytes, enable_telemetry=session.owner.config.enable_telemetry
+    )
     descriptor = index.reader_descriptor()
     try:
-        reader = ReaderIndex(descriptor, ring.descriptor())
+        reader = ReaderIndex(
+            descriptor,
+            ring.descriptor(),
+            enable_telemetry=session.owner.config.enable_telemetry,
+        )
     finally:
         os.close(descriptor)
     assert reader.enqueue_admission(frame)
@@ -1922,14 +2268,18 @@ async def admission_endpoint(
             session.endpoint._drop()
         yield session.endpoint
     else:
-        endpoint = AsyncEndpoint(attachment_for(session.owner.config))
-        if connected:
-            assert await endpoint.request({"op": "observe"}) is not None
+        config = attachment_for(session.owner.config)
+        endpoint = (
+            await AsyncEndpoint.attach(config) if connected else AsyncEndpoint(config)
+        )
         yield endpoint
         await endpoint.close()
 
 
 @pytest.mark.parametrize("connected", [True, False], ids=("socket", "no-data-channel"))
+@pytest.mark.parametrize(
+    "owner_telemetry", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
 async def test_full_native_queues_use_bounded_fallback_or_skip_admission(
     session: _Session,
     local_miss: Message,
@@ -1941,28 +2291,47 @@ async def test_full_native_queues_use_bounded_fallback_or_skip_admission(
     admission_endpoint.send(local_miss, reader)
     if connected:
         reply = (
-            await admission_endpoint.request({"op": "observe"})
+            await admission_endpoint.request(
+                {
+                    "op": "metadata-cancel",
+                    "ns": [_DATABASE, _COLLECTION],
+                    "probe_token": 0,
+                }
+            )
             if isinstance(admission_endpoint, AsyncEndpoint)
-            else admission_endpoint.request({"op": "observe"})
+            else admission_endpoint.request(
+                {
+                    "op": "metadata-cancel",
+                    "ns": [_DATABASE, _COLLECTION],
+                    "probe_token": 0,
+                }
+            )
         )
         assert reply is not None
-    assert admission_endpoint.counters.native_admissions == 0
-    assert admission_endpoint.counters.native_admission_drops == int(not connected)
-    assert admission_endpoint.counters.native_admission_recoveries == 0
-    assert admission_endpoint.counters.one_way == int(connected)
-    assert admission_endpoint.counters.dropped_one_way == int(not connected)
-    assert session.owner.counters.admitted == int(connected)
+    if session.owner.config.enable_telemetry:
+        assert admission_endpoint.counters.native_admissions == 0
+        assert admission_endpoint.counters.native_admission_drops == int(not connected)
+        assert admission_endpoint.counters.native_admission_recoveries == 0
+        assert admission_endpoint.counters.one_way == int(connected)
+        assert admission_endpoint.counters.dropped_one_way == int(not connected)
+        assert session.owner.counters.admitted == int(connected)
     assert session.local(0) == (local_miss["value"] if connected else None)
     assert not session.owner._handles
 
     assert len(ring.drain_admissions()) == 1
     admission_endpoint.send(local_miss, reader)
-    assert admission_endpoint.counters.native_admissions == 1
-    assert admission_endpoint.counters.native_admission_recoveries == int(not connected)
+    if session.owner.config.enable_telemetry:
+        assert admission_endpoint.counters.native_admissions == 1
+        assert admission_endpoint.counters.native_admission_recoveries == int(
+            not connected
+        )
     assert not admission_endpoint.admission_recovery.awaiting_capacity
     assert len(ring.drain_admissions()) == 1
     admission_endpoint.send(local_miss, reader)
-    assert admission_endpoint.counters.native_admission_recoveries == int(not connected)
+    if session.owner.config.enable_telemetry:
+        assert admission_endpoint.counters.native_admission_recoveries == int(
+            not connected
+        )
 
 
 def _exit_unless_zero(descriptor: NonNegativeInt) -> None:
@@ -2148,6 +2517,9 @@ def test_fork_during_sync_close_detaches_the_still_open_socket(
     assert child.exitcode == 0
 
 
+@pytest.mark.parametrize(
+    "owner_telemetry", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
 def test_interrupted_sync_join_closes_and_unregisters_the_socket(
     local_index: LocalIndex, monkeypatch: pytest.MonkeyPatch
 ) -> None:

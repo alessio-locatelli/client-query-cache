@@ -177,6 +177,9 @@ class CacheStatistics:
 
 
 class StatisticsSource(Protocol):
+    @property
+    def enable_telemetry(self) -> bool: ...
+
     def snapshot(self) -> CacheSnapshot: ...
 
     def stream_cost_snapshot(self, database: str, /) -> StreamCostSnapshot: ...

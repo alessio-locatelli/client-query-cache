@@ -14,7 +14,7 @@ from celery import Celery, states  # type: ignore[import-untyped]
 from celery.backends.mongodb import MongoBackend  # type: ignore[import-untyped]
 from pymongo import MongoClient
 
-from client_query_cache import CacheManager
+from client_query_cache import CacheCoreConfig, CacheManager
 
 DATABASE_NAME = "client_query_cache_example_celery"
 DEFAULT_MONGODB_URI = "mongodb://localhost:27017/?directConnection=true"
@@ -63,7 +63,12 @@ def main() -> None:
     mongodb_uri = os.getenv("MONGODB_URI", DEFAULT_MONGODB_URI)
     with MongoClient[dict[str, Any]](mongodb_uri) as client:
         client.drop_database(DATABASE_NAME)
-        with CacheManager(client) as manager, Celery("cache-example") as app:
+        with (
+            CacheManager(
+                client, cache_config=CacheCoreConfig(enable_telemetry=True)
+            ) as manager,
+            Celery("cache-example") as app,
+        ):
             backend = CachedMongoBackend(app, manager)
             backend.store_result(TASK_ID, None, states.STARTED)
             # Sample before the polling workload.

@@ -77,6 +77,7 @@ def admit(
         "negative-exact",
     ],
 )
+@pytest.mark.parametrize("core", [True], indirect=True, ids=["telemetry"])
 def test_find_lookup_records_one_outcome(
     core: CacheCore,
     namespace: NamespaceId,
@@ -144,6 +145,9 @@ def test_family_hash_collisions_require_full_query_equality(
     ["write", "clear", "create", "unavailable", "recover", "close"],
     ids=["write", "clear", "create", "unavailable", "recover", "close"],
 )
+@pytest.mark.parametrize(
+    "core", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
 def test_source_transitions(
     core: CacheCore, namespace: NamespaceId, transition: str
 ) -> None:
@@ -151,7 +155,8 @@ def test_source_transitions(
     state = core._namespace(namespace)
     if transition == "close":
         core.close()
-        assert core.snapshot().entry_count == 0
+        if core.enable_telemetry:
+            assert core.snapshot().entry_count == 0
         assert core._namespaces == {}
         return
     if transition == "write":
@@ -242,6 +247,7 @@ def test_candidate_rechecks_actual_token_and_generation(
     ["clear", "evict", "close"],
     ids=["clear-during-put", "evict-during-put", "close-during-put"],
 )
+@pytest.mark.parametrize("core", [True], indirect=True, ids=["telemetry"])
 def test_failed_publication_leaves_no_source_token(
     core: CacheCore,
     namespace: NamespaceId,
@@ -361,7 +367,11 @@ def test_generated_source_ownership_schedules(
     operations: list[tuple[str, int]],
 ) -> None:
     weight = len(encode_value([0]))
-    core = CacheCore(CacheCoreConfig(budget_bytes=weight * 4, max_entry_bytes=weight))
+    core = CacheCore(
+        CacheCoreConfig(
+            budget_bytes=weight * 4, max_entry_bytes=weight, enable_telemetry=True
+        )
+    )
     namespace = NamespaceId("generated", "sources")
     generation = 0
     for operation, limit in operations:

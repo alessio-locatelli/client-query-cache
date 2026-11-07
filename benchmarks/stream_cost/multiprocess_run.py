@@ -400,7 +400,8 @@ async def worker_window(
                         protocol.registration["lag_capture"]["windows"],
                         protocol.registration["lag_capture"]["events"],
                         protocol.registration["lag_capture"]["separation"],
-                    )
+                    ),
+                    enable_telemetry=True,
                 )
                 if isinstance(client, MongoClient):
                     manager = CacheManager(

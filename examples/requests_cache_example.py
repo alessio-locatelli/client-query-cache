@@ -20,7 +20,7 @@ from requests_cache.backends.base import BaseCache
 from requests_cache.backends.mongodb import MongoCache, MongoDict
 from requests_cache.serializers.preconf import bson_document_serializer
 
-from client_query_cache import CacheManager
+from client_query_cache import CacheCoreConfig, CacheManager
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -233,7 +233,9 @@ def main() -> None:
         client.drop_database(DATABASE_NAME)
         client[DATABASE_NAME].create_collection("responses")
         with (
-            CacheManager(client) as cache_manager,
+            CacheManager(
+                client, cache_config=CacheCoreConfig(enable_telemetry=True)
+            ) as cache_manager,
             OriginServer() as origin,
             CachedSession(
                 backend=CachedMongoCache(cache_manager, DATABASE_NAME),

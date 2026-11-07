@@ -211,6 +211,7 @@ def owner_config(
     path: PathKind,
 ) -> OwnerConfig:
     return OwnerConfig(
+        enable_telemetry=True,
         socket_path=str(Path(directory) / "owner.sock"),
         capability=capability,
         mongodb_uri=uri,
@@ -234,6 +235,7 @@ def attachment_for(config: OwnerConfig) -> AttachmentConfig:
         config.max_await_time_ms,
         config.limits.rpc_deadline_seconds,
         config.frame_limit,
+        enable_telemetry=config.enable_telemetry,
         max_namespaces=(
             DEFAULT_MAX_NAMESPACES
             if config.shared_index is None

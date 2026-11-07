@@ -331,7 +331,7 @@ async def child(
 
             manager = (SyncManager if api == "sync" else AsyncManager)(
                 client,
-                cache_config=CacheCoreConfig(**config),
+                cache_config=CacheCoreConfig(**config, enable_telemetry=True),
             )
             database = manager[DATABASE]
         catalogue, codes = database[CATALOGUE], database[CODES]
@@ -628,7 +628,7 @@ async def retention_child(arguments: argparse.Namespace) -> None:
     if arguments.max_key_bytes is not None:
         config["max_key_bytes"] = arguments.max_key_bytes
     manager: Any = (SyncManager if arguments.api == "sync" else AsyncManager)(
-        client, cache_config=CacheCoreConfig(**config)
+        client, cache_config=CacheCoreConfig(**config, enable_telemetry=True)
     )
     view = manager[DATABASE][CODES]
     completed = []
@@ -761,7 +761,7 @@ def retention_core(arguments: argparse.Namespace) -> None:
             }
             if arguments.enabled:
                 config["max_entries"] = count + 2
-            core = constructor(CacheCoreConfig(**config))
+            core = constructor(CacheCoreConfig(**config, enable_telemetry=True))
             aliases = [
                 canonical_alias_key("code", f"C{index:07d}", None)
                 for index in range(count)
@@ -819,7 +819,7 @@ def retention_core(arguments: argparse.Namespace) -> None:
         config = {arguments.budget_field: arguments.budget, "max_entry_bytes": MIB}
         if arguments.enabled:
             config["max_entries"] = arguments.max_entries
-        core = constructor(CacheCoreConfig(**config))
+        core = constructor(CacheCoreConfig(**config, enable_telemetry=True))
         barrier = threading.Barrier(arguments.threads)
 
         def admit(worker: Annotated[int, Ge(0)]) -> list[Annotated[int, Ge(0)]]:

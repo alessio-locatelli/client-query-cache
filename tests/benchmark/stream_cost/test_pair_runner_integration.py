@@ -79,7 +79,12 @@ def cache_manager_factory(
     def create_cache_manager(
         cache_config: CacheCoreConfig | None = None,
     ) -> CacheManager[BsonDict]:
-        manager = CacheManager(client, cache_config=cache_config)
+        manager = CacheManager(
+            client,
+            cache_config=CacheCoreConfig(enable_telemetry=True)
+            if cache_config is None
+            else cache_config,
+        )
         request.addfinalizer(manager.close)
         return manager
 
@@ -109,7 +114,8 @@ def test_run_consolidated_stream_pair_produces_a_lag_distribution_per_run(
     cache_config = CacheCoreConfig(
         lag_capture_window_config=LagCaptureWindowConfig(
             window_count=2, events_per_window=2, min_separation_events=0
-        )
+        ),
+        enable_telemetry=True,
     )
 
     pair_result = run_consolidated_stream_pair(
@@ -193,7 +199,8 @@ def test_run_consolidated_stream_pair_rejects_a_run_with_too_few_windows(
     cache_config = CacheCoreConfig(
         lag_capture_window_config=LagCaptureWindowConfig(
             window_count=1, events_per_window=2, min_separation_events=0
-        )
+        ),
+        enable_telemetry=True,
     )
 
     with pytest.raises(BenchmarkSetupError, match="capture window"):
@@ -218,7 +225,8 @@ def test_execute_run_reports_observed_invalidations_not_the_schedule_length(
     cache_config = CacheCoreConfig(
         lag_capture_window_config=LagCaptureWindowConfig(
             window_count=2, events_per_window=1, min_separation_events=0
-        )
+        ),
+        enable_telemetry=True,
     )
     manager = cache_manager_factory(cache_config)
 

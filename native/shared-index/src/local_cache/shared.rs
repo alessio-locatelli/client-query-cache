@@ -167,7 +167,7 @@ pub(super) struct Residency {
     tokens: HashMap<u64, Handle>,
     queries: HashMap<u64, HashSet<u64>>,
     identities: HashMap<u64, HashSet<u64>>,
-    available_since: HashMap<Arc<str>, Option<f64>>,
+    available_since: Option<HashMap<Arc<str>, Option<f64>>>,
 }
 
 fn now_seconds() -> f64 {
@@ -175,8 +175,13 @@ fn now_seconds() -> f64 {
 }
 
 impl Residency {
-    pub(super) fn new(index: Py<OwnerIndex>, databases: Vec<String>, capacity: usize) -> Self {
-        let now = now_seconds();
+    pub(super) fn new(
+        index: Py<OwnerIndex>,
+        databases: Vec<String>,
+        capacity: usize,
+        enable_telemetry: bool,
+    ) -> Self {
+        let now = enable_telemetry.then(now_seconds);
         let databases: HashMap<Arc<str>, usize> = databases
             .into_iter()
             .enumerate()
@@ -186,10 +191,12 @@ impl Residency {
             index.get().index.set_available(*slot, true);
         }
         Self {
-            available_since: databases
-                .keys()
-                .map(|name| (name.clone(), Some(now)))
-                .collect(),
+            available_since: now.map(|now| {
+                databases
+                    .keys()
+                    .map(|name| (name.clone(), Some(now)))
+                    .collect()
+            }),
             index,
             databases,
             capacity,
@@ -247,14 +254,22 @@ impl Residency {
         let Some(slot) = self.database(database) else {
             return;
         };
-        if let Some(since) = self.available_since.get_mut(database) {
+        if let Some(since) = self
+            .available_since
+            .as_mut()
+            .and_then(|history| history.get_mut(database))
+        {
             *since = available.then(now_seconds);
         }
         self.index.get().index.set_available(slot, available);
     }
 
     pub(super) fn available_since(&self, database: &str) -> Option<f64> {
-        self.available_since.get(database).copied().flatten()
+        self.available_since
+            .as_ref()
+            .and_then(|history| history.get(database))
+            .copied()
+            .flatten()
     }
 
     pub(super) fn store(&self, payload: &[u8]) -> Option<Block> {
@@ -458,9 +473,11 @@ impl SharedOwner {
         namespaces: usize,
         probe_ttl_seconds: f64,
     ) -> PyResult<PyClassInitializer<Self>> {
+        let enable_telemetry = config.getattr("enable_telemetry")?.extract::<bool>()?;
         let shared = SharedState {
             probes: Probes::new((probe_ttl_seconds * 1e9) as u64),
-            residency: index.map(|index| Residency::new(index, databases, namespaces)),
+            residency: index
+                .map(|index| Residency::new(index, databases, namespaces, enable_telemetry)),
         };
         Ok(
             PyClassInitializer::from(LocalOwner::create(py, Some(config), Some(shared))?)
@@ -715,13 +732,15 @@ impl SharedOwner {
             .map_or(0, Residency::published_count)
     }
 
-    fn available_since(slf: &Bound<'_, Self>, database: &str) -> Option<f64> {
-        slf.as_super()
+    fn available_since(slf: &Bound<'_, Self>, database: &str) -> PyResult<Option<f64>> {
+        slf.as_super().get().require_telemetry(slf.py())?;
+        Ok(slf
+            .as_super()
             .get()
             .state
             .lock()
             .expect("local owner mutex")
             .residency()
-            .and_then(|residency| residency.available_since(database))
+            .and_then(|residency| residency.available_since(database)))
     }
 }

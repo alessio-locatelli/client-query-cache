@@ -51,9 +51,11 @@ def core_factory(request: pytest.FixtureRequest) -> type[LocalCacheCore]:
     return _CORES[request.param]
 
 
-@pytest.fixture
-def core(core_factory: type[LocalCacheCore]) -> Iterator[LocalCacheCore]:
-    core = core_factory()
+@pytest.fixture(params=[False], ids=["default"])
+def core(
+    core_factory: type[LocalCacheCore], request: pytest.FixtureRequest
+) -> Iterator[LocalCacheCore]:
+    core = core_factory(CacheCoreConfig(enable_telemetry=request.param))
     yield core
     core.close()
 
@@ -76,7 +78,9 @@ def make_core(
 
     def create(limit: PositiveInt) -> LocalCacheCore:
         core = core_factory(
-            CacheCoreConfig(budget_bytes=limit * 2, max_entry_bytes=limit)
+            CacheCoreConfig(
+                budget_bytes=limit * 2, max_entry_bytes=limit, enable_telemetry=True
+            )
         )
         cores.append(core)
         return core
@@ -226,6 +230,7 @@ def make_unavailable_then_restore(core: LocalCacheCore, namespace: NamespaceId) 
         pytest.param(lambda core, _namespace: core.close(), None, id="closed-manager"),
     ],
 )
+@pytest.mark.parametrize("core", [True], indirect=True, ids=["telemetry"])
 def test_capture_keeps_existing_admission_guards(
     core: LocalCacheCore,
     namespace: NamespaceId,

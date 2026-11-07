@@ -10,6 +10,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import AsyncExitStack
 from dataclasses import replace
+from functools import partial
 from typing import TYPE_CHECKING, cast
 from unittest.mock import AsyncMock, Mock
 
@@ -66,6 +67,7 @@ from tests.shared_cache.conftest import (
     async_shared_manager,
     ready,
     reason_totals,
+    refresh_metadata,
     select_identity,
     wait_for,
 )
@@ -116,6 +118,9 @@ def _custom_codec() -> CodecOptions[BsonDict]:
     return CodecOptions(type_registry=TypeRegistry([Decimal128ToDecimalDecoder()]))
 
 
+@pytest.mark.parametrize(
+    "telemetry_enabled", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
 def test_oversized_find_results_are_not_admitted(
     open_manager: Callable[..., SharedCacheManager[BsonDict]],
     client: MongoClient[BsonDict],
@@ -142,14 +147,25 @@ def test_oversized_find_results_are_not_admitted(
     assert len(documents) == 8
     assert big is not None
     assert after is not None
-    assert manager.observation.oversized == 2
-    assert manager.snapshot().oversized_bypasses == 2
-    assert owner.counters()["detached"] == 0
-    wait_for(lambda: owner.observation()["captures"] == 0)
-    wait_for(lambda: owner.counters()["admitted"] == 1)
-    assert owner.observation()["cache"]["entry_count"] == 1
+    if owner.config.enable_telemetry:
+        assert manager.observation.oversized == 2
+        assert manager.snapshot().oversized_bypasses == 2
+        assert owner.counters()["detached"] == 0
+    assert (
+        refresh_metadata(
+            manager.endpoint.request, NamespaceId(seeded_database, "large")
+        )
+        is not None
+    )
+    if owner.config.enable_telemetry:
+        assert owner.observation()["captures"] == 0
+        assert owner.counters()["admitted"] == 1
+        assert owner.observation()["cache"]["entry_count"] == 1
 
 
+@pytest.mark.parametrize(
+    "telemetry_enabled", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
 def test_unportable_and_bypassed_finds_execute_natively(
     open_manager: Callable[..., SharedCacheManager[BsonDict]],
     client: MongoClient[BsonDict],
@@ -187,9 +203,10 @@ def test_unportable_and_bypassed_finds_execute_natively(
 
     assert len(unportable) == DOCUMENTS
     assert subcollection.name == f"{COLLECTION}.sub"
-    assert manager.observation.bypasses[UNPORTABLE_KEY] == 1
-    assert async_manager.observation.bypasses[UNPORTABLE_KEY] == 1
-    assert sum(async_manager.observation.bypasses.values()) == 2
+    if owner.config.enable_telemetry:
+        assert manager.observation.bypasses[UNPORTABLE_KEY] == 1
+        assert async_manager.observation.bypasses[UNPORTABLE_KEY] == 1
+        assert sum(async_manager.observation.bypasses.values()) == 2
     with (
         MongoClient[BsonDict](mongodb_uri) as other,
         pytest.raises(ValueError, match="different client"),
@@ -197,25 +214,50 @@ def test_unportable_and_bypassed_finds_execute_natively(
         manager.get_cached_collection(other[seeded_database][COLLECTION])
 
 
-def test_unlimited_find_hits_return_the_complete_result(
+@pytest.mark.parametrize(
+    "telemetry_enabled", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
+@pytest.mark.parametrize(
+    "read",
+    [
+        pytest.param(lambda view: view.find({}, **_SORTED).to_list(), id="find"),
+        pytest.param(lambda view: view.count_documents({}), id="count"),
+        pytest.param(lambda view: view.distinct("_id"), id="distinct"),
+    ],
+)
+def test_complete_namespace_results_are_reused(
     open_manager: Callable[..., SharedCacheManager[BsonDict]],
     client: MongoClient[BsonDict],
     start_owner: Callable[..., Owner],
     seeded_database: str,
+    read: Callable[[SharedCachedCollection[BsonDict]], object],
 ) -> None:
     owner = start_owner()
     manager = open_manager(client, owner)
     collection = manager[seeded_database][COLLECTION]
     ready(manager, seeded_database)
 
-    collection.find({}, **_SORTED).to_list()
-    wait_for(lambda: owner.counters()["admitted"] == 1)
-    hit = collection.find({}, **_SORTED).to_list()
+    first = read(collection)
+    assert (
+        refresh_metadata(
+            manager.endpoint.request, NamespaceId(seeded_database, COLLECTION)
+        )
+        is not None
+    )
+    hit = read(collection)
 
-    assert len(hit) == DOCUMENTS
-    assert manager.observation.hits == 1
+    assert hit == first
+    if isinstance(hit, list):
+        assert len(hit) == DOCUMENTS
+    else:
+        assert hit == DOCUMENTS
+    if owner.config.enable_telemetry:
+        assert manager.observation.hits == 1
 
 
+@pytest.mark.parametrize(
+    "telemetry_enabled", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
 def test_owner_bypasses_reach_find_one_and_find(
     open_manager: Callable[..., SharedCacheManager[BsonDict]],
     client: MongoClient[BsonDict],
@@ -228,17 +270,23 @@ def test_owner_bypasses_reach_find_one_and_find(
     ready(manager, seeded_database)
     owner.request("pause-watch")
 
-    wait_for(
-        lambda: (
-            collection.find_one({"_id": 20}) is not None
-            and SharedBypassReason.PROGRESS_EXPIRED in manager.observation.bypasses
+    def expired() -> bool:
+        assert collection.find_one({"_id": 20}) is not None
+        reply = select_identity(manager.endpoint, manager, seeded_database, 20)
+        return (
+            reply is not None
+            and reply["r"] == "bypass"
+            and reply["reason"] == SharedBypassReason.PROGRESS_EXPIRED
         )
-    )
+
+    wait_for(expired)
+    assert collection.find_one({"_id": 20}) is not None
     documents = collection.find({}, **_SORTED, limit=2).to_list()
     owner.request("resume-watch")
 
     assert len(documents) == 2
-    assert manager.observation.bypasses[SharedBypassReason.PROGRESS_EXPIRED] >= 2
+    if manager.enable_telemetry:
+        assert manager.observation.bypasses[SharedBypassReason.PROGRESS_EXPIRED] >= 2
 
 
 def test_owner_snapshot_reports_a_stalled_stream_and_its_recovery(
@@ -269,6 +317,9 @@ def test_owner_snapshot_reports_a_stalled_stream_and_its_recovery(
     wait_for(lambda: stream_status() is SharedStreamStatus.HEALTHY)
 
 
+@pytest.mark.parametrize(
+    "telemetry_enabled", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
 def test_exhausted_captures_leave_reads_native(
     open_manager: Callable[..., SharedCacheManager[BsonDict]],
     client: MongoClient[BsonDict],
@@ -301,8 +352,9 @@ def test_exhausted_captures_leave_reads_native(
     assert document is not None
     assert len(documents) == 3
     assert asyncio.run(asynchronous()) is not None
-    assert owner.counters()["capture_limit_misses"] == 7
-    assert owner.counters()["admitted"] == 0
+    if owner.config.enable_telemetry:
+        assert owner.counters()["capture_limit_misses"] == 7
+        assert owner.counters()["admitted"] == 0
 
 
 def test_failed_native_reads_release_their_captures(
@@ -354,6 +406,9 @@ def test_large_hits_are_reassembled_from_partial_reads(
     assert manager.observation.hits == 1
 
 
+@pytest.mark.parametrize(
+    "telemetry_enabled", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
 def test_sync_endpoints_drop_one_way_messages_without_a_connection(
     start_owner: Callable[..., Owner],
 ) -> None:
@@ -372,11 +427,15 @@ def test_sync_endpoints_drop_one_way_messages_without_a_connection(
     endpoint.close()
     after_close = endpoint.request({"op": "observe"})
 
-    assert endpoint.counters.dropped_one_way == 2
+    if owner.config.enable_telemetry:
+        assert endpoint.counters.dropped_one_way == 2
     assert after_failure is None
     assert after_close is None
 
 
+@pytest.mark.parametrize(
+    "telemetry_enabled", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
 def test_async_endpoints_report_unreachable_or_conflicting_owners(
     start_owner: Callable[..., Owner],
 ) -> None:
@@ -392,7 +451,8 @@ def test_async_endpoints_report_unreachable_or_conflicting_owners(
         detached = AsyncEndpoint(owner.attachment())
         detached.send({"op": "discard", "handle": 1})
         await detached.close()
-        assert detached.counters.dropped_one_way == 1
+        if owner.config.enable_telemetry:
+            assert detached.counters.dropped_one_way == 1
 
     asyncio.run(scenario())
 
@@ -604,6 +664,39 @@ class _SharedReads:
             manager[self._database][collection].find_one({"_id": key}, projection)
         )
 
+    def request(self, message: attachment.Message) -> attachment.Message | None:
+        endpoint = self.manager.endpoint
+        if isinstance(endpoint, SyncEndpoint):
+            return endpoint.request(message)
+        return self._run(endpoint.request(message))
+
+    def settle(self) -> None:
+        assert (
+            refresh_metadata(self.request, NamespaceId(self._database, COLLECTION))
+            is not None
+        )
+
+    def retained(self, key: NonNegativeInt) -> bool:
+        namespace = NamespaceId(self._database, COLLECTION)
+        assignment = self.manager._slots.find(namespace)
+        metadata = self.manager._metadata.find(namespace)
+        assert assignment is not None
+        assert metadata is not None
+        assert self.manager.local is not None
+        database, slot, _incarnation = assignment
+        return (
+            self.manager.local.reader.lookup(
+                database,
+                slot,
+                metadata.checked_epoch,
+                encode_key(key),
+                encode_key(
+                    self.manager[self._database][COLLECTION]._find_one_default_shape
+                ),
+            )
+            is not None
+        )
+
     def find_concurrently(self, key: object, count: int) -> list[BsonDict | None]:
         manager = self.manager
         if isinstance(manager, SharedCacheManager):
@@ -714,6 +807,9 @@ def test_admitted_identity_hits_are_served_locally(
 
 
 @pytest.mark.parametrize("native_queue", [False, True], ids=("socket", "native-queue"))
+@pytest.mark.parametrize(
+    "telemetry_enabled", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
 def test_local_misses_read_through_without_selection_or_capture_handles(
     open_reads: Callable[[SharedIndexLimits], tuple[Owner, _SharedReads]],
     native_queue: bool,
@@ -725,18 +821,24 @@ def test_local_misses_read_through_without_selection_or_capture_handles(
             native_admission_queue=native_queue,
         )
     )
-    requests = reads.manager.endpoint.counters.requests
-    first = [reads.find_one(key) for key in range(DOCUMENTS)]
-    _admitted(owner, DOCUMENTS)
-    assert reads.manager.endpoint.counters.requests == requests
-    assert owner.counters()["misses"] == 0
-    assert owner.observation()["captures"] == 0
-    assert [reads.find_one(key) for key in range(DOCUMENTS)] == first
-    assert reads.manager.observation.hits == DOCUMENTS
-    assert reads.manager.observation.misses == DOCUMENTS
-    assert reads.manager.endpoint.counters.native_admissions == (
-        DOCUMENTS if native_queue else 0
+    requests = (
+        reads.manager.endpoint.counters.requests
+        if owner.config.enable_telemetry
+        else None
     )
+    first = [reads.find_one(key) for key in range(DOCUMENTS)]
+    wait_for(lambda: all(reads.retained(key) for key in range(DOCUMENTS)))
+    if owner.config.enable_telemetry:
+        assert reads.manager.endpoint.counters.requests == requests
+        assert owner.counters()["misses"] == 0
+        assert owner.observation()["captures"] == 0
+    assert [reads.find_one(key) for key in range(DOCUMENTS)] == first
+    if owner.config.enable_telemetry:
+        assert reads.manager.observation.hits == DOCUMENTS
+        assert reads.manager.observation.misses == DOCUMENTS
+        assert reads.manager.endpoint.counters.native_admissions == (
+            DOCUMENTS if native_queue else 0
+        )
 
 
 def test_failed_locally_captured_reads_need_no_discard(
@@ -820,21 +922,25 @@ def test_local_misses_use_the_control_queue_or_reconnect_after_data_channel_loss
     ],
     ids=("other-drop", "queue-full", "queue-recovered", "recovery-expired"),
 )
+@pytest.mark.parametrize(
+    "telemetry_enabled", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
 def test_only_active_queue_recovery_makes_disconnected_misses_reconnect(
     open_reads: Callable[[SharedIndexLimits], tuple[Owner, _SharedReads]],
     queue_drop: bool,
     recovered: bool,
     expired: bool,
 ) -> None:
-    owner, reads = open_reads(
+    _owner, reads = open_reads(
         replace(_SHARED_INDEX, local_miss_admission=True, native_admission_queue=True)
     )
     endpoint = reads.manager.endpoint
-    requests = endpoint.counters.requests
-    connects = endpoint.counters.connects
+    counters = endpoint._counters
+    before = (counters.requests, counters.connects) if counters is not None else None
     reads.disconnect_data()
     time.sleep(_PAST_REATTACH_BACKOFF_SECONDS)
-    endpoint.counters.dropped_one_way = 1
+    if counters is not None:
+        counters.dropped_one_way = 1
     if queue_drop:
         endpoint.admission_recovery.dropped()
     if recovered:
@@ -843,32 +949,32 @@ def test_only_active_queue_recovery_makes_disconnected_misses_reconnect(
         )
     if expired:
         time.sleep(_PAST_REATTACH_BACKOFF_SECONDS)
-    # Keep diagnostic values independent of policy state.
-    endpoint.counters.native_admission_drops = int(expired)
-    endpoint.counters.native_admission_recoveries = int(expired)
+    if counters is not None:
+        counters.native_admission_drops = int(expired)
+        counters.native_admission_recoveries = int(expired)
     reconnect = recovered and not expired
 
     wait_for(
-        lambda: (
-            reads.find_one(0) is not None
-            and (not reconnect or endpoint.counters.connects > connects)
-        )
+        lambda: reads.find_one(0) is not None and (not reconnect or endpoint.connected)
     )
-    _admitted(owner, 1)
+    wait_for(lambda: reads.retained(0))
 
     assert reads.find_one(0) is not None
-    assert endpoint.counters.requests == requests + int(reconnect)
-    assert endpoint.counters.connects == connects + int(reconnect)
-    assert endpoint.counters.native_admissions == int(not reconnect)
-    assert reads.manager.observation.hits == 1
+    if before is not None:
+        assert counters is not None
+        assert counters.requests == before[0] + int(reconnect)
+        assert counters.connects == before[1] + int(reconnect)
+        assert counters.native_admissions == int(not reconnect)
+        assert reads.manager.observation.hits == 1
     assert not reads.detached
 
     if reconnect:
-        requests = endpoint.counters.requests
         assert reads.find_one(1) is not None
-        _admitted(owner, 2)
-        assert endpoint.counters.requests == requests
-        assert endpoint.counters.native_admissions == 1
+        wait_for(lambda: reads.retained(1))
+        if before is not None:
+            assert counters is not None
+            assert counters.requests == before[0] + int(reconnect)
+            assert counters.native_admissions == 1
 
 
 @pytest.fixture(params=("sync", "async"))
@@ -887,10 +993,8 @@ def capacity_reads(
     )
     reads = _SharedReads(request.param, owner, mongodb_uri, seeded_database)
     reads.disconnect_data()
-    wait_for(lambda: owner.observation()["connections"] == 1)
-    open_endpoint(owner)
-    wait_for(lambda: owner.observation()["connections"] == 2)
     time.sleep(_PAST_REATTACH_BACKOFF_SECONDS)
+    open_endpoint(owner)
     yield owner, reads
     reads.close()
 
@@ -946,6 +1050,9 @@ def test_recovery_at_owner_connection_capacity_preserves_native_reads(
     assert not reads.detached
 
 
+@pytest.mark.parametrize(
+    "telemetry_enabled", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
 def test_failed_socket_recovery_admits_during_capacity_refusal_and_cooldown(
     capacity_reads: tuple[Owner, _SharedReads],
     monkeypatch: pytest.MonkeyPatch,
@@ -964,25 +1071,32 @@ def test_failed_socket_recovery_admits_during_capacity_refusal_and_cooldown(
         else AsyncCollection,
         "find_one",
     )
-    rejected = owner.counters()["connections_rejected"]
-    misses = reads.manager.observation.misses
+    before = (
+        (owner.counters()["connections_rejected"], reads.manager.observation.misses)
+        if owner.config.enable_telemetry
+        else None
+    )
 
     for count, key in enumerate((0, 1), start=1):
         assert reads.find_one(key) is not None
-        _admitted(owner, count)
-        assert endpoint.counters.native_admissions == count
+        wait_for(partial(reads.retained, key))
+        if before is not None:
+            assert endpoint.counters.native_admissions == count
         assert database_reads.count == count
-        assert reads.manager.observation.misses == misses + count
+        if before is not None:
+            assert reads.manager.observation.misses == before[1] + count
         assert reads.find_one(key) is not None
         assert database_reads.count == count
-        assert endpoint.counters.failures == 1
+        if before is not None:
+            assert endpoint.counters.failures == 1
         assert endpoint.admission_recovery.active
 
-    observation = owner.observation()
-    assert observation["connections"] == 2
-    assert observation["counters"]["connections_rejected"] == rejected + 1
-    assert observation["captures"] == 0
-    assert reads.manager.observation.bypasses == {}
+    if before is not None:
+        observation = owner.observation()
+        assert observation["connections"] == 2
+        assert observation["counters"]["connections_rejected"] == before[0] + 1
+        assert observation["captures"] == 0
+        assert reads.manager.observation.bypasses == {}
     assert not reads.detached
 
 
@@ -1003,6 +1117,9 @@ def test_closed_endpoints_drop_native_admissions(
     assert reads.manager.endpoint.counters.dropped_one_way == 1
 
 
+@pytest.mark.parametrize(
+    "telemetry_enabled", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
 def test_oversized_local_frames_preserve_the_data_channel(
     open_reads: Callable[[SharedIndexLimits], tuple[Owner, _SharedReads]],
     client: MongoClient[BsonDict],
@@ -1019,9 +1136,11 @@ def test_oversized_local_frames_preserve_the_data_channel(
     assert reads.find_one(identity) == document
     assert reads.find_one(identity) == document
 
-    assert reads.manager.endpoint.counters.dropped_one_way == 2
+    if owner.config.enable_telemetry:
+        assert reads.manager.endpoint.counters.dropped_one_way == 2
     assert reads.manager.endpoint.connected
-    assert owner.counters()["admissions"] == 0
+    if owner.config.enable_telemetry:
+        assert owner.counters()["admissions"] == 0
     assert not reads.detached
 
 
@@ -1072,20 +1191,28 @@ async def test_cancelling_a_local_miss_retains_no_owner_capture(
         assert owner.observation()["captures"] == 0
 
 
+@pytest.mark.parametrize(
+    "telemetry_enabled", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
 def test_unpublished_entries_fall_back_to_owner_hits(
     open_reads: Callable[[SharedIndexLimits], tuple[Owner, _SharedReads]],
 ) -> None:
     owner, reads = open_reads(_TINY_ARENA)
     first = reads.find_one(1)
-    _admitted(owner, 1)
-    requests = reads.manager.endpoint.counters.requests
+    reads.settle()
+    requests = (
+        reads.manager.endpoint.counters.requests
+        if owner.config.enable_telemetry
+        else None
+    )
 
     second = reads.find_one(1)
 
     assert second == first
-    assert reads.manager.endpoint.counters.requests == requests + 1
-    assert reads.manager.observation.hits == 1
-    assert owner.observation()["shared_index"]["published"] == 0
+    if requests is not None:
+        assert reads.manager.endpoint.counters.requests == requests + 1
+        assert reads.manager.observation.hits == 1
+        assert owner.observation()["shared_index"]["published"] == 0
 
 
 def test_namespaces_without_a_slot_bypass_with_bounded_owner_state(
@@ -1292,6 +1419,9 @@ def test_expired_view_metadata_allows_reads_after_collection_replacement(
     assert refreshed.epoch_bound
 
 
+@pytest.mark.parametrize(
+    "telemetry_enabled", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
 def test_a_namespace_reset_makes_local_reads_refresh_metadata(
     open_reads: Callable[[SharedIndexLimits], tuple[Owner, _SharedReads]],
     client: MongoClient[BsonDict],
@@ -1299,27 +1429,32 @@ def test_a_namespace_reset_makes_local_reads_refresh_metadata(
 ) -> None:
     owner, reads = open_reads(_SHARED_INDEX)
     reads.find_one(1)
-    _admitted(owner, 1)
+    wait_for(lambda: reads.retained(1))
     assert reads.find_one(1) is not None
 
     client[seeded_database].drop_collection(COLLECTION)
     wait_for(lambda: reads.find_one(1) is None)
 
-    assert reads.manager.observation.bypasses[METADATA_REFRESH] >= 1
+    if owner.config.enable_telemetry:
+        assert reads.manager.observation.bypasses[METADATA_REFRESH] >= 1
 
 
+@pytest.mark.parametrize(
+    "telemetry_enabled", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
 def test_owner_exit_detaches_local_reads(
     open_reads: Callable[[SharedIndexLimits], tuple[Owner, _SharedReads]],
 ) -> None:
     owner, reads = open_reads(_SHARED_INDEX)
     document = reads.find_one(1)
-    _admitted(owner, 1)
+    wait_for(lambda: reads.retained(1))
 
     owner.stop()
     wait_for(lambda: reads.detached)
 
     assert reads.find_one(1) == document
-    assert reads.manager.observation.bypasses[OWNER_UNAVAILABLE] == 1
+    if owner.config.enable_telemetry:
+        assert reads.manager.observation.bypasses[OWNER_UNAVAILABLE] == 1
 
 
 def _serve_handshake(

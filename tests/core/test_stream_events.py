@@ -9,7 +9,7 @@ from pymongo.errors import OperationFailure
 
 from client_query_cache._core.entries import AdmissionOutcome
 from client_query_cache._core.keys import NamespaceId
-from client_query_cache._core.manager import CacheCore
+from client_query_cache._core.manager import CacheCore, CacheCoreConfig
 from client_query_cache._core.namespace_metadata import NamespaceMetadataCache
 from client_query_cache._core.stream_events import (
     CHANGE_STREAM_PROJECTION,
@@ -31,16 +31,23 @@ _WALL_TIME = dt.datetime(2024, 1, 1, tzinfo=dt.UTC)
 
 
 def test_pipeline_matches_only_relevant_operation_types() -> None:
-    pipeline = build_change_stream_pipeline()
+    pipeline = build_change_stream_pipeline(enable_telemetry=True)
 
     matched_types = set(pipeline[0]["$match"]["operationType"]["$in"])
     assert matched_types == RELEVANT_OPERATION_TYPES
 
 
-def test_pipeline_projects_every_routing_and_resume_field() -> None:
-    pipeline = build_change_stream_pipeline()
+@pytest.mark.parametrize("enable_telemetry", [False, True], ids=["disabled", "enabled"])
+def test_pipeline_projects_every_routing_and_resume_field(
+    *, enable_telemetry: bool
+) -> None:
+    pipeline = build_change_stream_pipeline(enable_telemetry=enable_telemetry)
 
-    assert pipeline[1]["$project"] == dict(CHANGE_STREAM_PROJECTION)
+    assert pipeline[1]["$project"] == {
+        key: value
+        for key, value in CHANGE_STREAM_PROJECTION.items()
+        if enable_telemetry or key not in {"wallTime", "clusterTime"}
+    }
     assert set(CHANGE_STREAM_PROJECTION) == {
         "_id",
         "operationType",
@@ -83,7 +90,7 @@ def test_every_relevant_operation_type_is_routed_without_a_full_document(
 
 
 def test_update_event_without_full_document_routes_invalidation_and_lag() -> None:
-    cache = CacheCore()
+    cache = CacheCore(CacheCoreConfig(enable_telemetry=True))
     namespace = NamespaceId("db", "coll")
     identity_capture = cache.begin_identity_admission(namespace, "doc-1")
     cache.admit_identity(identity_capture, "full", {"v": 1})
@@ -604,3 +611,26 @@ def test_rename_to_another_database_does_not_clear_that_databases_cache() -> Non
 
     assert cache.lookup_namespace(source, "query").hit is False
     assert cache.lookup_namespace(destination, "query").hit is True
+
+
+@pytest.mark.parametrize("operation_type", sorted(RELEVANT_OPERATION_TYPES))
+def test_disabled_routing_needs_no_timestamp_or_measurement_clock(
+    operation_type: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cache = Mock()
+    cache.enable_telemetry = False
+    cache.has_namespace.return_value = True
+    cache.namespaces_for_database.return_value = [NamespaceId("db", "coll")]
+    event = _projected_event_for(operation_type)
+    event.pop("wallTime")
+    clock = Mock(side_effect=AssertionError("disabled routing read a diagnostic clock"))
+    monkeypatch.setattr(
+        "client_query_cache._core.stream_events.time", Mock(time=clock, monotonic=clock)
+    )
+    cache.record_invalidation_applied.side_effect = AssertionError(
+        "disabled routing recorded a sample"
+    )
+    route_change_event(cache, "db", event)
+    assert clock.call_count == 0
+    cache.record_invalidation_applied.assert_not_called()

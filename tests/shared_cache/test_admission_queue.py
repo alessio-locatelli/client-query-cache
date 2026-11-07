@@ -36,20 +36,22 @@ class Queue:
     reader: ReaderIndex
 
 
-def _queue(bytes_capacity: PositiveInt) -> Queue:
+def _queue(bytes_capacity: PositiveInt, *, enable_telemetry: bool = False) -> Queue:
     owner = OwnerIndex(4, 4_096, 1, 1, 1, 10**9)
-    ring = owner.session_ring(4, bytes_capacity)
+    ring = owner.session_ring(4, bytes_capacity, enable_telemetry=enable_telemetry)
     descriptor = owner.reader_descriptor()
     try:
-        reader = ReaderIndex(descriptor, ring.descriptor())
+        reader = ReaderIndex(
+            descriptor, ring.descriptor(), enable_telemetry=enable_telemetry
+        )
     finally:
         os.close(descriptor)
     return Queue(owner, ring, reader)
 
 
-@pytest.fixture
-def queue() -> Iterator[Queue]:
-    queued = _queue(_QUEUE_BYTES)
+@pytest.fixture(params=[False, True], ids=["disabled", "enabled"])
+def queue(request: pytest.FixtureRequest) -> Iterator[Queue]:
+    queued = _queue(_QUEUE_BYTES, enable_telemetry=request.param)
     yield queued
     queued.ring.close_descriptor()
 

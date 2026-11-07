@@ -22,6 +22,7 @@ from client_query_cache._core.errors import (
     CacheClosedError,
     CacheConfigurationError,
     UnsupportedCacheRequestError,
+    require_telemetry,
 )
 from client_query_cache._core.find_reads import (
     FindReadShape,
@@ -99,8 +100,11 @@ class CacheCoreConfig:
     max_namespaces: PositiveInt = DEFAULT_MAX_NAMESPACES
     max_entries: PositiveInt | None = None
     max_key_bytes: PositiveInt | None = None
+    enable_telemetry: bool = False
 
     def __post_init__(self) -> None:
+        if type(self.enable_telemetry) is not bool:
+            raise CacheConfigurationError("enable_telemetry must be a built-in boolean")
         if type(self.budget_bytes) is not int:
             message = "budget_bytes must be a built-in integer"
             raise CacheConfigurationError(message)
@@ -266,11 +270,19 @@ class _CacheCoreBase:
         self._max_key_bytes = resolved_config.max_key_bytes
         self._lifecycle = CacheLifecycleState.ACTIVE
         self._lifecycle_lock = threading.Lock()
-        self._statistics = CacheStatistics()
-        self._database_availability: dict[str, tuple[bool, NonNegativeInt]] = {}
-        self._stream_cost = StreamCostRegistry(
-            resolved_config.lag_capture_window_config
+        self._statistics = (
+            CacheStatistics() if resolved_config.enable_telemetry else None
         )
+        self._database_availability: dict[str, tuple[bool, NonNegativeInt]] = {}
+        self._stream_cost = (
+            StreamCostRegistry(resolved_config.lag_capture_window_config)
+            if resolved_config.enable_telemetry
+            else None
+        )
+
+    @property
+    def enable_telemetry(self) -> bool:
+        return self._statistics is not None
 
     def _is_closed(self) -> bool:
         return self._lifecycle is CacheLifecycleState.CLOSED
@@ -333,11 +345,6 @@ class _CacheCoreBase:
     ) -> AdmissionOutcome:
         assert self._max_entries is not None
         state = capture.state
-        kind = (
-            RetentionRecordKind.IDENTITY_VALUE
-            if isinstance(key, IdentityCacheKey)
-            else RetentionRecordKind.NAMESPACE_VALUE
-        )
         with self._retention.section:
             while True:
                 rejected = self._retention_preflight(capture, len(encoded))
@@ -345,9 +352,15 @@ class _CacheCoreBase:
                     return rejected
                 with state.lock:
                     if decision is not None:
-                        if pending is not None:
+                        if pending is not None and self._statistics is not None:
                             self._statistics.record_retention_decline(*pending)
-                        self._statistics.record_retention_decline(kind, decision)
+                        if self._statistics is not None:
+                            self._statistics.record_retention_decline(
+                                RetentionRecordKind.IDENTITY_VALUE
+                                if isinstance(key, IdentityCacheKey)
+                                else RetentionRecordKind.NAMESPACE_VALUE,
+                                decision,
+                            )
                         return AdmissionOutcome.DECLINED_RETENTION
                     owner = None
                     if isinstance(key, IdentityCacheKey):
@@ -510,11 +523,11 @@ class _CacheCoreBase:
                     assert isinstance(key, IdentityCacheKey)
                     with state.lock:
                         _publish_alias_locked(state, alias, key.identity)
-                else:
+                elif self._statistics is not None:
                     self._statistics.record_retention_decline(
                         RetentionRecordKind.ALIAS, alias_block
                     )
-            if pending is not None:
+            if pending is not None and self._statistics is not None:
                 self._statistics.record_retention_decline(*pending)
             return AdmissionOutcome.ADMITTED
         finally:
@@ -554,15 +567,17 @@ class _CacheCoreBase:
             except KeyError:
                 available, current_generation = _DEFAULT_DATABASE_AVAILABILITY
             if not available or availability_generation != current_generation:
-                self._statistics.record_bypass(
-                    BypassReason.STREAM_UNAVAILABLE
-                    if not available
-                    else BypassReason.ADMISSION_INVALIDATED
-                )
+                if self._statistics is not None:
+                    self._statistics.record_bypass(
+                        BypassReason.STREAM_UNAVAILABLE
+                        if not available
+                        else BypassReason.ADMISSION_INVALIDATED
+                    )
                 yield AdmissionOutcome.DECLINED_UNAVAILABLE
                 return
             if self._lru.is_oversize(weight):
-                self._statistics.record_oversized_bypass()
+                if self._statistics is not None:
+                    self._statistics.record_oversized_bypass()
                 yield AdmissionOutcome.DECLINED_OVERSIZE
                 return
             yield None
@@ -628,12 +643,14 @@ class _CacheCoreBase:
     def _process_evicted(self, evicted: list[CacheEntry]) -> None:
         if not evicted:
             return
-        self._statistics.record_evictions(len(evicted))
-        capacity = self._retention.capacity
-        if capacity is None:
-            _log_evictions(len(evicted))
-        else:
-            capacity.set_completion(partial(_log_evictions, len(evicted)))
+        if self._statistics is not None:
+            self._statistics.record_evictions(len(evicted))
+        if self.enable_telemetry:
+            capacity = self._retention.capacity
+            if capacity is None:
+                _log_evictions(len(evicted))
+            else:
+                capacity.set_completion(partial(_log_evictions, len(evicted)))
         by_namespace: dict[NamespaceId, list[CacheEntry]] = {}
         for entry in evicted:
             by_namespace.setdefault(entry.namespace, []).append(entry)
@@ -716,12 +733,13 @@ class _CacheCoreBase:
                     or state.query_generation_key != capture.generation_key
                 ):
                     return AdmissionOutcome.DECLINED_STALE
-                if pending is not None:
+                if pending is not None and self._statistics is not None:
                     self._statistics.record_retention_decline(*pending)
                 if decision is not None:
-                    self._statistics.record_retention_decline(
-                        RetentionRecordKind.NAMESPACE_VALUE, decision
-                    )
+                    if self._statistics is not None:
+                        self._statistics.record_retention_decline(
+                            RetentionRecordKind.NAMESPACE_VALUE, decision
+                        )
                     return AdmissionOutcome.DECLINED_RETENTION
             entry = CacheEntry(
                 generation_key=capture.generation_key,
@@ -785,18 +803,24 @@ class _CacheCoreLifecycle(_CacheCoreBase):
                 self._namespaces.clear()
                 self._database_namespaces.clear()
         retired.clear()
-        logger.info("cache manager closed")
+        if self.enable_telemetry:
+            logger.info("cache manager closed")
 
     def record_miss(self) -> None:
-        self._statistics.record_miss()
+        if self._statistics is not None:
+            self._statistics.record_miss()
 
     def record_bypass(self, reason: BypassReason = BypassReason.UNSPECIFIED) -> None:
-        self._statistics.record_bypass(reason)
+        if self._statistics is not None:
+            self._statistics.record_bypass(reason)
 
     def record_oversized_bypass(self) -> None:
-        self._statistics.record_oversized_bypass()
+        if self._statistics is not None:
+            self._statistics.record_oversized_bypass()
 
     def snapshot(self) -> CacheSnapshot:
+        require_telemetry(enabled=self.enable_telemetry)
+        assert self._statistics is not None
         with self._retention.section:
             used_bytes, entry_count = self._lru.snapshot_usage()
             hits, misses, evictions, bypasses, oversized_bypasses, bypass_reasons = (
@@ -986,15 +1010,16 @@ class _CacheCoreNamespaceLifecycle(_CacheCoreBase):
                     if not database_namespaces:
                         del self._database_namespaces[namespace.database]
                     released = True
-        logger.debug(
-            "cache namespace reclaimed",
-            extra={
-                "database": namespace.database,
-                "collection": namespace.collection,
-                "reclaimed_entries": len(reclaimed),
-                "released": released,
-            },
-        )
+        if self.enable_telemetry:
+            logger.debug(
+                "cache namespace reclaimed",
+                extra={
+                    "database": namespace.database,
+                    "collection": namespace.collection,
+                    "reclaimed_entries": len(reclaimed),
+                    "released": released,
+                },
+            )
         return True
 
 
@@ -1150,14 +1175,15 @@ class _CacheCoreIdentityAdmission(_CacheCoreBase):
                     ):
                         return AdmissionOutcome.DECLINED_STALE
                     if decision is not None:
-                        self._statistics.record_retention_decline(
-                            RetentionRecordKind.IDENTITY_VALUE, decision
-                        )
+                        if self._statistics is not None:
+                            self._statistics.record_retention_decline(
+                                RetentionRecordKind.IDENTITY_VALUE, decision
+                            )
                         return AdmissionOutcome.DECLINED_RETENTION
                     if alias is not None:
                         if alias_decision is None:
                             _publish_alias_locked(state, alias, capture.identity)
-                        else:
+                        elif self._statistics is not None:
                             self._statistics.record_retention_decline(
                                 RetentionRecordKind.ALIAS, alias_decision
                             )
@@ -1321,17 +1347,29 @@ class _CacheCoreUniqueKeyAdmission(_CacheCoreBase):
         rejected = self._retention_preflight(capture, len(encoded))
         if rejected is not None:
             return rejected
-        blocked = (RetentionRecordKind.ALIAS, RetentionDeclineReason.ENTRY_CAPACITY)
+        blocked = (
+            (RetentionRecordKind.ALIAS, RetentionDeclineReason.ENTRY_CAPACITY)
+            if self.enable_telemetry
+            else None
+        )
         identity_decision = None
         alias_decision = None
         if self._max_entries != 1 and self._max_key_bytes is not None:
             identity_decision = self._key_decision(identity, shape)
             if identity_decision is not None:
-                blocked = (RetentionRecordKind.IDENTITY_VALUE, identity_decision)
+                blocked = (
+                    (RetentionRecordKind.IDENTITY_VALUE, identity_decision)
+                    if self.enable_telemetry
+                    else None
+                )
             else:
                 alias_decision = self._key_decision(alias, identity)
                 if alias_decision is not None:
-                    blocked = (RetentionRecordKind.ALIAS, alias_decision)
+                    blocked = (
+                        (RetentionRecordKind.ALIAS, alias_decision)
+                        if self.enable_telemetry
+                        else None
+                    )
         eligible = (
             self._max_entries != 1
             and identity_decision is None
@@ -1467,7 +1505,9 @@ class _CacheCoreUniqueKeyAdmission(_CacheCoreBase):
                     encoded,
                     find_source=None,
                     decision=namespace_decision,
-                    pending=(RetentionRecordKind.IDENTITY_VALUE, identity_decision),
+                    pending=(RetentionRecordKind.IDENTITY_VALUE, identity_decision)
+                    if self.enable_telemetry
+                    else None,
                 )
                 return (
                     AdmissionOutcome.DECLINED_RETENTION
@@ -1506,7 +1546,7 @@ class _CacheCoreUniqueKeyAdmission(_CacheCoreBase):
                 identity_generation_key = (state.epoch, identity_state.generation)
                 if alias_decision is None:
                     _publish_alias_locked(state, alias, canonical_identity)
-                else:
+                elif self._statistics is not None:
                     self._statistics.record_retention_decline(
                         RetentionRecordKind.ALIAS, alias_decision
                     )
@@ -1552,9 +1592,10 @@ class _CacheCoreUniqueKeyAdmission(_CacheCoreBase):
             )
         else:
             assert namespace_decision is not None
-            self._statistics.record_retention_decline(
-                RetentionRecordKind.NAMESPACE_VALUE, namespace_decision
-            )
+            if self._statistics is not None:
+                self._statistics.record_retention_decline(
+                    RetentionRecordKind.NAMESPACE_VALUE, namespace_decision
+                )
             namespace_outcome = AdmissionOutcome.DECLINED_RETENTION
 
         def _identity_still_valid() -> bool:
@@ -1643,7 +1684,8 @@ class _CacheCoreLookup(_CacheCoreBase):
     ) -> bytes | None:
         self._ensure_active()
         if not self._is_database_available(namespace.database):
-            self._statistics.record_bypass(BypassReason.STREAM_UNAVAILABLE)
+            if self._statistics is not None:
+                self._statistics.record_bypass(BypassReason.STREAM_UNAVAILABLE)
             return None
         state = self._namespace(namespace)
         if isinstance(shape, FindReadShape):
@@ -1670,10 +1712,12 @@ class _CacheCoreLookup(_CacheCoreBase):
                     key, entry = source_key, candidate
                     break
         if entry is None:
-            self._statistics.record_miss()
+            if self._statistics is not None:
+                self._statistics.record_miss()
             return None
         self._lru.touch(key)
-        self._statistics.record_hit()
+        if self._statistics is not None:
+            self._statistics.record_hit()
         return entry.value
 
     def lookup_identity(
@@ -1734,7 +1778,8 @@ class _CacheCoreLookup(_CacheCoreBase):
     ) -> bytes | LookupResult:
         self._ensure_active()
         if not self._is_database_available(namespace.database):
-            self._statistics.record_bypass(BypassReason.STREAM_UNAVAILABLE)
+            if self._statistics is not None:
+                self._statistics.record_bypass(BypassReason.STREAM_UNAVAILABLE)
             return _MISS
         canonical_identity = canonical_order_sensitive_key(identity)
         key = IdentityCacheKey(namespace, canonical_identity, canonicalize(read_shape))
@@ -1750,7 +1795,8 @@ class _CacheCoreLookup(_CacheCoreBase):
         if matched is None:
             return self._namespace_miss(defer_miss=defer_miss)
         self._lru.touch(key)
-        self._statistics.record_hit()
+        if self._statistics is not None:
+            self._statistics.record_hit()
         return entry.value
 
     def lookup_namespace(
@@ -1777,7 +1823,8 @@ class _CacheCoreLookup(_CacheCoreBase):
     ) -> bytes | LookupResult:
         self._ensure_active()
         if not self._is_database_available(namespace.database):
-            self._statistics.record_bypass(BypassReason.STREAM_UNAVAILABLE)
+            if self._statistics is not None:
+                self._statistics.record_bypass(BypassReason.STREAM_UNAVAILABLE)
             return _MISS
         canonical_discriminator = canonicalize(discriminator)
         key = NamespaceCacheKey(namespace, canonical_discriminator)
@@ -1790,13 +1837,15 @@ class _CacheCoreLookup(_CacheCoreBase):
         if not valid:
             return self._namespace_miss(defer_miss=defer_miss)
         self._lru.touch(key)
-        self._statistics.record_hit()
+        if self._statistics is not None:
+            self._statistics.record_hit()
         return entry.value
 
     def _namespace_miss(self, *, defer_miss: bool) -> LookupResult:
         if defer_miss:
             return _DEFERRED_MISS
-        self._statistics.record_miss()
+        if self._statistics is not None:
+            self._statistics.record_miss()
         return _MISS
 
     def resolve_alias(
@@ -1808,7 +1857,8 @@ class _CacheCoreLookup(_CacheCoreBase):
     ) -> Canonical | None:
         self._ensure_active()
         if not self._is_database_available(namespace.database):
-            self._statistics.record_bypass(BypassReason.STREAM_UNAVAILABLE)
+            if self._statistics is not None:
+                self._statistics.record_bypass(BypassReason.STREAM_UNAVAILABLE)
             return None
         alias_key = canonical_alias_key(definition, value, collation)
         state = self._namespace(namespace)
@@ -1823,10 +1873,12 @@ class _CacheCoreStreamCostTelemetry(_CacheCoreBase):
     __slots__ = ()
 
     def record_stream_poll(self, database: str) -> None:
-        self._stream_cost.record_poll(database)
+        if self._stream_cost is not None:
+            self._stream_cost.record_poll(database)
 
     def record_logical_event_bytes(self, database: str, count: NonNegativeInt) -> None:
-        self._stream_cost.record_logical_event_bytes(database, count)
+        if self._stream_cost is not None:
+            self._stream_cost.record_logical_event_bytes(database, count)
 
     def record_invalidation_applied(
         self,
@@ -1835,21 +1887,28 @@ class _CacheCoreStreamCostTelemetry(_CacheCoreBase):
         wall_seconds: NonNegativeFloat,
         monotonic_seconds: NonNegativeFloat,
     ) -> None:
-        self._stream_cost.record_invalidation(
-            database, raw_lag_seconds, wall_seconds, monotonic_seconds
-        )
+        if self._stream_cost is not None:
+            self._stream_cost.record_invalidation(
+                database, raw_lag_seconds, wall_seconds, monotonic_seconds
+            )
 
     def reset_stream_cost_statistics(self, database: str | None = None) -> None:
+        require_telemetry(enabled=self.enable_telemetry)
+        assert self._stream_cost is not None
         if database is None:
             self._stream_cost.reset_all()
         else:
             self._stream_cost.reset(database)
 
     def stream_cost_snapshot(self, database: str) -> StreamCostSnapshot:
+        require_telemetry(enabled=self.enable_telemetry)
+        assert self._stream_cost is not None
         used_bytes, _entry_count = self._lru.snapshot_usage()
         return self._stream_cost.snapshot(database, resident_bytes=used_bytes)
 
     def active_stream_cost_databases(self) -> list[str]:
+        require_telemetry(enabled=self.enable_telemetry)
+        assert self._stream_cost is not None
         return self._stream_cost.active_databases()
 
 

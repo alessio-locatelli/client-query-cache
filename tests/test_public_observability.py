@@ -19,7 +19,7 @@ from pymongo.asynchronous.cursor import AsyncCursor
 from pymongo.errors import ConnectionFailure
 from pymongo.synchronous.cursor import Cursor
 
-from client_query_cache import BypassReason, CacheManager
+from client_query_cache import BypassReason, CacheCoreConfig, CacheManager
 from client_query_cache._types import BsonDict, NonNegativeInt
 from client_query_cache.asynchronous import CacheManager as AsyncCacheManager
 from client_query_cache.otel import register_cache_metrics
@@ -43,14 +43,18 @@ pytestmark = pytest.mark.unit
 async def manager(request: pytest.FixtureRequest) -> AsyncIterator[Manager]:
     if request.param:
         async_client = AsyncMongoClient[BsonDict](connect=False)
-        async_manager = AsyncCacheManager(async_client)
+        async_manager = AsyncCacheManager(
+            async_client, cache_config=CacheCoreConfig(enable_telemetry=True)
+        )
         yield async_manager
         await async_manager.close()
         await async_client.close()
     else:
         with (
             MongoClient[BsonDict](connect=False) as client,
-            CacheManager(client) as instance,
+            CacheManager(
+                client, cache_config=CacheCoreConfig(enable_telemetry=True)
+            ) as instance,
         ):
             yield instance
 

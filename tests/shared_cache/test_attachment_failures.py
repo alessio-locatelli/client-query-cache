@@ -14,6 +14,7 @@ import pytest
 
 from benchmarks.stream_cost.shared_cache.protocol import Registration
 from benchmarks.stream_cost.shared_cache.window import attachment_for, owner_config
+from client_query_cache._core.codec import encode_value
 from client_query_cache._shared import attachment
 from client_query_cache._shared.attachment import (
     AsyncEndpoint,
@@ -26,6 +27,7 @@ from client_query_cache._shared.wire import (
     PROTOCOL_VERSION,
     ProtocolError,
     encode_frame,
+    encode_key,
 )
 from client_query_cache._shared_index import ReaderIndex
 
@@ -76,8 +78,8 @@ def test_sync_receive_rejects_eof_before_a_complete_reply(
     assert closed_connection.inbox == frame_prefix
 
 
-@pytest.fixture
-def endpoint(tmp_path: Path) -> AsyncEndpoint:
+@pytest.fixture(params=[False, True], ids=["disabled", "enabled"])
+def endpoint(tmp_path: Path, request: pytest.FixtureRequest) -> AsyncEndpoint:
     registration = Registration.load(Path("reports/shared-worker-cache/v6/config.json"))
     config = owner_config(
         registration,
@@ -86,7 +88,9 @@ def endpoint(tmp_path: Path) -> AsyncEndpoint:
         b"test-capability",
         "shared-index",
     )
-    return AsyncEndpoint(attachment_for(config))
+    return AsyncEndpoint(
+        replace(attachment_for(config), enable_telemetry=request.param)
+    )
 
 
 @pytest.fixture
@@ -103,6 +107,27 @@ async def reader_failure(endpoint: AsyncEndpoint) -> AsyncGenerator[ReaderFailur
         "pending": pending,
     }
     await endpoint.close()
+
+
+@pytest.fixture(params=["sync", "async"])
+async def closed_endpoint(
+    endpoint: AsyncEndpoint, request: pytest.FixtureRequest
+) -> SyncEndpoint | AsyncEndpoint:
+    if request.param == "sync":
+        synchronous = SyncEndpoint(endpoint.config, require_owner=False)
+        synchronous.close()
+        return synchronous
+    await endpoint.close()
+    return endpoint
+
+
+def test_closed_endpoints_discard_one_way_messages(
+    closed_endpoint: SyncEndpoint | AsyncEndpoint,
+) -> None:
+    closed_endpoint.send({"op": "discard", "handle": b"expired"})
+    assert not closed_endpoint.connected
+    if closed_endpoint.config.enable_telemetry:
+        assert closed_endpoint.counters.dropped_one_way == 1
 
 
 @pytest.mark.parametrize(
@@ -140,7 +165,8 @@ async def test_reconnect_handshake_transport_failure_bypasses_cache(
         asyncio, "open_unix_connection", AsyncMock(return_value=(reader, writer))
     )
     assert await endpoint.request({"op": "metadata"}) is None
-    assert endpoint.counters.failures == 1
+    if endpoint.config.enable_telemetry:
+        assert endpoint.counters.failures == 1
     assert endpoint._writer is None
     assert endpoint._pending == {}
     writer.close.assert_called_once()
@@ -155,7 +181,8 @@ async def test_handshake_timeout_reuses_unreachable_owner_backoff(
 
     assert await endpoint.request({"op": "metadata"}) is None
     assert await endpoint.request({"op": "metadata"}) is None
-    assert endpoint.counters.timeouts == 1
+    if endpoint.config.enable_telemetry:
+        assert endpoint.counters.timeouts == 1
     assert endpoint._writer is None
     assert endpoint._pending == {}
     connect.assert_awaited_once()
@@ -198,6 +225,9 @@ async def test_incompatible_handshake_is_a_hard_error(
             SyncEndpoint(incompatible_peer, require_owner=False)
 
 
+@pytest.mark.parametrize(
+    "endpoint", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
 def test_admission_recovery_expires_without_changing_diagnostic_counters(
     endpoint: AsyncEndpoint, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -218,9 +248,15 @@ def test_admission_recovery_expires_without_changing_diagnostic_counters(
     assert recovery.fallback_until == 0
     assert not recovery.active
     assert clock.call_count == 3
-    assert endpoint.counters.native_admission_recoveries == 0
+    if endpoint.config.enable_telemetry:
+        assert endpoint.counters.native_admission_recoveries == 0
+    else:
+        assert endpoint._counters is None
 
 
+@pytest.mark.parametrize(
+    "endpoint", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
 def test_enqueue_started_before_a_new_drop_cannot_reopen_recovery(
     endpoint: AsyncEndpoint,
 ) -> None:
@@ -234,6 +270,41 @@ def test_enqueue_started_before_a_new_drop_cannot_reopen_recovery(
     assert recovery.fallback_until == 0
     assert recovery.enqueued(recovery.generation)
     assert not recovery.enqueued(in_flight_generation)
+
+
+@pytest.mark.parametrize(
+    "endpoint", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
+def test_native_enqueue_updates_recovery_independently_of_counters(
+    endpoint: AsyncEndpoint,
+) -> None:
+    recovery = endpoint.admission_recovery
+    recovery.dropped()
+    reader = Mock(spec=ReaderIndex)
+    reader.enqueue_admission.return_value = True
+    message: Message = {
+        "op": "admit-local",
+        "ns": ["db", "catalogue"],
+        "slot": [0, 0],
+        "epoch": 0,
+        "incarnation": 1,
+        "token": [0, 0, time.monotonic_ns()],
+        "identity": encode_key(1),
+        "shape": encode_key("full"),
+        "value": encode_value({"_id": 1}),
+    }
+    assert (
+        attachment._one_way_frame(
+            message, endpoint.config, endpoint._counters, reader, recovery
+        )
+        is None
+    )
+    assert not recovery.awaiting_capacity
+    assert recovery.fallback_until > 0
+    if endpoint.config.enable_telemetry:
+        assert endpoint.counters.native_admission_recoveries == 1
+    else:
+        assert endpoint._counters is None
 
 
 @pytest.fixture
@@ -255,6 +326,9 @@ async def blocked_endpoint(endpoint: AsyncEndpoint) -> AsyncGenerator[AsyncEndpo
 @pytest.mark.parametrize(
     "native_overflow", [False, True], ids=["socket", "native-full"]
 )
+@pytest.mark.parametrize(
+    "endpoint", [False, True], indirect=True, ids=["disabled", "enabled"]
+)
 async def test_async_admissions_bound_socket_buffer(
     blocked_endpoint: AsyncEndpoint, native_overflow: bool
 ) -> None:
@@ -275,10 +349,13 @@ async def test_async_admissions_bound_socket_buffer(
         < writer.transport.get_write_buffer_size()
         <= (blocked_endpoint.config.frame_limit + LENGTH_BYTES)
     )
-    assert blocked_endpoint.counters.dropped_one_way > 0
-    assert blocked_endpoint.counters.native_admission_drops == (
-        blocked_endpoint.counters.dropped_one_way if native_overflow else 0
-    )
+    if blocked_endpoint.config.enable_telemetry:
+        assert blocked_endpoint.counters.dropped_one_way > 0
+        assert blocked_endpoint.counters.native_admission_drops == (
+            blocked_endpoint.counters.dropped_one_way if native_overflow else 0
+        )
+    else:
+        assert blocked_endpoint._counters is None
     assert blocked_endpoint.admission_recovery.awaiting_capacity is native_overflow
 
 

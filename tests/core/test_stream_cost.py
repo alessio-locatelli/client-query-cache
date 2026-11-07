@@ -35,9 +35,10 @@ _LAG_CONFIG_HINTS = get_type_hints(LagCaptureWindowConfig, include_extras=True)
 def single_sample_core() -> CacheCore:
     return CacheCore(
         CacheCoreConfig(
+            enable_telemetry=True,
             lag_capture_window_config=LagCaptureWindowConfig(
                 window_count=1, events_per_window=1, min_separation_events=0
-            )
+            ),
         )
     )
 
@@ -239,7 +240,9 @@ def test_lag_capture_windows_reset_clears_completed_and_partial_state() -> None:
 
 
 def test_stream_cost_snapshot_is_immutable() -> None:
-    snapshot = CacheCore().stream_cost_snapshot("db")
+    snapshot = CacheCore(CacheCoreConfig(enable_telemetry=True)).stream_cost_snapshot(
+        "db"
+    )
     with pytest.raises(dataclasses.FrozenInstanceError):
         snapshot.stream_polls = 99  # type: ignore[misc]
 
@@ -266,7 +269,7 @@ def test_stream_cost_snapshot_only_exposes_safe_primitive_fields(
 
 
 def test_stream_cost_snapshot_labels_resident_bytes_scope_and_lag_clock_skew() -> None:
-    core = CacheCore()
+    core = CacheCore(CacheCoreConfig(enable_telemetry=True))
     snapshot = core.stream_cost_snapshot("db")
 
     assert snapshot.resident_bytes_scope
@@ -275,7 +278,7 @@ def test_stream_cost_snapshot_labels_resident_bytes_scope_and_lag_clock_skew() -
 
 
 def test_stream_cost_snapshot_tracks_polls_bytes_and_invalidations() -> None:
-    core = CacheCore()
+    core = CacheCore(CacheCoreConfig(enable_telemetry=True))
     core.record_stream_poll("db")
     core.record_stream_poll("db")
     core.record_logical_event_bytes("db", 10)
@@ -298,7 +301,8 @@ def test_invalidation_apply_readings_exclude_separator_events() -> None:
         CacheCoreConfig(
             lag_capture_window_config=LagCaptureWindowConfig(
                 window_count=2, events_per_window=1, min_separation_events=1
-            )
+            ),
+            enable_telemetry=True,
         )
     )
     core.record_invalidation_applied("db", 1.0, 1.0, 2.0)
@@ -315,7 +319,7 @@ def test_invalidation_apply_readings_exclude_separator_events() -> None:
 
 
 def test_stream_cost_is_scoped_per_database_stream() -> None:
-    core = CacheCore()
+    core = CacheCore(CacheCoreConfig(enable_telemetry=True))
     core.record_stream_poll("db_one")
     core.record_invalidation_applied("db_two", 1.0, 1.0, 2.0)
 
@@ -332,7 +336,7 @@ def test_stream_cost_is_scoped_per_database_stream() -> None:
 def test_stream_cost_operation_does_not_register_an_untouched_database(
     operation: Literal["stream_cost_snapshot", "reset_stream_cost_statistics"],
 ) -> None:
-    core = CacheCore()
+    core = CacheCore(CacheCoreConfig(enable_telemetry=True))
 
     getattr(core, operation)("db")
 
@@ -350,7 +354,7 @@ def test_stream_cost_operation_does_not_register_an_untouched_database(
 def test_reset_stream_cost_statistics_scope(
     reset_databases: tuple[str, ...], expected_db_two_polls: NonNegativeInt
 ) -> None:
-    core = CacheCore()
+    core = CacheCore(CacheCoreConfig(enable_telemetry=True))
     core.record_stream_poll("db_one")
     core.record_stream_poll("db_two")
 
@@ -393,7 +397,9 @@ def test_reset_stream_cost_statistics_never_interleaves_with_an_in_flight_record
 
 
 def test_oversized_admission_increments_only_the_oversized_bypass_counter() -> None:
-    core = CacheCore(CacheCoreConfig(budget_bytes=1024, max_entry_bytes=32))
+    core = CacheCore(
+        CacheCoreConfig(budget_bytes=1024, max_entry_bytes=32, enable_telemetry=True)
+    )
     namespace = NamespaceId("db", "coll")
     capture = core.begin_identity_admission(namespace, "doc-1")
 
@@ -407,7 +413,7 @@ def test_oversized_admission_increments_only_the_oversized_bypass_counter() -> N
 def test_unavailable_database_bypass_does_not_touch_oversized_counter(
     namespace: NamespaceId,
 ) -> None:
-    core = CacheCore()
+    core = CacheCore(CacheCoreConfig(enable_telemetry=True))
     core.set_database_available(namespace.database, available=False)
 
     core.lookup_identity(namespace, "doc-1", "full")
@@ -418,7 +424,7 @@ def test_unavailable_database_bypass_does_not_touch_oversized_counter(
 
 
 def test_uncached_namespace_write_event_records_no_invalidation_or_lag() -> None:
-    core = CacheCore()
+    core = CacheCore(CacheCoreConfig(enable_telemetry=True))
 
     route_change_event(core, "db", _insert_event(_WALL_TIME))
 
@@ -477,7 +483,7 @@ def test_cached_namespace_write_event_records_signed_invalidation_lag(
 def test_multi_namespace_event_records_one_lag_sample(
     collections: tuple[str, ...], event: BsonDict
 ) -> None:
-    core = CacheCore()
+    core = CacheCore(CacheCoreConfig(enable_telemetry=True))
     for collection in collections:
         capture = core.capture_namespace_generation(NamespaceId("db", collection))
         core.admit_namespace(capture, "query", [1])
@@ -489,7 +495,7 @@ def test_multi_namespace_event_records_one_lag_sample(
 
 
 def test_stream_cost_snapshot_never_carries_document_or_resume_token_content() -> None:
-    core = CacheCore()
+    core = CacheCore(CacheCoreConfig(enable_telemetry=True))
     namespace = NamespaceId("db", "coll")
     capture = core.begin_identity_admission(namespace, "doc-1")
     core.admit_identity(

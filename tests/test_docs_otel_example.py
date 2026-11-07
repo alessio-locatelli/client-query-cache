@@ -7,7 +7,7 @@ from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import InMemoryMetricReader, NumberDataPoint
 from pymongo import AsyncMongoClient, MongoClient
 
-from client_query_cache import CacheManager
+from client_query_cache import CacheCoreConfig, CacheManager
 from client_query_cache._core.keys import NamespaceId
 from client_query_cache._types import BsonDict
 from client_query_cache.asynchronous import CacheManager as AsyncCacheManager
@@ -28,13 +28,17 @@ async def documented_manager(
     if request.param:
         async with (
             AsyncMongoClient[BsonDict](connect=False) as client,
-            AsyncCacheManager(client) as manager,
+            AsyncCacheManager(
+                client, cache_config=CacheCoreConfig(enable_telemetry=True)
+            ) as manager,
         ):
             yield manager
     else:
         with (
             MongoClient[BsonDict](connect=False) as sync_client,
-            CacheManager(sync_client) as sync_manager,
+            CacheManager(
+                sync_client, cache_config=CacheCoreConfig(enable_telemetry=True)
+            ) as sync_manager,
         ):
             yield sync_manager
 

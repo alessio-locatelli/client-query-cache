@@ -35,7 +35,7 @@ from benchmarks.stream_cost.measurement import (
 )
 from benchmarks.stream_cost.proxy import DirectPathByteProxy, DirectPathProxyConfig
 from benchmarks.stream_cost.topology import IsolatedReplicaSet, ResourceLimits
-from client_query_cache import CacheManager
+from client_query_cache import CacheCoreConfig, CacheManager
 from client_query_cache._core.entries import AdmissionOutcome
 from client_query_cache._types import (
     BsonDict,
@@ -247,7 +247,11 @@ def qualify(database: Database[BsonDict], policy: Policy, body: str) -> None:
     )
     with ExitStack() as stack:
         router.install(stack)
-        manager = stack.enter_context(CacheManager(database.client))
+        manager = stack.enter_context(
+            CacheManager(
+                database.client, cache_config=CacheCoreConfig(enable_telemetry=True)
+            )
+        )
         calls = operations(manager, raw, router)
         direct = operations(None, raw, router)
         await_warm(manager, calls["by_id", 0])
@@ -444,7 +448,13 @@ def run_cell(
                 ),
             )
         )
-        manager = None if path == "direct" else stack.enter_context(CacheManager(app))
+        manager = (
+            None
+            if path == "direct"
+            else stack.enter_context(
+                CacheManager(app, cache_config=CacheCoreConfig(enable_telemetry=True))
+            )
+        )
         name = "other" if scenario == "unrelated" else "target"
         raw = app.bench[name].with_options(
             read_preference=ReadPreference.PRIMARY,
@@ -597,7 +607,9 @@ def micro(
             replica.build_client(TOPOLOGY, event_listeners=(listener,))
         )
         router.install(stack)
-        manager = stack.enter_context(CacheManager(client))
+        manager = stack.enter_context(
+            CacheManager(client, cache_config=CacheCoreConfig(enable_telemetry=True))
+        )
         calls = operations(manager, client[database.name].target, router)
         await_warm(manager, calls["by_id", 0])
         for index in range(WARMUP):

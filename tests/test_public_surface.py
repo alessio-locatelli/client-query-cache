@@ -19,6 +19,7 @@ pytestmark = pytest.mark.unit
 MANAGER_MEMBERS = {
     "client",
     "cache_core",
+    "enable_telemetry",
     "get_cached_collection",
     "snapshot",
     "stream_health_snapshot",

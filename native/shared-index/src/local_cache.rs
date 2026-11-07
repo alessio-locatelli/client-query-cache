@@ -648,6 +648,15 @@ struct Retired {
     _closed: Option<ClosedStorage>,
 }
 
+struct Statistics {
+    hits: u64,
+    misses: u64,
+    evictions: u64,
+    oversized: u64,
+    bypasses: Vec<u64>,
+    declines: [u64; 9],
+}
+
 struct State {
     closed: bool,
     revision: u64,
@@ -667,15 +676,10 @@ struct State {
     rows: Slots<Row>,
     identities: Slots<Identity>,
     lru: Chain,
-    hits: u64,
-    misses: u64,
-    evictions: u64,
-    oversized: u64,
-    bypasses: Vec<u64>,
+    statistics: Option<Statistics>,
     unavailable_reason: usize,
     invalidated_reason: usize,
     shared: Option<Box<shared::SharedState>>,
-    declines: [u64; 9],
 }
 
 impl State {
@@ -1106,10 +1110,14 @@ impl State {
             } else {
                 self.unavailable_reason
             };
-            self.bypasses[reason] += 1;
+            if let Some(statistics) = &mut self.statistics {
+                statistics.bypasses[reason] += 1;
+            }
             Some(UNAVAILABLE)
         } else if weight > self.max_entry {
-            self.oversized += 1;
+            if let Some(statistics) = &mut self.statistics {
+                statistics.oversized += 1;
+            }
             Some(OVERSIZE)
         } else {
             None
@@ -1460,8 +1468,11 @@ impl State {
         }
         for &value in &plan.values {
             self.remove_value(value, true, retired);
-            if Some(value) != replaced && Some(value) != redundant {
-                self.evictions += 1;
+            if Some(value) != replaced
+                && Some(value) != redundant
+                && let Some(statistics) = &mut self.statistics
+            {
+                statistics.evictions += 1;
             }
         }
     }
@@ -1529,13 +1540,17 @@ impl State {
                     self.remove_alias(alias, retired);
                 } else {
                     self.remove_value(self.lru.first, true, retired);
-                    self.evictions += 1;
+                    if let Some(statistics) = &mut self.statistics {
+                        statistics.evictions += 1;
+                    }
                 }
             }
         }
         while self.used > self.budget {
             self.remove_value(self.lru.first, true, retired);
-            self.evictions += 1;
+            if let Some(statistics) = &mut self.statistics {
+                statistics.evictions += 1;
+            }
         }
         Some(Handle { slot, token })
     }
@@ -1563,7 +1578,9 @@ impl State {
                 .max_entries
                 .is_some_and(|maximum| self.rows.count >= maximum)
         {
-            self.declines[8] += 1;
+            if let Some(statistics) = &mut self.statistics {
+                statistics.declines[8] += 1;
+            }
             return false;
         }
         let key = if let Some(previous) = previous {
@@ -1606,6 +1623,7 @@ const OUTCOMES: usize = 14;
 const REASONS: usize = 15;
 const GETSIZEOF: usize = 16;
 const CANONICAL_TAG: usize = 17;
+const CONFIGURATION_ERROR: usize = 18;
 const KEY_SIZE_LIMIT: usize = 0;
 const KEY_SIZE_UNAVAILABLE: usize = 1;
 const KEY_NODES: usize = 32;
@@ -1834,9 +1852,17 @@ pub(crate) struct LocalOwner {
     tuple_size: Option<usize>,
     count_limit: Option<usize>,
     stream_cost: Py<PyAny>,
+    enable_telemetry: bool,
 }
 
 impl LocalOwner {
+    fn require_telemetry(&self, py: Python<'_>) -> PyResult<()> {
+        if !self.enable_telemetry {
+            self.operation(py, CONFIGURATION_ERROR).call0()?;
+        }
+        Ok(())
+    }
+
     fn prepare_identity_owner(
         &self,
         py: Python<'_>,
@@ -1975,7 +2001,9 @@ impl LocalOwner {
             Ok(true)
         } else {
             let reason = state.unavailable_reason;
-            state.bypasses[reason] += 1;
+            if let Some(statistics) = &mut state.statistics {
+                statistics.bypasses[reason] += 1;
+            }
             Ok(false)
         }
     }
@@ -1994,12 +2022,14 @@ impl LocalOwner {
                 self.active(py, &state)?;
                 if !state.available(&names.0).0 {
                     let reason = state.unavailable_reason;
-                    state.bypasses[reason] += 1;
+                    if let Some(statistics) = &mut state.statistics {
+                        statistics.bypasses[reason] += 1;
+                    }
                     return Ok(Read::Bypass);
                 }
                 let Some(namespace) = state.namespace(&names.0, &names.1) else {
-                    if !defer {
-                        state.misses += 1;
+                    if !defer && let Some(statistics) = &mut state.statistics {
+                        statistics.misses += 1;
                     }
                     return Ok(Read::Miss);
                 };
@@ -2019,11 +2049,13 @@ impl LocalOwner {
                 && let Some(payload) = state.payload(py, pin.slot, &pin.node)
             {
                 state.touch(pin.slot);
-                state.hits += 1;
+                if let Some(statistics) = &mut state.statistics {
+                    statistics.hits += 1;
+                }
                 return Ok(Read::Hit(payload));
             }
-            if !defer {
-                state.misses += 1;
+            if !defer && let Some(statistics) = &mut state.statistics {
+                statistics.misses += 1;
             }
             return Ok(Read::Miss);
         }
@@ -2102,9 +2134,13 @@ impl LocalOwner {
                     return Ok(STALE);
                 }
                 if let Some(reason) = key_decision {
-                    state.declines[reason] += 1;
-                    if let Some(policy) = &prepared {
-                        state.declines[policy.pending] += 1;
+                    if let Some(statistics) = &mut state.statistics {
+                        statistics.declines[reason] += 1;
+                    }
+                    if let Some(policy) = &prepared
+                        && let Some(statistics) = &mut state.statistics
+                    {
+                        statistics.declines[policy.pending] += 1;
                     }
                     return Ok(RETENTION);
                 }
@@ -2126,8 +2162,10 @@ impl LocalOwner {
             if !Self::namespace_capture_valid(&state, capture) {
                 return Ok(STALE);
             }
-            if let Some(policy) = &prepared {
-                state.declines[policy.pending] += 1;
+            if let Some(policy) = &prepared
+                && let Some(statistics) = &mut state.statistics
+            {
+                statistics.declines[policy.pending] += 1;
             }
             if self.count_limit.is_some() && previous.is_some_and(|pin| state.valid(&pin.node)) {
                 return Ok(ADMITTED);
@@ -2208,7 +2246,9 @@ impl LocalOwner {
                     return Ok(STALE);
                 }
                 if let Some(reason) = key_decision {
-                    state.declines[3 + reason] += 1;
+                    if let Some(statistics) = &mut state.statistics {
+                        statistics.declines[3 + reason] += 1;
+                    }
                     return Ok(RETENTION);
                 }
                 let namespace = capture.namespace_id.expect("valid capture");
@@ -2243,7 +2283,9 @@ impl LocalOwner {
             let metadata = capture.handle.expect("identity capture");
             let publish = |state: &mut State, retired: &mut Retired| {
                 if let Some(reason) = alias_decision {
-                    state.declines[6 + reason] += 1;
+                    if let Some(statistics) = &mut state.statistics {
+                        statistics.declines[6 + reason] += 1;
+                    }
                 } else if let (Some(alias), Some(hash)) = (alias, alias_hash) {
                     state.publish_alias(
                         AliasPublication {
@@ -2472,9 +2514,13 @@ impl LocalOwner {
                 fallback_decision = Some(sizer.decide(&[key])?);
                 continue;
             };
-            state.declines[8] += 1;
+            if let Some(statistics) = &mut state.statistics {
+                statistics.declines[8] += 1;
+            }
             if let Some(reason) = namespace_decision {
-                state.declines[reason] += 1;
+                if let Some(statistics) = &mut state.statistics {
+                    statistics.declines[reason] += 1;
+                }
                 return Ok(RETENTION);
             }
             if previous_ns.is_some_and(|pin| state.valid(&pin.node)) {
@@ -2548,7 +2594,12 @@ impl LocalOwner {
         } else {
             None
         };
+        let enable_telemetry = setup
+            .get_item(0)?
+            .getattr("enable_telemetry")?
+            .extract::<bool>()?;
         Ok(Self {
+            enable_telemetry,
             state: Arc::new(Mutex::new(State {
                 closed: false,
                 revision: 0,
@@ -2571,15 +2622,17 @@ impl LocalOwner {
                 rows: Slots::default(),
                 identities: Slots::default(),
                 lru: Chain::default(),
-                hits: 0,
-                misses: 0,
-                evictions: 0,
-                oversized: 0,
-                bypasses: vec![0; reason_count],
+                statistics: enable_telemetry.then(|| Statistics {
+                    hits: 0,
+                    misses: 0,
+                    evictions: 0,
+                    oversized: 0,
+                    bypasses: vec![0; reason_count],
+                    declines: [0; 9],
+                }),
                 unavailable_reason,
                 invalidated_reason,
                 shared: shared.map(Box::new),
-                declines: [0; 9],
             })),
             keys: operations
                 .get_item(ORDER_SENSITIVE)?
@@ -2607,6 +2660,10 @@ impl LocalOwner {
         drop(retired);
     }
     #[getter]
+    fn enable_telemetry(&self) -> bool {
+        self.enable_telemetry
+    }
+    #[getter]
     fn max_entry_bytes(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         Ok(self
             .config
@@ -2631,21 +2688,23 @@ impl LocalOwner {
             .unbind())
     }
     fn snapshot(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        self.require_telemetry(py)?;
         let (values, declines) = {
             let state = self.state.lock().expect("local owner mutex");
+            let statistics = state.statistics.as_ref().expect("enabled statistics");
             (
                 (
                     state.closed,
                     state.used,
                     state.value_count,
-                    state.hits,
-                    state.misses,
-                    state.evictions,
-                    state.oversized,
-                    state.bypasses.clone(),
+                    statistics.hits,
+                    statistics.misses,
+                    statistics.evictions,
+                    statistics.oversized,
+                    statistics.bypasses.clone(),
                     state.rows.count - state.value_count,
                 ),
-                state.declines,
+                statistics.declines,
             )
         };
         let (closed, used, count, hits, misses, evictions, oversized, reasons, aliases) = values;
@@ -2701,10 +2760,21 @@ impl LocalOwner {
         keys
     }
     fn record_miss(&self) {
-        self.state.lock().expect("local owner mutex").misses += 1;
+        if self.enable_telemetry {
+            self.state
+                .lock()
+                .expect("local owner mutex")
+                .statistics
+                .as_mut()
+                .expect("enabled statistics")
+                .misses += 1;
+        }
     }
     #[pyo3(signature = (reason=None))]
     fn record_bypass(&self, py: Python<'_>, reason: Option<&Bound<'_, PyAny>>) -> PyResult<()> {
+        if !self.enable_telemetry {
+            return Ok(());
+        }
         let reasons = self.operation(py, REASONS);
         let index = if let Some(reason) = reason {
             reasons
@@ -2713,11 +2783,25 @@ impl LocalOwner {
         } else {
             reasons.len()? - 1
         };
-        self.state.lock().expect("local owner mutex").bypasses[index] += 1;
+        self.state
+            .lock()
+            .expect("local owner mutex")
+            .statistics
+            .as_mut()
+            .expect("enabled statistics")
+            .bypasses[index] += 1;
         Ok(())
     }
     fn record_oversized_bypass(&self) {
-        self.state.lock().expect("local owner mutex").oversized += 1;
+        if self.enable_telemetry {
+            self.state
+                .lock()
+                .expect("local owner mutex")
+                .statistics
+                .as_mut()
+                .expect("enabled statistics")
+                .oversized += 1;
+        }
     }
     fn namespaces_for_database(&self, py: Python<'_>, database: &str) -> Vec<Py<PyAny>> {
         let state = self.state.lock().expect("local owner mutex");
@@ -3177,7 +3261,9 @@ impl LocalOwner {
                 self.active(py, &state)?;
                 if !state.available(&names.0).0 {
                     let reason = state.unavailable_reason;
-                    state.bypasses[reason] += 1;
+                    if let Some(statistics) = &mut state.statistics {
+                        statistics.bypasses[reason] += 1;
+                    }
                     return Ok(None);
                 }
                 let Some(id) = state.register(py, namespace, &names) else {
@@ -3289,11 +3375,15 @@ impl LocalOwner {
                 self.active(py, &state)?;
                 if !state.available(&names.0).0 {
                     let reason = state.unavailable_reason;
-                    state.bypasses[reason] += 1;
+                    if let Some(statistics) = &mut state.statistics {
+                        statistics.bypasses[reason] += 1;
+                    }
                     return Ok(None);
                 }
                 let Some(id) = state.register(py, namespace, &names) else {
-                    state.misses += 1;
+                    if let Some(statistics) = &mut state.statistics {
+                        statistics.misses += 1;
+                    }
                     return Ok(None);
                 };
                 (
@@ -3318,7 +3408,9 @@ impl LocalOwner {
                     && let Some(payload) = state.payload(py, pin.slot, &pin.node)
                 {
                     state.touch(pin.slot);
-                    state.hits += 1;
+                    if let Some(statistics) = &mut state.statistics {
+                        statistics.hits += 1;
+                    }
                     return Ok(Some(payload));
                 }
             }
@@ -3380,10 +3472,14 @@ impl LocalOwner {
                 && let Some(payload) = state.payload(py, pin.slot, &pin.node)
             {
                 state.touch(pin.slot);
-                state.hits += 1;
+                if let Some(statistics) = &mut state.statistics {
+                    statistics.hits += 1;
+                }
                 return Ok(Some(payload));
             }
-            state.misses += 1;
+            if let Some(statistics) = &mut state.statistics {
+                statistics.misses += 1;
+            }
             return Ok(None);
         }
     }
@@ -3640,7 +3736,9 @@ impl LocalOwner {
             let generation = metadata.generation;
             let epoch = state.namespaces[&namespace].epoch;
             if let Some(reason) = alias_decision {
-                state.declines[6 + reason] += 1;
+                if let Some(statistics) = &mut state.statistics {
+                    statistics.declines[6 + reason] += 1;
+                }
             } else {
                 state.publish_alias(
                     AliasPublication {
@@ -3655,7 +3753,9 @@ impl LocalOwner {
                 );
             }
             let ns_result = if let Some(reason) = namespace_decision {
-                state.declines[reason] += 1;
+                if let Some(statistics) = &mut state.statistics {
+                    statistics.declines[reason] += 1;
+                }
                 None
             } else {
                 let token = state.token();
@@ -3719,6 +3819,9 @@ impl LocalOwner {
         }
     }
     fn record_stream_poll(&self, py: Python<'_>, database: &str) -> PyResult<()> {
+        if !self.enable_telemetry {
+            return Ok(());
+        }
         self.stream_cost
             .bind(py)
             .call_method1(pyo3::intern!(py, "record_poll"), (database,))?;
@@ -3730,6 +3833,9 @@ impl LocalOwner {
         database: &str,
         count: u64,
     ) -> PyResult<()> {
+        if !self.enable_telemetry {
+            return Ok(());
+        }
         self.stream_cost.bind(py).call_method1(
             pyo3::intern!(py, "record_logical_event_bytes"),
             (database, count),
@@ -3744,6 +3850,9 @@ impl LocalOwner {
         wall_seconds: f64,
         monotonic_seconds: f64,
     ) -> PyResult<()> {
+        if !self.enable_telemetry {
+            return Ok(());
+        }
         self.stream_cost.bind(py).call_method1(
             pyo3::intern!(py, "record_invalidation"),
             (database, raw_lag_seconds, wall_seconds, monotonic_seconds),
@@ -3752,6 +3861,7 @@ impl LocalOwner {
     }
     #[pyo3(signature = (database=None))]
     fn reset_stream_cost_statistics(&self, py: Python<'_>, database: Option<&str>) -> PyResult<()> {
+        self.require_telemetry(py)?;
         match database {
             Some(database) => {
                 self.stream_cost
@@ -3767,6 +3877,7 @@ impl LocalOwner {
         Ok(())
     }
     fn stream_cost_snapshot(&self, py: Python<'_>, database: &str) -> PyResult<Py<PyAny>> {
+        self.require_telemetry(py)?;
         let used = self.state.lock().expect("local owner mutex").used;
         let kwargs = PyDict::new(py);
         kwargs.set_item("resident_bytes", used)?;
@@ -3777,6 +3888,7 @@ impl LocalOwner {
             .unbind())
     }
     fn active_stream_cost_databases(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        self.require_telemetry(py)?;
         Ok(self
             .stream_cost
             .bind(py)

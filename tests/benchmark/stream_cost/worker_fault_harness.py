@@ -13,6 +13,7 @@ from pymongo.errors import OperationFailure, PyMongoError
 
 from benchmarks.stream_cost.multiprocess_run import WireCommands
 from benchmarks.stream_cost.shared_cache.owner import proxy_for
+from client_query_cache import CacheCoreConfig
 from client_query_cache._types import (
     BsonDict,
     NonEmpty,
@@ -298,7 +299,9 @@ async def _open_worker(
     manager: CacheManager[BsonDict] | None = None
     collection: WorkerCollection
     if config.path == "independent":
-        manager = CacheManager(client)
+        manager = CacheManager(
+            client, cache_config=CacheCoreConfig(enable_telemetry=True)
+        )
         collection = manager[config.database][config.collection]
     else:
         collection = client[config.database][config.collection]

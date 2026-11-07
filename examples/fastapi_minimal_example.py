@@ -68,7 +68,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     async with (
         AsyncMongoClient[ProductDocument](MONGODB_URI) as client,
         CacheManager(
-            client, cache_config=CacheCoreConfig(max_entry_bytes=1024)
+            client,
+            cache_config=CacheCoreConfig(max_entry_bytes=1024, enable_telemetry=True),
         ) as manager,
     ):
         raw = client[DATABASE_NAME].get_collection(

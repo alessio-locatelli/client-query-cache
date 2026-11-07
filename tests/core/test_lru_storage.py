@@ -58,9 +58,10 @@ def test_retention_limits_reject_invalid_types(
             CacheCoreConfig(**{field: invalid_config_integer})  # type: ignore[arg-type]
 
 
+@pytest.mark.parametrize("core", [True], indirect=True, ids=["telemetry"])
 def test_removed_budget_interfaces_are_not_aliased(core: CacheCore) -> None:
     with pytest.raises(TypeError, match="shared_budget_bytes"):
-        CacheCoreConfig(shared_budget_bytes=1024)  # type: ignore[call-arg]
+        CacheCoreConfig(shared_budget_bytes=1024, enable_telemetry=True)  # type: ignore[call-arg]
     with pytest.raises(AttributeError, match="shared_budget_bytes"):
         attrgetter("shared_budget_bytes")(core.snapshot())
 

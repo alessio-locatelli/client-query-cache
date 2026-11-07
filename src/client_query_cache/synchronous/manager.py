@@ -68,6 +68,10 @@ class CacheManager[DocumentType: Mapping[str, Any]]:
     def cache_core(self) -> CacheCore:
         return self._cache
 
+    @property
+    def enable_telemetry(self) -> bool:
+        return self._cache.enable_telemetry
+
     def snapshot(self) -> CacheSnapshot:
         return self._cache.snapshot()
 
