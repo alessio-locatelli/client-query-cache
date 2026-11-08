@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import gc
-import multiprocessing
 import threading
 import weakref
 from collections import defaultdict
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import partial
@@ -37,6 +36,7 @@ from client_query_cache.synchronous import CacheManager as SyncManager
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator
+    from concurrent.futures import ProcessPoolExecutor
     from contextlib import AbstractContextManager
     from types import NotImplementedType
 
@@ -659,14 +659,6 @@ def construction_probe() -> tuple[bool, bool, bool]:
         asyncio.run(async_construction()),
         shared_coordinator.SharedOwnerCore is SharedOwnerCore,  # type: ignore[attr-defined] # The private imported constructor is intentionally inspected.
     )
-
-
-@pytest.fixture
-def spawned_worker() -> Generator[ProcessPoolExecutor]:
-    with ProcessPoolExecutor(
-        max_workers=1, mp_context=multiprocessing.get_context("spawn")
-    ) as pool:
-        yield pool
 
 
 def test_spawned_native_construction_is_shared_by_managers_and_coordinators(

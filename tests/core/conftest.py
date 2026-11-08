@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import multiprocessing
+from concurrent.futures import ProcessPoolExecutor
 from typing import TYPE_CHECKING
 
 import pytest
@@ -8,7 +10,7 @@ from client_query_cache._core.keys import NamespaceId
 from client_query_cache._core.manager import CacheCore, CacheCoreConfig
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Generator
 
     from client_query_cache._core.entries import CacheEntry
     from client_query_cache._core.keys import CacheKey
@@ -17,6 +19,14 @@ if TYPE_CHECKING:
 
 class _IntegerSubclass(int):
     __slots__ = ()
+
+
+@pytest.fixture
+def spawned_worker() -> Generator[ProcessPoolExecutor]:
+    with ProcessPoolExecutor(
+        max_workers=1, mp_context=multiprocessing.get_context("spawn")
+    ) as pool:
+        yield pool
 
 
 @pytest.fixture(

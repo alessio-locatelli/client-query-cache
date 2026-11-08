@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import gc
-import logging
 import threading
 import time
 import tracemalloc
@@ -31,6 +30,7 @@ from client_query_cache._types import NonNegativeInt, PositiveFloat, PositiveInt
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator, Iterator
+    from concurrent.futures import ProcessPoolExecutor
 
     from faker import Faker
 
@@ -562,10 +562,7 @@ def test_storing_metadata_again_refreshes_its_position_before_eviction() -> None
     assert metadata.find(third) == "third metadata"
 
 
-def test_namespace_metadata_reaches_a_memory_plateau_under_name_churn(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    caplog.set_level(logging.WARNING, logger="client_query_cache._core.manager")
+def _assert_namespace_metadata_memory_plateau() -> None:
     with _trace_python_allocations():
         core = CacheCore(CacheCoreConfig(max_namespaces=_NAMESPACE_LIMIT))
         collection_metadata = CollectionMetadataCache(_NAMESPACE_LIMIT)
@@ -605,7 +602,16 @@ def test_namespace_metadata_reaches_a_memory_plateau_under_name_churn(
     assert len(core._namespaces) == 0
     assert len(collection_metadata._entries) == _NAMESPACE_LIMIT
     assert len(unique_key_metadata._entries) == _NAMESPACE_LIMIT
-    assert all(current <= retained_bytes[0] + 16_384 for current in retained_bytes[1:])
+    assert all(
+        current <= retained_bytes[0] + 16_384 for current in retained_bytes[1:]
+    ), retained_bytes
+
+
+def test_namespace_metadata_reaches_a_memory_plateau_under_name_churn(
+    spawned_worker: ProcessPoolExecutor,
+) -> None:
+    # Isolate process-wide tracing from pytest capture and background workers.
+    spawned_worker.submit(_assert_namespace_metadata_memory_plateau).result(timeout=15)
 
 
 @pytest.mark.parametrize(
