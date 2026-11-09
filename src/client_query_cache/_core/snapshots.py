@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import threading
 from dataclasses import dataclass
 from enum import StrEnum
 from functools import lru_cache
-from itertools import starmap
 from typing import TYPE_CHECKING, Protocol
 
 from client_query_cache._types import NonNegativeInt, PositiveInt
@@ -60,9 +58,6 @@ _RETENTION_DIMENSIONS = tuple(
     (kind, reason) for kind in RetentionRecordKind for reason in RetentionDeclineReason
 )
 _RETENTION_COUNT_VARIANTS = 256
-_RETENTION_INDEX = {
-    dimensions: index for index, dimensions in enumerate(_RETENTION_DIMENSIONS)
-}
 EMPTY_RETENTION_DECLINES = tuple(
     RetentionDeclineCount(kind, reason, 0) for kind, reason in _RETENTION_DIMENSIONS
 )
@@ -98,82 +93,6 @@ class CacheSnapshot:
     max_key_bytes: PositiveInt | None = None
     alias_count: NonNegativeInt = 0
     retention_declines: tuple[RetentionDeclineCount, ...] = EMPTY_RETENTION_DECLINES
-
-
-class CacheStatistics:
-    __slots__ = (
-        "_bypass_reasons",
-        "_bypasses",
-        "_evictions",
-        "_hits",
-        "_lock",
-        "_misses",
-        "_oversized_bypasses",
-        "_retention_declines",
-    )
-
-    def __init__(self) -> None:
-        self._lock = threading.Lock()
-        self._hits = 0
-        self._misses = 0
-        self._evictions = 0
-        self._bypasses = 0
-        self._bypass_reasons = dict.fromkeys(BypassReason, 0)
-        self._oversized_bypasses = 0
-        self._retention_declines: list[NonNegativeInt] = [0] * len(
-            _RETENTION_DIMENSIONS
-        )
-
-    def record_retention_decline(
-        self, kind: RetentionRecordKind, reason: RetentionDeclineReason
-    ) -> None:
-        with self._lock:
-            self._retention_declines[_RETENTION_INDEX[kind, reason]] += 1
-
-    def retention_snapshot(self) -> tuple[RetentionDeclineCount, ...]:
-        with self._lock:
-            return retention_counts(tuple(self._retention_declines))
-
-    def record_hit(self) -> None:
-        with self._lock:
-            self._hits += 1
-
-    def record_miss(self) -> None:
-        with self._lock:
-            self._misses += 1
-
-    def record_evictions(self, count: NonNegativeInt) -> None:
-        with self._lock:
-            self._evictions += count
-
-    def record_bypass(self, reason: BypassReason = BypassReason.UNSPECIFIED) -> None:
-        with self._lock:
-            self._bypasses += 1
-            self._bypass_reasons[reason] += 1
-
-    def record_oversized_bypass(self) -> None:
-        with self._lock:
-            self._oversized_bypasses += 1
-
-    def snapshot(
-        self,
-    ) -> tuple[
-        NonNegativeInt,
-        NonNegativeInt,
-        NonNegativeInt,
-        NonNegativeInt,
-        NonNegativeInt,
-        tuple[BypassReasonCount, ...],
-    ]:
-        with self._lock:
-            return (
-                self._hits,
-                self._misses,
-                self._evictions,
-                self._bypasses,
-                self._oversized_bypasses,
-                tuple(starmap(BypassReasonCount, self._bypass_reasons.items())),
-            )
 
 
 class StatisticsSource(Protocol):

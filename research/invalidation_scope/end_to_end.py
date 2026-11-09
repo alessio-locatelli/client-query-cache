@@ -1,4 +1,4 @@
-"""Measure actual read retention and net costs of experimental invalidation guards."""
+"""Measure read retention and costs of the production manager under write churn."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ import platform
 import random
 import shutil
 import subprocess
+import threading
 import time
 from contextlib import ExitStack
 from dataclasses import asdict
@@ -21,7 +22,6 @@ from urllib.parse import urlparse
 
 import bson
 import pymongo
-from bson.int64 import Int64
 from pymongo import ReadPreference
 from pymongo.monitoring import CommandListener
 from pymongo.read_concern import ReadConcern
@@ -36,7 +36,7 @@ from benchmarks.stream_cost.measurement import (
 from benchmarks.stream_cost.proxy import DirectPathByteProxy, DirectPathProxyConfig
 from benchmarks.stream_cost.topology import IsolatedReplicaSet, ResourceLimits
 from client_query_cache import CacheCoreConfig, CacheManager
-from client_query_cache._core.entries import AdmissionOutcome
+from client_query_cache._core.stream_events import route_change_event
 from client_query_cache._types import (
     BsonDict,
     NonNegativeFloat,
@@ -44,6 +44,7 @@ from client_query_cache._types import (
     PositiveInt,
 )
 from client_query_cache.synchronous import manager as manager_module
+from client_query_cache.synchronous import streams as stream_module
 from client_query_cache.synchronous.streams import ChangeStreamCoordinator
 from research.invalidation_scope.benchmark import (
     AUTHORS,
@@ -58,10 +59,9 @@ from research.invalidation_scope.benchmark import (
     newest_documents,
     read_key,
 )
-from research.invalidation_scope.guards import GuardRouter, Policy, ReadKind
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping
 
     from pymongo.monitoring import (
         CommandFailedEvent,
@@ -71,13 +71,17 @@ if TYPE_CHECKING:
     from pymongo.synchronous.collection import Collection
     from pymongo.synchronous.database import Database
 
+    from client_query_cache._core.contracts import LocalCacheCore
+    from client_query_cache._core.namespace_metadata import NamespaceMetadataCache
     from client_query_cache.synchronous.collection import CachedCollection
 
-PathKind = Literal["direct", "current", "insert", "fields"]
+PathKind = Literal["direct", "current"]
+ReadKind = Literal["feed", "count", "own", "by_id"]
 Mix = Literal["insert", "update"]
 Scenario = Literal["cached", "uncached", "unrelated"]
 READ_KINDS: tuple[ReadKind, ...] = ("feed", "count", "own", "by_id")
-PATHS: tuple[PathKind, ...] = ("direct", "current", "insert", "fields")
+PATHS: tuple[PathKind, ...] = ("direct", "current")
+WRITE_OPERATIONS = frozenset({"insert", "update", "replace", "delete"})
 MAJORITY = ReadConcern("majority")
 SEED = 257
 
@@ -96,6 +100,51 @@ class ReadCommands(CommandListener):
 
     def failed(self, event: CommandFailedEvent) -> None:
         pass
+
+
+class RoutingObserver:
+    __slots__ = ("applied", "condition", "route_cpu_ns")
+
+    def __init__(self) -> None:
+        self.condition = threading.Condition()
+        self.applied: list[NonNegativeFloat] = []
+        self.route_cpu_ns = 0
+
+    def install(self, stack: ExitStack) -> None:
+        stack.enter_context(
+            patch.object(stream_module, "route_change_event", self.route)
+        )
+
+    def reset(self) -> None:
+        with self.condition:
+            self.applied.clear()
+            self.route_cpu_ns = 0
+
+    def drain(self, count: NonNegativeInt) -> None:
+        with self.condition:
+            complete = self.condition.wait_for(lambda: len(self.applied) >= count, 30)
+            if not complete or len(self.applied) != count:
+                raise RuntimeError("stream did not apply the scheduled writes exactly")
+
+    def route(
+        self,
+        cache: LocalCacheCore,
+        database: str,
+        event: Mapping[str, object],
+        *,
+        metadata_cache: NamespaceMetadataCache[object] | None = None,
+    ) -> bool:
+        started = time.thread_time_ns()
+        reopen = route_change_event(
+            cache, database, event, metadata_cache=metadata_cache
+        )
+        if event["operationType"] in WRITE_OPERATIONS:
+            elapsed = time.thread_time_ns() - started
+            with self.condition:
+                self.route_cpu_ns += elapsed
+                self.applied.append(time.monotonic())
+                self.condition.notify_all()
+        return reopen
 
 
 def document(identity: NonNegativeInt, author: NonNegativeInt, body: str) -> BsonDict:
@@ -146,14 +195,12 @@ def feed(
 
 
 def operations(
-    manager: CacheManager[BsonDict] | None,
-    raw: Collection[BsonDict],
-    router: GuardRouter,
+    manager: CacheManager[BsonDict] | None, raw: Collection[BsonDict]
 ) -> dict[tuple[str, NonNegativeInt], Callable[[], object]]:
     calls: dict[tuple[str, NonNegativeInt], Callable[[], object]] = {}
     original = None if manager is None else manager.get_cached_collection(raw)
     for author, kind in product(range(HOT_AUTHORS), READ_KINDS):
-        view = raw if original is None else router.collection(original, kind, author)
+        view = raw if original is None else original
         if kind == "feed":
             calls[kind, author] = partial(feed, view, {"author_id": author})
         elif kind == "count":
@@ -238,156 +285,6 @@ def writes_for(
     return scheduled
 
 
-def qualify(database: Database[BsonDict], policy: Policy, body: str) -> None:
-    router = GuardRouter(policy)
-    raw = database.target.with_options(
-        read_preference=ReadPreference.PRIMARY,
-        read_concern=MAJORITY,
-        write_concern=WriteConcern("majority"),
-    )
-    with ExitStack() as stack:
-        router.install(stack)
-        manager = stack.enter_context(
-            CacheManager(
-                database.client, cache_config=CacheCoreConfig(enable_telemetry=True)
-            )
-        )
-        calls = operations(manager, raw, router)
-        direct = operations(None, raw, router)
-        await_warm(manager, calls["by_id", 0])
-        for index in range(WARMUP):
-            calls[read_key(index)]()
-        router.reset()
-        expected_events = 0
-
-        def applied() -> None:
-            nonlocal expected_events
-            expected_events += 1
-            router.drain(expected_events)
-
-        def check() -> None:
-            for author, kind in product((0, 1), READ_KINDS):
-                assert calls[kind, author]() == direct[kind, author]()
-
-        def retained_count() -> bool:
-            before = manager.snapshot().hits  # pytriage: TR5 - Snapshot precedes read.
-            assert calls["count", 0]() == direct["count", 0]()
-            return manager.snapshot().hits == before + 1
-
-        raw.insert_one(document(DOCUMENTS, 499, body))
-        applied()
-        assert retained_count() == (policy == "insert")
-        check()
-        raw.update_one({"_id": 19_500}, {"$inc": {"views": 1}})
-        applied()
-        assert retained_count() == (policy == "fields")
-        check()
-        raw.update_one({"_id": 19_500}, {"$set": {"author_id": 1}})
-        applied()
-        assert not retained_count()
-        check()
-        unknown_values: tuple[object, ...] = (
-            [0, 1],
-            None,
-            0.0,
-            Int64(0),
-            True,
-            "x" * 65,
-        )
-        for identity, author in enumerate(unknown_values, DOCUMENTS + 1):
-            inserted = document(identity, 0, body)
-            inserted["author_id"] = author
-            raw.insert_one(inserted)
-            applied()
-            assert not retained_count()
-            check()
-        raw.insert_one(
-            {"_id": DOCUMENTS + 20, "created": DOCUMENTS + 20, "views": 0, "body": body}
-        )
-        applied()
-        assert not retained_count()
-        check()
-        base = manager.get_cached_collection(raw)
-        assert base.count_documents({"author_id": None}) == raw.count_documents(
-            {"author_id": None}
-        )
-        raw.update_one({"_id": 0}, {"$set": {"author_id": [0, 1, 2, 3]}})
-        applied()
-        assert not retained_count()
-        check()
-        raw.update_one(
-            {"_id": 0}, [{"$set": {"author_id": {"$slice": ["$author_id", 2]}}}]
-        )
-        applied()
-        assert not retained_count()
-        check()
-        raw.update_one({"_id": 0}, {"$set": {"author_id.0": 7}})
-        applied()
-        assert not retained_count()
-        check()
-        raw.update_one({"_id": 0}, {"$unset": {"author_id": ""}})
-        applied()
-        assert not retained_count()
-        check()
-        assert base.count_documents({"author_id": None}) == raw.count_documents(
-            {"author_id": None}
-        )
-        raw.update_one(
-            {"_id": 1}, {"$set": {f"changed_{index}": index for index in range(33)}}
-        )
-        applied()
-        assert not retained_count()
-        check()
-        raw.replace_one({"_id": 1}, document(1, 0, body))
-        applied()
-        assert not retained_count()
-        check()
-        raw.delete_one({"_id": 1})
-        applied()
-        assert not retained_count()
-        check()
-        physical = next(ns for ns in router.states if ns.collection == "target")
-        namespace = (
-            router.partitions[physical][0]
-            if policy == "insert"
-            else router.dependency_namespaces[physical]
-            if policy == "fields"
-            else physical
-        )
-        capture = manager.cache_core.capture_namespace_generation(namespace)
-        raw.insert_one(document(DOCUMENTS + 50, 0, body))
-        applied()
-        assert (
-            manager.cache_core.admit_namespace(capture, "inflight", 40)
-            is AdmissionOutcome.DECLINED_STALE
-        )
-        capture = manager.cache_core.capture_namespace_generation(namespace)
-        raw.insert_one(document(DOCUMENTS + 51, 1, body))
-        applied()
-        outcome = manager.cache_core.admit_namespace(capture, "unaffected", 40)
-        assert outcome is (
-            AdmissionOutcome.ADMITTED
-            if policy == "insert"
-            else AdmissionOutcome.DECLINED_STALE
-        )
-        capture = manager.cache_core.capture_namespace_generation(namespace)
-        raw.insert_one(
-            {
-                "_id": DOCUMENTS + 52,
-                "author_id": [0],
-                "created": DOCUMENTS + 52,
-                "views": 0,
-                "body": body,
-            }
-        )
-        applied()
-        assert (
-            manager.cache_core.admit_namespace(capture, "fallback", 40)
-            is AdmissionOutcome.DECLINED_STALE
-        )
-        check()
-
-
 def run_cell(
     replica: IsolatedReplicaSet,
     raw_database: Database[BsonDict],
@@ -412,7 +309,7 @@ def run_cell(
     address = urlparse(replica.uri)
     assert address.hostname is not None
     assert address.port is not None
-    router = GuardRouter("current" if path == "direct" else path)
+    router = RoutingObserver()
     listener = ReadCommands()
     with ExitStack() as stack:
         stack.callback(restore, raw_database[writer_name], mix, scheduled)
@@ -463,11 +360,11 @@ def run_cell(
         writer = app.bench[writer_name].with_options(
             write_concern=WriteConcern("majority")
         )
-        calls = operations(manager, raw, router)
+        calls = operations(manager, raw)
         if manager is not None:
             await_warm(manager, calls["by_id", 0])
             if scenario == "unrelated":
-                resident = operations(manager, app.bench.target, router)
+                resident = operations(manager, app.bench.target)
                 for index in range(WARMUP):
                     resident[read_key(index)]()
         for index in range(WARMUP):
@@ -595,22 +492,17 @@ def run_cell(
 
 
 def micro(
-    replica: IsolatedReplicaSet,
-    database: Database[BsonDict],
-    policy: Policy,
-    rep: NonNegativeInt,
+    replica: IsolatedReplicaSet, database: Database[BsonDict], rep: NonNegativeInt
 ) -> BsonDict:
     listener = ReadCommands()
-    router = GuardRouter(policy)
     with ExitStack() as stack:
         client = stack.enter_context(
             replica.build_client(TOPOLOGY, event_listeners=(listener,))
         )
-        router.install(stack)
         manager = stack.enter_context(
             CacheManager(client, cache_config=CacheCoreConfig(enable_telemetry=True))
         )
-        calls = operations(manager, client[database.name].target, router)
+        calls = operations(manager, client[database.name].target)
         await_warm(manager, calls["by_id", 0])
         for index in range(WARMUP):
             calls[read_key(index)]()
@@ -634,28 +526,21 @@ def micro(
                 "cpu_ns_per_hit": cpu_samples,
                 "wall_ns_per_hit": wall_samples,
             }
-        return {"path": policy, "rep": rep, "size": 2000, "batches": batches}
+        return {"path": "current", "rep": rep, "size": 2000, "batches": batches}
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--suite",
-        choices=("verify", "pilot", "churn", "controls", "micro"),
+        choices=("pilot", "churn", "controls", "micro"),
         required=True,
     )
     parser.add_argument("--reps", type=int, default=4)
     parser.add_argument("--reads", type=int, default=4096)
     parser.add_argument("--seconds", type=float, default=8.0)
-    parser.add_argument(
-        "--focus",
-        choices=("insert", "fields"),
-        help="Controls only: matching write mix at 100 writes/second.",
-    )
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
-    if args.focus and args.suite != "controls":
-        parser.error("--focus requires --suite controls")
     if (
         args.reps < 1
         or args.reads < 128
@@ -672,40 +557,26 @@ def main() -> None:
         replica.build_client(TOPOLOGY) as client,
     ):
         cells: list[BsonDict] = []
-        if args.suite == "verify":
-            for policy in ("current", "insert", "fields"):
-                body = seed(client.bench, 200)
-                qualify(client.bench, policy, body)
         if args.suite == "micro":
             seed(client.bench, 2000)
-            for rep in range(args.reps):
-                policies: tuple[Policy, ...] = ("current", "insert", "fields")
-                order = policies if rep % 2 == 0 else tuple(reversed(policies))
-                cells.extend(
-                    micro(replica, client.bench, policy, rep) for policy in order
-                )
+            cells.extend(micro(replica, client.bench, rep) for rep in range(args.reps))
         sizes = (
             (2000,)
             if args.suite in {"pilot", "controls"}
             else ()
-            if args.suite in {"verify", "micro"}
+            if args.suite == "micro"
             else (200, 2000, 20000)
         )
         for rep, size in product(range(args.reps), sizes):
             body = seed(client.bench, size)
             paths = PATHS if rep % 2 == 0 else tuple(reversed(PATHS))
             mixes: tuple[Mix, ...] = ("insert", "update")
-            if args.focus:
-                paths = tuple(path for path in paths if path in {"current", args.focus})
-                mixes = ("insert",) if args.focus == "insert" else ("update",)
             scenarios: tuple[Scenario, ...] = (
                 ("uncached", "unrelated") if args.suite == "controls" else ("cached",)
             )
             rates: tuple[PositiveInt, ...] = (
                 (10, 100) if args.suite == "controls" else (100, 10)
             )
-            if args.focus:
-                rates = (100,)
             for mix, scenario, rate, path in product(mixes, scenarios, rates, paths):
                 if args.suite == "controls" and path == "direct":
                     continue
@@ -728,7 +599,6 @@ def main() -> None:
         json.dump(
             {
                 "suite": args.suite,
-                "focus": args.focus,
                 "python": platform.python_version(),
                 "pymongo": pymongo.version,
                 "mongodb": client.server_info()["version"],
@@ -749,7 +619,6 @@ def main() -> None:
                     ).hexdigest()
                     for name in (
                         "end_to_end.py",
-                        "guards.py",
                         "stream_projection.py",
                         "benchmark.py",
                     )

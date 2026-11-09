@@ -35,7 +35,7 @@ def test_confirmed_collection_metadata(
         {"type": collection_type, "options": {"collation": collation}}
     )
     assert metadata is not None
-    assert metadata.is_cacheable is cacheable
+    assert (metadata.bypass_reason is None) is cacheable
     assert (
         metadata.bypass_reason
         is {
@@ -58,11 +58,10 @@ def test_collection_without_options_has_no_default_collation() -> None:
     metadata = interpret_list_collections_entry({"type": "collection"})
 
     assert metadata is not None
-    assert metadata.is_cacheable
+    assert metadata.bypass_reason is None
     assert metadata.default_collation is None
 
 
 def test_unrecognized_collection_type_remains_ineligible() -> None:
     metadata = interpret_list_collections_entry({"type": _UNRECOGNIZED_COLLECTION_TYPE})
-    assert not metadata.is_cacheable
     assert metadata.bypass_reason is BypassReason.METADATA_UNAVAILABLE

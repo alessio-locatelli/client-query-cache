@@ -82,13 +82,11 @@ ignore = [
 # Research programs are standalone scripts rather than importable packages.
 "research/*" = ["implicit-namespace-package"]
 # The default is enabled by ALL. We override it because these experiments
-# instrument native cache guards and stream routing directly.
+# observe stream routing through private modules.
 "research/invalidation_scope/*" = ["import-private-name"]
 # Cold child-process imports keep dependency initialization out of the memory baseline;
 # the same workload intentionally accepts both sync and async, raw and cached objects.
 "research/process_memory/measure.py" = ["import-outside-top-level", "any-type"]
-# This diagnostic compares cache internals directly with an experimental native index.
-"research/shared_index_floors/floors.py" = ["import-private-name"]
 # The default is enabled by ALL. We override it because the profile-guided training workload
 # and its measurement harness drive the native extension's internal entry points.
 "scripts/pgo_training.py" = ["import-private-name"]

@@ -10,7 +10,6 @@ from client_query_cache import CacheCoreConfig
 from client_query_cache._core.collection_metadata import CollectionProbeResult
 from client_query_cache._core.errors import CacheConfigurationError
 from client_query_cache._core.keys import NamespaceId
-from client_query_cache._core.lifecycle import CacheLifecycleState
 from client_query_cache._core.snapshots import BypassReason
 from client_query_cache._types import BsonDict, NonEmptyStr
 from client_query_cache.synchronous import (
@@ -64,7 +63,7 @@ def test_manager_used_as_a_context_manager_closes_its_own_cache(
     ) as manager:
         core = manager.cache_core
 
-    assert core.snapshot().lifecycle == CacheLifecycleState.CLOSED.value
+    assert core.snapshot().lifecycle == "closed"
 
 
 def test_manager_close_does_not_close_the_caller_owned_client(

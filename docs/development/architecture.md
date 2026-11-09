@@ -1,6 +1,6 @@
 # Architecture
 
-This guide describes the process-local cache and the cache core used by the shared owner. The [shared-cache reference](shared-cache.md) covers native mappings, ownership and publication. Public contracts live in the [API reference](../user/reference/api.md), [consistency guide](../user/usage/consistency.md), and [operations guides](../user/operations/index.md).
+This guide describes the process-local manager and the native cache core that serves both execution models and the shared owner. The [shared-cache reference](shared-cache.md) covers native mappings, ownership and publication. Public contracts live in the [API reference](../user/reference/api.md), [consistency guide](../user/usage/consistency.md), and [operations guides](../user/operations/index.md).
 
 ## High-level design
 
@@ -14,7 +14,7 @@ CachedCollection / CachedDatabase   (view: find_one, find, aggregate, count_docu
         ▼
    CacheManager                     (one per MongoClient/AsyncMongoClient you want cached)
         │
-        ├── CacheCore               (bounded in-memory storage, hit/miss/eviction bookkeeping)
+        ├── CacheCore               (native: bounded in-memory storage, hit/miss/eviction bookkeeping)
         │
         └── ChangeStreamCoordinator (one DatabaseStreamSupervisor per active cached database)
                     │
@@ -24,17 +24,20 @@ CachedCollection / CachedDatabase   (view: find_one, find, aggregate, count_docu
 
 A read against a `CachedCollection` either returns a cached value, executes against MongoDB and admits the result
 to the cache, or bypasses the cache entirely and executes a normal PyMongo call — see the [cached-read guide](../user/usage/cached-reads.md) for the public behavior. `ChangeStreamCoordinator` starts one `DatabaseStreamSupervisor` per database the first time a
-read touches it; each supervisor watches that one database and invalidates affected cache entries in `CacheCore` as
-writes and schema changes occur.
+read touches it; each supervisor watches that one database and invalidates affected cache entries in the native cache core as
+writes and schema changes occur. The public `CacheCore` is the Rust `LocalCacheCore` in
+`native/shared-index/src/local_cache.rs`; the shared owner uses its `SharedOwnerCore` extension
+(`local_cache/shared.rs`). `_core/native.py` supplies configuration, codec, key, error and snapshot
+integration, and `_core/contracts.pyi` types the interface both cores implement.
 
 ## Low-level design
 
 - **Cursor snapshot ownership**: `CursorCapture` encodes each consumed document once through
-  `encode_value()` before the caller can mutate it. It accesses the nested snapshot with
-  `RawBSONDocument` using a codec context without application transformations. Finalization
-  passes these private raw documents to `CacheCore.admit_namespace()`, which retains its
-  normal BSON list envelope, exact entry weighting, eviction, and generation guards.
-  Abandonment and finalization release the retained snapshots.
+  `encode_value()` before the caller can mutate it and appends the bytes to a native
+  `EncodedArray`, which tracks the retained envelope size against the entry limit.
+  Finalization passes the finished BSON list to `CacheCore.admit_namespace_encoded()`, which
+  applies exact entry weighting, eviction, and generation guards. Abandonment and
+  finalization release the retained snapshots.
 - **Cursor allocation budgets**: the collector bounds the sum of encoded document envelopes
   by `max_entry_bytes` per collecting cursor. Counting the envelope overhead is conservative
   relative to the retained nested document bytes. The final stored list has its own envelope
@@ -66,7 +69,7 @@ writes and schema changes occur.
   collection's own index metadata (a plain, non-partial, non-sparse, non-hashed unique index whose collation matches
   the read) — there is nothing to declare, and discovery is re-checked whenever an index is added or removed.
 - **Coherency model**: coherency is eventual, not synchronous. A cache hit may still return the pre-write value, even after the write has returned, until this library's change-stream worker processes that write's event; once processed, every later read is guaranteed to see the invalidation. This is not a per-write barrier — it does not wait for "catch-up" on every read, only guarantees that a processed write is never silently missed.
-- **Stream availability ownership**: a `CacheCore` records whether a database's change stream is healthy as one flag per database, not one flag per coordinator that might be watching it. If two coordinators shared a `CacheCore`, one of them starting, losing its stream, or stopping would overwrite that shared flag and could mark another, still-healthy coordinator's database unavailable. Cached reads for that database would then bypass with no error or warning pointing at the actual cause, so the [API reference](../user/reference/api.md#ownership) makes such sharing unsupported.
+- **Stream availability ownership**: the cache core records whether a database's change stream is healthy as one flag per database, not one flag per coordinator that might be watching it. If two coordinators shared a cache core, one of them starting, losing its stream, or stopping would overwrite that shared flag and could mark another, still-healthy coordinator's database unavailable. Cached reads for that database would then bypass with no error or warning pointing at the actual cause, so the [API reference](../user/reference/api.md#ownership) makes such sharing unsupported.
 
 ## Read key preparation
 
@@ -78,6 +81,13 @@ The helpers return a canonical key and a bypass reason. Callers branch on the
 reason because `None` can also be a successful key. A preparation failure
 records one facade bypass and delegates with the native arguments before any
 collection eligibility probe.
+
+Native key preparation handles plain scalars, mappings and sequences itself. Custom mapping and
+sequence subclasses, and leaves without a compact native form, reach the generic Python
+implementations in `_core/canonical.py` and `_core/order_sensitive_keys.py`
+(`_generic_canonicalize` and the `_generic_order_sensitive_*` functions); `read_validation.py`
+supplies the same kind of delegate for unsafe-construct scans. Production reads call these
+delegates, and the tests check that the native fast paths agree with them.
 
 Count and distinct retain the prepared discriminator through lookup and
 admission. Aggregation retains it in `CursorCapture` until complete consumption
@@ -104,41 +114,32 @@ this helper. [Differential evidence and measurements](../../reports/query-filter
 record the tested MongoDB/PyMongo versions and limitations.
 Only non-boolean integer limits at least zero
 produce `FindSource` admission metadata; zero denotes an unlimited source.
-Each namespace's `find_families` maps compact family hashes to actual resident
-entry tokens and their physical keys. Source descriptors retain only the hash
-and limit; the complete canonical query belongs to the exact physical key.
-Lookup compares that key against the requested family and candidate limit before
-probing, so hash collisions cannot reuse a different query. Each find execution
-prepares the final native shape's family once and places the canonical family
-in a local `FindReadShape`. `find_discriminator()` wraps this same family for
-capture admission. `lookup_find()` reuses it for exact and candidate keys, and
-`shape.source` hashes it for source metadata. Canonical passthrough takes
-constant time; wrappers do not rebuild the raw family. Hashing and equality can
-still inspect the canonical tree. Rewind and clone prepare their final native
-options again on the next execution. Payload
-bytes belong solely to the LRU entries; the BSON budget excludes query keys and
-Python index overhead.
-Admission publishes tokens alongside `entry_index` through `_finalize_put()`;
-displacement, eviction, and post-publication reclamation remove the exact token
-without removing a newer replacement. Writes clear family buckets as they advance
-the generation; clear/create reclaim them with the namespace, and close releases
-the namespace registry.
+The native core keeps, for each namespace, the resident sources of each query
+family ordered by limit. A source descriptor retains only the family hash and the
+limit; the complete canonical query belongs to the exact key. Lookup compares that
+key against the requested family and candidate limit, so hash collisions cannot
+reuse a different query. Each find execution prepares the final native shape's
+family once and places the canonical family in a local `FindReadShape`.
+`find_discriminator()` wraps this same family for capture admission,
+`lookup_find()` reuses it for exact and candidate keys, and `shape.source` hashes
+it for source metadata. Canonical passthrough takes constant time; wrappers do not
+rebuild the raw family. Hashing and equality can still inspect the canonical tree.
+Rewind and clone prepare their final native options again on the next execution.
+Payload bytes are the stored entries; the BSON budget excludes query keys and
+native index overhead. Displacement, eviction, invalidation, clear, drop and close
+remove sources together with their entries, and removal never takes a newer
+replacement.
 
-`lookup_find()` checks availability, probes the exact key, then snapshots only
-the requested hash bucket for a positive non-boolean limit. Outside both locks,
-it orders candidates by increasing positive limit, with unlimited last, then
-checks full query identity, resident token identity, and the actual entry
-generation before choosing the smallest covering positive limit, with unlimited
-as fallback. It stops at the first valid match;
-failed candidates do not hide valid sources. Namespace and LRU sections remain
-separate: snapshot/validity decisions
-hold the namespace lock, while entry probes and source promotion hold the LRU lock.
-One lookup records one hit or miss, or the existing availability bypass. Discovery
-orders k resident sources in O(k log k) time using only scalar limits; unrelated
-hashes do not expand candidate inspection. A valid smallest source requires one
-full key comparison and one source probe, regardless of admission order. Failed
-candidates or hash collisions can require more comparisons, each depending on
-query size. Publication and removal have expected O(1) token cost.
+`lookup_find()` checks availability, probes the exact key, then inspects only the
+requested hash bucket for a positive non-boolean limit. It collects the sources
+whose limit covers the request, in increasing order with unlimited last, and
+chooses the first whose full query key matches; that entry must still be current
+when it is served. Writes, clear and create empty a namespace's family index, so
+invalidated sources are not candidates. One lookup records one hit or miss, or the
+existing availability bypass. Discovery visits the k resident sources of the family
+using only scalar limits; unrelated families do not expand candidate inspection. A
+valid smallest source requires one full key comparison, regardless of admission
+order. Hash collisions can require more comparisons, each depending on query size.
 
 Hits decode the full BSON list through the requesting codec, then install only
 the requested prefix. Decoding costs O(source bytes) CPU and transient memory;
@@ -180,7 +181,7 @@ Both execution models are checked with the same disposable replica-set cursor an
 bound-session cases on PyMongo 4.18.1 and the locked 4.18.2 driver. Future driver
 releases require the same differential checks because these hooks are protected.
 
-Process-local managers use the native owner exported by the existing extension. Shared-cache coordination retains the Python owner because it provides publication observers and payload-store integration. Both owners implement the common read and coherence protocols; their capture objects are opaque handles. The [native evaluation report](../../reports/native-process-local-cache/results.md) records measured costs and adoption evidence.
+Process-local managers use `LocalCacheCore` from the extension, and shared-cache coordination uses `SharedOwnerCore`, which adds publication to the shared index and payload arena. Both implement the common read and coherence protocols; their capture objects are opaque handles. The [native evaluation report](../../reports/native-process-local-cache/results.md) records measured costs and adoption evidence.
 
 ## Core verification
 

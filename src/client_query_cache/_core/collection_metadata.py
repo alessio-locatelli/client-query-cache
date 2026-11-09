@@ -40,10 +40,6 @@ class CollectionProbeResult:
     bypass_reason: BypassReason | None
     default_collation: Mapping[str, Any] | None
 
-    @property
-    def is_cacheable(self) -> bool:
-        return self.bypass_reason is None
-
 
 def interpret_list_collections_entry(
     entry: Mapping[str, Any] | None,

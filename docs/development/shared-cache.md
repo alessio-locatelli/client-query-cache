@@ -4,7 +4,7 @@ Public configuration and operations belong in the [shared API reference](../user
 
 ## Ownership and validity
 
-The parent starts a spawned owner with its own MongoDB client. Workers attach read-only native value mappings and bounded admission queues. The Python cache core remains authoritative for admission, eviction and invalidation; Rust supplies the shared index, payload storage and queue machinery. Process-local `CacheManager` does not use this shared storage path.
+The parent starts a spawned owner with its own MongoDB client. Workers attach read-only native value mappings and bounded admission queues. The native `SharedOwnerCore` is authoritative for admission, eviction and invalidation and publishes admitted values to the shared index and payload arena; the Python owner process drives it from requests and change-stream events. Process-local `CacheManager` does not use this shared storage path.
 
 Native readers check owner incarnation, namespace generation, database availability and upstream progress before serving a hit. Local misses capture validity tokens before reading MongoDB. The owner starts authoritative core capture before validating those tokens; reversing that order leaves a write race. Restart replaces mappings and workers discard cached attachment metadata. Preserve the lock-order and publication fences when changing this path.
 
