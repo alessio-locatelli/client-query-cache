@@ -20,6 +20,7 @@ from unittest.mock import Mock
 
 import pytest
 
+from benchmarks.stream_cost.shared_cache.owner import PausableOwner, pause_owner
 from benchmarks.stream_cost.shared_cache.window import attachment_for
 from client_query_cache._core.canonical import canonicalize
 from client_query_cache._core.codec import encode_value
@@ -120,12 +121,10 @@ def _config(socket_directory: Path, **changes: object) -> OwnerConfig:
 
 
 def _serving(config: OwnerConfig) -> Iterator[SharedCacheOwner]:
-    instance = SharedCacheOwner(config)
+    instance = PausableOwner(config)
     instance.bind()
     parent, child = multiprocessing.Pipe()
-    serving = threading.Thread(
-        target=instance.serve, args=(child, lambda _request: {"ok": True})
-    )
+    serving = threading.Thread(target=instance.serve, args=(child,))
     serving.start()
     yield instance
     parent.send("close")
@@ -240,7 +239,7 @@ def polling_loop(
 def test_recent_admissions_poll_without_accelerating_maintenance(
     polling_loop: _PollingLoop,
 ) -> None:
-    polling_loop.owner.serve(polling_loop.control, lambda _request: None)
+    polling_loop.owner.serve(polling_loop.control)
 
     assert polling_loop.timeouts == pytest.approx([0.001] * 50 + [0.05] * 2)
     assert polling_loop.sweeps == pytest.approx([0.001, 0.1])
@@ -1884,7 +1883,7 @@ def test_drained_tokens_touch_only_published_entries(
                 {"name": faker.pystr(min_chars=_ENTRY_BYTES, max_chars=_ENTRY_BYTES)}
             ),
         )
-    session.owner.pause(_PAUSE_SECONDS)
+    pause_owner(session.owner, _PAUSE_SECONDS)
     time.sleep(_SWEEP_GAP_SECONDS)
     assert session.local(1) is not None
     if write:
@@ -2454,7 +2453,7 @@ async def test_saturated_capture_messages_release_owner_reservations(
     writer.get_extra_info("socket").setsockopt(
         socket.SOL_SOCKET, socket.SO_SNDBUF, 4096
     )
-    session.owner.pause(_PAUSE_SECONDS)
+    pause_owner(session.owner, _PAUSE_SECONDS)
     pending = asyncio.create_task(endpoint.request({"op": "observe"}))
     await asyncio.sleep(0)
     filler = encode_frame(

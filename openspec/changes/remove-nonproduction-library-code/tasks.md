@@ -20,7 +20,7 @@
 
 - [x] 4.1 Adapt the shared-cache benchmark/fault harness per D3 to harness-side proxy facilities, and remove obsolete floor workloads and binding-specific tests. Verify directional byte accounting, backpressure, cancellation, pause/recovery, and resource cleanup in existing harness tests, followed by a bounded real-server qualification. Update the fault-recovery plan and current benchmark guides without changing historical result claims.
 - [x] 4.2 Remove obsolete engine/guard selectors and reference-dependent research implementations from D3's inventory. Preserve useful production workload inputs and oracles without preserving a cache engine. Verify retained CLI commands select only the production implementation and retired commands have no current documentation entry point; historical reports continue referring to their immutable source revisions.
-- [ ] 4.3 Convert PGO training and its tests per D3. Verify the database-free training command exercises its complete revised scenario manifest and produces a usable profile for the cleaned extension; build/install the resulting optimized wheel with the existing non-publishing release flow. Update current release/training guidance and relevant Context7 rules.
+- [x] 4.3 Convert PGO training and its tests per D3. Verify the database-free training command exercises its complete revised scenario manifest and produces a usable profile for the cleaned extension; build/install the resulting optimized wheel with the existing non-publishing release flow. Update current release/training guidance and relevant Context7 rules.
 
 ## 5. Completion evidence
 
