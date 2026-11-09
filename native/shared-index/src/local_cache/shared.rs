@@ -132,21 +132,6 @@ impl Probes {
         self.entries.clear();
         self.order.clear();
     }
-
-    fn snapshot(&self) -> Vec<(String, String, u64, usize)> {
-        self.order
-            .values()
-            .map(|names| {
-                let probe = &self.entries[names];
-                (
-                    names.0.to_string(),
-                    names.1.to_string(),
-                    probe.token,
-                    probe.active,
-                )
-            })
-            .collect()
-    }
 }
 
 struct Published {
@@ -708,18 +693,6 @@ impl SharedOwner {
                 state.touch(handle.slot);
             }
         }
-    }
-
-    fn _probes(slf: &Bound<'_, Self>) -> Vec<(String, String, u64, usize)> {
-        let mut state = slf
-            .as_super()
-            .get()
-            .state
-            .lock()
-            .expect("local owner mutex");
-        let probes = &mut shared_state(&mut state).probes;
-        probes.expire(monotonic_ns());
-        probes.snapshot()
     }
 
     fn published(slf: &Bound<'_, Self>) -> usize {

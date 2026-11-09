@@ -1783,29 +1783,6 @@ impl Capture {
     fn namespace(&self, py: Python<'_>) -> Py<PyAny> {
         self.namespace.clone_ref(py)
     }
-    #[getter]
-    fn identity(&self, py: Python<'_>) -> Py<PyAny> {
-        self.identity
-            .as_ref()
-            .map(|identity| identity.clone_ref(py))
-            .unwrap_or_else(|| py.None())
-    }
-    #[getter]
-    fn generation_key(&self) -> (u64, u64) {
-        self.generation
-    }
-    #[getter]
-    fn generation(&self) -> u64 {
-        self.generation.0
-    }
-    #[getter]
-    fn availability_generation(&self) -> u64 {
-        self.availability
-    }
-    #[getter]
-    fn released(&self) -> bool {
-        self.released.load(Ordering::Acquire)
-    }
     fn release(&self) {
         self.release_reservation();
     }
@@ -2728,36 +2705,6 @@ impl LocalOwner {
             .operation(py, SNAPSHOT)
             .call1((statistics, self.config.bind(py)))?
             .unbind())
-    }
-    fn _ownership(&self) -> (usize, usize, usize, usize, usize) {
-        let state = self.state.lock().expect("local owner mutex");
-        (
-            state.namespaces.len(),
-            state.identities.count,
-            state.rows.count - state.value_count,
-            state
-                .identities
-                .iter()
-                .map(|identity| identity.captures)
-                .sum(),
-            state
-                .namespaces
-                .values()
-                .flat_map(|namespace| namespace.families.values())
-                .map(|family| family.slots().count())
-                .sum(),
-        )
-    }
-    fn _recency(&self, py: Python<'_>) -> Vec<Py<PyAny>> {
-        let state = self.state.lock().expect("local owner mutex");
-        let mut keys = Vec::with_capacity(state.value_count);
-        let mut slot = state.lru.first;
-        while slot != 0 {
-            let row = state.rows.get(slot).expect("recency row");
-            keys.push(row.node.key.clone_ref(py));
-            slot = row.links(Link::Role).next;
-        }
-        keys
     }
     fn record_miss(&self) {
         if self.enable_telemetry {
