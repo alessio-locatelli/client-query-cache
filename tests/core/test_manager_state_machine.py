@@ -11,14 +11,13 @@ from hypothesis.stateful import (
     run_state_machine_as_test,
 )
 
-from client_query_cache import CacheCoreConfig
+from client_query_cache import CacheCore, CacheCoreConfig
 from client_query_cache._core.entries import AdmissionOutcome
 from client_query_cache._core.find_one_reads import (
     find_one_read_shape,
     generic_find_one_discriminator,
 )
 from client_query_cache._core.keys import NamespaceId
-from client_query_cache._core.manager import CacheCore
 from client_query_cache._types import NonNegativeInt
 
 pytestmark = pytest.mark.unit

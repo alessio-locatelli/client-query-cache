@@ -18,12 +18,11 @@ from pymongo.errors import (
     ServerSelectionTimeoutError,
 )
 
-from client_query_cache import CacheCoreConfig, StreamHealthStatus
+from client_query_cache import CacheCore, CacheCoreConfig, StreamHealthStatus
 from client_query_cache._core import stream_activation
 from client_query_cache._core.entries import AdmissionOutcome
 from client_query_cache._core.errors import StreamLifecycleError, StreamStartupError
 from client_query_cache._core.keys import NamespaceId
-from client_query_cache._core.manager import CacheCore
 from client_query_cache._core.stream_health import RetryBackoff, StreamHealth
 from client_query_cache._types import (
     BsonDict,

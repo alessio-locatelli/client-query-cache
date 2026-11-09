@@ -13,15 +13,14 @@ from client_query_cache._core.find_reads import (
     find_discriminator,
     find_read_shape,
 )
-from client_query_cache._core.keys import NamespaceCacheKey
 from client_query_cache._types import NonNegativeInt
 from tests.call_counting import count_current_thread_calls
 
 if TYPE_CHECKING:
     from faker import Faker
 
+    from client_query_cache import CacheCore
     from client_query_cache._core.keys import NamespaceId
-    from client_query_cache._core.manager import CacheCore
 
 pytestmark = pytest.mark.unit
 
@@ -165,7 +164,4 @@ def test_prepared_find_shape_preserves_raw_identity(
     assert builds.count == 0
     assert core.lookup_find(namespace, prepared_shape).hit
     assert prepared_shape.discriminator is exact_key
-    stored_key = next(iter(core._lru._order))
-    assert isinstance(stored_key, NamespaceCacheKey)
-    assert stored_key.discriminator is exact_key
     assert builds.count == 0

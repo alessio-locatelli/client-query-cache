@@ -7,10 +7,9 @@ from unittest.mock import ANY, Mock, call
 import pytest
 from pymongo.errors import OperationFailure
 
-from client_query_cache import CacheCoreConfig
+from client_query_cache import CacheCore, CacheCoreConfig
 from client_query_cache._core.entries import AdmissionOutcome
 from client_query_cache._core.keys import NamespaceId
-from client_query_cache._core.manager import CacheCore
 from client_query_cache._core.namespace_metadata import NamespaceMetadataCache
 from client_query_cache._core.stream_events import (
     CHANGE_STREAM_PROJECTION,
@@ -553,13 +552,12 @@ def test_drop_event_invalidates_identity_guarded_entries_via_epoch() -> None:
 
 
 def test_create_event_reclaims_entries_cached_before_the_namespace_existed() -> None:
-    cache = CacheCore()
+    cache = CacheCore(CacheCoreConfig(enable_telemetry=True))
     namespace = NamespaceId("db", "coll")
     namespace_capture = cache.capture_namespace_generation(namespace)
     cache.admit_namespace(namespace_capture, "missing-doc", None)
     assert cache.lookup_namespace(namespace, "missing-doc").hit is True
-    _used_before, count_before = cache._lru.snapshot_usage()
-    assert count_before == 1
+    assert cache.snapshot().entry_count == 1
 
     event = {
         "operationType": "create",
@@ -569,9 +567,9 @@ def test_create_event_reclaims_entries_cached_before_the_namespace_existed() -> 
     route_change_event(cache, "db", event)
 
     assert cache.lookup_namespace(namespace, "missing-doc").hit is False
-    used_after, count_after = cache._lru.snapshot_usage()
-    assert count_after == 0
-    assert used_after == 0
+    after = cache.snapshot()
+    assert after.entry_count == 0
+    assert after.used_bytes == 0
 
 
 def test_invalidate_clears_a_namespace_that_never_produced_an_event() -> None:

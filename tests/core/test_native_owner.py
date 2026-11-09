@@ -1,4 +1,4 @@
-"""Native ownership and callback boundaries, beyond the reference implementation."""
+"""Native ownership and callback boundaries."""
 
 from __future__ import annotations
 
@@ -9,9 +9,9 @@ import weakref
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import partial
-from typing import TYPE_CHECKING, Literal, NamedTuple
+from typing import TYPE_CHECKING, Literal
 
 import pytest
 from bson.int64 import Int64
@@ -27,13 +27,13 @@ from client_query_cache._core.keys import (
     NamespaceId,
     canonical_alias_key,
 )
-from client_query_cache._core.manager import CacheCore
 from client_query_cache._shared import coordinator as shared_coordinator
 from client_query_cache._shared_index import LocalCacheCore as NativeCacheCore
 from client_query_cache._shared_index import OwnerIndex, SharedOwnerCore
-from client_query_cache._types import BsonDict, NonEmptyStr, NonNegativeInt
+from client_query_cache._types import BsonDict, NonNegativeInt
 from client_query_cache.asynchronous import CacheManager as AsyncManager
 from client_query_cache.synchronous import CacheManager as SyncManager
+from tests.core.conftest import evict_by_pressure
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator
@@ -43,21 +43,14 @@ if TYPE_CHECKING:
 
     from faker import Faker
 
-    from client_query_cache._core.contracts import IdentityCaptureView, LocalCacheCore
+    from client_query_cache._core.contracts import LocalCacheCore
+    from tests.core.conftest import PinnedAlias
 
 pytestmark = pytest.mark.unit
 _NAMESPACE = NamespaceId("native_owner", "values")
 _COLLISION_HASH = 137
 _EXPIRY_NS = 60 * 10**9
 _PROBE_TTL_SECONDS = 30.0
-
-
-class Ownership(NamedTuple):
-    namespaces: NonNegativeInt
-    identities: NonNegativeInt
-    aliases: NonNegativeInt
-    captures: NonNegativeInt
-    sources: NonNegativeInt
 
 
 @pytest.fixture
@@ -86,10 +79,6 @@ def test_native_namespace_lookups_reuse_attribute_names(
     names = namespace_attribute_names[field_name]
     assert len(names) >= 16
     assert all(name is names[0] for name in names)
-
-
-def ownership(core: LocalCacheCore) -> Ownership:
-    return Ownership(*getattr(core, "_ownership")())  # noqa: B009 - The private diagnostic is outside the common core protocol.
 
 
 @dataclass(eq=False, slots=True, weakref_slot=True)
@@ -221,8 +210,6 @@ def test_negative_identity_comparison_retries_before_reserving_metadata(
     )
     unrelated.release()
     assert native.lookup_identity(_NAMESPACE, Key(1), None).value == "fresh"
-    assert ownership(native).identities == 1
-    assert ownership(native).captures == 0
 
 
 @pytest.mark.parametrize("drop", [False, True], ids=["generation", "recreation"])
@@ -361,7 +348,6 @@ def test_abandoned_capture_releases_identity_metadata(native: LocalCacheCore) ->
     del capture
     gc.collect()
     assert reference() is None
-    assert ownership(native) == Ownership(1, 0, 0, 0, 0)
 
 
 @pytest.fixture
@@ -418,10 +404,8 @@ def test_capture_cycle_is_reclaimed_with_a_live_core(
             native.admit_namespace(
                 native.capture_namespace_generation(_NAMESPACE), index, "x" * 80
             )
-    assert ownership(native).captures == 1
     gc.collect()
     assert reference() is None
-    assert ownership(native) == Ownership(1, 0, 0, 0, 0)
 
 
 @pytest.mark.parametrize("identity", [False, True], ids=["query", "identity"])
@@ -519,15 +503,27 @@ def test_alias_metadata_tracks_residents_and_is_reclaimed(
             identity,
             alias=canonical_alias_key("field", identity, None),
         )
-        state = ownership(native)
-        assert state.captures == 0
-        assert state.aliases == state.identities
-        assert state.identities <= native.snapshot().entry_count
+        resolved = native.resolve_alias(_NAMESPACE, "field", identity, None)
+        assert resolved == identity
+    assert native.resolve_alias(_NAMESPACE, "field", 0, None) is None
+    resolvable = [
+        identity
+        for identity in range(100)
+        if native.resolve_alias(_NAMESPACE, "field", identity, None) is not None
+    ]
+    assert resolvable
+    assert all(
+        native.lookup_identity(_NAMESPACE, identity, None).hit
+        for identity in resolvable
+    )
     native.clear_namespace(_NAMESPACE)
-    assert ownership(native) == Ownership(1, 0, 0, 0, 0)
     assert native.snapshot().used_bytes == 0
+    assert all(
+        native.resolve_alias(_NAMESPACE, "field", identity, None) is None
+        for identity in resolvable
+    )
     native.drop_namespace(_NAMESPACE)
-    assert ownership(native) == Ownership(0, 0, 0, 0, 0)
+    assert not native.has_namespace(_NAMESPACE)
 
 
 @pytest.mark.parametrize(
@@ -596,7 +592,9 @@ def test_namespace_capacity_reuse_does_not_revive_an_untracked_capture() -> None
         assert core.namespaces_for_database(other.database) == [other]
 
 
-def test_compatible_find_promotes_source_and_reclaims_family_metadata() -> None:
+def test_compatible_find_promotes_its_source_and_survives_invalidation_cleanly() -> (
+    None
+):
     with bounded_core([0]) as core:
         first, second, third = (
             PreparedFindRead(name, 100) for name in ("first", "second", "third")
@@ -617,13 +615,11 @@ def test_compatible_find_promotes_source_and_reclaims_family_metadata() -> None:
         )
         assert core.lookup_find(_NAMESPACE, PreparedFindRead("first", 10)).hit
         assert not core.lookup_find(_NAMESPACE, PreparedFindRead("second", 10)).hit
-        assert ownership(core).sources == 2
+        assert core.snapshot().entry_count == 2
         core.record_write(_NAMESPACE, 0)
-        assert ownership(core).sources == 0
         assert core.snapshot().entry_count == 2
         assert not core.lookup_find(_NAMESPACE, PreparedFindRead("first", 10)).hit
         core.close()
-        assert ownership(core) == Ownership(0, 0, 0, 0, 0)
         assert core.snapshot().lifecycle == "closed"
         assert core.snapshot().entry_count == 0
 
@@ -726,30 +722,75 @@ _OPERATIONS = st.lists(
 )
 
 
-def apply(core: LocalCacheCore, operation: str, key: int, value: int) -> object:
+@dataclass(slots=True)
+class Admitted:
+    namespace_values: dict[int, int] = field(default_factory=dict)
+    identity_values: dict[int, int] = field(default_factory=dict)
+    available: bool = True
+
+    def invalidate_everything(self) -> None:
+        self.namespace_values.clear()
+        self.identity_values.clear()
+
+
+def apply(
+    core: LocalCacheCore, admitted: Admitted, operation: str, key: int, value: int
+) -> None:
     if operation == "admit":
-        return core.admit_namespace(
+        outcome = core.admit_namespace(
             core.capture_namespace_generation(_NAMESPACE), Key(key), value
         )
-    if operation == "lookup":
-        return core.lookup_namespace(_NAMESPACE, Key(key))
-    if operation == "identity":
-        return core.admit_identity(
+        if outcome is AdmissionOutcome.ADMITTED:
+            admitted.namespace_values[key] = value
+        else:
+            assert not admitted.available or outcome in _DECLINED
+    elif operation == "lookup":
+        lookup = core.lookup_namespace(_NAMESPACE, Key(key))
+        if lookup.hit:
+            assert admitted.available
+            assert lookup.value == admitted.namespace_values[key]
+    elif operation == "identity":
+        outcome = core.admit_identity(
             core.begin_identity_admission(_NAMESPACE, Key(key)), "shape", value
         )
-    if operation == "read":
-        return core.lookup_identity(_NAMESPACE, Key(key), "shape")
-    if operation == "write":
+        if outcome is AdmissionOutcome.ADMITTED:
+            admitted.identity_values[key] = value
+        else:
+            assert not admitted.available or outcome in _DECLINED
+    elif operation == "read":
+        lookup = core.lookup_identity(_NAMESPACE, Key(key), "shape")
+        if lookup.hit:
+            assert admitted.available
+            assert lookup.value == admitted.identity_values[key]
+    elif operation == "write":
         core.record_write(_NAMESPACE, Key(key))
-    elif operation == "clear":
-        core.clear_namespace(_NAMESPACE)
-    elif operation == "drop":
-        core.drop_namespace(_NAMESPACE)
+        admitted.namespace_values.clear()
+        admitted.identity_values.pop(key, None)
+    elif operation in {"clear", "drop"}:
+        if operation == "clear":
+            core.clear_namespace(_NAMESPACE)
+        else:
+            core.drop_namespace(_NAMESPACE)
+        admitted.invalidate_everything()
     elif operation == "index":
         core.record_index_change(_NAMESPACE)
     else:
-        core.set_database_available(_NAMESPACE.database, available=value >= 0)
-    return None
+        available = value >= 0
+        core.set_database_available(_NAMESPACE.database, available=available)
+        if available != admitted.available:
+            admitted.invalidate_everything()
+        admitted.available = available
+
+
+_DECLINED = frozenset(
+    {
+        AdmissionOutcome.DECLINED_OVERSIZE,
+        AdmissionOutcome.DECLINED_STALE,
+        AdmissionOutcome.DECLINED_UNAVAILABLE,
+        AdmissionOutcome.DECLINED_RETENTION,
+    }
+)
+_BUDGET_BYTES = 128
 
 
 def _shared_owner(
@@ -772,58 +813,28 @@ _CANDIDATE_CORES: dict[str, Callable[[CacheCoreConfig], LocalCacheCore]] = {
 @pytest.mark.parametrize("candidate", tuple(_CANDIDATE_CORES))
 @settings(max_examples=100, deadline=None)
 @given(operations=_OPERATIONS)
-def test_native_matches_reference_across_collision_and_eviction_schedules(
+def test_generated_collision_and_eviction_schedules_never_return_a_stale_value(
     candidate: str, operations: list[tuple[str, int, int]]
 ) -> None:
     config = CacheCoreConfig(
-        budget_bytes=128, max_entry_bytes=64, enable_telemetry=True
+        budget_bytes=_BUDGET_BYTES, max_entry_bytes=64, enable_telemetry=True
     )
-    with (
-        managed_core(CacheCore, config) as reference,
-        managed_core(_CANDIDATE_CORES[candidate], config) as native,
-    ):
+    admitted = Admitted()
+    with managed_core(_CANDIDATE_CORES[candidate], config) as core:
         for operation, key, value in operations:
-            assert apply(native, operation, key, value) == apply(
-                reference, operation, key, value
-            )
-            assert native.snapshot() == reference.snapshot()
-
-
-@pytest.fixture(params=[CacheCore, NativeCacheCore], ids=["reference", "native"])
-def pinned_alias(
-    request: pytest.FixtureRequest,
-    faker: Faker,
-) -> Generator[tuple[LocalCacheCore, NonEmptyStr, NonEmptyStr, IdentityCaptureView]]:
-    identity = faker.uuid4()
-    value = faker.pystr(min_chars=30, max_chars=30)
-    weight = len(encode_value(value))
-    with managed_core(
-        request.param, CacheCoreConfig(budget_bytes=weight, max_entry_bytes=weight)
-    ) as core:
-        alias = canonical_alias_key("code", identity, None)
-        for _ in range(2):
-            core.admit_identity(
-                core.begin_identity_admission(_NAMESPACE, identity),
-                None,
-                value,
-                alias=alias,
-            )
-        capture = core.begin_identity_admission(_NAMESPACE, identity)
-        yield core, identity, value, capture
-        capture.release()
+            apply(core, admitted, operation, key, value)
+            assert core.snapshot().used_bytes <= _BUDGET_BYTES
 
 
 def test_capture_keeps_alias_alive_after_last_entry_eviction(
-    pinned_alias: tuple[LocalCacheCore, NonEmptyStr, NonEmptyStr, IdentityCaptureView],
+    pinned_alias: PinnedAlias,
 ) -> None:
-    core, identity, value, capture = pinned_alias
-    core.admit_namespace(
-        core.capture_namespace_generation(_NAMESPACE), "pressure", value
-    )
-    assert core.lookup_identity_encoded(_NAMESPACE, identity, None) is None
-    assert core.resolve_alias(_NAMESPACE, "code", identity, None) == identity
+    core, namespace, identity, value, capture = pinned_alias
+    evict_by_pressure(core, namespace, value)
+    assert core.lookup_identity_encoded(namespace, identity, None) is None
+    assert core.resolve_alias(namespace, "code", identity, None) == identity
     capture.release()
-    assert core.resolve_alias(_NAMESPACE, "code", identity, None) is None
+    assert core.resolve_alias(namespace, "code", identity, None) is None
 
 
 @pytest.fixture

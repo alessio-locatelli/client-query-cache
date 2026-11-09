@@ -23,7 +23,11 @@ from testcontainers.core.docker_client import DockerClient
 
 from benchmarks.mongodb_diagnostics import note_mongodb_startup_failure
 from benchmarks.mongodb_image import MONGODB_IMAGE, compose_mongodb_image
+from client_query_cache._core.stream_events import route_change_event
 from client_query_cache._types import BsonDict, NonNegativeInt
+from client_query_cache.asynchronous import streams as asynchronous_streams
+from client_query_cache.synchronous import streams as synchronous_streams
+from tests.stream_helpers import StreamBarrier
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -170,6 +174,15 @@ def cached_database_name() -> DatabaseName:
 @pytest.fixture
 def persistent_collection_name() -> CollectionName:
     return CollectionName("persistent_collection")
+
+
+@pytest.fixture
+def stream_barrier(monkeypatch: pytest.MonkeyPatch) -> StreamBarrier:
+    barrier = StreamBarrier()
+    observed = barrier.observe(route_change_event)
+    for module in (synchronous_streams, asynchronous_streams):
+        monkeypatch.setattr(module, "route_change_event", observed)
+    return barrier
 
 
 @pytest.fixture

@@ -13,12 +13,10 @@ from bson.son import SON
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
-from client_query_cache import CacheCoreConfig
+from client_query_cache import CacheCore, CacheCoreConfig
 from client_query_cache._core.codec import decode_value, encode_value
 from client_query_cache._core.cursor_capture import CursorCapture
 from client_query_cache._core.entries import AdmissionOutcome
-from client_query_cache._core.manager import CacheCore
-from client_query_cache._shared_index import LocalCacheCore as NativeCacheCore
 from client_query_cache._types import BsonDict, NonNegativeInt, PositiveInt
 from tests.codec_helpers import (
     Decimal128ToDecimalDecoder,
@@ -41,15 +39,9 @@ def encode_decimal(value: Decimal) -> Decimal128:
     return Decimal128(str(value))
 
 
-_CORES: dict[str, type[LocalCacheCore]] = {
-    "python": CacheCore,
-    "native": NativeCacheCore,
-}
-
-
-@pytest.fixture(params=tuple(_CORES))
-def core_factory(request: pytest.FixtureRequest) -> type[LocalCacheCore]:
-    return _CORES[request.param]
+@pytest.fixture
+def core_factory() -> type[LocalCacheCore]:
+    return CacheCore
 
 
 @pytest.fixture(params=[False], ids=["default"])

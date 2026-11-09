@@ -2,20 +2,21 @@ from __future__ import annotations
 
 import multiprocessing
 from concurrent.futures import ProcessPoolExecutor
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 import pytest
 
-from client_query_cache import CacheCoreConfig
-from client_query_cache._core.keys import NamespaceId
-from client_query_cache._core.manager import CacheCore
+from client_query_cache import CacheCore, CacheCoreConfig
+from client_query_cache._core.codec import encode_value
+from client_query_cache._core.keys import NamespaceId, canonical_alias_key
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Generator
+    from collections.abc import Generator
 
-    from client_query_cache._core.entries import CacheEntry
-    from client_query_cache._core.keys import CacheKey
-    from client_query_cache._core.lru import WeightedLru
+    from faker import Faker
+
+    from client_query_cache._core.contracts import IdentityCaptureView
+    from client_query_cache._types import NonEmptyStr
 
 
 class _IntegerSubclass(int):
@@ -64,24 +65,35 @@ def core(request: pytest.FixtureRequest) -> CacheCore:
     return CacheCore(CacheCoreConfig(enable_telemetry=request.param))
 
 
-def patch_conditional_put_hook(
-    monkeypatch: pytest.MonkeyPatch,
-    core: CacheCore,
-    hook: Callable[[CacheKey, CacheEntry], None],
-    *,
-    trigger_before_insert: bool = False,
-) -> None:
-    lru_class = type(core._lru)
-    original_conditional_put = lru_class.conditional_put
+class PinnedAlias(NamedTuple):
+    core: CacheCore
+    namespace: NamespaceId
+    identity: NonEmptyStr
+    value: NonEmptyStr
+    capture: IdentityCaptureView
 
-    def patched_conditional_put(
-        self: WeightedLru, key: CacheKey, entry: CacheEntry
-    ) -> object:
-        if trigger_before_insert:
-            hook(key, entry)
-            return original_conditional_put(self, key, entry)
-        put_result = original_conditional_put(self, key, entry)
-        hook(key, entry)
-        return put_result
 
-    monkeypatch.setattr(lru_class, "conditional_put", patched_conditional_put)
+def evict_by_pressure(core: CacheCore, namespace: NamespaceId, value: object) -> None:
+    core.admit_namespace(
+        core.capture_namespace_generation(namespace), "pressure", value
+    )
+
+
+@pytest.fixture
+def pinned_alias(namespace: NamespaceId, faker: Faker) -> Generator[PinnedAlias]:
+    identity = faker.uuid4()
+    value = faker.pystr(min_chars=30, max_chars=30)
+    weight = len(encode_value(value))
+    core = CacheCore(CacheCoreConfig(budget_bytes=weight, max_entry_bytes=weight))
+    alias = canonical_alias_key("code", identity, None)
+    for _ in range(2):
+        core.admit_identity(
+            core.begin_identity_admission(namespace, identity),
+            None,
+            value,
+            alias=alias,
+        )
+    capture = core.begin_identity_admission(namespace, identity)
+    yield PinnedAlias(core, namespace, identity, value, capture)
+    capture.release()
+    core.close()

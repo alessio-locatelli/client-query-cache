@@ -33,7 +33,6 @@ from tests.codec_helpers import DecodedPriceCase, decode_only_decimal_options
 from tests.cursor_helpers import materialize
 from tests.polling import wait_until_async as _wait_until
 from tests.polling import wait_until_value_async
-from tests.stream_helpers import wait_for_stream_barrier_async
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine
@@ -42,6 +41,7 @@ if TYPE_CHECKING:
     from faker import Faker
 
     from tests.conftest import CollectionName, DatabaseName, MongoDbUri
+    from tests.stream_helpers import StreamBarrier
 
 pytestmark = pytest.mark.integration
 
@@ -533,6 +533,7 @@ async def test_find_one_by_id_invalidates_numerically_equal_stored_ids(
     stored_id: object,
     read_id: object,
     faker: Faker,
+    stream_barrier: StreamBarrier,
 ) -> None:
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
     document = {"_id": stored_id, "v": faker.uuid4()}
@@ -546,9 +547,7 @@ async def test_find_one_by_id_invalidates_numerically_equal_stored_ids(
     await independent_writer[cached_database_name][
         nonpersistent_collection_name
     ].update_one({"_id": stored_id}, {"$set": {"v": updated["v"]}})
-    await wait_for_stream_barrier_async(
-        cache_manager.cache_core, independent_writer[cached_database_name]
-    )
+    await stream_barrier.wait_async(independent_writer[cached_database_name])
 
     assert await collection.find_one({"_id": read_id}) == updated
 
@@ -2116,6 +2115,7 @@ async def test_generic_find_one_invalidates_for_namespace_changes(
     *,
     operation: str,
     faker: Faker,
+    stream_barrier: StreamBarrier,
 ) -> None:
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
     document = {"_id": faker.uuid4(), "group": faker.word(), "rank": 1}
@@ -2141,9 +2141,7 @@ async def test_generic_find_one_invalidates_for_namespace_changes(
         await writer.drop()
         expected = {**document, "fresh": True}
         await writer.insert_one(expected)
-    await wait_for_stream_barrier_async(
-        cache_manager.cache_core, independent_writer[cached_database_name]
-    )
+    await stream_barrier.wait_async(independent_writer[cached_database_name])
     with _spy_on_driver("find_one") as spy:
         assert await collection.find_one(query) == expected
         assert await collection.find_one(query) == expected
@@ -2474,6 +2472,7 @@ async def test_id_anchored_find_one_survives_writes_to_other_documents(
     operation: str,
     *,
     faker: Faker,
+    stream_barrier: StreamBarrier,
 ) -> None:
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
     document = {"_id": faker.uuid4(), "owner": faker.uuid4(), "rank": 1}
@@ -2490,9 +2489,7 @@ async def test_id_anchored_find_one_survives_writes_to_other_documents(
         await writer.replace_one({"_id": other["_id"]}, {"rank": 2})
     else:
         await writer.delete_one({"_id": other["_id"]})
-    await wait_for_stream_barrier_async(
-        cache_manager.cache_core, independent_writer[cached_database_name]
-    )
+    await stream_barrier.wait_async(independent_writer[cached_database_name])
     with _spy_on_driver("find_one") as spy:
         assert await collection.find_one(query) == document
     assert spy.call_count == 0
@@ -2509,6 +2506,7 @@ async def test_id_anchored_find_one_refreshes_after_anchored_writes(
     operation: str,
     *,
     faker: Faker,
+    stream_barrier: StreamBarrier,
 ) -> None:
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
     document = {"_id": faker.uuid4(), "owner": faker.uuid4(), "rank": 1}
@@ -2532,9 +2530,7 @@ async def test_id_anchored_find_one_refreshes_after_anchored_writes(
             "owner": faker.uuid4() if operation == "break-match" else document["owner"],
         }
         await writer.update_one({"_id": document["_id"]}, {"$set": changes})
-    await wait_for_stream_barrier_async(
-        cache_manager.cache_core, independent_writer[cached_database_name]
-    )
+    await stream_barrier.wait_async(independent_writer[cached_database_name])
     expected = await collection.raw.find_one(query)
     assert (expected is None) == (operation in {"break-match", "delete"})
     with _spy_on_driver("find_one") as spy:

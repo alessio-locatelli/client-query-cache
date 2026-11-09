@@ -50,9 +50,9 @@ if TYPE_CHECKING:
     from client_query_cache._core.find_reads import FindReadShape
     from client_query_cache._shared_index import LocalCacheCore as CacheCore
     from tests.cursor_fixtures import Binding, ReadCommands, View
+    from tests.stream_helpers import StreamBarrier
 
 from tests.conftest import MongoDbUri
-from tests.stream_helpers import wait_for_stream_barrier, wait_for_stream_barrier_async
 
 pytestmark = [pytest.mark.benchmark, pytest.mark.timeout(180)]
 CACHED_CURSORS = (
@@ -503,16 +503,18 @@ DISCRIMINATOR_PROFILE_REPETITIONS = 500
 
 
 @pytest.fixture
-async def discriminator_documents(cursors: Binding) -> list[BsonDict]:
+async def discriminator_documents(
+    cursors: Binding, stream_barrier: StreamBarrier
+) -> list[BsonDict]:
     view = cursors["view"]
     updated = view.raw.update_many({}, {"$set": {"code": "C0000001", "state": "a"}})
     if isinstance(updated, Awaitable):
         await updated
     core = view.database.manager.cache_core
     if isinstance(view.raw.database.client, AsyncMongoClient):
-        await wait_for_stream_barrier_async(core, view.raw.database)
+        await stream_barrier.wait_async(view.raw.database)
     else:
-        wait_for_stream_barrier(core, view.raw.database)
+        stream_barrier.wait(view.raw.database)
     for document in cursors["documents"]:
         document.update(code="C0000001", state="a")
     core.clear_namespace(view._namespace())

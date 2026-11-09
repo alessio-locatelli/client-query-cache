@@ -5,13 +5,12 @@ from unittest.mock import Mock
 
 import pytest
 
-from client_query_cache import CacheConfigurationError, CacheCoreConfig
-from client_query_cache._core import manager, native
+from client_query_cache import CacheConfigurationError, CacheCore, CacheCoreConfig
+from client_query_cache._core import native
 from client_query_cache._core.codec import encode_value
 from client_query_cache._core.entries import AdmissionOutcome
-from client_query_cache._core.manager import CacheCore
 from client_query_cache._core.stream_events import route_change_event
-from client_query_cache._shared_index import LocalCacheCore, SharedOwnerCore
+from client_query_cache._shared_index import SharedOwnerCore
 from client_query_cache._types import NonEmptyStr
 from client_query_cache.shared import SharedCacheConfig
 
@@ -51,22 +50,18 @@ def unexpected_observation() -> Mock:
     return Mock(side_effect=AssertionError("disabled operation prepared telemetry"))
 
 
-@pytest.fixture(params=["python", "native", "owner"])
+@pytest.fixture(params=["native", "owner"])
 def disabled_core(
     request: pytest.FixtureRequest,
     monkeypatch: pytest.MonkeyPatch,
     unexpected_observation: Mock,
 ) -> Iterator[Core]:
-    monkeypatch.setattr(manager, "CacheStatistics", unexpected_observation)
-    monkeypatch.setattr(manager, "StreamCostRegistry", unexpected_observation)
     monkeypatch.setattr(native, "StreamCostRegistry", unexpected_observation)
     config = CacheCoreConfig(
         budget_bytes=120, max_entry_bytes=60, max_entries=2, max_key_bytes=4096
     )
-    if request.param == "python":
+    if request.param == "native":
         core: Core = CacheCore(config)
-    elif request.param == "native":
-        core = LocalCacheCore(config)
     else:
         core = SharedOwnerCore(config, None, ["test_db"], 4, 30.0)
     yield core
@@ -103,14 +98,8 @@ def test_disabled_diagnostics_reject_before_building_reports(
 
 
 def test_default_reads_enforce_limits_and_invalidate_without_collectors(
-    disabled_core: Core,
-    namespace: NamespaceId,
-    monkeypatch: pytest.MonkeyPatch,
-    unexpected_observation: Mock,
+    disabled_core: Core, namespace: NamespaceId
 ) -> None:
-    monkeypatch.setattr(manager, "_log_evictions", unexpected_observation)
-    monkeypatch.setattr(manager.logger, "debug", unexpected_observation)
-    monkeypatch.setattr(manager.logger, "info", unexpected_observation)
     assert disabled_core.enable_telemetry is False
     assert not disabled_core.lookup_identity(namespace, "absent", "full").hit
     for identity in ("first", "second", "third"):

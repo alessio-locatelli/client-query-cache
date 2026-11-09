@@ -11,7 +11,7 @@ from client_query_cache import CacheConfigurationError, CacheCoreConfig
 from client_query_cache._types import NonEmptyStr, NonNegativeInt, PositiveInt
 
 if TYPE_CHECKING:
-    from client_query_cache._core.manager import CacheCore
+    from client_query_cache import CacheCore
 
 pytestmark = pytest.mark.unit
 

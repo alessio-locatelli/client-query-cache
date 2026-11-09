@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     from pymongo.asynchronous.change_stream import AsyncDatabaseChangeStream
     from pymongo.change_stream import DatabaseChangeStream
 
-    from client_query_cache._core.manager import CacheCore
+    from client_query_cache import CacheCore
     from client_query_cache._core.namespace_metadata import NamespaceMetadataCache
     from tests.conftest import MongoDbUri
 

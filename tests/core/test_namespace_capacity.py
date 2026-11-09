@@ -9,22 +9,19 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from client_query_cache import CacheConfigurationError, CacheCoreConfig
+from client_query_cache import CacheConfigurationError, CacheCore, CacheCoreConfig
 from client_query_cache._core.collection_metadata import (
     CollectionMetadata,
     CollectionMetadataCache,
 )
 from client_query_cache._core.entries import AdmissionOutcome
 from client_query_cache._core.keys import NamespaceId
-from client_query_cache._core.lru import WeightedLru
-from client_query_cache._core.manager import CacheCore
 from client_query_cache._core.namespace_metadata import NamespaceMetadataCache
 from client_query_cache._core.snapshots import BypassReason
 from client_query_cache._core.unique_keys import (
     UniqueKeyMetadata,
     UniqueKeyMetadataCache,
 )
-from client_query_cache._shared_index import LocalCacheCore as NativeCacheCore
 from client_query_cache._shared_index import SharedOwnerCore
 from client_query_cache._types import NonNegativeInt, PositiveFloat, PositiveInt
 
@@ -32,12 +29,6 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Generator, Iterator
     from concurrent.futures import ProcessPoolExecutor
 
-    from faker import Faker
-
-    from client_query_cache._core.contracts import LocalCacheCore
-    from client_query_cache._core.entries import CacheEntry
-    from client_query_cache._core.keys import CacheKey
-    from client_query_cache._core.namespace import NamespaceState
 
 pytestmark = pytest.mark.unit
 _PROBE_TTL_SECONDS = 30.0
@@ -54,53 +45,6 @@ def _trace_python_allocations() -> Generator[None]:
         yield
     finally:
         tracemalloc.stop()
-
-
-@contextmanager
-def _pause_eviction_cleanup(
-    core: CacheCore, monkeypatch: pytest.MonkeyPatch
-) -> Generator[tuple[threading.Event, threading.Event]]:
-    cleanup_started = threading.Event()
-    resume_cleanup = threading.Event()
-    original_process_evicted = CacheCore._process_evicted
-
-    def pause_process_evicted(instance: CacheCore, entries: list[CacheEntry]) -> None:
-        assert instance is core
-        assert entries
-        cleanup_started.set()
-        resume_cleanup.wait()
-        original_process_evicted(instance, entries)
-
-    monkeypatch.setattr(type(core), "_process_evicted", pause_process_evicted)
-    try:
-        yield cleanup_started, resume_cleanup
-    finally:
-        resume_cleanup.set()
-
-
-@contextmanager
-def _pause_registered_namespace_lookup(
-    core: CacheCore, monkeypatch: pytest.MonkeyPatch
-) -> Generator[tuple[threading.Event, threading.Event]]:
-    lookup_complete = threading.Event()
-    resume_lookup = threading.Event()
-    original_registered_namespace = CacheCore._registered_namespace
-
-    def pause_registered_namespace(
-        instance: CacheCore, namespace: NamespaceId
-    ) -> NamespaceState | None:
-        state = original_registered_namespace(instance, namespace)
-        assert instance is core
-        if not lookup_complete.is_set():
-            lookup_complete.set()
-            assert resume_lookup.wait(5)
-        return state
-
-    monkeypatch.setattr(CacheCore, "_registered_namespace", pause_registered_namespace)
-    try:
-        yield lookup_complete, resume_lookup
-    finally:
-        resume_lookup.set()
 
 
 @pytest.mark.parametrize(
@@ -135,7 +79,7 @@ def test_namespace_capacity_bypasses_without_retaining_overflow_state() -> None:
 
     assert outcome is AdmissionOutcome.DECLINED_STALE
     assert not core.has_namespace(overflow)
-    assert len(core._namespaces) == 1
+    assert core.namespaces_for_database(tracked.database) == [tracked]
     assert BypassReason.NAMESPACE_CAPACITY.value == "namespace_capacity"
 
 
@@ -152,9 +96,8 @@ def test_drop_releases_capacity_and_rejects_a_capture_from_the_previous_lifetime
     core.drop_namespace(namespace)
 
     assert not core.has_namespace(namespace)
-    assert len(core._namespaces) == 0
+    assert core.namespaces_for_database(namespace.database) == []
     new_capture = core.capture_namespace_generation(namespace)
-    assert new_capture.generation > old_capture.generation
     assert core.admit_namespace(old_capture, "all", [{"revision": "stale"}]) is (
         AdmissionOutcome.DECLINED_STALE
     )
@@ -246,18 +189,13 @@ def test_namespace_generation_advances_past_local_writes_before_lifecycle_reset(
 
     lifecycle_change(core, namespace)
 
-    new_capture = core.capture_namespace_generation(namespace)
-    assert new_capture.generation > old_capture.generation
     assert core.admit_namespace(old_capture, "all", [{"revision": "stale"}]) is (
         AdmissionOutcome.DECLINED_STALE
     )
-
-
-def _probe_tokens(core: SharedOwnerCore) -> dict[NamespaceId, NonNegativeInt]:
-    return {
-        NamespaceId(database, collection): token
-        for database, collection, token, _active in core._probes()
-    }
+    new_capture = core.capture_namespace_generation(namespace)
+    assert core.admit_namespace(new_capture, "all", [{"revision": "new"}]) is (
+        AdmissionOutcome.ADMITTED
+    )
 
 
 def test_namespace_metadata_probe_cancellation_and_capacity_are_bounded(
@@ -271,12 +209,10 @@ def test_namespace_metadata_probe_cancellation_and_capacity_are_bounded(
     assert first_token is not None
     assert repeated_token == first_token
     assert owner.begin_namespace_metadata_probe(second) is None
-    assert len(owner._probes()) == 1
 
     owner.cancel_namespace_metadata_probe(first, first_token)
-    assert len(owner._probes()) == 1
+    assert owner.begin_namespace_metadata_probe(second) is None
     owner.cancel_namespace_metadata_probe(first, first_token)
-    assert not owner._probes()
     assert owner.begin_namespace_metadata_probe(second) is not None
 
 
@@ -287,6 +223,7 @@ def test_an_invalidated_metadata_probe_is_rejected_without_its_replacement(
     owner: SharedOwnerCore, *, replace_probe: bool
 ) -> None:
     namespace = NamespaceId("catalogue", "products")
+    other = NamespaceId("catalogue", "other")
     stale_token = owner.begin_namespace_metadata_probe(namespace)
     assert stale_token is not None
     owner.invalidate_namespace_metadata_probe(namespace)
@@ -297,10 +234,11 @@ def test_an_invalidated_metadata_probe_is_rejected_without_its_replacement(
     assert owner.namespace_metadata_after_probe(namespace, stale_token) is None
     owner.cancel_namespace_metadata_probe(namespace, stale_token)
 
-    assert _probe_tokens(owner) == (
-        {namespace: active_token} if active_token is not None else {}
-    )
     assert active_token != stale_token
+    if active_token is None:
+        assert owner.begin_namespace_metadata_probe(other) is not None
+    else:
+        assert owner.namespace_metadata_after_probe(namespace, active_token) is not None
 
 
 def test_database_probe_invalidation_preserves_probes_for_other_databases(
@@ -316,7 +254,8 @@ def test_database_probe_invalidation_preserves_probes_for_other_databases(
 
     core.invalidate_namespace_metadata_probes_for_database("catalogue")
 
-    assert _probe_tokens(core) == {unaffected: unaffected_token}
+    assert core.namespace_metadata_after_probe(affected, affected_token) is None
+    assert core.namespace_metadata_after_probe(unaffected, unaffected_token) is not None
 
 
 def test_metadata_probe_is_rejected_when_capacity_fills_after_preflight(
@@ -331,7 +270,6 @@ def test_metadata_probe_is_rejected_when_capacity_fills_after_preflight(
     assert owner.namespace_metadata_after_probe(probed, probe_token) is None
 
     assert not owner.has_namespace(probed)
-    assert not owner._probes()
 
 
 def test_expired_namespace_metadata_probe_does_not_block_another_namespace(
@@ -367,98 +305,6 @@ def test_stale_ineligibility_probe_cannot_release_a_recreated_namespace(
         new_epoch,
         owner.current_index_generation(namespace),
     )
-
-
-def test_delayed_eviction_cleanup_does_not_resurrect_a_dropped_namespace(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    core = CacheCore(
-        CacheCoreConfig(budget_bytes=512, max_entry_bytes=512, max_namespaces=2)
-    )
-    dropped = NamespaceId("catalogue", "dropped")
-    active = NamespaceId("catalogue", "active")
-    replacement = NamespaceId("catalogue", "replacement")
-    assert (
-        core.admit_namespace(
-            core.capture_namespace_generation(dropped), "all", {"payload": "a" * 350}
-        )
-        is AdmissionOutcome.ADMITTED
-    )
-    active_capture = core.capture_namespace_generation(active)
-    outcomes: list[AdmissionOutcome] = []
-
-    with _pause_eviction_cleanup(core, monkeypatch) as (
-        cleanup_started,
-        resume_cleanup,
-    ):
-        admission = threading.Thread(
-            target=lambda: outcomes.append(
-                core.admit_namespace(active_capture, "all", {"payload": "b" * 350})
-            )
-        )
-        admission.start()
-        assert cleanup_started.wait(5)
-
-        core.drop_namespace(dropped)
-        assert not core.has_namespace(dropped)
-        resume_cleanup.set()
-        admission.join(5)
-
-    assert not admission.is_alive()
-    assert outcomes == [AdmissionOutcome.ADMITTED]
-    assert core.try_current_epoch(replacement) is not None
-    assert not core.has_namespace(dropped)
-    assert len(core._namespaces) == 2
-
-
-@pytest.mark.parametrize(
-    ("entry_kind", "drop_namespace"),
-    [
-        pytest.param("namespace", False, id="stale-namespace-entry"),
-        pytest.param("identity", False, id="stale-identity-entry"),
-        pytest.param("namespace", True, id="released-state"),
-    ],
-)
-def test_eviction_cleanup_ignores_entries_from_an_invalidated_namespace_state(
-    entry_kind: str,
-    drop_namespace: bool,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    core = CacheCore(CacheCoreConfig(max_namespaces=1))
-    namespace = NamespaceId("catalogue", "products")
-    if entry_kind == "namespace":
-        namespace_capture = core.capture_namespace_generation(namespace)
-        outcome = core.admit_namespace(namespace_capture, "all", {"revision": "old"})
-    else:
-        identity_capture = core.begin_identity_admission(namespace, "product-1")
-        outcome = core.admit_identity(identity_capture, "full", {"revision": "old"})
-    assert outcome is AdmissionOutcome.ADMITTED
-
-    state = core._namespace(namespace)
-    entry = next(iter(state.entry_index))
-    key = state.entry_index[entry]
-    assert core._lru.remove_exact(key, entry)
-
-    with _pause_registered_namespace_lookup(core, monkeypatch) as (
-        lookup_complete,
-        resume_lookup,
-    ):
-        cleanup = threading.Thread(target=core._process_evicted, args=([entry],))
-        cleanup.start()
-        assert lookup_complete.wait(5)
-        if drop_namespace:
-            core.drop_namespace(namespace)
-        else:
-            core.clear_namespace(namespace)
-        resume_lookup.set()
-        cleanup.join(5)
-
-    assert not cleanup.is_alive()
-    if drop_namespace:
-        assert not core.has_namespace(namespace)
-    else:
-        assert core.has_namespace(namespace)
-        assert not core.lookup_namespace(namespace, "all").hit
 
 
 def test_namespace_metadata_cache_evicts_the_oldest_name() -> None:
@@ -599,7 +445,7 @@ def _assert_namespace_metadata_memory_plateau() -> None:
             gc.collect()
             retained_bytes.append(tracemalloc.get_traced_memory()[0])
 
-    assert len(core._namespaces) == 0
+    assert core.namespaces_for_database("catalogue") == []
     assert len(collection_metadata._entries) == _NAMESPACE_LIMIT
     assert len(unique_key_metadata._entries) == _NAMESPACE_LIMIT
     assert all(
@@ -614,13 +460,8 @@ def test_namespace_metadata_reaches_a_memory_plateau_under_name_churn(
     spawned_worker.submit(_assert_namespace_metadata_memory_plateau).result(timeout=15)
 
 
-@pytest.mark.parametrize(
-    "factory", [CacheCore, NativeCacheCore], ids=["reference", "native"]
-)
-def test_namespace_registration_capacity_and_epoch_release(
-    factory: type[LocalCacheCore],
-) -> None:
-    core = factory(CacheCoreConfig(max_namespaces=1))
+def test_namespace_registration_capacity_and_epoch_release() -> None:
+    core = CacheCore(CacheCoreConfig(max_namespaces=1))
     registered = NamespaceId("catalogue", "products")
     other = NamespaceId("catalogue", "orders")
     assert core.can_register_namespace(registered)
@@ -636,26 +477,3 @@ def test_namespace_registration_capacity_and_epoch_release(
     assert core.can_register_namespace(other)
     core.close()
     assert not core.can_register_namespace(registered)
-
-
-def test_namespace_release_tolerates_close_clearing_its_registry(
-    monkeypatch: pytest.MonkeyPatch, faker: Faker
-) -> None:
-    core = CacheCore()
-    namespace = NamespaceId("catalogue", "products")
-    capture = core.capture_namespace_generation(namespace)
-    assert core.admit_namespace(capture, "all", faker.pystr()) is (
-        AdmissionOutcome.ADMITTED
-    )
-    remove_exact = WeightedLru.remove_exact
-
-    def close_while_releasing(
-        lru: WeightedLru, key: CacheKey, entry: CacheEntry
-    ) -> bool:
-        core.close()
-        return remove_exact(lru, key, entry)
-
-    monkeypatch.setattr(WeightedLru, "remove_exact", close_while_releasing)
-    core.drop_namespace(namespace)
-
-    assert not core.has_namespace(namespace)

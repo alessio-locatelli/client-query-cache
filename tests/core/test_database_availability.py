@@ -11,8 +11,8 @@ from client_query_cache._core.keys import NamespaceId, canonical_alias_key
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from client_query_cache import CacheCore
     from client_query_cache._core.entries import LookupResult
-    from client_query_cache._core.manager import CacheCore
 
 pytestmark = pytest.mark.unit
 

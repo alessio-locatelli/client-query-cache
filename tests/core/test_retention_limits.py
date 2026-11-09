@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import sys
 import threading
 import weakref
@@ -15,41 +14,34 @@ from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 from client_query_cache import (
+    CacheCore,
     CacheCoreConfig,
     RetentionDeclineReason,
     RetentionRecordKind,
 )
-from client_query_cache._core import manager as core_module
 from client_query_cache._core.canonical import canonicalize
 from client_query_cache._core.codec import encode_value
 from client_query_cache._core.entries import AdmissionOutcome
 from client_query_cache._core.find_reads import find_read_shape
 from client_query_cache._core.keys import NamespaceId, canonical_alias_key
-from client_query_cache._core.lru import WeightedLru
-from client_query_cache._core.manager import CacheCore
-from client_query_cache._shared_index import LocalCacheCore
 from client_query_cache._types import NonNegativeInt, PositiveInt
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator
-    from concurrent.futures import Future
 
     from client_query_cache._core.contracts import LocalCacheCore as Core
-    from client_query_cache._core.entries import CacheEntry
-    from client_query_cache._core.keys import CacheKey
-    from client_query_cache._core.lru import LruPlanningView
 
     type CoreFactory = Callable[[CacheCoreConfig], Core]
 
 pytestmark = pytest.mark.unit
 
 
-@pytest.fixture(params=[CacheCore, LocalCacheCore], ids=["reference", "native"])
-def core_factory(request: pytest.FixtureRequest) -> Generator[CoreFactory]:
+@pytest.fixture
+def core_factory() -> Generator[CoreFactory]:
     cores: list[Core] = []
 
     def create(config: CacheCoreConfig) -> Core:
-        core: Core = request.param(config)
+        core: Core = CacheCore(config)
         cores.append(core)
         return core
 
@@ -262,39 +254,6 @@ def test_reentrant_sizing_rechecks_the_capture(
     )
     assert core.snapshot().entry_count == 0
     assert sum(record.count for record in core.snapshot().retention_declines) == 0
-
-
-def test_availability_transition_waits_for_a_limited_commit(
-    reference_core: CacheCore,
-    namespace: NamespaceId,
-    admission_pool: ThreadPoolExecutor,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    transitions: list[Future[None]] = []
-    commit_plan = WeightedLru.commit_plan
-
-    def commit_during_transition(
-        lru: WeightedLru,
-        view: LruPlanningView,
-        victims: list[tuple[CacheKey, CacheEntry]],
-        key: CacheKey,
-        entry: CacheEntry | None,
-    ) -> bool:
-        transition = admission_pool.submit(
-            reference_core.set_database_available, namespace.database, available=False
-        )
-        with pytest.raises(TimeoutError):
-            transition.result(timeout=0.05)
-        transitions.append(transition)
-        return commit_plan(lru, view, victims, key, entry)
-
-    monkeypatch.setattr(WeightedLru, "commit_plan", commit_during_transition)
-    capture = reference_core.capture_namespace_generation(namespace)
-    assert (
-        reference_core.admit_namespace(capture, "key", 1) is AdmissionOutcome.ADMITTED
-    )
-    transitions[0].result(timeout=5)
-    assert not reference_core.lookup_namespace(namespace, "key").hit
 
 
 class GrowingKey:
@@ -794,89 +753,14 @@ def test_last_value_eviction_and_capture_release_reclaim_alias_ownership(
     assert core.snapshot().alias_count == 0
 
 
-@pytest.fixture
-def reference_core() -> Generator[CacheCore]:
-    core = CacheCore(
-        CacheCoreConfig(max_entries=2, enable_telemetry=True, max_key_bytes=2048)
-    )
-    yield core
-    core.close()
-
-
-@pytest.fixture(params=["selection", "commit", "reuse"])
-def recency_race(
-    request: pytest.FixtureRequest,
-    reference_core: CacheCore,
-    namespace: NamespaceId,
-    admission_pool: ThreadPoolExecutor,
-    monkeypatch: pytest.MonkeyPatch,
-) -> Generator[str]:
-    for key in ("old", "new"):
-        reference_core.admit_namespace(
-            reference_core.capture_namespace_generation(namespace), key, 1
-        )
-    phase: str = request.param
-    method = "next_planned" if phase == "selection" else "commit_plan"
-    original = getattr(WeightedLru, method)
-    ready = threading.Event()
-    release = threading.Event()
-    original_touch = WeightedLru.touch
-
-    def pause_touch(lru: WeightedLru, key: CacheKey) -> None:
-        ready.set()
-        assert release.wait(timeout=10)
-        original_touch(lru, key)
-
-    monkeypatch.setattr(WeightedLru, "touch", pause_touch)
-    warm = admission_pool.submit(reference_core.lookup_namespace, namespace, "old")
-    assert ready.wait(timeout=10)
-    fired = False
-
-    def promote(lru: WeightedLru, *arguments: object) -> object:
-        nonlocal fired
-        if not fired:
-            fired = True
-            release.set()
-            assert warm.result(timeout=10).hit
-        return original(lru, *arguments)
-
-    monkeypatch.setattr(WeightedLru, method, promote)
-    yield phase
-    release.set()
-    warm.result(timeout=10)
-
-
-def test_reference_transaction_replans_after_a_concurrent_warm_promotion(
-    reference_core: CacheCore,
-    namespace: NamespaceId,
-    recency_race: str,
-    sized_key: SizedKey,
-) -> None:
-    sizing = Mock()
-    sized_key.callback = sizing
-    discriminator = "old" if recency_race == "reuse" else sized_key
-    assert (
-        reference_core.admit_namespace(
-            reference_core.capture_namespace_generation(namespace), discriminator, 1
-        )
-        is AdmissionOutcome.ADMITTED
-    )
-    assert reference_core.lookup_namespace(namespace, "old").hit
-    assert reference_core.lookup_namespace(namespace, "new").hit is (
-        recency_race == "reuse"
-    )
-    assert reference_core.snapshot().entry_count == 2
-    assert sizing.call_count == (0 if recency_race == "reuse" else 1)
-
-
 @dataclass(frozen=True, slots=True, weakref_slot=True)
 class FinalizerKey:
     value: int
 
 
-def record_reference_finalization(core: CacheCore, observations: list[bool]) -> None:
-    core._guard.assert_outside_storage()
-    observations.append(not getattr(core._availability_lock, "_is_owned")())  # noqa: B009 - CPython lock ownership is outside the public RLock stubs.
+def record_reentrant_finalization(core: CacheCore, observations: list[bool]) -> None:
+    core.snapshot()
+    observations.append(True)
 
 
 @pytest.fixture
@@ -895,7 +779,7 @@ def retiring_core() -> Generator[CacheCore]:
 
 
 @pytest.mark.parametrize("action", ["replace", "write", "release"])
-def test_equal_alias_identity_finalizers_run_after_the_capacity_transaction(
+def test_equal_alias_identity_finalizers_can_reenter_the_core(
     retiring_core: CacheCore,
     namespace: NamespaceId,
     action: str,
@@ -906,7 +790,7 @@ def test_equal_alias_identity_finalizers_run_after_the_capacity_transaction(
     )
     identity = FinalizerKey(1)
     observations: list[bool] = []
-    weakref.finalize(identity, record_reference_finalization, core, observations)
+    weakref.finalize(identity, record_reentrant_finalization, core, observations)
     alias = canonical_alias_key("email", "alice@example.com", None)
     assert (
         core.admit_identity(
@@ -930,47 +814,6 @@ def test_equal_alias_identity_finalizers_run_after_the_capacity_transaction(
         core.admit_namespace(core.capture_namespace_generation(namespace), "filler", 1)
         capture.release()
     assert observations == [True]
-
-
-class ClosingEvictionHandler(logging.Handler):
-    def __init__(self, core: CacheCore) -> None:
-        super().__init__()
-        self.core = core
-        self.depths: list[NonNegativeInt] = []
-
-    def emit(self, record: logging.LogRecord) -> None:
-        if record.msg == "cache entries evicted":
-            capacity = self.core._retention.capacity
-            assert capacity is not None
-            self.depths.append(capacity._state.depth)
-            self.core.close()
-
-
-@pytest.fixture
-def closing_eviction_handler(
-    retiring_core: CacheCore, caplog: pytest.LogCaptureFixture
-) -> Generator[ClosingEvictionHandler]:
-    caplog.set_level(logging.DEBUG, logger=core_module.logger.name)
-    handler = ClosingEvictionHandler(retiring_core)
-    core_module.logger.addHandler(handler)
-    yield handler
-    core_module.logger.removeHandler(handler)
-
-
-def test_eviction_logging_can_close_the_core_after_publication(
-    retiring_core: CacheCore,
-    closing_eviction_handler: ClosingEvictionHandler,
-    namespace: NamespaceId,
-) -> None:
-    for key in ("first", "second"):
-        assert (
-            retiring_core.admit_namespace(
-                retiring_core.capture_namespace_generation(namespace), key, 1
-            )
-            is AdmissionOutcome.ADMITTED
-        )
-    assert closing_eviction_handler.depths == [0]
-    assert retiring_core.snapshot().lifecycle == "closed"
 
 
 @pytest.mark.parametrize("maximum", [1, 2])
@@ -1046,7 +889,7 @@ def test_reentrant_alias_sizing_uses_current_cross_namespace_occupancy(
     )
 
 
-def test_alias_republication_refreshes_reclamation_order_in_both_cores(
+def test_alias_republication_refreshes_reclamation_order(
     core_factory: CoreFactory,
     namespace: NamespaceId,
 ) -> None:

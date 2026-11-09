@@ -1,16 +1,17 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from client_query_cache._core.keys import NamespaceId
 from client_query_cache._core.stream_cost import (
     LagCaptureWindowConfig,
     StreamCostSnapshot,
 )
-from client_query_cache._types import BsonDict, NonNegativeFloat, NonNegativeInt
+from client_query_cache._types import BsonDict, NonNegativeFloat
 from tests.polling import wait_until, wait_until_async
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Mapping
+
     from pymongo.asynchronous.database import AsyncDatabase
     from pymongo.synchronous.database import Database
 
@@ -39,21 +40,35 @@ def assert_lag_matches_write_interval(
     )
 
 
-def _generation(cache: CacheCore, namespace: NamespaceId) -> NonNegativeInt:
-    return cache.capture_namespace_generation(namespace).generation
+class StreamBarrier:
+    __slots__ = ("_routed",)
 
+    def __init__(self) -> None:
+        self._routed: set[object] = set()
 
-def wait_for_stream_barrier(cache: CacheCore, database: Database[BsonDict]) -> None:
-    namespace = NamespaceId(database.name, _STREAM_BARRIER_COLLECTION_NAME)
-    before = _generation(cache, namespace)
-    database[_STREAM_BARRIER_COLLECTION_NAME].insert_one({})
-    wait_until(lambda: _generation(cache, namespace) > before)
+    def observe(self, route: Callable[..., bool]) -> Callable[..., bool]:
+        def observed(
+            cache: CacheCore,
+            database: str,
+            event: Mapping[str, Any],
+            **options: object,
+        ) -> bool:
+            must_reopen = route(cache, database, event, **options)
+            try:
+                if event["ns"]["coll"] == _STREAM_BARRIER_COLLECTION_NAME:
+                    self._routed.add(event["documentKey"]["_id"])
+            except KeyError:
+                pass
+            return must_reopen
 
+        return observed
 
-async def wait_for_stream_barrier_async(
-    cache: CacheCore, database: AsyncDatabase[BsonDict]
-) -> None:
-    namespace = NamespaceId(database.name, _STREAM_BARRIER_COLLECTION_NAME)
-    before = _generation(cache, namespace)
-    await database[_STREAM_BARRIER_COLLECTION_NAME].insert_one({})
-    await wait_until_async(lambda: _generation(cache, namespace) > before)
+    def wait(self, database: Database[BsonDict]) -> None:
+        inserted_id = (
+            database[_STREAM_BARRIER_COLLECTION_NAME].insert_one({}).inserted_id
+        )
+        wait_until(lambda: inserted_id in self._routed)
+
+    async def wait_async(self, database: AsyncDatabase[BsonDict]) -> None:
+        inserted = await database[_STREAM_BARRIER_COLLECTION_NAME].insert_one({})
+        await wait_until_async(lambda: inserted.inserted_id in self._routed)

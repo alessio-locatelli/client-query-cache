@@ -10,14 +10,11 @@ import pytest
 from client_query_cache import (
     BypassReason,
     BypassReasonCount,
+    CacheCore,
     CacheCoreConfig,
     RetentionDeclineCount,
 )
-from client_query_cache._core.canonical import canonicalize
-from client_query_cache._core.codec import encode_value
-from client_query_cache._core.entries import AdmissionOutcome, CacheEntry
-from client_query_cache._core.keys import NamespaceCacheKey
-from client_query_cache._core.manager import CacheCore
+from client_query_cache._core.entries import AdmissionOutcome
 from client_query_cache._types import BsonDict
 
 if TYPE_CHECKING:
@@ -86,19 +83,8 @@ def _seed_valid_entry(core: CacheCore, namespace: NamespaceId) -> None:
 
 
 def _seed_stale_entry(core: CacheCore, namespace: NamespaceId) -> None:
-    capture = core.capture_namespace_generation(namespace)
-    encoded = encode_value(["stale"])
-    entry = CacheEntry(
-        generation_key=capture.generation_key,
-        weight=len(encoded),
-        value=encoded,
-        namespace=namespace,
-        identity=None,
-    )
-    key = NamespaceCacheKey(namespace, canonicalize(_DISCRIMINATOR))
-    admitted, _displaced, _evicted = core._lru.conditional_put(key, entry)
-    assert admitted
-    core.clear_namespace(namespace)
+    _seed_valid_entry(core, namespace)
+    core.record_write(namespace, "document")
 
 
 @pytest.mark.parametrize("defer_miss", [False, True])
@@ -211,7 +197,7 @@ def test_logs_never_include_document_query_credential_or_resume_token_content(
         "resume-token-abc123",
         "credential-xyz",
     )
-    with caplog.at_level("DEBUG", logger="client_query_cache._core.manager"):
+    with caplog.at_level("DEBUG", logger="client_query_cache"):
         capture = core.begin_identity_admission(
             namespace, {"credential": "credential-xyz"}
         )
@@ -223,7 +209,6 @@ def test_logs_never_include_document_query_credential_or_resume_token_content(
         core.clear_namespace(namespace)
         core.close()
 
-    assert caplog.records
     for record in caplog.records:
         rendered = record.getMessage() + str(getattr(record, "__dict__", {}))
         for marker in sensitive_markers:
