@@ -864,14 +864,19 @@ def test_native_fallback_retry_does_not_repeat_sizing_or_decline_events(
 ) -> None:
     core = one_slot_native
     other = NamespaceId("native_owner", "other")
-    before = core.capture_namespace_generation(other).generation
     key = Key(1)
     assert (
         core.admit_namespace(core.capture_namespace_generation(_NAMESPACE), key, 1)
         is AdmissionOutcome.ADMITTED
     )
     key_sizing_calls.clear()
-    key.callback = partial(core.record_write, other, "unrelated")
+    writes: list[NamespaceId] = []
+
+    def write_other() -> None:
+        core.record_write(other, "unrelated")
+        writes.append(other)
+
+    key.callback = write_other
     probe = Key(1)
     assert (
         core.admit_unique_key_match(
@@ -884,7 +889,7 @@ def test_native_fallback_retry_does_not_repeat_sizing_or_decline_events(
         )
         is AdmissionOutcome.ADMITTED
     )
-    assert core.capture_namespace_generation(other).generation > before
+    assert len(writes) == 1
     assert key_sizing_calls == [probe]
     assert [
         (item.kind, item.reason, item.count)

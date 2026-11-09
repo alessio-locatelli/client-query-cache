@@ -84,7 +84,7 @@ def training_passes(
 
         return run, 1
 
-    for name in ("identity_hit_small", "limited_namespace_pressure", "echo_roundtrip"):
+    for name in ("identity_hit_small", "limited_namespace_pressure", "shared_miss"):
         monkeypatch.setitem(WORKLOADS, name, partial(factory, name))
     monkeypatch.setattr(
         pgo_training, "time", SimpleNamespace(monotonic=lambda: elapsed[0])
@@ -104,7 +104,7 @@ def test_training_schedules_both_core_policies_and_preserves_allocations(
     limited_passes: tuple[NonNegativeInt, NonNegativeInt],
 ) -> None:
     train(
-        ["identity_hit_small", "limited_namespace_pressure", "echo_roundtrip"],
+        ["identity_hit_small", "limited_namespace_pressure", "shared_miss"],
         seconds=100,
         disabled_share=disabled_share,
     )
@@ -114,7 +114,7 @@ def test_training_schedules_both_core_policies_and_preserves_allocations(
         ("identity_hit_small", True): core_passes[1] + 1,
         ("limited_namespace_pressure", False): limited_passes[0] + 1,
         ("limited_namespace_pressure", True): limited_passes[1] + 1,
-        ("echo_roundtrip", False): 101,
+        ("shared_miss", False): 101,
     }
     assert CORE_TELEMETRY_POLICY.get() is False
 

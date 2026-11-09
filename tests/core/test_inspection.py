@@ -209,10 +209,11 @@ def test_logs_never_include_document_query_credential_or_resume_token_content(
         core.clear_namespace(namespace)
         core.close()
 
-    for record in caplog.records:
-        rendered = record.getMessage() + str(getattr(record, "__dict__", {}))
-        for marker in sensitive_markers:
-            assert marker not in rendered
+    rendered = "".join(
+        record.getMessage() + str(record.__dict__) for record in caplog.records
+    )
+    for marker in sensitive_markers:
+        assert marker not in rendered
 
 
 @pytest.fixture
