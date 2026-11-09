@@ -22,8 +22,8 @@ The widest interval (find-admission, small profile, 0.930 to 1.172) reflects noi
 Create `venv-main` and `venv-cand` inside a work directory `WORKDIR` (installing each revision's wheel, plus `faker` and `psutil`), then run from the repository root:
 
 ```bash
-python3 scripts/installed_build_compare.py startup WORKDIR 40
-bash -c 'source scripts/testcontainers-bridge.sh; uv run python scripts/installed_build_compare.py guard WORKDIR 31'
+PYTHONPATH=. uv run python scripts/installed_build_compare.py startup WORKDIR 40
+bash -c 'source scripts/testcontainers-bridge.sh; PYTHONPATH=. uv run python scripts/installed_build_compare.py guard WORKDIR 31'
 ```
 
 `python3 -I scripts/installed_build_probe.py audit`, run with either virtual environment's interpreter, prints the installed-package inventory used above.
