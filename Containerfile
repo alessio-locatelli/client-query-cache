@@ -1,4 +1,4 @@
-FROM registry.fedoraproject.org/fedora-toolbox:44@sha256:b3a0088e7a72ea2c7cb496c674a3e11201960814d4303e19ab2746afaca5fad5
+FROM registry.fedoraproject.org/fedora-toolbox:45@sha256:e9fbbc53d58a88e2c931fe8e4a562e6d8cc2b680773bd7b4806d70797e9da7b1
 
 # renovate: datasource=pypi depName=prek versioning=pep440
 ARG PREK_TOOL_VERSION=0.5.7
@@ -26,7 +26,7 @@ COPY .python-version /tmp/python-version
 COPY .node-version /tmp/node-version
 COPY rust-toolchain.toml /tmp/rust-toolchain-selection.toml
 
-# Fedora packages follow the Fedora 44 repositories; see CONTRIBUTING.md for the rationale.
+# Fedora packages follow the base image's repositories; see CONTRIBUTING.md for the rationale.
 # DNF5 --assumeyes: https://dnf5.readthedocs.io/en/latest/dnf5.8.html
 # The default is inherited from DNF configuration (assumeyes=false unless configured). We override it because container builds cannot answer interactive package prompts.
 # rustup-init 1.29 --help: -y: The default prompts for confirmation. We override it because container builds cannot answer prompts.
