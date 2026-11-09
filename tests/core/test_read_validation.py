@@ -315,7 +315,7 @@ _SCAN_INPUTS = st.recursive(
     ids=["filter", "pipeline", "projection"],
 )
 @given(node=_SCAN_INPUTS)
-def test_native_unsafe_scans_match_the_reference(
+def test_native_unsafe_scans_match_the_generic_path(
     scan: Callable[[object], bool], unsafe_keys: frozenset[str], node: object
 ) -> None:
     assert same_outcome(

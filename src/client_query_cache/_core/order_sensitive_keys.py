@@ -67,11 +67,11 @@ def _order_sensitive_key(
     return value
 
 
-def _reference_order_sensitive_key(value: object) -> object:
+def _generic_order_sensitive_key(value: object) -> object:
     return _order_sensitive_key(value, distinguish_numeric_subtypes=False)
 
 
-def _reference_order_sensitive_discriminator_key(value: object) -> object:
+def _generic_order_sensitive_discriminator_key(value: object) -> object:
     return _order_sensitive_key(value, distinguish_numeric_subtypes=True)
 
 
@@ -80,8 +80,8 @@ _ORDERED = OrderedKeys(
     (_MAPPING_TAG, _SEQUENCE_TAG, _FLOAT_TAG, _INT64_TAG),
     Int64,
     Decimal128,
-    _reference_order_sensitive_key,
-    _reference_order_sensitive_discriminator_key,
+    _generic_order_sensitive_key,
+    _generic_order_sensitive_discriminator_key,
 )
 order_sensitive_key = _ORDERED.pending_key
 order_sensitive_discriminator_key = _ORDERED.pending_discriminator

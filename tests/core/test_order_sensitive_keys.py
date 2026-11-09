@@ -231,21 +231,21 @@ def test_nested_order_sensitive_values_form_one_tagged_node(
 _PREPARATIONS = (
     (
         order_sensitive_keys.order_sensitive_key,
-        order_sensitive_keys._reference_order_sensitive_key,
+        order_sensitive_keys._generic_order_sensitive_key,
         order_sensitive_keys.canonical_order_sensitive_key,
     ),
     (
         order_sensitive_keys.order_sensitive_discriminator_key,
-        order_sensitive_keys._reference_order_sensitive_discriminator_key,
+        order_sensitive_keys._generic_order_sensitive_discriminator_key,
         order_sensitive_keys.canonical_discriminator_key,
     ),
 )
 
 
-def _canonical_reference(
-    reference: Callable[[object], object],
+def _canonical_generic(
+    generic: Callable[[object], object],
 ) -> Callable[[object], object]:
-    return lambda value: canonical._reference_canonicalize(reference(value))
+    return lambda value: canonical._generic_canonicalize(generic(value))
 
 
 class _Subtype(enum.IntEnum):
@@ -257,7 +257,7 @@ class _Float(float):
 
 
 @pytest.mark.parametrize(
-    ("pending", "reference", "fused"), _PREPARATIONS, ids=["identity", "discriminator"]
+    ("pending", "generic", "fused"), _PREPARATIONS, ids=["identity", "discriminator"]
 )
 @given(value=key_inputs(string_keys=True))
 @example(value=Int64(1))
@@ -269,15 +269,15 @@ class _Float(float):
 @example(value=Decimal128("NaN"))
 @example(value=float("nan"))
 @example(value={"n": [Int64(2), 2.0, 2, Decimal128("2")]})
-def test_native_order_sensitive_keys_match_the_reference(
+def test_native_order_sensitive_keys_match_the_generic_path(
     pending: Callable[[object], object],
-    reference: Callable[[object], object],
+    generic: Callable[[object], object],
     fused: Callable[[object], object],
     value: object,
 ) -> None:
-    assert same_outcome(outcome(pending, value), outcome(reference, value))
+    assert same_outcome(outcome(pending, value), outcome(generic, value))
     assert same_outcome(
-        outcome(fused, value), outcome(_canonical_reference(reference), value)
+        outcome(fused, value), outcome(_canonical_generic(generic), value)
     )
 
 
@@ -303,24 +303,24 @@ def _resizing_filter() -> dict[str, object]:
 
 
 @pytest.mark.parametrize(
-    ("reference", "fused"),
-    [(reference, fused) for _, reference, fused in _PREPARATIONS],
+    ("generic", "fused"),
+    [(generic, fused) for _, generic, fused in _PREPARATIONS],
     ids=["identity", "discriminator"],
 )
 def test_fused_keys_snapshot_the_input_before_leaf_callbacks(
-    reference: Callable[[object], object], fused: Callable[[object], object]
+    generic: Callable[[object], object], fused: Callable[[object], object]
 ) -> None:
-    expected = outcome(_canonical_reference(reference), _resizing_filter())
+    expected = outcome(_canonical_generic(generic), _resizing_filter())
     assert expected[0] == "result"
     assert same_outcome(outcome(fused, _resizing_filter()), expected)
 
 
 @pytest.mark.parametrize(
-    ("pending", "reference", "fused"), _PREPARATIONS, ids=["identity", "discriminator"]
+    ("pending", "generic", "fused"), _PREPARATIONS, ids=["identity", "discriminator"]
 )
 def test_each_preparation_reads_the_current_mutable_input(
     pending: Callable[[object], object],
-    reference: Callable[[object], object],
+    generic: Callable[[object], object],
     fused: Callable[[object], object],
 ) -> None:
     value: dict[str, object] = {"group": 1, "ordinal": {"$in": [0, 1]}}
@@ -328,5 +328,5 @@ def test_each_preparation_reads_the_current_mutable_input(
     value["ordinal"]["$in"].append(2)  # type: ignore[index]
     second = fused(value)
     assert first != second
-    assert strictly_equal(second, _canonical_reference(reference)(value))
-    assert strictly_equal(pending(value), reference(value))
+    assert strictly_equal(second, _canonical_generic(generic)(value))
+    assert strictly_equal(pending(value), generic(value))

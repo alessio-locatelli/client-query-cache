@@ -32,7 +32,7 @@ _BOOL_TAG = _CanonicalTag("bool")
 _TAGGED_TUPLE_SIZE = 2
 
 
-def _reference_canonicalize(value: object) -> Canonical:
+def _generic_canonicalize(value: object) -> Canonical:
     value_type = type(value)
     if value_type is int or value_type is str or value_type is bytes or value is None:
         return value
@@ -44,12 +44,12 @@ def _reference_canonicalize(value: object) -> Canonical:
             if tag.items:
                 return (
                     tag.canonical,
-                    tuple([_reference_canonicalize(item) for item in payload]),
+                    tuple([_generic_canonicalize(item) for item in payload]),
                 )
-            return (tag.canonical, _reference_canonicalize(payload))
+            return (tag.canonical, _generic_canonicalize(payload))
     if isinstance(value, Mapping):
         pairs = [
-            (_reference_canonicalize(key), _reference_canonicalize(item))
+            (_generic_canonicalize(key), _generic_canonicalize(item))
             for key, item in value.items()
         ]
         items = tuple(sorted(pairs, key=lambda pair: repr(pair[0])))
@@ -57,7 +57,7 @@ def _reference_canonicalize(value: object) -> Canonical:
     if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
         return (
             _SEQUENCE_TAG,
-            tuple([_reference_canonicalize(item) for item in value]),
+            tuple([_generic_canonicalize(item) for item in value]),
         )
     if isinstance(value, bool):
         return (_BOOL_TAG, value)
@@ -86,7 +86,7 @@ _CANONICALIZER: Canonicalizer = Canonicalizer(
     Mapping,
     Sequence,
     UnsupportedCacheRequestError,
-    _reference_canonicalize,
+    _generic_canonicalize,
 )
 canonicalize = _CANONICALIZER.canonical
 

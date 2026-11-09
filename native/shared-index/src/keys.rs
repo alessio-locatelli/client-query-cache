@@ -67,7 +67,7 @@ pub(crate) struct Canonicalizer {
     mapping_abc: Py<PyAny>,
     sequence_abc: Py<PyAny>,
     unsupported: Py<PyType>,
-    reference: Py<PyAny>,
+    generic: Py<PyAny>,
 }
 
 impl Canonicalizer {
@@ -227,7 +227,7 @@ impl Canonicalizer {
             || value.is_instance(self.mapping_abc.bind(py))?
             || (value.is_instance(self.sequence_abc.bind(py))? && !is_string_like(value))
         {
-            return self.reference.bind(py).call1((value,));
+            return self.generic.bind(py).call1((value,));
         }
         if let Err(error) = value.hash() {
             if error.is_instance_of::<PyTypeError>(py) {
@@ -264,7 +264,7 @@ impl Canonicalizer {
         mapping_abc: Py<PyAny>,
         sequence_abc: Py<PyAny>,
         unsupported: Py<PyType>,
-        reference: Py<PyAny>,
+        generic: Py<PyAny>,
     ) -> Self {
         Self {
             canonical_tag,
@@ -275,7 +275,7 @@ impl Canonicalizer {
             mapping_abc,
             sequence_abc,
             unsupported,
-            reference,
+            generic,
         }
     }
 
@@ -302,8 +302,8 @@ pub(crate) struct OrderedKeys {
     canonical_tags: [Py<PyAny>; 4],
     int64_type: Py<PyAny>,
     decimal_type: Py<PyAny>,
-    reference: Py<PyAny>,
-    discriminator_reference: Py<PyAny>,
+    generic: Py<PyAny>,
+    generic_discriminator: Py<PyAny>,
 }
 
 impl OrderedKeys {
@@ -374,12 +374,12 @@ impl OrderedKeys {
             || value.is_instance(canonicalizer.mapping_abc.bind(py))?
             || (value.is_instance(canonicalizer.sequence_abc.bind(py))? && !is_string_like(value))
         {
-            let reference = if distinguish {
-                &self.discriminator_reference
+            let generic = if distinguish {
+                &self.generic_discriminator
             } else {
-                &self.reference
+                &self.generic
             };
-            return Ok(Pending::Leaf(reference.bind(py).call1((value,))?));
+            return Ok(Pending::Leaf(generic.bind(py).call1((value,))?));
         }
         if distinguish {
             if value.is_instance(self.int64_type.bind(py))? {
@@ -462,8 +462,8 @@ impl OrderedKeys {
         pending_tags: [Py<PyAny>; 4],
         int64_type: Py<PyAny>,
         decimal_type: Py<PyAny>,
-        reference: Py<PyAny>,
-        discriminator_reference: Py<PyAny>,
+        generic: Py<PyAny>,
+        generic_discriminator: Py<PyAny>,
     ) -> PyResult<Self> {
         let canonical = |tag: &Py<PyAny>| -> PyResult<Py<PyAny>> {
             Ok(tag.bind(py).getattr(intern!(py, "canonical"))?.unbind())
@@ -480,8 +480,8 @@ impl OrderedKeys {
             canonical_tags,
             int64_type,
             decimal_type,
-            reference,
-            discriminator_reference,
+            generic,
+            generic_discriminator,
         })
     }
 
@@ -510,13 +510,13 @@ pub(crate) struct UnsafeScan {
     prefixes: Vec<String>,
     mapping_abc: Py<PyAny>,
     sequence_abc: Py<PyAny>,
-    reference: Py<PyAny>,
+    generic: Py<PyAny>,
 }
 
 impl UnsafeScan {
     fn delegate(&self, node: &Bound<'_, PyAny>) -> PyResult<bool> {
         let py = node.py();
-        self.reference
+        self.generic
             .bind(py)
             .call1((node, self.key_set.bind(py)))?
             .is_truthy()
@@ -599,7 +599,7 @@ impl UnsafeScan {
         prefixes: &Bound<'_, PyAny>,
         mapping_abc: Py<PyAny>,
         sequence_abc: Py<PyAny>,
-        reference: Py<PyAny>,
+        generic: Py<PyAny>,
     ) -> PyResult<Self> {
         Ok(Self {
             keys: key_set.extract()?,
@@ -608,7 +608,7 @@ impl UnsafeScan {
             prefixes: prefixes.extract()?,
             mapping_abc,
             sequence_abc,
-            reference,
+            generic,
         })
     }
 

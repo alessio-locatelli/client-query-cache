@@ -138,7 +138,7 @@ class Canonicalizer:
         mapping_abc: type,
         sequence_abc: type,
         unsupported: type[Exception],
-        reference: Callable[[object], Hashable],
+        generic: Callable[[object], Hashable],
     ) -> None: ...
     def canonical(self, value: object) -> Hashable: ...
 
@@ -150,8 +150,8 @@ class OrderedKeys:
         pending_tags: tuple[object, object, object, object],
         int64_type: type,
         decimal_type: type,
-        reference: Callable[[object], object],
-        discriminator_reference: Callable[[object], object],
+        generic: Callable[[object], object],
+        generic_discriminator: Callable[[object], object],
     ) -> None: ...
     def key(self, value: object) -> Hashable: ...
     def discriminator(self, value: object) -> Hashable: ...
@@ -167,7 +167,7 @@ class UnsafeScan:
         prefixes: tuple[str, ...],
         mapping_abc: type,
         sequence_abc: type,
-        reference: Callable[[object, frozenset[str]], bool],
+        generic: Callable[[object, frozenset[str]], bool],
     ) -> None: ...
     def __call__(self, node: object) -> bool: ...
 
