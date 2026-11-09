@@ -2,14 +2,7 @@ from __future__ import annotations
 
 import enum
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
-
-from client_query_cache._types import NonNegativeInt
-
-if TYPE_CHECKING:
-    from client_query_cache._core.canonical import Canonical
-    from client_query_cache._core.find_reads import FindSource
-    from client_query_cache._core.keys import NamespaceId
+from typing import Any
 
 
 class AdmissionOutcome(enum.Enum):
@@ -19,16 +12,6 @@ class AdmissionOutcome(enum.Enum):
     DECLINED_UNAVAILABLE = "declined_unavailable"
     DECLINED_UNENCODABLE = "declined_unencodable"
     DECLINED_RETENTION = "declined_retention"
-
-
-@dataclass(eq=False, slots=True)
-class CacheEntry:
-    generation_key: tuple[NonNegativeInt, ...]
-    weight: NonNegativeInt
-    value: bytes
-    namespace: NamespaceId
-    identity: Canonical | None
-    find_source: FindSource | None = None
 
 
 @dataclass(frozen=True, slots=True)

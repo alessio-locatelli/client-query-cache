@@ -634,15 +634,12 @@ async def retention_child(arguments: argparse.Namespace) -> None:
     completed = []
 
     def checkpoint(phase: str, **extra: object) -> None:
-        alias_count = getattr(manager.snapshot(), "alias_count", None)
-        if alias_count is None:
-            alias_count = manager.cache_core._ownership()[2]  # noqa: SLF001 - Frozen builds expose alias occupancy only through this diagnostic.
         sample(
             phase,
             manager,
             arguments.budget_field,
             origins=observer.count,
-            live_aliases=alias_count,
+            live_aliases=manager.snapshot().alias_count,
             **extra,
         )
         completed.append(phase)
@@ -740,10 +737,8 @@ async def retention_child(arguments: argparse.Namespace) -> None:
 
 
 def retention_core(arguments: argparse.Namespace) -> None:
-    from client_query_cache import CacheCoreConfig
+    from client_query_cache import CacheCore, CacheCoreConfig
     from client_query_cache._core.keys import NamespaceId, canonical_alias_key  # noqa: PLC2701 - Measure complete internal alias admission and reclamation.
-    from client_query_cache._core.manager import CacheCore  # noqa: PLC2701 - Compare the reference and native ownership implementations.
-    from client_query_cache._shared_index import LocalCacheCore  # noqa: PLC2701 - Compare the reference and native ownership implementations.
 
     completed = []
 
@@ -751,7 +746,6 @@ def retention_core(arguments: argparse.Namespace) -> None:
         sample(phase, core, arguments.budget_field, **extra)
         completed.append(phase)
 
-    constructor = CacheCore if arguments.core == "reference" else LocalCacheCore
     namespace = NamespaceId(DATABASE, CODES)
     if arguments.scenario == "aliases":
         for count in (256, 1024, 4096):
@@ -761,7 +755,7 @@ def retention_core(arguments: argparse.Namespace) -> None:
             }
             if arguments.enabled:
                 config["max_entries"] = count + 2
-            core = constructor(CacheCoreConfig(**config, enable_telemetry=True))
+            core = CacheCore(CacheCoreConfig(**config, enable_telemetry=True))
             aliases = [
                 canonical_alias_key("code", f"C{index:07d}", None)
                 for index in range(count)
@@ -819,7 +813,7 @@ def retention_core(arguments: argparse.Namespace) -> None:
         config = {arguments.budget_field: arguments.budget, "max_entry_bytes": MIB}
         if arguments.enabled:
             config["max_entries"] = arguments.max_entries
-        core = constructor(CacheCoreConfig(**config, enable_telemetry=True))
+        core = CacheCore(CacheCoreConfig(**config, enable_telemetry=True))
         barrier = threading.Barrier(arguments.threads)
 
         def admit(worker: Annotated[int, Ge(0)]) -> list[Annotated[int, Ge(0)]]:
@@ -891,7 +885,6 @@ def main() -> None:
     retention.add_argument("--prefill", type=int, default=0)
     retention.add_argument("--single-identity", action="store_true")
     core = commands.add_parser("retention-core")
-    core.add_argument("--core", choices=("native", "reference"), default="native")
     core.add_argument(
         "--scenario", choices=("aliases", "contention"), default="aliases"
     )

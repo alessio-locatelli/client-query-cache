@@ -641,7 +641,7 @@ PYTHONPATH=overlays/candidate16:. PYTHONHASHSEED=337 uv run -- python -m researc
 PYTHONPATH=overlays/candidate16:. PYTHONHASHSEED=337 uv run -- python -m research.process_memory.measure retention-core --core native --scenario contention --threads 4 --distinct 32768 --max-entries 131072 --budget 16777216 --enabled
 ```
 
-Use `--core reference|native`, contention `--threads 1|4`, omit `--enabled` for disabled builds, and select `main`'s budget keyword as above. The issue #337 workload seeds 100,000 documents (`_id` and `code` as above, `code` indexed) into `process_memory.codes` and runs one child per scenario, API and configuration:
+Use `--core reference|native` (only the revisions that still contained the Python reference core accept `--core`; later revisions measure the native core alone), contention `--threads 1|4`, omit `--enabled` for disabled builds, and select `main`'s budget keyword as above. The issue #337 workload seeds 100,000 documents (`_id` and `code` as above, `code` indexed) into `process_memory.codes` and runs one child per scenario, API and configuration:
 
 ```bash
 taskset -c 2 python -m research.process_memory.measure child <uri> large-keys sync direct

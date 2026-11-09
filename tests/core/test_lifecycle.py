@@ -6,7 +6,6 @@ import pytest
 
 from client_query_cache import CacheClosedError, CacheCore, CacheCoreConfig
 from client_query_cache._core.keys import NamespaceId
-from client_query_cache._core.lifecycle import CacheLifecycleState
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -17,7 +16,7 @@ pytestmark = pytest.mark.unit
 def test_a_new_manager_starts_active() -> None:
     assert (
         CacheCore(CacheCoreConfig(enable_telemetry=True)).snapshot().lifecycle
-        == CacheLifecycleState.ACTIVE.value
+        == "active"
     )
 
 
@@ -30,7 +29,7 @@ def test_close_transitions_to_closed_and_releases_storage(
 
     core.close()
 
-    assert core.snapshot().lifecycle == CacheLifecycleState.CLOSED.value
+    assert core.snapshot().lifecycle == "closed"
     snapshot = core.snapshot()
     assert snapshot.used_bytes == 0
     assert snapshot.entry_count == 0
@@ -40,7 +39,7 @@ def test_close_is_idempotent() -> None:
     core = CacheCore(CacheCoreConfig(enable_telemetry=True))
     core.close()
     core.close()
-    assert core.snapshot().lifecycle == CacheLifecycleState.CLOSED.value
+    assert core.snapshot().lifecycle == "closed"
 
 
 @pytest.mark.parametrize(
