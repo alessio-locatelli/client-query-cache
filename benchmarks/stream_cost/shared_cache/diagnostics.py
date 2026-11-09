@@ -62,10 +62,8 @@ class _CoarseCache:
         self._namespace = NamespaceId("diagnostic", "catalogue")
         for key in range(entries):
             capture = self._core.begin_identity_admission(self._namespace, key)
-            self._core.admit_identity_encoded(
-                capture,
-                "full",
-                encode_value({"_id": key, "payload": "x" * payload_bytes}),
+            self._core.admit_identity(
+                capture, "full", {"_id": key, "payload": "x" * payload_bytes}
             )
 
     def select(self, key: int) -> bytes | None:

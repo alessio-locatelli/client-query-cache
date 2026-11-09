@@ -23,6 +23,8 @@ if TYPE_CHECKING:
     from tests.conftest import DatabaseName, MongoDbUri
     from tests.stream_helpers import StreamBarrier
 
+from tests.epoch_helpers import current_epoch
+
 pytestmark = pytest.mark.integration
 
 ReadMethod = Literal[
@@ -258,9 +260,9 @@ def test_collection_type_is_rechecked_after_absence(
     if request.node.callspec.params["collection"] == "collection":
         collection.raw.insert_one(measurement)
         assert collection.find_one({"_id": measurement["_id"]}) == measurement
-        epoch = cache.current_epoch(namespace)
+        epoch = current_epoch(cache, namespace)
         collection.database.raw.drop_collection(collection.name)
-        wait_until(lambda: cache.current_epoch(namespace) > epoch)
+        wait_until(lambda: current_epoch(cache, namespace) > epoch)
     assert collection.find_one({"_id": measurement["_id"]}) is None
     assert collection.find_one({"_id": measurement["_id"]}) is None
     assert cache.snapshot().entry_count == 0

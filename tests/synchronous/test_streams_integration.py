@@ -19,6 +19,7 @@ from client_query_cache._types import (
 )
 from client_query_cache.synchronous import streams as streams_module
 from client_query_cache.synchronous.streams import DatabaseStreamSupervisor
+from tests.epoch_helpers import current_epoch
 from tests.stream_helpers import (
     SINGLE_EVENT_LAG_WINDOW,
     assert_lag_matches_write_interval,
@@ -253,10 +254,10 @@ def test_drop_database_clears_the_cache_and_the_stream_recovers(
 
     _wait_until(_admit_and_check_doc2)
 
-    epoch_before_create = cache.current_epoch(namespace)
+    epoch_before_create = current_epoch(cache, namespace)
     independent_writer[cached_database_name].create_collection("items")
 
-    _wait_until(lambda: cache.current_epoch(namespace) > epoch_before_create)
+    _wait_until(lambda: current_epoch(cache, namespace) > epoch_before_create)
     _wait_until(lambda: supervisor.healthy)
     assert cache.lookup_identity(namespace, other_document_id, "full").hit is False
 

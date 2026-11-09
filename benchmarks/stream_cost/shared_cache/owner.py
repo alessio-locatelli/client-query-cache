@@ -242,12 +242,13 @@ def race_next_admission(owner: SharedCacheOwner, race: str) -> None:
             original(instance, connection, message, now)
             return
         original(instance, connection, message, now)
-        filler = b"x" * (owner.config.max_entry_bytes // 2)
-        for offset in range(owner.config.budget_bytes // len(filler) + 1):
+        half_entry = owner.config.max_entry_bytes // 2
+        filler = {"filler": "x" * half_entry}
+        for offset in range(owner.config.budget_bytes // half_entry + 1):
             capture = owner.core.begin_identity_admission(
                 namespace, f"race-filler-{offset}"
             )
-            owner.core.admit_identity_encoded(capture, shape, filler)
+            owner.core.admit_identity(capture, shape, filler)
 
     SharedCacheOwner._admit = racing  # type: ignore[method-assign,assignment]
 
