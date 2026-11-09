@@ -8,7 +8,7 @@ from hypothesis import example, given
 from hypothesis import strategies as st
 
 from client_query_cache._core.canonical import (
-    _reference_canonicalize,
+    _generic_canonicalize,
     canonicalize,
 )
 from client_query_cache._core.errors import UnsupportedCacheRequestError
@@ -173,11 +173,11 @@ def test_canonicalize_never_conflates_a_bool_and_an_int(
 @example([float("nan")])
 @example({1, 2})
 @example((1, "untagged"))
-@example(_reference_canonicalize({"a": [1, True]}))
+@example(_generic_canonicalize({"a": [1, True]}))
 @example(order_sensitive_key({"a": [1.5, {"b": None}]}))
-def test_native_canonicalization_matches_the_reference(value: object) -> None:
+def test_native_canonicalization_matches_the_generic_path(value: object) -> None:
     assert same_outcome(
-        outcome(canonicalize, value), outcome(_reference_canonicalize, value)
+        outcome(canonicalize, value), outcome(_generic_canonicalize, value)
     )
 
 
@@ -204,9 +204,9 @@ class _ReversedRepr:
         return _Ordered(self.value)
 
 
-def test_mapping_keys_with_custom_repr_ordering_sort_like_the_reference() -> None:
+def test_mapping_keys_with_custom_repr_ordering_sort_like_the_generic_path() -> None:
     value = {_ReversedRepr(name): name for name in ("a", "c", "b")}
-    expected = _reference_canonicalize(value)
+    expected = _generic_canonicalize(value)
     assert isinstance(expected, tuple)
     assert strictly_equal(canonicalize(value), expected)
     assert [pair[1] for pair in expected[1]] == ["c", "b", "a"]
@@ -273,9 +273,9 @@ def _resizing_leaf() -> object:
         "nan-like",
     ],
 )
-def test_reentrant_and_raising_leaves_match_the_reference(
+def test_reentrant_and_raising_leaves_match_the_generic_path(
     build: Callable[[], object],
 ) -> None:
     assert same_outcome(
-        outcome(canonicalize, build()), outcome(_reference_canonicalize, build())
+        outcome(canonicalize, build()), outcome(_generic_canonicalize, build())
     )

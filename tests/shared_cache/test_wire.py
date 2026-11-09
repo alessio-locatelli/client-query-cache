@@ -500,15 +500,15 @@ def test_generic_keys_do_not_initialize_the_find_encoder() -> None:
 
 @given(value=_VALUES, limit=_INTEGERS)
 @example(value={"group": 1, "ordinal": {"$in": list(range(256))}}, limit=1)
-def test_natively_prepared_find_keys_match_reference_prepared_bytes(
+def test_natively_prepared_find_keys_match_generic_prepared_bytes(
     value: object, limit: int
 ) -> None:
     filter_key = find_filter_key(value)
     native = canonicalize(order_sensitive_discriminator_key(("find", filter_key)))
-    reference = canonical._reference_canonicalize(
-        order_sensitive_keys._reference_order_sensitive_discriminator_key(
+    generic = canonical._generic_canonicalize(
+        order_sensitive_keys._generic_order_sensitive_discriminator_key(
             ("find", filter_key)
         )
     )
-    assert KeyCache(2).find(native, limit) == KeyCache(2).find(reference, limit)
-    assert encode_key(native) == encode_key(reference)
+    assert KeyCache(2).find(native, limit) == KeyCache(2).find(generic, limit)
+    assert encode_key(native) == encode_key(generic)
