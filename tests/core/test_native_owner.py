@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Literal
 
 import pytest
 from bson.int64 import Int64
-from hypothesis import given, settings
+from hypothesis import example, given, settings
 from hypothesis import strategies as st
 from pymongo import AsyncMongoClient, MongoClient
 
@@ -812,6 +812,7 @@ _CANDIDATE_CORES: dict[str, Callable[[CacheCoreConfig], LocalCacheCore]] = {
 
 @pytest.mark.parametrize("candidate", tuple(_CANDIDATE_CORES))
 @settings(max_examples=100, deadline=None)
+@example(operations=[("identity", 0, 1), ("read", 0, 0)])
 @given(operations=_OPERATIONS)
 def test_generated_collision_and_eviction_schedules_never_return_a_stale_value(
     candidate: str, operations: list[tuple[str, int, int]]

@@ -29,18 +29,9 @@ The repository SHALL verify, using Hypothesis-generated projection dictionaries,
 - **WHEN** Hypothesis generates a projection dictionary with arbitrary field names and inclusion/exclusion values, with or without an explicit `_id` entry
 - **THEN** the normalized projection never mixes inclusion and exclusion semantics
 
-### Requirement: Weighted LRU budget and ordering invariants have stateful coverage
-
-The repository SHALL exercise `WeightedLru`'s put, touch, peek, and remove operations through a Hypothesis rule-based state machine asserting that resident-entry weight never exceeds the configured budget and that a strictly newer generation key is never displaced by a stale one.
-
-#### Scenario: A generated operation sequence runs against the weighted LRU
-
-- **WHEN** Hypothesis generates a sequence of put/touch/peek/remove operations over a bounded key and generation-key alphabet
-- **THEN** the cache's used weight never exceeds its configured budget and no stale-generation entry ever displaces a newer one
-
 ### Requirement: Cache admission, lookup, write, and clear ordering has stateful coverage
 
-The repository SHALL exercise `CacheCore`'s identity and namespace admission, lookup, write, and clear operations through a Hypothesis rule-based state machine asserting that a lookup never returns a value staler than the most recent successful write or clear affecting its key, and that admission bookkeeping accounts for exactly the resident entries.
+The repository SHALL exercise the production native cache core's identity and namespace admission, lookup, write, and clear operations through a Hypothesis rule-based state machine asserting that a lookup never returns a value staler than the most recent successful write or clear affecting its key, and that admission bookkeeping accounts for exactly the resident entries. The state machine SHALL hold only expected values, not a second admission, eviction, or invalidation algorithm.
 
 #### Scenario: A generated operation sequence runs against the cache core
 

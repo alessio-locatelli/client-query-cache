@@ -24,10 +24,10 @@
 
 ## 5. Completion evidence
 
-- [ ] 5.1 Complete every row of D5's distribution acceptance matrix and record separate inventories for the installed wheel and extracted source distribution. Finish the runtime consumer/dependency audit, remove orphaned implementations and bindings, and verify public behavior through both artifact installations. The evidence must distinguish compile-time-only tests/build material from runtime contents and confirm no duplicate engine, compatibility wrapper, or development-only runtime export remains.
-- [ ] 5.2 Execute D6's matched production-build and retained-test comparisons. Record the measurements, uncertainty, and reproducible commands in a concise maintainer summary. Resolve reproducible regressions or obtain the explicit approval required by repository policy before completing this task.
+- [x] 5.1 Complete every row of D5's distribution acceptance matrix and record separate inventories for the installed wheel and extracted source distribution. Finish the runtime consumer/dependency audit, remove orphaned implementations and bindings, and verify public behavior through both artifact installations. The evidence must distinguish compile-time-only tests/build material from runtime contents and confirm no duplicate engine, compatibility wrapper, or development-only runtime export remains.
+- [x] 5.2 Execute D6's matched production-build and retained-test comparisons. Record the measurements, uncertainty, and reproducible commands in a concise maintainer summary. Resolve reproducible regressions or obtain the explicit approval required by repository policy before completing this task.
 
 ## 6. Code Quality
 
-- [ ] 6.1 Review every edited test file in full, including pre-existing tests, against the `AGENTS.md` Writing Tests rules and parametrization requirements; verify that removed mechanisms have not been recreated in test helpers.
-- [ ] 6.2 If applying as Claude Code, confirm that no new prose was added to code; OpenAI Codex is exempt.
+- [x] 6.1 Review every edited test file in full, including pre-existing tests, against the `AGENTS.md` Writing Tests rules and parametrization requirements; verify that removed mechanisms have not been recreated in test helpers.
+- [x] 6.2 If applying as Claude Code, confirm that no new prose was added to code; OpenAI Codex is exempt.

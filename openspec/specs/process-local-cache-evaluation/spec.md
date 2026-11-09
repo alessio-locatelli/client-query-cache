@@ -8,7 +8,7 @@ Evaluate and integrate native process-local cache storage through representative
 
 ### Requirement: Candidate selection is private and explicit
 
-The evaluation SHALL select the reference or native candidate before manager creation in an isolated process, without adding a public backend option. A retained native core SHALL be used by ordinary process-local construction. Setup failure SHALL be visible rather than silently selecting the reference.
+The evaluation SHALL select isolated installed production builds before manager creation, without adding a public backend option or bundling a reference engine. Ordinary process-local construction SHALL use the native core. Setup failure SHALL be visible rather than silently substituting another implementation.
 
 #### Scenario: A normal application creates a manager
 
@@ -17,31 +17,31 @@ The evaluation SHALL select the reference or native candidate before manager cre
 
 #### Scenario: Experimental setup fails
 
-- **WHEN** a native evaluation process cannot load its selected core
-- **THEN** the evaluation reports failure and does not record reference execution as native execution
+- **WHEN** a native evaluation process cannot load its selected installed build
+- **THEN** the evaluation reports failure and does not record execution from a different build as the selected build
 
 ### Requirement: Evaluated cores satisfy the existing read contract
 
-The evaluation SHALL compare both cores against the existing cache-core, cached-read-api, and change-stream-coherency requirements. It SHALL exercise both execution models, all supported read methods, custom codecs, document classes, and bypass/error behavior. An unsupported or divergent case SHALL block native retention.
+The evaluation SHALL verify production native cores against the existing cache-core, cached-read-api, and change-stream-coherency requirements using specified expected results and invariants, without a reference engine. It SHALL exercise both execution models, all supported read methods, custom codecs, document classes, and bypass/error behavior. An unsupported or divergent case SHALL block acceptance of the candidate production build.
 
 #### Scenario: A custom codec or session changes read behavior
 
 - **WHEN** a conformance case uses application decoding or a session-bound operation
-- **THEN** both cores preserve the specified result, error, cache outcome, and caller-owned resource behavior
+- **THEN** the production cores preserve the specified result, error, cache outcome, and caller-owned resource behavior
 
 ### Requirement: Key equivalence is preserved across native ownership
 
-Experimental keys SHALL preserve the reference's equality and distinctions, including identity numeric equivalence, discriminator numeric subtypes, field order, collation, namespace, and read shape. Hash collisions SHALL NOT establish equality. Python values without a native representation SHALL NOT silently become misses or additional bypasses.
+Production keys SHALL preserve the specified equality and distinctions, including identity numeric equivalence, discriminator numeric subtypes, field order, collation, namespace, and read shape. Hash collisions SHALL NOT establish equality. Python values without a native representation SHALL NOT silently become misses or additional bypasses.
 
 #### Scenario: Similar keys have different meanings
 
-- **WHEN** two supported discriminators differ only in a type or ordering that the reference distinguishes
+- **WHEN** two supported discriminators differ only in a type or ordering that the specified contract distinguishes
 - **THEN** neither reads the other's cached value
 
 #### Scenario: A supported leaf requires Python equality
 
 - **WHEN** a supported key contains a value without a compact native representation
-- **THEN** the experiment preserves reference key behavior and accounts for its retained Python resources
+- **THEN** production execution preserves the specified key behavior and accounts for its retained Python resources
 
 ### Requirement: Native ownership preserves ordering and reclamation
 
@@ -73,7 +73,7 @@ Python key callbacks SHALL run outside native critical sections. A lookup SHALL 
 
 ### Requirement: Workloads and decision rules precede candidate measurements
 
-The evaluation SHALL register immutable revision identities, hypotheses, target workloads and metrics, comparison paths, repetitions, uncertainty rules, and stopping conditions before candidate timing. It SHALL distinguish existing-test timing from added-test cost and profiling from uninstrumented acquisition. Changes to the plan SHALL retain the reason and earlier evidence.
+The evaluation SHALL register immutable revision identities, hypotheses, target workloads and metrics, isolated installed-build comparisons, repetitions, uncertainty rules, and stopping conditions before timing a candidate production build. It SHALL distinguish existing-test timing from added-test cost and profiling from uninstrumented acquisition. Changes to the plan SHALL retain the reason and earlier evidence.
 
 #### Scenario: A favorable diagnostic suggests changing the target
 
@@ -82,7 +82,7 @@ The evaluation SHALL register immutable revision identities, hypotheses, target 
 
 ### Requirement: Measurement compares equivalent complete work
 
-Reference and experimental runs SHALL use matched release builds, dependencies, host conditions, data, options, budgets, residency, concurrency, warmup, and complete result consumption. Repeated counterbalanced runs SHALL verify expected results and cache outcomes. Invalid windows SHALL retain their rejection reasons and SHALL NOT support a gain claim.
+Independently installed baseline and candidate production builds SHALL use matched release settings, dependencies, host conditions, data, options, budgets, residency, concurrency, warmup, and complete result consumption. Repeated counterbalanced runs SHALL verify expected results and cache outcomes. Invalid windows SHALL retain their rejection reasons and SHALL NOT support a gain claim.
 
 #### Scenario: One core retains fewer entries
 
@@ -100,30 +100,30 @@ The evaluation SHALL report public-operation P50/P95/P99 latency, throughput, CP
 
 #### Scenario: Native allocations escape Python heap tracing
 
-- **WHEN** the experimental core stores keys or values outside the Python allocator
+- **WHEN** an evaluated production build stores keys or values outside the Python allocator
 - **THEN** process measurements include that memory and Python heap savings alone do not establish a total saving
 
 ### Requirement: Small results and long keys have runtime controls
 
-The registered evaluation SHALL include complete public reads for the same small-entry and long-key shapes used for memory measurement, in both execution models. Warm and cold runs SHALL report latency, CPU, throughput, and cache outcomes under matched residency and eviction conditions. These controls SHALL be registered before candidate acquisition.
+The registered evaluation SHALL include complete public reads for the same small-entry and long-key shapes used for memory measurement, in both execution models. Warm and cold runs SHALL report latency, CPU, throughput, and cache outcomes under matched residency and eviction conditions. These controls SHALL be registered before installed-build comparison.
 
 #### Scenario: Native metadata improves memory density
 
 - **WHEN** the small-result or long-key memory workload qualifies
-- **THEN** its corresponding runtime controls still gate retention and cannot be replaced by larger-document controls
+- **THEN** its corresponding runtime controls still gate acceptance and cannot be replaced by larger-document controls
 
 ### Requirement: Runtime controls match qualifying memory occupancy
 
-Each small-entry or long-key memory checkpoint eligible to qualify native retention SHALL have registered public-read runtime controls at its observed resident-entry count, BSON budget, and occupancy. Both cores SHALL match the starting checkpoint and report entry count, resident BSON, budget occupancy, catalogue coverage, and subsequent eviction behavior. A smaller working set SHALL NOT qualify a higher-occupancy memory claim.
+Each small-entry or long-key memory checkpoint used to substantiate a production memory improvement SHALL have registered public-read runtime controls at its observed resident-entry count, BSON budget, and occupancy. Both installed production builds SHALL match the starting checkpoint and report entry count, resident BSON, budget occupancy, catalogue coverage, and subsequent eviction behavior. A smaller working set SHALL NOT qualify a higher-occupancy memory claim.
 
 #### Scenario: Memory savings are measured after populating a large catalogue
 
-- **WHEN** a checkpoint's memory reduction is used to qualify retention
+- **WHEN** a checkpoint's memory reduction supports a production memory claim
 - **THEN** its warm and cold runtime controls exercise that checkpoint's occupancy rather than the public harness's default key count
 
 ### Requirement: Performance controls exercise one contended core
 
-The evaluation SHALL compare reference/native public-read performance with multiple synchronized reader threads sharing one synchronous manager while that manager processes real change-stream invalidations. It SHALL report throughput, latency, CPU/read, cache outcomes, and actual invalidation pressure under matched residency and offered load. Separate per-process managers or correctness-only tests SHALL NOT satisfy this control.
+The evaluation SHALL compare public-read performance of independently installed baseline and candidate production builds with multiple synchronized reader threads sharing one synchronous manager while that manager processes real change-stream invalidations. It SHALL report throughput, latency, CPU/read, cache outcomes, and actual invalidation pressure under matched residency and offered load. Separate per-process managers or correctness-only tests SHALL NOT satisfy this control.
 
 #### Scenario: Reader processes own separate managers
 
@@ -137,12 +137,12 @@ The evaluation SHALL compare reference/native public-read performance with multi
 
 ### Requirement: Final-wheel controls cover shared-cache regressions
 
-For a qualifying native candidate, the final ordinary wheel SHALL be compared against frozen main for representative shared-cache warm reads, fresh-process import/startup wall time and CPU, per-process RSS, and worker-plus-owner group PSS. Repeated matched controls SHALL verify equal residency and expected cache outcomes. Shared regressions SHALL follow the same approval rule even when owner/publication algorithms are unchanged.
+For a candidate production build, the final ordinary wheel SHALL be compared against frozen main for representative shared-cache warm reads, fresh-process import/startup wall time and CPU, per-process RSS, and worker-plus-owner group PSS. Repeated matched controls SHALL verify equal residency and expected cache outcomes. Each wheel SHALL run in its own isolated installation. Shared regressions SHALL follow the same approval rule even when owner/publication algorithms are unchanged.
 
 #### Scenario: The combined native binary increases shared startup memory
 
-- **WHEN** the native local core qualifies but the final wheel reproducibly increases shared-path startup cost or memory
-- **THEN** the change remains unqualified for retention until the regression is corrected or explicitly approved
+- **WHEN** a candidate production wheel reproducibly increases shared-path startup cost or memory
+- **THEN** the change remains unqualified for acceptance until the regression is corrected or explicitly approved
 
 #### Scenario: A shared warm control fetches from the origin
 
@@ -151,12 +151,12 @@ For a qualifying native candidate, the final ordinary wheel SHALL be compared ag
 
 ### Requirement: Proven gains qualify regardless of percentage
 
-Native retention SHALL accept a stable improvement in a predeclared complete public-operation or equal-residency resource metric when repeated matched measurements distinguish it from noise. No minimum percentage SHALL apply. Correctness failures SHALL block retention; material adverse trade-offs SHALL require discussion and a documented decision. Isolated helper timings SHALL NOT establish a complete-operation benefit.
+Production evaluation SHALL accept a stable improvement in a predeclared complete public-operation or equal-residency resource metric when repeated matched measurements distinguish it from noise. No minimum percentage SHALL apply. Correctness failures SHALL block acceptance; material adverse trade-offs SHALL require discussion and a documented decision. Isolated helper timings SHALL NOT establish a complete-operation benefit.
 
 #### Scenario: A small improvement is established
 
 - **WHEN** repeated matched measurements establish a 0.5% improvement beyond uncertainty and no material adverse trade-off remains unresolved
-- **THEN** its size alone does not prevent native retention
+- **THEN** its size alone does not prevent acceptance of the production change
 
 #### Scenario: Only key preparation improves
 
@@ -170,7 +170,7 @@ Native retention SHALL accept a stable improvement in a predeclared complete pub
 
 ### Requirement: Regressions require explicit approval
 
-Every reproducible runtime, resource, or existing-test slowdown SHALL be investigated. Unavoidable nonmaterial costs SHALL be documented; material adverse costs SHALL be corrected or discussed and explicitly approved before native retention. A gain in another metric SHALL NOT waive this rule. Inconclusive control results SHALL remain visible and SHALL NOT be described as proof of no regression.
+Every reproducible runtime, resource, or existing-test slowdown SHALL be investigated. Unavoidable nonmaterial costs SHALL be documented; material adverse costs SHALL be corrected or discussed and explicitly approved before accepting a production change. A gain in another metric SHALL NOT waive this rule. Inconclusive control results SHALL remain visible and SHALL NOT be described as proof of no regression.
 
 #### Scenario: Memory improves while small hot reads slow down
 
@@ -179,35 +179,21 @@ Every reproducible runtime, resource, or existing-test slowdown SHALL be investi
 
 ### Requirement: Measured source remains reproducible after cleanup
 
-The report SHALL identify an immutable reachable commit containing each measured candidate's exact source, native build configuration, and harness integration. Rejected code SHALL be removed only after its commit is retained in the PR's published history or another durable published ref. Reproduction commands SHALL check out that commit; untracked raw outputs SHALL NOT substitute for source.
+The report SHALL identify an immutable reachable commit containing each compared production build's exact source, native build configuration, and harness integration. Historical reproduction SHALL use that commit rather than preserving removed implementations in the current tree. Reproduction commands SHALL check out that commit; untracked raw outputs SHALL NOT substitute for source.
 
 #### Scenario: A rejected candidate is removed
 
 - **WHEN** the final tree removes unsuccessful native code or selection hooks
-- **THEN** the report's candidate commit remains fetchable and its documented build and acquisition commands remain applicable to that revision
+- **THEN** the report's measured-build commit remains fetchable and its documented build and acquisition commands remain applicable to that revision
 
 ### Requirement: Reports retain decisions and limitations
 
-The evaluation SHALL retain a concise report with workload scope, attribution, reproduction commands, limitations, rejected alternatives, and the final retention decision. Raw outputs SHALL remain untracked. Observed memory improvements SHALL NOT be presented as an RSS bound.
+The evaluation SHALL retain a concise report with workload scope, attribution, reproduction commands, limitations, rejected alternatives, and the production-change decision. Raw outputs SHALL remain untracked. Observed memory improvements SHALL NOT be presented as an RSS bound.
 
 #### Scenario: A candidate has mixed measured effects
 
 - **WHEN** the report records a qualifying result or a negative decision
 - **THEN** it retains unfavorable and inconclusive observations alongside the decision's supporting evidence
-
-### Requirement: Qualified native integration completes in the same change
-
-The change SHALL deliver either a qualified native default or the reference implementation, with a reproducible report. A qualifying candidate SHALL be integrated, documented, and re-evaluated as the ordinary distribution build in the same branch and PR. A report, nondefault feature, or follow-up issue alone SHALL NOT complete a successful implementation.
-
-#### Scenario: Neither candidate nor correction qualifies
-
-- **WHEN** the registered investigation reaches its stopping condition without a qualifying result
-- **THEN** it records a negative or inconclusive decision without extending the search indefinitely
-
-#### Scenario: The candidate qualifies
-
-- **WHEN** all applicable conformance and performance gates are satisfied
-- **THEN** the same PR retains the native implementation in ordinary builds and qualifies that final integration against the registered baseline
 
 ### Requirement: Integrated development checks precede long acquisitions
 
@@ -225,7 +211,7 @@ Native internal replacements SHALL pass focused correctness cases and a simplifi
 
 ### Requirement: Internal migrations have independently attributable decisions
 
-A change evaluating multiple native internal replacements SHALL register a target and disposition for each component. It SHALL compare each retained stage with its predecessor and the final ordinary build with frozen current main. One component's gain SHALL NOT qualify another component lacking a demonstrated benefit. Negative or inconclusive components SHALL preserve the working implementation and their evidence.
+Optional replacements of production hot-path components SHALL each have a registered target and disposition. It SHALL compare each retained stage with its predecessor and the final ordinary build with frozen current main. One component's gain SHALL NOT qualify another component lacking a demonstrated benefit. Negative or inconclusive alternatives SHALL preserve the preceding production behavior and their evidence. This rule SHALL NOT justify retaining development-only runtime code.
 
 #### Scenario: Capture improves while query preparation does not
 
@@ -239,12 +225,12 @@ A change evaluating multiple native internal replacements SHALL register a targe
 
 ### Requirement: Staged acquisition avoids repeated full campaigns
 
-Each candidate SHALL use one matched benchmark lasting less than thirty minutes, including all repetitions and teardown. The combined retained build SHALL run the existing multi-hour benchmark campaign once against frozen main. Routine per-candidate full campaigns and automatic uncertainty campaigns SHALL NOT be required. Further acquisition SHALL identify a concrete failure, invalid result, correction, or unresolved adverse signal that requires it.
+Each focused production-build comparison SHALL use one matched benchmark lasting less than thirty minutes, including repetitions and teardown. Broader campaigns SHALL require a registered validation need for the affected production behavior. Routine per-component full campaigns and automatic uncertainty campaigns SHALL NOT be required. Further acquisition SHALL identify a concrete failure, invalid result, correction, or unresolved adverse signal.
 
 #### Scenario: Three candidates pass their short comparisons
 
 - **WHEN** the combined ordinary build is ready for broad performance validation
-- **THEN** one existing full campaign compares that build with main rather than running it separately for each component
+- **THEN** a broader campaign runs only when the registered validation need calls for it, comparing isolated production builds rather than automatically repeating historical migration campaigns
 
 #### Scenario: A comparison remains noisy
 
