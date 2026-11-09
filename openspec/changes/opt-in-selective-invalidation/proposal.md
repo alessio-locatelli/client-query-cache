@@ -23,4 +23,4 @@
 
 ## Impact
 
-The affected production seams are `_core/manager.py`, namespace/entry/capture contracts, shared read preparation, `_core/stream_events.py`, and the synchronous and asynchronous managers, collections, cursors, and stream supervisors. Public exports, `docs/user/reference/api.md`, usage and consistency guides, `context7.json`, and the existing invalidation research workload infrastructure also need updates. No new runtime dependency is expected.
+The affected production seams are `native/shared-index/src/local_cache.rs`, native capture/node contracts and Python bindings, `_core/native.py`, shared read preparation, `_core/stream_events.py`, and the synchronous and asynchronous managers, collections, cursors, and stream supervisors. Public exports, `docs/user/reference/api.md`, usage and consistency guides, `context7.json`, and the existing invalidation research workload infrastructure also need updates. No new runtime dependency is expected.
