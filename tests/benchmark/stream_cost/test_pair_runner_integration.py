@@ -20,7 +20,7 @@ from benchmarks.stream_cost.consolidated_stream import (
 )
 from benchmarks.stream_cost.errors import BenchmarkSetupError
 from benchmarks.stream_cost.pair_runner import run_consolidated_stream_pair
-from client_query_cache._core.manager import CacheCoreConfig
+from client_query_cache import CacheCoreConfig
 from client_query_cache._core.stream_cost import LagCaptureWindowConfig
 from client_query_cache._types import (
     BsonDict,

@@ -9,7 +9,7 @@ from benchmarks.stream_cost.oversized_result import (
     measure_oversized_result_workload,
 )
 from benchmarks.stream_cost.workload import verify_oversized_primed
-from client_query_cache._core.manager import CacheCoreConfig
+from client_query_cache import CacheCoreConfig
 from client_query_cache._types import BsonDict
 from client_query_cache.synchronous.manager import CacheManager
 

@@ -11,13 +11,12 @@ from pymongo.collation import Collation
 from pymongo.errors import ConnectionFailure, OperationFailure
 from pymongo.synchronous.collection import Collection
 
-from client_query_cache import CacheCore
+from client_query_cache import CacheCore, CacheCoreConfig
 from client_query_cache._core.codec import codec_fingerprint
 from client_query_cache._core.keys import (
     NamespaceId,
     canonical_alias_key,
 )
-from client_query_cache._core.manager import CacheCoreConfig
 from client_query_cache._core.order_sensitive_keys import (
     order_sensitive_discriminator_key,
 )

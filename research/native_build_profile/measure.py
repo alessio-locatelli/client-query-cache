@@ -12,9 +12,9 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from client_query_cache import CacheCoreConfig
 from client_query_cache import _shared_index as native
 from client_query_cache._core.keys import NamespaceId
-from client_query_cache._core.manager import CacheCoreConfig
 from scripts import pgo_training
 from scripts.pgo_training import (
     CLEANUP,

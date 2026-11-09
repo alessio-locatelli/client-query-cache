@@ -26,7 +26,7 @@ from benchmarks.stream_cost.shared_cache.workload import (
     open_loop_async,
     open_loop_sync,
 )
-from client_query_cache._core.manager import CacheCoreConfig
+from client_query_cache import CacheCoreConfig
 from client_query_cache._core.stream_cost import LagCaptureWindowConfig
 from client_query_cache._shared.adapters import (
     AsyncSharedCacheManager,

@@ -17,8 +17,8 @@ from typing import TYPE_CHECKING, Annotated, Self
 
 from annotated_types import Ge, Le
 
+from client_query_cache._core.config import CacheCoreConfig
 from client_query_cache._core.errors import CacheClosedError, CacheConfigurationError
-from client_query_cache._core.manager import CacheCoreConfig
 from client_query_cache._core.stream_cost import DEFAULT_LAG_CAPTURE_WINDOW_CONFIG
 from client_query_cache._shared.attachment import AttachmentConfig
 from client_query_cache._shared.coordinator import (

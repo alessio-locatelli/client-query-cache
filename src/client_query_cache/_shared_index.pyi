@@ -2,11 +2,11 @@ from collections.abc import Callable, Hashable, Mapping
 from typing import final
 
 from client_query_cache._core.canonical import Canonical
+from client_query_cache._core.config import CacheCoreConfig
 from client_query_cache._core.contracts import LocalCacheCore as _LocalCacheCore
 from client_query_cache._core.entries import AdmissionOutcome
 from client_query_cache._core.find_reads import FindSource
 from client_query_cache._core.keys import NamespaceId
-from client_query_cache._core.manager import CacheCoreConfig
 from client_query_cache._types import (
     NonNegativeFloat,
     NonNegativeInt,

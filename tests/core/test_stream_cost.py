@@ -11,9 +11,10 @@ from bson.datetime_ms import DatetimeMS
 from hypothesis import given
 from hypothesis import strategies as st
 
+from client_query_cache import CacheCoreConfig
 from client_query_cache._core.errors import CacheConfigurationError
 from client_query_cache._core.keys import NamespaceId
-from client_query_cache._core.manager import CacheCore, CacheCoreConfig
+from client_query_cache._core.manager import CacheCore
 from client_query_cache._core.stream_cost import (
     InvalidationApplyReading,
     LagCaptureWindowConfig,

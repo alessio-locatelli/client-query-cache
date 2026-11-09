@@ -5,9 +5,10 @@ from typing import TYPE_CHECKING
 import pytest
 from bson.decimal128 import Decimal128
 
+from client_query_cache import CacheCoreConfig
 from client_query_cache._core.entries import AdmissionOutcome
 from client_query_cache._core.keys import NamespaceId, canonical_alias_key
-from client_query_cache._core.manager import CacheCore, CacheCoreConfig
+from client_query_cache._core.manager import CacheCore
 
 if TYPE_CHECKING:
     from collections.abc import Callable

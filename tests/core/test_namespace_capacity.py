@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from client_query_cache import CacheConfigurationError
+from client_query_cache import CacheConfigurationError, CacheCoreConfig
 from client_query_cache._core.collection_metadata import (
     CollectionMetadata,
     CollectionMetadataCache,
@@ -17,7 +17,7 @@ from client_query_cache._core.collection_metadata import (
 from client_query_cache._core.entries import AdmissionOutcome
 from client_query_cache._core.keys import NamespaceId
 from client_query_cache._core.lru import WeightedLru
-from client_query_cache._core.manager import CacheCore, CacheCoreConfig
+from client_query_cache._core.manager import CacheCore
 from client_query_cache._core.namespace_metadata import NamespaceMetadataCache
 from client_query_cache._core.snapshots import BypassReason
 from client_query_cache._core.unique_keys import (

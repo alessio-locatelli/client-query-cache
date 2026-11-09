@@ -36,7 +36,7 @@ from benchmarks.stream_cost.errors import BenchmarkSetupError
 from benchmarks.stream_cost.measurement import scalar_latency_distribution
 from benchmarks.stream_cost.proxy import DirectPathByteProxy, DirectPathProxyConfig
 from benchmarks.stream_cost.topology import IsolatedReplicaSet, ResourceLimits
-from client_query_cache._core.manager import CacheCoreConfig
+from client_query_cache import CacheCoreConfig
 from client_query_cache._core.stream_cost import LagCaptureWindowConfig
 from client_query_cache._core.stream_events import (
     _wall_time_seconds,

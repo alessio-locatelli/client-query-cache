@@ -18,12 +18,12 @@ from hypothesis.stateful import (
     run_state_machine_as_test,
 )
 
+from client_query_cache import CacheCoreConfig
 from client_query_cache._core.canonical import canonicalize
 from client_query_cache._core.codec import encode_value
 from client_query_cache._core.entries import AdmissionOutcome
 from client_query_cache._core.find_reads import FindReadShape
 from client_query_cache._core.keys import NamespaceId
-from client_query_cache._core.manager import CacheCoreConfig
 from client_query_cache._core.order_sensitive_keys import order_sensitive_key
 from client_query_cache._shared.wire import encode_key
 from client_query_cache._shared_index import OwnerIndex, ReaderIndex, SharedOwnerCore

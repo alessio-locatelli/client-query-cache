@@ -19,6 +19,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 from pymongo import AsyncMongoClient, MongoClient
 
+from client_query_cache import CacheCoreConfig
 from client_query_cache._core.codec import encode_value
 from client_query_cache._core.entries import AdmissionOutcome
 from client_query_cache._core.find_reads import PreparedFindRead
@@ -26,7 +27,7 @@ from client_query_cache._core.keys import (
     NamespaceId,
     canonical_alias_key,
 )
-from client_query_cache._core.manager import CacheCore, CacheCoreConfig
+from client_query_cache._core.manager import CacheCore
 from client_query_cache._shared import coordinator as shared_coordinator
 from client_query_cache._shared_index import LocalCacheCore as NativeCacheCore
 from client_query_cache._shared_index import OwnerIndex, SharedOwnerCore

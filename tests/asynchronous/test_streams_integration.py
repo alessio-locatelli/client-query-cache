@@ -9,8 +9,9 @@ from bson.codec_options import DatetimeConversion
 from pymongo import AsyncMongoClient
 from pymongo.errors import ConnectionFailure, OperationFailure
 
+from client_query_cache import CacheCoreConfig
 from client_query_cache._core.keys import NamespaceId
-from client_query_cache._core.manager import CacheCore, CacheCoreConfig
+from client_query_cache._core.manager import CacheCore
 from client_query_cache._types import (
     BsonDict,
     NonNegativeInt,

@@ -5,10 +5,11 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
+from client_query_cache import CacheCoreConfig
 from client_query_cache._core.entries import AdmissionOutcome
 from client_query_cache._core.find_reads import FindSource
 from client_query_cache._core.keys import NamespaceId, canonical_alias_key
-from client_query_cache._core.manager import CacheCore, CacheCoreConfig
+from client_query_cache._core.manager import CacheCore
 from client_query_cache._types import NonNegativeFloat, PositiveInt
 
 _WRITES_PER_WORKER: PositiveInt = 2_048
