@@ -22,7 +22,9 @@ fault injection and shutdown. The harness starts a replacement by killing the
 old process and waiting for a newly started process to become ready. The tests
 do not run a timed request schedule or replay a historical warmup workload.
 
-Use the existing `FaultableProxy` for TCP connection loss. Inject the
+Use the existing `FaultableProxy` for TCP connection loss. It forwards through
+the harness-side Python byte proxy, because the library ships no relay; a future
+observer pilot measures that proxy's CPU separately. Inject the
 MongoDB history-lost error (code 286) at an independent worker's real
 change-stream reopening path so the manager's production recovery code clears
 the cache; the test does not force server oplog rollover. Subsequent stream
