@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import time
+from contextlib import closing
 from typing import TYPE_CHECKING, NamedTuple, TypedDict
 
 import pytest
@@ -586,7 +587,7 @@ def test_released_arena_capacity_supports_changing_payload_sizes(
 ) -> None:
     index = OwnerIndex(8, 4096, 1, 1, 1, _EXPIRY_NS)
     core = _shared_core(index, CacheCoreConfig(max_namespaces=1), 1)
-    try:
+    with closing(core):
         assert assign_slot(core, _NAMESPACES[0]) is not None
         for length in lengths:
             capture = core.begin_identity_admission(_NAMESPACES[0], 1)
@@ -597,5 +598,3 @@ def test_released_arena_capacity_supports_changing_payload_sizes(
             assert index.published() == 1
             core.record_write(_NAMESPACES[0], 1)
             assert index.published() == 0
-    finally:
-        core.close()

@@ -19,6 +19,10 @@ The production managers use native cache engines, but the package still contains
 ### Modified Capabilities
 
 - `process-local-cache-evaluation`: Contract-based native verification and isolated installed-build comparisons.
+- `property-based-testing`: Stateful coverage of the production core instead of the removed Python LRU.
+- `test-environment`: Memory workload checks through the core's public surface.
+- `shared-cache-benchmarking`: Admission fencing without the removed lock-order guards.
+- `stream-cost-benchmarking`: Harness-side byte proxy replacing the native relay.
 
 ## Impact
 
