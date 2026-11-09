@@ -1,6 +1,4 @@
-use std::net::TcpStream;
-use std::os::fd::{BorrowedFd, FromRawFd, IntoRawFd, OwnedFd, RawFd};
-use std::os::unix::net::UnixListener;
+use std::os::fd::{BorrowedFd, IntoRawFd, OwnedFd, RawFd};
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
@@ -10,11 +8,9 @@ use pyo3::types::PyBytes;
 
 use crate::array::{AppendError, ArrayBuilder};
 use crate::clock::monotonic_ns;
-use crate::echo::Echo;
 use crate::frames::Frames;
-use crate::index::{Block, Index, Layout, Query, Writer};
+use crate::index::{Index, Layout, Query, Writer};
 use crate::memory::{Mapping, ReadOnly, WORD_BYTES, Words, Writable, reopen_read_only, seal};
-use crate::relay::Relay;
 use crate::ring::Ring;
 use crate::sync::Ordering;
 
@@ -33,29 +29,6 @@ fn borrowed(fd: RawFd) -> PyResult<BorrowedFd<'static>> {
         return Err(invalid("descriptors must be non-negative"));
     }
     Ok(unsafe { BorrowedFd::borrow_raw(fd) })
-}
-
-fn duplicate_tcp(fd: RawFd) -> std::io::Result<TcpStream> {
-    let duplicate = unsafe { libc::fcntl(fd, libc::F_DUPFD_CLOEXEC, 0) };
-    if duplicate < 0 {
-        return Err(std::io::Error::last_os_error());
-    }
-    // fcntl returned a new owned descriptor, independent of the caller's handle.
-    Ok(TcpStream::from(unsafe { OwnedFd::from_raw_fd(duplicate) }))
-}
-
-#[pyclass(frozen, eq, hash)]
-#[derive(PartialEq, Eq, Hash)]
-struct Payload {
-    block: Block,
-}
-
-#[pymethods]
-impl Payload {
-    #[getter]
-    fn token(&self) -> u64 {
-        self.block.token()
-    }
 }
 
 #[pyclass(frozen)]
@@ -106,56 +79,8 @@ impl OwnerIndex {
             .map_err(PyErr::from)
     }
 
-    fn store(&self, payload: &[u8]) -> Option<Payload> {
-        self.writer().store(payload).map(|block| Payload { block })
-    }
-
-    fn release(&self, payload: &Payload) {
-        self.writer().release(payload.block);
-    }
-
-    fn snapshot<'py>(&self, py: Python<'py>, payload: &Payload) -> Option<Bound<'py, PyBytes>> {
-        let writer = self.writer();
-        let snapshot = writer.snapshot(payload.block)?;
-        PyBytes::new_with(py, snapshot.length, |buffer| {
-            snapshot.copy_into(buffer);
-            Ok(())
-        })
-        .ok()
-    }
-
-    fn publish(
-        &self,
-        database: usize,
-        namespace: usize,
-        epoch: u64,
-        identity: &[u8],
-        shape: &[u8],
-        payload: &Payload,
-    ) -> Option<u64> {
-        let query = Query {
-            database,
-            namespace,
-            epoch,
-            identity,
-            shape,
-        };
-        self.writer().publish(&query, payload.block).ok()
-    }
-
-    fn unpublish(&self, payload: &Payload) -> bool {
-        self.writer().unpublish(payload.block)
-    }
-
     fn published(&self) -> usize {
         self.writer().published()
-    }
-
-    fn set_available(&self, database: usize, available: bool) -> PyResult<()> {
-        self.index
-            .set_available(database, available)
-            .then_some(())
-            .ok_or_else(|| out_of_range("database"))
     }
 
     fn set_progress(&self, database: usize, monotonic_ns: u64) -> PyResult<()> {
@@ -165,42 +90,8 @@ impl OwnerIndex {
             .ok_or_else(|| out_of_range("database"))
     }
 
-    fn set_epoch(&self, namespace: usize, epoch: u64) -> PyResult<()> {
-        self.index
-            .set_epoch(namespace, epoch)
-            .then_some(())
-            .ok_or_else(|| out_of_range("namespace"))
-    }
-
-    fn record_write(&self, namespace: usize) -> PyResult<()> {
-        self.index
-            .record_write(namespace)
-            .then_some(())
-            .ok_or_else(|| out_of_range("namespace"))
-    }
-
     fn enable_capture(&self, enabled: bool) {
         self.index.enable_capture(enabled);
-    }
-
-    fn validate_capture(
-        &self,
-        database: usize,
-        namespace: usize,
-        epoch: u64,
-        incarnation: u64,
-        token: (u64, u64, u64),
-        max_age_ns: u64,
-    ) -> bool {
-        let query = Query {
-            database,
-            namespace,
-            epoch,
-            identity: &[],
-            shape: &[],
-        };
-        self.index
-            .validate_capture(incarnation, &query, token, monotonic_ns(), max_age_ns)
     }
 
     #[pyo3(signature = (tokens, admission_bytes = 0, enable_telemetry = false))]
@@ -240,14 +131,6 @@ impl OwnerIndex {
             descriptor: Mutex::new(Some(descriptor)),
         })
     }
-
-    fn serve(&self, path: &str) -> PyResult<EchoOwner> {
-        let listener = UnixListener::bind(path)?;
-        let echo = Echo::start(self.index.clone(), listener)?;
-        Ok(EchoOwner {
-            echo: Mutex::new(echo),
-        })
-    }
 }
 
 #[pyclass(frozen)]
@@ -255,6 +138,14 @@ pub(crate) struct SessionRing {
     ring: Ring<Shared>,
     admissions: Option<Mutex<Frames<Shared>>>,
     descriptor: Mutex<Option<OwnedFd>>,
+}
+
+impl SessionRing {
+    pub(crate) fn drain(&self) -> Vec<u64> {
+        let mut tokens = Vec::new();
+        self.ring.drain(|token| tokens.push(token));
+        tokens
+    }
 }
 
 #[pymethods]
@@ -273,12 +164,6 @@ impl SessionRing {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .take();
-    }
-
-    pub(crate) fn drain(&self) -> Vec<u64> {
-        let mut tokens = Vec::new();
-        self.ring.drain(|token| tokens.push(token));
-        tokens
     }
 
     fn dropped(&self) -> u64 {
@@ -431,67 +316,6 @@ impl ReaderIndex {
 }
 
 #[pyclass(frozen)]
-struct EchoOwner {
-    echo: Mutex<Echo>,
-}
-
-#[pymethods]
-impl EchoOwner {
-    fn close(&self) {
-        self.echo
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .stop();
-    }
-}
-
-#[pyclass(frozen)]
-struct ByteRelay {
-    relay: Relay,
-}
-
-#[pymethods]
-impl ByteRelay {
-    #[new]
-    fn new() -> Self {
-        Self {
-            relay: Relay::new(),
-        }
-    }
-
-    fn pause(&self) {
-        self.relay.pause();
-    }
-
-    fn resume(&self) {
-        self.relay.resume();
-    }
-
-    fn stop(&self) {
-        self.relay.stop();
-    }
-
-    #[getter]
-    fn bytes_sent(&self) -> u64 {
-        self.relay.sent()
-    }
-
-    #[getter]
-    fn bytes_received(&self) -> u64 {
-        self.relay.received()
-    }
-
-    fn run(&self, py: Python<'_>, client: RawFd, upstream: RawFd) -> PyResult<()> {
-        // Duplicate while the caller still holds the GIL. Python teardown can
-        // then close its descriptors without invalidating the native handles.
-        let client = duplicate_tcp(client)?;
-        let upstream = duplicate_tcp(upstream)?;
-        py.detach(|| self.relay.forward(client, upstream))
-            .map_err(PyErr::from)
-    }
-}
-
-#[pyclass(frozen)]
 struct EncodedArray {
     limit: usize,
     builder: Mutex<ArrayBuilder>,
@@ -542,9 +366,7 @@ impl EncodedArray {
 #[pymodule]
 mod _shared_index {
     #[pymodule_export]
-    use super::{
-        ByteRelay, EchoOwner, EncodedArray, OwnerIndex, Payload, ReaderIndex, SessionRing,
-    };
+    use super::{EncodedArray, OwnerIndex, ReaderIndex, SessionRing};
     #[pymodule_export]
     use crate::key_encoder::find_key_encoder;
     #[pymodule_export]

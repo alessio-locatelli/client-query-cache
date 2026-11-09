@@ -30,7 +30,7 @@ Inspect missed generated PyO3 spans rather than assuming they are ordinary execu
 
 ### Remediate behavior before making the CI gate required
 
-Add real boundary and lifecycle cases for invalid layout/descriptor inputs, detached readers, closed rings, payload token access, echo framing, and full-duplex relay counters and EOF. Use meaningful I/O failure injection where error paths are reachable. Remove a defensive branch only after tracing all producers and callers and proving its invariant from code/specifications. Compare runtime performance with main for any production refactor.
+Add real boundary and lifecycle cases for invalid layout/descriptor inputs, detached readers, closed rings, published payload access through production admission, and admission queue framing. Use meaningful I/O failure injection where error paths are reachable. Remove a defensive branch only after tracing all producers and callers and proving its invariant from code/specifications. Compare runtime performance with main for any production refactor.
 
 Excluding whole production files or lowering the threshold would conceal untested behavior and is rejected. Creating test seams can improve observability but can also affect hot paths or expand APIs; task 1.2 must keep those tradeoffs explicit. Once the target is met, integrate coverage after native static validation without rerunning interpreter-independent work in each Python lane.
 

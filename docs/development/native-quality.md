@@ -56,8 +56,8 @@ initialization export is measured once. The command clears previous profiles and
 while retaining compiled dependencies. It enforces 100% line and function
 coverage and prints missing lines. Loom remains a separate correctness check.
 
-The measured production modules are `clock`, `echo`, `frames`, `hash`, `index`,
-`key_encoder`, `memory`, `python`, `relay`, and `ring`, including the Python binding bodies.
+The measured production modules are `array`, `clock`, `frames`, `hash`, `index`,
+`key_encoder`, `keys`, `local_cache`, `memory`, `python`, and `ring`, including the Python binding bodies.
 `lib` and `sync` contain only module declarations and imports. Test bodies and
 helpers live in test-only files excluded by cargo-llvm-cov's
 [standard source selection](https://github.com/taiki-e/cargo-llvm-cov#exclude-file-from-coverage);
