@@ -30,8 +30,8 @@ if TYPE_CHECKING:
     from pymongo.asynchronous.collection import AsyncCollection
 
     from client_query_cache._core.collection_metadata import CollectionProbeResult
+    from client_query_cache._core.config import CacheCoreConfig
     from client_query_cache._core.keys import NamespaceId
-    from client_query_cache._core.manager import CacheCoreConfig
     from client_query_cache._core.snapshots import CacheSnapshot
     from client_query_cache._core.stream_cost import StreamCostSnapshot
     from client_query_cache._core.stream_health import StreamHealthSnapshot

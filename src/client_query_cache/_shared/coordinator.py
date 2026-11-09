@@ -19,6 +19,7 @@ from pymongo import MongoClient
 from pymongo.errors import OperationFailure
 from pymongo.monitoring import CommandListener
 
+from client_query_cache._core.config import DEFAULT_MAX_NAMESPACES, CacheCoreConfig
 from client_query_cache._core.entries import AdmissionOutcome
 from client_query_cache._core.errors import (
     CacheConfigurationError,
@@ -28,7 +29,6 @@ from client_query_cache._core.errors import (
 )
 from client_query_cache._core.find_reads import FindReadShape
 from client_query_cache._core.keys import NamespaceId
-from client_query_cache._core.manager import DEFAULT_MAX_NAMESPACES, CacheCoreConfig
 from client_query_cache._core.snapshots import BypassReason
 from client_query_cache._core.stream_cost import LagCaptureWindowConfig
 from client_query_cache._shared.diagnostics import (

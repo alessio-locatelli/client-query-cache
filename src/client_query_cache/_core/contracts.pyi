@@ -3,6 +3,7 @@ from typing import Any, Protocol
 from bson.codec_options import CodecOptions
 
 from client_query_cache._core.canonical import Canonical
+from client_query_cache._core.config import CacheCoreConfig
 from client_query_cache._core.entries import AdmissionOutcome, LookupResult
 from client_query_cache._core.find_reads import (
     FindReadShape,
@@ -10,7 +11,6 @@ from client_query_cache._core.find_reads import (
     PreparedFindRead,
 )
 from client_query_cache._core.keys import AliasKey, NamespaceId
-from client_query_cache._core.manager import CacheCoreConfig
 from client_query_cache._core.snapshots import BypassReason, CacheSnapshot
 from client_query_cache._core.stream_cost import StreamCostSnapshot
 from client_query_cache._types import (

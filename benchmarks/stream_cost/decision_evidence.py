@@ -31,7 +31,7 @@ from benchmarks.stream_cost.oversized_result import measure_oversized_result_wor
 from benchmarks.stream_cost.pair_runner import PairResult, run_consolidated_stream_pairs
 from benchmarks.stream_cost.topology import IsolatedReplicaSet, ResourceLimits
 from benchmarks.stream_cost.workload import verify_oversized_primed
-from client_query_cache._core.manager import CacheCoreConfig
+from client_query_cache import CacheCoreConfig
 from client_query_cache._core.stream_cost import LagCaptureWindowConfig
 from client_query_cache._types import BsonDict, JsonDict, NonNegativeInt
 from client_query_cache.synchronous.manager import CacheManager

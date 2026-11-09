@@ -45,7 +45,7 @@ from benchmarks.stream_cost.shared_cache.workload import (
     warm_key,
     worker_keys,
 )
-from client_query_cache._core.manager import DEFAULT_MAX_NAMESPACES
+from client_query_cache._core.config import DEFAULT_MAX_NAMESPACES
 from client_query_cache._shared.attachment import AttachmentConfig
 from client_query_cache._shared.coordinator import OwnerConfig
 from client_query_cache._types import (

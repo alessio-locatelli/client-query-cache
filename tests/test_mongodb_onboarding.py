@@ -12,8 +12,7 @@ from pymongo import AsyncMongoClient, MongoClient
 from testcontainers.core.container import DockerContainer
 
 from benchmarks.mongodb_image import MONGODB_IMAGE
-from client_query_cache import CacheManager, StreamHealthStatus
-from client_query_cache._core.manager import CacheCoreConfig
+from client_query_cache import CacheCoreConfig, CacheManager, StreamHealthStatus
 from client_query_cache._types import BsonDict, NonEmptyStr
 from client_query_cache.asynchronous import CacheManager as AsyncCacheManager
 from tests.conftest import MongoDbUri

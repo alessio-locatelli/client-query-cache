@@ -7,9 +7,10 @@ from unittest.mock import ANY, Mock, call
 import pytest
 from pymongo.errors import OperationFailure
 
+from client_query_cache import CacheCoreConfig
 from client_query_cache._core.entries import AdmissionOutcome
 from client_query_cache._core.keys import NamespaceId
-from client_query_cache._core.manager import CacheCore, CacheCoreConfig
+from client_query_cache._core.manager import CacheCore
 from client_query_cache._core.namespace_metadata import NamespaceMetadataCache
 from client_query_cache._core.stream_events import (
     CHANGE_STREAM_PROJECTION,

@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING
 
-from client_query_cache._core.manager import CacheCoreConfig
+from client_query_cache._core.config import CacheCoreConfig
 from client_query_cache._core.snapshots import (
     BypassReason,
     BypassReasonCount,

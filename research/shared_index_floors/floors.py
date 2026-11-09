@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Any
 from bson.codec_options import CodecOptions
 
 from benchmarks.stream_cost.shared_cache.dataset import catalogue
+from client_query_cache import CacheCoreConfig
 from client_query_cache._core.canonical import canonicalize
 from client_query_cache._core.codec import (
     codec_fingerprint,
@@ -32,7 +33,7 @@ from client_query_cache._core.codec import (
 )
 from client_query_cache._core.find_one_reads import find_one_read_shape
 from client_query_cache._core.keys import NamespaceId
-from client_query_cache._core.manager import CacheCore, CacheCoreConfig
+from client_query_cache._core.manager import CacheCore
 from client_query_cache._core.order_sensitive_keys import order_sensitive_key
 from client_query_cache._shared.wire import KeyCache, encode_key
 

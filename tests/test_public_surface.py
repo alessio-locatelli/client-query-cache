@@ -94,3 +94,10 @@ def test_shared_diagnostic_types_are_exported_by_every_public_package(
     assert getattr(client_query_cache.synchronous, name) is exported
     assert getattr(client_query_cache.asynchronous, name) is exported
     assert name in client_query_cache.__all__
+
+
+def test_cache_configuration_is_one_class_across_public_packages() -> None:
+    exported = client_query_cache.CacheCoreConfig
+    assert client_query_cache.synchronous.CacheCoreConfig is exported
+    assert client_query_cache.asynchronous.CacheCoreConfig is exported
+    assert "CacheCoreConfig" in client_query_cache.__all__

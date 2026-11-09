@@ -7,12 +7,17 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from client_query_cache import BypassReason, BypassReasonCount, RetentionDeclineCount
+from client_query_cache import (
+    BypassReason,
+    BypassReasonCount,
+    CacheCoreConfig,
+    RetentionDeclineCount,
+)
 from client_query_cache._core.canonical import canonicalize
 from client_query_cache._core.codec import encode_value
 from client_query_cache._core.entries import AdmissionOutcome, CacheEntry
 from client_query_cache._core.keys import NamespaceCacheKey
-from client_query_cache._core.manager import CacheCore, CacheCoreConfig
+from client_query_cache._core.manager import CacheCore
 from client_query_cache._types import BsonDict
 
 if TYPE_CHECKING:

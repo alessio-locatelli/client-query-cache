@@ -6,13 +6,14 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from client_query_cache import CacheCoreConfig
 from client_query_cache._core.canonical import canonicalize
 from client_query_cache._core.codec import encode_value
 from client_query_cache._core.entries import AdmissionOutcome, CacheEntry
 from client_query_cache._core.errors import UnsupportedCacheRequestError
 from client_query_cache._core.keys import IdentityCacheKey, NamespaceId
 from client_query_cache._core.locking import LockOrderViolationError
-from client_query_cache._core.manager import CacheCore, CacheCoreConfig
+from client_query_cache._core.manager import CacheCore
 from client_query_cache._types import NonNegativeInt
 from tests.core.conftest import (
     patch_conditional_put_hook as _patch_conditional_put_hook,

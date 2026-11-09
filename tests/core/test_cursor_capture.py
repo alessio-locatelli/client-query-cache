@@ -13,10 +13,11 @@ from bson.son import SON
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
+from client_query_cache import CacheCoreConfig
 from client_query_cache._core.codec import decode_value, encode_value
 from client_query_cache._core.cursor_capture import CursorCapture
 from client_query_cache._core.entries import AdmissionOutcome
-from client_query_cache._core.manager import CacheCore, CacheCoreConfig
+from client_query_cache._core.manager import CacheCore
 from client_query_cache._shared_index import LocalCacheCore as NativeCacheCore
 from client_query_cache._types import BsonDict, NonNegativeInt, PositiveInt
 from tests.codec_helpers import (

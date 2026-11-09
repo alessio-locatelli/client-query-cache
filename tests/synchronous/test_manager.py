@@ -6,11 +6,11 @@ from bson.codec_options import CodecOptions
 from pymongo import MongoClient, ReadPreference
 from pymongo.synchronous.database import Database
 
+from client_query_cache import CacheCoreConfig
 from client_query_cache._core.collection_metadata import CollectionProbeResult
 from client_query_cache._core.errors import CacheConfigurationError
 from client_query_cache._core.keys import NamespaceId
 from client_query_cache._core.lifecycle import CacheLifecycleState
-from client_query_cache._core.manager import CacheCoreConfig
 from client_query_cache._core.snapshots import BypassReason
 from client_query_cache._types import BsonDict, NonEmptyStr
 from client_query_cache.synchronous import (

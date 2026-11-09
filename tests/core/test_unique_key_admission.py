@@ -6,10 +6,11 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from client_query_cache import CacheCoreConfig
 from client_query_cache._core.entries import AdmissionOutcome
 from client_query_cache._core.errors import UnsupportedCacheRequestError
 from client_query_cache._core.keys import canonical_alias_key
-from client_query_cache._core.manager import CacheCore, CacheCoreConfig
+from client_query_cache._core.manager import CacheCore
 from tests.core.conftest import patch_conditional_put_hook
 
 if TYPE_CHECKING:

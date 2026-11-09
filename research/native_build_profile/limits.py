@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, NamedTuple
 
 from bson import ObjectId
 
+from client_query_cache import CacheCoreConfig
 from client_query_cache import _shared_index as native
 from client_query_cache._core.codec import codec_fingerprint, encode_value
 from client_query_cache._core.find_one_reads import (
@@ -19,7 +20,6 @@ from client_query_cache._core.find_one_reads import (
     generic_find_one_discriminator,
 )
 from client_query_cache._core.keys import canonical_alias_key
-from client_query_cache._core.manager import CacheCoreConfig
 from client_query_cache._core.order_sensitive_keys import canonical_discriminator_key
 from research.native_build_profile.compare import (
     BOOTSTRAP_RESAMPLES,

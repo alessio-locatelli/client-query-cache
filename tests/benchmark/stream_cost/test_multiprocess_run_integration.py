@@ -21,8 +21,7 @@ from benchmarks.stream_cost.calibration import (
 from benchmarks.stream_cost.errors import BenchmarkSetupError
 from benchmarks.stream_cost.multiprocess_run import Protocol, planned_cells, run_cell
 from benchmarks.stream_cost.topology import IsolatedReplicaSet, ResourceLimits
-from client_query_cache import CacheManager
-from client_query_cache._core.manager import CacheCoreConfig
+from client_query_cache import CacheCoreConfig, CacheManager
 from client_query_cache._core.stream_health import (
     StreamHealthSnapshot,
     StreamHealthStatus,

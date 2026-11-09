@@ -6,6 +6,7 @@ import pytest
 from hypothesis import example, given
 from hypothesis import strategies as st
 
+from client_query_cache import CacheCoreConfig
 from client_query_cache._core import manager as core_module
 from client_query_cache._core.codec import encode_value
 from client_query_cache._core.entries import AdmissionOutcome
@@ -16,7 +17,6 @@ from client_query_cache._core.find_reads import (
 from client_query_cache._core.keys import NamespaceId
 from client_query_cache._core.manager import (
     CacheCore,
-    CacheCoreConfig,
     _discard_entry_locked,
 )
 from client_query_cache._types import NonNegativeInt

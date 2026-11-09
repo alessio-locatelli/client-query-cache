@@ -18,13 +18,13 @@ import bson
 from bson import ObjectId
 from bson.codec_options import CodecOptions
 
+from client_query_cache import CacheCoreConfig
 from client_query_cache import _shared_index as native
 from client_query_cache._core.canonical import canonicalize
 from client_query_cache._core.codec import codec_fingerprint, encode_value
 from client_query_cache._core.find_one_reads import find_one_read_shape
 from client_query_cache._core.find_reads import PreparedFindRead, find_read_shape
 from client_query_cache._core.keys import NamespaceId, canonical_alias_key
-from client_query_cache._core.manager import CacheCoreConfig
 from client_query_cache._core.order_sensitive_keys import (
     canonical_discriminator_key,
     canonical_order_sensitive_key,

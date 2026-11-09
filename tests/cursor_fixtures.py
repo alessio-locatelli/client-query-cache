@@ -9,8 +9,8 @@ from pymongo import AsyncMongoClient, MongoClient
 from pymongo.asynchronous.command_cursor import AsyncCommandCursor
 from pymongo.monitoring import CommandListener
 
+from client_query_cache import CacheCoreConfig
 from client_query_cache._core import canonical
-from client_query_cache._core.manager import CacheCoreConfig
 from client_query_cache._core.order_sensitive_keys import (
     order_sensitive_discriminator_key,
 )

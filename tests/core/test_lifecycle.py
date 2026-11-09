@@ -5,10 +5,10 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from client_query_cache import CacheClosedError
+from client_query_cache import CacheClosedError, CacheCoreConfig
 from client_query_cache._core.keys import NamespaceId
 from client_query_cache._core.lifecycle import CacheLifecycleState
-from client_query_cache._core.manager import CacheCore, CacheCoreConfig
+from client_query_cache._core.manager import CacheCore
 from tests.core.conftest import patch_conditional_put_hook
 
 if TYPE_CHECKING:

@@ -16,7 +16,7 @@ from benchmarks.stream_cost.errors import (
     BenchmarkConfigurationError,
     BenchmarkSetupError,
 )
-from client_query_cache._core.manager import CacheCoreConfig
+from client_query_cache import CacheCoreConfig
 from client_query_cache._types import (
     BsonDict,
     ExclusiveProbability,

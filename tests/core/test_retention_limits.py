@@ -14,7 +14,11 @@ import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
-from client_query_cache import RetentionDeclineReason, RetentionRecordKind
+from client_query_cache import (
+    CacheCoreConfig,
+    RetentionDeclineReason,
+    RetentionRecordKind,
+)
 from client_query_cache._core import manager as core_module
 from client_query_cache._core.canonical import canonicalize
 from client_query_cache._core.codec import encode_value
@@ -22,7 +26,7 @@ from client_query_cache._core.entries import AdmissionOutcome
 from client_query_cache._core.find_reads import find_read_shape
 from client_query_cache._core.keys import NamespaceId, canonical_alias_key
 from client_query_cache._core.lru import WeightedLru
-from client_query_cache._core.manager import CacheCore, CacheCoreConfig
+from client_query_cache._core.manager import CacheCore
 from client_query_cache._shared_index import LocalCacheCore
 from client_query_cache._types import NonNegativeInt, PositiveInt
 
