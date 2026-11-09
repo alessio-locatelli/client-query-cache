@@ -13,11 +13,10 @@ from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import InMemoryMetricReader, NumberDataPoint
 from pymongo import AsyncMongoClient, MongoClient
 
-from client_query_cache import BypassReason, CacheCoreConfig, CacheManager
+from client_query_cache import BypassReason, CacheCore, CacheCoreConfig, CacheManager
 from client_query_cache._core.entries import AdmissionOutcome
 from client_query_cache._core.errors import CacheConfigurationError
 from client_query_cache._core.keys import NamespaceId, canonical_alias_key
-from client_query_cache._core.manager import CacheCore
 from client_query_cache._core.snapshots import CacheSnapshot
 from client_query_cache._core.stream_cost import (
     INVALIDATION_LAG_CLOCK_SKEW_LIMITATION,

@@ -30,7 +30,6 @@ from client_query_cache.synchronous.manager import CacheManager
 from client_query_cache.synchronous.streams import DatabaseStreamSupervisor
 from tests.codec_helpers import DecodedPriceCase, decode_only_decimal_options
 from tests.polling import wait_until as _wait_until
-from tests.stream_helpers import wait_for_stream_barrier
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -39,6 +38,7 @@ if TYPE_CHECKING:
     from faker import Faker
 
     from tests.conftest import CollectionName, DatabaseName, MongoDbUri
+    from tests.stream_helpers import StreamBarrier
 
 pytestmark = pytest.mark.integration
 
@@ -515,6 +515,7 @@ def test_find_one_by_id_invalidates_numerically_equal_stored_ids(
     stored_id: object,
     read_id: object,
     faker: Faker,
+    stream_barrier: StreamBarrier,
 ) -> None:
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
     document = {"_id": stored_id, "v": faker.uuid4()}
@@ -528,9 +529,7 @@ def test_find_one_by_id_invalidates_numerically_equal_stored_ids(
     independent_writer[cached_database_name][nonpersistent_collection_name].update_one(
         {"_id": stored_id}, {"$set": {"v": updated["v"]}}
     )
-    wait_for_stream_barrier(
-        cache_manager.cache_core, independent_writer[cached_database_name]
-    )
+    stream_barrier.wait(independent_writer[cached_database_name])
 
     assert collection.find_one({"_id": read_id}) == updated
 
@@ -2075,6 +2074,7 @@ def test_generic_find_one_invalidates_for_namespace_changes(
     *,
     operation: str,
     faker: Faker,
+    stream_barrier: StreamBarrier,
 ) -> None:
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
     document = {"_id": faker.uuid4(), "group": faker.word(), "rank": 1}
@@ -2100,9 +2100,7 @@ def test_generic_find_one_invalidates_for_namespace_changes(
         writer.drop()
         expected = {**document, "fresh": True}
         writer.insert_one(expected)
-    wait_for_stream_barrier(
-        cache_manager.cache_core, independent_writer[cached_database_name]
-    )
+    stream_barrier.wait(independent_writer[cached_database_name])
     with _spy_on_driver("find_one") as spy:
         assert collection.find_one(query) == expected
         assert collection.find_one(query) == expected
@@ -2433,6 +2431,7 @@ def test_id_anchored_find_one_survives_writes_to_other_documents(
     operation: str,
     *,
     faker: Faker,
+    stream_barrier: StreamBarrier,
 ) -> None:
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
     document = {"_id": faker.uuid4(), "owner": faker.uuid4(), "rank": 1}
@@ -2449,9 +2448,7 @@ def test_id_anchored_find_one_survives_writes_to_other_documents(
         writer.replace_one({"_id": other["_id"]}, {"rank": 2})
     else:
         writer.delete_one({"_id": other["_id"]})
-    wait_for_stream_barrier(
-        cache_manager.cache_core, independent_writer[cached_database_name]
-    )
+    stream_barrier.wait(independent_writer[cached_database_name])
     with _spy_on_driver("find_one") as spy:
         assert collection.find_one(query) == document
     assert spy.call_count == 0
@@ -2468,6 +2465,7 @@ def test_id_anchored_find_one_refreshes_after_anchored_writes(
     operation: str,
     *,
     faker: Faker,
+    stream_barrier: StreamBarrier,
 ) -> None:
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
     document = {"_id": faker.uuid4(), "owner": faker.uuid4(), "rank": 1}
@@ -2491,9 +2489,7 @@ def test_id_anchored_find_one_refreshes_after_anchored_writes(
             "owner": faker.uuid4() if operation == "break-match" else document["owner"],
         }
         writer.update_one({"_id": document["_id"]}, {"$set": changes})
-    wait_for_stream_barrier(
-        cache_manager.cache_core, independent_writer[cached_database_name]
-    )
+    stream_barrier.wait(independent_writer[cached_database_name])
     expected = collection.raw.find_one(query)
     assert (expected is None) == (operation in {"break-match", "delete"})
     with _spy_on_driver("find_one") as spy:

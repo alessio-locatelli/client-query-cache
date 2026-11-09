@@ -4,18 +4,14 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from client_query_cache import CacheCoreConfig
+from client_query_cache import CacheCore, CacheCoreConfig
 from client_query_cache._core.entries import AdmissionOutcome
 from client_query_cache._core.keys import canonical_alias_key
-from client_query_cache._core.manager import CacheCore
-from client_query_cache._core.namespace import IdentityState
-from tests.core.conftest import patch_conditional_put_hook
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from client_query_cache._core.entries import CacheEntry
-    from client_query_cache._core.keys import CacheKey, NamespaceId
+    from client_query_cache._core.keys import AliasKey, NamespaceId
 
 SHARED_ALIAS = canonical_alias_key("email", "shared@example.com", None)
 
@@ -38,26 +34,6 @@ def test_caller_mutation_does_not_affect_a_later_hit(
     lookup_result.value["a"].append(999)
     second_result = core.lookup_identity(namespace, identity, "full")
     assert second_result.value == {"a": [1, 2, 3]}
-
-
-def test_clearing_discards_aliases_and_budget_for_a_racing_rolled_back_admission(
-    core: CacheCore, namespace: NamespaceId, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    capture = core.begin_identity_admission(namespace, "doc-1")
-    alias = canonical_alias_key("email", "a@example.com", None)
-
-    def hook(_key: CacheKey, _entry: CacheEntry) -> None:
-        core.clear_namespace(namespace)
-
-    patch_conditional_put_hook(monkeypatch, core, hook)
-
-    outcome = core.admit_identity(capture, "full", {"v": 1}, alias=alias)
-
-    assert outcome is AdmissionOutcome.DECLINED_STALE
-    used_bytes, entry_count = core._lru.snapshot_usage()
-    assert used_bytes == 0
-    assert entry_count == 0
-    assert core.resolve_alias(namespace, "email", "a@example.com", None) is None
 
 
 def test_a_stale_pre_clear_alias_cannot_reach_a_post_clear_entry(
@@ -127,22 +103,33 @@ def test_aliases_do_not_grow_unboundedly_under_sustained_distinct_key_reads(
         alias = canonical_alias_key("key", f"value-{index}", None)
         core.admit_identity(capture, "full", {"v": index}, alias=alias)
 
-    state = core._namespace(namespace)
-    assert len(state.aliases) < admission_count
+    assert core.resolve_alias(namespace, "key", "value-0", None) is None
+    last = admission_count - 1
+    assert core.resolve_alias(namespace, "key", f"value-{last}", None) == f"doc-{last}"
 
 
+@pytest.mark.parametrize(
+    "alias",
+    [None, canonical_alias_key("email", "a@example.com", None)],
+    ids=["without-alias", "with-alias"],
+)
+@pytest.mark.parametrize("core", [True], indirect=True, ids=["telemetry"])
 def test_an_inflight_read_racing_a_clear_is_rejected_rather_than_repopulating(
-    core: CacheCore, namespace: NamespaceId
+    core: CacheCore, namespace: NamespaceId, alias: AliasKey | None
 ) -> None:
     identity = "doc-1"
     capture = core.begin_identity_admission(namespace, identity)
 
     core.clear_namespace(namespace)
 
-    outcome = core.admit_identity(capture, "full", {"v": "stale-value"})
+    outcome = core.admit_identity(capture, "full", {"v": "stale-value"}, alias=alias)
 
     assert outcome is AdmissionOutcome.DECLINED_STALE
     assert core.lookup_identity(namespace, identity, "full").hit is False
+    assert core.resolve_alias(namespace, "email", "a@example.com", None) is None
+    snapshot = core.snapshot()
+    assert snapshot.used_bytes == 0
+    assert snapshot.entry_count == 0
 
 
 def test_repointing_an_alias_to_a_new_identity_survives_the_old_owners_cleanup(
@@ -185,17 +172,6 @@ def test_a_mapping_identity_resolved_via_alias_still_matches_lookup_identity(
     assert lookup_result.value == {"v": "value"}
 
 
-def test_an_identity_cached_without_an_alias_retains_no_alias_storage(
-    core: CacheCore, namespace: NamespaceId
-) -> None:
-    core.admit_identity(
-        core.begin_identity_admission(namespace, "doc-1"), "full", {"v": 1}
-    )
-
-    identity_state = core._namespace(namespace).identities["doc-1"]
-    assert identity_state.alias_keys is IdentityState().alias_keys
-
-
 def _repoint_shared_alias(core: CacheCore, namespace: NamespaceId) -> None:
     core.admit_identity(
         core.begin_identity_admission(namespace, "doc-new"),
@@ -217,7 +193,7 @@ def _write_old_owner(core: CacheCore, namespace: NamespaceId) -> None:
         pytest.param(CacheCore.clear_namespace, None, id="cleared"),
     ],
 )
-def test_an_identity_left_without_aliases_retains_no_alias_storage(
+def test_a_shared_alias_resolves_to_its_current_owner_after_the_old_owner_leaves(
     core: CacheCore,
     namespace: NamespaceId,
     release: Callable[[CacheCore, NamespaceId], None],
@@ -230,14 +206,12 @@ def test_an_identity_left_without_aliases_retains_no_alias_storage(
         alias=SHARED_ALIAS,
     )
     pending = core.begin_identity_admission(namespace, "doc-old")
-    identities = core._namespace(namespace).identities
-    assert identities["doc-old"].alias_keys == {SHARED_ALIAS}
 
     release(core, namespace)
 
-    assert identities["doc-old"].alias_keys is IdentityState().alias_keys
     resolved = core.resolve_alias(namespace, "email", "shared@example.com", None)
     assert resolved == current_owner
-    if current_owner is not None:
-        assert identities[current_owner].alias_keys == {SHARED_ALIAS}
     pending.release()
+    assert core.resolve_alias(namespace, "email", "shared@example.com", None) == (
+        current_owner
+    )

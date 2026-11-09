@@ -2,12 +2,12 @@
 
 ## 1. Production configuration and imports
 
-- [ ] 1.1 Extract D1's production configuration into `_core/config.py`; update Python runtime/type imports, native setup, public exports, and configuration tests together. Verify public import identity and `typing.get_type_hints`, plus sync/async local and shared construction. Update affected current configuration references using public imports.
-- [ ] 1.2 Rename D1's production generic delegates and their native constructor fields without duplicating the implementations. Adapt existing custom-mapping/sequence, numeric, ordering, error, and codec tests; verify the native production path still invokes the required delegates and update maintainer references to their actual purpose.
+- [x] 1.1 Extract D1's production configuration into `_core/config.py`; update Python runtime/type imports, native setup, public exports, and configuration tests together. Verify public import identity and `typing.get_type_hints`, plus sync/async local and shared construction. Update affected current configuration references using public imports.
+- [x] 1.2 Rename D1's production generic delegates and their native constructor fields without duplicating the implementations. Adapt existing custom-mapping/sequence, numeric, ordering, error, and codec tests; verify the native production path still invokes the required delegates and update maintainer references to their actual purpose.
 
 ## 2. Delete the Python engine and convert its consumers
 
-- [ ] 2.1 Convert core lookup, admission, retention, alias, find-compatibility, and state-machine contract cases per D3 to the production native owners. Remove reference factories, mechanics-only tests, and differential cache implementations. Verify the retained generated schedules and race/collision cases against explicit specification outcomes; update the core verification description in the maintainer guide.
+- [x] 2.1 Convert core lookup, admission, retention, alias, find-compatibility, and state-machine contract cases per D3 to the production native owners. Remove reference factories, mechanics-only tests, and differential cache implementations. Verify the retained generated schedules and race/collision cases against explicit specification outcomes; update the core verification description in the maintainer guide.
 - [ ] 2.2 Convert event/stream fixtures, collection tests, memory tests, and current invalidation/startup benchmarks per D3. Verify real event-drain observation, sync/async behavior, native reclamation after drop/clear/close, and honest allocation/RSS accounting. Remove Python private-index assertions and update memory/benchmark command documentation with the changed measurement scope.
 - [ ] 2.3 Delete D1's obsolete modules, mixed-module members, package re-exports, and orphaned imports/types after the consumer conversions. Verify no source, stub, test, script, current benchmark, or research command imports the removed engine. Update `docs/development/architecture.md` to the actual production path in the same part.
 

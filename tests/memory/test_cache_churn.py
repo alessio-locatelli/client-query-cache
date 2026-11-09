@@ -9,7 +9,7 @@ from client_query_cache._core.keys import NamespaceId, canonical_alias_key
 from .conftest import SHARED_BUDGET_BYTES, SyntheticPayload
 
 if TYPE_CHECKING:
-    from client_query_cache._core.manager import CacheCore
+    from client_query_cache import CacheCore
 
 pytestmark = [pytest.mark.memory, pytest.mark.usefixtures("require_memory_profiling")]
 

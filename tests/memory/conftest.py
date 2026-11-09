@@ -3,8 +3,7 @@ from typing import TYPE_CHECKING, NewType
 import pytest
 from faker import Faker
 
-from client_query_cache import CacheCoreConfig
-from client_query_cache._core.manager import CacheCore
+from client_query_cache import CacheCore, CacheCoreConfig
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

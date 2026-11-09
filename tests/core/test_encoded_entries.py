@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, override
 
@@ -7,18 +8,22 @@ import pytest
 from bson.codec_options import CodecOptions, TypeEncoder, TypeRegistry
 from bson.decimal128 import Decimal128
 
+from client_query_cache import CacheCore
 from client_query_cache._core.codec import encode_value
 from client_query_cache._core.entries import AdmissionOutcome, LookupResult
 from client_query_cache._core.errors import CacheClosedError
 from client_query_cache._core.find_reads import find_read_shape
-from client_query_cache._core.manager import CacheCore
 from tests.codec_helpers import decode_only_decimal_options
+from tests.core.conftest import evict_by_pressure
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
+    from contextlib import AbstractContextManager
 
+    from client_query_cache._core.contracts import IdentityCaptureView
     from client_query_cache._core.find_reads import FindReadShape
     from client_query_cache._core.keys import NamespaceId
+    from tests.core.conftest import PinnedAlias
 
 pytestmark = pytest.mark.unit
 
@@ -203,54 +208,55 @@ def test_encoded_admission_rejects_a_capture_from_an_older_generation(
     assert core.snapshot().entry_count == 0
 
 
+_FAILING_CODEC: CodecOptions[Mapping[str, Any]] = CodecOptions(
+    type_registry=TypeRegistry([_FailingEncoder()])
+)
+
+
 @pytest.mark.parametrize(
-    "admit",
+    ("admit", "outcome"),
     [
         pytest.param(
             lambda core, capture: core.admit_identity_encoded(
                 capture, "full", encode_value({"price": 1})
             ),
+            nullcontext(),
             id="encoded-admitted",
         ),
         pytest.param(
             lambda core, capture: core.admit_identity(capture, "full", 10**20),
+            nullcontext(),
             id="overflow",
         ),
         pytest.param(
             lambda core, capture: core.admit_identity(capture, "full", object()),
+            nullcontext(),
             id="unencodable",
+        ),
+        pytest.param(
+            lambda core, capture: core.admit_identity(
+                capture, "full", {"price": _PRICE}, codec_options=_FAILING_CODEC
+            ),
+            pytest.raises(RuntimeError, match="application encoder rejected"),
+            id="encoder-raises",
         ),
     ],
 )
 def test_identity_admission_releases_its_capture(
-    core: CacheCore,
-    namespace: NamespaceId,
-    admit: Callable[[CacheCore, object], AdmissionOutcome],
+    pinned_alias: PinnedAlias,
+    admit: Callable[[CacheCore, IdentityCaptureView], object],
+    outcome: AbstractContextManager[object],
 ) -> None:
-    capture = core.begin_identity_admission(namespace, "doc-1")
+    core, namespace, identity, value, capture = pinned_alias
 
-    admit(core, capture)
+    with outcome:
+        admit(core, capture)
 
-    state = core._namespace(namespace)
-    identities = tuple(state.identities.values())
-    assert all(identity.inflight_ref_count == 0 for identity in identities)
-
-
-def test_identity_admission_releases_its_capture_when_an_encoder_raises(
-    core: CacheCore, namespace: NamespaceId
-) -> None:
-    capture = core.begin_identity_admission(namespace, "doc-1")
-    codec: CodecOptions[Mapping[str, Any]] = CodecOptions(
-        type_registry=TypeRegistry([_FailingEncoder()])
-    )
-
-    with pytest.raises(RuntimeError, match="application encoder rejected"):
-        core.admit_identity(capture, "full", {"price": _PRICE}, codec_options=codec)
-
-    assert "doc-1" not in core._namespace(namespace).identities
+    evict_by_pressure(core, namespace, value)
+    assert core.resolve_alias(namespace, "code", identity, None) is None
 
 
-def test_encoded_identity_admission_on_a_closed_core_releases_its_capture(
+def test_encoded_identity_admission_on_a_closed_core_raises(
     core: CacheCore, namespace: NamespaceId
 ) -> None:
     capture = core.begin_identity_admission(namespace, "doc-1")
@@ -259,21 +265,16 @@ def test_encoded_identity_admission_on_a_closed_core_releases_its_capture(
     with pytest.raises(CacheClosedError):
         core.admit_identity_encoded(capture, "full", encode_value({"price": 1}))
 
-    assert capture.released
 
-
-def test_encoded_find_admission_replaces_the_resident_source_token(
+@pytest.mark.parametrize("core", [True], indirect=True, ids=["telemetry"])
+def test_encoded_find_admission_replaces_the_resident_source(
     core: CacheCore, namespace: NamespaceId
 ) -> None:
     _admit_marked_find(core, namespace, 1)
     core.record_write(namespace, "unrelated")
     _admit_marked_find(core, namespace, 2)
 
-    state = core._namespace(namespace)
-    assert len(state.entry_index) == 1
-    tokens = [token for bucket in state.find_families.values() for token in bucket]
-    assert len(tokens) == 1
-    assert tokens[0] in state.entry_index
+    assert core.snapshot().entry_count == 1
     assert core.lookup_find(namespace, _find_shape(5)).value == [2]
 
 

@@ -138,8 +138,7 @@ orders k resident sources in O(k log k) time using only scalar limits; unrelated
 hashes do not expand candidate inspection. A valid smallest source requires one
 full key comparison and one source probe, regardless of admission order. Failed
 candidates or hash collisions can require more comparisons, each depending on
-query size. Publication and removal have expected O(1) token cost. Core ownership/race tests
-and generated operation schedules live in `tests/core/test_find_limit_subsumption.py`.
+query size. Publication and removal have expected O(1) token cost.
 
 Hits decode the full BSON list through the requesting codec, then install only
 the requested prefix. Decoding costs O(source bytes) CPU and transient memory;
@@ -182,3 +181,9 @@ bound-session cases on PyMongo 4.18.1 and the locked 4.18.2 driver. Future drive
 releases require the same differential checks because these hooks are protected.
 
 Process-local managers use the native owner exported by the existing extension. Shared-cache coordination retains the Python owner because it provides publication observers and payload-store integration. Both owners implement the common read and coherence protocols; their capture objects are opaque handles. The [native evaluation report](../../reports/native-process-local-cache/results.md) records measured costs and adoption evidence.
+
+## Core verification
+
+The `tests/core/` contract tests construct the production native core (`LocalCacheCore`, and `SharedOwnerCore` where a behavior applies to it) and assert explicit outcomes: admission results, lookup hits, snapshots, alias resolution and object lifetime through weak references. No second cache implementation serves as an oracle. Generated schedules in `test_manager_state_machine.py`, `test_find_limit_subsumption.py` and `test_native_owner.py` keep only a record of the values each operation was admitted with, and assert that a hit never returns a value older than the latest write, clear, drop or availability transition affecting its key and that the budget holds. They do not predict which entries eviction removes.
+
+Collision and race cases use keys whose equality callbacks re-enter or block the core, because the native owner runs those callbacks outside its critical sections. Native synchronization is checked by the unit and Loom models under `native/shared-index/` (`just rust-tests`).

@@ -18,8 +18,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
     from typing import Any
 
-    from client_query_cache import CacheCoreConfig
-    from client_query_cache._core.manager import CacheCore
+    from client_query_cache import CacheCore, CacheCoreConfig
     from tests.conftest import MongoDbUri
 
 pytestmark = pytest.mark.integration

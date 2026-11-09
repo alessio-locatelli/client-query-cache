@@ -9,8 +9,7 @@ from pymongo import MongoClient
 
 from benchmarks.stream_cost.await_commands import AwaitCommandListener
 from benchmarks.stream_cost.await_run import _wait_for
-from client_query_cache import CacheCoreConfig
-from client_query_cache._core.manager import CacheCore
+from client_query_cache import CacheCore, CacheCoreConfig
 from client_query_cache._types import BsonDict
 from client_query_cache.synchronous.streams import DatabaseStreamSupervisor
 

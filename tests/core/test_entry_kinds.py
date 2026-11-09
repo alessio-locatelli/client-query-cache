@@ -5,13 +5,13 @@ from typing import TYPE_CHECKING
 import pytest
 from bson.decimal128 import Decimal128
 
-from client_query_cache import CacheCoreConfig
 from client_query_cache._core.entries import AdmissionOutcome
 from client_query_cache._core.keys import NamespaceId, canonical_alias_key
-from client_query_cache._core.manager import CacheCore
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+    from client_query_cache import CacheCore
 
 pytestmark = pytest.mark.unit
 
@@ -95,21 +95,8 @@ def test_admission_captured_before_a_write_is_rejected_by_compare_and_decide(
     assert admit(core, capture) is AdmissionOutcome.DECLINED_STALE
 
 
-def test_identity_state_is_bounded_by_cache_capacity_not_write_history(
-    namespace: NamespaceId,
-) -> None:
-    core = CacheCore(CacheCoreConfig(budget_bytes=500, max_entry_bytes=100))
-    admission_count = 500
-
-    for index in range(admission_count):
-        capture = core.begin_identity_admission(namespace, f"doc-{index}")
-        core.admit_identity(capture, "full", {"v": index})
-
-    state = core._namespace(namespace)
-    assert len(state.identities) < admission_count
-
-
-def test_resident_entries_share_the_registered_namespace_identifier(
+@pytest.mark.parametrize("core", [True], indirect=True, ids=["telemetry"])
+def test_identity_namespace_and_unique_key_entries_coexist(
     core: CacheCore, namespace: NamespaceId
 ) -> None:
     alias = canonical_alias_key(("email",), ("a@example.com",), None)
@@ -132,13 +119,7 @@ def test_resident_entries_share_the_registered_namespace_identifier(
         alias=alias,
     )
 
-    registered = core._namespace(NamespaceId(*namespace)).namespace
-    resident = core._lru._order.items()
-    assert len(resident) == 4
-    assert all(
-        key.namespace is registered and entry.namespace is registered
-        for key, entry in resident
-    )
+    assert core.snapshot().entry_count == 4
     assert core.lookup_identity(NamespaceId(*namespace), "doc-1", "full").hit
     assert core.lookup_namespace(NamespaceId(*namespace), ("find", "shape")).hit
     assert core.lookup_namespace(NamespaceId(*namespace), (alias, "full")).hit
@@ -212,6 +193,7 @@ def test_different_namespace_guarded_discriminators_do_not_collide(
     assert core.lookup_namespace(namespace, discriminator_2).value == value_2
 
 
+@pytest.mark.parametrize("core", [True], indirect=True, ids=["telemetry"])
 def test_namespace_creation_invalidates_and_reclaims_a_pre_creation_entry(
     core: CacheCore, namespace: NamespaceId
 ) -> None:
@@ -221,9 +203,9 @@ def test_namespace_creation_invalidates_and_reclaims_a_pre_creation_entry(
     core.create_namespace(namespace)
 
     assert core.lookup_namespace(namespace, ("find", {})).hit is False
-    used_bytes, entry_count = core._lru.snapshot_usage()
-    assert used_bytes == 0
-    assert entry_count == 0
+    snapshot = core.snapshot()
+    assert snapshot.used_bytes == 0
+    assert snapshot.entry_count == 0
 
 
 def test_the_same_identity_and_query_shape_do_not_collide_across_namespaces(

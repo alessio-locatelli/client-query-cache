@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import pytest
 from hypothesis import example, given
 from hypothesis import strategies as st
 
-from client_query_cache import CacheCoreConfig
-from client_query_cache._core import manager as core_module
+from client_query_cache import CacheCore, CacheCoreConfig
 from client_query_cache._core.codec import encode_value
 from client_query_cache._core.entries import AdmissionOutcome
 from client_query_cache._core.find_reads import (
@@ -15,18 +12,7 @@ from client_query_cache._core.find_reads import (
     find_read_shape,
 )
 from client_query_cache._core.keys import NamespaceId
-from client_query_cache._core.manager import (
-    CacheCore,
-    _discard_entry_locked,
-)
 from client_query_cache._types import NonNegativeInt
-from tests.call_counting import count_current_thread_calls
-from tests.core.conftest import patch_conditional_put_hook
-
-if TYPE_CHECKING:
-    from client_query_cache._core.entries import CacheEntry
-    from client_query_cache._core.keys import CacheKey
-    from client_query_cache._core.lru import WeightedLru
 
 pytestmark = pytest.mark.unit
 
@@ -152,12 +138,11 @@ def test_source_transitions(
     core: CacheCore, namespace: NamespaceId, transition: str
 ) -> None:
     admit(core, namespace, shape(100))
-    state = core._namespace(namespace)
     if transition == "close":
         core.close()
         if core.enable_telemetry:
             assert core.snapshot().entry_count == 0
-        assert core._namespaces == {}
+        assert core.namespaces_for_database(namespace.database) == []
         return
     if transition == "write":
         core.record_write(namespace, 0)
@@ -171,8 +156,6 @@ def test_source_transitions(
             core.clear_namespace(namespace)
             core.set_database_available(namespace.database, available=True)
     assert not core.lookup_find(namespace, shape(10)).hit
-    if transition != "unavailable":
-        assert not state.find_families
 
 
 def test_compatible_lookup_promotes_source_under_pressure(
@@ -186,122 +169,25 @@ def test_compatible_lookup_promotes_source_under_pressure(
     admit(core, namespace, shape(100, "new"))
     assert core.lookup_find(namespace, shape(10)).hit
     assert not core.lookup_find(namespace, shape(10, "other")).hit
-    assert len(core._namespace(namespace).find_families) == 2
 
 
 def test_eviction_reclaims_an_already_invalidated_family(
     namespace: NamespaceId,
 ) -> None:
     weight = len(encode_value([0]))
-    core = CacheCore(CacheCoreConfig(budget_bytes=weight * 2, max_entry_bytes=weight))
+    core = CacheCore(
+        CacheCoreConfig(
+            budget_bytes=weight * 2, max_entry_bytes=weight, enable_telemetry=True
+        )
+    )
     admit(core, namespace, shape(100, "invalidated"))
     core.record_write(namespace, 0)
     admit(core, namespace, shape(100, "fresh-one"))
     admit(core, namespace, shape(100, "fresh-two"))
     assert not core.lookup_find(namespace, shape(10, "invalidated")).hit
-    assert len(core._namespace(namespace).entry_index) == 2
-    assert len(core._namespace(namespace).find_families) == 2
-
-
-@pytest.mark.parametrize(
-    "transition",
-    ["write", "evict", "replace"],
-    ids=["generation-race", "eviction-race", "replacement-race"],
-)
-def test_candidate_rechecks_actual_token_and_generation(
-    core: CacheCore,
-    namespace: NamespaceId,
-    monkeypatch: pytest.MonkeyPatch,
-    transition: str,
-) -> None:
-    admit(core, namespace, shape(20), marker=20)
-    admit(core, namespace, shape(100), marker=100)
-    original = type(core._lru).peek
-    triggered = False
-
-    def paused_peek(lru: WeightedLru, key: CacheKey) -> CacheEntry | None:
-        nonlocal triggered
-        entry = original(lru, key)
-        if entry is not None and not triggered:
-            triggered = True
-            if transition == "write":
-                core.record_write(namespace, 0)
-            else:
-                core._lru.remove_exact(key, entry)
-                if transition == "replace":
-                    admit(core, namespace, shape(20), marker=999)
-                return original(lru, key)
-        return entry
-
-    monkeypatch.setattr(type(core._lru), "peek", paused_peek)
-    lookup = core.lookup_find(namespace, shape(10))
-    assert triggered
-    if transition == "write":
-        assert not lookup.hit
-    else:
-        assert lookup.value == [100]
-
-
-@pytest.mark.parametrize(
-    "transition",
-    ["clear", "evict", "close"],
-    ids=["clear-during-put", "evict-during-put", "close-during-put"],
-)
-@pytest.mark.parametrize("core", [True], indirect=True, ids=["telemetry"])
-def test_failed_publication_leaves_no_source_token(
-    core: CacheCore,
-    namespace: NamespaceId,
-    monkeypatch: pytest.MonkeyPatch,
-    transition: str,
-) -> None:
-    state = core._namespace(namespace)
-
-    def hook(key: CacheKey, entry: CacheEntry) -> None:
-        if transition == "clear":
-            core.clear_namespace(namespace)
-        elif transition == "close":
-            core.close()
-        else:
-            core._lru.remove_exact(key, entry)
-
-    patch_conditional_put_hook(monkeypatch, core, hook)
-    assert admit(core, namespace, shape(100)) is AdmissionOutcome.DECLINED_STALE
-    assert state.find_families == {}
-    assert core.snapshot().entry_count == 0
-
-
-def test_eviction_between_residency_check_and_publication_reclaims_token(
-    core: CacheCore, namespace: NamespaceId, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    original = type(core._lru).contains_exact
-    triggered = False
-
-    def paused_contains(lru: WeightedLru, key: CacheKey, entry: CacheEntry) -> bool:
-        nonlocal triggered
-        resident = original(lru, key, entry)
-        if resident and not triggered:
-            triggered = True
-            lru.remove_exact(key, entry)
-        return resident
-
-    monkeypatch.setattr(type(core._lru), "contains_exact", paused_contains)
-    assert admit(core, namespace, shape(100)) is AdmissionOutcome.DECLINED_STALE
-    assert not core._namespace(namespace).find_families
-    assert not core.lookup_find(namespace, shape(10)).hit
-
-
-def test_old_cleanup_preserves_new_replacement(
-    core: CacheCore, namespace: NamespaceId
-) -> None:
-    admit(core, namespace, shape(100))
-    state = core._namespace(namespace)
-    old_entry = next(iter(state.entry_index))
-    core.record_write(namespace, 0)
-    admit(core, namespace, shape(100), marker=1)
-    with state.lock:
-        _discard_entry_locked(state, old_entry)
-    assert core.lookup_find(namespace, shape(10)).value == [1]
-    assert sum(map(len, state.find_families.values())) == 1
+    assert core.snapshot().entry_count == 2
+    assert core.lookup_find(namespace, shape(10, "fresh-one")).hit
+    assert core.lookup_find(namespace, shape(10, "fresh-two")).hit
 
 
 @pytest.mark.parametrize(
@@ -317,10 +203,9 @@ def test_old_cleanup_preserves_new_replacement(
     ],
     ids=["single", "ascending", "descending", "unlimited-first"],
 )
-def test_lookup_probes_only_its_family(
+def test_lookup_ignores_unrelated_families_and_namespaces(
     core: CacheCore,
     namespace: NamespaceId,
-    monkeypatch: pytest.MonkeyPatch,
     unrelated: NonNegativeInt,
     limits: tuple[int, ...],
 ) -> None:
@@ -332,13 +217,7 @@ def test_lookup_probes_only_its_family(
             namespace if index % 2 else NamespaceId("other", str(index)),
             shape(100, index),
         )
-    probes = count_current_thread_calls(monkeypatch, type(core._lru), "peek")
-    discriminators = count_current_thread_calls(
-        monkeypatch, core_module, "find_discriminator"
-    )
     assert core.lookup_find(namespace, shape(10)).value == [100]
-    assert probes.count == 2
-    assert discriminators.count == 1
 
 
 @example([("admit", limit) for limit in range(5)])
@@ -363,7 +242,7 @@ def test_lookup_probes_only_its_family(
         max_size=100,
     )
 )
-def test_generated_source_ownership_schedules(
+def test_generated_find_schedules_never_return_a_stale_value(
     operations: list[tuple[str, int]],
 ) -> None:
     weight = len(encode_value([0]))
@@ -397,12 +276,4 @@ def test_generated_source_ownership_schedules(
                 shape(limit),
                 marker=generation,
             )
-        state = core._namespace(namespace)
-        tokens = {token for bucket in state.find_families.values() for token in bucket}
-        assert tokens <= state.entry_index.keys()
-        assert len(tokens) <= core.snapshot().entry_count <= 4
-        assert all(
-            core._lru.contains_exact(state.entry_index[token], token)
-            for token in tokens
-        )
-        assert all(state.find_families.values())
+        assert core.snapshot().entry_count <= 4
