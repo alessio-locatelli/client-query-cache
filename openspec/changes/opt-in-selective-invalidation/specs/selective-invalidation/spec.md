@@ -129,7 +129,7 @@ Selective lookup and admission SHALL preserve namespace epochs, index generation
 
 - **WHEN** a sync or async cursor with an active selective capture becomes unreachable without explicit close and is collected
 - **THEN** its incomplete result is not admitted and its ownership cannot permanently consume selective capacity
-- **AND** the next group acquisition can reclaim the abandoned owner without performing cache locking or asynchronous cleanup during finalization
+- **AND** the next group acquisition can reclaim the abandoned owner without deadlock, explicit close, or a running event loop
 
 #### Scenario: Stream continuity or namespace identity changes
 
