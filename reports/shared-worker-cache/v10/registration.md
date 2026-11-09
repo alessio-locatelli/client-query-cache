@@ -4,7 +4,7 @@ This study continues [issue #272](https://github.com/alessio-locatelli/client-qu
 
 ## Candidate
 
-The single `shared-index` candidate uses reusable [core guards](../../../src/client_query_cache/_core/locking.py) and adaptive [owner admission polling](../../../src/client_query_cache/_shared/coordinator.py). Two section objects per core replace per-entry generator context managers. Their nesting depths are thread-local, and both guard kinds retain namespace/LRU exclusion until their outermost exit. Native capture validation, core capture-before-validation ordering, cache publication, bounded queues and socket fallback retain their existing contracts.
+The single `shared-index` candidate uses reusable [core guards](https://github.com/alessio-locatelli/client-query-cache/blob/b12a9f3d6fcd587a637fd51ae7cbb4ca0edba04e/src/client_query_cache/_core/locking.py) and adaptive [owner admission polling](../../../src/client_query_cache/_shared/coordinator.py). Two section objects per core replace per-entry generator context managers. Their nesting depths are thread-local, and both guard kinds retain namespace/LRU exclusion until their outermost exit. Native capture validation, core capture-before-validation ordering, cache publication, bounded queues and socket fallback retain their existing contracts.
 
 The owner retains fifty-millisecond maintenance sweeps. Consuming admissions enables five-millisecond queue polling until fifty milliseconds after the latest nonempty drain. Quiet owners return to the maintenance cadence. Each drain keeps the configured per-connection limit; this changes neither queue capacity nor admission eligibility.
 

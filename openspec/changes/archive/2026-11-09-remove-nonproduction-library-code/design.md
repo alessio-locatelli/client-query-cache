@@ -129,3 +129,7 @@ The delta is authoritative for all updated measurement and reporting language. I
 ## Migration Plan
 
 This is a source cleanup with private interface removal. Extract required configuration and port contract tests before deleting their dependencies, then remove the native development surface and adapt tooling. Each part lands its own verification and documentation. No data migration, alternate engine, or compatibility module is introduced. This turn creates plans only.
+
+## D5 outcome
+
+The audit removed additional runtime members that only tests or benchmarks consumed: the owner pause and history-loss hooks, the encoded identity admission, and the epoch and snapshot getters (their harness equivalents now live in `benchmarks/stream_cost/shared_cache/owner.py` and `tests/`). `ExclusiveProbability` and `JsonDict` remain as annotation vocabulary used by public dataclasses. Wheel and source-distribution inventories and the D6 measurements are in `reports/remove-nonproduction-library-code/summary.md`.

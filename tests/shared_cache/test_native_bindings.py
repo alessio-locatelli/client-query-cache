@@ -330,14 +330,10 @@ def test_unrepresentable_mapping_sizes_fail_before_allocation(
 
 
 @contextmanager
-def _descriptor_budget(free_slots: NonNegativeInt) -> Generator[None]:
+def _exhausted_descriptors() -> Generator[None]:
     limits = resource.getrlimit(resource.RLIMIT_NOFILE)
-    probes = [os.open(os.devnull, os.O_RDONLY) for _ in range(free_slots)]
-    soft_limit = probes[-1] + 1 if probes else 0
-    for descriptor in probes:
-        os.close(descriptor)
     try:
-        resource.setrlimit(resource.RLIMIT_NOFILE, (soft_limit, limits[1]))
+        resource.setrlimit(resource.RLIMIT_NOFILE, (0, limits[1]))
         yield
     finally:
         resource.setrlimit(resource.RLIMIT_NOFILE, limits)
@@ -350,7 +346,7 @@ def _descriptor_allocation_failure(operation: DescriptorOperation) -> None:
         "ring": lambda: owner.session_ring(8),
         "descriptor": owner.reader_descriptor,
     }
-    with _descriptor_budget(0), pytest.raises(OSError, match="Too many open files"):
+    with _exhausted_descriptors(), pytest.raises(OSError, match="Too many open files"):
         operations[operation]()
 
 
