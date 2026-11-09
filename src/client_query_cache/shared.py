@@ -140,7 +140,7 @@ def _owner_main(config: OwnerConfig, control: Connection) -> None:
         owner.bind()
         control.send("ready")
         try:
-            owner.serve(control, lambda _request: None)
+            owner.serve(control)
         except EOFError:
             parent_lost = True
     except Exception:  # noqa: BLE001 - Process boundary reports failure without exposing connection credentials.

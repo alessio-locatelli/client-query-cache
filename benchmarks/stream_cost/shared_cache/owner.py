@@ -9,14 +9,16 @@ from typing import TYPE_CHECKING, cast, override
 from urllib.parse import urlsplit
 
 import psutil
+from pymongo.errors import OperationFailure
 
 from benchmarks.stream_cost.client import BenchmarkClientTopologyConfig, WireCompressor
 from benchmarks.stream_cost.proxy import DirectPathByteProxy, DirectPathProxyConfig
 from benchmarks.stream_cost.shared_cache.profiling import WindowProfiler
 from client_query_cache._core.keys import NamespaceId
+from client_query_cache._core.stream_events import CHANGE_STREAM_HISTORY_LOST_CODE
 from client_query_cache._shared.coordinator import SharedCacheOwner
 from client_query_cache._shared.wire import decode_key
-from client_query_cache._types import NonNegativeFloat
+from client_query_cache._types import NonNegativeFloat, NonNegativeInt, PositiveFloat
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -110,6 +112,72 @@ _PROFILER = WindowProfiler()
 _HISTORY_READY = threading.Event()
 
 
+class PausableOwner(SharedCacheOwner):
+    __slots__ = ("_resumes_at",)
+
+    def __init__(self, config: OwnerConfig) -> None:
+        super().__init__(config)
+        self._resumes_at = 0.0
+
+    def pause(self, seconds: PositiveFloat) -> NonNegativeFloat:
+        self._resumes_at = time.monotonic() + seconds
+        return self._resumes_at
+
+    def _wait_if_paused(self, now: NonNegativeFloat) -> NonNegativeFloat:
+        if now < self._resumes_at:
+            time.sleep(self._resumes_at - now)
+            return time.monotonic()
+        return now
+
+    @override
+    def _accept(self) -> None:
+        self._wait_if_paused(time.monotonic())
+        super()._accept()
+
+    @override
+    def _flush(self, connection: _Connection) -> bool:
+        self._wait_if_paused(time.monotonic())
+        return super()._flush(connection)
+
+    @override
+    def _receive(self, connection: _Connection, now: NonNegativeFloat) -> None:
+        super()._receive(connection, self._wait_if_paused(now))
+
+    @override
+    def _sweep(self, now: NonNegativeFloat) -> None:
+        super()._sweep(self._wait_if_paused(now))
+
+    @override
+    def _drain_admissions(self, *, all_pending: bool = False) -> None:
+        self._wait_if_paused(time.monotonic())
+        super()._drain_admissions(all_pending=all_pending)
+
+
+def pause_owner(owner: SharedCacheOwner, seconds: PositiveFloat) -> NonNegativeFloat:
+    assert isinstance(owner, PausableOwner)
+    return owner.pause(seconds)
+
+
+def lose_history(owner: SharedCacheOwner, database: str) -> None:
+    supervisor = owner.streams._supervisors[database]
+    supervisor_type = type(supervisor)
+    original = supervisor_type._open_stream
+
+    def unresumable(
+        _instance: DatabaseStreamSupervisor,
+        *,
+        resume_token: Mapping[str, object] | None,  # noqa: ARG001 - Keep the patched method's keyword signature.
+        use_start_after: bool,  # noqa: ARG001 - Keep the patched method's keyword signature.
+    ) -> None:
+        supervisor_type._open_stream = original  # type: ignore[method-assign]
+        raise OperationFailure("history lost", code=CHANGE_STREAM_HISTORY_LOST_CODE)
+
+    supervisor_type._open_stream = unresumable  # type: ignore[method-assign,assignment]
+    stream = supervisor._stream
+    assert stream is not None
+    stream.close()
+
+
 def hold_history(owner: SharedCacheOwner) -> None:
     database = owner.config.databases[0]
     supervisor = owner.streams._supervisors[database]
@@ -128,7 +196,7 @@ def hold_history(owner: SharedCacheOwner) -> None:
         original(instance, resume_token=resume_token, use_start_after=use_start_after)
 
     supervisor_type._open_stream = blocked_open  # type: ignore[method-assign,assignment]
-    owner.lose_history(database)
+    lose_history(owner, database)
 
 
 def activation_pending(owner: SharedCacheOwner) -> bool:
@@ -212,14 +280,14 @@ _CONTROL: dict[str, Callable[[SharedCacheOwner, FaultableProxy, Message], object
     "reset": lambda owner, _proxy, _request: owner.core.reset_stream_cost_statistics(
         owner.config.databases[0]
     ),
-    "pause-server": lambda owner, _proxy, request: owner.pause(
-        cast("float", request["seconds"])
+    "pause-server": lambda owner, _proxy, request: pause_owner(
+        owner, cast("float", request["seconds"])
     ),
     "pause-watch": lambda _owner, proxy, _request: proxy.pause(),
     "resume-watch": lambda _owner, proxy, _request: proxy.resume(),
     "sever": lambda _owner, proxy, _request: proxy.sever(),
-    "lose-history": lambda owner, _proxy, _request: owner.lose_history(
-        owner.config.databases[0]
+    "lose-history": lambda owner, _proxy, _request: lose_history(
+        owner, owner.config.databases[0]
     ),
     "hold-history": lambda owner, _proxy, _request: hold_history(owner),
     "resume-history": lambda _owner, _proxy, _request: _HISTORY_READY.set(),
@@ -243,15 +311,42 @@ def _control(
     return {"ok": True}
 
 
+class _ControlChannel:
+    __slots__ = ("_connection", "_owner", "_proxy")
+
+    def __init__(
+        self, owner: SharedCacheOwner, proxy: FaultableProxy, connection: Connection
+    ) -> None:
+        self._owner = owner
+        self._proxy = proxy
+        self._connection = connection
+
+    def fileno(self) -> NonNegativeInt:
+        return self._connection.fileno()
+
+    def recv(self) -> Message | str:
+        request: Message | str = self._connection.recv()
+        if request != "close":
+            # A startup sample must include all frames posted before workers
+            # announced readiness, including the last unswept batch.
+            limits = self._owner.config.shared_index
+            if limits is not None and limits.native_admission_queue:
+                self._owner._drain_admissions(all_pending=True)
+            self._connection.send(
+                _control(self._owner, self._proxy, cast("Message", request))
+            )
+        return request
+
+
 def owner_main(config: OwnerConfig, control: Connection) -> None:
     with proxy_for(config.mongodb_uri) as proxy:
-        owner = SharedCacheOwner(
+        owner = PausableOwner(
             replace(config, mongodb_uri=f"mongodb://127.0.0.1:{proxy.local_port}")
         )
         try:
             owner.bind()
             control.send({"kind": "ready", "pid": os.getpid(), **process_sample()})
-            owner.serve(control, lambda request: _control(owner, proxy, request))
+            owner.serve(cast("Connection", _ControlChannel(owner, proxy, control)))
         except RuntimeError as error:
             control.send({"kind": "failure", "error": str(error)})
         finally:

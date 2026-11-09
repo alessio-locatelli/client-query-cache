@@ -16,7 +16,6 @@ from typing import TYPE_CHECKING, Final, Literal, TextIO
 
 from bson.int64 import Int64
 from pymongo import MongoClient
-from pymongo.errors import OperationFailure
 from pymongo.monitoring import CommandListener
 
 from client_query_cache._core.config import DEFAULT_MAX_NAMESPACES, CacheCoreConfig
@@ -70,7 +69,6 @@ if TYPE_CHECKING:
     from client_query_cache._core.find_reads import FindSource
     from client_query_cache._shared.shared_index import SharedIndexLimits
     from client_query_cache._shared_index import LocalCapture, SessionRing
-    from client_query_cache.synchronous.streams import DatabaseStreamSupervisor
 
 type Message = dict[str, object]
 type ActivationState = Literal["pending", "active", "failed"]
@@ -79,7 +77,6 @@ _RECEIVE_BYTES: Final = 262_144
 _SWEEP_SECONDS: Final = 0.05
 _ADMISSION_POLL_SECONDS: Final = 0.001
 _ACTIVATION_RETRY_SECONDS: Final = 1.0
-_HISTORY_LOST: Final = 286
 _KEY_CACHE_ENTRIES: Final = 1024
 _HANDLE_ID: Final = struct.Struct("<QQ")
 _METADATA_PROBE_TTL_SECONDS: Final = 30.0
@@ -276,7 +273,6 @@ class SharedCacheOwner:
         "_lock_file",
         "_next_handle",
         "_next_session",
-        "_paused_until",
         "_rings",
         "_selector",
         "_started",
@@ -348,7 +344,6 @@ class SharedCacheOwner:
         self._selector = selectors.DefaultSelector()
         self._listener: socket.socket | None = None
         self._lock_file: TextIO | None = None
-        self._paused_until = 0.0
         self._started = time.monotonic() if config.enable_telemetry else 0.0
 
     @property
@@ -1138,9 +1133,7 @@ class SharedCacheOwner:
             self._counters.protocol_errors += 1
         self.detach(connection)
 
-    def serve(
-        self, control: Connection, on_control: Callable[[Message], Message | None]
-    ) -> None:
+    def serve(self, control: Connection) -> None:
         self._selector.register(control.fileno(), selectors.EVENT_READ, control)
         next_sweep = 0.0
         while True:
@@ -1151,9 +1144,6 @@ class SharedCacheOwner:
                 )
             )
             started = time.monotonic()
-            if started < self._paused_until:
-                time.sleep(self._paused_until - started)
-                started = time.monotonic()
             for key, mask in events:
                 source = key.data
                 if source is None:
@@ -1163,16 +1153,8 @@ class SharedCacheOwner:
                         self._receive(source, started)
                     if mask & selectors.EVENT_WRITE and not source.closed:
                         self._flush(source)
-                else:
-                    request = control.recv()
-                    if request == "close":
-                        return
-                    # A startup sample must include all frames posted before workers
-                    # announced readiness, including the last unswept batch.
-                    limits = self.config.shared_index
-                    if limits is not None and limits.native_admission_queue:
-                        self._drain_admissions(all_pending=True)
-                    control.send(on_control(request))
+                elif control.recv() == "close":
+                    return
             if started >= next_sweep:
                 self._sweep(started)
                 next_sweep = started + _SWEEP_SECONDS
@@ -1180,10 +1162,6 @@ class SharedCacheOwner:
                 self._drain_admissions()
             if self._counters is not None:
                 self._counters.busy_seconds += time.monotonic() - started
-
-    def pause(self, seconds: PositiveFloat) -> NonNegativeFloat:
-        self._paused_until = time.monotonic() + seconds
-        return self._paused_until
 
     def close(self) -> None:
         if self._listener is not None:
@@ -1202,25 +1180,6 @@ class SharedCacheOwner:
                 self.client.close()
                 if self._lock_file is not None:
                     self._lock_file.close()
-
-    def lose_history(self, database: str) -> None:
-        supervisor = self.streams._supervisors[database]
-        supervisor_type = type(supervisor)
-        original = supervisor_type._open_stream
-
-        def unresumable(
-            _instance: DatabaseStreamSupervisor,
-            *,
-            resume_token: Mapping[str, object] | None,  # noqa: ARG001 - Keep the patched method's keyword signature.
-            use_start_after: bool,  # noqa: ARG001 - Keep the patched method's keyword signature.
-        ) -> None:
-            supervisor_type._open_stream = original  # type: ignore[method-assign]
-            raise OperationFailure("history lost", code=_HISTORY_LOST)
-
-        supervisor_type._open_stream = unresumable  # type: ignore[method-assign,assignment]
-        stream = supervisor._stream
-        assert stream is not None
-        stream.close()
 
 
 def _capture_word(value: object) -> NonNegativeInt:
