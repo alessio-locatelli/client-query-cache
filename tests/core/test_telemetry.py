@@ -7,7 +7,6 @@ import pytest
 
 from client_query_cache import CacheConfigurationError, CacheCore, CacheCoreConfig
 from client_query_cache._core import native
-from client_query_cache._core.codec import encode_value
 from client_query_cache._core.entries import AdmissionOutcome
 from client_query_cache._core.stream_events import route_change_event
 from client_query_cache._shared_index import SharedOwnerCore
@@ -112,7 +111,7 @@ def test_default_reads_enforce_limits_and_invalidate_without_collectors(
     assert disabled_core.lookup_identity(namespace, "third", "full").value == "third"
     oversized = disabled_core.begin_identity_admission(namespace, "oversized")
     assert (
-        disabled_core.admit_identity_encoded(oversized, "full", encode_value("x" * 100))
+        disabled_core.admit_identity(oversized, "full", "x" * 100)
         is AdmissionOutcome.DECLINED_OVERSIZE
     )
     route_change_event(

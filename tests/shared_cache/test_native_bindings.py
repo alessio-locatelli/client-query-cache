@@ -19,6 +19,7 @@ from client_query_cache._core.entries import AdmissionOutcome
 from client_query_cache._core.keys import NamespaceId
 from client_query_cache._shared_index import OwnerIndex, ReaderIndex, SharedOwnerCore
 from client_query_cache._types import NonEmptyStr, NonNegativeInt, PositiveInt
+from tests.epoch_helpers import current_epoch
 from tests.shared_cache.index_helpers import assign_slot, shape_key
 
 if TYPE_CHECKING:
@@ -240,7 +241,7 @@ def test_detached_reader_never_reads_or_enqueues(
     assigned_slot: tuple[NonNegativeInt, NonNegativeInt],
     native_reader: ReaderIndex,
 ) -> None:
-    epoch = shared_core.current_epoch(_NAMESPACE)
+    epoch = current_epoch(shared_core, _NAMESPACE)
     assert native_reader.incarnation == _INCARNATION
     assert native_reader.admissions_enabled
     assert (native_reader.detached,) == (False,)
@@ -282,7 +283,7 @@ def test_published_payloads_are_read_by_identity_and_withdrawn_by_a_write(
     identity = faker.binary(length=identity_bytes)
     shape = shape_key("shape")
     expected = encode_value({"value": faker.pystr(max_chars=32)})
-    epoch = shared_core.current_epoch(_NAMESPACE)
+    epoch = current_epoch(shared_core, _NAMESPACE)
     capture = shared_core.begin_identity_admission(_NAMESPACE, "identity")
     outcome = shared_core.admit_identity_published(
         capture, "shape", expected, identity, shape

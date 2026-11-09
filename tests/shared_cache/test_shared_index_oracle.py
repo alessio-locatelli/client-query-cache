@@ -24,6 +24,7 @@ from client_query_cache._core.find_reads import FindReadShape
 from client_query_cache._core.keys import NamespaceId
 from client_query_cache._shared_index import OwnerIndex, ReaderIndex, SharedOwnerCore
 from client_query_cache._types import NonNegativeInt, PositiveInt
+from tests.epoch_helpers import current_epoch
 from tests.shared_cache.conftest import Racing
 from tests.shared_cache.index_helpers import assign_slot, identity_key, shape_key
 
@@ -141,14 +142,14 @@ def test_recycled_namespace_slot_rejects_a_reader_with_the_old_epoch(
     first = NamespaceId(_DATABASE, "first")
     second = NamespaceId(_DATABASE, "second")
     first_slot = assign_slot(core, first)
-    first_epoch = core.current_epoch(first)
+    first_epoch = current_epoch(core, first)
     assert first_slot is not None
     assert _admit(core, first, 1, {"value": "first"}) is AdmissionOutcome.ADMITTED
     assert reader.lookup(*first_slot, first_epoch, identity, shape) is not None
 
     core.drop_namespace(first)
     second_slot = assign_slot(core, second)
-    second_epoch = core.current_epoch(second)
+    second_epoch = current_epoch(core, second)
     assert second_slot == first_slot
     assert second_epoch > first_epoch
     assert _admit(core, second, 1, {"value": "second"}) is AdmissionOutcome.ADMITTED
@@ -191,7 +192,7 @@ def test_stale_namespace_release_does_not_remove_a_reused_namespace_slot(
     core, _index, _reader = bounded_shared_index
     namespace = _NAMESPACES[0]
     first_slot = assign_slot(core, namespace)
-    first_epoch = core.current_epoch(namespace)
+    first_epoch = current_epoch(core, namespace)
     assert first_slot is not None
 
     core.drop_namespace(namespace)
@@ -231,7 +232,7 @@ def test_every_write_removes_find_publication_without_removing_other_identities(
     core, index, reader = bounded_shared_index
     namespace = NamespaceId("oracle", "first")
     slot = assign_slot(core, namespace)
-    epoch = core.current_epoch(namespace)
+    epoch = current_epoch(core, namespace)
     assert slot is not None
     _admit(core, namespace, 1, {"_id": 1})
     find_key = shape_key(_BOUNDED_FIND_SHAPE.discriminator)
@@ -299,7 +300,7 @@ def test_a_replacement_in_a_full_arena_is_published_in_the_block_it_frees(
     namespace = _NAMESPACES[0]
     slot = assign_slot(core, namespace)
     assert slot is not None
-    epoch = core.current_epoch(namespace)
+    epoch = current_epoch(core, namespace)
     for revision in range(2):
         core.record_write(namespace, revision)
         value = {"text": faker.pystr(min_chars=80, max_chars=80)}
@@ -334,7 +335,7 @@ def test_a_touch_token_of_a_reclaimed_entry_does_not_touch_its_replacement(
     namespace = _NAMESPACES[0]
     slot = assign_slot(core, namespace)
     assert slot is not None
-    epoch = core.current_epoch(namespace)
+    epoch = current_epoch(core, namespace)
     _admit(core, namespace, 1, _ENTRY_VALUES[1])
     assert reader.lookup(*slot, epoch, identity_key(1), shape_key(_SHAPE))
     core.record_write(namespace, 1)
@@ -358,7 +359,7 @@ def test_a_drained_touch_token_protects_its_entry_from_eviction(
     namespace = _NAMESPACES[0]
     slot = assign_slot(core, namespace)
     assert slot is not None
-    epoch = core.current_epoch(namespace)
+    epoch = current_epoch(core, namespace)
     for number in (1, 2, 3):
         _admit(core, namespace, number, _ENTRY_VALUES[number])
     assert reader.lookup(*slot, epoch, identity_key(2), shape_key(_SHAPE))
@@ -376,7 +377,7 @@ def test_close_withdraws_every_publication(
     core, index, reader = bounded_shared_index
     slot = assign_slot(core, _NAMESPACES[0])
     assert slot is not None
-    epoch = core.current_epoch(_NAMESPACES[0])
+    epoch = current_epoch(core, _NAMESPACES[0])
     capture = core.begin_identity_admission(_NAMESPACES[0], 2)
     _admit(core, _NAMESPACES[0], 1, {"value": 1})
 
@@ -419,7 +420,7 @@ class _SharedIndexMachine(RuleBasedStateMachine):
             slot = assign_slot(self.core, namespace)
             assert slot is not None
             self.slots[namespace] = slot
-            self.epochs[namespace] = {self.core.current_epoch(namespace)}
+            self.epochs[namespace] = {current_epoch(self.core, namespace)}
         self.index.set_progress(0, time.monotonic_ns())
 
     def teardown(self) -> None:
@@ -443,7 +444,7 @@ class _SharedIndexMachine(RuleBasedStateMachine):
 
     @rule(target=local_captures, namespace=st.sampled_from(_NAMESPACES))
     def local_capture(self, namespace: NamespaceId) -> LocalCaptureState:
-        epoch = self.core.current_epoch(namespace)
+        epoch = current_epoch(self.core, namespace)
         return {
             "namespace": namespace,
             "epoch": epoch,
@@ -507,7 +508,7 @@ class _SharedIndexMachine(RuleBasedStateMachine):
     def reset(self, namespace: NamespaceId) -> None:
         self.core.clear_namespace(namespace)
         self.versions[namespace] += 1
-        self.epochs[namespace].add(self.core.current_epoch(namespace))
+        self.epochs[namespace].add(current_epoch(self.core, namespace))
 
     @rule(available=st.booleans())
     def toggle_availability(self, *, available: bool) -> None:
@@ -536,7 +537,7 @@ class _SharedIndexMachine(RuleBasedStateMachine):
                         )
                         if local is None:
                             continue
-                        assert epoch == self.core.current_epoch(namespace)
+                        assert epoch == current_epoch(self.core, namespace)
                         assert local == self.core.lookup_identity_encoded(
                             namespace, identity, shape
                         )

@@ -131,19 +131,18 @@ def verified(
 
 def populated_identity_core(
     resident: Sequence[Document],
-) -> tuple[native.LocalCacheCore, object, list[bytes]]:
+) -> tuple[native.LocalCacheCore, object]:
     core = new_core()
     shape = read_shape()
-    payloads = [encode_value(document, OPTIONS) for document in resident]
-    for document, payload in zip(resident, payloads, strict=True):
+    for document in resident:
         capture = core.begin_identity_admission(NAMESPACE, document["_id"])
-        core.admit_identity_encoded(capture, shape, payload)
-    return core, shape, payloads
+        core.admit_identity(capture, shape, document, codec_options=OPTIONS)
+    return core, shape
 
 
 def identity_hit(target_bytes: int) -> Workload:
     resident = documents(target_bytes, RESIDENT_KEYS)
-    core, shape, _payloads = populated_identity_core(resident)
+    core, shape = populated_identity_core(resident)
     keys = [document["_id"] for document in resident]
     lookup = core.lookup_identity_encoded
 
@@ -157,7 +156,7 @@ def identity_hit(target_bytes: int) -> Workload:
 
 def identity_hit_decoded(target_bytes: int) -> Workload:
     resident = documents(target_bytes, RESIDENT_KEYS)
-    core, shape, _payloads = populated_identity_core(resident)
+    core, shape = populated_identity_core(resident)
     keys = [document["_id"] for document in resident]
     lookup = core.lookup_identity
 
@@ -170,9 +169,7 @@ def identity_hit_decoded(target_bytes: int) -> Workload:
 
 
 def identity_miss() -> Workload:
-    core, shape, _payloads = populated_identity_core(
-        documents(SMALL_BYTES, RESIDENT_KEYS)
-    )
+    core, shape = populated_identity_core(documents(SMALL_BYTES, RESIDENT_KEYS))
     absent = [ObjectId() for _ in range(RESIDENT_KEYS)]
     lookup = core.lookup_identity_encoded
 
@@ -249,18 +246,18 @@ def key_windows() -> list[list[int]]:
 
 
 def admit_churn(target_bytes: int) -> Workload:
-    payload = encode_value(documents(target_bytes, 1)[0], OPTIONS)
+    document = documents(target_bytes, 1)[0]
     core = new_core(budget_bytes=4 * 1024 * 1024)
     shape = read_shape()
     windows = key_windows()
     begin = core.begin_identity_admission
-    admit = core.admit_identity_encoded
+    admit = core.admit_identity
     position = 0
 
     def run() -> None:
         nonlocal position
         for key in windows[position]:
-            admit(begin(NAMESPACE, key), shape, payload)
+            admit(begin(NAMESPACE, key), shape, document, codec_options=OPTIONS)
         position = (position + 1) % CHURN_WINDOWS
 
     for _ in range(CHURN_WINDOWS):
@@ -272,17 +269,17 @@ def admit_churn(target_bytes: int) -> Workload:
 
 def write_invalidation() -> Workload:
     resident = documents(SMALL_BYTES, RESIDENT_KEYS)
-    core, shape, payloads = populated_identity_core(resident)
+    core, shape = populated_identity_core(resident)
     keys = [document["_id"] for document in resident]
     begin = core.begin_identity_admission
-    admit = core.admit_identity_encoded
+    admit = core.admit_identity
     record = core.record_write
     lookup = core.lookup_identity_encoded
 
     def run() -> None:
-        for key, payload in zip(keys, payloads, strict=True):
+        for key, document in zip(keys, resident, strict=True):
             record(NAMESPACE, key)
-            admit(begin(NAMESPACE, key), shape, payload)
+            admit(begin(NAMESPACE, key), shape, document, codec_options=OPTIONS)
 
     run()
     require(
@@ -427,7 +424,10 @@ class SharedIndex:
         self.core = new_owner(self.index)
         metadata = self.core.registered_namespace_metadata(NAMESPACE)
         require(condition=metadata is not None, reason="owner namespace was absent")
-        self.epoch = self.core.current_epoch(NAMESPACE)
+        epoch = self.core.try_current_epoch(NAMESPACE)
+        require(condition=epoch is not None, reason="owner namespace had no epoch")
+        assert epoch is not None
+        self.epoch = epoch
         slot = self.core.assigned_slot(NAMESPACE)
         require(condition=slot is not None, reason="owner assigned no shared slot")
         assert slot is not None
@@ -562,7 +562,7 @@ def owner_admission() -> Workload:
 
 def facade_hit() -> Workload:
     resident = documents(SMALL_BYTES, RESIDENT_KEYS)
-    core, shape, _payloads = populated_identity_core(resident)
+    core, shape = populated_identity_core(resident)
     keys = [document["_id"] for document in resident]
     available = core.is_database_available
     epoch = core.try_current_epoch
@@ -618,7 +618,7 @@ def facade_find_miss() -> Workload:
 
 def facade_invalidation() -> Workload:
     resident = documents(SMALL_BYTES, RESIDENT_KEYS)
-    core, shape, payloads = populated_identity_core(resident)
+    core, shape = populated_identity_core(resident)
     keys = [document["_id"] for document in resident]
     wall_time = dt.datetime(2020, 1, 1, tzinfo=dt.UTC)
     events = [
@@ -631,12 +631,12 @@ def facade_invalidation() -> Workload:
         for key in keys
     ]
     begin = core.begin_identity_admission
-    admit = core.admit_identity_encoded
+    admit = core.admit_identity
 
     def run() -> None:
-        for event, key, payload in zip(events, keys, payloads, strict=True):
+        for event, key, document in zip(events, keys, resident, strict=True):
             route_change_event(core, NAMESPACE.database, event)
-            admit(begin(NAMESPACE, key), shape, payload)
+            admit(begin(NAMESPACE, key), shape, document, codec_options=OPTIONS)
 
     def invalidations() -> int:
         return core.stream_cost_snapshot(NAMESPACE.database).invalidations
@@ -702,7 +702,7 @@ def limited_namespace_admission(*, entries: int) -> Workload:
 
 
 def limited_identity_alias_admission() -> Workload:
-    payload = encode_value(documents(SMALL_BYTES, 1)[0], OPTIONS)
+    document = documents(SMALL_BYTES, 1)[0]
     shape = read_shape()
     core = limited_core(max_entries=PRESSURE_ENTRIES)
     pairs = [
@@ -713,11 +713,17 @@ def limited_identity_alias_admission() -> Workload:
         for index in range(LIMITED_WINDOWS * RESIDENT_KEYS)
     ]
     begin = core.begin_identity_admission
-    admit = core.admit_identity_encoded
+    admit = core.admit_identity
 
     def run_window(window: Sequence[Any]) -> None:
         for identity, alias in window:
-            admit(begin(NAMESPACE, identity), shape, payload, alias=alias)
+            admit(
+                begin(NAMESPACE, identity),
+                shape,
+                document,
+                alias=alias,
+                codec_options=OPTIONS,
+            )
 
     run = rotating(pairs, run_window)
     for _ in range(LIMITED_WINDOWS):

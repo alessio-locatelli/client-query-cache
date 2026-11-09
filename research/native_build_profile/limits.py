@@ -133,11 +133,11 @@ def generic_miss_admission(limits: Limits) -> Workload:
 
 
 def identity_alias_admission(limits: Limits) -> Workload:
-    payload = encode_value(documents(SMALL_BYTES, 1)[0], OPTIONS)
+    document = documents(SMALL_BYTES, 1)[0]
     shape = read_shape()
     core = limited_core(limits)
     begin = core.begin_identity_admission
-    admit = core.admit_identity_encoded
+    admit = core.admit_identity
     pairs = [
         Account(
             ObjectId(), canonical_alias_key("email", f"user-{index}@example.test", None)
@@ -148,7 +148,11 @@ def identity_alias_admission(limits: Limits) -> Workload:
     def run_window(window: list[Account]) -> None:
         for account in window:
             admit(
-                begin(NAMESPACE, account.identity), shape, payload, alias=account.alias
+                begin(NAMESPACE, account.identity),
+                shape,
+                document,
+                alias=account.alias,
+                codec_options=OPTIONS,
             )
 
     return windowed(pairs, run_window)

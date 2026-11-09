@@ -2787,9 +2787,6 @@ impl LocalOwner {
             .register(namespace.py(), namespace, &names)
             .map(|id| state.namespaces[&id].epoch))
     }
-    fn current_epoch(&self, namespace: &Bound<'_, PyAny>) -> PyResult<u64> {
-        Ok(self.try_current_epoch(namespace)?.unwrap_or(0))
-    }
     fn current_index_generation(
         &self,
         py: Python<'_>,
@@ -3079,22 +3076,6 @@ impl LocalOwner {
         self.outcome(
             py,
             self.admit_identity_bytes(py, capture, read_shape, &encoded, alias, None)?,
-        )
-    }
-    #[pyo3(signature = (capture, read_shape, encoded, *, alias=None))]
-    fn admit_identity_encoded(
-        &self,
-        py: Python<'_>,
-        capture: &Capture,
-        read_shape: &Bound<'_, PyAny>,
-        encoded: &Bound<'_, PyBytes>,
-        alias: Option<&Bound<'_, PyAny>>,
-    ) -> PyResult<Py<PyAny>> {
-        self.check_capture(capture)?;
-        let _release = ReleaseCapture(capture);
-        self.outcome(
-            py,
-            self.admit_identity_bytes(py, capture, read_shape, encoded, alias, None)?,
         )
     }
     fn lookup_identity_encoded(

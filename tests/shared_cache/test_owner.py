@@ -1193,7 +1193,7 @@ def test_an_rpc_hit_never_returns_a_reused_block(
     def evict_and_reuse() -> None:
         for filler in range(2, 2 + _FILLERS):
             capture = core.begin_identity_admission(_NAMESPACE, filler)
-            core.admit_identity_encoded(capture, _SHAPE, b"x" * _FILLER_BYTES)
+            core.admit_identity(capture, _SHAPE, "x" * _FILLER_BYTES)
         reused.append(
             core.admit_identity_published(
                 core.begin_identity_admission(_NAMESPACE, _REUSE_KEY),
@@ -1891,10 +1891,10 @@ def test_drained_tokens_touch_only_published_entries(
 
     session.owner._drain_rings()
     for filler in range(3, 3 + _FILLERS_BEFORE_EVICTION):
-        core.admit_identity_encoded(
+        core.admit_identity(
             core.begin_identity_admission(_NAMESPACE, filler),
             _SHAPE,
-            b"x" * _FILLER_BYTES,
+            "x" * _FILLER_BYTES,
         )
 
     assert (

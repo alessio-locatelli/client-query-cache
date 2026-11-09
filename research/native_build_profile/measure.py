@@ -55,9 +55,7 @@ def accept_previous_budget_keyword[Config](
 
 
 def snapshot() -> Workload:
-    core, _shape, _payloads = populated_identity_core(
-        documents(SMALL_BYTES, RESIDENT_KEYS)
-    )
+    core, _shape = populated_identity_core(documents(SMALL_BYTES, RESIDENT_KEYS))
     take = core.snapshot
 
     def run() -> None:
@@ -79,7 +77,7 @@ def namespace_lifecycle() -> Workload:
         for namespace, document in zip(namespaces, shape_documents, strict=True):
             core.create_namespace(namespace)
             capture = core.begin_identity_admission(namespace, document["_id"])
-            core.admit_identity_encoded(capture, "shape", b"\x05\x00\x00\x00\x00")
+            core.admit_identity(capture, "shape", {})
             core.set_database_available(namespace.database, available=False)
             core.set_database_available(namespace.database, available=True)
             core.clear_namespace(namespace)

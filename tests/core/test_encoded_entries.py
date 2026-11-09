@@ -11,7 +11,6 @@ from bson.decimal128 import Decimal128
 from client_query_cache import CacheCore
 from client_query_cache._core.codec import encode_value
 from client_query_cache._core.entries import AdmissionOutcome, LookupResult
-from client_query_cache._core.errors import CacheClosedError
 from client_query_cache._core.find_reads import find_read_shape
 from tests.codec_helpers import decode_only_decimal_options
 from tests.core.conftest import evict_by_pressure
@@ -63,18 +62,6 @@ def _find_shape(limit: int) -> FindReadShape:
     )
 
 
-def _admit_identity(
-    core: CacheCore, namespace: NamespaceId, *, encoded: bool
-) -> AdmissionOutcome:
-    capture = core.begin_identity_admission(namespace, "doc-1")
-    value = {"price": _PRICE}
-    if encoded:
-        return core.admit_identity_encoded(
-            capture, "full", encode_value(value, _codec())
-        )
-    return core.admit_identity(capture, "full", value, codec_options=_codec())
-
-
 def _admit_namespace(
     core: CacheCore, namespace: NamespaceId, *, encoded: bool
 ) -> AdmissionOutcome:
@@ -110,16 +97,6 @@ def _admit_find(
 
 
 _ADMISSIONS = [
-    pytest.param(
-        _admit_identity,
-        lambda core, namespace: core.lookup_identity_encoded(
-            namespace, "doc-1", "full"
-        ),
-        lambda core, namespace, codec: core.lookup_identity(
-            namespace, "doc-1", "full", codec_options=codec
-        ),
-        id="identity",
-    ),
     pytest.param(
         _admit_namespace,
         lambda core, namespace: core.lookup_namespace_encoded(namespace, "shape"),
@@ -162,11 +139,6 @@ def test_encoded_admission_stores_the_bytes_of_the_codec_transformed_value(
 @pytest.mark.parametrize(
     ("admit", "invalidate"),
     [
-        pytest.param(
-            _admit_identity,
-            lambda core, namespace: core.record_write(namespace, "doc-1"),
-            id="identity-write",
-        ),
         pytest.param(
             _admit_namespace,
             lambda core, namespace: core.record_write(namespace, "other"),
@@ -217,13 +189,6 @@ _FAILING_CODEC: CodecOptions[Mapping[str, Any]] = CodecOptions(
     ("admit", "outcome"),
     [
         pytest.param(
-            lambda core, capture: core.admit_identity_encoded(
-                capture, "full", encode_value({"price": 1})
-            ),
-            nullcontext(),
-            id="encoded-admitted",
-        ),
-        pytest.param(
             lambda core, capture: core.admit_identity(capture, "full", 10**20),
             nullcontext(),
             id="overflow",
@@ -254,16 +219,6 @@ def test_identity_admission_releases_its_capture(
 
     evict_by_pressure(core, namespace, value)
     assert core.resolve_alias(namespace, "code", identity, None) is None
-
-
-def test_encoded_identity_admission_on_a_closed_core_raises(
-    core: CacheCore, namespace: NamespaceId
-) -> None:
-    capture = core.begin_identity_admission(namespace, "doc-1")
-    core.close()
-
-    with pytest.raises(CacheClosedError):
-        core.admit_identity_encoded(capture, "full", encode_value({"price": 1}))
 
 
 @pytest.mark.parametrize("core", [True], indirect=True, ids=["telemetry"])
