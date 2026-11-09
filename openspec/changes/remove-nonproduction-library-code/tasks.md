@@ -8,7 +8,7 @@
 ## 2. Delete the Python engine and convert its consumers
 
 - [x] 2.1 Convert core lookup, admission, retention, alias, find-compatibility, and state-machine contract cases per D3 to the production native owners. Remove reference factories, mechanics-only tests, and differential cache implementations. Verify the retained generated schedules and race/collision cases against explicit specification outcomes; update the core verification description in the maintainer guide.
-- [ ] 2.2 Convert event/stream fixtures, collection tests, memory tests, and current invalidation/startup benchmarks per D3. Verify real event-drain observation, sync/async behavior, native reclamation after drop/clear/close, and honest allocation/RSS accounting. Remove Python private-index assertions and update memory/benchmark command documentation with the changed measurement scope.
+- [x] 2.2 Convert event/stream fixtures, collection tests, memory tests, and current invalidation/startup benchmarks per D3. Verify real event-drain observation, sync/async behavior, native reclamation after drop/clear/close, and honest allocation/RSS accounting. Remove Python private-index assertions and update memory/benchmark command documentation with the changed measurement scope.
 - [ ] 2.3 Delete D1's obsolete modules, mixed-module members, package re-exports, and orphaned imports/types after the consumer conversions. Verify no source, stub, test, script, current benchmark, or research command imports the removed engine. Update `docs/development/architecture.md` to the actual production path in the same part.
 
 ## 3. Native runtime binding cleanup

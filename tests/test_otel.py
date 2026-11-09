@@ -33,7 +33,7 @@ from client_query_cache._shared.attachment import (
     SyncEndpoint,
 )
 from client_query_cache._shared.diagnostics import SharedBypassReason
-from client_query_cache._shared_index import LocalCacheCore, SharedOwnerCore
+from client_query_cache._shared_index import SharedOwnerCore
 from client_query_cache._types import BsonDict, Probability
 from client_query_cache.asynchronous import CacheManager as AsyncCacheManager
 from client_query_cache.otel import register_cache_metrics
@@ -528,17 +528,15 @@ type Source = (
 
 
 @pytest.fixture(
-    params=["python", "native", "owner", "sync", "async", "shared-sync", "shared-async"]
+    params=["native", "owner", "sync", "async", "shared-sync", "shared-async"]
 )
 async def disabled_source(
     request: pytest.FixtureRequest, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> AsyncIterator[Source]:
     async with AsyncExitStack() as stack:
-        if request.param in {"python", "native", "owner"}:
-            if request.param == "python":
-                core: CacheCore | LocalCacheCore = CacheCore()
-            elif request.param == "native":
-                core = LocalCacheCore()
+        if request.param in {"native", "owner"}:
+            if request.param == "native":
+                core: CacheCore = CacheCore()
             else:
                 core = SharedOwnerCore(CacheCoreConfig(), None, ["db"], 1, 30.0)
             stack.callback(core.close)

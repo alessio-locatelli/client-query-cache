@@ -66,6 +66,8 @@ bookkeeping. Query keys and Python metadata remain outside the stored-BSON budge
 
 ## Reproduction
 
+The revision that added this report, [1ca9c2b4](https://github.com/alessio-locatelli/client-query-cache/tree/1ca9c2b40d541b17032c5b63c977637288e7710c), still contained the Python cache engine. Check it out to reproduce the measurements above; on later revisions these commands exercise the native core and print different figures.
+
 ```bash
 just pytest -n 0 -m benchmark tests/benchmark/test_cached_read_cursors.py -k test_find_limit -q -s
 just pytest -n 0 -m benchmark tests/benchmark/test_find_family_memory.py -q -s

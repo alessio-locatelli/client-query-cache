@@ -276,3 +276,5 @@ unique_index  # Requested by pytest.mark.usefixtures for shared unique-key reads
 fresh_find_encoder_cache  # pytest.mark.usefixtures invokes this fixture (tests/shared_cache/test_wire.py:463).
 controlled_gc  # pytest usefixtures marker (tests/core/test_native_owner.py)
 active_database  # pytest usefixtures marker (tests/asynchronous/test_manager.py)
+retained_process_bytes  # unused variable (tests/benchmark/test_find_family_memory.py:79)
+after_clear_process_bytes  # unused variable (tests/benchmark/test_find_family_memory.py:80)
