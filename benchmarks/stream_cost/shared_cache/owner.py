@@ -15,8 +15,8 @@ from benchmarks.stream_cost.proxy import DirectPathByteProxy, DirectPathProxyCon
 from benchmarks.stream_cost.shared_cache.profiling import WindowProfiler
 from client_query_cache._core.keys import NamespaceId
 from client_query_cache._shared.coordinator import SharedCacheOwner
-from client_query_cache._shared_index import ByteRelay
-from client_query_cache._types import NonNegativeFloat, NonNegativeInt
+from client_query_cache._shared.wire import decode_key
+from client_query_cache._types import NonNegativeFloat
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -37,33 +37,36 @@ TOPOLOGY = BenchmarkClientTopologyConfig(
 )
 
 
+class _GatedSocket:
+    __slots__ = ("_running", "_socket")
+
+    def __init__(self, destination: socket.socket, running: threading.Event) -> None:
+        self._socket = destination
+        self._running = running
+
+    def sendall(self, chunk: bytes) -> None:
+        self._running.wait()
+        self._socket.sendall(chunk)
+
+
 class FaultableProxy(DirectPathByteProxy):
-    __slots__ = ("_native",)
+    __slots__ = ("_running",)
 
     def __init__(self, config: DirectPathProxyConfig) -> None:
         super().__init__(config)
-        self._native = ByteRelay()
+        self._running = threading.Event()
+        self._running.set()
 
     @override
     def __exit__(self, *exc_info: object) -> None:
-        self._native.stop()
+        self._running.set()
         super().__exit__(*exc_info)
 
-    @property
-    @override
-    def bytes_sent(self) -> NonNegativeInt:
-        return self._native.bytes_sent
-
-    @property
-    @override
-    def bytes_received(self) -> NonNegativeInt:
-        return self._native.bytes_received
-
     def pause(self) -> None:
-        self._native.pause()
+        self._running.clear()
 
     def resume(self) -> None:
-        self._native.resume()
+        self._running.set()
 
     def sever(self) -> None:
         with self._lock:
@@ -75,13 +78,11 @@ class FaultableProxy(DirectPathByteProxy):
                 pass
 
     @override
-    def _run_connection(
-        self, client_socket: socket.socket, upstream_socket: socket.socket
+    def _relay(
+        self, source: socket.socket, destination: socket.socket, *, is_sent: bool
     ) -> None:
-        try:
-            self._native.run(client_socket.fileno(), upstream_socket.fileno())
-        finally:
-            self._close_connection(client_socket, upstream_socket)
+        gated = cast("socket.socket", _GatedSocket(destination, self._running))
+        super()._relay(source, gated, is_sent=is_sent)
 
 
 def proxy_for(uri: str) -> FaultableProxy:
@@ -166,7 +167,7 @@ def race_next_admission(owner: SharedCacheOwner, race: str) -> None:
         namespace = handle.capture.namespace
         shape = handle.shape
         if race == "write":
-            identity = handle.capture.identity
+            identity = decode_key(cast("bytes", handle.identity_key))
             handle.shape = _RacingShape(
                 shape, lambda: owner.core.record_write(namespace, identity)
             )

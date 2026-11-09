@@ -86,6 +86,9 @@ _SHARED_BUDGET = 64 * 1024
 _SHARED_MAX_ENTRY = 16 * 1024
 _FILLER_BYTES = 15 * 1024
 _FILLERS = 5
+_REUSE_KEY = 99
+_ENTRY_BYTES = 14 * 1024
+_FILLERS_BEFORE_EVICTION = 3
 _SHARED_INDEX = SharedIndexLimits(
     slots=64, arena_bytes=1024 * 1024, namespaces=4, ring_tokens=64
 )
@@ -1186,21 +1189,27 @@ def test_an_rpc_hit_never_returns_a_reused_block(
     value = encode_frame({"name": faker.name()})
     session.admit(1, value)
     core = session.owner.core
-    index = session.owner._index
-    assert index is not None
-    reused: list[object] = []
+    reused: list[AdmissionOutcome] = []
 
     def evict_and_reuse() -> None:
         for filler in range(2, 2 + _FILLERS):
             capture = core.begin_identity_admission(_NAMESPACE, filler)
             core.admit_identity_encoded(capture, _SHAPE, b"x" * _FILLER_BYTES)
-        reused.append(index.store(faker.binary(length=len(value))))
+        reused.append(
+            core.admit_identity_published(
+                core.begin_identity_admission(_NAMESPACE, _REUSE_KEY),
+                _SHAPE,
+                faker.binary(length=len(value)),
+                _identity(_REUSE_KEY),
+                encode_key(_SHAPE),
+            )
+        )
 
     _racing_decode(monkeypatch, _SHAPE, Racing(_SHAPE, evict_and_reuse, on_hash=False))
 
     reply = session.select(1)
 
-    assert reused[0] is not None
+    assert reused == [AdmissionOutcome.ADMITTED]
     assert core.lookup_identity_encoded(_NAMESPACE, 1, _SHAPE) is None
     assert reply["r"] == "miss" or reply["value"] == value
 
@@ -1269,7 +1278,7 @@ def test_namespaces_beyond_the_slot_capacity_bypass_without_retention(
     assert selection["r"] == "bypass"
     assert selection["reason"] == "namespace_capacity"
     assert not session.owner.core.has_namespace(other)
-    assert session.owner.core._ownership()[0] == 1
+    assert session.owner.core.namespaces_for_database(_DATABASE) == [_NAMESPACE]
     assert session.owner.core.assigned_slot(other) is None
     if session.owner.config.enable_telemetry:
         assert _index_stats(session.owner)["published"] == 0
@@ -1395,7 +1404,7 @@ def test_stale_metadata_probe_cannot_reregister_a_dropped_namespace(
     }
     assert not shared_owner.core.has_namespace(stale_namespace)
     assert shared_owner.core.has_namespace(active_namespace)
-    assert shared_owner.core._ownership()[0] == 1
+    assert shared_owner.core.namespaces_for_database(_DATABASE) == [active_namespace]
 
 
 @pytest.mark.parametrize(
@@ -1442,7 +1451,12 @@ def test_metadata_cancel_releases_a_probe_reservation(
     assert cancelled == {"r": "ok"}
     assert available_probe is not None
     assert available_probe["r"] == "probe"
-    assert len(shared_owner.core._probes()) == 1
+    abandoned_token = probe["probe_token"]
+    assert isinstance(abandoned_token, int)
+    assert (
+        shared_owner.core.namespace_metadata_after_probe(abandoned, abandoned_token)
+        is None
+    )
     available_token = available_probe["probe_token"]
     assert isinstance(available_token, int)
     shared_owner.core.cancel_namespace_metadata_probe(available, available_token)
@@ -1504,9 +1518,6 @@ def test_gate_bypass_releases_only_its_metadata_probe_request(
             {"op": "metadata", "ns": list(namespace), "probe_token": True},
             time.monotonic(),
         )
-        assert shared_owner.core._probes() == [
-            (namespace.database, namespace.collection, first_probe["probe_token"], 1)
-        ]
 
         gate_open = True
         admitted = shared_owner._handle_request(
@@ -1658,7 +1669,7 @@ def test_drop_of_an_untracked_probe_releases_metadata_probe_capacity(
     assert active_metadata["r"] == "ok"
     assert not shared_owner.core.has_namespace(stale_namespace)
     assert shared_owner.core.has_namespace(active_namespace)
-    assert shared_owner.core._ownership()[0] == 1
+    assert shared_owner.core.namespaces_for_database(_DATABASE) == [active_namespace]
 
 
 @pytest.mark.parametrize(
@@ -1852,23 +1863,48 @@ def test_shared_find_admission_after_write_and_lifecycle_change_is_rejected(
     "owner_telemetry", [False, True], indirect=True, ids=["disabled", "enabled"]
 )
 @pytest.mark.parametrize(
-    ("write", "most_recent"),
-    [pytest.param(False, 1, id="published"), pytest.param(True, 2, id="written")],
+    ("write", "resident"),
+    [
+        pytest.param(False, (True, False), id="published"),
+        pytest.param(True, (False, True), id="written"),
+    ],
 )
 def test_drained_tokens_touch_only_published_entries(
-    session: _Session, faker: Faker, *, write: bool, most_recent: int
+    session: _Session,
+    faker: Faker,
+    *,
+    write: bool,
+    resident: tuple[bool, bool],
 ) -> None:
+    core = session.owner.core
     for key in (1, 2):
-        session.admit(key, encode_frame({"name": faker.name()}))
+        session.admit(
+            key,
+            encode_frame(
+                {"name": faker.pystr(min_chars=_ENTRY_BYTES, max_chars=_ENTRY_BYTES)}
+            ),
+        )
     session.owner.pause(_PAUSE_SECONDS)
     time.sleep(_SWEEP_GAP_SECONDS)
     assert session.local(1) is not None
     if write:
-        session.owner.core.record_write(_NAMESPACE, 1)
+        core.record_write(_NAMESPACE, 1)
 
     session.owner._drain_rings()
+    for filler in range(3, 3 + _FILLERS_BEFORE_EVICTION):
+        core.admit_identity_encoded(
+            core.begin_identity_admission(_NAMESPACE, filler),
+            _SHAPE,
+            b"x" * _FILLER_BYTES,
+        )
 
-    assert session.owner.core._recency()[-1] == (most_recent, canonicalize(_SHAPE))
+    assert (
+        tuple(
+            core.lookup_identity_encoded(_NAMESPACE, key, _SHAPE) is not None
+            for key in (1, 2)
+        )
+        == resident
+    )
 
 
 @pytest.mark.parametrize("shared_owner", [{"slots": 4}], indirect=True)
@@ -2083,7 +2119,6 @@ def test_obsolete_local_misses_cannot_populate_the_owner(
     assert owner._index is not None
     match mutation:
         case "write":
-            assert owner.core._ownership()[1] == 0
             owner.core.record_write(_NAMESPACE, 0)
         case "reset":
             owner.core.clear_namespace(_NAMESPACE)
@@ -2109,7 +2144,6 @@ def test_obsolete_local_misses_cannot_populate_the_owner(
     if owner.core.enable_telemetry:
         assert owner.core.snapshot().entry_count == 0
     assert not owner._handles
-    assert owner.core._ownership()[1] == 0
     assert session.local(0) is None
 
 

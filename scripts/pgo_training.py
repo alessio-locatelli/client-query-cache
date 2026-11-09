@@ -4,14 +4,10 @@ import argparse
 import datetime as dt
 import os
 import random
-import socket
 import string
-import struct
-import tempfile
 import time
 from contextlib import ExitStack
 from contextvars import ContextVar
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import bson
@@ -22,6 +18,7 @@ from client_query_cache import CacheCoreConfig
 from client_query_cache import _shared_index as native
 from client_query_cache._core.canonical import canonicalize
 from client_query_cache._core.codec import codec_fingerprint, encode_value
+from client_query_cache._core.entries import AdmissionOutcome
 from client_query_cache._core.find_one_reads import find_one_read_shape
 from client_query_cache._core.find_reads import PreparedFindRead, find_read_shape
 from client_query_cache._core.keys import NamespaceId, canonical_alias_key
@@ -63,13 +60,9 @@ ARENA_BYTES = 32 * 1024 * 1024
 RING_TOKENS = 4096
 PROGRESS_EXPIRY_NS = 3_600 * 1_000_000_000
 DATABASE = 0
-SHARED_NAMESPACE = 0
-EPOCH = 1
-MISS = 0xFFFF_FFFF
-RECEIVE_BYTES = 1_048_576 + 65_536
-FRAME = struct.Struct("<III")
-SELECTION = struct.Struct("<IIQII")
-LENGTH = struct.Struct("<I")
+OWNER_LEASE_SECONDS = 30.0
+ADMISSION_FRAME_BYTES = 256
+ADMISSION_QUEUE_BYTES = 1_048_576
 OPTIONS: CodecOptions[Mapping[str, Any]] = CodecOptions()
 CLEANUP = ExitStack()
 CORE_TELEMETRY_POLICY: ContextVar[bool] = ContextVar(
@@ -364,87 +357,7 @@ def capture_array() -> Workload:
     return run, len(envelopes)
 
 
-class SharedIndex:
-    __slots__ = ("identities", "index", "payloads", "reader", "ring", "shape")
-
-    def __init__(self, target_bytes: int) -> None:
-        self.shape = encode_key(read_shape())
-        resident = documents(target_bytes, RESIDENT_KEYS)
-        self.identities = [
-            encode_key(canonicalize(order_sensitive_key(document["_id"])))
-            for document in resident
-        ]
-        self.payloads = [encode_value(document, OPTIONS) for document in resident]
-        self.index = native.OwnerIndex(
-            SLOTS, ARENA_BYTES, 1, 1, random.getrandbits(63), PROGRESS_EXPIRY_NS
-        )
-        self.ring = self.index.session_ring(RING_TOKENS)
-        descriptor = self.index.reader_descriptor()
-        try:
-            self.reader = native.ReaderIndex(descriptor, self.ring.descriptor())
-        finally:
-            os.close(descriptor)
-        self.ring.close_descriptor()
-        for identity, encoded in zip(self.identities, self.payloads, strict=True):
-            payload = self.index.store(encoded)
-            require(condition=payload is not None, reason="shared arena is full")
-            assert payload is not None
-            token = self.index.publish(
-                DATABASE, SHARED_NAMESPACE, EPOCH, identity, self.shape, payload
-            )
-            require(condition=token is not None, reason="shared index is full")
-        self.index.set_epoch(SHARED_NAMESPACE, EPOCH)
-        self.index.set_available(DATABASE, available=True)
-        self.index.set_progress(DATABASE, time.monotonic_ns())
-
-
-def shared_lookup(target_bytes: int, *, hit: bool) -> Workload:
-    shared = SharedIndex(target_bytes)
-    lookup = shared.reader.lookup
-    shape = shared.shape
-    absent = encode_key(canonicalize(order_sensitive_key(ObjectId())))
-    identities = shared.identities if hit else [absent] * RESIDENT_KEYS
-    require(
-        condition=(
-            lookup(DATABASE, SHARED_NAMESPACE, EPOCH, identities[0], shape) is not None
-        )
-        is hit,
-        reason="shared lookup setup disagreed",
-    )
-
-    def run() -> None:
-        for identity in identities:
-            lookup(DATABASE, SHARED_NAMESPACE, EPOCH, identity, shape)
-
-    return run, len(identities)
-
-
-def shared_publish_cycle() -> Workload:
-    shared = SharedIndex(SMALL_BYTES)
-    index = shared.index
-    identities = shared.identities
-    payloads = shared.payloads
-    shape = shared.shape
-
-    def run() -> None:
-        for identity, encoded in zip(identities, payloads, strict=True):
-            fresh = index.store(encoded)
-            assert fresh is not None
-            index.publish(DATABASE, SHARED_NAMESPACE, EPOCH, identity, shape, fresh)
-            index.unpublish(fresh)
-            index.release(fresh)
-
-    run()
-    return run, len(identities)
-
-
-def owner_admission() -> Workload:
-    payload = encode_value(documents(SMALL_BYTES, 1)[0], OPTIONS)
-    shape = read_shape()
-    shape_key = encode_key(shape)
-    index = native.OwnerIndex(
-        SLOTS, ARENA_BYTES, 1, 1, random.getrandbits(63), PROGRESS_EXPIRY_NS
-    )
+def new_owner(index: native.OwnerIndex) -> native.SharedOwnerCore:
     core = native.SharedOwnerCore(
         CacheCoreConfig(
             budget_bytes=4 * 1024 * 1024,
@@ -454,8 +367,9 @@ def owner_admission() -> Workload:
         index,
         [NAMESPACE.database],
         16,
-        30.0,
+        OWNER_LEASE_SECONDS,
     )
+    CLEANUP.callback(core.close)
     core.set_database_available(NAMESPACE.database, available=True)
     token = core.begin_namespace_metadata_probe(NAMESPACE)
     require(condition=token is not None, reason="owner namespace was not registered")
@@ -464,6 +378,166 @@ def owner_admission() -> Workload:
         condition=core.namespace_metadata_after_probe(NAMESPACE, token) is not None,
         reason="owner namespace metadata was unavailable",
     )
+    return core
+
+
+def new_index() -> native.OwnerIndex:
+    return native.OwnerIndex(
+        SLOTS, ARENA_BYTES, 1, 1, random.getrandbits(63), PROGRESS_EXPIRY_NS
+    )
+
+
+def attached_reader(
+    index: native.OwnerIndex, ring: native.SessionRing
+) -> native.ReaderIndex:
+    descriptor = index.reader_descriptor()
+    try:
+        reader = native.ReaderIndex(descriptor, ring.descriptor())
+    finally:
+        os.close(descriptor)
+    ring.close_descriptor()
+    return reader
+
+
+class SharedIndex:
+    __slots__ = (
+        "core",
+        "epoch",
+        "identities",
+        "index",
+        "keys",
+        "payloads",
+        "reader",
+        "ring",
+        "shape",
+        "shape_object",
+        "slot",
+    )
+
+    def __init__(self, target_bytes: int, *, admitted: bool = True) -> None:
+        self.shape_object = read_shape()
+        self.shape = encode_key(self.shape_object)
+        resident = documents(target_bytes, RESIDENT_KEYS)
+        self.keys = [document["_id"] for document in resident]
+        self.identities = [
+            encode_key(canonicalize(order_sensitive_key(key))) for key in self.keys
+        ]
+        self.payloads = [encode_value(document, OPTIONS) for document in resident]
+        self.index = new_index()
+        self.core = new_owner(self.index)
+        metadata = self.core.registered_namespace_metadata(NAMESPACE)
+        require(condition=metadata is not None, reason="owner namespace was absent")
+        self.epoch = self.core.current_epoch(NAMESPACE)
+        slot = self.core.assigned_slot(NAMESPACE)
+        require(condition=slot is not None, reason="owner assigned no shared slot")
+        assert slot is not None
+        self.slot = slot
+        self.ring = self.index.session_ring(RING_TOKENS)
+        self.reader = attached_reader(self.index, self.ring)
+        self.index.set_progress(DATABASE, time.monotonic_ns())
+        if admitted:
+            for key, identity, encoded in zip(
+                self.keys, self.identities, self.payloads, strict=True
+            ):
+                self.admit(key, identity, encoded)
+
+    def admit(self, key: object, identity: bytes, encoded: bytes) -> None:
+        outcome = self.core.admit_identity_published(
+            self.core.begin_identity_admission(NAMESPACE, key),
+            self.shape_object,
+            encoded,
+            identity,
+            self.shape,
+        )
+        require(
+            condition=outcome is AdmissionOutcome.ADMITTED,
+            reason=f"shared admission was {outcome}",
+        )
+
+
+def shared_lookup(target_bytes: int, *, hit: bool) -> Workload:
+    shared = SharedIndex(target_bytes)
+    lookup = shared.reader.lookup
+    shape = shared.shape
+    absent = encode_key(canonicalize(order_sensitive_key(ObjectId())))
+    identities = shared.identities if hit else [absent] * RESIDENT_KEYS
+    slot = shared.slot
+    epoch = shared.epoch
+    require(
+        condition=(lookup(*slot, epoch, identities[0], shape) is not None) is hit,
+        reason="shared lookup setup disagreed",
+    )
+
+    def run() -> None:
+        for identity in identities:
+            lookup(*slot, epoch, identity, shape)
+
+    return run, len(identities)
+
+
+def shared_publish_cycle() -> Workload:
+    shared = SharedIndex(SMALL_BYTES, admitted=False)
+    keys = shared.keys
+    identities = shared.identities
+    payloads = shared.payloads
+    record_write = shared.core.record_write
+
+    def run() -> None:
+        for key, identity, encoded in zip(keys, identities, payloads, strict=True):
+            shared.admit(key, identity, encoded)
+            record_write(NAMESPACE, key)
+
+    run()
+    require(condition=shared.index.published() == 0, reason="writes left publications")
+    return run, len(identities)
+
+
+def shared_touch() -> Workload:
+    shared = SharedIndex(SMALL_BYTES)
+    lookup = shared.reader.lookup
+    touch = shared.core.touch
+    ring = shared.ring
+    identities = shared.identities
+    slot = shared.slot
+    epoch = shared.epoch
+    shape = shared.shape
+
+    def run() -> None:
+        for identity in identities:
+            lookup(*slot, epoch, identity, shape)
+        touch(ring)
+
+    run()
+    require(condition=shared.reader.dropped() == 0, reason="touches were dropped")
+    return run, len(identities)
+
+
+def admission_queue() -> Workload:
+    index = new_index()
+    ring = index.session_ring(RING_TOKENS, ADMISSION_QUEUE_BYTES)
+    reader = attached_reader(index, ring)
+    generator = random.Random(SEED)
+    frames = [generator.randbytes(ADMISSION_FRAME_BYTES) for _ in range(RESIDENT_KEYS)]
+    enqueue = reader.enqueue_admission
+    drain = ring.drain_admissions
+
+    def run() -> None:
+        for frame in frames:
+            enqueue(frame)
+        drain()
+
+    run()
+    for frame in frames:
+        require(condition=enqueue(frame), reason="admission queue rejected a frame")
+    require(condition=len(drain()) == len(frames), reason="admission queue lost frames")
+    return run, len(frames)
+
+
+def owner_admission() -> Workload:
+    payload = encode_value(documents(SMALL_BYTES, 1)[0], OPTIONS)
+    shape = read_shape()
+    shape_key = encode_key(shape)
+    core = new_owner(new_index())
     windows = key_windows()
     identity_keys = {
         key: encode_key(canonicalize(order_sensitive_key(key)))
@@ -575,17 +649,6 @@ def facade_invalidation() -> Workload:
             reason="change events did not invalidate",
         )
     return run, len(events)
-
-
-def identity_frame(request_id: int, identity: bytes, shape: bytes) -> bytes:
-    selection = (
-        SELECTION.pack(DATABASE, SHARED_NAMESPACE, EPOCH, len(identity), len(shape))
-        + identity
-        + shape
-    )
-    return (
-        FRAME.pack(FRAME.size - LENGTH.size + len(selection), request_id, 1) + selection
-    )
 
 
 def limited_core(max_entries: int) -> native.LocalCacheCore:
@@ -734,46 +797,6 @@ def limited_unique_hit() -> Workload:
     return run, len(handles)
 
 
-def echo_roundtrip() -> Workload:
-    shared = SharedIndex(SMALL_BYTES)
-    directory = CLEANUP.enter_context(tempfile.TemporaryDirectory())
-    path = str(Path(directory) / "echo.sock")
-    CLEANUP.callback(shared.index.serve(path).close)
-    connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    CLEANUP.enter_context(connection)
-    connection.connect(path)
-    buffer = bytearray(RECEIVE_BYTES)
-    view = memoryview(buffer)
-    CLEANUP.callback(view.release)
-    frames = [
-        identity_frame(request_id, identity, shared.shape)
-        for request_id, identity in enumerate(shared.identities[:256], start=1)
-    ]
-
-    def roundtrip(frame: bytes) -> None:
-        connection.sendall(frame)
-        received = 0
-        needed = LENGTH.size
-        while received < needed:
-            count = connection.recv_into(view[received:])
-            require(condition=count > 0, reason="echo owner closed the connection")
-            received += count
-            if received >= LENGTH.size:
-                needed = LENGTH.size + LENGTH.unpack_from(buffer)[0]
-
-    roundtrip(frames[0])
-    require(
-        condition=LENGTH.unpack_from(buffer, FRAME.size)[0] != MISS,
-        reason="echo owner missed a published entry",
-    )
-
-    def run() -> None:
-        for frame in frames:
-            roundtrip(frame)
-
-    return run, len(frames)
-
-
 WORKLOADS: dict[str, Callable[[], Workload]] = {
     "identity_hit_small": lambda: identity_hit(SMALL_BYTES),
     "identity_hit_medium": lambda: identity_hit(MEDIUM_BYTES),
@@ -793,11 +816,12 @@ WORKLOADS: dict[str, Callable[[], Workload]] = {
     "shared_hit_medium": lambda: shared_lookup(MEDIUM_BYTES, hit=True),
     "shared_miss": lambda: shared_lookup(SMALL_BYTES, hit=False),
     "shared_publish_cycle": shared_publish_cycle,
+    "shared_touch": shared_touch,
+    "admission_queue": admission_queue,
     "owner_admission": owner_admission,
     "facade_hit": facade_hit,
     "facade_find_miss": facade_find_miss,
     "facade_invalidation": facade_invalidation,
-    "echo_roundtrip": echo_roundtrip,
     "limited_namespace_roomy": lambda: limited_namespace_admission(
         entries=LIMITED_ENTRIES
     ),
@@ -828,7 +852,8 @@ CORE_POLICY_INDEPENDENT = frozenset(
         "shared_hit_medium",
         "shared_miss",
         "shared_publish_cycle",
-        "echo_roundtrip",
+        "shared_touch",
+        "admission_queue",
     }
 )
 

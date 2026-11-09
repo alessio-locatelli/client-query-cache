@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from client_query_cache.asynchronous.collection import CachedCollection
     from client_query_cache.asynchronous.manager import CacheManager
     from tests.conftest import DatabaseName, MongoDbUri
+    from tests.stream_helpers import StreamBarrier
 
 pytestmark = pytest.mark.integration
 
@@ -251,6 +252,7 @@ async def test_collection_type_is_rechecked_after_absence(
     measurement: BsonDict,
     replacement: CollectionKind,
     request: pytest.FixtureRequest,
+    stream_barrier: StreamBarrier,
 ) -> None:
     cache = collection.database.manager.cache_core
     namespace = NamespaceId(collection.database.name, collection.name)
@@ -271,18 +273,11 @@ async def test_collection_type_is_rechecked_after_absence(
         )
         == 2
     )
-    generation_before_create = cache.capture_namespace_generation(namespace).generation
     await create_collection(collection, replacement)
     await collection.raw.insert_one(measurement)
     if replacement == "collection":
         # Wait for both the create and insert events before priming a cache hit.
-        expected_generation = generation_before_create + 2
-        await wait_until(
-            lambda: (
-                cache.capture_namespace_generation(namespace).generation
-                >= expected_generation
-            )
-        )
+        await stream_barrier.wait_async(collection.raw.database)
     assert await collection.find_one({"_id": measurement["_id"]}) == measurement
     before = cache.snapshot()
     assert await collection.find_one({"_id": measurement["_id"]}) == measurement

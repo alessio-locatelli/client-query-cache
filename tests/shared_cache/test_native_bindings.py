@@ -3,49 +3,72 @@ from __future__ import annotations
 import multiprocessing
 import os
 import resource
-import socket
 import struct
 import sys
-from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack, contextmanager
-from pathlib import Path
-from tempfile import TemporaryDirectory, TemporaryFile
+from tempfile import TemporaryFile
 from time import monotonic, monotonic_ns
 from typing import TYPE_CHECKING, Literal
 
 import pytest
 
 from benchmarks.stream_cost.multiprocess_run import reclaim_workers
-from client_query_cache._shared_index import ByteRelay, OwnerIndex, ReaderIndex
+from client_query_cache import CacheCoreConfig
+from client_query_cache._core.codec import encode_value
+from client_query_cache._core.entries import AdmissionOutcome
+from client_query_cache._core.keys import NamespaceId
+from client_query_cache._shared_index import OwnerIndex, ReaderIndex, SharedOwnerCore
 from client_query_cache._types import NonEmptyStr, NonNegativeInt, PositiveInt
+from tests.shared_cache.index_helpers import assign_slot, shape_key
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator, Iterator
-    from concurrent.futures import Future
     from multiprocessing.process import BaseProcess
+    from pathlib import Path
 
     from faker import Faker
 
     from client_query_cache._shared_index import SessionRing
 
-type DescriptorOperation = Literal["owner", "ring", "descriptor", "echo"]
+type DescriptorOperation = Literal["owner", "ring", "descriptor"]
 
 pytestmark = pytest.mark.unit
 
 _INCARNATION = 41
-_EPOCH = 7
 _EXPIRY_NS = 60 * 10**9
+_PROBE_TTL_SECONDS = 30.0
 _USIZE_MAX = 2 * sys.maxsize + 1
+_NAMESPACE = NamespaceId("native", "values")
 
 
 @pytest.fixture
 def native_owner() -> OwnerIndex:
     owner = OwnerIndex(8, 4096, 1, 1, _INCARNATION, _EXPIRY_NS)
-    owner.set_available(0, available=True)
     owner.set_progress(0, monotonic_ns())
-    owner.set_epoch(0, _EPOCH)
     owner.enable_capture(enabled=True)
     return owner
+
+
+@pytest.fixture
+def shared_core(native_owner: OwnerIndex) -> Iterator[SharedOwnerCore]:
+    core = SharedOwnerCore(
+        CacheCoreConfig(max_namespaces=1),
+        native_owner,
+        [_NAMESPACE.database],
+        1,
+        _PROBE_TTL_SECONDS,
+    )
+    yield core
+    core.close()
+
+
+@pytest.fixture
+def assigned_slot(
+    shared_core: SharedOwnerCore,
+) -> tuple[NonNegativeInt, NonNegativeInt]:
+    slot = assign_slot(shared_core, _NAMESPACE)
+    assert slot is not None
+    return slot
 
 
 @pytest.fixture
@@ -128,22 +151,9 @@ def test_rejects_invalid_layout(
         OwnerIndex(*layout, _INCARNATION, _EXPIRY_NS)
 
 
-@pytest.mark.parametrize(
-    "operation",
-    [
-        lambda owner: owner.set_available(1, available=True),
-        lambda owner: owner.set_progress(1, monotonic_ns()),
-        lambda owner: owner.set_epoch(1, _EPOCH),
-        lambda owner: owner.record_write(1),
-    ],
-    ids=("available", "progress", "epoch", "write"),
-)
-def test_rejects_out_of_range_updates(
-    native_owner: OwnerIndex,
-    operation: Callable[[OwnerIndex], None],
-) -> None:
+def test_rejects_an_out_of_range_progress_update(native_owner: OwnerIndex) -> None:
     with pytest.raises(ValueError, match="outside the index layout"):
-        operation(native_owner)
+        native_owner.set_progress(1, monotonic_ns())
 
 
 @pytest.mark.parametrize(
@@ -225,16 +235,21 @@ def test_ring_descriptor_close_is_idempotent(native_ring: SessionRing) -> None:
         native_ring.descriptor()
 
 
-def test_detached_reader_never_reads_or_enqueues(native_reader: ReaderIndex) -> None:
+def test_detached_reader_never_reads_or_enqueues(
+    shared_core: SharedOwnerCore,
+    assigned_slot: tuple[NonNegativeInt, NonNegativeInt],
+    native_reader: ReaderIndex,
+) -> None:
+    epoch = shared_core.current_epoch(_NAMESPACE)
     assert native_reader.incarnation == _INCARNATION
     assert native_reader.admissions_enabled
     assert (native_reader.detached,) == (False,)
-    assert native_reader.capture(0, 0, _EPOCH) is not None
+    assert native_reader.capture(*assigned_slot, epoch) is not None
     native_reader.detach()
     native_reader.detach()
     assert native_reader.detached
-    assert native_reader.lookup(0, 0, _EPOCH, b"identity", b"shape") is None
-    assert native_reader.capture(0, 0, _EPOCH) is None
+    assert native_reader.lookup(*assigned_slot, epoch, b"identity", b"shape") is None
+    assert native_reader.capture(*assigned_slot, epoch) is None
     assert not native_reader.enqueue_admission(b"frame")
 
 
@@ -254,115 +269,31 @@ def test_ring_without_admissions_reports_an_empty_queue(
     [0, 507, 508, 1024],
     ids=("empty-identity", "inline-key-limit", "spilled-key", "long-key"),
 )
-def test_payload_tokens_identify_reads_and_release(
+def test_published_payloads_are_read_by_identity_and_withdrawn_by_a_write(
+    *,
+    shared_core: SharedOwnerCore,
     native_owner: OwnerIndex,
     native_reader: ReaderIndex,
     native_ring: SessionRing,
+    assigned_slot: tuple[NonNegativeInt, NonNegativeInt],
     faker: Faker,
     identity_bytes: NonNegativeInt,
 ) -> None:
     identity = faker.binary(length=identity_bytes)
-    expected = faker.binary(length=32)
-    payload = native_owner.store(expected)
-    assert payload is not None
-    assert native_owner.snapshot(payload) == expected
-    assert (
-        native_owner.publish(0, 0, _EPOCH, identity, b"shape", payload) == payload.token
+    shape = shape_key("shape")
+    expected = encode_value({"value": faker.pystr(max_chars=32)})
+    epoch = shared_core.current_epoch(_NAMESPACE)
+    capture = shared_core.begin_identity_admission(_NAMESPACE, "identity")
+    outcome = shared_core.admit_identity_published(
+        capture, "shape", expected, identity, shape
     )
+    assert outcome is AdmissionOutcome.ADMITTED
     assert native_owner.published() == 1
-    assert native_reader.lookup(0, 0, _EPOCH, identity, b"shape") == expected
-    assert native_ring.drain() == [payload.token]
-    native_owner.release(payload)
-    native_owner.release(payload)
-    assert native_owner.snapshot(payload) is None
+    assert native_reader.lookup(*assigned_slot, epoch, identity, shape) == expected
+    shared_core.touch(native_ring)
+    shared_core.record_write(_NAMESPACE, "identity")
     assert native_owner.published() == 0
-    assert native_reader.lookup(0, 0, _EPOCH, identity, b"shape") is None
-
-
-@pytest.fixture
-def native_echo(native_owner: OwnerIndex, tmp_path: Path) -> Iterator[socket.socket]:
-    path = tmp_path / "echo.sock"
-    echo = native_owner.serve(str(path))
-    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
-        client.settimeout(3)
-        client.connect(str(path))
-        yield client
-    echo.close()
-    echo.close()
-
-
-def test_echo_preserves_request_id_for_empty_selection(
-    native_echo: socket.socket,
-) -> None:
-    request_id = 71
-    frame = struct.pack("<III", 8, request_id, 0)
-    native_echo.sendall(frame[:3])
-    native_echo.sendall(frame[3:])
-    with native_echo.makefile("rb") as replies:
-        assert replies.read(len(frame)) == frame
-
-
-@pytest.fixture
-def native_relay() -> Iterator[
-    tuple[ByteRelay, socket.socket, socket.socket, Future[None]]
-]:
-    relay = ByteRelay()
-    with ThreadPoolExecutor(max_workers=1) as executor, ExitStack() as resources:
-        listener = resources.enter_context(
-            socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        )
-        listener.bind(("127.0.0.1", 0))
-        listener.listen()
-        client = resources.enter_context(
-            socket.create_connection(listener.getsockname())
-        )
-        incoming = resources.enter_context(listener.accept()[0])
-        outgoing = resources.enter_context(
-            socket.create_connection(listener.getsockname())
-        )
-        server = resources.enter_context(listener.accept()[0])
-        client.settimeout(3)
-        server.settimeout(3)
-        forwarding = executor.submit(relay.run, incoming.fileno(), outgoing.fileno())
-        yield relay, client, server, forwarding
-        relay.stop()
-
-
-def test_relay_preserves_both_half_closes_and_counts_bytes(
-    native_relay: tuple[ByteRelay, socket.socket, socket.socket, Future[None]],
-    faker: Faker,
-) -> None:
-    relay, client, server, forwarding = native_relay
-    request = faker.binary(length=32)
-    relay.pause()
-    assert relay.bytes_sent == 0
-    assert relay.bytes_received == 0
-    relay.resume()
-    client.sendall(request)
-    client.shutdown(socket.SHUT_WR)
-    with server.makefile("rb") as requests:
-        assert requests.read() == request
-    reply = faker.binary(length=64)
-    server.sendall(reply)
-    server.shutdown(socket.SHUT_WR)
-    with client.makefile("rb") as replies:
-        assert replies.read() == reply
-    forwarding.result(timeout=3)
-    assert relay.bytes_sent == len(request)
-    assert relay.bytes_received == len(reply)
-
-
-@pytest.mark.parametrize("descriptor", [-1, 2**31 - 1], ids=("negative", "invalid"))
-def test_relay_rejects_invalid_descriptors(descriptor: int) -> None:
-    with pytest.raises(OSError, match="Bad file descriptor"):
-        ByteRelay().run(descriptor, descriptor)
-
-
-def test_echo_reports_missing_parent_directory(
-    native_owner: OwnerIndex, tmp_path: Path
-) -> None:
-    with pytest.raises(FileNotFoundError, match="No such file or directory"):
-        native_owner.serve(str(tmp_path / "missing" / "echo.sock"))
+    assert native_reader.lookup(*assigned_slot, epoch, identity, shape) is None
 
 
 def test_damaged_admission_queue_reports_a_binding_error(
@@ -374,14 +305,6 @@ def test_damaged_admission_queue_reports_a_binding_error(
     os.pwrite(native_ring.descriptor(), struct.pack("<QQ", 0, 1), queue_start)
     with pytest.raises(ValueError, match="damaged admission queue"):
         native_ring.drain_admissions()
-
-
-def test_echo_closes_a_connection_with_an_oversized_frame(
-    native_echo: socket.socket,
-) -> None:
-    frame_limit = 1_048_576 + 65_536
-    native_echo.sendall(struct.pack("<I", frame_limit + 1))
-    assert native_echo.recv(1) == b""
 
 
 @pytest.mark.parametrize(
@@ -419,18 +342,8 @@ def _descriptor_budget(free_slots: NonNegativeInt) -> Generator[None]:
         resource.setrlimit(resource.RLIMIT_NOFILE, limits)
 
 
-def _descriptor_allocation_failure(
-    operation: DescriptorOperation, temporary_parent: Path
-) -> None:
+def _descriptor_allocation_failure(operation: DescriptorOperation) -> None:
     owner = OwnerIndex(8, 4096, 1, 1, _INCARNATION, _EXPIRY_NS)
-    if operation == "echo":
-        with (
-            TemporaryDirectory(dir=temporary_parent) as directory,
-            _descriptor_budget(1),
-            pytest.raises(OSError, match="Too many open files"),
-        ):
-            owner.serve(str(Path(directory) / "echo.sock"))
-        return
     operations: dict[DescriptorOperation, Callable[[], object]] = {
         "owner": lambda: OwnerIndex(8, 4096, 1, 1, _INCARNATION, _EXPIRY_NS),
         "ring": lambda: owner.session_ring(8),
@@ -441,15 +354,14 @@ def _descriptor_allocation_failure(
 
 
 @pytest.fixture
-def descriptor_failure_process(
-    tmp_path_factory: pytest.TempPathFactory,
-) -> Iterator[Callable[[DescriptorOperation], BaseProcess]]:
+def descriptor_failure_process() -> Iterator[
+    Callable[[DescriptorOperation], BaseProcess]
+]:
     processes: list[BaseProcess] = []
 
     def start(operation: DescriptorOperation) -> BaseProcess:
         process = multiprocessing.get_context("spawn").Process(
-            target=_descriptor_allocation_failure,
-            args=(operation, tmp_path_factory.getbasetemp()),
+            target=_descriptor_allocation_failure, args=(operation,)
         )
         process.start()
         processes.append(process)
@@ -461,8 +373,8 @@ def descriptor_failure_process(
 
 @pytest.mark.parametrize(
     "operation",
-    ["owner", "ring", "descriptor", "echo"],
-    ids=("owner", "ring", "descriptor", "echo"),
+    ["owner", "ring", "descriptor"],
+    ids=("owner", "ring", "descriptor"),
 )
 def test_descriptor_exhaustion_is_reported(
     descriptor_failure_process: Callable[[DescriptorOperation], BaseProcess],

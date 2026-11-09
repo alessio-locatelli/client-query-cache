@@ -2014,6 +2014,7 @@ def test_find_one_inherited_collation_uses_namespace_invalidation(
     *,
     query_kind: str,
     faker: Faker,
+    stream_barrier: StreamBarrier,
 ) -> None:
     database = cache_manager[cached_database_name]
     database.raw.create_collection(
@@ -2044,18 +2045,8 @@ def test_find_one_inherited_collation_uses_namespace_invalidation(
         )
     assert spy.call_count == 3
     writer = independent_writer[cached_database_name][nonpersistent_collection_name]
-    before = cache_manager.cache_core.capture_namespace_generation(
-        NamespaceId(cached_database_name, nonpersistent_collection_name)
-    ).generation
     writer.update_one({"_id": stored_identity}, {"$set": {"rank": 2}})
-    _wait_until(
-        lambda: (
-            cache_manager.cache_core.capture_namespace_generation(
-                NamespaceId(cached_database_name, nonpersistent_collection_name)
-            ).generation
-            > before
-        )
-    )
+    stream_barrier.wait(independent_writer[cached_database_name])
     assert collection.find_one(query) == (
         None if query_kind == "anchored" else {"_id": stored_identity, "rank": 2}
     )
@@ -2207,6 +2198,7 @@ def interrupted_generic_collection(
     monkeypatch: pytest.MonkeyPatch,
     request: pytest.FixtureRequest,
     faker: Faker,
+    stream_barrier: StreamBarrier,
 ) -> CachedCollection[BsonDict]:
     collection = cache_manager[cached_database_name][nonpersistent_collection_name]
     document = {"_id": faker.uuid4(), "rank": 1}
@@ -2214,7 +2206,7 @@ def interrupted_generic_collection(
     other_identity = faker.uuid4()
     collection.raw.insert_one({"_id": other_identity, "rank": 0})
     collection.count_documents({})
-    namespace = NamespaceId(cached_database_name, nonpersistent_collection_name)
+    NamespaceId(cached_database_name, nonpersistent_collection_name)
     original_find_one = Collection.find_one
     interrupted = False
 
@@ -2227,9 +2219,6 @@ def interrupted_generic_collection(
             assert document is not None
             interrupted = True
             if request.param in {"write", "write-other"}:
-                before = cache_manager.cache_core.capture_namespace_generation(
-                    namespace
-                ).generation
                 independent_writer[cached_database_name][
                     nonpersistent_collection_name
                 ].update_one(
@@ -2240,14 +2229,7 @@ def interrupted_generic_collection(
                     },
                     {"$set": {"rank": 2}},
                 )
-                _wait_until(
-                    lambda: (
-                        cache_manager.cache_core.capture_namespace_generation(
-                            namespace
-                        ).generation
-                        > before
-                    )
-                )
+                stream_barrier.wait(independent_writer[cached_database_name])
             else:
                 cache_manager.cache_core.set_database_available(
                     cached_database_name, available=False

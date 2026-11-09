@@ -33,6 +33,7 @@ if TYPE_CHECKING:
 
     from client_query_cache.asynchronous.collection import CachedCollection
     from tests.conftest import CollectionName, DatabaseName, MongoDbUri
+    from tests.stream_helpers import StreamBarrier
 
 pytestmark = pytest.mark.integration
 
@@ -814,6 +815,8 @@ async def test_index_inspection_failure_is_not_memoized_as_a_permanent_absence(
     nonpersistent_collection_name: CollectionName,
     probe_error: Exception,
     faker: Faker,
+    *,
+    stream_barrier: StreamBarrier,
 ) -> None:
     document_id = faker.uuid4()
     email = faker.email()
@@ -829,15 +832,8 @@ async def test_index_inspection_failure_is_not_memoized_as_a_permanent_absence(
     with patch.object(AsyncCollection, "list_indexes", side_effect=probe_error):
         await collection.find_one({"email": email})
 
-    namespace = NamespaceId(cached_database_name, nonpersistent_collection_name)
-    before = cache_manager.cache_core.capture_namespace_generation(namespace).generation
     await collection.raw.insert_one({"_id": faker.uuid4(), "email": faker.email()})
-    await _wait_until(
-        lambda: (
-            cache_manager.cache_core.capture_namespace_generation(namespace).generation
-            > before
-        )
-    )
+    await stream_barrier.wait_async(collection.raw.database)
 
     with patch.object(
         AsyncCollection, "find_one", autospec=True, side_effect=AsyncCollection.find_one

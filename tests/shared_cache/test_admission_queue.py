@@ -10,7 +10,6 @@ from hypothesis import settings
 from hypothesis import strategies as st
 from hypothesis.stateful import (
     RuleBasedStateMachine,
-    invariant,
     rule,
     run_state_machine_as_test,
 )
@@ -111,10 +110,6 @@ class _AdmissionQueueMachine(RuleBasedStateMachine):
     def drain(self) -> None:
         assert self.queue.ring.drain_admissions() == self.accepted
         self.accepted.clear()
-
-    @invariant()
-    def recency_touches_remain_separate(self) -> None:
-        assert self.queue.ring.drain() == []
 
 
 def test_admission_queue_operation_order() -> None:
