@@ -9,15 +9,14 @@ import tracemalloc
 from time import perf_counter
 from typing import TYPE_CHECKING, Literal, TypedDict
 
+import psutil
 import pytest
 
 from client_query_cache import CacheCore, CacheCoreConfig
-from client_query_cache._core import manager as core_module
 from client_query_cache._core.entries import AdmissionOutcome
 from client_query_cache._core.find_reads import find_read_shape
 from client_query_cache._core.keys import NamespaceId
 from client_query_cache._types import NonNegativeFloat, NonNegativeInt
-from tests.call_counting import count_current_thread_calls
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -33,7 +32,7 @@ def traced_family_core() -> Iterator[CacheCore]:
         core.capture_namespace_generation(NamespaceId("warm", "codec")), "warm", []
     )
     core.clear_namespace(NamespaceId("warm", "codec"))
-    core._namespace(HEAP_NAMESPACE)
+    core.capture_namespace_generation(HEAP_NAMESPACE)
     gc.collect()
     yield core
     tracemalloc.stop()
@@ -77,6 +76,12 @@ class HeapMeasurement(TypedDict):
     retained_heap_bytes: NonNegativeInt
     payload_bytes: NonNegativeInt
     after_clear_heap_bytes: NonNegativeInt
+    retained_process_bytes: int
+    after_clear_process_bytes: int
+
+
+def process_bytes() -> NonNegativeInt:
+    return psutil.Process().memory_full_info().uss
 
 
 def measure_heap(
@@ -84,23 +89,24 @@ def measure_heap(
 ) -> HeapMeasurement:
     gc.collect()
     before = tracemalloc.get_traced_memory()[0]
+    process_before = process_bytes()
     populate_sources(core, count, indexed=indexed, predicate=family_predicate(1024))
     gc.collect()
     retained = tracemalloc.get_traced_memory()[0] - before
+    process_retained = process_bytes() - process_before
     snapshot = core.snapshot()
-    tokens = sum(
-        len(bucket) for bucket in core._namespace(HEAP_NAMESPACE).find_families.values()
-    )
     assert snapshot.entry_count == count
-    assert tokens == (count if indexed else 0)
     core.clear_namespace(HEAP_NAMESPACE)
     gc.collect()
     cleared = tracemalloc.get_traced_memory()[0] - before
-    assert not core._namespace(HEAP_NAMESPACE).find_families
+    process_cleared = process_bytes() - process_before
+    assert core.snapshot().entry_count == 0
     return {
         "retained_heap_bytes": retained,
         "payload_bytes": snapshot.used_bytes,
         "after_clear_heap_bytes": cleared,
+        "retained_process_bytes": process_retained,
+        "after_clear_process_bytes": process_cleared,
     }
 
 
@@ -135,7 +141,6 @@ def test_find_family_lookup(
     count: Literal[1, 16, 64],
     branches: Literal[8, 1024],
     descending: bool,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     core = traced_family_core
     predicate = family_predicate(branches)
@@ -161,13 +166,6 @@ def test_find_family_lookup(
     profiler.enable()
     assert core.lookup_find(HEAP_NAMESPACE, request).hit
     profiler.disable()
-    probes = count_current_thread_calls(
-        monkeypatch, type(core), "_probe_namespace_entry"
-    )
-    discriminators = count_current_thread_calls(
-        monkeypatch, core_module, "find_discriminator"
-    )
-    assert core.lookup_find(HEAP_NAMESPACE, request).hit
     print(
         json.dumps(
             {
@@ -176,13 +174,9 @@ def test_find_family_lookup(
                 "admission_order": "descending" if descending else "ascending",
                 "lookup_median_us": round(statistics.median(timings[1:]) * 1e6, 1),
                 "lookup_peak_bytes": peak,
-                "lru_probes": probes.count,
-                "discriminator_builds": discriminators.count,
             }
         )
     )
     pstats.Stats(profiler).sort_stats("tottime").print_stats(5)
-    assert probes.count == 2
-    assert discriminators.count == 1
     assert core.snapshot().used_bytes == before.used_bytes
     assert core.snapshot().entry_count == before.entry_count

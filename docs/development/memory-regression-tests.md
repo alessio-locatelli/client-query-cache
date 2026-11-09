@@ -23,10 +23,10 @@ Each case keeps one core alive for eight cycles of 1,024 fresh 64 KiB payload ad
 two namespaces under a shared 4 MiB BSON budget with a 128 KiB maximum entry size. One case admits
 identity entries with aliases; the other admits namespace entries. Each admission must succeed and
 immediately hit. Every sixteenth admission triggers a write, a miss, and readmission followed by a
-hit. Checkpoints every 128 admissions verify budget, eviction, resident entry indexes, identity
-references, and alias ownership. Clearing both namespaces at each cycle boundary must empty their
-entries and metadata. Closing the core must leave zero entry usage; fixture teardown also closes it
-after a failure.
+hit. Checkpoints every 128 admissions verify budget and eviction through the public snapshot; the
+identity case also requires exactly as many resolvable aliases as resident entries. Clearing both
+namespaces at each cycle boundary must leave zero usage and no resolvable alias. Closing the core must
+leave zero entry usage; fixture teardown also closes it after a failure.
 
 The seeded synthetic payload is generated before profiling. Short-lived helpers release documents,
 decoded hits, and admission captures, so the harness keeps no growing workload history. Ordinary
@@ -39,9 +39,13 @@ outside this boundary. The command disables stdio capture, raises both logging t
 and sends file logging to `/dev/null` to avoid retaining debug history. Pytest's logging plugin stays
 enabled because `pytest.ini` contains strict logging configuration.
 
-The ceiling measures neither process RSS nor cumulative allocation volume. This finite workload
-does not prove cursor, thread, asyncio-task, or telemetry cleanup, and small leaks can remain below
-the ceiling. Structural checks complement the allocation limit.
+The cache core is native. It keeps each encoded value as a Python `bytes` object, which the traced
+Python allocator reports, and its bookkeeping uses system allocations that Memray also observes. The
+ceiling measures neither process RSS nor cumulative allocation volume, and a Python-heap-only report
+would not prove native reclamation: the snapshot checks above and the weak-reference lifetime tests in
+`tests/core/test_native_owner.py` do. This finite workload does not prove cursor, thread, asyncio-task,
+or telemetry cleanup, and small leaks can remain below the ceiling. Observable-state checks
+complement the allocation limit.
 
 ## Command options
 
@@ -131,10 +135,19 @@ and 3.55× overhead. Process wall medians were 2.415 s versus 0.730 s for identi
 hooks while preserving workload assertions. Profiler boundary durations came from Memray's official
 `FileReader.metadata` timestamps.
 
-Temporarily wrapping the core's encoder to retain every encoded value raised identity peak usage to
-571,380,994 bytes and namespace peak usage to 571,347,729 bytes. Both runs completed structural
-assertions and exited with a Memray ceiling failure, exposing the allocation stacks in the console.
-The injected wrapper was removed; it is not part of the tests.
+Temporarily retaining every encoded value in the test raised identity peak usage to 571,380,994 bytes
+and namespace peak usage to 571,347,729 bytes. Both runs completed their assertions and exited with a
+Memray ceiling failure, exposing the allocation stacks in the console. The injected fault was
+removed; it is not part of the tests.
+
+### Native core remeasurement
+
+The same ten-process calibration was repeated on 2026-11-09 after the Python cache engine was removed,
+on Fedora 45 with CPython 3.15.1 and the committed lockfile; it is not an Ubuntu 24.04 measurement. Every
+process reported the same peak: 4,451,140 bytes for identity with alias and 4,411,675 bytes for
+namespace. Both give 7 MiB under the calibration rule, so the committed ceilings stand. Retaining
+every encoded value in the test allocated 548.9 MiB (identity) and 548.8 MiB (namespace) against that
+limit, and both runs failed.
 
 ## CI and failure diagnostics
 

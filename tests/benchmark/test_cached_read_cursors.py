@@ -320,6 +320,7 @@ async def measure_find_limit_phase(
     resident = core.snapshot()
     for repetition in range(REPETITIONS):
         core.clear_namespace(namespace)
+        unrelated_entries = core.snapshot().entry_count
         with monkeypatch.context() as warmup:
             warmup.setattr(type(core), "lookup_find", exact_find_lookup)
             for source_limit in source_limits:
@@ -327,7 +328,9 @@ async def measure_find_limit_phase(
                     await materialize(
                         view.find({}, sort=[("_id", 1)], limit=source_limit)
                     )
-        assert core._ownership()[4] == (0 if phase == "cold" else len(source_limits))
+        assert core.snapshot().entry_count - unrelated_entries == (
+            0 if phase == "cold" else len(source_limits)
+        )
         for index in range(unrelated):
             unrelated_namespace = (
                 namespace
@@ -380,7 +383,6 @@ async def measure_find_limit_phase(
                 "heap_peak": peaks[0],
                 "resident_before": resident.used_bytes,
                 "resident_after": core.snapshot().used_bytes,
-                "source_tokens": core._ownership()[4],
                 "origin_per_read": command_counts[-1],
             }
         )

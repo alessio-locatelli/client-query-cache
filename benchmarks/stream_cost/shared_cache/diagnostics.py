@@ -29,12 +29,11 @@ from benchmarks.stream_cost.shared_cache.window import (
     run_window,
 )
 from benchmarks.stream_cost.topology import IsolatedReplicaSet, ResourceLimits
-from client_query_cache import CacheCoreConfig
+from client_query_cache import CacheCore, CacheCoreConfig
 from client_query_cache._core.canonical import canonicalize
 from client_query_cache._core.codec import codec_fingerprint, decode_value, encode_value
 from client_query_cache._core.find_one_reads import find_one_read_shape
 from client_query_cache._core.keys import NamespaceId
-from client_query_cache._core.manager import CacheCore
 from client_query_cache._shared.attachment import AsyncEndpoint, SyncEndpoint
 from client_query_cache._shared.wire import encode_key
 from client_query_cache._types import BsonDict, PositiveInt

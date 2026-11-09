@@ -18,7 +18,7 @@ from unittest.mock import Mock
 
 from pymongo.errors import ConnectionFailure
 
-from client_query_cache._core.manager import CacheCore
+from client_query_cache import CacheCore
 from client_query_cache._types import NonNegativeFloat, NonNegativeInt
 from client_query_cache.asynchronous.streams import (
     ChangeStreamCoordinator as AsyncCoordinator,

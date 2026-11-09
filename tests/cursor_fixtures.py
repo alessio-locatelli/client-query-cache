@@ -162,7 +162,6 @@ def raw_key_traversals(monkeypatch: pytest.MonkeyPatch) -> list[NonNegativeInt]:
         "_core.read_classification",
         "_core.find_reads",
         "_core.keys",
-        "_core.manager",
         "synchronous.collection",
         "asynchronous.collection",
     ):

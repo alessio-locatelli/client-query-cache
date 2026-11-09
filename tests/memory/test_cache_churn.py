@@ -1,4 +1,3 @@
-from collections import Counter
 from typing import TYPE_CHECKING, Literal, NewType
 
 import pytest
@@ -59,40 +58,38 @@ def _write_and_miss(
         assert not core.lookup_namespace(namespace, key).hit
 
 
-def _assert_resident_metadata(core: CacheCore) -> None:
+def _assert_resident_aliases(
+    core: CacheCore, admitted: list[tuple[NamespaceId, DocumentKey]]
+) -> None:
     snapshot = core.snapshot()
     assert 0 < snapshot.used_bytes <= SHARED_BUDGET_BYTES
     assert snapshot.evictions > 0
-    assert sum(len(core._namespace(ns).entry_index) for ns in NAMESPACES) == (
-        snapshot.entry_count
+    resolvable = sum(
+        core.resolve_alias(namespace, "synthetic", key, None) is not None
+        for namespace, key in admitted
     )
-    for namespace in NAMESPACES:
-        state = core._namespace(namespace)
-        resident_identities = Counter(
-            entry.identity for entry in state.entry_index if entry.identity is not None
-        )
-        assert state.identities.keys() == resident_identities.keys()
-        for entry, cache_key in state.entry_index.items():
-            assert core._lru.contains_exact(cache_key, entry)
-        for identity, identity_state in state.identities.items():
-            assert identity_state.inflight_ref_count == 0
-            assert identity_state.cached_ref_count == resident_identities[identity]
-            assert identity_state.alias_keys == {
-                alias for alias, owner in state.aliases.items() if owner == identity
-            }
-        assert all(owner in resident_identities for owner in state.aliases.values())
+    assert resolvable == snapshot.entry_count
 
 
-def _clear_and_assert_empty(core: CacheCore) -> None:
+def _assert_resident_usage(core: CacheCore) -> None:
+    snapshot = core.snapshot()
+    assert 0 < snapshot.used_bytes <= SHARED_BUDGET_BYTES
+    assert snapshot.evictions > 0
+    assert 0 < snapshot.entry_count < ADMISSIONS_PER_CYCLE
+
+
+def _clear_and_assert_empty(
+    core: CacheCore, admitted: list[tuple[NamespaceId, DocumentKey]]
+) -> None:
     for namespace in NAMESPACES:
         core.clear_namespace(namespace)
-        state = core._namespace(namespace)
-        assert not state.entry_index
-        assert not state.identities
-        assert not state.aliases
     snapshot = core.snapshot()
     assert snapshot.used_bytes == 0
     assert snapshot.entry_count == 0
+    assert not any(
+        core.resolve_alias(namespace, "synthetic", key, None) is not None
+        for namespace, key in admitted
+    )
 
 
 @pytest.mark.parametrize(
@@ -107,16 +104,21 @@ def test_cache_churn(
     memory_core: CacheCore, synthetic_payload: SyntheticPayload, mode: AdmissionMode
 ) -> None:
     for cycle in range(CYCLES):
+        admitted: list[tuple[NamespaceId, DocumentKey]] = []
         for admission in range(ADMISSIONS_PER_CYCLE):
             namespace = NAMESPACES[admission % len(NAMESPACES)]
             key = DocumentKey(f"{cycle}:{admission}")
+            admitted.append((namespace, key))
             _admit_and_hit(memory_core, namespace, key, synthetic_payload, mode)
             if (admission + 1) % 16 == 0:
                 _write_and_miss(memory_core, namespace, key, mode)
                 _admit_and_hit(memory_core, namespace, key, synthetic_payload, mode)
             if (admission + 1) % 128 == 0:
-                _assert_resident_metadata(memory_core)
-        _clear_and_assert_empty(memory_core)
+                if mode == "identity":
+                    _assert_resident_aliases(memory_core, admitted)
+                else:
+                    _assert_resident_usage(memory_core)
+        _clear_and_assert_empty(memory_core, admitted)
     snapshot = memory_core.snapshot()
     assert snapshot.hits == CYCLES * (ADMISSIONS_PER_CYCLE + ADMISSIONS_PER_CYCLE // 16)
     assert snapshot.misses == CYCLES * ADMISSIONS_PER_CYCLE // 16
