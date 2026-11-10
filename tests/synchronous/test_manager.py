@@ -6,7 +6,7 @@ from bson.codec_options import CodecOptions
 from pymongo import MongoClient, ReadPreference
 from pymongo.synchronous.database import Database
 
-from client_query_cache import CacheCoreConfig
+from client_query_cache import CacheCoreConfig, SelectiveInvalidation
 from client_query_cache._core.collection_metadata import CollectionProbeResult
 from client_query_cache._core.errors import CacheConfigurationError
 from client_query_cache._core.keys import NamespaceId
@@ -350,3 +350,62 @@ def test_default_manager_rejects_diagnostics(
     assert unmeasured_manager.enable_telemetry is False
     with pytest.raises(CacheConfigurationError, match="enable_telemetry=True"):
         getattr(unmeasured_manager, method)(*arguments)
+
+
+@pytest.mark.parametrize(
+    "policy",
+    [
+        pytest.param(SelectiveInvalidation(), id="disabled"),
+        pytest.param(
+            SelectiveInvalidation(insert_partition_field="author_id"), id="insert"
+        ),
+        pytest.param(
+            SelectiveInvalidation(update_dependencies_for_counts=True), id="count"
+        ),
+        pytest.param(
+            SelectiveInvalidation(
+                insert_partition_field="author_id", update_dependencies_for_counts=True
+            ),
+            id="both",
+        ),
+    ],
+)
+@pytest.mark.parametrize("access", ["indexed", "explicit"])
+def test_invalidation_configuration_is_snapshotted_before_collection_access(
+    client: MongoClient[BsonDict], policy: SelectiveInvalidation, access: str
+) -> None:
+    supplied = {("example", "widgets"): policy}
+    manager = CacheManager(client, invalidation=supplied)
+    supplied.clear()
+    collection = (
+        manager["example"]["widgets"]
+        if access == "indexed"
+        else manager.get_cached_collection(client["example"]["widgets"])
+    )
+    assert collection.raw.name == "widgets"
+    expected = None if policy == SelectiveInvalidation() else policy
+    assert collection._selective_policy == expected
+    assert manager["example"]["other"]._selective_policy is None
+    assert CacheManager(client)["example"]["widgets"]._selective_policy is None
+
+
+@pytest.mark.parametrize(
+    "configuration",
+    [
+        pytest.param({("", "widgets"): SelectiveInvalidation()}, id="empty-database"),
+        pytest.param(
+            {("bad/name", "widgets"): SelectiveInvalidation()}, id="invalid-database"
+        ),
+        pytest.param({("example", ""): SelectiveInvalidation()}, id="empty-collection"),
+        pytest.param(
+            {("example", "bad\0name"): SelectiveInvalidation()}, id="nul-collection"
+        ),
+        pytest.param({("example", "widgets"): True}, id="non-policy"),
+        pytest.param({"example.widgets": SelectiveInvalidation()}, id="non-pair"),
+    ],
+)
+def test_invalid_invalidation_configuration_fails_before_stream_activation(
+    client: MongoClient[BsonDict], configuration: object
+) -> None:
+    with pytest.raises(CacheConfigurationError):
+        CacheManager(client, invalidation=configuration)  # type: ignore[arg-type]

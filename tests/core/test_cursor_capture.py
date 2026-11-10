@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypedDict
 from uuid import UUID
 
 import bson
@@ -13,10 +13,14 @@ from bson.son import SON
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
-from client_query_cache import CacheCore, CacheCoreConfig
+from client_query_cache import CacheCore, CacheCoreConfig, SelectiveInvalidation
 from client_query_cache._core.codec import decode_value, encode_value
 from client_query_cache._core.cursor_capture import CursorCapture
 from client_query_cache._core.entries import AdmissionOutcome
+from client_query_cache._core.selective_invalidation import (
+    normalize_invalidation,
+    partition_scalar,
+)
 from client_query_cache._types import BsonDict, NonNegativeInt, PositiveInt
 from tests.codec_helpers import (
     Decimal128ToDecimalDecoder,
@@ -33,6 +37,41 @@ if TYPE_CHECKING:
 
 pytestmark = pytest.mark.unit
 QUERY = ("find", "capture")
+
+
+class SelectiveCandidate(TypedDict):
+    core: LocalCacheCore
+    collector: CursorCapture
+    namespace: NamespaceId
+
+
+@pytest.fixture
+def selective_candidate(namespace: NamespaceId) -> Iterator[SelectiveCandidate]:
+    core = CacheCore(
+        CacheCoreConfig(max_entry_bytes=64),
+        invalidation=normalize_invalidation(
+            {
+                (namespace.database, namespace.collection): SelectiveInvalidation(
+                    insert_partition_field="author_id"
+                )
+            }
+        ),
+    )
+    reservations = [
+        core.capture_namespace_generation(namespace, partition=partition_scalar(index))
+        for index in range(100, 1123)
+    ]
+    collector = CursorCapture(
+        core,
+        core.capture_namespace_generation(namespace, partition=partition_scalar(42)),
+        QUERY,
+        CodecOptions(),
+        release_capture=True,
+    )
+    yield {"core": core, "collector": collector, "namespace": namespace}
+    core.close()
+    for reservation in reservations:
+        reservation.release()
 
 
 def encode_decimal(value: Decimal) -> Decimal128:
@@ -193,6 +232,38 @@ def test_abandon_releases_snapshots(
     assert capture.retained_bytes == 0
     assert capture.finish() is None
     assert not core.lookup_namespace(namespace, QUERY).hit
+
+
+@pytest.mark.parametrize(
+    "completion", ["abandon", "oversize", "encoding-failure", "complete"]
+)
+def test_selective_candidate_releases_its_last_slot_on_every_completion_path(
+    selective_candidate: SelectiveCandidate,
+    completion: str,
+) -> None:
+    collector = selective_candidate["collector"]
+    core = selective_candidate["core"]
+    namespace = selective_candidate["namespace"]
+    collector.append({"value": True})
+    if completion == "abandon":
+        collector.abandon()
+    elif completion == "oversize":
+        collector.append({"payload": "x" * 1000})
+    elif completion == "encoding-failure":
+        collector.append({"unencodable": object()})
+    else:
+        assert collector.finish() is AdmissionOutcome.ADMITTED
+        core.clear_namespace(namespace)
+    assert collector.finish() is None
+    assert collector.retained_bytes == 0
+    replacement = core.capture_namespace_generation(
+        namespace, partition=partition_scalar(10000)
+    )
+    core.record_write(namespace, 1, partition=partition_scalar(10001))
+    assert (
+        core.admit_namespace(replacement, "after-release", 1)
+        is AdmissionOutcome.ADMITTED
+    )
 
 
 def make_unavailable(core: LocalCacheCore, namespace: NamespaceId) -> None:

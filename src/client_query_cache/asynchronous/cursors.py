@@ -19,6 +19,8 @@ from client_query_cache._core.find_reads import (
     find_read_shape,
 )
 from client_query_cache._core.read_classification import prepare_query_key
+from client_query_cache._core.selective_invalidation import capture_read
+from client_query_cache._core.snapshots import BypassReason
 from client_query_cache._types import NonNegativeInt, PositiveInt
 
 if TYPE_CHECKING:
@@ -87,8 +89,13 @@ class CachedCursor[DocumentType: Mapping[str, Any]](AsyncCursor[DocumentType]):
             family, reason = prepare_query_key(
                 self._spec, self._projection, shape.family
             )
+        metadata = None
         if reason is None:
-            reason = await self._view._cache_ineligibility_reason()
+            eligibility = await self._view._cache_eligibility()
+            if isinstance(eligibility, BypassReason):
+                reason = eligibility
+            else:
+                metadata = eligibility
         if reason is not None:
             if self._view._database.manager.enable_telemetry:
                 self._view._record_bypass(reason)
@@ -108,12 +115,27 @@ class CachedCursor[DocumentType: Mapping[str, Any]](AsyncCursor[DocumentType]):
             return
         if not cache.is_database_available(namespace.database):
             return
+        policy = self._view._selective_policy
+        selective = policy is not None
+        capture = (
+            capture_read(
+                cache,
+                namespace,
+                policy,
+                metadata,
+                self._spec,
+                collation=self._collation,
+            )
+            if policy is not None
+            else cache.capture_namespace_generation(namespace)
+        )
         self._capture = CursorCapture(
             cache,
-            cache.capture_namespace_generation(namespace),
+            capture,
             prepared.discriminator,
             self._codec_options,
             find_source=prepared.source,
+            release_capture=selective,
         )
         forced = self._view._forced_collection_handle()
         self._read_concern = forced.read_concern

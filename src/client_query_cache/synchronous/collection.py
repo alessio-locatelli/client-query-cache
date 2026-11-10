@@ -49,6 +49,10 @@ from client_query_cache._core.read_classification import (
     prepare_query_key,
     request_bypass_reason,
 )
+from client_query_cache._core.selective_invalidation import (
+    capture_read,
+    collection_policy,
+)
 from client_query_cache._core.snapshots import BypassReason
 from client_query_cache._core.traversal import (
     declared_attribute_names,
@@ -92,6 +96,7 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
         "_forced_collection",
         "_forced_database",
         "_namespace_id",
+        "_selective_policy",
     )
 
     def __init__(
@@ -103,6 +108,10 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
         self._count_limit_enabled = database.manager.cache_core.max_entries is not None
         self._collection = collection
         self._namespace_id = NamespaceId(database.name, collection.name)
+        self._selective_policy = collection_policy(
+            database.manager._invalidation,  # noqa: SLF001 - Manager owns immutable policies.
+            self._namespace_id,
+        )
         self._codec_identity = codec_identity_key(collection.codec_options)
         default_shape = find_one_read_shape(None, None, None, self._codec_identity)
         try:
@@ -361,8 +370,13 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
         )
         if reason is None:
             discriminator, reason = prepare_query_key(filter, None, discriminator)
+        metadata = None
         if reason is None:
-            reason = self._cache_ineligibility_reason()
+            eligibility = self._cache_eligibility()
+            if isinstance(eligibility, BypassReason):
+                reason = eligibility
+            else:
+                metadata = eligibility
         if reason is not None:
             if self._database.manager.enable_telemetry:
                 self._record_bypass(reason)
@@ -376,13 +390,35 @@ class CachedCollection[DocumentType: Mapping[str, Any]]:
             return lookup_result.value  # type: ignore[no-any-return]
         if not cache.is_database_available(namespace.database):
             return self._collection.count_documents(filter, session=session, **kwargs)
-        capture = cache.capture_namespace_generation(namespace)
-        count = self._forced_collection_handle().count_documents(
-            filter, session=session, **kwargs
-        )
-        cache.admit_namespace(
-            capture, discriminator, count, codec_options=codec_options
-        )
+        policy = self._selective_policy
+        selective = policy is not None
+        if policy is not None:
+            try:
+                collation = kwargs["collation"]
+            except KeyError:
+                collation = None
+            capture = capture_read(
+                cache,
+                namespace,
+                policy,
+                metadata,
+                filter,
+                collation=collation,
+                count=True,
+                hinted="hint" in kwargs,
+            )
+        else:
+            capture = cache.capture_namespace_generation(namespace)
+        try:
+            count = self._forced_collection_handle().count_documents(
+                filter, session=session, **kwargs
+            )
+            cache.admit_namespace(
+                capture, discriminator, count, codec_options=codec_options
+            )
+        finally:
+            if selective:
+                capture.release()
         return count
 
     def estimated_document_count(self, **kwargs: object) -> NonNegativeInt:

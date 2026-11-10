@@ -90,7 +90,7 @@ product = cached_products.find_one(
 )
 ```
 
-`find_one()` filters that pin `_id` to an exact value under simple collation, alone or with additional predicates, and qualifying unique-index `find_one()` reads can keep their cached result when another document changes. Other eligible `find_one()` filters, and every `find()`, `aggregate()`, `count_documents()`, `distinct()` and `estimated_document_count()` result, are refreshed after any write to the collection. See [single-document reads](../reference/api.md#single-document-reads) for sort, collation, projection, index, and decoding rules.
+`find_one()` filters that pin `_id` to an exact value under simple collation, alone or with additional predicates, and qualifying unique-index `find_one()` reads can keep their cached result when another document changes. Other eligible reads use collection-wide write invalidation by default. Process-local `find()` and `count_documents()` can opt into [selective invalidation](selective-invalidation.md) for writes proved irrelevant. See [single-document reads](../reference/api.md#single-document-reads) for sort, collation, projection, index, and decoding rules.
 
 ## Why only reads are cached
 

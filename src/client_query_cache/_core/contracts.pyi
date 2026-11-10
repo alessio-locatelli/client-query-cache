@@ -11,6 +11,9 @@ from client_query_cache._core.find_reads import (
     PreparedFindRead,
 )
 from client_query_cache._core.keys import AliasKey, NamespaceId
+from client_query_cache._core.selective_invalidation import (
+    DatabasePolicies,
+)
 from client_query_cache._core.snapshots import BypassReason, CacheSnapshot
 from client_query_cache._core.stream_cost import StreamCostSnapshot
 from client_query_cache._types import (
@@ -26,6 +29,7 @@ class IdentityCaptureView(Protocol):
     def release(self) -> None: ...
 
 class NamespaceCaptureView(Protocol):
+    def release(self) -> None: ...
     @property
     def namespace(self) -> NamespaceId: ...
 
@@ -51,7 +55,14 @@ class CoreCoherence(Protocol):
     def try_current_epoch(self, namespace: NamespaceId) -> NonNegativeInt | None: ...
     def current_index_generation(self, namespace: NamespaceId) -> NonNegativeInt: ...
     def record_index_change(self, namespace: NamespaceId) -> None: ...
-    def record_write(self, namespace: NamespaceId, identity: object) -> None: ...
+    def record_write(
+        self,
+        namespace: NamespaceId,
+        identity: object,
+        *,
+        partition: bytes | None = None,
+        changed_paths: list[str] | None = None,
+    ) -> None: ...
     def clear_namespace(self, namespace: NamespaceId) -> None: ...
     def drop_namespace(self, namespace: NamespaceId) -> None: ...
     def release_namespace_if_epoch_matches(
@@ -81,7 +92,12 @@ class CoreAdmission(Protocol):
         codec_options: CodecOptions[Any] | None = None,
     ) -> AdmissionOutcome: ...
     def capture_namespace_generation(
-        self, namespace: NamespaceId
+        self,
+        namespace: NamespaceId,
+        *,
+        partition: bytes | None = None,
+        dependencies: tuple[str, ...] | None = None,
+        expected_epoch: NonNegativeInt | None = None,
     ) -> NamespaceCaptureView: ...
     def admit_namespace(
         self,
@@ -195,4 +211,9 @@ class CoreStreamCost(Protocol):
 class LocalCacheCore(
     CoreLifecycle, CoreCoherence, CoreAdmission, CoreReads, CoreStreamCost, Protocol
 ):
-    def __init__(self, config: CacheCoreConfig | None = None) -> None: ...
+    def __init__(
+        self,
+        config: CacheCoreConfig | None = None,
+        *,
+        invalidation: DatabasePolicies | None = None,
+    ) -> None: ...

@@ -16,7 +16,7 @@
     "code_of_conduct.md"
   ],
   "rules": [
-    "Use CacheManager for independent process-local caches; consider SharedCacheManager for repeated reads across trusted same-host workers. Measure latency, CPU and total memory on your workload; sharing adds owner and miss costs.",
+    "Use CacheManager for process-local caches. Consider opt-in SelectiveInvalidation after measuring saved reads and stream costs. Consider SharedCacheManager for trusted same-host workers; measure latency, CPU and total memory.",
     "Import synchronous managers from client_query_cache for pymongo.MongoClient; import asyncio managers from client_query_cache.asynchronous for pymongo.AsyncMongoClient.",
     "Create cached views with manager.get_cached_collection(collection) or manager[database][collection]. Supply collections from the manager's own client; retain views for repeated use.",
     "Use cached views for find_one, find, aggregate, count_documents, estimated_document_count and distinct. Use the original PyMongo collection or .raw for writes, administration and other methods.",

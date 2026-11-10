@@ -11,6 +11,7 @@ from client_query_cache import CacheCore, CacheCoreConfig
 from client_query_cache._core.entries import AdmissionOutcome
 from client_query_cache._core.keys import NamespaceId
 from client_query_cache._core.namespace_metadata import NamespaceMetadataCache
+from client_query_cache._core.selective_invalidation import partition_scalar
 from client_query_cache._core.stream_events import (
     CHANGE_STREAM_PROJECTION,
     INDEX_OPERATION_TYPES,
@@ -633,3 +634,78 @@ def test_disabled_routing_needs_no_timestamp_or_measurement_clock(
     route_change_event(cache, "db", event)
     assert clock.call_count == 0
     cache.record_invalidation_applied.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("operation", "hint", "keyword", "expected"),
+    [
+        pytest.param(
+            "insert",
+            {"known": True, "value": 99},
+            "partition",
+            partition_scalar(99),
+            id="known-partition",
+        ),
+        pytest.param(
+            "insert",
+            {"known": True, "value": 42.0},
+            "partition",
+            None,
+            id="uncertain-numeric",
+        ),
+        pytest.param(
+            "insert", {"known": True}, "partition", None, id="missing-partition"
+        ),
+        pytest.param(
+            "insert", {"known": False}, "partition", None, id="unknown-partition"
+        ),
+        pytest.param("insert", None, "partition", None, id="malformed-partition"),
+        pytest.param(
+            "update",
+            {"known": True, "names": ["views"]},
+            "changed_paths",
+            ["views"],
+            id="known-update",
+        ),
+        pytest.param(
+            "update",
+            {"known": True, "names": []},
+            "changed_paths",
+            [],
+            id="empty-update",
+        ),
+        pytest.param(
+            "update", {"known": True}, "changed_paths", None, id="missing-names"
+        ),
+        pytest.param(
+            "update",
+            {"known": True, "names": ["array.0"]},
+            "changed_paths",
+            None,
+            id="ambiguous-path",
+        ),
+        pytest.param(
+            "update",
+            {"known": True, "names": ["a"] * 33},
+            "changed_paths",
+            None,
+            id="name-overflow",
+        ),
+        pytest.param("update", None, "changed_paths", None, id="malformed-update"),
+    ],
+)
+def test_selective_hint_routing_falls_back_for_uncertain_payloads(
+    operation: str,
+    hint: object,
+    keyword: str,
+    expected: object,
+) -> None:
+    cache = Mock()
+    cache.enable_telemetry = False
+    cache.has_namespace.return_value = True
+    event = _projected_event_for(operation)
+    event["partition" if operation == "insert" else "changes"] = hint
+    assert not route_change_event(cache, "db", event)
+    cache.record_write.assert_called_once_with(
+        NamespaceId("db", "coll"), "doc-1", **{keyword: expected}
+    )

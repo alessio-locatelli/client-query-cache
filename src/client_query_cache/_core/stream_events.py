@@ -2,16 +2,22 @@ from __future__ import annotations
 
 import datetime as dt
 import time
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
 from bson.datetime_ms import DatetimeMS
 
 from client_query_cache._core.keys import NamespaceId
+from client_query_cache._core.selective_invalidation import (
+    MAX_PROOF_PATHS,
+    CollectionPolicies,
+    partition_scalar,
+    valid_dependency_path,
+)
+from client_query_cache._core.selective_projection import selective_projection
 from client_query_cache._types import NonNegativeInt
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
-
     from pymongo.errors import OperationFailure
 
     from client_query_cache._core.contracts import LocalCacheCore as CacheCore
@@ -42,17 +48,18 @@ CHANGE_STREAM_PROJECTION: Mapping[str, NonNegativeInt] = {
 
 
 def build_change_stream_pipeline(
-    *, enable_telemetry: bool = False
+    *, enable_telemetry: bool = False, invalidation: CollectionPolicies | None = None
 ) -> list[Mapping[str, Any]]:
+    projection: dict[str, Any] = {
+        key: value
+        for key, value in CHANGE_STREAM_PROJECTION.items()
+        if enable_telemetry or key not in {"wallTime", "clusterTime"}
+    }
+    if invalidation:
+        projection.update(selective_projection(invalidation))
     return [
         {"$match": {"operationType": {"$in": sorted(RELEVANT_OPERATION_TYPES)}}},
-        {
-            "$project": {
-                key: value
-                for key, value in CHANGE_STREAM_PROJECTION.items()
-                if enable_telemetry or key not in {"wallTime", "clusterTime"}
-            }
-        },
+        {"$project": projection},
     ]
 
 
@@ -82,7 +89,38 @@ def _record_invalidation(
 def _route_write(cache: CacheCore, database: str, event: Mapping[str, Any]) -> None:
     namespace = _namespace_from_ns(event["ns"])
     if cache.has_namespace(namespace):
-        cache.record_write(namespace, event["documentKey"]["_id"])
+        if event["operationType"] == "insert" and "partition" in event:
+            hint = event["partition"]
+            partition = None
+            if (
+                isinstance(hint, Mapping)
+                and "known" in hint
+                and hint["known"] is True
+                and "value" in hint
+            ):
+                partition = partition_scalar(hint["value"])
+            cache.record_write(
+                namespace, event["documentKey"]["_id"], partition=partition
+            )
+        elif event["operationType"] == "update" and "changes" in event:
+            hint = event["changes"]
+            paths = None
+            if isinstance(hint, Mapping) and "known" in hint and hint["known"] is True:
+                try:
+                    candidate = hint["names"]
+                except KeyError:
+                    candidate = None
+                if (
+                    isinstance(candidate, list)
+                    and len(candidate) <= MAX_PROOF_PATHS
+                    and all(valid_dependency_path(path) for path in candidate)
+                ):
+                    paths = candidate
+            cache.record_write(
+                namespace, event["documentKey"]["_id"], changed_paths=paths
+            )
+        else:
+            cache.record_write(namespace, event["documentKey"]["_id"])
         if cache.enable_telemetry:
             _record_invalidation(cache, database, event)
 

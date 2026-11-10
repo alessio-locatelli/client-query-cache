@@ -75,9 +75,10 @@ if TYPE_CHECKING:
     from client_query_cache._core.namespace_metadata import NamespaceMetadataCache
     from client_query_cache.synchronous.collection import CachedCollection
 
-PathKind = Literal["direct", "current"]
-ReadKind = Literal["feed", "count", "own", "by_id"]
-Mix = Literal["insert", "update"]
+PathKind = Literal["direct", "current", "production"]
+Policy = Literal["disabled", "insert", "counts", "both"]
+ReadKind = Literal["feed", "count", "own", "by_id", "prefix"]
+Mix = Literal["insert", "update", "mixed"]
 Scenario = Literal["cached", "uncached", "unrelated"]
 READ_KINDS: tuple[ReadKind, ...] = ("feed", "count", "own", "by_id")
 PATHS: tuple[PathKind, ...] = ("direct", "current")
@@ -179,9 +180,9 @@ def restore(
     mix: Mix,
     scheduled: dict[NonNegativeInt, Write],
 ) -> None:
-    if mix == "insert":
+    if mix in {"insert", "mixed"}:
         collection.delete_many({"_id": {"$gte": DOCUMENTS}})
-    else:
+    if mix in {"update", "mixed"}:
         identities = tuple(
             dict.fromkeys(write.identity for write in scheduled.values())
         )
@@ -189,9 +190,12 @@ def restore(
 
 
 def feed(
-    view: Collection[BsonDict] | CachedCollection[BsonDict], query: BsonDict
+    view: Collection[BsonDict] | CachedCollection[BsonDict],
+    query: BsonDict,
+    *,
+    limit: PositiveInt = FEED_LIMIT,
 ) -> list[BsonDict]:
-    return list(view.find(query).sort("created", -1).limit(FEED_LIMIT))
+    return list(view.find(query).sort("created", -1).limit(limit))
 
 
 def operations(
@@ -280,9 +284,39 @@ def writes_for(
     scheduled: dict[NonNegativeInt, Write] = {}
     for index in range(reads_per_write, reads, reads_per_write):
         identity = rng.randrange(DOCUMENTS)
-        author = rng.randrange(AUTHORS) if mix == "insert" else identity % AUTHORS
-        scheduled[index] = Write(mix, identity, author, DOCUMENTS + len(scheduled))
+        operation = (
+            ("insert" if len(scheduled) % 2 == 0 else "update")
+            if mix == "mixed"
+            else mix
+        )
+        author = rng.randrange(AUTHORS) if operation == "insert" else identity % AUTHORS
+        scheduled[index] = Write(
+            operation, identity, author, DOCUMENTS + len(scheduled)
+        )
     return scheduled
+
+
+def configured_manager(
+    client: pymongo.MongoClient[BsonDict], policy: Policy
+) -> CacheManager[BsonDict]:
+    config = CacheCoreConfig(enable_telemetry=True)
+    if policy == "disabled":
+        return CacheManager(client, cache_config=config)
+    # Import only for enabled comparisons so the same runner can measure main.
+    from client_query_cache import SelectiveInvalidation  # noqa: PLC0415
+
+    return CacheManager(
+        client,
+        cache_config=config,
+        invalidation={
+            ("bench", "target"): SelectiveInvalidation(
+                insert_partition_field="author_id"
+                if policy in {"insert", "both"}
+                else None,
+                update_dependencies_for_counts=policy in {"counts", "both"},
+            ),
+        },
+    )
 
 
 def run_cell(
@@ -298,11 +332,17 @@ def run_cell(
     reads_per_write: PositiveInt,
     control_rate: NonNegativeInt = 0,
     seconds: NonNegativeFloat = 0,
+    policy: Policy = "disabled",
 ) -> BsonDict:
     scheduled = writes_for(mix, reads, reads_per_write, rep)
     if control_rate:
         scheduled = {
-            index: Write(mix, index % DOCUMENTS, index % AUTHORS, DOCUMENTS + index)
+            index: Write(
+                ("insert" if index % 2 == 0 else "update") if mix == "mixed" else mix,
+                index % DOCUMENTS,
+                index % AUTHORS,
+                DOCUMENTS + index,
+            )
             for index in range(round(control_rate * seconds))
         }
     writer_name = "sibling" if scenario == "uncached" else "target"
@@ -319,7 +359,7 @@ def run_cell(
                     DirectPathProxyConfig(TOPOLOGY, address.hostname, address.port)
                 )
             )
-            for _ in range(2)
+            for _ in range(1 if path == "production" else 2)
         )
         app = stack.enter_context(
             build_dedicated_client(
@@ -328,29 +368,28 @@ def run_cell(
                 event_listeners=(listener,),
             )
         )
-        stream_client = stack.enter_context(
-            build_dedicated_client(
-                f"mongodb://127.0.0.1:{proxies[1].local_port}",
-                TOPOLOGY,
-            )
-        )
-        stream_client.admin.command("ping")
         router.install(stack)
-        stack.enter_context(
-            patch.object(
-                manager_module,
-                "ChangeStreamCoordinator",
-                lambda _client, cache, **kwargs: ChangeStreamCoordinator(
-                    stream_client, cache, **kwargs
-                ),
+        if path != "production":
+            stream_client = stack.enter_context(
+                build_dedicated_client(
+                    f"mongodb://127.0.0.1:{proxies[1].local_port}",
+                    TOPOLOGY,
+                )
             )
-        )
+            stream_client.admin.command("ping")
+            stack.enter_context(
+                patch.object(
+                    manager_module,
+                    "ChangeStreamCoordinator",
+                    lambda _client, cache, **kwargs: ChangeStreamCoordinator(
+                        stream_client, cache, **kwargs
+                    ),
+                )
+            )
         manager = (
             None
             if path == "direct"
-            else stack.enter_context(
-                CacheManager(app, cache_config=CacheCoreConfig(enable_telemetry=True))
-            )
+            else stack.enter_context(configured_manager(app, policy))
         )
         name = "other" if scenario == "unrelated" else "target"
         raw = app.bench[name].with_options(
@@ -476,7 +515,9 @@ def run_cell(
             "writes": len(scheduled),
             "timing": asdict(timing),
             "application_wire": wire[0],
-            "stream_wire": wire[1],
+            "stream_wire": None if path == "production" else wire[1],
+            "policy": policy,
+            "applied_events": len(router.applied),
             "logical_bytes": logical_bytes,
             "route_cpu_ns": router.route_cpu_ns,
             "driver_reads": listener.counts,
@@ -492,7 +533,11 @@ def run_cell(
 
 
 def micro(
-    replica: IsolatedReplicaSet, database: Database[BsonDict], rep: NonNegativeInt
+    replica: IsolatedReplicaSet,
+    database: Database[BsonDict],
+    rep: NonNegativeInt,
+    *,
+    reads_per_batch: PositiveInt = 4000,
 ) -> BsonDict:
     listener = ReadCommands()
     with ExitStack() as stack:
@@ -506,26 +551,46 @@ def micro(
         await_warm(manager, calls["by_id", 0])
         for index in range(WARMUP):
             calls[read_key(index)]()
-        batches = {}
-        for kind in READ_KINDS:
-            cpu_samples = []
-            wall_samples = []
-            listener.active = kind
-            before = manager.snapshot()  # pytriage: TR11 - Snapshot precedes batches.
-            for _ in range(3):
+        kinds: tuple[ReadKind, ...] = (*READ_KINDS, "prefix")
+        view = manager.get_cached_collection(client[database.name].target)
+        for author in range(HOT_AUTHORS):
+            calls["prefix", author] = partial(
+                feed, view, {"author_id": author}, limit=5
+            )
+        listener.counts["prefix"] = 0
+        cpu_samples: dict[ReadKind, list[NonNegativeFloat]] = {
+            kind: [] for kind in kinds
+        }
+        wall_samples: dict[ReadKind, list[NonNegativeFloat]] = {
+            kind: [] for kind in kinds
+        }
+        before = manager.snapshot()  # pytriage: TR5, TR11 (before measured batches)
+        for batch in range(12):
+            for kind in kinds if batch % 2 == 0 else tuple(reversed(kinds)):
+                listener.active = kind
                 cpu_started = time.thread_time_ns()
                 wall_started = time.perf_counter_ns()
-                for index in range(4000):
+                for index in range(reads_per_batch):
                     calls[kind, index % HOT_AUTHORS]()
-                wall_samples.append((time.perf_counter_ns() - wall_started) / 4000)
-                cpu_samples.append((time.thread_time_ns() - cpu_started) / 4000)
-            listener.active = None
-            assert manager.snapshot().hits - before.hits == 12_000
-            assert listener.counts[kind] == 0
-            batches[kind] = {
-                "cpu_ns_per_hit": cpu_samples,
-                "wall_ns_per_hit": wall_samples,
+                wall_samples[kind].append(
+                    (time.perf_counter_ns() - wall_started) / reads_per_batch
+                )
+                cpu_samples[kind].append(
+                    (time.thread_time_ns() - cpu_started) / reads_per_batch
+                )
+        listener.active = None
+        assert (
+            manager.snapshot().hits - before.hits == len(kinds) * 12 * reads_per_batch
+        )
+        assert all(listener.counts[kind] == 0 for kind in kinds)
+        batches = {
+            kind: {
+                "cpu_ns_per_hit": cpu_samples[kind],
+                "wall_ns_per_hit": wall_samples[kind],
             }
+            for kind in kinds
+        }
+
         return {"path": "current", "rep": rep, "size": 2000, "batches": batches}
 
 
@@ -540,9 +605,28 @@ def main() -> None:
     parser.add_argument("--reads", type=int, default=4096)
     parser.add_argument("--seconds", type=float, default=8.0)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument(
+        "--paths", nargs="+", choices=("direct", "current", "production"), default=PATHS
+    )
+    parser.add_argument(
+        "--policy", choices=("disabled", "insert", "counts", "both"), default="disabled"
+    )
+    parser.add_argument(
+        "--policies", nargs="+", choices=("disabled", "insert", "counts", "both")
+    )
+    parser.add_argument("--sizes", nargs="+", type=int)
+    parser.add_argument(
+        "--mixes",
+        nargs="+",
+        choices=("insert", "update", "mixed"),
+        default=("insert", "update"),
+    )
+    parser.add_argument("--ratios", nargs="+", type=int)
+    parser.add_argument("--micro-reads", type=int, default=4000)
     args = parser.parse_args()
     if (
-        args.reps < 1
+        args.micro_reads < 1
+        or args.reps < 1
         or args.reads < 128
         or args.reads % 4
         or not 1 <= args.seconds <= 60
@@ -550,6 +634,10 @@ def main() -> None:
         parser.error(
             "positive reps, reads >=128 divisible by four, seconds in [1,60] required"
         )
+    if (args.sizes is not None and any(size < 200 for size in args.sizes)) or (
+        args.ratios is not None and any(ratio < 1 for ratio in args.ratios)
+    ):
+        parser.error("sizes must be at least 200 bytes and ratios must be positive")
     args.out.parent.mkdir(parents=True, exist_ok=True)
     with (
         args.out.open("x") as output,
@@ -559,7 +647,10 @@ def main() -> None:
         cells: list[BsonDict] = []
         if args.suite == "micro":
             seed(client.bench, 2000)
-            cells.extend(micro(replica, client.bench, rep) for rep in range(args.reps))
+            cells.extend(
+                micro(replica, client.bench, rep, reads_per_batch=args.micro_reads)
+                for rep in range(args.reps)
+            )
         sizes = (
             (2000,)
             if args.suite in {"pilot", "controls"}
@@ -567,17 +658,26 @@ def main() -> None:
             if args.suite == "micro"
             else (200, 2000, 20000)
         )
+        if args.sizes is not None:
+            sizes = tuple(args.sizes)
         for rep, size in product(range(args.reps), sizes):
             body = seed(client.bench, size)
-            paths = PATHS if rep % 2 == 0 else tuple(reversed(PATHS))
-            mixes: tuple[Mix, ...] = ("insert", "update")
+            paths = tuple(args.paths) if rep % 2 == 0 else tuple(reversed(args.paths))
+            mixes: tuple[Mix, ...] = tuple(args.mixes)
             scenarios: tuple[Scenario, ...] = (
                 ("uncached", "unrelated") if args.suite == "controls" else ("cached",)
             )
             rates: tuple[PositiveInt, ...] = (
                 (10, 100) if args.suite == "controls" else (100, 10)
             )
-            for mix, scenario, rate, path in product(mixes, scenarios, rates, paths):
+            if args.ratios is not None:
+                rates = tuple(args.ratios)
+            policies = tuple(args.policies or (args.policy,))
+            if rep % 2:
+                policies = tuple(reversed(policies))
+            for mix, scenario, rate, path, policy in product(
+                mixes, scenarios, rates, paths, policies
+            ):
                 if args.suite == "controls" and path == "direct":
                     continue
                 cell = run_cell(
@@ -592,6 +692,7 @@ def main() -> None:
                     reads_per_write=rate,
                     control_rate=rate if args.suite == "controls" else 0,
                     seconds=args.seconds if args.suite == "controls" else 0,
+                    policy=policy,
                 )
                 cells.append({"size": size, **cell})
         git = shutil.which("git")

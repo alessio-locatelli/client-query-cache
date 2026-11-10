@@ -143,7 +143,14 @@ class LocalCacheCore(_LocalCacheCore):
     def begin_identity_admission(
         self, namespace: NamespaceId, identity: object
     ) -> LocalCapture: ...
-    def capture_namespace_generation(self, namespace: NamespaceId) -> LocalCapture: ...
+    def capture_namespace_generation(
+        self,
+        namespace: NamespaceId,
+        *,
+        partition: bytes | None = None,
+        dependencies: tuple[str, ...] | None = None,
+        expected_epoch: NonNegativeInt | None = None,
+    ) -> LocalCapture: ...
 
 @final
 class SharedOwnerCore(LocalCacheCore):

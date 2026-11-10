@@ -7,6 +7,10 @@ from client_query_cache._core.collection_metadata import (
     CollectionMetadata,
     CollectionMetadataCache,
 )
+from client_query_cache._core.selective_invalidation import (
+    SelectiveInvalidation,
+    normalize_invalidation,
+)
 from client_query_cache._core.snapshots import BypassReason
 from client_query_cache._core.stream_options import (
     DEFAULT_MAX_AWAIT_TIME_MS,
@@ -39,23 +43,34 @@ if TYPE_CHECKING:
 
 
 class CacheManager[DocumentType: Mapping[str, Any]]:
-    __slots__ = ("_cache", "_client", "_coordinator", "_metadata", "_unique_keys")
+    __slots__ = (
+        "_cache",
+        "_client",
+        "_coordinator",
+        "_invalidation",
+        "_metadata",
+        "_unique_keys",
+    )
 
     def __init__(
         self,
         client: AsyncMongoClient[DocumentType],
         *,
         cache_config: CacheCoreConfig | None = None,
+        invalidation: Mapping[tuple[str, str], SelectiveInvalidation] | None = None,
         max_await_time_ms: MaxAwaitTimeMs = DEFAULT_MAX_AWAIT_TIME_MS,
     ) -> None:
         validate_max_await_time_ms(max_await_time_ms)
+        policies = normalize_invalidation(invalidation)
+        self._invalidation = policies or None
         self._client = client
-        self._cache = CacheCore(cache_config)
+        self._cache = CacheCore(cache_config, invalidation=policies or None)
         self._metadata = CollectionMetadataCache(self._cache.max_namespaces)
         self._coordinator = ChangeStreamCoordinator(
             client,
             self._cache,
             metadata_cache=self._metadata,
+            invalidation=policies,
             max_await_time_ms=max_await_time_ms,
         )
         self._unique_keys = UniqueKeyMetadataCache(self._cache.max_namespaces)

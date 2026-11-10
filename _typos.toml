@@ -1,4 +1,6 @@
 [default.extend-words]
 CPY = "CPY"
+# The default flags "nin" as a typo. We override it because MongoDB uses $nin.
+nin = "nin"
 [files]
 extend-exclude = ["specifications"]
