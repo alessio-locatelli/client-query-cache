@@ -22,7 +22,7 @@ BANNED = (
     "_probes",
     "admit_identity_encoded",
     "lose_history",
-    "reference_canonicalize",
+    "_reference_canonicalize",
 )
 OPTIONAL_MODULES = ("client_query_cache.otel",)
 BANNED_MODULES = (

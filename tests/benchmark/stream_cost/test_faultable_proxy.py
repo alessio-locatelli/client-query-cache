@@ -3,7 +3,7 @@ from __future__ import annotations
 import socket
 import threading
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import pytest
 
@@ -25,8 +25,6 @@ _BUFFER_OVERFLOW_BYTES = 200_000
 _SOCKET_TIMEOUT_SECONDS = 5.0
 _PAUSE_QUIET_SECONDS = 0.2
 _HALF_CLOSE_REPLY_BYTES = 64
-_PARTIAL_CHUNK_BYTES = 1_048_576
-_PARTIAL_CHUNKS = 64
 
 
 @pytest.fixture
@@ -48,26 +46,6 @@ def upstream_port() -> Iterator[NonNegativeInt]:
     thread = threading.Thread(target=serve, daemon=True)
     thread.start()
     yield listener.getsockname()[1]
-    listener.close()
-    thread.join(timeout=_SOCKET_TIMEOUT_SECONDS)
-
-
-@pytest.fixture
-def stalled_upstream_port() -> Iterator[NonNegativeInt]:
-    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    listener.bind(("127.0.0.1", 0))
-    listener.listen()
-    release = threading.Event()
-
-    def hold() -> None:
-        connection, _ = listener.accept()
-        with connection:
-            release.wait(_SOCKET_TIMEOUT_SECONDS)
-
-    thread = threading.Thread(target=hold, daemon=True)
-    thread.start()
-    yield listener.getsockname()[1]
-    release.set()
     listener.close()
     thread.join(timeout=_SOCKET_TIMEOUT_SECONDS)
 
@@ -110,27 +88,45 @@ def test_a_half_closed_large_request_is_counted_before_the_reply(
     assert proxy.bytes_sent == len(request)
 
 
-def test_a_severed_partial_transfer_counts_the_bytes_already_written(
-    stalled_upstream_port: NonNegativeInt, faker: Faker
-) -> None:
-    topology = BenchmarkClientTopologyConfig(
-        tls_enabled=False,
-        compressor=WireCompressor.NONE,
-        discovery_enabled=False,
-        shared_connections=False,
-    )
-    payload = faker.binary(length=_PARTIAL_CHUNK_BYTES) * _PARTIAL_CHUNKS
-    config = DirectPathProxyConfig(topology, "127.0.0.1", stalled_upstream_port)
-    with FaultableProxy(config) as proxy:
-        with socket.create_connection(("127.0.0.1", proxy.local_port)) as client:
-            client.settimeout(_PAUSE_QUIET_SECONDS)
-            with pytest.raises(TimeoutError):
-                client.sendall(payload)
-            wait_until(lambda: proxy.bytes_sent > 0)
-            proxy.sever()
-            wait_until(lambda: proxy._connection_threads == [])
+class _ChunkedSource:
+    __slots__ = ("_chunks",)
 
-        assert 0 < proxy.bytes_sent < len(payload)
+    def __init__(self, chunk: bytes) -> None:
+        self._chunks = [chunk]
+
+    def recv(self, _size: int) -> bytes:
+        return self._chunks.pop() if self._chunks else b""
+
+
+class _PartialSocket:
+    __slots__ = ("_written",)
+
+    def __init__(self, written: NonNegativeInt) -> None:
+        self._written = written
+
+    def send(self, chunk: memoryview) -> int:
+        if self._written == 0:
+            raise ConnectionResetError
+        written = min(self._written, len(chunk))
+        self._written -= written
+        return written
+
+
+def test_an_interrupted_send_counts_the_bytes_already_written(
+    proxy_config: DirectPathProxyConfig, faker: Faker
+) -> None:
+    chunk = faker.binary(length=_HALF_CLOSE_REPLY_BYTES)
+    accepted = _HALF_CLOSE_REPLY_BYTES // 4
+    proxy = FaultableProxy(proxy_config)
+
+    with pytest.raises(ConnectionResetError):
+        proxy._relay(
+            cast("socket.socket", _ChunkedSource(chunk)),
+            cast("socket.socket", _PartialSocket(accepted)),
+            is_sent=True,
+        )
+
+    assert proxy.bytes_sent == accepted
 
 
 def test_pause_holds_traffic_until_resume(
