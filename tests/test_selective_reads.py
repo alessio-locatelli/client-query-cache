@@ -1166,3 +1166,21 @@ def test_async_cursor_gc_reclaims_capacity_without_a_running_event_loop(
         core.admit_namespace(replacement, "after-dormant-gc", 1)
         is AdmissionOutcome.ADMITTED
     )
+
+
+@pytest.mark.parametrize(
+    "selective_reads", [("sync", True, True), ("async", True, True)], indirect=True
+)
+async def test_selective_policy_preserves_unsupported_find_bypass_without_telemetry(
+    selective_reads: SelectiveReads,
+    unmeasured_view: View,
+) -> None:
+    query = {"author_id": 42}
+    expected = await materialize(unmeasured_view.raw.find(query, hint="_id_"))
+    commands = selective_reads["commands"].commands
+    commands.clear()
+    for _ in range(2):
+        assert await materialize(unmeasured_view.find(query, hint="_id_")) == expected
+    assert [command["find"] for command in commands] == [unmeasured_view.name] * 2
+    assert all(command["hint"] == "_id_" for command in commands)
+    assert not unmeasured_view.database.manager._coordinator._supervisors

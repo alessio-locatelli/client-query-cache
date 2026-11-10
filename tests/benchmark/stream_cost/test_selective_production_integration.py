@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from pymongo.synchronous.database import Database
 
     from client_query_cache._types import BsonDict
-    from research.invalidation_scope.end_to_end import Mix, Policy
+    from research.invalidation_scope.end_to_end import Mix, Policy, Scenario
 
 pytestmark = pytest.mark.integration
 
@@ -32,11 +32,12 @@ def production_workload() -> Iterator[
 
 
 @pytest.mark.parametrize(
-    ("policy", "mix", "rate", "seconds", "writes", "reads"),
+    ("policy", "mix", "rate", "seconds", "scenario", "writes", "reads"),
     [
-        ("both", "mixed", 0, 0, 12, 128),
-        ("insert", "update", 8, 1, 8, 8),
-        ("counts", "insert", 8, 1, 8, 8),
+        ("both", "mixed", 0, 0, "cached", 12, 128),
+        ("insert", "update", 8, 1, "cached", 8, 8),
+        ("counts", "insert", 8, 1, "cached", 8, 8),
+        ("both", "insert", 8, 1, "uncached", 8, 8),
     ],
 )
 def test_production_runner_reconciles_public_cache_and_native_commands(
@@ -46,6 +47,7 @@ def test_production_runner_reconciles_public_cache_and_native_commands(
     rate: NonNegativeInt,
     seconds: NonNegativeFloat,
     *,
+    scenario: Scenario,
     writes: NonNegativeInt,
     reads: NonNegativeInt,
 ) -> None:
@@ -57,7 +59,7 @@ def test_production_runner_reconciles_public_cache_and_native_commands(
         path="production",
         policy=policy,
         mix=mix,
-        scenario="cached",
+        scenario=scenario,
         rep=0,
         reads=128,
         reads_per_write=10,
@@ -68,6 +70,9 @@ def test_production_runner_reconciles_public_cache_and_native_commands(
     assert cell["policy"] == policy
     assert cell["stream_wire"] is None
     assert cell["writes"] == cell["applied_events"] == writes
+    logical_bytes = cell["logical_bytes"]
+    assert isinstance(logical_bytes, int)
+    assert logical_bytes > 0
     assert isinstance(cell["cache_delta"], dict)
     assert isinstance(cell["driver_reads"], dict)
     assert cell["cache_delta"]["bypasses"] == 0
