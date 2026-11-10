@@ -812,7 +812,18 @@ _CANDIDATE_CORES: dict[str, Callable[[CacheCoreConfig], LocalCacheCore]] = {
 
 @pytest.mark.parametrize("candidate", tuple(_CANDIDATE_CORES))
 @settings(max_examples=100, deadline=None)
-@example(operations=[("identity", 0, 1), ("read", 0, 0)])
+@example(
+    operations=[
+        ("lookup", 0, 0),
+        ("read", 0, 0),
+        ("admit", 0, 1),
+        ("lookup", 0, 0),
+        ("identity", 0, 1),
+        ("read", 0, 0),
+        ("write", 0, 0),
+        ("availability", 0, -1),
+    ]
+)
 @given(operations=_OPERATIONS)
 def test_generated_collision_and_eviction_schedules_never_return_a_stale_value(
     candidate: str, operations: list[tuple[str, int, int]]
