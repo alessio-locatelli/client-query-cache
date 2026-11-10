@@ -13,6 +13,8 @@ bodies or OpenSpec. An empty Unreleased section is valid.
 
 ## Unreleased
 
+## [0.14.0] - 2026-11-10
+
 ### Breaking changes
 
 - Diagnostic collection is disabled by default. Set `enable_telemetry=True` on `CacheCoreConfig` or the server's `SharedCacheConfig` to use snapshots, stream-cost inspection and reset, or OpenTelemetry registration. Disabled diagnostics raise `CacheConfigurationError`.
