@@ -26,23 +26,23 @@ PYTHONPATH=. uv run python scripts/installed_build_compare.py startup WORKDIR 40
 bash -c 'source scripts/testcontainers-bridge.sh; PYTHONPATH=. uv run python scripts/installed_build_compare.py guard WORKDIR 31'
 ```
 
-`python3 -I scripts/installed_build_probe.py audit`, run with either virtual environment's interpreter, prints the installed-package inventory used above.
+`python3 -I scripts/installed_build_probe.py audit`, run with either virtual environment's interpreter, prints the installed-package inventory used above and exits nonzero when a retired module, export or name is present or a required module fails to import (`main` fails it, the candidate passes).
 
 Tests were run with `python -m pytest tests/synchronous tests/asynchronous --junitxml=...` from each revision's checkout against its own wheel. Deleted tests were not compared.
 
 ## Shared-cache warm reads and group PSS
 
-The public benchmark ran against each wheel in its own installation (four workers, isolated replica set, hot window, validated cache outcomes and origin reads). Fifteen rounds alternated which build ran first; each round yields two repetitions per API, so there are 30 paired windows per API. Every window was valid. Candidate/`main` paired ratio medians with 95% bootstrap intervals:
+The public benchmark ran against each wheel in its own installation (four workers, isolated replica set, hot window, validated cache outcomes and origin reads). Fifteen rounds alternated which build ran first; each round yields two repetitions per API, so there are 30 paired windows per API. Every window was valid. Candidate/`main` ratio medians with 95% intervals from a bootstrap that resamples whole rounds, because the two repetitions of a round share one benchmark invocation:
 
 | Metric                      | sync                  | async                |
 | --------------------------- | --------------------- | -------------------- |
-| Median read                 | 0.9996 [0.984, 1.011] | 0.997 [0.964, 1.039] |
-| Throughput                  | 0.998 [0.948, 1.057]  | 1.044 [0.962, 1.114] |
+| Median read                 | 0.9996 [0.983, 1.011] | 0.997 [0.955, 1.041] |
+| Throughput                  | 0.998 [0.948, 1.075]  | 1.044 [0.985, 1.105] |
 | Worker plus owner group PSS | 0.988 [0.988, 0.989]  | 0.990 [0.990, 0.991] |
 | Owner PSS at startup        | 0.987 [0.987, 0.988]  | 0.988 [0.987, 0.988] |
-| Startup wall time           | 0.977 [0.963, 0.988]  | 0.988 [0.977, 0.998] |
+| Startup wall time           | 0.977 [0.965, 0.985]  | 0.988 [0.976, 1.000] |
 
-Read latency and throughput show no difference beyond noise (every interval includes 1). Group and owner PSS are about 1% lower and startup is 1–2% faster, with intervals that exclude 1.
+Read latency and throughput show no difference beyond noise (every interval includes 1). Group and owner PSS are about 1% lower with intervals that exclude 1; startup is 1–2% faster, but the asynchronous interval reaches 1.
 
 ```bash
 source scripts/testcontainers-bridge.sh

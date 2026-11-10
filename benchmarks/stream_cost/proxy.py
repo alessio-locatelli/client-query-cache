@@ -210,9 +210,12 @@ class DirectPathByteProxy:
             chunk = source.recv(_BUFFER_SIZE)
             if not chunk:
                 return
-            destination.sendall(chunk)
-            with self._lock:
-                if is_sent:
-                    self._bytes_sent += len(chunk)
-                else:
-                    self._bytes_received += len(chunk)
+            pending = memoryview(chunk)
+            while pending:
+                written = destination.send(pending)
+                pending = pending[written:]
+                with self._lock:
+                    if is_sent:
+                        self._bytes_sent += written
+                    else:
+                        self._bytes_received += written

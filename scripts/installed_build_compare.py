@@ -8,7 +8,7 @@ import subprocess
 import sys
 import tempfile
 import typing
-from itertools import product
+from itertools import chain, product
 
 from benchmarks.stream_cost.guard_runner import RevisionEnvironment, measure_paired_case
 from benchmarks.stream_cost.guard_workload import CASE_NAMES, PROFILES
@@ -32,6 +32,21 @@ def bootstrap_interval(ratios: list[float], draws: int = 4000) -> tuple[float, f
     generator = random.Random(2026)
     medians = sorted(
         statistics.median(generator.choices(ratios, k=len(ratios)))
+        for _ in range(draws)
+    )
+    return medians[int(0.025 * draws)], medians[int(0.975 * draws)]
+
+
+def cluster_interval(
+    rounds: list[list[float]], draws: int = 4000
+) -> tuple[float, float]:
+    generator = random.Random(2026)
+    medians = sorted(
+        statistics.median(
+            ratio
+            for resampled in generator.choices(rounds, k=len(rounds))
+            for ratio in resampled
+        )
         for _ in range(draws)
     )
     return medians[int(0.025 * draws)], medians[int(0.975 * draws)]
@@ -149,20 +164,21 @@ def shared(work: pathlib.Path, rounds: int) -> None:
     }
     for model in ("sync", "async"):
         pairs = [
-            (base, head)
-            for number in range(1, rounds + 1)
-            for base, head in zip(
-                [w for w in windows("main", number) if w["model"] == model],
-                [w for w in windows("cand", number) if w["model"] == model],
-                strict=True,
+            list(
+                zip(
+                    [w for w in windows("main", number) if w["model"] == model],
+                    [w for w in windows("cand", number) if w["model"] == model],
+                    strict=True,
+                )
             )
+            for number in range(1, rounds + 1)
         ]
         for name, read in metrics.items():
-            ratios = [read(head) / read(base) for base, head in pairs]
-            low, high = bootstrap_interval(ratios)
+            by_round = [[read(head) / read(base) for base, head in r] for r in pairs]
+            low, high = cluster_interval(by_round)
             print(
-                f"{model:5s} {name:24s} pairs={len(pairs)} "
-                f"ratio median {statistics.median(ratios):.4f} "
+                f"{model:5s} {name:24s} rounds={rounds} "
+                f"ratio median {statistics.median(chain.from_iterable(by_round)):.4f} "
                 f"[{low:.4f}, {high:.4f}]"
             )
 
