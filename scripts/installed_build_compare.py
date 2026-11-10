@@ -1,11 +1,13 @@
 import hashlib
 import json
+import operator
 import pathlib
 import random
 import statistics
 import subprocess
 import sys
 import tempfile
+import typing
 from itertools import product
 
 from benchmarks.stream_cost.guard_runner import RevisionEnvironment, measure_paired_case
@@ -125,7 +127,47 @@ def guard(work: pathlib.Path, pairs: int) -> None:
             )
 
 
+def shared(work: pathlib.Path, rounds: int) -> None:
+    def windows(build: str, number: int) -> list[dict[str, typing.Any]]:
+        path = work / "raw" / "shared" / f"{build}-{number}.json"
+        report = json.loads(path.read_text(encoding="utf-8"))
+        if report["invalid_reason"] or not report["validated"]:
+            message = f"{path} is not a valid window set"
+            raise SystemExit(message)
+        return report["windows"]
+
+    metrics = {
+        "median_us": operator.itemgetter("median_us"),
+        "throughput": operator.itemgetter("throughput"),
+        "group_pss_bytes": lambda w: w["worker_pss_bytes"] + w["owner_pss_bytes"],
+        "owner_startup_pss_bytes": lambda w: w["startup_owner_before_result_warmup"][
+            "pss_bytes"
+        ],
+        "startup_wall_seconds": operator.itemgetter(
+            "startup_wall_seconds_before_result_warmup"
+        ),
+    }
+    for model in ("sync", "async"):
+        pairs = [
+            (base, head)
+            for number in range(1, rounds + 1)
+            for base, head in zip(
+                [w for w in windows("main", number) if w["model"] == model],
+                [w for w in windows("cand", number) if w["model"] == model],
+                strict=True,
+            )
+        ]
+        for name, read in metrics.items():
+            ratios = [read(head) / read(base) for base, head in pairs]
+            low, high = bootstrap_interval(ratios)
+            print(
+                f"{model:5s} {name:24s} pairs={len(pairs)} "
+                f"ratio median {statistics.median(ratios):.4f} "
+                f"[{low:.4f}, {high:.4f}]"
+            )
+
+
 if __name__ == "__main__":
-    {"startup": startup, "guard": guard}[sys.argv[1]](
+    {"startup": startup, "guard": guard, "shared": shared}[sys.argv[1]](
         pathlib.Path(sys.argv[2]), int(sys.argv[3])
     )

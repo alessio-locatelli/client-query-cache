@@ -32,16 +32,24 @@ Tests were run with `python -m pytest tests/synchronous tests/asynchronous --jun
 
 ## Shared-cache warm reads and group PSS
 
-The public benchmark ran against each wheel in its own installation (four workers, isolated replica set, hot window, validated cache outcomes and origin reads, five alternating rounds per build, ten windows per build and API). Every window was valid. Medians, candidate/`main`:
+The public benchmark ran against each wheel in its own installation (four workers, isolated replica set, hot window, validated cache outcomes and origin reads). Fifteen rounds alternated which build ran first; each round yields two repetitions per API, so there are 30 paired windows per API. Every window was valid. Candidate/`main` paired ratio medians with 95% bootstrap intervals:
 
-| API   | Median read | Throughput | Worker plus owner PSS | Owner PSS at startup | Startup wall time |
-| ----- | ----------- | ---------- | --------------------- | -------------------- | ----------------- |
-| sync  | 0.9997      | 1.030      | 0.988                 | 0.987                | 0.975             |
-| async | 1.006       | 1.129      | 0.991                 | 0.988                | 0.990             |
+| Metric                      | sync                  | async                |
+| --------------------------- | --------------------- | -------------------- |
+| Median read                 | 0.9996 [0.984, 1.011] | 0.997 [0.964, 1.039] |
+| Throughput                  | 0.998 [0.948, 1.057]  | 1.044 [0.962, 1.114] |
+| Worker plus owner group PSS | 0.988 [0.988, 0.989]  | 0.990 [0.990, 0.991] |
+| Owner PSS at startup        | 0.987 [0.987, 0.988]  | 0.988 [0.987, 0.988] |
+| Startup wall time           | 0.977 [0.963, 0.988]  | 0.988 [0.977, 0.998] |
 
-Read latency is equal; group PSS is about 1% lower. The throughput gains are within the spread of these short windows and are not claimed.
+Read latency and throughput show no difference beyond noise (every interval includes 1). Group and owner PSS are about 1% lower and startup is 1–2% faster, with intervals that exclude 1.
 
 ```bash
 source scripts/testcontainers-bridge.sh
-PYTHONPATH=. WORKDIR/venv-BUILD/bin/python -m benchmarks.public_shared_cache --validate --samples 1000 --repetitions 2 --workers 4 --paths shared --workloads hot --output OUT.json
+for round in $(seq 1 15); do
+  for build in $([ $((round % 2)) = 0 ] && echo "cand main" || echo "main cand"); do
+    PYTHONPATH=. WORKDIR/venv-$build/bin/python -m benchmarks.public_shared_cache --validate --samples 1000 --repetitions 2 --workers 4 --paths shared --workloads hot --output WORKDIR/raw/shared/$build-$round.json
+  done
+done
+PYTHONPATH=. uv run python scripts/installed_build_compare.py shared WORKDIR 15
 ```
