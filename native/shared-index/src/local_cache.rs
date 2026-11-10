@@ -18,6 +18,7 @@ use rustc_hash::FxBuildHasher;
 use crate::index::Block;
 use crate::keys::OrderedKeys;
 
+mod selective;
 mod shared;
 
 pub(crate) use shared::SharedOwner;
@@ -433,6 +434,12 @@ enum Body {
         generation: u64,
         source: Option<Source>,
     },
+    Selective {
+        payload: Stored,
+        weight: usize,
+        source: Option<Source>,
+        guard: Arc<selective::Guard>,
+    },
     Identity {
         payload: Stored,
         weight: usize,
@@ -455,6 +462,13 @@ struct Node {
 }
 
 impl Node {
+    fn query_generation(&self) -> u64 {
+        match &self.body {
+            Body::Namespace { generation, .. } => *generation,
+            Body::Selective { guard, .. } => guard.query_token,
+            _ => unreachable!("query node"),
+        }
+    }
     fn clone_ref(&self, py: Python<'_>) -> Self {
         Self {
             token: self.token,
@@ -472,6 +486,17 @@ impl Node {
                     weight: *weight,
                     generation: *generation,
                     source: *source,
+                },
+                Body::Selective {
+                    payload,
+                    weight,
+                    source,
+                    guard,
+                } => Body::Selective {
+                    payload: payload.clone_ref(py),
+                    weight: *weight,
+                    source: *source,
+                    guard: guard.clone(),
                 },
                 Body::Identity {
                     payload,
@@ -495,26 +520,30 @@ impl Node {
     }
     fn kind(&self) -> Kind {
         match self.body {
-            Body::Namespace { .. } => Kind::Namespace,
+            Body::Namespace { .. } | Body::Selective { .. } => Kind::Namespace,
             Body::Identity { .. } => Kind::Identity,
             Body::Alias { .. } => Kind::Alias,
         }
     }
     fn weight(&self) -> usize {
         match self.body {
-            Body::Namespace { weight, .. } | Body::Identity { weight, .. } => weight,
+            Body::Namespace { weight, .. }
+            | Body::Selective { weight, .. }
+            | Body::Identity { weight, .. } => weight,
             Body::Alias { .. } => 0,
         }
     }
     fn payload(&self) -> &Stored {
         match &self.body {
-            Body::Namespace { payload, .. } | Body::Identity { payload, .. } => payload,
+            Body::Namespace { payload, .. }
+            | Body::Selective { payload, .. }
+            | Body::Identity { payload, .. } => payload,
             Body::Alias { .. } => unreachable!("value payload"),
         }
     }
     fn source(&self) -> Option<&Source> {
         match &self.body {
-            Body::Namespace { source, .. } => source.as_ref(),
+            Body::Namespace { source, .. } | Body::Selective { source, .. } => source.as_ref(),
             _ => None,
         }
     }
@@ -574,6 +603,23 @@ enum Family {
 }
 
 impl Family {
+    fn index(families: &mut HashMap<isize, Self>, source: Source, slot: u64) {
+        match families.entry(source.family) {
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                entry.insert(Self::One(source.limit, slot));
+            }
+            std::collections::hash_map::Entry::Occupied(mut entry) => {
+                entry.get_mut().insert(source.limit, slot)
+            }
+        }
+    }
+    fn unindex(families: &mut HashMap<isize, Self>, source: Source, slot: u64) {
+        if let Some(family) = families.get_mut(&source.family)
+            && family.remove(source.limit, slot)
+        {
+            families.remove(&source.family);
+        }
+    }
     fn insert(&mut self, limit: u64, slot: u64) {
         match self {
             Self::One(previous_limit, previous_slot) => {
@@ -680,9 +726,18 @@ struct State {
     unavailable_reason: usize,
     invalidated_reason: usize,
     shared: Option<Box<shared::SharedState>>,
+    selective: Option<Box<selective::Registry>>,
 }
 
 impl State {
+    fn selective_valid(&self, namespace: &Namespace, guard: selective::Guard) -> bool {
+        namespace.epoch == guard.epoch
+            && namespace.index_generation == guard.index
+            && self
+                .selective
+                .as_ref()
+                .is_some_and(|registry| registry.valid(guard))
+    }
     fn invalidate_probe(&mut self, names: &(PyBackedStr, PyBackedStr)) {
         if let Some(shared) = self.shared.as_deref_mut() {
             shared
@@ -736,7 +791,9 @@ impl State {
             .node
             .body
         {
-            Body::Namespace { payload, .. } | Body::Identity { payload, .. } => {
+            Body::Namespace { payload, .. }
+            | Body::Selective { payload, .. }
+            | Body::Identity { payload, .. } => {
                 *payload = Stored::Arena;
             }
             Body::Alias { .. } => unreachable!("value payload"),
@@ -922,6 +979,7 @@ impl State {
         let namespace = &self.namespaces[&node.namespace];
         match &node.body {
             Body::Namespace { generation, .. } => *generation == namespace.query_token,
+            Body::Selective { guard, .. } => self.selective_valid(namespace, **guard),
             Body::Identity {
                 epoch,
                 identity,
@@ -944,6 +1002,12 @@ impl State {
         chain_insert(&mut self.rows, &mut self.lru, slot, Link::Role);
     }
     fn index_node(&mut self, node: Node) -> u64 {
+        if let Body::Selective { ref guard, .. } = node.body {
+            self.selective
+                .as_mut()
+                .expect("selective registry")
+                .retain_row(guard.group);
+        }
         let slot = self.rows.reserve();
         let hash = node.hash;
         let namespace_id = node.namespace;
@@ -976,14 +1040,15 @@ impl State {
                 .get_mut(&namespace_id)
                 .expect("value namespace");
             chain_insert(&mut self.rows, &mut namespace.values, slot, Link::Namespace);
-            if let Some(source) = self.rows.get(slot).expect("source node").node.source() {
-                match namespace.families.entry(source.family) {
-                    std::collections::hash_map::Entry::Vacant(entry) => {
-                        entry.insert(Family::One(source.limit, slot));
-                    }
-                    std::collections::hash_map::Entry::Occupied(mut entry) => {
-                        entry.get_mut().insert(source.limit, slot)
-                    }
+            let node = &self.rows.get(slot).expect("source node").node;
+            if let Some(source) = node.source() {
+                if let Body::Selective { ref guard, .. } = node.body {
+                    self.selective
+                        .as_mut()
+                        .expect("selective registry")
+                        .index_source(namespace_id, guard.group, *source, slot);
+                } else {
+                    Family::index(&mut namespace.families, *source, slot);
                 }
             }
             chain_insert(&mut self.rows, &mut self.lru, slot, Link::Role);
@@ -1055,6 +1120,10 @@ impl State {
         let hash = node.hash;
         let weight = node.weight();
         let source = node.source().copied();
+        let selective_group = match &node.body {
+            Body::Selective { guard, .. } => Some(guard.group),
+            _ => None,
+        };
         let identity = match node.body {
             Body::Identity { identity, .. } => Some(identity),
             _ => None,
@@ -1065,16 +1134,26 @@ impl State {
             .get_mut(&namespace_id)
             .expect("value namespace");
         chain_remove(&mut self.rows, &mut namespace.values, slot, Link::Namespace);
-        if let Some(source) = source
-            && let Some(family) = namespace.families.get_mut(&source.family)
-            && family.remove(source.limit, slot)
-        {
-            namespace.families.remove(&source.family);
+        if let Some(source) = source {
+            if let Some(group) = selective_group {
+                self.selective
+                    .as_mut()
+                    .expect("selective registry")
+                    .unindex_source(namespace_id, group, source, slot);
+            } else {
+                Family::unindex(&mut namespace.families, source, slot);
+            }
         }
         self.used -= weight;
         self.value_count -= 1;
         self.unindex_node(slot, hash);
         let node = self.rows.take(slot).node;
+        if let Body::Selective { ref guard, .. } = node.body {
+            self.selective
+                .as_mut()
+                .expect("selective registry")
+                .release(**guard, false);
+        }
         if let Some(residency) = self.residency_mut() {
             residency.release(slot);
         }
@@ -1314,6 +1393,9 @@ impl State {
         namespace.index_generation = generation;
         namespace.query_token = query_token;
         namespace.families.clear();
+        if let Some(registry) = &mut self.selective {
+            registry.clear_sources(id);
+        }
         let heads: Vec<_> = namespace.identities.values().copied().collect();
         if let Some(residency) = self
             .shared
@@ -1374,6 +1456,12 @@ impl State {
             return Retired::default();
         }
         self.closed = true;
+        if let Some(registry) = self.selective.as_mut() {
+            registry.close();
+            if registry.is_empty() {
+                self.selective = None;
+            }
+        }
         if let Some(shared) = self.shared.as_deref_mut() {
             shared.probes.clear();
             if let Some(residency) = shared.residency.as_mut() {
@@ -1487,13 +1575,9 @@ impl State {
         if let Some(previous) = previous.filter(|pin| self.node_is_current(pin)) {
             let older = match (&previous.node.body, &node.body) {
                 (
-                    Body::Namespace {
-                        generation: old, ..
-                    },
-                    Body::Namespace {
-                        generation: new, ..
-                    },
-                ) => old < new,
+                    Body::Namespace { .. } | Body::Selective { .. },
+                    Body::Namespace { .. } | Body::Selective { .. },
+                ) => previous.node.query_generation() < node.query_generation(),
                 (
                     Body::Identity {
                         epoch: old_epoch,
@@ -1748,6 +1832,7 @@ struct Capture {
     generation: (u64, u64),
     query_token: u64,
     availability: u64,
+    selective: Option<Arc<selective::Guard>>,
     released: AtomicBool,
 }
 
@@ -1756,13 +1841,30 @@ impl Capture {
         if self.released.swap(true, Ordering::AcqRel) {
             return;
         }
-        let (Some(namespace), Some(handle)) = (self.namespace_id, self.handle) else {
+        if self.selective.is_none() && self.handle.is_none() {
             return;
-        };
+        }
         let mut retired = Retired::default();
         {
             let mut state = self.state.lock().expect("local capture mutex");
-            if let Some(identity) = state.identity_mut(handle) {
+            if let Some(guard) = &self.selective {
+                state
+                    .selective
+                    .as_mut()
+                    .expect("captured selective registry")
+                    .release(**guard, true);
+                if state.closed
+                    && state
+                        .selective
+                        .as_ref()
+                        .is_some_and(|registry| registry.is_empty())
+                {
+                    state.selective = None;
+                }
+            }
+            if let (Some(namespace), Some(handle)) = (self.namespace_id, self.handle)
+                && let Some(identity) = state.identity_mut(handle)
+            {
                 identity.captures -= 1;
                 state.prune_identity(namespace, handle, &mut retired);
                 state.cleanup_empty();
@@ -1825,6 +1927,7 @@ pub(crate) struct LocalOwner {
     keys: Py<OrderedKeys>,
     operations: Vec<Py<PyAny>>,
     config: Py<PyAny>,
+    selective_enabled: bool,
     key_limit: Option<usize>,
     tuple_size: Option<usize>,
     count_limit: Option<usize>,
@@ -1925,7 +2028,10 @@ impl LocalOwner {
             && capture
                 .namespace_id
                 .and_then(|id| state.namespaces.get(&id))
-                .is_some_and(|namespace| namespace.query_token == capture.query_token)
+                .is_some_and(|namespace| match &capture.selective {
+                    Some(guard) => state.selective_valid(namespace, **guard),
+                    None => namespace.query_token == capture.query_token,
+                })
     }
     fn identity_capture_valid(py: Python<'_>, state: &State, capture: &Capture) -> bool {
         !capture.released.load(Ordering::Acquire)
@@ -2154,11 +2260,20 @@ impl LocalOwner {
                 namespace: capture.namespace_id.expect("valid capture"),
                 hash,
                 key: key.clone().unbind(),
-                body: Body::Namespace {
-                    payload,
-                    weight,
-                    generation: capture.query_token,
-                    source,
+                body: if let Some(guard) = &capture.selective {
+                    Body::Selective {
+                        payload,
+                        weight,
+                        source,
+                        guard: guard.clone(),
+                    }
+                } else {
+                    Body::Namespace {
+                        payload,
+                        weight,
+                        generation: capture.query_token,
+                        source,
+                    }
                 },
             };
             let handle = state
@@ -2610,6 +2725,7 @@ impl LocalOwner {
                 unavailable_reason,
                 invalidated_reason,
                 shared: shared.map(Box::new),
+                selective: None,
             })),
             keys: operations
                 .get_item(ORDER_SENSITIVE)?
@@ -2617,6 +2733,7 @@ impl LocalOwner {
                 .unbind(),
             operations: operations.iter().map(Bound::unbind).collect(),
             config: setup.get_item(0)?.unbind(),
+            selective_enabled: false,
             key_limit,
             tuple_size,
             count_limit: setup.get_item(5)?.extract()?,
@@ -2628,9 +2745,18 @@ impl LocalOwner {
 #[pymethods]
 impl LocalOwner {
     #[new]
-    #[pyo3(signature = (config=None))]
-    fn new(py: Python<'_>, config: Option<&Bound<'_, PyAny>>) -> PyResult<Self> {
-        Self::create(py, config, None)
+    #[pyo3(signature = (config=None, *, invalidation=None))]
+    fn new(
+        py: Python<'_>,
+        config: Option<&Bound<'_, PyAny>>,
+        invalidation: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Self> {
+        let mut owner = Self::create(py, config, None)?;
+        owner.selective_enabled = match invalidation {
+            Some(value) => value.is_truthy()?,
+            None => false,
+        };
+        Ok(owner)
     }
     fn close(&self) {
         let retired = self.state.lock().expect("local owner mutex").close();
@@ -2812,6 +2938,9 @@ impl LocalOwner {
             namespace.index_generation = generation;
             namespace.query_token = token;
             namespace.families.clear();
+            if let Some(registry) = &mut state.selective {
+                registry.clear_sources(id);
+            }
             state.namespace_written(id);
             state.changed();
         }
@@ -2906,16 +3035,66 @@ impl LocalOwner {
             state.changed();
         }
     }
+    #[pyo3(signature = (namespace, *, partition=None, dependencies=None, expected_epoch=None))]
     fn capture_namespace_generation(
         &self,
         py: Python<'_>,
         namespace: &Bound<'_, PyAny>,
+        partition: Option<Vec<u8>>,
+        dependencies: Option<Vec<String>>,
+        expected_epoch: Option<u64>,
     ) -> PyResult<Capture> {
         let names = namespace_names(namespace)?;
+        // BSON's scalar envelope adds 17 bytes to a 64-byte string.
+        let partition = partition.filter(|bytes| bytes.len() <= 81);
+        let dependencies = dependencies.filter(|paths| {
+            paths.len() <= 32
+                && paths.iter().all(|path| {
+                    path.len() <= 64
+                        && path.split('.').all(|part| {
+                            !part.is_empty()
+                                && !part.starts_with('$')
+                                && !part.contains('\0')
+                                && !part.chars().all(|character| character.is_ascii_digit())
+                        })
+                })
+        });
+        let descriptor = if partition.is_some() || dependencies.is_some() {
+            Some(selective::Descriptor {
+                partition,
+                dependencies,
+            })
+        } else {
+            None
+        };
         let mut state = self.state.lock().expect("local owner mutex");
         self.active(py, &state)?;
         let availability = state.available(&names.0).1;
         let id = state.register(py, namespace, &names);
+        let selective = if !self.selective_enabled {
+            None
+        } else if let (Some(id), Some(descriptor)) = (id, descriptor) {
+            if expected_epoch.is_some_and(|epoch| state.namespaces[&id].epoch != epoch) {
+                None
+            } else {
+                let registry = state.selective.get_or_insert_with(Default::default);
+                registry
+                    .acquire(id, descriptor)
+                    .map(|(group, version, fallback)| {
+                        let current = &state.namespaces[&id];
+                        Arc::new(selective::Guard {
+                            query_token: current.query_token,
+                            group,
+                            version,
+                            epoch: current.epoch,
+                            index: current.index_generation,
+                            fallback,
+                        })
+                    })
+            }
+        } else {
+            None
+        };
         let current = id.map(|id| &state.namespaces[&id]);
         Ok(Capture {
             state: self.state.clone(),
@@ -2931,6 +3110,7 @@ impl LocalOwner {
                 .unwrap_or((0, 0)),
             query_token: current.map(|namespace| namespace.query_token).unwrap_or(0),
             availability,
+            selective,
             released: AtomicBool::new(false),
         })
     }
@@ -3006,6 +3186,7 @@ impl LocalOwner {
                 ),
                 query_token: current.map(|namespace| namespace.query_token).unwrap_or(0),
                 availability,
+                selective: None,
                 released: AtomicBool::new(false),
             });
         }
@@ -3216,11 +3397,14 @@ impl LocalOwner {
             }));
         }
     }
+    #[pyo3(signature = (namespace, identity, *, partition=None, changed_paths=None))]
     fn record_write(
         &self,
         py: Python<'_>,
         namespace: &Bound<'_, PyAny>,
         identity: &Bound<'_, PyAny>,
+        partition: Option<Vec<u8>>,
+        changed_paths: Option<Vec<String>>,
     ) -> PyResult<()> {
         self.ensure_active(py)?;
         let ordered = self.keys.get().structure(identity, false)?;
@@ -3236,6 +3420,15 @@ impl LocalOwner {
             namespace.generation += 1;
             namespace.query_token = token;
             namespace.families.clear();
+            if let Some(registry) = &mut state.selective {
+                if let Some(partition) = partition {
+                    registry.insert(id, &partition);
+                } else if let Some(paths) = changed_paths {
+                    registry.update(id, &paths);
+                } else {
+                    registry.unknown(id);
+                }
+            }
             state.namespace_written(id);
             state.changed();
             id
@@ -3364,18 +3557,33 @@ impl LocalOwner {
                     continue;
                 }
                 let mut candidates = Pins::Empty;
-                for (source_limit, slot) in family_hash
-                    .and_then(|hash| state.namespaces[&namespace_id].families.get(&hash))
+                let ordinary = family_hash
+                    .and_then(|hash| state.namespaces[&namespace_id].families.get(&hash));
+                let selective = family_hash
+                    .and_then(|hash| state.selective.as_ref()?.sources(namespace_id)?.get(&hash));
+                for (source_limit, slot) in ordinary
                     .into_iter()
                     .flat_map(Family::slots)
+                    .chain(selective.into_iter().flat_map(Family::slots))
                 {
-                    if source_limit == 0 || limit.is_some_and(|limit| source_limit >= limit) {
+                    if (source_limit == 0 || limit.is_some_and(|limit| source_limit >= limit))
+                        && state.valid(state.node(slot))
+                    {
                         candidates.push(Pin {
                             slot,
                             node: state.node(slot).clone_ref(py),
                             _owner: None,
                         });
                     }
+                }
+                if ordinary.is_some()
+                    && selective.is_some()
+                    && let Pins::Many(pins) = &mut candidates
+                {
+                    pins.sort_unstable_by_key(|pin| {
+                        let limit = pin.node.source().expect("find family source").limit;
+                        (limit == 0, limit)
+                    });
                 }
                 candidates
             };
@@ -3395,8 +3603,8 @@ impl LocalOwner {
             if state.revision != revision {
                 continue;
             }
-            if let Some(pin) =
-                found.filter(|pin| state.node_is_current(pin) && state.valid(&pin.node))
+            // The revision preserves the residency and validity checked when pinning.
+            if let Some(pin) = found
                 && let Some(payload) = state.payload(py, pin.slot, &pin.node)
             {
                 state.touch(pin.slot);
@@ -3845,7 +4053,9 @@ impl LocalOwner {
         }
         for row in state.rows.iter() {
             match &row.node.body {
-                Body::Namespace { payload, .. } | Body::Identity { payload, .. } => {
+                Body::Namespace { payload, .. }
+                | Body::Selective { payload, .. }
+                | Body::Identity { payload, .. } => {
                     visit.call(&row.node.key)?;
                     if let Stored::Bytes(bytes) = payload {
                         visit.call(bytes)?;

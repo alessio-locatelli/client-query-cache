@@ -47,7 +47,7 @@ An enabled insert policy SHALL retain otherwise cacheable `find()` and `count_do
 
 #### Scenario: The query does not establish one partition
 
-- **WHEN** an otherwise cacheable filter has no partition equality, conflicting equalities, a disjunction, a null or array equality, or another unsupported partition shape
+- **WHEN** an otherwise cacheable filter has no partition equality, conflicting equalities, a disjunction without an independently supported partition equality, a null or array equality, or another unsupported partition shape
 - **THEN** it retains ordinary caching with collection-wide insert invalidation, independently of any supported update-dependency proof
 
 ### Requirement: Partition comparison preserves BSON matching semantics

@@ -13,6 +13,11 @@ from client_query_cache._core.errors import (
     StreamStartupError,
     require_telemetry,
 )
+from client_query_cache._core.selective_invalidation import (
+    EMPTY_POLICIES,
+    CollectionPolicies,
+    DatabasePolicies,
+)
 from client_query_cache._core.stream_activation import StreamActivation
 from client_query_cache._core.stream_events import (
     build_change_stream_pipeline,
@@ -71,6 +76,8 @@ class DatabaseStreamSupervisor:
         cache: CacheCore,
         *,
         metadata_cache: NamespaceMetadataCache[Any] | None = None,
+        invalidation: CollectionPolicies | None = None,
+        pipeline: list[Mapping[str, Any]] | None = None,
         backoff: RetryBackoff | None = None,
         max_await_time_ms: MaxAwaitTimeMs = DEFAULT_MAX_AWAIT_TIME_MS,
     ) -> None:
@@ -83,8 +90,12 @@ class DatabaseStreamSupervisor:
         self._health_lock = threading.Lock()
         self._lifecycle_lock = threading.RLock()
         self._stream: DatabaseChangeStream[Any] | None = None
-        self._pipeline = build_change_stream_pipeline(
-            enable_telemetry=cache.enable_telemetry
+        self._pipeline = (
+            pipeline
+            if pipeline is not None
+            else build_change_stream_pipeline(
+                enable_telemetry=cache.enable_telemetry, invalidation=invalidation
+            )
         )
         self._resume_token: Mapping[str, Any] | None = None
         self._stop_event = threading.Event()
@@ -291,6 +302,7 @@ class ChangeStreamCoordinator:
         "_lock",
         "_max_await_time_ms",
         "_metadata_cache",
+        "_pipelines",
         "_shutdown_complete",
         "_supervisors",
     )
@@ -301,8 +313,19 @@ class ChangeStreamCoordinator:
         cache: CacheCore,
         *,
         metadata_cache: NamespaceMetadataCache[Any] | None = None,
+        invalidation: DatabasePolicies = EMPTY_POLICIES,
         max_await_time_ms: MaxAwaitTimeMs = DEFAULT_MAX_AWAIT_TIME_MS,
     ) -> None:
+        self._pipelines = (
+            {
+                database: build_change_stream_pipeline(
+                    enable_telemetry=cache.enable_telemetry, invalidation=policies
+                )
+                for database, policies in invalidation.items()
+            }
+            if invalidation
+            else None
+        )
         self._client = client
         self._max_await_time_ms = max_await_time_ms
         self._cache = cache
@@ -334,10 +357,17 @@ class ChangeStreamCoordinator:
                 activation.pending or not activation.retry.ready()
             ):
                 return None
+            pipeline = None
+            if self._pipelines is not None:
+                try:
+                    pipeline = self._pipelines[name]
+                except KeyError:
+                    pass
             supervisor = DatabaseStreamSupervisor(
                 self._client[name],
                 self._cache,
                 metadata_cache=self._metadata_cache,
+                pipeline=pipeline,
                 max_await_time_ms=self._max_await_time_ms,
             )
             if activation is None:

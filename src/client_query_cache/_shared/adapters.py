@@ -1493,6 +1493,7 @@ class AsyncSharedCachedDatabase[DocumentType: Mapping[str, Any]](
 
 
 class SharedCacheManager[DocumentType: Mapping[str, Any]]:
+    _invalidation: ClassVar[None] = None
     __slots__ = (
         "_client",
         "_closed",
@@ -1714,6 +1715,7 @@ class SharedCacheManager[DocumentType: Mapping[str, Any]]:
 
 
 class AsyncSharedCacheManager[DocumentType: Mapping[str, Any]]:
+    _invalidation: ClassVar[None] = None
     __slots__ = (
         "_client",
         "_closed",

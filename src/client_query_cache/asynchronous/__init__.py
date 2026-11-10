@@ -1,6 +1,7 @@
 from typing import TYPE_CHECKING
 
 from client_query_cache._core.config import CacheCoreConfig
+from client_query_cache._core.selective_invalidation import SelectiveInvalidation
 from client_query_cache._core.snapshots import (
     BypassReason,
     BypassReasonCount,
@@ -44,6 +45,7 @@ __all__ = [
     "RetentionDeclineCount",
     "RetentionDeclineReason",
     "RetentionRecordKind",
+    "SelectiveInvalidation",
     "SharedBypassReason",
     "SharedBypassReasonCount",
     "SharedCacheManager",

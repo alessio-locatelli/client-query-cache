@@ -29,6 +29,7 @@ class CursorCapture:
         "_discriminator",
         "_documents",
         "_find_source",
+        "_release_capture",
     )
 
     def __init__(
@@ -39,7 +40,9 @@ class CursorCapture:
         codec_options: CodecOptions[Mapping[str, Any]],
         *,
         find_source: FindSource | None = None,
+        release_capture: bool = False,
     ) -> None:
+        self._release_capture = release_capture
         self._core = core
         self._capture = capture
         self._discriminator = discriminator
@@ -72,6 +75,8 @@ class CursorCapture:
     def abandon(self) -> None:
         self._active = False
         self._documents.clear()
+        if self._release_capture:
+            self._capture.release()
 
     def finish(self) -> AdmissionOutcome | None:
         if not self._active:
@@ -88,4 +93,6 @@ class CursorCapture:
             # The cursor owns its native resources independently of the manager.
             return None
         finally:
+            if self._release_capture:
+                self._capture.release()
             self._documents.clear()

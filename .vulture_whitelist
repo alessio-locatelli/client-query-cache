@@ -279,3 +279,6 @@ active_database  # pytest usefixtures marker (tests/asynchronous/test_manager.py
 retained_process_bytes  # unused variable (tests/benchmark/test_find_family_memory.py:79)
 after_clear_process_bytes  # unused variable (tests/benchmark/test_find_family_memory.py:80)
 reset_all  # called by the native core (native/shared-index/src/local_cache.rs)
+
+_.resident_results_obey_mongodb_dependencies  # Hypothesis invariant (tests/core/test_selective_native.py)
+reserved_capacity  # Requested by pytest.mark.usefixtures (tests/test_selective_reads.py).

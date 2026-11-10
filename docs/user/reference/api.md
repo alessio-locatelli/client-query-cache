@@ -12,8 +12,10 @@ from client_query_cache import CacheManager
 cache_manager = CacheManager(client)
 ```
 
-`CacheManager(client, *, cache_config=None, max_await_time_ms=1_000)` wraps a caller-constructed and caller-owned `MongoClient` (or
+`CacheManager(client, *, cache_config=None, invalidation=None, max_await_time_ms=1_000)` wraps a caller-constructed and caller-owned `MongoClient` (or
 `AsyncMongoClient`). It never closes that client and never mutates it.
+
+`invalidation` configures optional per-collection [selective invalidation](#selective-invalidation).
 
 - `cache_manager.client` — the wrapped PyMongo client, unchanged.
 - `cache_manager.cache_core` — the manager's cache storage and bookkeeping object; see [Observability](../operations/monitoring.md#observability).
@@ -322,3 +324,48 @@ inspection methods remain available.
 `StreamHealthStatus` are importable from `client_query_cache`, `client_query_cache.synchronous`, and
 `client_query_cache.asynchronous`. See [bypass reasons and stream health](../operations/monitoring.md#bypass-reasons-and-stream-health)
 for their meaning and limitations.
+
+## Selective invalidation
+
+For configuration examples and workload trade-offs, see the
+[selective invalidation guide](../usage/selective-invalidation.md).
+
+`SelectiveInvalidation` is exported from the package root, `synchronous`, and
+`asynchronous`. Only process-local managers accept `invalidation`. Namespace keys
+must be valid nonempty `(database, collection)` names. The partition field must be
+one top-level name without dots, a leading `$`, or NUL; the count option requires
+a built-in Boolean. Invalid configuration raises `CacheConfigurationError` before
+streams open. Caller changes to the input mapping do not affect the manager.
+
+Insert proofs apply only to otherwise eligible `find()` and `count_documents()`
+reads with a direct scalar equality or sole `$eq` on the configured field,
+including explicit `$and` conjunctions. Unrelated conjuncts do not remove an
+independent proof. Conflicting or unsupported uses of that field, disjunctions
+without an independent equality, null, arrays, objects, and unknown/non-simple
+effective collation use ordinary insert invalidation. Explicit simple collation
+can override a non-simple collection default. Supported scalars are BSON integers,
+Booleans, strings of at most 64 UTF-8 bytes, and `ObjectId`. Boolean partitions are
+distinct from numbers; integer subtypes compare by value. Double and decimal
+partition values invalidate conservatively, including when numerically equal to
+an integer query. Missing or unproved insert hints invalidate conservatively.
+
+Count dependency extraction supports empty filters, plain field equality (including
+null and embedded document/array equality), `$eq`, `$ne`, `$gt`, `$gte`, `$lt`,
+`$lte`, `$in`, `$nin`, `$exists`, and recursively supported `$and`, `$or`, and `$nor`.
+It collects all referenced fields. Paths may be dotted, with at most 32 paths of
+64 UTF-8 bytes each; empty, numeric, NUL-containing, and `$`-prefixed path components
+are unsupported. Parent and descendant paths overlap. Unknown operators or event
+paths and oversized/missing update hints invalidate conservatively. Explicit
+count hints disable update-dependency proofs because index membership may depend
+on fields absent from the query; independent insert proofs remain available.
+Skip, limit, and collation keep their normal keys, native execution, and errors.
+Unsupported proofs add no bypass.
+
+A proof protects only its operation. Replacements and deletions invalidate all
+selective results, and updates invalidate finds. Ordinary identity, namespace,
+index, stream-availability, admission, and eviction protections still apply.
+Selective metadata has finite manager-wide capacity, including in-flight reads;
+new groups fall back to ordinary guards while it is occupied. Released entries
+and completed or abandoned captures free unused groups. No additional streams,
+event-time lookups, or read-after-write barrier are introduced. See
+[consistency](../usage/consistency.md).
