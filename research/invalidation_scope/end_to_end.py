@@ -538,6 +538,7 @@ def micro(
     rep: NonNegativeInt,
     *,
     reads_per_batch: PositiveInt = 4000,
+    kinds: tuple[ReadKind, ...] = (*READ_KINDS, "prefix"),
 ) -> BsonDict:
     listener = ReadCommands()
     with ExitStack() as stack:
@@ -551,7 +552,6 @@ def micro(
         await_warm(manager, calls["by_id", 0])
         for index in range(WARMUP):
             calls[read_key(index)]()
-        kinds: tuple[ReadKind, ...] = (*READ_KINDS, "prefix")
         view = manager.get_cached_collection(client[database.name].target)
         for author in range(HOT_AUTHORS):
             calls["prefix", author] = partial(
@@ -623,6 +623,15 @@ def main() -> None:
     )
     parser.add_argument("--ratios", nargs="+", type=int)
     parser.add_argument("--micro-reads", type=int, default=4000)
+    parser.add_argument(
+        "--micro-kinds",
+        nargs="+",
+        choices=(*READ_KINDS, "prefix"),
+        default=(*READ_KINDS, "prefix"),
+    )
+    parser.add_argument(
+        "--scenarios", nargs="+", choices=("cached", "uncached", "unrelated")
+    )
     args = parser.parse_args()
     if (
         args.micro_reads < 1
@@ -648,7 +657,13 @@ def main() -> None:
         if args.suite == "micro":
             seed(client.bench, 2000)
             cells.extend(
-                micro(replica, client.bench, rep, reads_per_batch=args.micro_reads)
+                micro(
+                    replica,
+                    client.bench,
+                    rep,
+                    reads_per_batch=args.micro_reads,
+                    kinds=tuple(args.micro_kinds),
+                )
                 for rep in range(args.reps)
             )
         sizes = (
@@ -667,6 +682,8 @@ def main() -> None:
             scenarios: tuple[Scenario, ...] = (
                 ("uncached", "unrelated") if args.suite == "controls" else ("cached",)
             )
+            if args.scenarios is not None:
+                scenarios = tuple(args.scenarios)
             rates: tuple[PositiveInt, ...] = (
                 (10, 100) if args.suite == "controls" else (100, 10)
             )

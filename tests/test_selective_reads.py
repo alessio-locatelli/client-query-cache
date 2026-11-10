@@ -205,6 +205,23 @@ async def ordinary_database_view(
 
 
 @pytest.fixture
+async def uniquely_indexed_view(
+    selective_reads: SelectiveReads,
+    stream_barrier: StreamBarrier,
+) -> View:
+    view = selective_reads["view"]
+    await resolved(
+        view.raw.update_one({"_id": 1}, {"$set": {"email": "first@example.test"}})
+    )
+    await resolved(
+        view.raw.update_one({"_id": 2}, {"$set": {"email": "second@example.test"}})
+    )
+    await resolved(view.raw.create_index("email", unique=True))
+    await drain(view, stream_barrier)
+    return view
+
+
+@pytest.fixture
 def reserved_capacity(selective_reads: SelectiveReads) -> Iterator[None]:
     view = selective_reads["view"]
     core = view.database.manager.cache_core
@@ -971,6 +988,61 @@ async def test_ordinary_sibling_keeps_independent_namespace_guards(
     assert await resolved(sibling.count_documents({})) == 2
     assert posts.database.manager.snapshot().hits == before
     assert len(posts.database.manager._coordinator._supervisors) == 1
+
+
+@pytest.mark.parametrize(
+    "selective_reads", [("sync", True, True), ("async", True, True)], indirect=True
+)
+@pytest.mark.parametrize("write", ["insert", "update"])
+@pytest.mark.parametrize(
+    ("query", "insert_hit", "update_hit"),
+    [
+        pytest.param({"_id": 1}, True, False, id="written-identity"),
+        pytest.param({"_id": 2}, True, True, id="other-identity"),
+        pytest.param(
+            {"email": "first@example.test"}, True, False, id="unique-positive"
+        ),
+        pytest.param(
+            {"email": "absent@example.test"}, False, False, id="unique-negative"
+        ),
+        pytest.param({"published": True}, False, False, id="generic-query"),
+    ],
+)
+async def test_selective_counts_do_not_weaken_other_read_guards(
+    uniquely_indexed_view: View,
+    stream_barrier: StreamBarrier,
+    query: BsonDict,
+    write: str,
+    *,
+    insert_hit: bool,
+    update_hit: bool,
+) -> None:
+    view = uniquely_indexed_view
+    await resolved(view.find_one(query))
+    await resolved(view.count_documents({"author_id": 42}))
+    if write == "insert":
+        await resolved(
+            view.raw.insert_one(
+                {
+                    "_id": 4,
+                    "author_id": 99,
+                    "email": "new@example.test",
+                }
+            )
+        )
+    else:
+        await resolved(view.raw.update_one({"_id": 1}, {"$inc": {"views": 1}}))
+    await drain(view, stream_barrier)
+    before = view.database.manager.snapshot().hits
+    assert await resolved(view.find_one(query)) == await resolved(
+        view.raw.find_one(query)
+    )
+    assert view.database.manager.snapshot().hits - before == int(
+        insert_hit if write == "insert" else update_hit
+    )
+    before = view.database.manager.snapshot().hits
+    assert await resolved(view.count_documents({"author_id": 42})) == 2
+    assert view.database.manager.snapshot().hits == before + 1
 
 
 @pytest.mark.parametrize(
