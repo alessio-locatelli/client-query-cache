@@ -3,7 +3,7 @@
 ## 1. Configuration and proof preparation
 
 - [ ] 1.1 Implement D1's common policy type, validation, snapshots, exports, and constructor wiring. Add parametrized sync/async constructor and collection-access tests in the existing manager test modules for the `Collection policies are immutable constructor configuration` scenarios. Update the constructor reference in the same part; verify examples use the actual exported type and signature.
-- [ ] 1.2 Implement D4's common classifiers and connect them to existing prepared-read structures. Add parametrized classifier tests and Hypothesis properties for conjunction permutations, dependency unions, BSON type distinctions, and unsupported shapes. Record the exact supported subset in the API reference per D7; verify unsupported classification preserves the prior read eligibility result.
+- [ ] 1.2 Implement D4's common classifiers and connect them to existing prepared-read structures. Add parametrized classifier tests and Hypothesis properties for conjunction permutations, dependency unions, BSON type distinctions, and unsupported shapes. Record the exact supported subset in the API reference per D7; verify unsupported dependency classification, including explicit count hints, preserves prior read eligibility and independently supported insert proofs with unchanged scalar and effective-collation restrictions.
 
 ## 2. Production guards and stream routing
 
@@ -13,7 +13,7 @@
 
 ## 3. Real-server integration qualification
 
-- [ ] 3.1 Add a parametrized real-server matrix across sync/async and the four policy combinations, using existing replica-set fixtures. Cover every scenario in the selective-invalidation and projection deltas; include boundary UTF-8 lengths/name counts, numeric cross-types, `ObjectId`, Boolean separation, arrays, null/missing, collation defaults/overrides, hinted sparse/partial-index counts, nested paths, expanded ambiguous-path metadata, and unsupported operators. Use native reads and drained event positions as the oracle, then verify exact/prefix/count driver-command counts and absence of extra streams/lookups. Link the supported and fallback cases from the maintainer guide to these tests.
+- [ ] 3.1 Add a parametrized real-server matrix across sync/async and the four policy combinations, using existing replica-set fixtures. Cover every scenario in the selective-invalidation and projection deltas; include boundary UTF-8 lengths/name counts, numeric cross-types, `ObjectId`, Boolean separation, arrays, null/missing, collation defaults/overrides, hinted sparse/partial-index counts (sync and asyncio: unrelated inserts survive; every update invalidates, including index-membership fields absent from the predicate), nested paths, expanded ambiguous-path metadata, and unsupported operators. Use native reads and drained event positions as the oracle, then verify exact/prefix/count driver-command counts and absence of extra streams/lookups. Link the supported and fallback cases from the maintainer guide to these tests.
 - [ ] 3.2 Extend existing recovery and admission-race integration tests for selective entries, including interrupted/resumed streams, history loss, database drop, rename, drop/recreate, index events, manager close, and cancellation. Verify ordinary identity and generic-query behavior in the same mixed-policy database, and distinguish permitted pre-event stale reads from incorrect post-event retention using the existing event-drain helpers.
 
 ## 4. Production performance acceptance

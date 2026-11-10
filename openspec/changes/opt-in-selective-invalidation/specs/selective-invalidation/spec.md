@@ -93,11 +93,18 @@ An enabled count-dependency policy SHALL automatically derive fields from suppor
 
 - **WHEN** an otherwise cacheable count has skip, limit, hint, collation, or a predicate outside supported dependency extraction
 - **THEN** its existing key distinctions, native results, validation, and errors remain intact
-- **AND** unsupported dependency extraction falls back to ordinary update invalidation without disabling a separately supported insert proof or introducing a cache bypass
+- **AND** unsupported dependency extraction, including an explicit hint, falls back to ordinary update invalidation without disabling a separately supported insert proof or introducing a cache bypass
+
+#### Scenario: Hinted counts retain only independently valid insert proofs
+
+- **WHEN** a count explicitly hints a sparse or partial index and establishes a supported insert partition under the existing scalar and effective-collation restrictions
+- **THEN** a processed insert proved to belong to another partition preserves the count
+- **AND** every processed update invalidates it, including changes to fields absent from the query that can affect index membership
+- **AND** matching or unknown inserts, replacements, and deletions invalidate it conservatively
 
 ### Requirement: Retention proofs compose by operation
 
-A result SHALL survive a processed write only when an enabled proof covers that operation. Combined policies SHALL NOT use an insert proof to excuse an update, or a dependency proof to excuse an insert. Replacements and deletions SHALL invalidate all selectively guarded results in the collection. Updates SHALL invalidate partitioned finds regardless of their changed fields.
+A result SHALL survive a processed write only when an enabled proof covers that operation. Combined policies SHALL NOT use an insert proof to excuse an update, or a dependency proof to excuse an insert. An explicit count hint SHALL disable only update-dependency retention, independently of insert-partition eligibility. Replacements and deletions SHALL invalidate all selectively guarded results in the collection. Updates SHALL invalidate partitioned finds regardless of their changed fields.
 
 #### Scenario: Both policies protect one count
 
