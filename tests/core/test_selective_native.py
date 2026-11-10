@@ -416,11 +416,18 @@ class ReentrantKey:
 
 
 class FinalizingKey(ReentrantKey):
-    __slots__ = ()
+    __slots__ = ("finalizer",)
+
+    def __init__(
+        self,
+        callback: Callable[[], object],
+        capture: NamespaceCaptureView,
+    ) -> None:
+        super().__init__(capture=capture)
+        self.finalizer = callback
 
     def __del__(self) -> None:
-        if self.callback is not None:
-            self.callback()
+        self.finalizer()
 
 
 def test_equality_reentry_cannot_publish_an_obsolete_selective_capture(
@@ -510,6 +517,7 @@ def test_retired_key_finalizer_can_reenter_the_native_owner(core: CacheCore) -> 
         1,
     )
     del capture
+    assert finalized == []
     core.clear_namespace(namespace)
     assert len(finalized) == 1
     assert finalized[0] is not None

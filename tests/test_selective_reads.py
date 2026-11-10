@@ -228,14 +228,12 @@ async def paused_cursor_start(
     entered = asyncio.Event()
     release = asyncio.Event()
     tasks: list[asyncio.Task[list[BsonDict]]] = []
-    original = AsyncCursor._send_message
 
     async def blocked(
-        cursor: AsyncCursor[BsonDict], operation: _Query | _GetMore
+        _cursor: AsyncCursor[BsonDict], _operation: _Query | _GetMore
     ) -> None:
         entered.set()
         await release.wait()
-        await original(cursor, operation)
 
     monkeypatch.setattr(AsyncCursor, "_send_message", blocked)
     yield {"entered": entered, "tasks": tasks}
