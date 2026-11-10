@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from benchmarks.stream_cost.topology import IsolatedReplicaSet, ResourceLimits
+from client_query_cache._types import NonNegativeFloat, NonNegativeInt
 from research.invalidation_scope.benchmark import TOPOLOGY
 from research.invalidation_scope.end_to_end import run_cell, seed
 
@@ -14,6 +15,7 @@ if TYPE_CHECKING:
     from pymongo.synchronous.database import Database
 
     from client_query_cache._types import BsonDict
+    from research.invalidation_scope.end_to_end import Mix, Policy
 
 pytestmark = pytest.mark.integration
 
@@ -29,8 +31,23 @@ def production_workload() -> Iterator[
         yield replica, client.bench, seed(client.bench, 2000)
 
 
+@pytest.mark.parametrize(
+    ("policy", "mix", "rate", "seconds", "writes", "reads"),
+    [
+        ("both", "mixed", 0, 0, 12, 128),
+        ("insert", "update", 8, 1, 8, 8),
+        ("counts", "insert", 8, 1, 8, 8),
+    ],
+)
 def test_production_runner_reconciles_public_cache_and_native_commands(
     production_workload: tuple[IsolatedReplicaSet, Database[BsonDict], str],
+    policy: Policy,
+    mix: Mix,
+    rate: NonNegativeInt,
+    seconds: NonNegativeFloat,
+    *,
+    writes: NonNegativeInt,
+    reads: NonNegativeInt,
 ) -> None:
     replica, database, body = production_workload
     cell = run_cell(
@@ -38,19 +55,21 @@ def test_production_runner_reconciles_public_cache_and_native_commands(
         database,
         body,
         path="production",
-        policy="both",
-        mix="mixed",
+        policy=policy,
+        mix=mix,
         scenario="cached",
         rep=0,
         reads=128,
         reads_per_write=10,
+        control_rate=rate,
+        seconds=seconds,
     )
     assert cell["path"] == "production"
-    assert cell["policy"] == "both"
+    assert cell["policy"] == policy
     assert cell["stream_wire"] is None
-    assert cell["writes"] == cell["applied_events"] == 12
+    assert cell["writes"] == cell["applied_events"] == writes
     assert isinstance(cell["cache_delta"], dict)
     assert isinstance(cell["driver_reads"], dict)
     assert cell["cache_delta"]["bypasses"] == 0
     assert sum(cell["driver_reads"].values()) == cell["cache_delta"]["misses"]
-    assert cell["cache_delta"]["hits"] + cell["cache_delta"]["misses"] == 128
+    assert cell["cache_delta"]["hits"] + cell["cache_delta"]["misses"] == reads
