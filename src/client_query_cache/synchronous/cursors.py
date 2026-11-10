@@ -116,9 +116,9 @@ class CachedCursor[DocumentType: Mapping[str, Any]](Cursor[DocumentType]):
         if not cache.is_database_available(namespace.database):
             return
         policy = self._view._selective_policy
-        selective = policy is not None
-        capture = (
-            capture_read(
+        if policy is not None and policy.insert_partition_field is not None:
+            selective = True
+            capture = capture_read(
                 cache,
                 namespace,
                 policy,
@@ -126,9 +126,9 @@ class CachedCursor[DocumentType: Mapping[str, Any]](Cursor[DocumentType]):
                 self._spec,
                 collation=self._collation,
             )
-            if policy is not None
-            else cache.capture_namespace_generation(namespace)
-        )
+        else:
+            selective = False
+            capture = cache.capture_namespace_generation(namespace)
         self._capture = CursorCapture(
             cache,
             capture,

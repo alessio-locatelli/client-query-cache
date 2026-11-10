@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import gc
+import weakref
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from threading import Barrier
@@ -395,7 +396,7 @@ def test_selective_admission_operation_ordering() -> None:
 
 
 class ReentrantKey:
-    __slots__ = ("callback", "capture")
+    __slots__ = ("__weakref__", "callback", "capture")
 
     def __init__(
         self,
@@ -497,10 +498,14 @@ def test_key_capture_cycle_can_retire_after_core_close(core: CacheCore) -> None:
     capture = core.capture_namespace_generation(
         namespace, partition=partition_scalar(42)
     )
-    core.admit_namespace(capture, ReentrantKey(capture=capture), 1)
+    key = ReentrantKey(capture=capture)
+    reference = weakref.ref(key)
+    core.admit_namespace(capture, key, 1)
+    del key
     del capture
     core.close()
     gc.collect()
+    assert reference() is None
 
 
 def test_retired_key_finalizer_can_reenter_the_native_owner(core: CacheCore) -> None:

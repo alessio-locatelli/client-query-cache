@@ -268,13 +268,15 @@ def capture_read(
     assert metadata is not None
     partition = None
     dependencies = None
-    if collation is None or isinstance(collation, (Collation, Mapping)):
+    if policy.insert_partition_field is not None and (
+        collation is None or isinstance(collation, (Collation, Mapping))
+    ):
         effective_collation = (
             metadata.default_collation
             if collation is None
             else normalize_collation(collation_document(collation))
         )
-        if policy.insert_partition_field is not None and effective_collation is None:
+        if effective_collation is None:
             partition = partition_proof(filter_document, policy.insert_partition_field)
     if count and policy.update_dependencies_for_counts and not hinted:
         dependencies = count_dependencies(filter_document)
