@@ -46,9 +46,9 @@ class _GatedSocket:
         self._socket = destination
         self._running = running
 
-    def sendall(self, chunk: bytes) -> None:
+    def send(self, chunk: memoryview) -> int:
         self._running.wait()
-        self._socket.sendall(chunk)
+        return self._socket.send(chunk)
 
 
 class FaultableProxy(DirectPathByteProxy):

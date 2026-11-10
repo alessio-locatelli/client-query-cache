@@ -24,6 +24,7 @@ BANNED = (
     "lose_history",
     "reference_canonicalize",
 )
+OPTIONAL_MODULES = ("client_query_cache.otel",)
 BANNED_MODULES = (
     "_core.manager",
     "_core.lru",
@@ -68,6 +69,18 @@ def audit() -> None:
             if isinstance(attribute, type)
             else "function"
         )
+    leaked_exports = sorted(
+        {
+            name
+            for name in BANNED
+            if hasattr(extension, name)
+            or any(
+                hasattr(attribute, name)
+                for attribute in vars(extension).values()
+                if isinstance(attribute, type)
+            )
+        }
+    )
     banned_hits: dict[str, list[str]] = {}
     for path in files:
         content = path.read_bytes()
@@ -81,6 +94,9 @@ def audit() -> None:
                 banned_hits.setdefault(str(path.relative_to(package)), []).append(
                     banned
                 )
+    unexpected_failures = [
+        failure for failure in failed if failure[0] not in OPTIONAL_MODULES
+    ]
     print(
         json.dumps(
             {
@@ -90,12 +106,15 @@ def audit() -> None:
                 "import_failures": failed,
                 "engine_modules_loaded": loaded_engine,
                 "extension_exports": exports,
+                "leaked_exports": leaked_exports,
                 "banned_name_hits": banned_hits,
                 "so_bytes": (package / "_shared_index.abi3.so").stat().st_size,
             },
             indent=1,
         )
     )
+    if unexpected_failures or loaded_engine or leaked_exports or banned_hits:
+        raise SystemExit(1)
 
 
 def resident_kib() -> int:
