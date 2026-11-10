@@ -17,6 +17,10 @@ bodies or OpenSpec. An empty Unreleased section is valid.
 
 - Diagnostic collection is disabled by default. Set `enable_telemetry=True` on `CacheCoreConfig` or the server's `SharedCacheConfig` to use snapshots, stream-cost inspection and reset, or OpenTelemetry registration. Disabled diagnostics raise `CacheConfigurationError`.
 
+### Features
+
+- Added per-collection `SelectiveInvalidation` policies to sync and asyncio process-local `CacheManager` constructors. Eligible `find()` and `count_documents()` results can survive unrelated inserts, and counts can survive unrelated-field updates. See [configuration and trade-offs](docs/user/usage/selective-invalidation.md).
+
 ## [0.13.0] - 2026-11-06
 
 ### Breaking changes
