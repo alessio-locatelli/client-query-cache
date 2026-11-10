@@ -359,7 +359,8 @@ paths and oversized/missing update hints invalidate conservatively. Explicit
 count hints disable update-dependency proofs because index membership may depend
 on fields absent from the query; independent insert proofs remain available.
 Skip, limit, and collation keep their normal keys, native execution, and errors.
-Unsupported proofs add no bypass.
+Unsupported proofs add no bypass. Hints retain MongoDB semantics: a
+[sparse-index hint can produce an incomplete count](https://www.mongodb.com/docs/manual/core/index-sparse/#sparse-index-and-incomplete-results).
 
 A proof protects only its operation. Replacements and deletions invalidate all
 selective results, and updates invalidate finds. Ordinary identity, namespace,
