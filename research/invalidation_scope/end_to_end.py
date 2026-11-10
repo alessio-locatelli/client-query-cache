@@ -104,12 +104,15 @@ class ReadCommands(CommandListener):
 
 
 class RoutingObserver:
-    __slots__ = ("applied", "condition", "route_cpu_ns")
+    __slots__ = ("applied", "condition", "route_cpu_ns", "untracked_events")
 
-    def __init__(self) -> None:
+    def __init__(self, *, collect_untracked: bool = False) -> None:
         self.condition = threading.Condition()
         self.applied: list[NonNegativeFloat] = []
         self.route_cpu_ns = 0
+        self.untracked_events: list[Mapping[str, object]] | None = (
+            [] if collect_untracked else None
+        )
 
     def install(self, stack: ExitStack) -> None:
         stack.enter_context(
@@ -120,6 +123,8 @@ class RoutingObserver:
         with self.condition:
             self.applied.clear()
             self.route_cpu_ns = 0
+            if self.untracked_events is not None:
+                self.untracked_events.clear()
 
     def drain(self, count: NonNegativeInt) -> None:
         with self.condition:
@@ -144,6 +149,8 @@ class RoutingObserver:
             with self.condition:
                 self.route_cpu_ns += elapsed
                 self.applied.append(time.monotonic())
+                if self.untracked_events is not None:
+                    self.untracked_events.append(event)
                 self.condition.notify_all()
         return reopen
 
@@ -349,7 +356,7 @@ def run_cell(
     address = urlparse(replica.uri)
     assert address.hostname is not None
     assert address.port is not None
-    router = RoutingObserver()
+    router = RoutingObserver(collect_untracked=scenario == "uncached")
     listener = ReadCommands()
     with ExitStack() as stack:
         stack.callback(restore, raw_database[writer_name], mix, scheduled)
@@ -507,6 +514,10 @@ def run_cell(
             assert sum(listener.counts.values()) == observed_reads
             counters = None
             logical_bytes = 0
+        if router.untracked_events is not None:
+            logical_bytes = sum(
+                len(bson.encode(event)) for event in router.untracked_events
+            )
         return {
             "path": path,
             "mix": mix,
