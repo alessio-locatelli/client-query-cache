@@ -11,7 +11,7 @@ import shutil
 import subprocess
 import threading
 import time
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 from dataclasses import asdict
 from functools import partial
 from itertools import product
@@ -61,7 +61,7 @@ from research.invalidation_scope.benchmark import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping
+    from collections.abc import Callable, Generator, Mapping
 
     from pymongo.monitoring import (
         CommandFailedEvent,
@@ -455,6 +455,9 @@ def run_cell(
                     if remaining > 0:
                         time.sleep(remaining)
                     apply_write(writer, write, body)
+                    if scenario == "cached":
+                        oracle.write(write, ordinal)
+                    ordinal += 1
                     read(index)
                 remaining = started + seconds - time.monotonic()
                 if remaining > 0:
@@ -532,6 +535,37 @@ def run_cell(
         }
 
 
+@contextmanager
+def warm_calls(
+    uri: str, database: str
+) -> Generator[
+    tuple[
+        CacheManager[BsonDict],
+        ReadCommands,
+        dict[tuple[str, NonNegativeInt], Callable[[], object]],
+    ]
+]:
+    listener = ReadCommands()
+    with ExitStack() as stack:
+        client = stack.enter_context(
+            build_dedicated_client(uri, TOPOLOGY, event_listeners=(listener,))
+        )
+        manager = stack.enter_context(
+            CacheManager(client, cache_config=CacheCoreConfig(enable_telemetry=True))
+        )
+        calls = operations(manager, client[database].target)
+        await_warm(manager, calls["by_id", 0])
+        for index in range(WARMUP):
+            calls[read_key(index)]()
+        view = manager.get_cached_collection(client[database].target)
+        for author in range(HOT_AUTHORS):
+            calls["prefix", author] = partial(
+                feed, view, {"author_id": author}, limit=5
+            )
+        listener.counts["prefix"] = 0
+        yield manager, listener, calls
+
+
 def micro(
     replica: IsolatedReplicaSet,
     database: Database[BsonDict],
@@ -540,24 +574,7 @@ def micro(
     reads_per_batch: PositiveInt = 4000,
     kinds: tuple[ReadKind, ...] = (*READ_KINDS, "prefix"),
 ) -> BsonDict:
-    listener = ReadCommands()
-    with ExitStack() as stack:
-        client = stack.enter_context(
-            replica.build_client(TOPOLOGY, event_listeners=(listener,))
-        )
-        manager = stack.enter_context(
-            CacheManager(client, cache_config=CacheCoreConfig(enable_telemetry=True))
-        )
-        calls = operations(manager, client[database.name].target)
-        await_warm(manager, calls["by_id", 0])
-        for index in range(WARMUP):
-            calls[read_key(index)]()
-        view = manager.get_cached_collection(client[database.name].target)
-        for author in range(HOT_AUTHORS):
-            calls["prefix", author] = partial(
-                feed, view, {"author_id": author}, limit=5
-            )
-        listener.counts["prefix"] = 0
+    with warm_calls(replica.uri, database.name) as (manager, listener, calls):
         cpu_samples: dict[ReadKind, list[NonNegativeFloat]] = {
             kind: [] for kind in kinds
         }
