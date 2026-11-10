@@ -70,7 +70,7 @@ The `.raw` property SHALL expose the exact wrapped PyMongo object for calls requ
 
 ### Requirement: Incomplete results are not admitted
 
-The facades SHALL admit only complete, bounded results of supported reads after successful consumption, guarded by the namespace and stream-availability generations captured before native execution.
+The facades SHALL admit only complete, bounded results of supported reads after successful consumption, guarded by the applicable ordinary or selective result generations and stream-availability generation captured before native execution.
 
 #### Scenario: A caller abandons a cursor
 
@@ -99,8 +99,13 @@ The facades SHALL admit only complete, bounded results of supported reads after 
 
 #### Scenario: An invalidation or stream transition races consumption
 
-- **WHEN** a write, namespace change, stream availability transition, or manager closure occurs between capture and full consumption
+- **WHEN** an invalidating write, namespace change, stream availability transition, or manager closure occurs between capture and full consumption
 - **THEN** the result is not admitted under the obsolete capture
+
+#### Scenario: An independent write races selective consumption
+
+- **WHEN** a selective proof establishes that a processed write during complete consumption cannot affect the result
+- **THEN** the write alone does not prevent admission, and all other admission checks still apply
 
 ### Requirement: Cross-collection aggregation bypasses caching
 
