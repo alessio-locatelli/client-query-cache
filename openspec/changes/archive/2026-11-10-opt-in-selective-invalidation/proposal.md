@@ -2,7 +2,7 @@
 
 ## Why
 
-[Issue #298](https://github.com/alessio-locatelli/client-query-cache/issues/298) addresses repeated feeds and counts losing useful cache entries under unrelated writes. The [completed research](../../../docs/development/research/stream-assisted-invalidation.md) establishes a production implementation opportunity without justifying additional stream costs for every collection.
+[Issue #298](https://github.com/alessio-locatelli/client-query-cache/issues/298) addresses repeated feeds and counts losing useful cache entries under unrelated writes. The [completed research](../../../../docs/development/research/stream-assisted-invalidation.md) establishes a production implementation opportunity without justifying additional stream costs for every collection.
 
 ## What Changes
 

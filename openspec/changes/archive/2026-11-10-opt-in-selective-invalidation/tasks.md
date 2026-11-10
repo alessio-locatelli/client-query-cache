@@ -19,7 +19,7 @@
 ## 4. Production performance acceptance
 
 - [x] 4.1 Add D6's production runner mode and focused cell selection to the reusable research workload infrastructure. Use recorded Git revisions for historical experiment reproduction and add a small qualification test proving production mode uses public managers and reconciles native commands, cache outcomes, event counts, and oracle results. Provide the exact bounded reproduction commands in the maintainer guide.
-- [ ] 4.2 Execute D6's matched comparisons and memory controls, including the ordinary existing test-duration comparison. Retain the concise production evidence and measured bottleneck in the maintainer guide. Keep raw results local. Resolve reproducible slowdowns or record the maintainer's explicit approval before marking this task complete; unresolved noise cannot support an acceptance claim.
+- [x] 4.2 Execute D6's matched comparisons and memory controls, including the ordinary existing test-duration comparison. Retain the concise production evidence and measured bottleneck in the maintainer guide. Keep raw results local. Resolve reproducible slowdowns or record the maintainer's explicit approval before marking this task complete; unresolved noise cannot support an acceptance claim.
 
 ## 5. Code Quality
 

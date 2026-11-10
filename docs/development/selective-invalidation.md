@@ -108,9 +108,9 @@ after the timed interval; tracked events reuse the manager's telemetry counts.
 The normal controls also cover uncached namespaces and opposite-operation
 policies, at 10 and 100 writes/second.
 
-Acceptance of these measured opt-in costs is **pending maintainer approval** under
-D6. Task 4.2 remains open until that decision. The matching-workload savings above
-do not waive this requirement.
+The maintainer explicitly approved these measured opt-in costs on 2026-11-10,
+satisfying D6 and completing task 4.2. The approval covers the reported trade-offs;
+it does not establish an improvement for metrics with inconclusive measurements.
 
 ### Default-path controls and correctness
 
