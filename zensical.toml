@@ -30,6 +30,7 @@ nav = [
     { "FastAPI shared workers" = "examples/fastapi-shared.md" },
     { "Compact FastAPI" = "examples/fastapi-minimal.md" },
     { "requests-cache" = "examples/requests-cache.md" },
+    { "cachier (sync and asyncio)" = "examples/cachier.md" },
     { "FastAPI catalogue" = "examples/fastapi.md" },
     { "Celery" = "examples/celery.md" },
     { "py-abac" = "examples/py-abac.md" },

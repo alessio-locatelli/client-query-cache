@@ -80,6 +80,8 @@ def served_catalogue(
     "name",
     [
         "requests_cache_example.py",
+        "cachier_example.py",
+        "cachier_async_example.py",
         "celery_example.py",
         "py_abac_example.py",
         "aiohttp_client_cache_example.py",
@@ -90,6 +92,8 @@ def served_catalogue(
     ],
     ids=[
         "requests-cache",
+        "cachier",
+        "cachier-async",
         "celery",
         "py-abac",
         "aiohttp-client-cache",

@@ -26,6 +26,8 @@ Run each command from the [repository checkout](https://github.com/alessio-locat
 | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------- |
 | [`fastapi_shared_example.py`](https://github.com/alessio-locatelli/client-query-cache/blob/main/examples/fastapi_shared_example.py)             | FastAPI + [Granian](https://github.com/emmett-framework/granian)               | `uv run examples/fastapi_shared_example.py`       |
 | [`requests_cache_example.py`](https://github.com/alessio-locatelli/client-query-cache/blob/main/examples/requests_cache_example.py)             | [requests-cache](https://github.com/requests-cache/requests-cache)             | `uv run examples/requests_cache_example.py`       |
+| [`cachier_example.py`](https://github.com/alessio-locatelli/client-query-cache/blob/main/examples/cachier_example.py)                           | [cachier](https://github.com/python-cachier/cachier) (sync)                    | `uv run examples/cachier_example.py`              |
+| [`cachier_async_example.py`](https://github.com/alessio-locatelli/client-query-cache/blob/main/examples/cachier_async_example.py)               | [cachier](https://github.com/python-cachier/cachier) (asyncio)                 | `uv run examples/cachier_async_example.py`        |
 | [`fastapi_catalogue_example.py`](https://github.com/alessio-locatelli/client-query-cache/blob/main/examples/fastapi_catalogue_example.py)       | [FastAPI](https://fastapi.tiangolo.com/)                                       | `uv run examples/fastapi_catalogue_example.py`    |
 | [`fastapi_minimal_example.py`](https://github.com/alessio-locatelli/client-query-cache/blob/main/examples/fastapi_minimal_example.py)           | [FastAPI](https://fastapi.tiangolo.com/)                                       | `uv run examples/fastapi_minimal_example.py`      |
 | [`celery_example.py`](https://github.com/alessio-locatelli/client-query-cache/blob/main/examples/celery_example.py)                             | [Celery](https://github.com/celery/celery)                                     | `uv run examples/celery_example.py`               |
@@ -40,6 +42,7 @@ Run all executable self-checks with `just examples`; the shared self-check also 
 - [FastAPI shared-worker guide](https://alessio-locatelli.github.io/client-query-cache/examples/fastapi-shared/)
 
 - [requests-cache guide](https://alessio-locatelli.github.io/client-query-cache/examples/requests-cache/)
+- [cachier sync and asyncio guide](https://alessio-locatelli.github.io/client-query-cache/examples/cachier/)
 - [FastAPI catalogue guide](https://alessio-locatelli.github.io/client-query-cache/examples/fastapi/)
 - [Compact FastAPI guide](https://alessio-locatelli.github.io/client-query-cache/examples/fastapi-minimal/)
 - [Celery guide](https://alessio-locatelli.github.io/client-query-cache/examples/celery/)
