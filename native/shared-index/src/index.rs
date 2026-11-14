@@ -690,8 +690,7 @@ impl<M: Words> Writer<M> {
         if bits != 0 {
             return Some(word * u64::BITS as usize + bits.trailing_zeros() as usize);
         }
-        for word in word + 1..self.occupied_bins.len() {
-            let bits = self.occupied_bins[word];
+        for (word, &bits) in self.occupied_bins.iter().enumerate().skip(word + 1) {
             if bits != 0 {
                 return Some(word * u64::BITS as usize + bits.trailing_zeros() as usize);
             }
