@@ -173,7 +173,7 @@ This section records measurements for [issue #337](https://github.com/alessio-lo
 
 Summary of the incremental costs against frozen `main`:
 
-- With both limits disabled, the public read paths stay within about 3% of `main`, the spread between independent `main` builds. `CacheSnapshot` construction costs about 9% (0.3 µs) more because it reports four more fields. Three native micro-workloads on code the pull request does not change run up to 3% slower; the instruction streams are identical, and public shared-cache reads and publications, and the public warm hits, show no stable difference ([details](#differences-on-unchanged-code)).
+- With both limits disabled, the public read paths stay within about 3% of `main`, the spread between independent `main` builds. `CacheSnapshot` construction costs about 9% (0.3 µs) more because it reports four more fields. Three native micro-workloads on code the pull request does not change run up to 3% slower; a one-call instruction trace and heap perturbations provide limited diagnostic evidence, and public shared-cache reads and publications, and the public warm hits, show no stable difference ([details](#differences-on-unchanged-code)).
 - `max_entries` alone adds no measurable cost to a cache miss or a hit. `max_key_bytes` adds the cost of sizing the key on every admitted miss, 2–5 µs between real requests (about 2–3% of a cold read), and nothing to hits except about 30 ns for unique-key hits with `max_entries` set. The in-process floor and the rejected reductions are in [the admission analysis](#enabled-admission-cost).
 - On the workload of issue #337 (small cached results behind long `$in` filters), bounding the entry count to 10,000 cut the memory added by the cache from 297 MiB to 46 MiB, and a 2,048-byte key limit cut it to 5 MiB. Both bounds trade cache coverage for memory; the [workload section](#memory-protection-on-the-issue-337-workload) lists the lost hits and added database queries.
 - The example limits of the deployment guide (50,000 entries, 16 KiB keys) leave 212 MiB of that workload's growth, because 50,000 long-filter entries are not a small bound.
@@ -288,11 +288,11 @@ The three workloads above were slower in the candidate builds in each of five ac
 | 4 (builds 16–20)               |                +1.7 |                   +0.1 |            +0.6 |
 | 5 (builds 16–20)               |                +1.0 |                   +1.1 |            +0.5 |
 
-Hardware counters, an instruction trace and the public shared-cache paths explain or bound them. The counters are user-space `perf_event_open` events read from Python, because `perf` was not installed; `perf stat -e instructions:u,cycles:u,branch-misses:u,L1-dcache-load-misses:u` reads the same events. Measured processes were pinned to CPU 2.
+Hardware counters, an instruction trace and the public shared-cache paths provide diagnostic evidence about these differences. The counters are user-space `perf_event_open` events read from Python around the measured loop, because `perf` was not installed. Measured processes were pinned to CPU 2. These specialized measurements used one-off scripts that are not retained in the repository; the [reproduction section](#test-cost-and-reproduction) distinguishes them from the supported timing harness and explains the scope of `perf stat`.
 
-**The executed code is the same.** Single-stepping one `ReaderIndex.lookup` call with `ptrace` executes 5,906 instructions in the candidate and in `main`, of which 2,993 are in the extension, 2,141 in CPython and 709 in glibc. The lookup trampoline has 1,423 static instructions in `main` and 1,418 in the candidate; the differences are mostly register allocation.
+**One traced lookup executes the same number of instructions.** A one-off diagnostic single-stepped one `ReaderIndex.lookup` call with `ptrace`: it counted 5,906 instructions in the candidate and in `main`, of which 2,993 are in the extension, 2,141 in CPython and 709 in glibc. This does not establish identical instruction streams or behavior for all inputs. The lookup trampoline has 1,423 static instructions in `main` and 1,418 in the candidate; the differences are mostly register allocation.
 
-**The 1.0% instruction gap per read is allocator state, not code.** In the 1,024-read loop `main` retires 4,515 instructions per read and the candidate 4,560. Perturbing the glibc heap before the workload moves the same binary across that whole range and swaps the order of the two builds (instructions per read, `main` build A and candidate build 16):
+**A one-off heap perturbation changes the instruction gap per read.** In the 1,024-read loop `main` retires 4,515 instructions per read and the candidate 4,560. Perturbing the glibc heap before the workload moves the same binary across that whole range and swaps the order of the two builds. This supports allocator state as a contributor; the allocation sizes alone do not specify a repeatable diagnostic (instructions per read, `main` build A and candidate build 16):
 
 | Heap perturbation before the workload | `main` | Candidate |
 | ------------------------------------- | -----: | --------: |
@@ -314,7 +314,7 @@ Hardware counters, an instruction trace and the public shared-cache paths explai
 
 **`capture_array` follows glibc's heap trimming.** After `shared_hit_medium` in one process, the candidate builds measure 110 ns against 47 ns for `main` because the process grows and shrinks its heap around every 8 MiB array (4,458 `brk` calls against 104). With a trim threshold of 64 MiB or a heap growth pad of 16 MiB the two agree (48.1 against 47.8 ns). `capture_array` alone, or earlier in a longer workload list, does not enter that state.
 
-**With the allocator fixed, the timing gaps shrink** (equal-length overlay paths, seven rounds, paired against build A, difference of medians and permutation p): `shared_hit_medium` +1.4% (p = 0.05; 266.4 → 267.9 ns, +0.6%), `shared_publish_cycle` +1.6% (p = 0.04; 366.6 → 378.4 ns), `capture_array` +0.7% (p = 0.02), `shared_hit_small` −0.5%, `shared_miss` +0.1%, `find_exact_hit` −1.1% and `namespace_hit` −0.4%.
+**The equal-length-path paired timings do not establish allocator-controlled behavior.** The session-log account in [issue #413](https://github.com/alessio-locatelli/client-query-cache/issues/413) suggests that the seven-round run set `MALLOC_TOP_PAD_` and `MALLOC_TRIM_THRESHOLD_` only on the parent `compare` command; that invocation is not retained in the repository. Inspection confirms that `child_environment()` does not forward either variable to measured children, so a run made that way measures the default allocator. These timings therefore provide no evidence that allocator controls shrink the gaps. The recorded paired changes against build A were `shared_hit_medium` +1.4% (p = 0.05; medians 266.4 → 267.9 ns, +0.6%), `shared_publish_cycle` +1.6% (p = 0.04; medians 366.6 → 378.4 ns, +3.2%), `capture_array` +0.7% (p = 0.02), `shared_hit_small` −0.5%, `shared_miss` +0.1%, `find_exact_hit` −1.1% and `namespace_hit` −0.4%. The paired changes differ from the ratios of the reported medians; the retained report does not establish the aggregation that produced these pairs or the permutation p-values. Treat them as historical exploratory results, not output reproducible by the standard harness. The allocator-controlled hardware-counter runs above set the variables inside their own script and are unaffected by this harness limitation.
 
 **Public shared-cache paths show no detectable difference.** The public benchmark `benchmarks/public_shared_cache.py` ran the actual release wheels with four workers and an isolated replica set, two rounds per build, equal-length overlay paths. Median latency per read in µs (median over the five builds per side, with range):
 
@@ -580,26 +580,96 @@ Five counterbalanced runs timed the same 1,331 pre-existing cases of the files l
 
 The ranges overlap. Two earlier sets of five rounds on preceding revisions measured 63.06 against 63.07 and 61.84 against 62.70 seconds of wall time. The full Python coverage gate reached 100.00%, and the Rust unit tests and concurrency models passed. Native Rust coverage completion is tracked separately in [issue #328](https://github.com/alessio-locatelli/client-query-cache/issues/328), as the [native quality guide](../../docs/development/native-quality.md#native-coverage) explains.
 
-To reproduce, build each tree with `just build`, then install each wheel into a separate target directory:
+The primary native timing comparison can be rerun from the two recorded source revisions using the candidate revision's harness for every wheel. Use the [contributor environment](../../CONTRIBUTING.md#environment), with the interpreter, dependencies, compiler, allocator, CPU and build settings matched to [the recorded environment](#builds-environment-and-method) as closely as possible. These commands reproduce the method, not the exact wheel hashes, PGO layouts or numerical results. Later harness and training revisions change the workloads and are not interchangeable with this historical comparison.
+
+Run this setup in Bash from the repository root. It creates detached worktrees and keeps wheels, overlays and raw results under one disposable directory. Each independent build gets a fresh Cargo target directory so that PGO training is repeated rather than reusing a previous build. All overlay labels have eight characters; their common absolute parent path makes every imported extension path equal in length. The A/A control is a copy of the first baseline build, not another build.
 
 ```bash
-uv pip install --no-deps --target overlays/<label> dist/<wheel>.whl
+set -euo pipefail
+mkdir -p /tmp/agents
+scratch=$(mktemp -d /tmp/agents/native-comparison.XXXXXXXX)
+git worktree add --detach "$scratch/main" 4e071dfd5904527545177cd2e6f5bdb78a2239c9
+git worktree add --detach "$scratch/candidate" 94065fbff5439c47268bd38e85b2101c95f9f30f
+driver="$scratch/candidate"
+overlays="$scratch/overlays"
+mkdir -p "$overlays" "$scratch/results"
+for tree in "$scratch/main" "$driver"; do
+    (cd "$tree" && uv sync --locked)
+done
+for label in main0001 main0002 main0003 main0004 main0005 cand0016 cand0017 cand0018 cand0019 cand0020; do
+    case "$label" in
+        main*) tree="$scratch/main" ;;
+        cand*) tree="$driver" ;;
+    esac
+    (cd "$tree" && CARGO_TARGET_DIR="$scratch/targets/$label" just build)
+    uv pip install --python "$driver/.venv/bin/python" --no-deps \
+        --target "$overlays/$label" "$tree"/dist/*.whl
+done
+cp -a "$overlays/main0001" "$overlays/same0001"
+cd "$driver"
 ```
 
-Native workloads, with `control` an extra copy of build A's overlay:
+The archived candidate contains the retention implementation and report; its post-implementation edits only change documentation and OpenSpec artifacts. Both trees use their locked dependencies to build. All timing children use the same candidate interpreter and dependencies, with the selected wheel ahead of the harness tree on `PYTHONPATH`. Keep the shell variables for the following commands. CPU 2 must be available, and the host must permit `setarch --addr-no-randomize`; a permission error stops the comparison and must be resolved rather than silently dropping that control.
+
+Run the full 25-workload comparison in its historical order. The first 23 names are the non-`limited_` PGO workloads; `snapshot` and `namespace_lifecycle` are the harness's two additional workloads. Order matters for allocator state.
 
 ```bash
-uv run -- python -m research.native_build_profile.compare --overlay-root overlays --baseline baselineA --labels baselineB baselineC baselineD baselineE control candidate16 candidate17 candidate18 candidate19 candidate20 --rounds 5 --cpu 2 --workloads <the 25 workloads> --output micro.json
-PYTHONPATH=overlays/candidate16:. PYTHONHASHSEED=0 setarch --addr-no-randomize taskset -c 2 uv run -- python -m research.native_build_profile.limits --rounds 9 --output limits.json
-uv run -- python -m research.native_build_profile.end_to_end --overlay-root overlays --baseline baselineA --labels baselineB candidate16 candidate17 --output guard.json
+workloads=(
+    identity_hit_small identity_hit_medium identity_hit_decoded_small identity_miss
+    find_exact_hit find_subsumed_hit namespace_hit admit_churn_small admit_churn_medium
+    write_invalidation key_preparation_large key_preparation_small wire_keys capture_array
+    shared_hit_small shared_hit_medium shared_miss shared_publish_cycle owner_admission
+    facade_hit facade_find_miss facade_invalidation echo_roundtrip snapshot namespace_lifecycle
+)
+"$driver/.venv/bin/python" -m research.native_build_profile.compare \
+    --overlay-root "$overlays" --python "$driver/.venv/bin/python" \
+    --baseline main0001 --labels main0002 main0003 main0004 main0005 same0001 \
+    cand0016 cand0017 cand0018 cand0019 cand0020 \
+    --rounds 5 --cpu 2 --workloads "${workloads[@]}" --output "$scratch/results/micro.json"
 ```
 
-The `<the 25 workloads>` are the names of `scripts/pgo_training.py`'s `WORKLOADS` that do not start with `limited_`; `main` has no limits to time. Public reads need the Podman socket and the contributor environment. This example seeds the nonunique workload and runs the enabled equal-residency cell; the build is selected by `PYTHONPATH`:
+For a seven-round comparison of the seven workloads in the historical paired-timing paragraph, rerun the same command with `--rounds 7` and `--workloads shared_hit_medium shared_publish_cycle capture_array shared_hit_small shared_miss find_exact_hit namespace_hit`, using a separate output file. This produces a new default-allocator comparison. The harness reports the median of per-round percentage improvements with bootstrap intervals: positive means faster. It does not compute permutation p-values or the historical pooled paired statistic.
+
+`compare` and `end_to_end` construct child environments containing only `PYTHONPATH`, `PYTHONHASHSEED=0`, `PATH` and, if present, `LLVM_PROFILE_FILE`. In particular, setting `MALLOC_TOP_PAD_` or `MALLOC_TRIM_THRESHOLD_` on their command lines does not control the measured allocator; they measure its default settings. Equal-length paths remove one layout difference, but do not make heap state or independent PGO builds identical.
+
+The admission-limit and public guard comparisons use the same overlays. `limits` runs in the selected interpreter directly and inherits its environment; it does not use `child_environment()`:
+
+```bash
+PYTHONPATH="$overlays/cand0016:$driver" PYTHONHASHSEED=0 \
+    setarch --addr-no-randomize taskset -c 2 "$driver/.venv/bin/python" \
+    -m research.native_build_profile.limits --rounds 9 --output "$scratch/results/limits.json"
+source scripts/testcontainers-bridge.sh
+"$driver/.venv/bin/python" -m research.native_build_profile.end_to_end \
+    --overlay-root "$overlays" --python "$driver/.venv/bin/python" \
+    --baseline main0001 --labels main0002 cand0016 cand0017 --cpu 2 \
+    --output "$scratch/results/guard.json"
+```
+
+Raw per-child timing files record the imported extension path and SHA-256; inspect them to confirm wheel selection. Retain only a prose summary and reproduction commands in Git. After preserving any needed results, return to the original checkout and remove the disposable worktrees with `git worktree remove` (generated untracked build files must first be moved out or discarded).
+
+The counter tables, `ptrace` trace and heap perturbations are historical one-off diagnostics. Their scripts, allocation lifetimes and counter boundaries are not retained, so they cannot be reproduced exactly from this repository. Reimplementing that specialized instrumentation is outside this report's reproduction procedure. In particular, `perf stat -e instructions:u,cycles:u,branch-misses:u,L1-dcache-load-misses:u -- <command>` counts user-space events for the whole command, including interpreter startup, imports, setup and teardown. Dividing those totals by loop iterations does not reproduce the tables' per-operation counts. To restrict counters to an operation, start with events disabled (`--delay=-1`) and use [`perf stat` control descriptors or FIFOs](https://github.com/torvalds/linux/blob/master/tools/perf/Documentation/perf-stat.txt) to enable after setup and warmup, then disable immediately after the loop, synchronizing command acknowledgements. Normalize by the operations inside that interval and account for control overhead. The existing timing harness does not emit these control commands; a plain `perf stat` wrapper is only a whole-process diagnostic.
+
+Public reads need the Podman socket and the contributor environment. Select and verify the release wheel before running the remaining examples. Keep this environment in the same shell for the public-read and core commands; when selecting another build, change the overlay and repeat the check. A missing overlay must stop the procedure rather than silently use the editable installation:
+
+```bash
+export PYTHONPATH="$overlays/cand0016:$driver" PYTHONHASHSEED=337
+"$driver/.venv/bin/python" - "$overlays/cand0016" <<'PY'
+import sys
+from pathlib import Path
+from client_query_cache import _shared_index
+
+expected = Path(sys.argv[1]) / 'client_query_cache' / '_shared_index.abi3.so'
+if Path(_shared_index.__file__).resolve() != expected.resolve():
+    raise SystemExit(f'imported {_shared_index.__file__}, expected {expected}')
+PY
+```
+
+This example seeds the nonunique workload and runs the enabled equal-residency cell:
 
 ```bash
 source scripts/testcontainers-bridge.sh
 nice -n 19 taskset -c 2 python3 -c 'while True: pass' &
-uv run --env-file=.env python - <<'PY'
+"$driver/.venv/bin/python" - "$overlays/cand0016" <<'PY'
 import os
 import subprocess
 import sys
@@ -607,7 +677,7 @@ from pathlib import Path
 from research.collection_adapter.live_error import fixture
 
 root = Path.cwd()
-site = Path('overlays/candidate16').resolve()
+site = Path(sys.argv[1]).resolve()
 with fixture() as server:
     collection = server.process_memory.codes
     collection.insert_many(
@@ -637,16 +707,16 @@ For the unique cells, replace the nonunique index with `collection.create_index(
 The core commands need no server. Run each for both cores and all three build configurations, ten repetitions each:
 
 ```bash
-PYTHONPATH=overlays/candidate16:. PYTHONHASHSEED=337 uv run -- python -m research.process_memory.measure retention-core --core reference --scenario aliases --enabled
-PYTHONPATH=overlays/candidate16:. PYTHONHASHSEED=337 uv run -- python -m research.process_memory.measure retention-core --core native --scenario contention --threads 4 --distinct 32768 --max-entries 131072 --budget 16777216 --enabled
+"$driver/.venv/bin/python" -m research.process_memory.measure retention-core --core reference --scenario aliases --enabled
+"$driver/.venv/bin/python" -m research.process_memory.measure retention-core --core native --scenario contention --threads 4 --distinct 32768 --max-entries 131072 --budget 16777216 --enabled
 ```
 
 Use `--core reference|native` (only the revisions that still contained the Python reference core accept `--core`; later revisions measure the native core alone), contention `--threads 1|4`, omit `--enabled` for disabled builds, and select `main`'s budget keyword as above. The issue #337 workload seeds 100,000 documents (`_id` and `code` as above, `code` indexed) into `process_memory.codes` and runs one child per scenario, API and configuration:
 
 ```bash
-taskset -c 2 python -m research.process_memory.measure child <uri> large-keys sync direct
-taskset -c 2 python -m research.process_memory.measure child <uri> large-keys sync cached --max-entries 10000
-taskset -c 2 python -m research.process_memory.measure child <uri> large-keys sync cached --max-key-bytes 2048
+taskset -c 2 "$driver/.venv/bin/python" -m research.process_memory.measure child <uri> large-keys sync direct
+taskset -c 2 "$driver/.venv/bin/python" -m research.process_memory.measure child <uri> large-keys sync cached --max-entries 10000
+taskset -c 2 "$driver/.venv/bin/python" -m research.process_memory.measure child <uri> large-keys sync cached --max-key-bytes 2048
 ```
 
 Select the scenario (`small-entries`, `large-keys`, `skewed-entries`, `skewed-keys`) and API, and add `--budget-field shared_budget_bytes` for `main`. The PGO coverage check builds with `RUSTFLAGS=-Cprofile-generate=<directory>` through `maturin build --release --zig`, installs that wheel, runs `scripts/pgo_training.py` with `LLVM_PROFILE_FILE=<directory>/cov-%p.profraw`, merges with `llvm-profdata merge` and reads `llvm-profdata show --detailed-summary` and `--all-functions --counts`.
@@ -656,5 +726,5 @@ Select the scenario (`small-entries`, `large-keys`, `skewed-entries`, `skewed-ke
 - One host and one run order per run index. The end-to-end costs carry ±2–3% noise between independent builds of the same source, as the second `main` build shows; costs below that are not resolved.
 - The key charge is shallow `sys.getsizeof` over the canonical key, not the memory of the retained objects. Δ RSS is the measured effect, and it depends on the allocator and the application's own filters.
 - A cyclic scan larger than the entry limit never hits an LRU cache. The skewed rows show a realistic trade; the cyclic rows show the worst case.
-- The `max_entries` unique-key hit carries the 30 ns described above, and `shared_publish_cycle` keeps a 13 ns difference whose cause is not identified ([details](#differences-on-unchanged-code)).
+- The `max_entries` unique-key hit carries the 30 ns described above. The historical `shared_publish_cycle` observation was about 13 ns; its reproducibility and cause remain unresolved in [issue #410](https://github.com/alessio-locatelli/client-query-cache/issues/410) ([measurement limitations](#differences-on-unchanged-code)).
 - glibc 2.43 and CPython's small-object allocator. Other allocators, glibc versions or Python versions can change retention.
