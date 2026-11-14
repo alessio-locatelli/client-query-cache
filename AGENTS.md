@@ -23,6 +23,7 @@ See [README.md](README.md).
 - Treat all warnings from local tools and CI as actionable, even when commands succeed. Investigate and resolve their root causes; never silently ignore or hide warnings. Narrowly scoped suppression requires a documented justification. Warnings introduced by the current changes must be resolved before completion; pre-existing warnings outside the task's scope must be tracked in a GitHub issue.
 - **Production-only runtime:** The installed Python package and Rust extension must contain only code with a genuine production purpose. Do not retain implementations or bindings solely for testing, benchmarking, comparison, research, or profiling. Development tooling and compile-time-only tests are permitted outside runtime builds. Follow the `production-library-scope` specs.
 - **Do not compromise production design for testing:** Do not add runtime hooks, inspection APIs, alternate implementations, or conditional behavior solely to facilitate tests. Refactoring for testability is acceptable when it also improves production design or maintainability.
+- Retain research only when it can help a future maintainer make an engineering decision, understand a non-obvious design constraint, diagnose a production problem, or reproduce an important performance characteristic.
 
 ### Generated artifacts
 
