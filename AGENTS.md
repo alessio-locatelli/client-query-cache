@@ -23,7 +23,15 @@ See [README.md](README.md).
 - Treat all warnings from local tools and CI as actionable, even when commands succeed. Investigate and resolve their root causes; never silently ignore or hide warnings. Narrowly scoped suppression requires a documented justification. Warnings introduced by the current changes must be resolved before completion; pre-existing warnings outside the task's scope must be tracked in a GitHub issue.
 - **Production-only runtime:** The installed Python package and Rust extension must contain only code with a genuine production purpose. Do not retain implementations or bindings solely for testing, benchmarking, comparison, research, or profiling. Development tooling and compile-time-only tests are permitted outside runtime builds. Follow the `production-library-scope` specs.
 - **Do not compromise production design for testing:** Do not add runtime hooks, inspection APIs, alternate implementations, or conditional behavior solely to facilitate tests. Refactoring for testability is acceptable when it also improves production design or maintainability.
-- Retain research only when it can help a future maintainer make an engineering decision, understand a non-obvious design constraint, diagnose a production problem, or reproduce an important performance characteristic.
+
+### Non-package artifacts and review evidence
+
+For benchmarks, reports, research notes, experimental scripts, and similar artifacts:
+
+- **Track a file** when it provides lasting value for future maintenance, engineering decisions, understanding non-obvious design constraints, diagnosing problems, or reproducing important behavior.
+- **Use the PR description** for concise findings, decisions, or reproduction instructions that matter to reviewing the change but do not justify a tracked file. Summarize relevant information rather than copying temporary artifacts.
+- **Do not add anything** to the repository or PR description when it provides neither lasting maintenance value nor meaningful review value. Keep disposable experiments and intermediate outputs local.
+- This repository uses rebase merging. Do not rely on PR branch names or pre-merge commit SHAs remaining accessible after merge.
 
 ### Generated artifacts
 
