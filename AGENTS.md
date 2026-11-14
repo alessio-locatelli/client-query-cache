@@ -24,6 +24,12 @@ See [README.md](README.md).
 - **Production-only runtime:** The installed Python package and Rust extension must contain only code with a genuine production purpose. Do not retain implementations or bindings solely for testing, benchmarking, comparison, research, or profiling. Development tooling and compile-time-only tests are permitted outside runtime builds. Follow the `production-library-scope` specs.
 - **Do not compromise production design for testing:** Do not add runtime hooks, inspection APIs, alternate implementations, or conditional behavior solely to facilitate tests. Refactoring for testability is acceptable when it also improves production design or maintainability.
 
+### Benchmarks and stress tests
+
+- **Right-size workloads.** Choose iterations, payload sizes, concurrency, and duration based on the behavior being tested. Start with the smallest representative workload and increase it only when necessary to exercise the target condition, reduce measurement noise, or establish reproducibility. Avoid arbitrary oversized workloads.
+- **Stop when evidence is sufficient.** For benchmarks, use repeated measurements to establish a stable result or report inconclusive findings. For stress tests, verify that the targeted conditions are actually exercised and repeat runs as needed to establish reliability. Do not waste resources chasing precision that cannot affect the engineering decision.
+- **Document meaningful limits.** For maintained benchmarks and stress tests, document the workload configuration and rationale for its size or duration, including observed variability where relevant. Reassess legacy workloads when modifying them, especially when their execution costs appear disproportionate to their value.
+
 ### Non-package artifacts and review evidence
 
 For benchmarks, reports, research notes, experimental scripts, and similar artifacts:
