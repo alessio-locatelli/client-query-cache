@@ -8,6 +8,9 @@ concurrency:
 
 on:
   pull_request:
+  # Populate default-branch caches that every pull request can restore.
+  push:
+    branches: [main]
 
 # GitHub workflow syntax (2026-10-06):
 # https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax
@@ -71,6 +74,9 @@ env:
 jobs:
   scope:
     name: Select validation tiers
+    # The default is success(). We override it because only PRs select downstream
+    # validation; main runs Prek to populate shared caches.
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
     # timeout-minutes for scope (5m), prek (15m), prettier (10m), documentation (10m),
     # package (15m), integration-e2e (20m), pymongo-min (20m), mongodb-min (20m),
@@ -111,6 +117,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # The default is the triggering ref or SHA. We override it because cache
+          # warming checks the exact commit without tripping no-commit-to-branch.
+          ref: ${{ github.sha }}
 
       - uses: $/.github/actions/setup-toolchain
 
