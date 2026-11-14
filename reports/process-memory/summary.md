@@ -333,7 +333,7 @@ A hot read costs 6–10 µs, so a 9 ns native gap is 0.1%; a cold read, which in
 
 The public warm hit of `small-entries` (CPU µs per read, ten builds, eight repetitions per build) shows no stable difference either. With overlay paths of unequal length the asynchronous hit was 2.2% slower (p = 0.02) and the synchronous one 0.2%; with equal-length paths the asynchronous hit was 0.5% slower (p = 0.98) and the synchronous one 0.9% slower (p = 0.01). The instructions per read are equal (asynchronous 78,498 against 78,425, synchronous 71,608 against 71,628) and the cycles differ by −0.1% asynchronously and +1.6% synchronously (p = 0.01), so the sign follows the API and the process layout rather than the code.
 
-The remaining unexplained item is `shared_publish_cycle`: with the allocator fixed it takes 3.4% more cycles (55 cycles, about 13 ns) with no more instructions (+0.4%, p = 0.22), fewer branch misses and fewer L1D misses. The cause was not identified and is tracked in [issue #410](https://github.com/alessio-locatelli/client-query-cache/issues/410); the difference is invisible in a complete publication.
+The historical unexplained item is `shared_publish_cycle`: with the allocator fixed it takes 3.4% more cycles (55 cycles, about 13 ns) with no more instructions (+0.4%, p = 0.22), fewer branch misses and fewer L1D misses. The cause was not identified; the difference is invisible in a complete publication. The [follow-up investigation for issue #410](../shared-publish-cycle/summary.md) did not reliably reproduce a default-allocator timing slowdown across independent release builds on a different host and closes the investigation without a production change. It does not explain the historical counter result.
 
 ### Enabled admission cost
 
@@ -726,5 +726,5 @@ Select the scenario (`small-entries`, `large-keys`, `skewed-entries`, `skewed-ke
 - One host and one run order per run index. The end-to-end costs carry ±2–3% noise between independent builds of the same source, as the second `main` build shows; costs below that are not resolved.
 - The key charge is shallow `sys.getsizeof` over the canonical key, not the memory of the retained objects. Δ RSS is the measured effect, and it depends on the allocator and the application's own filters.
 - A cyclic scan larger than the entry limit never hits an LRU cache. The skewed rows show a realistic trade; the cyclic rows show the worst case.
-- The `max_entries` unique-key hit carries the 30 ns described above. The historical `shared_publish_cycle` observation was about 13 ns; its reproducibility and cause remain unresolved in [issue #410](https://github.com/alessio-locatelli/client-query-cache/issues/410) ([measurement limitations](#differences-on-unchanged-code)).
+- The `max_entries` unique-key hit carries the 30 ns described above. The historical `shared_publish_cycle` observation was about 13 ns ([measurement limitations](#differences-on-unchanged-code)); see the [bounded follow-up and its stopping decision](../shared-publish-cycle/summary.md).
 - glibc 2.43 and CPython's small-object allocator. Other allocators, glibc versions or Python versions can change retention.
