@@ -22,7 +22,7 @@
 ## 4. Performance evidence
 
 - [x] 4.1 Run the task 1.1 workloads after integration, measuring exact-hit overhead, family-size scaling, source/request decode allocation, and incompatible/bypass paths. Verify candidate work is independent of unrelated cache contents, resident payloads do not grow from compatible hits, and short-prefix decoding costs are measured explicitly. If measurements invalidate the proposed family index or decoding choice, resolve that within this active change and repeat the affected cases before completion.
-- [x] 4.2 Commit only a concise `reports/find-limit-subsumption/summary.md` containing baseline/post-change results, exact environment, bottleneck conclusions, limitations, and reproduction commands. Keep raw output untracked and include the major-change profiling/benchmark results in the implementation commit body; verify the report distinguishes full-source decoding from prefix-buffer size and makes no unmeasured speedup claim.
+- [x] 4.2 Commit only a concise [`reports/find-limit-subsumption/summary.md`](https://github.com/alessio-locatelli/client-query-cache/blob/243cbfb790766e9ee25b3ecced1ffe83e96d083c/reports/find-limit-subsumption/summary.md) containing baseline/post-change results, exact environment, bottleneck conclusions, limitations, and reproduction commands. Keep raw output untracked and include the major-change profiling/benchmark results in the implementation commit body; verify the report distinguishes full-source decoding from prefix-buffer size and makes no unmeasured speedup claim.
 
 ## 5. Code Quality
 

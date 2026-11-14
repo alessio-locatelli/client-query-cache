@@ -1,31 +1,27 @@
-# Version 15: issue #272 acceptance passes
+# Shared identity misses without data-socket setup
 
-Candidate `56a837b22c3264a0038333fac9d4f5c7fd37c893` satisfies [issue #272](https://github.com/alessio-locatelli/client-query-cache/issues/272). Every required cold, hot, capacity, active and timed-fault check passes. The complete study retains the [preregistered configuration](config.json), [environment](environment.json), rates, block counts and inference rules. Sorted-find sensitivity still fails; this result does not establish general promotion or expand the public shared-cache scope.
+The completed study for [#272](https://github.com/alessio-locatelli/client-query-cache/issues/272)
+measured `56a837b22c3264a0038333fac9d4f5c7fd37c893`, a development revision
+after 0.8.0. Its native control queue admitted valid local misses without first
+opening a data socket or requesting an owner capture. Current shared ownership
+has since moved into Rust; these are historical workload results, not current
+release bounds. The [shared implementation guide](../../../docs/development/shared-cache.md)
+owns present validity and fallback rules.
 
-## Provenance and qualification
+## Workload and inference
 
-All reports identify the same clean candidate revision and frozen native binary. All thirty-eight fresh baseline windows qualify at primary/cold/sensitivity rates of 1,006/1,000/319 requests/s, taking 1,885.10 seconds. Automated qualification reports no failures. Its `pending-manual-review` marker is resolved by the following two manual checks:
+The frozen [configuration](config.json) and [environment](environment.json)
+identify CPython 3.14.7, PyMongo 4.18.2, the Intel i3-13100 host, glibc 2.43 and
+MongoDB 9.0.2 in a two-CPU/2-GiB single-member replica set. All three paths used
+the same nested BSON catalogue (16,384 4-KiB-payload documents, seed 197),
+primary/majority reads and decode/checksum work. Shared and per-worker independent
+BSON budgets were each 96 MiB. Four/eight-worker cold windows issued 10,000
+distinct misses at 1,000/s.
 
-- **Source compatibility:** relative to v14, shared adapters use native control queues independently of data sockets and retain default wire shapes per view. Independent cache code and the native relay model are unchanged. The rebuilt binary includes the immutable queue-capability getter and matches the frozen digest. Fresh qualification covers this checkout; no historical source-equivalence claim qualifies its baselines. External C and framing prototypes are excluded.
-- **Physical host:** freezing, qualification and every candidate phase run through the same local Fedora Toolbx and host Podman bridge on the registered i3-13100 host, without a remote executor or migration. Execution-context review and matching environment metadata establish host continuity.
-
-Both manual checks pass. Before acquisition, the complete Python suite reaches 100% coverage, all forty-four Rust tests pass, and all seven release-mode Loom models pass. Native code and benchmark/library implementation remain unchanged throughout acquisition.
-
-## Complete acquisition
-
-| Phase         | Healthy / planned windows | Decision                                            |
-| ------------- | ------------------------: | --------------------------------------------------- |
-| Qualification |                   38 / 38 | pass, including both manual checks                  |
-| Smoke         |                     9 / 9 | instrumentation check only                          |
-| Cold          |                 144 / 144 | all 8 comparisons pass                              |
-| Screening     |                 108 / 108 | all 36 point comparisons pass; continue             |
-| Confirmation  |                 144 / 144 | all 36 comparisons pass                             |
-| Capacity      |                 162 / 162 | all 24 registered gates pass                        |
-| Active        |                 180 / 180 | all 32 comparisons pass                             |
-| Sensitivity   |                   36 / 36 | large-document comparisons pass; sorted finds defer |
-| Timed faults  |                   75 / 75 | all 15 cases pass all 5 repetitions                 |
-
-Every performance phase has zero completion failures. Required inferential phases retain both bootstrap seeds, 200,000 draws and every leave-one-out check; every required outcome is stable. Capacity retains all three windows at every registered point and the registered staircase/futility rules. Active acquisition retains sixty-second windows, 200 writes, mixed execution and the registered lag-capture windows/gaps. Fault acquisition retains the v8 configuration and applicability rules.
+Each required cold cell used twelve fresh balanced blocks; inference resampled
+whole blocks with 200,000 draws, both seeds and each block omitted in turn.
+The 1 ms criterion applies to the additive latency upper bound over direct reads.
+It is a workload acceptance criterion, not a latency SLA.
 
 ## Cold bounds
 
@@ -38,46 +34,50 @@ The limit is a 1 ms additive upper confidence bound over direct reads. Every cel
 | sync  |       4 |        0.293 / 0.310 |        0.475 / 0.577 | pass    |
 | sync  |       8 |        0.385 / 0.461 |        0.511 / 0.671 | pass    |
 
-## Hot, capacity and active checks
+## Other acceptance margins
 
-Confirmation's worst upper bounds across required cells remain within every limit:
+These are the recorded worst upper confidence bounds across cells in each phase;
+they do not combine phases into a further confidence claim. Ratios compare shared
+with the named baseline. Hit latency uses direct reads as its baseline.
 
-| Criterion                           | Worst upper bound |    Limit |
-| ----------------------------------- | ----------------: | -------: |
-| Group memory / independent          |             0.709 |    0.750 |
-| Peak memory / independent           |             0.709 |    1.100 |
-| Total resident memory / independent |             0.900 |    1.100 |
-| Hit P95 / independent               |             0.492 |    0.750 |
-| Hit P99 / independent               |             0.432 |    1.000 |
-| Request P99 / independent           |             0.958 |    1.250 |
-| Request P99 additive delta          |         -0.057 ms | 1.000 ms |
-| CPU per request / independent       |             0.837 |    1.100 |
-| Wire bytes / independent            |             0.458 |    1.100 |
+| Phase                      | Measurement                                 | Recorded upper bound | Acceptance limit |
+| -------------------------- | ------------------------------------------- | -------------------: | ---------------: |
+| Hot                        | Group memory / independent                  |                0.709 |          ≤ 0.750 |
+| Hot                        | Hit P99 / direct                            |                0.432 |          ≤ 1.000 |
+| Hot                        | CPU per request / independent               |                0.837 |          ≤ 1.100 |
+| Active                     | Request P99 / independent                   |                0.946 |          ≤ 1.250 |
+| Active                     | Invalidation-lag P95                        |             16.20 ms |         ≤ 500 ms |
+| Active                     | Added invalidation-lag P95                  |              4.33 ms |          ≤ 50 ms |
+| Sorted find, eight workers | Group memory / independent, async / sync    |        1.033 / 1.055 |          ≤ 0.750 |
+| Sorted find, eight workers | Request P99 / independent, async / sync     |        1.333 / 1.450 |          ≤ 1.250 |
+| Sorted find, eight workers | CPU per request / independent, async / sync |        1.436 / 1.473 |          ≤ 1.100 |
 
-Capacity passes all registered gates with no failed or missing window. Active comparisons also pass: worst request P99 ratio 0.946, additive upper delta -0.076 ms, CPU ratio 0.818 and wire ratio 0.682. Worst lag P95 upper bound is 16.20 ms against 500 ms; its additive upper delta is 4.33 ms against 50 ms. These are separate registered phase conclusions, not an additional confidence claim combining phases.
-
-## Sensitivity limitation
-
-All eighteen large-document comparisons pass. Sorted `find16` has six failures, with no completion failures:
-
-| Model / eight workers | Group-memory upper ratio | Request-P99 upper ratio | CPU upper ratio |
-| --------------------- | -----------------------: | ----------------------: | --------------: |
-| async                 |                    1.033 |                   1.333 |           1.436 |
-| sync                  |                    1.055 |                   1.450 |           1.473 |
-| Limit                 |                    0.750 |                   1.250 |           1.100 |
-
-The sensitivity analyzer therefore returns `shared-index: defer`. Sorted-find publication is explicitly outside #272 and outside the public shared-cache read scope. Its failures remain visible and prevent a general promotion claim; they do not invalidate this issue's completed `_id`-miss acceptance.
+Capacity recorded all 24 gates passing across 162 healthy windows. Its registered
+throughput requirements were at least 0.900 times independent-cache capacity and
+1.250 times direct-read capacity; the summary retained no numerical margins.
+Active windows retained sixty seconds, 200 writes and mixed API workers. All 75
+timed-fault trials passed. Large-document sensitivity passed; sorted
+sixteen-document finds failed memory, CPU and P99 criteria, preventing a general
+promotion claim. The later [sorted-find study](../sorted-find/results.md)
+explains why the small catalogue could not amortize owner memory. Subsequent
+collection support has its own [measurements](../collection-reads.md).
 
 ## Reproduction and evidence limits
 
-The raw measurements, analyzer outputs and one-off orchestration scripts were not durably preserved and are no longer available in the study's temporary storage. The committed artifacts therefore cannot independently reproduce the original acceptance statistics. The procedure below collects and analyzes new measurements; it does not verify the original acquisition.
+Original raw acquisitions and one-off orchestration are unavailable. The summary
+cannot independently verify the original confidence bounds. Fresh measurements
+reproduce the protocol, not the original acceptance statistics.
 
-Use clean sources at revision `56a837b`, the frozen files above and the [registered procedure](registration.md). Keep fresh raw output paths untracked. Build with `uv run -- maturin develop --release --locked`, source `scripts/testcontainers-bridge.sh`, then run fresh baseline qualification and resolve both manual checks before candidate acquisition.
+At the named historical source, build with
+`uv run -- maturin develop --release --locked` and source
+`scripts/testcontainers-bridge.sh`. The [full registered procedure](https://github.com/alessio-locatelli/client-query-cache/blob/56a837b22c3264a0038333fac9d4f5c7fd37c893/reports/shared-worker-cache/v10/registration.md#reproduce)
+defines qualification, baseline failure handling and phase invocation. Replace
+performance configuration paths with v15. Resolve automated and manual
+physical-host/baseline-source checks before candidate timing. Cold precedes
+screening, confirmation, capacity, active and sensitivity; faults use the
+separate [v8 fault configuration](../v8/fault-config.json).
 
-Use the [v10 command sequence](../v10/registration.md#reproduce) with `v15` configuration paths and fresh output paths of your choice. To analyze a collected performance phase, set `REPORT` to its raw JSON path, `PHASE` to its registered phase and `BLOCKS` to its registered block count. The executed analysis environment pins NumPy and SciPy explicitly:
-
-```bash
-OPENBLAS_NUM_THREADS=1 uv run --with numpy==2.3.4 --with scipy==1.16.3 -- python -m benchmarks.stream_cost.shared_cache.analysis "$REPORT" --config reports/shared-worker-cache/v15/config.json --phase "$PHASE" --blocks "$BLOCKS" > "${REPORT%.json}-analysis.json"
-```
-
-Run cold first, then screening, confirmation, capacity, active and sensitivity with their registered block counts. Then run faults using the registration's separate fault commands: both acquisition and analysis use `reports/shared-worker-cache/v8/fault-config.json`, and fault analysis omits `--blocks`. Inspect explicit verdicts, stability and completion failures; process exit status alone does not establish acceptance.
+Pin NumPy 2.3.4/SciPy 1.16.3 and `OPENBLAS_NUM_THREADS=1` for historical analysis.
+Inspect analyzer verdicts and stability, not exit status alone. Raw outputs stay
+untracked. Current tools still use historical configurations as protocol fixtures;
+their presence does not establish current performance qualification.

@@ -100,7 +100,7 @@ Record first-document and total-consumption latency, throughput, CPU/profile hot
 
 Snapshot creation, final BSON encode/copy, hit decoding, and adapter dispatch are suspected costs, not measured bottlenecks. Retained snapshot payload is bounded by E per collecting cursor, but wrappers, native batches, current-document encoding, finalization, and decoded hit values consume additional memory. Concurrent collecting cursors can retain O(cursor count × E) payload outside the stored-entry budget. Measure these allocations rather than claiming E is a process-memory limit.
 
-Store only `reports/cached-read-cursors/summary.md` with observed comparisons, environment, and reproduction commands. Keep raw output untracked and record important measurements in the implementation commit body.
+Store only [`reports/cached-read-cursors/summary.md`](https://github.com/alessio-locatelli/client-query-cache/blob/243cbfb790766e9ee25b3ecced1ffe83e96d083c/reports/cached-read-cursors/summary.md) with observed comparisons, environment, and reproduction commands. Keep raw output untracked and record important measurements in the implementation commit body.
 
 ## Risks / Trade-offs
 

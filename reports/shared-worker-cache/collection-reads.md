@@ -1,6 +1,6 @@
 # Shared collection-read measurements
 
-This comparison supports [issue #295](https://github.com/alessio-locatelli/client-query-cache/issues/295). It measures the implementation from [pull request #303](https://github.com/alessio-locatelli/client-query-cache/pull/303), merged as [`ae422f36500fafd20b37707e4a1e2d4914c775ab`](https://github.com/alessio-locatelli/client-query-cache/commit/ae422f36500fafd20b37707e4a1e2d4914c775ab), against `main` at [`ff9153499b5e00054a2b91cf17cc852522cd13b1`](https://github.com/alessio-locatelli/client-query-cache/commit/ff9153499b5e00054a2b91cf17cc852522cd13b1), direct PyMongo majority reads and independent process-local caches.
+This comparison supports [issue #295](https://github.com/alessio-locatelli/client-query-cache/issues/295). These are historical measurements. It measures the implementation from [pull request #303](https://github.com/alessio-locatelli/client-query-cache/pull/303), merged as [`ae422f36500fafd20b37707e4a1e2d4914c775ab`](https://github.com/alessio-locatelli/client-query-cache/commit/ae422f36500fafd20b37707e4a1e2d4914c775ab), against `main` at [`ff9153499b5e00054a2b91cf17cc852522cd13b1`](https://github.com/alessio-locatelli/client-query-cache/commit/ff9153499b5e00054a2b91cf17cc852522cd13b1), direct PyMongo majority reads and independent process-local caches.
 
 ## Conditions and limits
 
@@ -9,54 +9,6 @@ Measured on 2026-10-18 with CPython 3.14.7, PyMongo 4.19.0, Fedora 44, Linux 7.2
 The shared owner has a 32 MiB budget, 40 MiB arena and 16,384 slots; independent managers retain their default 64 MiB per worker. Hot sets fit both configurations. A barrier starts measured reads after warmup, and two finish barriers keep workers and mappings alive while memory is sampled. Worker CPU timing ends before PSS inspection. Reader CPU sums workers and the shared owner during the measured interval, including concurrent stream/publication work; it excludes initialization, teardown, the writer and MongoDB. MongoDB CPU is reported separately. PSS sums workers and owner, excluding MongoDB and the harness/writer parent.
 
 There are 240 initial windows: 72 identity comparison windows (three alternating revision pairs), 72 small-result windows, 60 larger-result windows and 36 concurrent-write windows. Each new-method configuration has one window per API/path/workload: these are bounded observations, not replicated estimates of universal P99 or a general performance ranking. Hot/cold samples and resources match across paths. Each window records actual cache hits, misses and bypasses; every caching path had zero bypasses. Timing output remains untracked and disposable. The summary cannot recover individual samples; the commands below produce fresh measurements.
-
-## Existing-path comparison
-
-Three paired identity runs used 1,024 calls per worker, 128 hot keys and 4,096-byte payloads. The table contains medians of the three window statistics, **main → implementation**. Both cached paths had exactly 4,096 hits in every hot window and 4,096 misses in every cold window.
-
-| API   | Workload | Path        |       Median µs |            P99 µs |  Reader CPU s |
-| ----- | -------- | ----------- | --------------: | ----------------: | ------------: |
-| sync  | hot      | direct      | 157.98 → 159.43 |   261.45 → 259.19 | 0.444 → 0.449 |
-| sync  | hot      | independent |   33.47 → 34.12 |     72.04 → 92.25 | 0.149 → 0.151 |
-| sync  | hot      | shared      |   26.46 → 25.14 |     53.09 → 50.07 | 0.124 → 0.122 |
-| sync  | cold     | direct      | 159.59 → 159.11 |   258.38 → 243.02 | 0.446 → 0.450 |
-| sync  | cold     | independent | 232.57 → 229.05 | 1050.35 → 1146.15 | 0.876 → 0.873 |
-| sync  | cold     | shared      | 226.10 → 224.98 | 1212.89 → 1129.42 | 1.042 → 1.040 |
-| async | hot      | direct      | 227.94 → 227.94 |   479.69 → 422.48 | 0.838 → 0.836 |
-| async | hot      | independent |   29.34 → 30.37 |     88.25 → 60.26 | 0.140 → 0.125 |
-| async | hot      | shared      |   26.79 → 26.96 |     52.05 → 54.27 | 0.130 → 0.119 |
-| async | cold     | direct      | 233.56 → 233.08 |   422.41 → 378.38 | 0.844 → 0.852 |
-| async | cold     | independent | 314.38 → 313.20 | 1398.99 → 1484.34 | 1.328 → 1.339 |
-| async | cold     | shared      | 300.88 → 304.95 | 1580.74 → 1663.57 | 1.522 → 1.512 |
-
-The initial async shared cold median increased by 1.4%; three targeted repeats also moved upward (307.39 → 315.39 µs). That result triggered profiling and direct-read controls, rather than acceptance as a regression. Four profiling windows used 1,024 warmed keys: both revisions executed 4,096 local selections, key preparations and admissions, with no identity selection RPCs. The incarnation-bearing owner handles therefore add no operation to this existing path.
-
-Twelve unprofiled cold control windows with 1,024 warmed keys reversed the direction in two of three pairs: shared median-of-medians was 303.77 → 303.54 µs, with reader CPU 1.463 → 1.365 seconds. Another twelve control windows restored the original 128-key conditions: shared median-of-medians was 308.08 → 306.84 µs, P99 1,607.10 → 1,530.17 µs, reader CPU 1.536 → 1.496 seconds and throughput 10,612 → 11,018 reads/second. Direct controls were 236.63 → 236.11 µs. This did not establish a source-caused cold-path slowdown.
-
-Thirty targeted repeat windows also extended hot identity measurements to 8,192 calls per worker. Shared medians were 8.66 → 6.65 µs sync and 9.38 → 6.97 µs asyncio. Independent medians were 8.03 → 8.18 µs and 8.75 → 8.81 µs; CPU, P99 and throughput moved in different directions across repetitions. Short hot windows were particularly variable, so these observations do not establish a general ranking or rule out effects smaller than that variability.
-
-The immutable codec-identity reuse also affects existing process-local methods. An initial 24-window comparison with 32 hot keys showed large, inconsistent changes. A further 48 matched windows used 1,024 warmed keys and 1,024 calls per worker (255 calls for cold estimated counts to fit namespace capacity). Each cell below is **main → implementation**. Cold cached calls had zero hits, hot calls were all hits, and bypasses were zero.
-
-| Method                     | API   | Hot median µs | Cold median µs | Hot reader CPU s | Cold reader CPU s |
-| -------------------------- | ----- | ------------: | -------------: | ---------------: | ----------------: |
-| `find_one`                 | sync  |   58.4 → 47.9 |  303.8 → 297.8 |    0.260 → 0.257 |     1.066 → 0.997 |
-| `find_one`                 | async |   46.0 → 54.7 |  389.8 → 386.6 |    0.266 → 0.303 |     1.525 → 1.552 |
-| `find`                     | sync  |   44.3 → 52.5 |  331.4 → 330.8 |    0.322 → 0.235 |     1.082 → 1.214 |
-| `find`                     | async |   53.6 → 55.4 |  416.9 → 416.9 |    0.324 → 0.361 |     1.663 → 1.645 |
-| `aggregate`                | sync  |   51.6 → 55.8 |  355.4 → 335.4 |    0.280 → 0.327 |     1.095 → 1.044 |
-| `aggregate`                | async |   50.5 → 54.3 |  424.0 → 424.0 |    0.292 → 0.267 |     1.517 → 1.571 |
-| `count_documents`          | sync  |   43.1 → 45.7 |  379.1 → 374.3 |    0.237 → 0.230 |     0.935 → 0.878 |
-| `count_documents`          | async |   37.7 → 42.2 |  467.5 → 466.9 |    0.166 → 0.192 |     1.436 → 1.415 |
-| `estimated_document_count` | sync  |   26.9 → 26.8 |  337.7 → 291.4 |    0.034 → 0.034 |     0.315 → 0.268 |
-| `estimated_document_count` | async |   23.0 → 14.8 |  297.5 → 377.8 |    0.024 → 0.022 |     0.448 → 0.431 |
-| `distinct`                 | sync  |   45.3 → 39.2 |  265.5 → 259.4 |    0.188 → 0.207 |     0.864 → 0.869 |
-| `distinct`                 | async |   38.1 → 13.2 |  347.1 → 346.5 |    0.208 → 0.057 |     1.342 → 1.270 |
-
-Hot latency and CPU changes were not consistent between the smaller and larger windows, including methods whose per-read execution is unchanged. The codec change removes repeated fingerprint construction; these noisy windows do not quantify its benefit. Cold medians for the five filtered methods were equal or lower in the larger windows. No general improvement over main is claimed from these single-window local-method comparisons.
-
-Existing shared test files completed in 115.76 seconds on main and 116.80 seconds on the implementation, then 116.02 seconds on the implementation and 117.21 seconds on main with reversed order. The direction reversed; new tests were excluded. The full functional/coverage gate and the real multi-worker FastAPI self-check passed.
-
-The complete bounded investigation comprises 370 windows: 240 initial measurements plus 130 targeted existing-path/control/profiling windows. It did not change cache defaults or defer an identified regression.
 
 ## New methods without writes
 
@@ -155,36 +107,25 @@ The broader filtered shapes repeatedly lose their 32-key working set after each 
 
 ## Reproduce
 
-Run the harness from the implementation checkout for **both** wheels. Build each wheel in a detached worktree: the baseline from the pinned main commit and the implementation from the merge commit:
+Check out `ae422f36500fafd20b37707e4a1e2d4914c775ab` and build/install its
+release wheel in an isolated environment with the recorded dependencies. Run
+the harness from that checkout so the workload matches the measured source.
+The normal current release-build command is `just build`.
+
+The following example selects the historical wheel explicitly. Use a new
+output path for each measured configuration:
 
 ```bash
-git worktree add --detach /tmp/agents/collection-read-main \
-  ff9153499b5e00054a2b91cf17cc852522cd13b1
-git worktree add --detach /tmp/agents/collection-read-branch \
-  ae422f36500fafd20b37707e4a1e2d4914c775ab
-(cd /tmp/agents/collection-read-main && \
-  uv run maturin build --release --compatibility linux \
-  --out /tmp/agents/collection-read-main-wheel)
-(cd /tmp/agents/collection-read-branch && \
-  uv run maturin build --release --compatibility linux \
-  --out /tmp/agents/collection-read-branch-wheel)
-```
-
-These are same-host comparison wheels. The normal release build remains `just build`. Use the repository’s [development environment](https://github.com/alessio-locatelli/client-query-cache/blob/main/CONTRIBUTING.md) for the container runtime; the harness accepts no production URI.
-
-From `/tmp/agents/collection-read-branch`, run this identity window set for each wheel in three alternating revision pairs:
-
-```bash
-comparison_wheel=/tmp/agents/collection-read-branch-wheel/client_query_cache-0.8.1-cp314-abi3-linux_x86_64.whl
+comparison_wheel=/absolute/path/client_query_cache-0.8.1-cp314-abi3-linux_x86_64.whl
 uv run --quiet --isolated --no-project --python 3.14.7 \
   --with "$comparison_wheel" --with pymongo==4.19.0 \
   --with psutil --with testcontainers --with requests --with pyyaml \
   python -m benchmarks.public_shared_cache \
-  --method identity --repetitions 1 --samples 1024 --hot-keys 128 \
-  --document-bytes 4096 --output /tmp/agents/collection-read-identity.json
+  --method find --repetitions 1 --samples 128 --hot-keys 32 \
+  --document-bytes 256 --output /tmp/agents/collection-read-find.json
 ```
 
-For new methods, substitute each of `find_one`, `find`, `aggregate`, `count_documents`, `estimated_document_count` and `distinct`, using the implementation wheel and unique output filenames:
+Substitute each of `find_one`, `find`, `aggregate`, `count_documents`, `estimated_document_count` and `distinct`, using unique output filenames:
 
 - Small: `--samples 128 --hot-keys 32 --document-bytes 256`.
 - Larger: `--samples 128 --hot-keys 32 --result-documents 8 --document-bytes 4096`, excluding estimated counts.
@@ -192,15 +133,8 @@ For new methods, substitute each of `find_one`, `find`, `aggregate`, `count_docu
 
 Keep `--repetitions 1` for these bounded configurations. Models and paths default to both APIs and all three comparison paths. Cold estimated counts require at most 255 samples per worker because each call needs a distinct collection. The JSON includes PyMongo version, actual hits/misses/bypasses, streams, throughput, latency, CPU and memory.
 
-For the targeted identity repeats, use both wheels in alternating order:
-
-- Hot: `--method identity --samples 8192 --hot-keys 128 --models sync async --paths independent shared --workloads hot`, three pairs.
-- Initial cold repeat: `--method identity --samples 1024 --hot-keys 128 --models async --paths shared --workloads cold`, three pairs.
-- Cold controls: `--method identity --samples 1024 --models async --paths direct shared --workloads cold`, three pairs with `--hot-keys 1024` and three with `--hot-keys 128`.
-- Profiling: the 1,024-key cold control flags plus `--profile-dir /tmp/agents/collection-read-profiles`, one pair. Inspect worker `*.pstats` separately from unprofiled latency.
-- Initial local-method controls: each of the six methods with `--paths independent --samples 128 --hot-keys 32 --document-bytes 256`, main wheel only; compare with the initial implementation windows.
-- Larger local-method controls: each method with `--paths independent --samples 1024 --hot-keys 1024 --document-bytes 256`, one pair; use `--samples 255` for estimated counts.
-
-Use distinct output/profile paths for each revision and repetition. Identity repeats retain 4,096-byte payloads.
-
-Existing-test timing used `tests/shared_cache/test_public.py`, `test_sorted_find.py` and `test_scenarios.py` in each checkout, with the same development environment and four pytest workers. New tests in `test_collection_reads.py` were excluded from that comparison. Run the project’s `just pytest` recipe with those paths; a native extension built from the corresponding revision is required. Remove both disposable worktrees with `git worktree remove` after use.
+Use distinct output paths for each configuration. These are historical
+measurements of the named implementation, before native process-local ownership
+and key preparation. Current commands exercise later code and cannot be treated
+as reproducing these numbers. Keep raw output untracked and remove disposable
+worktrees with `git worktree remove` after use.

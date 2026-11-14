@@ -6,7 +6,7 @@ See [proposal.md](proposal.md) for scope. Local untracked version 7/8 reports re
 
 ## Decisions
 
-The [empirical continuation](../../../../reports/shared-worker-cache/runtime/empirical-plan.md) supersedes the prior decision to stop at aggregate observations. Wrap existing harness boundaries and retain its already-collected latencies, adding completion timestamps after each measured latency is captured. The research driver installs hooks only inside its subprocess target and window context, preserving normal imports and all native read/decode work. Use discovery observations once, then fresh preregistered validation blocks for the selected design.
+The [empirical continuation](https://github.com/alessio-locatelli/client-query-cache/blob/243cbfb790766e9ee25b3ecced1ffe83e96d083c/reports/shared-worker-cache/runtime/empirical-plan.md) supersedes the prior decision to stop at aggregate observations. Wrap existing harness boundaries and retain its already-collected latencies, adding completion timestamps after each measured latency is captured. The research driver installs hooks only inside its subprocess target and window context, preserving normal imports and all native read/decode work. Use discovery observations once, then fresh preregistered validation blocks for the selected design.
 
 Use a standalone NumPy research program, with its dependency isolated through PEP 723, rather than changing the acceptance runner. Vectorized resampling keeps the search inexpensive, but its random generator differs from the registered implementation; all new outputs are exploratory. The comparison grid and decision criteria live in the committed study plan, which is fixed before executing alternatives. Tasks 1.2 and 2.1 own the numerical implementation and execution.
 

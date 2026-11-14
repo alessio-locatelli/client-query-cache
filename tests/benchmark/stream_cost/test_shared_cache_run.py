@@ -62,7 +62,6 @@ if TYPE_CHECKING:
 pytestmark = pytest.mark.unit
 
 _CONFIG = Path("reports/shared-worker-cache/v4/config.json")
-_V4_COMPANION = Path("reports/shared-worker-cache/v4/registration.md")
 _V5_CONFIG = Path("reports/shared-worker-cache/v5/config.json")
 _V5_PATHS = {"direct", "independent", "shared-index"}
 _FROZEN_RATES = {"primary": 3000, "cold": 1000, "sensitivity": 500}
@@ -1471,7 +1470,6 @@ def test_v4_registration_plans_the_same_cells(
 ) -> None:
     v4 = Registration.load(_CONFIG)
 
-    assert f"SHA-256 `{v4.digest}`" in _V4_COMPANION.read_text(encoding="utf-8")
     assert _checksum([asdict(cell) for cell in plan(v4)]) == expected
 
 

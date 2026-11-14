@@ -4,7 +4,7 @@
 
 [Issue #340](https://github.com/alessio-locatelli/client-query-cache/issues/340)
 asks for an evidence-backed first portability target. The
-[feasibility report](../../../../reports/platform-portability/feasibility.md)
+[feasibility report](https://github.com/alessio-locatelli/client-query-cache/blob/243cbfb790766e9ee25b3ecced1ffe83e96d083c/reports/platform-portability/feasibility.md)
 identifies Linux ARM64 as the smallest extension of the current deployment model.
 
 ## What Changes

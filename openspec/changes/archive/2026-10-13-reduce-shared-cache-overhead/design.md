@@ -2,7 +2,7 @@
 
 ## Context
 
-See [proposal.md](proposal.md#why) for motivation. The [version 4 study](../../../../docs/development/research/shared-worker-cache-feasibility.md) and its [registration](../../../../reports/shared-worker-cache/v4/registration.md) are the baseline protocol. The facts below shape this design:
+See [proposal.md](proposal.md#why) for motivation. The [version 4 study](../../../../docs/development/research/shared-worker-cache-feasibility.md) and its [registration](https://github.com/alessio-locatelli/client-query-cache/blob/243cbfb790766e9ee25b3ecced1ffe83e96d083c/reports/shared-worker-cache/v4/registration.md) are the baseline protocol. The facts below shape this design:
 
 | Observation                                                                                                                                                                                                                                                       | Consequence                                                                                                                                                                                                          |
 | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

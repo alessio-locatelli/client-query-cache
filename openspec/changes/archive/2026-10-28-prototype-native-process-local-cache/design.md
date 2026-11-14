@@ -8,7 +8,7 @@ Planning inspected clean branch `rewrite_to_rust` at `419b54d077e7c635d9661b7161
 
 `lookup_identity_encoded`, `lookup_namespace_encoded`, and `lookup_find_encoded` perform separate storage probes, validity checks, LRU touches, and statistics updates. Find compatibility also consults a family index. `CacheCore` is used by the shared owner as well as local managers, so replacing it globally would affect an unrelated execution path.
 
-The [process-memory results](../../../../reports/process-memory/summary.md) date from October 10–11; the [cursor study](../../../../reports/cached-read-cursors/summary.md) dates from October 5. Neither establishes current native-core gains. The [completed Rust encoding correction](../../../../reports/shared-worker-cache/current-costs/rust-encoding.md#final-review-correction-and-acceptance) concerns shared-key preparation and has a specifically approved resource trade-off. That approval does not carry into this experiment.
+The [process-memory results](https://github.com/alessio-locatelli/client-query-cache/blob/243cbfb790766e9ee25b3ecced1ffe83e96d083c/reports/process-memory/summary.md) date from October 10–11; the [cursor study](https://github.com/alessio-locatelli/client-query-cache/blob/243cbfb790766e9ee25b3ecced1ffe83e96d083c/reports/cached-read-cursors/summary.md) dates from October 5. Neither establishes current native-core gains. The [completed Rust encoding correction](https://github.com/alessio-locatelli/client-query-cache/blob/243cbfb790766e9ee25b3ecced1ffe83e96d083c/reports/shared-worker-cache/current-costs/rust-encoding.md#final-review-correction-and-acceptance) concerns shared-key preparation and has a specifically approved resource trade-off. That approval does not carry into this experiment.
 
 ## Goals / Non-Goals
 
@@ -70,7 +70,7 @@ These representation costs and the protocol's behavior cannot be established wit
 
 ### D4. Reuse the existing acquisition tools
 
-The historical acquisition protocol belongs in `reports/native-process-local-cache/plan.md`; D6 registers final integration acquisition, with the conclusion in `reports/native-process-local-cache/results.md`. Raw files go under a session directory in `/tmp/agents/`. Extend existing harness selection/output fields only where required, keeping new selection out of ordinary library code.
+The historical acquisition protocol belongs in [`reports/native-process-local-cache/plan.md`](https://github.com/alessio-locatelli/client-query-cache/blob/243cbfb790766e9ee25b3ecced1ffe83e96d083c/reports/native-process-local-cache/plan.md); D6 registers final integration acquisition, with the conclusion in `reports/native-process-local-cache/results.md`. Raw files go under a session directory in `/tmp/agents/`. Extend existing harness selection/output fields only where required, keeping new selection out of ordinary library code.
 
 | Question                                  | Existing entry point                                                       | Selected workload                                                                                                                                    |
 | ----------------------------------------- | -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |

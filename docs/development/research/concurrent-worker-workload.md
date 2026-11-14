@@ -1,6 +1,6 @@
 # Concurrent worker workload
 
-This study measured how direct MongoDB reads compare with independent per-worker cache managers when several application worker processes serve reads while writes change the documents they read. It gives the [shared-invalidation investigation #87](https://github.com/alessio-locatelli/client-query-cache/issues/87) a steady-state baseline and complements the [shared worker cache study](shared-worker-cache-feasibility.md), whose registered mixed phase never ran. The comparison is descriptive: nothing ships from it, so it has no promotion gate.
+This study measured how direct MongoDB reads compare with independent per-worker cache managers when several application worker processes serve reads while writes change the documents they read. It gives the [shared-invalidation investigation #87](https://github.com/alessio-locatelli/client-query-cache/issues/87) a steady-state baseline and complements the [shared worker cache study](shared-worker-cache-feasibility.md). The comparison is descriptive: nothing ships from it, so it has no promotion gate.
 
 **Result:** at a fixed 1,831 reads/s with one update per 20 reads, independent managers cut median request latency by about 40% at one and four asyncio workers and cut worker CPU per request, but they raised MongoDB CPU by about 10% and group memory by about 5 MiB per worker. The latency tail improved strongly with one worker and only slightly with four.
 

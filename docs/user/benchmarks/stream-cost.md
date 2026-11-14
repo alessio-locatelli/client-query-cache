@@ -4,15 +4,20 @@ Use these measurements to understand the cost of process-local caching and Mongo
 
 ## Reports
 
-The [retained workload matrix](https://github.com/alessio-locatelli/client-query-cache/tree/main/reports/stream-cost/v1/) covers idle, read-heavy, balanced and write-dominant workloads at small, medium and large document sizes. Reports identify their revision, versions, workload and resource limits, and separate hit, miss, bypass and direct-read latency. Their sampled reads and writes run in separate phases; they do not measure concurrent traffic. For concurrent writes across workers, use the [separate study](index.md#multiple-workers-with-concurrent-writes).
+The [historical stream-cost summary](https://github.com/alessio-locatelli/client-query-cache/blob/main/reports/stream-cost/v1/summary.md)
+records a phased workload comparison from version 0.1.0. It is not a measurement
+of the current release. For concurrent writes across workers, use the
+[separate study](index.md#multiple-workers-with-concurrent-writes).
 
 A hit avoids a database round trip. Misses add admission work; writes add invalidation work. Compare CPU, memory, network traffic and tail latency alongside hits, using matching workloads and environments. A smaller latency number alone does not establish lower total cost.
 
 ### Change-stream resource cost
 
-In the balanced workloads, cached paths used about 5–26% more MongoDB CPU than direct paths. Received-byte differences ranged from about 57% more for small documents to 94% fewer for large documents. Reusing a large document can avoid more traffic than the stream adds; that does not establish the same savings for small documents or frequent misses.
-
-The reports' `change_stream_cost_comparison` separates raw and cached runs on disposable collections. Dedicated-path bytes exclude unrelated network traffic. Logical event bytes describe decoded event sizes, and `stream_polls` counts manager iteration calls, not wire-level `getMore` commands. See [measurement definitions and protocols](https://github.com/alessio-locatelli/client-query-cache/blob/main/docs/development/stream-cost-benchmarks.md) for exact accounting.
+The historical balanced workload showed that avoided document fetches can
+outweigh polling traffic for larger results while increasing MongoDB CPU.
+Its small, sequential read/write sample does not predict current workload costs.
+The [measurement record](https://github.com/alessio-locatelli/client-query-cache/blob/main/reports/stream-cost/v1/summary.md#balanced-resource-comparison)
+retains the values, environment and limitations.
 
 ### Change-stream await time
 
@@ -22,7 +27,7 @@ The wait bounds an idle server poll, not invalidation latency or network-failure
 
 ### Wire compression
 
-The [compression comparison](https://github.com/alessio-locatelli/client-query-cache/blob/main/reports/stream-cost/compression-v1/wire-compression.report.v1.decision.json) measured Snappy, zlib and Zstandard against no compression. All saved bytes on that host; none met every registered CPU and invalidation-lag criterion. The study supports no universal compressor recommendation.
+The [compression comparison](https://github.com/alessio-locatelli/client-query-cache/blob/main/reports/stream-cost/compression-v1/summary.md) measured Snappy, zlib and Zstandard against no compression. All saved bytes on that host; none met every registered CPU and invalidation-lag criterion. The study supports no universal compressor recommendation.
 
 Compression belongs to your PyMongo client and affects all its operations. Use [PyMongo's compression guidance](https://www.mongodb.com/docs/languages/python/pymongo-driver/current/connect/connection-options/network-compression/) and measure your document sizes and network conditions before changing it.
 
