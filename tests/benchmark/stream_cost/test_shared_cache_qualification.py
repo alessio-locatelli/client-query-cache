@@ -22,7 +22,9 @@ if TYPE_CHECKING:
 pytestmark = pytest.mark.unit
 
 _ENVIRONMENT = json.loads(
-    Path("reports/shared-worker-cache/v10/environment.json").read_text(encoding="utf-8")
+    Path("benchmarks/stream_cost/shared_cache/fixtures/v10/environment.json").read_text(
+        encoding="utf-8"
+    )
 )
 _ENVIRONMENT_FIELDS = tuple(
     (field, child) if isinstance(value, dict) else (field,)
@@ -34,7 +36,9 @@ _ENVIRONMENT_FIELDS = tuple(
 @pytest.fixture(scope="module", params=(9, 10, 12, 13), ids=("v9", "v10", "v12", "v13"))
 def registration(request: pytest.FixtureRequest) -> Registration:
     return Registration.load(
-        Path(f"reports/shared-worker-cache/v{request.param}/config.json")
+        Path(
+            f"benchmarks/stream_cost/shared_cache/fixtures/v{request.param}/config.json"
+        )
     )
 
 
@@ -42,7 +46,7 @@ def registration(request: pytest.FixtureRequest) -> Registration:
 def completed_report(registration: Registration) -> JsonDict:
     required_environment = json.loads(
         Path(
-            f"reports/shared-worker-cache/v{registration.raw['registration']}/environment.json"
+            f"benchmarks/stream_cost/shared_cache/fixtures/v{registration.raw['registration']}/environment.json"
         ).read_text(encoding="utf-8")
     )
     git = shutil.which("git")
@@ -52,9 +56,9 @@ def completed_report(registration: Registration) -> JsonDict:
         [git, "show", f"{revision}:{design.PROGRAM}"]
     )
     schedule = json.loads(
-        Path("reports/shared-worker-cache/runtime/qualification.json").read_text(
-            encoding="utf-8"
-        )
+        Path(
+            "benchmarks/stream_cost/shared_cache/fixtures/runtime/qualification.json"
+        ).read_text(encoding="utf-8")
     )
     selected = design.design_cells(registration, schedule)
     planned = design.planned_rows(selected)
@@ -114,9 +118,9 @@ def test_active_validation_schedule_preserves_workload_and_order(
     registration: Registration,
 ) -> None:
     schedule = json.loads(
-        Path("reports/shared-worker-cache/runtime/validation.json").read_text(
-            encoding="utf-8"
-        )
+        Path(
+            "benchmarks/stream_cost/shared_cache/fixtures/runtime/validation.json"
+        ).read_text(encoding="utf-8")
     )
     selected = design.design_cells(registration, schedule)
     conditions = {
@@ -198,7 +202,9 @@ def test_success_keeps_manual_compatibility_pending(
 def test_historical_investigation_keeps_its_recorded_environment(
     report: JsonDict,
 ) -> None:
-    registration = Registration.load(Path("reports/shared-worker-cache/v8/config.json"))
+    registration = Registration.load(
+        Path("benchmarks/stream_cost/shared_cache/fixtures/v8/config.json")
+    )
     environment = report["environment"]
     planned = report["planned"]
     cells = report["cells"]

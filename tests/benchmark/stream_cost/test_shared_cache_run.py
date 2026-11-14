@@ -61,8 +61,8 @@ if TYPE_CHECKING:
 
 pytestmark = pytest.mark.unit
 
-_CONFIG = Path("reports/shared-worker-cache/v4/config.json")
-_V5_CONFIG = Path("reports/shared-worker-cache/v5/config.json")
+_CONFIG = Path("benchmarks/stream_cost/shared_cache/fixtures/v4/config.json")
+_V5_CONFIG = Path("benchmarks/stream_cost/shared_cache/fixtures/v5/config.json")
 _V5_PATHS = {"direct", "independent", "shared-index"}
 _FROZEN_RATES = {"primary": 3000, "cold": 1000, "sensitivity": 500}
 _FROZEN_WINDOWS = {"hot": 30, "active": 60, "sensitivity": 30}
@@ -2554,10 +2554,14 @@ def test_probe_reuse_registration_exception(
     tmp_path: Path, source_version: PositiveInt, target_version: PositiveInt
 ) -> None:
     source = Registration.load(
-        Path(f"reports/shared-worker-cache/v{source_version}/config.json")
+        Path(
+            f"benchmarks/stream_cost/shared_cache/fixtures/v{source_version}/config.json"
+        )
     )
     target = Registration.load(
-        Path(f"reports/shared-worker-cache/v{target_version}/config.json")
+        Path(
+            f"benchmarks/stream_cost/shared_cache/fixtures/v{target_version}/config.json"
+        )
     )
     report = tmp_path / "probes.json"
     provenance = {

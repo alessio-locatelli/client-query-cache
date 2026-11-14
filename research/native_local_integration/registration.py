@@ -9,9 +9,11 @@ from typing import TYPE_CHECKING, Final
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-PYTHON_CORE: Final = "client_query_cache._core.manager.CacheCore"
 NATIVE_CORE: Final = "client_query_cache._shared_index.LocalCacheCore"
 _PACKAGE: Final = "client_query_cache/"
+_REQUIRED_PAYLOAD: Final = frozenset(
+    (f"{_PACKAGE}__init__.py", f"{_PACKAGE}_shared_index.abi3.so")
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -20,74 +22,8 @@ class Build:
     wheel_sha256: str
 
 
-@dataclass(frozen=True, slots=True)
-class Registration:
-    node_hash: str
-    builds: Mapping[str, Build]
-    added_node_hash: str | None = None
-
-
-REGISTRATIONS: Final[Mapping[str, Registration]] = {
-    "pr-355": Registration(
-        "595525f35b718ea67cd368334e97298943b07d1f36cdb91281833ebbed7e5bc8",  # pragma: allowlist secret  # noqa: E501 - Keep each registered digest as one literal.
-        {
-            "M": Build(
-                PYTHON_CORE,
-                "85fa6e72c5526006fb051e7f96efe864b80e4d823a4716d1a700da70326128b7",  # pragma: allowlist secret  # noqa: E501 - Keep each registered digest as one literal.
-            ),
-            "F": Build(
-                NATIVE_CORE,
-                "75cdc05312c975613ae2883b4ae61386219378dbe6072e194558a5dc6b25c6a0",  # pragma: allowlist secret  # noqa: E501 - Keep each registered digest as one literal.
-            ),
-        },
-    ),
-    "native-internals": Registration(
-        "027915fc95f2652e9f922d82e7daea1dfa0c4770ae79431551f19e56726c593a",  # pragma: allowlist secret  # noqa: E501 - Keep each registered digest as one literal.
-        {
-            "M": Build(
-                NATIVE_CORE,
-                "45a63471198c98781ffd7bea5cc7c5262665cd1d9ee407a2b8434fcbe345c9a0",  # pragma: allowlist secret  # noqa: E501 - Keep each registered digest as one literal.
-            ),
-            "capture": Build(
-                NATIVE_CORE,
-                "449554b295516791183f57d7555c085f26648dde1a40fceac7d9cdd7e46ebf61",  # pragma: allowlist secret  # noqa: E501 - Keep each registered digest as one literal.
-            ),
-            "preparation": Build(
-                NATIVE_CORE,
-                "db51c069f9db1ca678b27ad6653a9a619d7345687c9656c7dcf78faab4613511",  # pragma: allowlist secret  # noqa: E501 - Keep each registered digest as one literal.
-            ),
-            "owner": Build(
-                NATIVE_CORE,
-                "adec5e74e1671ffb24b75916948472cfe18c2ed9377f2db40438f74af32411e5",  # pragma: allowlist secret  # noqa: E501 - Keep each registered digest as one literal.
-            ),
-            "dispatch": Build(
-                NATIVE_CORE,
-                "a23d14a12c62705c33e956d3e45d0df02c43fd961fdbc4a2577ee9198c258991",  # pragma: allowlist secret  # noqa: E501 - Keep each registered digest as one literal.
-            ),
-            "F": Build(
-                NATIVE_CORE,
-                "3783da9be08d9e58ff24775d33900575868bc76f95eced9d4f9a6e3f5ef741b6",  # pragma: allowlist secret  # noqa: E501 - Keep each registered digest as one literal.
-            ),
-            "F2": Build(
-                NATIVE_CORE,
-                "ae8fd66c1324f651df7530f0cc691bcc7d102f2b43bf695ee887af927bb7a82b",  # pragma: allowlist secret  # noqa: E501 - Keep each registered digest as one literal.
-            ),
-        },
-        "bef04dba1829bf47057970e69001e75cf64e1353d9c6b0c4c3228707b17b1da7",  # pragma: allowlist secret  # noqa: E501 - Keep each registered digest as one literal.
-    ),
-}
-
-
 def digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def build(registration: str, label: str) -> Build:
-    try:
-        return REGISTRATIONS[registration].builds[label]
-    except KeyError:
-        message = f"{label!r} is not a registered {registration!r} build"
-        raise ValueError(message) from None
 
 
 def verify_installation(expected: Build, wheel: Path, package: Path) -> None:
@@ -96,7 +32,15 @@ def verify_installation(expected: Build, wheel: Path, package: Path) -> None:
         message = f"{wheel} has SHA-256 {observed}; expected {expected.wheel_sha256}"
         raise ValueError(message)
     with zipfile.ZipFile(wheel) as archive:
-        for member in archive.namelist():
+        members = archive.namelist()
+        missing = _REQUIRED_PAYLOAD.difference(members)
+        if missing:
+            message = (
+                f"{wheel} is missing required package payload: "
+                f"{', '.join(sorted(missing))}"
+            )
+            raise ValueError(message)
+        for member in members:
             if not member.startswith(_PACKAGE) or member.endswith("/"):
                 continue
             installed = package / member.removeprefix(_PACKAGE)

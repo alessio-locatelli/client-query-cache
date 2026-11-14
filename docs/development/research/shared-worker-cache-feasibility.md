@@ -13,7 +13,7 @@ direct reads, independent 96 MiB caches and one shared 96 MiB cache. Each worker
 primed the 16,384-document catalogue (68.3 MiB encoded), then issued four
 concurrent reads on an open-loop 1,267 reads/s aggregate schedule for thirty
 seconds. Every window recreated processes, caches and data; latency included
-dispatch queueing. The [frozen input](../../../reports/shared-worker-cache/v4/config.json)
+dispatch queueing. The [frozen input](../../../benchmarks/stream_cost/shared_cache/fixtures/v4/config.json)
 retains exact workload and gate definitions.
 
 Host: Intel i3-13100, eight logical CPUs, Linux 7.2.9, Python 3.14.6,

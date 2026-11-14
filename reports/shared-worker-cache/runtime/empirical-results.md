@@ -10,10 +10,10 @@ duration was a forecast, excluding smoke, faults and analysis.
 
 Fresh validation used `1b8fa7b58aafeaf3956f0752b1a2d439b3b71d47`, Python
 3.14.7, PyMongo 4.18.2, Intel i3-13100 and disposable two-CPU/2-GiB MongoDB.
-The default workload is frozen in [v8/config.json](../v8/config.json).
+The workload is frozen in the [v8 protocol fixture](../../../benchmarks/stream_cost/shared_cache/fixtures/v8/config.json).
 Each window recreated data, clients, workers, owner and cache. Qualification
-and validation ran without tracing. The [qualification](qualification.json)
-and [duration-validation](validation.json) inputs preserve cells and schedules.
+and validation ran without tracing. The [qualification](../../../benchmarks/stream_cost/shared_cache/fixtures/runtime/qualification.json)
+and [duration-validation](../../../benchmarks/stream_cost/shared_cache/fixtures/runtime/validation.json) inputs preserve cells and schedules.
 
 All 38 qualification windows passed completion, backlog, error, sample-floor
 and cold all-miss checks. This did not estimate rare-overload probability.
@@ -58,12 +58,13 @@ This was the smallest validated protocol in the searched set, not a global optim
 ## Reproduce
 
 Use the named source for historical acquisitions, or current code for a fresh
-methodological study. The driver defaults to the retained v8 configuration.
+methodological study. Select the configuration explicitly; the retained v8 input
+is a historical protocol fixture, not a current-release qualification.
 
 ```bash
 source scripts/testcontainers-bridge.sh
-PYTHONPATH=. uv run python research/shared_cache_runtime/experiment.py --design reports/shared-worker-cache/runtime/qualification.json --output /tmp/agents/qualification.json
-PYTHONPATH=. uv run python research/shared_cache_runtime/experiment.py --design reports/shared-worker-cache/runtime/validation.json --output /tmp/agents/duration-validation.json
+PYTHONPATH=. uv run python research/shared_cache_runtime/experiment.py --config benchmarks/stream_cost/shared_cache/fixtures/v8/config.json --design benchmarks/stream_cost/shared_cache/fixtures/runtime/qualification.json --output /tmp/agents/qualification.json
+PYTHONPATH=. uv run python research/shared_cache_runtime/experiment.py --config benchmarks/stream_cost/shared_cache/fixtures/v8/config.json --design benchmarks/stream_cost/shared_cache/fixtures/runtime/validation.json --output /tmp/agents/duration-validation.json
 ```
 
 Historical v7/v8 retrospective analysis requires raw inputs outside Git.

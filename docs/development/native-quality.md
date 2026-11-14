@@ -26,6 +26,11 @@ variation. Equal-length import paths remove one layout difference; they do not
 make allocator state identical. Confirm which environment variables reach timing
 children: `research.native_build_profile.compare` and `end_to_end` construct
 restricted child environments and do not forward parent allocator controls.
+Only the fixed import path, hash seed and executable path, plus an optional
+`LLVM_PROFILE_FILE`, reach these children. Parent `PYTHONMALLOC`, `MALLOC_CONF`,
+`MALLOC_ARENA_MAX` and `LD_PRELOAD` settings therefore cannot select an allocator
+for these comparisons. Use these runners for the default allocator; allocator
+comparisons require a collector that records and forwards the selected controls.
 
 Keep the statistic explicit: a median of within-round percentage changes need
 not equal the ratio of the two medians. Time complete operations separately

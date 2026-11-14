@@ -44,7 +44,7 @@ if TYPE_CHECKING:
     from client_query_cache._types import BsonDict
 
 pytestmark = pytest.mark.unit
-_CONFIG = Path("reports/shared-worker-cache/v6/config.json")
+_CONFIG = Path("benchmarks/stream_cost/shared_cache/fixtures/v6/config.json")
 
 
 @pytest.fixture
@@ -88,7 +88,7 @@ def test_fault_plan(registration: Registration) -> None:
 @pytest.mark.parametrize("version", [4, 5], ids=["v4", "v5"])
 def test_frozen_fault_lists_require_metadata(version: PositiveInt) -> None:
     registration = Registration.load(
-        Path(f"reports/shared-worker-cache/v{version}/config.json")
+        Path(f"benchmarks/stream_cost/shared_cache/fixtures/v{version}/config.json")
     )
     with pytest.raises(BenchmarkConfigurationError, match="applicability"):
         fault_cells(registration)

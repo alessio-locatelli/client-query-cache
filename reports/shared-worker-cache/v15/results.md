@@ -10,7 +10,7 @@ owns present validity and fallback rules.
 
 ## Workload and inference
 
-The frozen [configuration](config.json) and [environment](environment.json)
+The frozen [configuration](../../../benchmarks/stream_cost/shared_cache/fixtures/v15/config.json) and [environment](../../../benchmarks/stream_cost/shared_cache/fixtures/v15/environment.json)
 identify CPython 3.14.7, PyMongo 4.18.2, the Intel i3-13100 host, glibc 2.43 and
 MongoDB 9.0.2 in a two-CPU/2-GiB single-member replica set. All three paths used
 the same nested BSON catalogue (16,384 4-KiB-payload documents, seed 197),
@@ -75,7 +75,7 @@ defines qualification, baseline failure handling and phase invocation. Replace
 performance configuration paths with v15. Resolve automated and manual
 physical-host/baseline-source checks before candidate timing. Cold precedes
 screening, confirmation, capacity, active and sensitivity; faults use the
-separate [v8 fault configuration](../v8/fault-config.json).
+separate [v8 fault configuration](../../../benchmarks/stream_cost/shared_cache/fixtures/v8/fault-config.json).
 
 Pin NumPy 2.3.4/SciPy 1.16.3 and `OPENBLAS_NUM_THREADS=1` for historical analysis.
 Inspect analyzer verdicts and stability, not exit status alone. Raw outputs stay

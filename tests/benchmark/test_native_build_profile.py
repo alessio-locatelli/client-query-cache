@@ -5,14 +5,37 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from research.native_build_profile.compare import ROOT, child_environment
 from research.native_build_profile.limits import CONFIGS, WORKLOADS, measure_once
 from research.native_build_profile.measure import accept_previous_budget_keyword
 from scripts.pgo_training import CLEANUP
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
+    from pathlib import Path
 
 pytestmark = pytest.mark.unit
+
+
+@pytest.mark.parametrize(
+    "profile", [None, "training-%p.profraw"], ids=["timing", "pgo"]
+)
+def test_comparison_children_use_only_the_registered_environment(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, profile: str | None
+) -> None:
+    for name in ("PYTHONMALLOC", "MALLOC_CONF", "MALLOC_ARENA_MAX", "LD_PRELOAD"):
+        monkeypatch.setenv(name, "parent-only")
+    monkeypatch.delenv("LLVM_PROFILE_FILE", raising=False)
+    expected = {
+        "PYTHONPATH": f"{tmp_path}:{ROOT}",
+        "PYTHONHASHSEED": "0",
+        "PATH": "/usr/bin:/bin",
+    }
+    if profile is not None:
+        monkeypatch.setenv("LLVM_PROFILE_FILE", profile)
+        expected["LLVM_PROFILE_FILE"] = profile
+
+    assert child_environment(tmp_path) == expected
 
 
 def current(*, budget_bytes: int, max_entry_bytes: int) -> tuple[str, int, int]:
