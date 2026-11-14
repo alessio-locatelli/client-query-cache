@@ -67,7 +67,9 @@ Use each named source's installed release wheel with one collector and matched
 locked dependencies. The [historical baseline commands](https://github.com/alessio-locatelli/client-query-cache/blob/243cbfb790766e9ee25b3ecced1ffe83e96d083c/reports/shared-worker-cache/current-costs/results.md#reproduce)
 and [native-trial commands](https://github.com/alessio-locatelli/client-query-cache/blob/243cbfb790766e9ee25b3ecced1ffe83e96d083c/reports/shared-worker-cache/current-costs/native-trials.md#reproduce-the-native-trials)
 identify the removed native-floor/saturation harnesses. Current
-`research/shared_find_misses/floors.py` compares separate and paired encodings;
-use the named installed versions for the historical preparation comparison.
+`research/shared_find_misses/floors.py` measures paired-encoding preparation CPU.
+For the separate-versus-paired comparison, use the
+[frozen collector](https://github.com/alessio-locatelli/client-query-cache/blob/ca66cf58ec3618445f7504d83a35fdf706b657e9/research/shared_find_misses/floors.py)
+with the named installed versions.
 Separate profiles from timing. Raw outputs remain untracked; summaries cannot
 recover historical sample distributions.

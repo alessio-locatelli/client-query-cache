@@ -25,7 +25,6 @@ from client_query_cache._types import (
 if TYPE_CHECKING:
     from benchmarks.stream_cost.shared_cache.protocol import Cell, Model, PathKind
 
-CONFIG = Path("reports/shared-worker-cache/v8/config.json")
 PROGRAM = Path("research/shared_cache_runtime/experiment.py")
 RESEARCH_PATHS = (
     "research/shared_cache_runtime",

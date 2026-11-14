@@ -28,7 +28,6 @@ from client_query_cache._types import (  # noqa: PLC2701 - Runtime constrained a
     PositiveInt,
 )
 from research.shared_cache_runtime.design import (
-    CONFIG,
     RESEARCH_PATHS,
     design_cells,
     planned_rows,
@@ -234,7 +233,7 @@ def main() -> None:
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--mode", choices=("check", "discovery"))
     mode.add_argument("--design", type=Path)
-    parser.add_argument("--config", type=Path, default=CONFIG)
+    parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     arguments = parser.parse_args()
     if arguments.output.exists():

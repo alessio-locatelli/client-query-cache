@@ -47,7 +47,7 @@ if TYPE_CHECKING:
 
 type Payload = dict[str, object]
 
-_CONFIG = Path("reports/shared-worker-cache/v4/config.json")
+_CONFIG = Path("benchmarks/stream_cost/shared_cache/fixtures/v4/config.json")
 _LABEL = "exploratory diagnostic; excluded from promotion inference"
 _SAMPLING_SECONDS = (0.2, 5.0)
 

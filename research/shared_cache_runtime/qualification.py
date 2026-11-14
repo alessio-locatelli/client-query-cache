@@ -66,7 +66,7 @@ def require_complete(
                 "qualification did not record the required research source scope"
             )
         environment_path = Path(
-            f"reports/shared-worker-cache/v{number}/environment.json"
+            f"benchmarks/stream_cost/shared_cache/fixtures/v{number}/environment.json"
         )
         required_environment = json.loads(environment_path.read_text(encoding="utf-8"))
         mismatches = [
@@ -77,9 +77,9 @@ def require_complete(
         if mismatches:
             raise ValueError("registered environment differs: " + ", ".join(mismatches))
     design = json.loads(
-        Path(f"reports/shared-worker-cache/runtime/{design_name}.json").read_text(
-            encoding="utf-8"
-        )
+        Path(
+            f"benchmarks/stream_cost/shared_cache/fixtures/runtime/{design_name}.json"
+        ).read_text(encoding="utf-8")
     )
     expected = planned_rows(design_cells(registration, design))
     if report["planned"] != expected:

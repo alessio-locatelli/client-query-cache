@@ -80,7 +80,9 @@ def test_sync_receive_rejects_eof_before_a_complete_reply(
 
 @pytest.fixture(params=[False, True], ids=["disabled", "enabled"])
 def endpoint(tmp_path: Path, request: pytest.FixtureRequest) -> AsyncEndpoint:
-    registration = Registration.load(Path("reports/shared-worker-cache/v6/config.json"))
+    registration = Registration.load(
+        Path("benchmarks/stream_cost/shared_cache/fixtures/v6/config.json")
+    )
     config = owner_config(
         registration,
         "mongodb://localhost",

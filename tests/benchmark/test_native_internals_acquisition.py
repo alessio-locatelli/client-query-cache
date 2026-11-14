@@ -20,10 +20,7 @@ from client_query_cache import CacheManager
 from client_query_cache._types import BsonDict, NonNegativeFloat, NonNegativeInt
 from research.native_local_integration.registration import (
     NATIVE_CORE,
-    PYTHON_CORE,
-    REGISTRATIONS,
     Build,
-    build,
     verify_core,
     verify_installation,
 )
@@ -69,10 +66,8 @@ def _observer(*observations: Message) -> Callable[[Message], Message | None]:
     return observe
 
 
-@pytest.mark.parametrize("label", tuple(REGISTRATIONS["native-internals"].builds))
-def test_current_builds_expect_their_installed_native_core(label: str) -> None:
-    expected = build("native-internals", label)
-    assert expected.core == NATIVE_CORE
+def test_the_installed_native_core_matches_its_provenance() -> None:
+    expected = Build(NATIVE_CORE, "")
     with (
         MongoClient[BsonDict](connect=False) as client,
         CacheManager(client) as manager,
@@ -80,22 +75,10 @@ def test_current_builds_expect_their_installed_native_core(label: str) -> None:
         verify_core(expected, _implementation(manager), _SOURCE_ROOT)
 
 
-@pytest.mark.parametrize(("label", "core"), [("M", PYTHON_CORE), ("F", NATIVE_CORE)])
-def test_historical_registration_keeps_its_revision_expectations(
-    label: str, core: str
-) -> None:
-    assert build("pr-355", label).core == core
-
-
-def test_an_unregistered_label_is_rejected() -> None:
-    with pytest.raises(ValueError, match="'C' is not a registered"):
-        build("native-internals", "C")
-
-
 @pytest.mark.parametrize(
     ("expected", "prefix", "match"),
     [
-        (Build(PYTHON_CORE, ""), _SOURCE_ROOT, "expected .*CacheCore"),
+        (Build("another.module.CacheCore", ""), _SOURCE_ROOT, "expected .*CacheCore"),
         (Build(NATIVE_CORE, ""), _SOURCE_ROOT / "absent", "is outside"),
     ],
 )
@@ -129,7 +112,7 @@ def installed_wheel(tmp_path: Path, faker: Faker) -> tuple[Build, Path, Path]:
     return expected, wheel, package
 
 
-def test_an_installation_matching_its_registered_wheel_is_accepted(
+def test_an_installation_matching_its_wheel_is_accepted(
     installed_wheel: tuple[Build, Path, Path],
 ) -> None:
     verify_installation(*installed_wheel)
@@ -157,12 +140,43 @@ def test_a_missing_installed_file_is_rejected(
         verify_installation(expected, wheel, package)
 
 
-def test_an_unregistered_wheel_is_rejected(
+def test_a_wheel_with_an_incorrect_digest_is_rejected(
     installed_wheel: tuple[Build, Path, Path],
 ) -> None:
     expected, wheel, package = installed_wheel
     with pytest.raises(ValueError, match=r"expected 0+$"):
         verify_installation(replace(expected, wheel_sha256="0" * 64), wheel, package)
+
+
+@pytest.fixture(
+    params=[(), ("__init__.py",), ("_shared_index.abi3.so",)],
+    ids=["unrelated-package", "missing-native-extension", "missing-initializer"],
+)
+def incomplete_wheel(
+    installed_wheel: tuple[Build, Path, Path],
+    request: pytest.FixtureRequest,
+    tmp_path: Path,
+    faker: Faker,
+) -> tuple[Build, Path, Path]:
+    expected, original, package = installed_wheel
+    wheel = tmp_path / "incomplete.whl"
+    with zipfile.ZipFile(original) as source, zipfile.ZipFile(wheel, "w") as archive:
+        archive.writestr("another_package/__init__.py", faker.binary(length=64))
+        for name in request.param:
+            member = f"client_query_cache/{name}"
+            archive.writestr(member, source.read(member))
+    return (
+        replace(expected, wheel_sha256=hashlib.sha256(wheel.read_bytes()).hexdigest()),
+        wheel,
+        package,
+    )
+
+
+def test_a_wheel_without_the_required_package_payload_is_rejected(
+    incomplete_wheel: tuple[Build, Path, Path],
+) -> None:
+    with pytest.raises(ValueError, match="missing required package payload"):
+        verify_installation(*incomplete_wheel)
 
 
 def test_the_preparation_variant_uses_the_full_registered_predicate() -> None:

@@ -37,15 +37,14 @@ from client_query_cache._types import (  # noqa: PLC2701 - Use the library const
     PositiveInt,
 )
 from research.native_local_integration.registration import (
-    REGISTRATIONS,
-    build,
+    NATIVE_CORE,
+    Build,
     verify_core,
+    verify_installation,
 )
 
 if TYPE_CHECKING:
     from multiprocessing.connection import Connection
-
-    from research.native_local_integration.registration import Build
 
 _KEYS = 1024
 _PAYLOAD = "0:" + "x" * 4096
@@ -305,16 +304,16 @@ def run_cell(
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--registration", choices=tuple(REGISTRATIONS), required=True)
-    parser.add_argument("--label", required=True)
+    parser.add_argument("--wheel", type=Path, required=True)
+    parser.add_argument("--wheel-sha256", required=True)
     parser.add_argument(
         "--threads", type=int, nargs="+", choices=(1, 4), default=(1, 4)
     )
     arguments = parser.parse_args()
-    try:
-        expected = build(arguments.registration, arguments.label)
-    except ValueError as error:
-        parser.error(str(error))
+    expected = Build(NATIVE_CORE, arguments.wheel_sha256)
+    verify_installation(
+        expected, arguments.wheel, Path(_implementation(None)["library"]).parent
+    )
     windows = []
     with (
         IsolatedReplicaSet(ResourceLimits(cpus=2.0, memory="1g")) as replica,
@@ -334,7 +333,12 @@ def main() -> None:
             )
             windows.append(run_cell(replica, threads, expected=expected))
     arguments.output.parent.mkdir(parents=True, exist_ok=True)
-    arguments.output.write_text(json.dumps({"windows": windows}, indent=2) + "\n")
+    arguments.output.write_text(
+        json.dumps(
+            {"wheel_sha256": expected.wheel_sha256, "windows": windows}, indent=2
+        )
+        + "\n"
+    )
 
 
 if __name__ == "__main__":

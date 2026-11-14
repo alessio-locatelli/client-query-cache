@@ -46,7 +46,7 @@ type CellKey = (
 )
 type Statistics = Callable[[JsonDict], dict[str, float]]
 
-_CONFIG = Path("reports/shared-worker-cache/v4/config.json")
+_CONFIG = Path("benchmarks/stream_cost/shared_cache/fixtures/v4/config.json")
 
 
 @dataclass(frozen=True, slots=True)

@@ -49,7 +49,7 @@ if TYPE_CHECKING:
 
     from benchmarks.stream_cost.shared_cache.protocol import Cell, PathKind
 
-_CONFIG = Path("reports/shared-worker-cache/v4/config.json")
+_CONFIG = Path("benchmarks/stream_cost/shared_cache/fixtures/v4/config.json")
 _CEILING_FAMILY = "primary"
 _NATIVE_DISTRIBUTION = "client-query-cache"
 _CARGO_LOCK = Path("native/shared-index/Cargo.lock")

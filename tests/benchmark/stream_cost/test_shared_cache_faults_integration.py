@@ -34,7 +34,9 @@ def replica() -> Iterator[IsolatedReplicaSet]:
 
 @pytest.fixture(scope="module")
 def registration() -> Registration:
-    return Registration.load(Path("reports/shared-worker-cache/v6/config.json"))
+    return Registration.load(
+        Path("benchmarks/stream_cost/shared_cache/fixtures/v6/config.json")
+    )
 
 
 @pytest.mark.parametrize("case", FAULT_CASES, ids=FAULT_CASES)

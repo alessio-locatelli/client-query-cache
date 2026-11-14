@@ -23,7 +23,6 @@ from benchmarks.stream_cost.shared_cache.analysis import (
 )
 from benchmarks.stream_cost.shared_cache.protocol import Registration
 from client_query_cache._types import JsonDict, NonEmptyStr, PositiveInt
-from research.shared_cache_runtime.design import CONFIG
 from research.shared_cache_runtime.qualification import (
     health_failures,
     qualification_decision,
@@ -72,9 +71,7 @@ def measurements(cell: JsonDict) -> dict[str, float]:
     return metrics
 
 
-def evaluate(
-    qualification: JsonDict, validation: JsonDict, config: Path = CONFIG
-) -> JsonDict:
+def evaluate(qualification: JsonDict, validation: JsonDict, config: Path) -> JsonDict:
     registration = Registration.load(config)
     require_complete(qualification, "qualification", registration)
     require_complete(validation, "validation", registration)
@@ -363,7 +360,7 @@ def main() -> None:
     parser.add_argument("--historical-active", type=Path)
     parser.add_argument("--discovery", type=Path)
     parser.add_argument("--runtime-reference", type=Path)
-    parser.add_argument("--config", type=Path, default=CONFIG)
+    parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     arguments = parser.parse_args()
     if all(
