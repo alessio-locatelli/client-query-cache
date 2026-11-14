@@ -110,7 +110,7 @@ unchanged order-sensitive representation. The helper performs no recursive
 semantic classification and never rewrites the native `_spec`; eligibility
 still examines the original query. Lookup, limit-family membership, and capture
 admission share the same filter representation. Other read methods do not use
-this helper. [Differential evidence and measurements](../../reports/query-filter-normalization/summary.md)
+this helper. [Differential semantic evidence](../../reports/query-filter-normalization/summary.md)
 record the tested MongoDB/PyMongo versions and limitations.
 Only non-boolean integer limits at least zero
 produce `FindSource` admission metadata; zero denotes an unlimited source.

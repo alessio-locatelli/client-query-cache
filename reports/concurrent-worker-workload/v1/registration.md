@@ -1,6 +1,6 @@
 # Concurrent worker workload registration, version 1
 
-This registration freezes the protocol for comparing direct MongoDB reads with independent per-worker cache managers while reads and writes run together. The machine-readable values live in [config.json](config.json); this companion explains units, measures, rules and limits. The [design](../../../openspec/changes/archive/2026-10-11-benchmark-concurrent-worker-workload/design.md#workload-registration) records why each value was chosen.
+This historical registration defines the protocol for comparing direct MongoDB reads with independent per-worker cache managers while reads and writes run together. The machine-readable values live in [config.json](config.json); this companion explains units, measures, rules and limits. The [design](../../../openspec/changes/archive/2026-10-11-benchmark-concurrent-worker-workload/design.md#workload-registration) records why each value was chosen.
 
 **Status:** frozen. The frozen `config.json` has SHA-256 `2057af0088101622b441f977fbc9bd78397f2e023fafd8b092cc1e74d1b6d0bc`, which every comparison report must carry. Any change to this file or `config.json` after a comparison window runs requires a new registration version and fresh comparisons; earlier outcomes are retained.
 
@@ -89,12 +89,12 @@ One host and a single-member replica set understate network latency and overstat
 
 ## Calibration result
 
-Calibration ran against MongoDB 8.0.4 from the draft configuration with SHA-256 `e447f37359fe82a50417f2963a84949ce70374ef1f2a04873b25a0770302026c`, at revision `2c1b6e158e2ef64800d9a07fcb3402afbe9eeddf`. While it ran, the branch was rebased onto a `main` whose only new commit changed the harness's MongoDB image to 8.3.11; the running harness had already started its replica set, so every calibration window used 8.0.4. The rebased commit `8e94e9667cd3bfa48b3b3b481336f215c3af5a76` differs from the calibrated revision only in the MongoDB image tags of the harness and the test suite. All 36 windows were healthy: 12 closed-loop probes and 24 open-loop validations. Throughput is reads/s over the three probe windows of each cell.
-
-| Cell               | `direct` probes | `independent` probes |
-| ------------------ | --------------: | -------------------: |
-| asyncio, 1 worker  |     4,884–4,971 |        41,610–42,955 |
-| asyncio, 4 workers |   12,378–12,491 |      162,510–164,505 |
+Calibration used MongoDB 8.0.4 at `2c1b6e158e2ef64800d9a07fcb3402afbe9eeddf`.
+All 36 windows were healthy: twelve read-only probes and 24 validations with
+writes. Probe throughput ranged 4,884–4,971 reads/s for one direct worker and
+12,378–12,491 for four; independent workers reached 41,610–42,955 and
+162,510–164,505 respectively. These historical rates require fresh baseline
+qualification when the implementation, host or workload changes.
 
 The weakest probe, one direct worker, selected 3,663 reads/s. Its validation failed once: in the first repetition, the one-worker direct window ended with 9 requests outstanding, above the bound of 8, although it completed 99.996% of its reads inside the window. This is the overestimate that read-only probes were expected to produce under writes. The halved rate, 1,831 reads/s, passed all twelve windows, so the frozen rate is 1,831 reads/s with 60 s windows, which offer 109,860 reads and 5,493 writes per window. Every validation window met the sample floor with at least 109,860 latency samples. The largest write lateness across both attempts was 33.4 ms, within the 250 ms tolerance, and the slowest write took 0.40 s.
 

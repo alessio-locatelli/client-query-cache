@@ -16,7 +16,21 @@ Maturin fails the build instead of emitting an unprofiled wheel when a stage fai
 
 Cache-core workloads train both telemetry policies: 80% of each workload's timed allocation uses disabled telemetry and 20% uses enabled telemetry. This preserves each workload's total allocation and its existing admission weighting. Setup and enabled counter verification add fixed passes outside those allocations. New cache-core workloads train both policies unless explicitly listed as core-policy-independent in `scripts/pgo_training.py`. The [telemetry measurement report](../../reports/opt-in-telemetry/summary.md#pgo-training-comparison) records the compared mixes and their limits.
 
-[The measurement report](../../reports/rust-build-profile/summary.md) records the gains, every option that was evaluated and rejected, and the method.
+[The measurement report](../../reports/rust-build-profile/summary.md) records measured build trade-offs, rejected options and the method.
+
+## Comparing native measurements
+
+Use repeated matched acquisitions, independent builds of identical source and
+an identical-binary A/A control when separating source effects from PGO/build
+variation. Equal-length import paths remove one layout difference; they do not
+make allocator state identical. Confirm which environment variables reach timing
+children: `research.native_build_profile.compare` and `end_to_end` construct
+restricted child environments and do not forward parent allocator controls.
+
+Keep the statistic explicit: a median of within-round percentage changes need
+not equal the ratio of the two medians. Time complete operations separately
+from profiles/counters, whose boundaries and overhead differ. A microbenchmark
+difference alone does not establish a production defect.
 
 ## Commands
 

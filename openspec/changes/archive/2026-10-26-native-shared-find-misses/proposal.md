@@ -2,7 +2,7 @@
 
 ## Why
 
-The current-release investigation for [#341](https://github.com/alessio-locatelli/client-query-cache/issues/341) identifies duplicate Python query serialization on shared find misses. The user directs moving measured slow work into Rust. The rejected native selection prototypes and their performance failures remain in `reports/shared-worker-cache/current-costs/native-trials.md`.
+The current-release investigation for [#341](https://github.com/alessio-locatelli/client-query-cache/issues/341) identifies duplicate Python query serialization on shared find misses. The user directs moving measured slow work into Rust. The rejected native selection prototypes and their performance failures remain in [`reports/shared-worker-cache/current-costs/native-trials.md`](https://github.com/alessio-locatelli/client-query-cache/blob/243cbfb790766e9ee25b3ecced1ffe83e96d083c/reports/shared-worker-cache/current-costs/native-trials.md).
 
 ## What Changes
 

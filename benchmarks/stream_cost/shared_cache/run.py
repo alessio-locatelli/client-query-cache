@@ -204,7 +204,10 @@ def resumed_cells(
     return cast("list[JsonDict]", report["cells"])
 
 
-# The v3 registration documents why v2 probes are unaffected by its tolerance change.
+# v3 raised write-dispatch tolerance from 50 to 250 ms. Closed-loop calibration
+# probes never enforced that tolerance; their workload, code path and rate-selection
+# rule were unchanged, so v2 probes remain reusable. Validation and later windows
+# must run fresh under v3.
 # Pin both files so later edits cannot silently inherit that exception.
 _UNAFFECTED_PROBE_REGISTRATIONS = (
     # pragma: allowlist nextline secret
