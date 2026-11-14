@@ -55,7 +55,8 @@ def accept_previous_budget_keyword[Config](
 
 
 def snapshot() -> Workload:
-    core, _shape = populated_identity_core(documents(SMALL_BYTES, RESIDENT_KEYS))
+    with pgo_training.CORE_TELEMETRY_POLICY.set(True):
+        core, _shape = populated_identity_core(documents(SMALL_BYTES, RESIDENT_KEYS))
     take = core.snapshot
 
     def run() -> None:

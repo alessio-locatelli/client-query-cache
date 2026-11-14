@@ -162,8 +162,11 @@ and plateau in the final rounds. No write-value history is retained.
 
 Use locked release installations for both revisions and the same runner checkout.
 Keep raw output untracked; each output path must be new. The image and resource
-limits are recorded by the runner. Historical experimental paths belong to the
-revisions recorded in the existing [research reports](../../research/invalidation_scope/).
+limits are recorded by the runner. For historical reproduction, use the revisions
+in the [invalidation-scope study](research/invalidation-scope.md) for churn,
+modeled policies and miss costs, and the
+[stream-assisted study](research/stream-assisted-invalidation.md) for experimental
+guards and projection costs.
 
 ```bash
 source scripts/testcontainers-bridge.sh

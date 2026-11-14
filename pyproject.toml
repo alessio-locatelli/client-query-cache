@@ -134,14 +134,12 @@ require-subclass = true
 # Python subclass rule misclassifies their re-export through adapter modules.
 exclude-classes = '^client_query_cache\._shared_index:LocalCacheCore$'
 # slotscheck 0.21.0: https://github.com/ariebovenberg/slotscheck/blob/v0.21.0/src/slotscheck/config.py
-# The default excludes __main__ modules. Research analyses run with separate
-# numerical dependencies that are absent from the project environment.
+# The default excludes __main__ modules. The submodule and standalone examples
+# are outside the installed project environment.
 exclude-modules = '''
 (
   ^specifications
   | ^examples
-  | ^scripts\.analyze_shared_cache_runtime$
-  | ^research\.shared_cache_runtime\.analysis$
 )
 '''
 

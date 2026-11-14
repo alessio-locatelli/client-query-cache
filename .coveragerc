@@ -13,7 +13,6 @@ omit =
     tests/memory/*
     scripts/*
     # Performance acceptance harnesses run without instrumentation.
-    benchmarks/record_write_invalidation.py
     benchmarks/public_shared_cache.py
     benchmarks/implementation.py
     benchmarks/cached_hit_latency.py

@@ -19,8 +19,8 @@ import pymongo
 from benchmarks.stream_cost.topology import IsolatedReplicaSet, ResourceLimits
 from client_query_cache import _shared_index
 from client_query_cache._types import BsonDict, NonNegativeInt, PositiveInt
-from research.invalidation_scope.benchmark import HOT_AUTHORS, TOPOLOGY
 from research.invalidation_scope.end_to_end import SEED, seed, warm_calls
+from research.invalidation_scope.workload import HOT_AUTHORS, TOPOLOGY
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

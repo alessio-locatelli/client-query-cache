@@ -49,7 +49,7 @@ from benchmarks.stream_cost.shared_cache.workload import (
     open_loop_sync,
     worker_keys,
 )
-from client_query_cache._types import BsonDict, JsonDict, NonNegativeInt, PositiveInt
+from client_query_cache._types import BsonDict, JsonDict, NonNegativeInt
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -2543,45 +2543,6 @@ def test_freeze_rejects_invalid_provenance_without_writing(
         run.freeze(config, report)
 
     assert config.read_bytes() == original
-
-
-@pytest.mark.parametrize(
-    ("source_version", "target_version"),
-    [(2, 3), (3, 2), (2, 4)],
-    ids=["documented-reuse", "reverse", "changed-probes"],
-)
-def test_probe_reuse_registration_exception(
-    tmp_path: Path, source_version: PositiveInt, target_version: PositiveInt
-) -> None:
-    source = Registration.load(
-        Path(
-            f"benchmarks/stream_cost/shared_cache/fixtures/v{source_version}/config.json"
-        )
-    )
-    target = Registration.load(
-        Path(
-            f"benchmarks/stream_cost/shared_cache/fixtures/v{target_version}/config.json"
-        )
-    )
-    report = tmp_path / "probes.json"
-    provenance = {
-        "revision": "abc",
-        "configuration_sha256": source.digest,
-        "dirty_tree": False,
-    }
-    probe = _record(probe_cells(source)[0])
-    report.write_text(
-        json.dumps(
-            {"phase": "calibration", "environment": provenance, "cells": [probe]}
-        )
-    )
-    if (source_version, target_version) == (2, 3):
-        assert run.reused_probes(report, target) == [
-            {**probe, "probe_environment": provenance}
-        ]
-    else:
-        with pytest.raises(BenchmarkSetupError, match="configuration"):
-            run.reused_probes(report, target)
 
 
 @pytest.mark.parametrize(

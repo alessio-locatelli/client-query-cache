@@ -13,7 +13,6 @@ from pymongo.errors import OperationFailure
 
 from benchmarks.stream_cost.client import BenchmarkClientTopologyConfig, WireCompressor
 from benchmarks.stream_cost.proxy import DirectPathByteProxy, DirectPathProxyConfig
-from benchmarks.stream_cost.shared_cache.profiling import WindowProfiler
 from client_query_cache._core.keys import NamespaceId
 from client_query_cache._core.stream_events import CHANGE_STREAM_HISTORY_LOST_CODE
 from client_query_cache._shared.coordinator import SharedCacheOwner
@@ -108,7 +107,6 @@ def process_sample() -> Message:
     }
 
 
-_PROFILER = WindowProfiler()
 _HISTORY_READY = threading.Event()
 
 
@@ -295,8 +293,6 @@ _CONTROL: dict[str, Callable[[SharedCacheOwner, FaultableProxy, Message], object
     "race-admission": lambda owner, _proxy, request: race_next_admission(
         owner, cast("str", request["race"])
     ),
-    "profile-start": lambda _owner, _proxy, _request: _PROFILER.start(),
-    "profile-stop": lambda _owner, _proxy, _request: _PROFILER.stop("owner"),
 }
 
 
