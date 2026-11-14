@@ -23,4 +23,5 @@ exclude = [
   '^https://alessio-locatelli\.github\.io/client-query-cache/(stable|dev|getting-started|usage|benchmarks|examples|reference|operations)(/|$)',
   '^https://www.freedesktop.org/software/systemd/man/latest/systemctl.html$',                                                                   # Fails with a timeout.
   '^https://bugzilla.redhat.com/show_bug.cgi?id=2526789$',                                                                                      # Fails with a timeout.
+  '^https://slsa.dev/images/gh-badge-level2.svg$',                                                                                              # Fails with a timeout.
 ]
