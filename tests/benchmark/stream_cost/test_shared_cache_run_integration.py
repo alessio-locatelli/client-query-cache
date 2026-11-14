@@ -12,7 +12,7 @@ from pymongo.errors import OperationFailure
 from pymongo.synchronous.collection import Collection
 
 from benchmarks.stream_cost.errors import BenchmarkSetupError
-from benchmarks.stream_cost.shared_cache import diagnostics, run, window
+from benchmarks.stream_cost.shared_cache import run, window
 from benchmarks.stream_cost.shared_cache.dataset import seed_catalogue
 from benchmarks.stream_cost.shared_cache.protocol import (
     Registration,
@@ -20,7 +20,7 @@ from benchmarks.stream_cost.shared_cache.protocol import (
     validation_failure,
 )
 from benchmarks.stream_cost.topology import IsolatedReplicaSet, ResourceLimits
-from client_query_cache._types import BsonDict, JsonDict, PositiveInt
+from client_query_cache._types import BsonDict, JsonDict
 
 if TYPE_CHECKING:
     from collections.abc import Generator, Iterator
@@ -570,72 +570,6 @@ def test_calibration_and_freeze_commands(
         run.main(["--freeze", str(output), "--config", str(config)])
 
 
-@pytest.mark.timeout(120)
-def test_exploratory_transport_diagnostics_are_labelled(tmp_path: Path) -> None:
-    output = tmp_path / "diagnostics.json"
-
-    diagnostics.main(["--entries", "8", "--repetitions", "1", "--output", str(output)])
-
-    report = json.loads(output.read_text(encoding="utf-8"))
-    assert report["label"].startswith("exploratory")
-    assert {
-        "proxy_coarse_operation",
-        "socket_sync",
-        "socket_async_event_loop",
-        "socket_async_thread_executor",
-    } <= report.keys()
-    assert all(
-        report[name]["calls"] == 8
-        for name in ("proxy_coarse_operation", "socket_sync", "socket_async_event_loop")
-    )
-
-
-def _tiny_frozen(config: Path) -> None:
-    raw = json.loads(config.read_text(encoding="utf-8"))
-    raw["profiles"]["primary"]["documents"] = 64
-    raw["warmup_seconds"] = 0.5
-    raw["status"] = "frozen"
-    raw["frozen"] = {
-        "rates": {"primary": 100, "cold": 100, "sensitivity": 100},
-        "window_seconds": {"hot": 1, "active": 1, "sensitivity": 1},
-        "calibration_summary": {},
-    }
-    config.write_text(json.dumps(raw), encoding="utf-8")
-
-
-@pytest.mark.timeout(180)
-@pytest.mark.parametrize("workers", [1, 4], ids=["one-worker", "four-workers"])
-def test_profiled_windows_summarize_owner_and_worker_hot_paths(
-    config: Path, tmp_path: Path, workers: PositiveInt
-) -> None:
-    _tiny_frozen(config)
-    output = tmp_path / "profile.json"
-
-    diagnostics.main(
-        [
-            "--config",
-            str(config),
-            "--profile",
-            "screening",
-            str(workers),
-            "async",
-            "--output",
-            str(output),
-        ]
-    )
-
-    windows = json.loads(output.read_text(encoding="utf-8"))["windows"]
-    shared = next(window for window in windows if window["path"] == "shared")
-    direct = next(window for window in windows if window["path"] == "direct")
-    for measured in windows:
-        assert (
-            sum(name.startswith("worker-") for name in measured["profiles"]) == workers
-        )
-    assert sum(name.startswith("owner-") for name in shared["profiles"]) == 1
-    assert shared["owner_busy_seconds"] > 0
-    assert direct["owner_busy_seconds"] is None
-
-
 @pytest.mark.timeout(180)
 @pytest.mark.parametrize(
     ("workload", "path", "changes"),
@@ -679,20 +613,3 @@ def test_sensitivity_cold_and_closed_loop_windows_complete(
 
     assert record["healthy"] is True
     assert cast("int", record["completed"]) > 0
-
-
-@pytest.mark.timeout(180)
-def test_observer_overhead_compares_matched_sampling_rates(
-    config: Path, tmp_path: Path
-) -> None:
-    _tiny_frozen(config)
-    output = tmp_path / "observer.json"
-
-    diagnostics.main(
-        ["--config", str(config), "--observer-overhead", "--output", str(output)]
-    )
-
-    rows = json.loads(output.read_text(encoding="utf-8"))["observer_overhead"]
-    assert {(row["memory_sample_seconds"], row["path"]) for row in rows} == {
-        (seconds, path) for seconds in (0.2, 5.0) for path in ("independent", "shared")
-    }

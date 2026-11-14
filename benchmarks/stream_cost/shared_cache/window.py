@@ -31,7 +31,6 @@ from benchmarks.stream_cost.multiprocess_run import (
 )
 from benchmarks.stream_cost.shared_cache.dataset import seed_catalogue
 from benchmarks.stream_cost.shared_cache.owner import owner_main, proxy_for
-from benchmarks.stream_cost.shared_cache.profiling import enabled as profiling_enabled
 from benchmarks.stream_cost.shared_cache.protocol import (
     BASELINES,
     profile_keys,
@@ -611,8 +610,6 @@ def run_window(
             if group.owner_control is not None
             else None
         )
-        if owner_before is not None and profiling_enabled():
-            group.owner_request({"op": "profile-start"}, window_end)
         write_offsets: list[NonNegativeFloat] = []
         write_lateness = 0.0
         pending: list[Future[float]] = []
@@ -640,8 +637,6 @@ def run_window(
             write_seconds = [future.result() for future in pending]
         except PyMongoError as error:
             raise BenchmarkSetupError("harness MongoDB write failed") from error
-        if owner_before is not None and profiling_enabled():
-            group.owner_request({"op": "profile-stop"}, window_end + 5)
         server_end = replica.container_cpu_usage_seconds()
         server_memory = replica.container_memory_usage_bytes()
         drain_deadline = (

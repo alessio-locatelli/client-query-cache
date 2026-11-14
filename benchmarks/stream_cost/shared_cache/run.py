@@ -42,7 +42,7 @@ from benchmarks.stream_cost.shared_cache.protocol import (
 from benchmarks.stream_cost.shared_cache.window import run_window
 from benchmarks.stream_cost.topology import IsolatedReplicaSet, ResourceLimits
 from client_query_cache import _shared_index
-from client_query_cache._types import JsonDict, NonEmptyStr, PositiveFloat
+from client_query_cache._types import JsonDict, PositiveFloat
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -56,9 +56,7 @@ _CARGO_LOCK = Path("native/shared-index/Cargo.lock")
 _RUSTC_MARKER = b"rustc version "
 
 
-def environment(
-    registration: Registration, *, extra_source_paths: tuple[NonEmptyStr, ...] = ()
-) -> JsonDict:
+def environment(registration: Registration) -> JsonDict:
     git = shutil.which("git")
     if git is None:
         raise BenchmarkSetupError("git is required to record the benchmark revision")
@@ -74,7 +72,6 @@ def environment(
                 "native",
                 "src",
                 "reports",
-                *extra_source_paths,
             ],
             text=True,
         ).strip()
@@ -204,19 +201,6 @@ def resumed_cells(
     return cast("list[JsonDict]", report["cells"])
 
 
-# v3 raised write-dispatch tolerance from 50 to 250 ms. Closed-loop calibration
-# probes never enforced that tolerance; their workload, code path and rate-selection
-# rule were unchanged, so v2 probes remain reusable. Validation and later windows
-# must run fresh under v3.
-# Pin both files so later edits cannot silently inherit that exception.
-_UNAFFECTED_PROBE_REGISTRATIONS = (
-    # pragma: allowlist nextline secret
-    "af560945f2aa9291278b9ed364fb1684c0bbd80530cbf523308b4e5c3407d9e7",
-    # pragma: allowlist nextline secret
-    "fcaba260601630f032811c364cf2acafd9f56c938a46b42fa863c8d9c2fd6b92",
-)
-
-
 def validate_probe_source(source: JsonDict, registration: Registration) -> None:
     try:
         clean = source["dirty_tree"] is False
@@ -226,10 +210,7 @@ def validate_probe_source(source: JsonDict, registration: Registration) -> None:
         raise BenchmarkSetupError("reused probe provenance is missing") from error
     if not clean or not revision:
         raise BenchmarkSetupError("reused probes require a clean recorded revision")
-    if (
-        digest != registration.digest
-        and (digest, registration.digest) != _UNAFFECTED_PROBE_REGISTRATIONS
-    ):
+    if digest != registration.digest:
         raise BenchmarkSetupError(
             "reused probe configuration does not match registration"
         )

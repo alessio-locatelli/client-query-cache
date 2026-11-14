@@ -7,12 +7,18 @@ import pytest
 
 from research.native_build_profile.compare import ROOT, child_environment
 from research.native_build_profile.limits import CONFIGS, WORKLOADS, measure_once
-from research.native_build_profile.measure import accept_previous_budget_keyword
-from scripts.pgo_training import CLEANUP
+from research.native_build_profile.measure import (
+    accept_previous_budget_keyword,
+    namespace_lifecycle,
+    snapshot,
+)
+from scripts.pgo_training import CLEANUP, CORE_TELEMETRY_POLICY
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
     from pathlib import Path
+
+    from scripts.pgo_training import Workload
 
 pytestmark = pytest.mark.unit
 
@@ -61,6 +67,21 @@ def test_the_training_workloads_construct_the_budget_keyword_the_build_declares(
 def cleanup() -> Iterator[None]:
     with CLEANUP:
         yield
+
+
+@pytest.mark.usefixtures("cleanup")
+@pytest.mark.parametrize("enabled", [False, True], ids=["default", "telemetry"])
+@pytest.mark.parametrize(
+    "workload", [snapshot, namespace_lifecycle], ids=["snapshot", "namespace-lifecycle"]
+)
+def test_measurement_workloads_preserve_the_training_telemetry_policy(
+    workload: Callable[[], Workload], *, enabled: bool
+) -> None:
+    with CORE_TELEMETRY_POLICY.set(enabled):
+        run, operations = workload()
+        run()
+        assert operations > 0
+        assert CORE_TELEMETRY_POLICY.get() is enabled
 
 
 @pytest.mark.usefixtures("cleanup")

@@ -17,7 +17,6 @@ from benchmarks.stream_cost.shared_cache.fault_worker import (
     sync_fault_worker,
 )
 from benchmarks.stream_cost.shared_cache.owner import process_sample, proxy_for
-from benchmarks.stream_cost.shared_cache.profiling import profiling
 from benchmarks.stream_cost.shared_cache.workload import (
     LoopResult,
     assignment_for,
@@ -510,8 +509,7 @@ async def async_worker(connection: Connection, spec: WorkerSpec) -> None:
             if spec.cell.warmup_seconds:
                 await _run_async(spec, start, read, warmup=True)
             before = _Measured(manager, listener, proxy)
-            with profiling(f"worker-{spec.cell.path}"):
-                loop = await _run_async(spec, window_start, read, warmup=False)
+            loop = await _run_async(spec, window_start, read, warmup=False)
             application_end = _Measured(manager, listener, proxy)
             deadline = _drain_deadline(spec)
             while _invalidations(manager, spec) < spec.expected_invalidations:

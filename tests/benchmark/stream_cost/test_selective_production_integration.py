@@ -6,8 +6,8 @@ import pytest
 
 from benchmarks.stream_cost.topology import IsolatedReplicaSet, ResourceLimits
 from client_query_cache._types import NonNegativeFloat, NonNegativeInt
-from research.invalidation_scope.benchmark import TOPOLOGY
 from research.invalidation_scope.end_to_end import run_cell, seed
+from research.invalidation_scope.workload import TOPOLOGY
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

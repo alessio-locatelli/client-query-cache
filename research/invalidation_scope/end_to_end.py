@@ -46,7 +46,7 @@ from client_query_cache._types import (
 from client_query_cache.synchronous import manager as manager_module
 from client_query_cache.synchronous import streams as stream_module
 from client_query_cache.synchronous.streams import ChangeStreamCoordinator
-from research.invalidation_scope.benchmark import (
+from research.invalidation_scope.workload import (
     AUTHORS,
     CLASSES,
     DOCUMENTS,
