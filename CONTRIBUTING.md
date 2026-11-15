@@ -5,9 +5,14 @@ tools on `PATH`.
 
 ## Prerequisites
 
+For the Toolbx or Distrobox image:
+
 - [Rootless Podman](https://podman.io/docs/installation) and a systemd user session
 - [Toolbx](https://containertoolbx.org/install/) with `flatpak-spawn` and a working Flatpak
   portal/session helper, or [Distrobox](https://distrobox.it/#installation)
+
+In an equivalent environment, container-backed recipes need the container runtime described in
+[Validate changes](#validate-changes) instead.
 
 ## Environment
 
@@ -66,6 +71,8 @@ Inside Toolbx or Distrobox, enable the host Podman socket before the full test s
 just enable-podman-socket
 just tests_and_coverage
 ```
+
+Outside Toolbx and Distrobox, container-backed recipes use the Docker daemon selected by `DOCKER_HOST` or the default Docker socket; start it before the full test suite.
 
 `just tests_and_coverage` runs the current test suite and reports coverage. Run `just pytest -- -m unit` for
 the container-free unit-test tier.
@@ -248,7 +255,7 @@ just latency-chart "Atlas M0"
 
 The argument names the deployment behind `REAL_MONGODB_URI`; the chart labels its direct-read row with it, because the benchmark cannot verify the deployment type.
 
-The recipe takes the local direct read from the `read_heavy-small` report of a fresh [stream cost benchmark](docs/user/benchmarks/stream-cost.md#reproduce) run, the remote direct read from the [real-server benchmark](#real-server-benchmark)'s logged median, and the cached read from `benchmarks/cached_hit_latency.py`. It then rewrites `docs/user/assets/benchmark-latency-light.svg`, `docs/user/assets/benchmark-latency-dark.svg` and the chart's alternative text in both documents, and prints the directory that holds the raw benchmark output. It needs the host Podman socket (`just enable-podman-socket`) and a configured `REAL_MONGODB_URI`; when the real-server benchmark skips, rendering fails with an explanatory error. Direct reads vary between runs: inspect the diff and rerun when a value looks like noise.
+The recipe takes the local direct read from the `read_heavy-small` report of a fresh [stream cost benchmark](docs/user/benchmarks/stream-cost.md#reproduce) run, the remote direct read from the [real-server benchmark](#real-server-benchmark)'s logged median, and the cached read from `benchmarks/cached_hit_latency.py`. It then rewrites `docs/user/assets/benchmark-latency-light.svg`, `docs/user/assets/benchmark-latency-dark.svg` and the chart's alternative text in both documents, and prints the directory that holds the raw benchmark output. It needs the container runtime described in [Validate changes](#validate-changes) and a configured `REAL_MONGODB_URI`; when the real-server benchmark skips, rendering fails with an explanatory error. Direct reads vary between runs: inspect the diff and rerun when a value looks like noise.
 
 To re-render from existing measurements, for example after a style change, pass a retained stream-cost report, a log that contains a real-server run, and a cached-hit report:
 
