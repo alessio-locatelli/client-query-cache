@@ -4,7 +4,7 @@
       `GITHUB_ACTIONS` early return, move the `TESTCONTAINERS_RYUK_PRIVILEGED` export (with its
       comment) into the Distrobox and Toolbx branches, and replace the final `else` branch that
       prints the refusal and exits with nothing, so the script falls through without exporting.
-- [ ] 1.2 Verify in an environment with a Docker daemon and no Toolbx or Distrobox:
+- [x] 1.2 Verify in an environment with a Docker daemon and no Toolbx or Distrobox:
       `just pytest -- -m unit`, then `just tests_and_coverage`.
 - [x] 1.3 Verify the failure scenario: with the Docker daemon stopped, run
       `just pytest -- tests/test_cached_cursors.py -x` and confirm the run fails with the fixture's
@@ -16,6 +16,9 @@
       instructions, add one sentence: outside Toolbx and Distrobox, container-backed recipes use the
       Docker daemon selected by `DOCKER_HOST` or the default Docker socket, which must be running
       before the full test suite.
+- [x] 2.2 In `CONTRIBUTING.md`, scope the "Prerequisites" list to the Toolbx or Distrobox image and
+      point equivalent environments to "Validate changes"; replace the `latency-chart` paragraph's
+      host Podman socket requirement with a link to "Validate changes".
 
 ## 3. Code Quality
 
