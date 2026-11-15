@@ -45,3 +45,17 @@ Use the PyMongo collection for writes. `find()` returns an async cursor immediat
 The `async with` block closes the manager before the client. Outside a context manager, call `await cache_manager.close()` before `await client.close()`. The manager owns its background streams and cached data, and you own the client. Keep both alive across application requests; see [deployment](../operations/deployment.md).
 
 Awaiting a cached read does not wait for a preceding write's invalidation. Use a direct PyMongo read with suitable session and concerns for freshness requirements; see [consistency](../usage/consistency.md). Eligible cache misses read from the primary with `majority` read concern even though this program leaves read concern unspecified, so they can differ from a direct read that uses the deployment's default, normally `local`; see [bypass conditions](../reference/api.md#bypass-conditions).
+
+## Optional uvloop
+
+Consider [uvloop](https://github.com/MagicStack/uvloop) for process-local workloads dominated by cache misses on `_id` lookups. Matched measurements with 4 KiB documents found lower miss latency with four worker processes, each awaiting one read at a time. This evidence does not establish a speedup for cache hits, shared caching or concurrent requests on one loop. Measure your application's workload before choosing a loop.
+
+If your application installs uvloop, replace the example's final line with:
+
+```python
+import uvloop
+
+asyncio.run(main(), loop_factory=uvloop.new_event_loop)
+```
+
+The library does not require, install or configure uvloop. Standard asyncio remains supported.

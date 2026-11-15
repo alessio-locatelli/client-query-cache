@@ -45,6 +45,7 @@ benchmark = [
   "dnspython>=2.9.1",
   "python-snappy>=0.7.3",
   "filelock>=4.2.6",
+  "uvloop>=0.23.0",
 ]
 test = [
   { include-group = "benchmark" },

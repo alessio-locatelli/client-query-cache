@@ -86,6 +86,7 @@ def test_the_preparation_variant_window_measures_the_full_predicate(
     workload: Literal["hot", "cold"],
 ) -> None:
     window = _window(replica_set, "find_one_in", model, workload, "independent")
+    assert window["shared_cache_config"] is None
     observations = window["worker_observations"]
     assert isinstance(observations, list)
     for observation in observations:
@@ -104,6 +105,14 @@ def test_queued_identity_admissions_drain_before_follow_up_hits(
     replica_set: IsolatedReplicaSet, model: Literal["sync", "async"]
 ) -> None:
     window = _window(replica_set, "identity", model, "cold", "shared")
+    config = window["shared_cache_config"]
+    assert isinstance(config, dict)
+    assert config["budget_bytes"] == 64 * 1024 * 1024
+    assert config["arena_bytes"] == 80 * 1024 * 1024
+    assert config["slots"] == 16_384
+    owner = window["owner_after"]
+    assert isinstance(owner, dict)
+    assert config["budget_bytes"] == owner["cache"]["budget_bytes"]
     drain = window["admission_drain"]
     assert isinstance(drain, dict)
     assert drain["processed"] == drain["admitted"] == _WORKERS * _READS
