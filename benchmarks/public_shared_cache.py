@@ -24,10 +24,11 @@ import traceback
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from contextlib import AsyncExitStack, ExitStack, contextmanager
 from dataclasses import asdict, dataclass, field, replace
+from importlib import import_module
 from importlib.metadata import version
 from itertools import product
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, cast
 
 import psutil
 from pymongo import AsyncMongoClient, MongoClient
@@ -284,6 +285,7 @@ class Window:
     max_entry_bytes: PositiveInt | None = None
     require_installed: bool = True
     enable_telemetry: bool = True
+    async_loop: Literal["asyncio", "uvloop"] = "asyncio"
 
 
 def _core_config(window: Window) -> CacheCoreConfig | None:
@@ -1138,12 +1140,25 @@ async def _measure_async(
         )
 
 
+def _loop_factory(
+    name: Literal["asyncio", "uvloop"],
+) -> Callable[[], asyncio.AbstractEventLoop]:
+    if name == "asyncio":
+        return asyncio.new_event_loop
+    return cast(
+        "Callable[[], asyncio.AbstractEventLoop]",
+        import_module("uvloop").new_event_loop,
+    )
+
+
 def _worker(window: Window) -> Observation:
     try:
         observation = (
             _measure_sync(window)
             if window.model == "sync"
-            else asyncio.run(_measure_async(window))
+            else asyncio.run(
+                _measure_async(window), loop_factory=_loop_factory(window.async_loop)
+            )
         )
         if window.validate and window.require_installed:
             for component in ("library", "extension"):
@@ -1323,6 +1338,7 @@ def _run_window(
     max_entry_bytes: PositiveInt | None = None,
     require_installed: bool = True,
     enable_telemetry: bool = True,
+    async_loop: Literal["asyncio", "uvloop"] = "asyncio",
 ) -> dict[str, object]:
     setup_started = time.monotonic()
     setup_cpu_started = time.process_time()
@@ -1330,17 +1346,19 @@ def _run_window(
     start, finish = context.Barrier(workers + 1), context.Barrier(workers + 1)
     with ExitStack() as resources:
         server = None
+        shared_config = None
         if path == "shared":
+            shared_config = SharedCacheConfig(
+                enable_telemetry=enable_telemetry,
+                budget_bytes=64 * 1024 * 1024,
+                arena_bytes=80 * 1024 * 1024,
+                slots=16_384,
+            )
             server = resources.enter_context(
                 SharedCacheServer(
                     replica.uri,
                     ("public_shared_cache",),
-                    config=SharedCacheConfig(
-                        enable_telemetry=enable_telemetry,
-                        budget_bytes=32 * 1024 * 1024,
-                        arena_bytes=40 * 1024 * 1024,
-                        slots=16_384,
-                    ),
+                    config=shared_config,
                 )
             )
         pool = resources.enter_context(
@@ -1400,6 +1418,7 @@ def _run_window(
                     max_entry_bytes,
                     require_installed,
                     enable_telemetry,
+                    async_loop,
                 ),
             )
             for worker in range(workers)
@@ -1531,6 +1550,9 @@ def _run_window(
             "workers": workers,
             "budget_bytes": budget_bytes,
             "max_entry_bytes": max_entry_bytes,
+            "shared_cache_config": None
+            if shared_config is None
+            else asdict(shared_config),
             "enable_telemetry": enable_telemetry,
             "throughput": workers * samples / elapsed,
             "admission_drain": drain,
@@ -1669,6 +1691,9 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--profile-dir", type=Path)
     parser.add_argument(
+        "--async-loop", choices=("asyncio", "uvloop"), default="asyncio"
+    )
+    parser.add_argument(
         "--validate",
         action="store_true",
         help="Verify installed artifacts, results, origins and cache trajectories.",
@@ -1734,6 +1759,10 @@ def main() -> None:
         "--workloads", nargs="+", choices=("hot", "cold"), default=("hot", "cold")
     )
     arguments = parser.parse_args()
+    try:
+        _loop_factory(arguments.async_loop)
+    except ImportError as error:
+        parser.error(f"cannot load requested loop {arguments.async_loop}: {error}")
     if (
         min(
             arguments.samples,
@@ -1841,6 +1870,7 @@ def main() -> None:
                                 read_rate=arguments.read_rate,
                                 diagnostics=arguments.diagnostics,
                                 enable_telemetry=not arguments.disable_telemetry,
+                                async_loop=arguments.async_loop,
                                 validate=arguments.validate,
                                 document_bytes=arguments.document_bytes,
                                 rotation=arguments.rotation,
@@ -1864,6 +1894,10 @@ def main() -> None:
                     "package": version("client-query-cache"),
                     "pymongo": version("pymongo"),
                     "python": platform.python_version(),
+                    "async_loop": arguments.async_loop,
+                    "async_loop_version": platform.python_version()
+                    if arguments.async_loop == "asyncio"
+                    else version("uvloop"),
                     "platform": platform.platform(),
                     "cpus": os.cpu_count(),
                     "implementation": identify_implementation(None),

@@ -6,9 +6,13 @@ The [collection-read comparison](https://github.com/alessio-locatelli/client-que
 
 The reproducible harness in [`benchmarks/public_shared_cache.py`](https://github.com/alessio-locatelli/client-query-cache/blob/main/benchmarks/public_shared_cache.py) measures the public APIs against direct majority reads and independent process-local caches. It starts a disposable MongoDB replica set and four spawned workers, using 4,096 hot identities and approximately 4 KiB documents. Cold windows use distinct seeded identities per worker.
 
-Each of three repetitions rotates path order. Workers warm before a shared start barrier; memory is sampled with managers and mappings still attached. Each worker completes 2,000 measured reads per window. Latency measures each read; CPU is recorded both during the measured reads and including warmup and owner startup, and proportional set size (PSS) apportions shared pages. The shared owner uses a 32 MiB cache budget, 40 MiB arena and 16,384 slots; independent managers use their default 64 MiB budget each. The hot set fits both configurations. Cold-window memory also reflects their different retention budgets. These finite windows describe this workload, rather than establish a universal P99 guarantee or general research qualification.
+Each of three repetitions rotates path order. Workers warm before a shared start barrier; memory is sampled with managers and mappings still attached. Each worker completes 2,000 measured reads per window. Latency measures each read; CPU is recorded both during the measured reads and including warmup and owner startup, and proportional set size (PSS) apportions shared pages. The shared owner uses a 64 MiB cache budget, 80 MiB arena and 16,384 slots; independent managers use their default 64 MiB budget each. Both the hot set and the combined warm and cold entries fit these configurations. These finite windows describe this workload, rather than establish a universal P99 guarantee or general research qualification.
+
+Shared-path windows record the owner's effective capacities and telemetry setting in `shared_cache_config`; other paths record `null`.
 
 ## Release measurements
+
+The recorded 0.8.0 measurements used a 32 MiB shared-cache budget and 40 MiB arena. Cold-window memory reflects that retention limit.
 
 Measured on 2026-10-15 using the installed 0.8.0 portable wheel, CPython 3.14.7, an Intel Core i3-13100 with eight logical CPUs, Fedora 44 with Linux kernel 7.2.9 and glibc 2.43. MongoDB used the repository's pinned `mongo:9.0.2` image in a disposable replica set limited to two CPUs and 1 GiB. Tests and builds were stopped during measurement. Results below are medians of the three window statistics; each window contains 8,000 reads across four workers. CPU and PSS sum the workers and shared owner, excluding MongoDB and the harness parent. The measured CPU columns include worker memory sampling.
 
@@ -59,5 +63,9 @@ uv run --isolated --no-project \
 ```
 
 The wheel name selects the checkout's version and the running architecture. This measures the current checkout, not the recorded 0.8.0 artifact. To repeat the 0.8.0 run, follow the [0.8.0 reproduction](https://github.com/alessio-locatelli/client-query-cache/blob/v0.8.0/docs/user/benchmarks/shared-cache.md#reproduce) from a `v0.8.0` checkout.
+
+The asynchronous workers use standard asyncio by default. To compare uvloop, add `--with uvloop` to `uv run` and `--async-loop uvloop` to the harness arguments, keeping all other settings identical. See the [optional uvloop guidance](../getting-started/asyncio.md#optional-uvloop) for the workloads covered by the evidence.
+
+Use `--validate --disable-telemetry` for matched measurements with production-default telemetry settings. Owner and group CPU from this mode may omit queued admission work and cannot establish a CPU saving. For a separate resource comparison, use `--validate --diagnostics` with telemetry enabled: shared cold windows verify completed admissions before sampling final owner CPU and reconcile worker counts afterward. Foreground latency and admission-drain time are reported separately; compare CPU only between runs with matching telemetry and accounting scopes.
 
 The benchmark requires a working Docker-compatible development runtime. Use the repository's documented [development environment](https://github.com/alessio-locatelli/client-query-cache/blob/main/CONTRIBUTING.md) when running in Toolbx. The harness accepts no production URI and writes only to its disposable replica set. Raw timing output is untracked.
