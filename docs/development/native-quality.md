@@ -37,6 +37,18 @@ not equal the ratio of the two medians. Time complete operations separately
 from profiles/counters, whose boundaries and overhead differ. A microbenchmark
 difference alone does not establish a production defect.
 
+On shared or virtualized hosts, control layout and interference before comparing small effects:
+
+- Build each variant in its own Cargo target directory. Worktrees of the same package share fingerprints in one target directory, so an output can belong to another variant. Clean unprofiled builds with `--remap-path-prefix` reproduced byte for byte; an incremental rebuild did not, and PGO-trained wheels never do.
+- `compare.py` rewrites each extension as a new file before every child run. With address-space randomization off, a fixed file copy otherwise keeps its page-cache pages, and an identical copy was slower in six of seven rounds (geometric mean −6.6%).
+- Move other processes off the measured CPU (`taskset -a -p -c` with the other CPUs), and on hosts with bursts lasting seconds select `--statistic p10_ns` with `--repeats 2` so a burst counts only when it hits every repeat.
+
+The [crate-replacement evaluation](../../reports/rust-crate-replacements/summary.md) records the controls that motivated these settings.
+
+## Shared key hash
+
+`hash.rs` uses `rapidhash`'s portable v3 algorithm with a fixed secret, and owners and readers must agree on its output. A pinned known key in `hash/tests.rs` fails when a dependency update changes that output; raise `LAYOUT_VERSION` in `index.rs` and update the pinned value together, so that mappings of the old layout are refused instead of read with another hash. The full-hash collision pairs in `index/tests.rs` must then be found again; the [evaluation report](../../reports/rust-crate-replacements/summary.md#reproduction) gives the search.
+
 ## Commands
 
 Run `just setup-rust` to install the selected toolchain with the `rustfmt`, `clippy`, and `llvm-tools-preview` [components](https://rust-lang.github.io/rustup/concepts/components.html), build the pinned Cargo quality tools with that release into the ignored `.rust-tools/` directory, and provision the selected Python through uv. The command reuses existing rustup and Cargo installations and does not install OS packages. Missing prerequisites fail visibly.

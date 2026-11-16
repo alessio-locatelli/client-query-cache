@@ -13,6 +13,10 @@ bodies or OpenSpec. An empty Unreleased section is valid.
 
 ## Unreleased
 
+### Performance
+
+- Reduce CPU spent looking up and publishing shared-cache entries, encoding uncached `find()` cache keys, and admitting process-local entries.
+
 ## [0.14.0] - 2026-11-10
 
 ### Breaking changes
