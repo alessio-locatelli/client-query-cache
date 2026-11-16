@@ -14,7 +14,9 @@ from typing import TYPE_CHECKING
 
 from client_query_cache import CacheCoreConfig
 from client_query_cache import _shared_index as native
+from client_query_cache._core.canonical import canonicalize
 from client_query_cache._core.keys import NamespaceId
+from client_query_cache._shared.wire import _find_encoder, encode_key
 from scripts import pgo_training
 from scripts.pgo_training import (
     CLEANUP,
@@ -22,8 +24,12 @@ from scripts.pgo_training import (
     RESIDENT_KEYS,
     SMALL_BYTES,
     documents,
+    large_filter,
     new_core,
+    new_index,
+    new_owner,
     populated_identity_core,
+    require,
 )
 from scripts.pgo_training import (
     WORKLOADS as TRAINED,
@@ -39,6 +45,9 @@ BATCH_SECONDS = 0.02
 BATCHES = 31
 WARMUP_BATCHES = 3
 LIFECYCLE_NAMESPACES = 64
+ENCODED_FAMILIES = 8
+PROBED_NAMESPACES = 64
+FIND_LIMIT = 10
 
 
 def accept_previous_budget_keyword[Config](
@@ -88,10 +97,48 @@ def namespace_lifecycle() -> Workload:
     return run, LIFECYCLE_NAMESPACES
 
 
+def find_key_encoding() -> Workload:
+    families = [canonicalize(large_filter()) for _ in range(ENCODED_FAMILIES)]
+    encode = _find_encoder().encode
+
+    def run() -> None:
+        for family in families:
+            encode(family, FIND_LIMIT, encode_key)
+
+    return run, len(families)
+
+
+def metadata_probe_cycle() -> Workload:
+    core = new_owner(new_index())
+    namespaces = [
+        NamespaceId(NAMESPACE.database, f"probed-{index}")
+        for index in range(PROBED_NAMESPACES)
+    ]
+    begin = core.begin_namespace_metadata_probe
+    cancel = core.cancel_namespace_metadata_probe
+
+    def run() -> None:
+        for namespace in namespaces:
+            token = begin(namespace)
+            assert token is not None
+            begin(namespace)
+            cancel(namespace, token)
+            cancel(namespace, token)
+
+    run()
+    require(
+        condition=begin(namespaces[0]) is not None,
+        reason="released probes did not free their reservations",
+    )
+    return run, len(namespaces)
+
+
 WORKLOADS: dict[str, Callable[[], Workload]] = {
     **TRAINED,
     "snapshot": snapshot,
     "namespace_lifecycle": namespace_lifecycle,
+    "find_key_encoding": find_key_encoding,
+    "metadata_probe_cycle": metadata_probe_cycle,
 }
 
 
