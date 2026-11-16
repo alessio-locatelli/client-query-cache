@@ -2,6 +2,14 @@
 
 Start with the [public workload guide](../user/benchmarks/index.md) to choose which comparisons matter for your application.
 
+Follow the [container runtime setup](../user/benchmarks/shared-cache.md#reproduce). For the direct `uv run` commands below, load the runtime bridge once in the same Bash or Zsh session from the repository root:
+
+```bash
+source scripts/testcontainers-bridge.sh
+```
+
+The `just benchmark-stream-cost` recipe loads the bridge automatically.
+
 ## Reports
 
 The [historical measurement summary](../../reports/stream-cost/v1/summary.md)
@@ -15,7 +23,7 @@ The logical `stream_polls` counter counts manager calls to change-stream iterati
 Run the same matrix locally with an isolated MongoDB replica set:
 
 ```console
-uv run -- python -m benchmarks.stream_cost.run --output-dir benchmark-reports
+just benchmark-stream-cost -- --output-dir /tmp/agents/stream-cost
 ```
 
 The optional `--direct-path-proxy` flag also measures bytes on the dedicated client-to-container path. Those bytes represent only that path. Logical event bytes are decoded event sizes; neither value is a general measure of network traffic.

@@ -25,7 +25,7 @@ from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from contextlib import AsyncExitStack, ExitStack, contextmanager
 from dataclasses import asdict, dataclass, field, replace
 from importlib import import_module
-from importlib.metadata import version
+from importlib.metadata import distribution, version
 from itertools import product
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, cast
@@ -1151,6 +1151,21 @@ def _loop_factory(
     )
 
 
+def _validate_installed_artifacts(implementation: dict[str, str]) -> None:
+    package_root = Path(
+        str(distribution("client-query-cache").locate_file("client_query_cache"))
+    ).resolve()
+    for component in ("library", "extension"):
+        artifact = Path(implementation[component]).resolve()
+        if not artifact.is_relative_to(package_root):
+            message = (
+                f"Benchmark {component} artifact {artifact} is outside the installed "
+                f"distribution's package directory {package_root}. "
+                "Run just benchmark-shared-cache to measure the installed wheel."
+            )
+            raise ValueError(message)
+
+
 def _worker(window: Window) -> Observation:
     try:
         observation = (
@@ -1161,10 +1176,7 @@ def _worker(window: Window) -> Observation:
             )
         )
         if window.validate and window.require_installed:
-            for component in ("library", "extension"):
-                assert Path(observation.implementation[component]).is_relative_to(
-                    sys.prefix
-                )
+            _validate_installed_artifacts(observation.implementation)
     except BaseException:
         traceback.print_exc()
         _START.abort()

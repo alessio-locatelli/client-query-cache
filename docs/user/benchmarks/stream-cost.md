@@ -33,10 +33,10 @@ Compression belongs to your PyMongo client and affects all its operations. Use [
 
 ## Reproduce
 
-From a repository checkout with the [development prerequisites](https://github.com/alessio-locatelli/client-query-cache/blob/main/CONTRIBUTING.md), run against the runner's disposable replica set:
+From a repository checkout, follow the [container runtime setup](shared-cache.md#reproduce), then run against the runner's disposable replica set:
 
 ```console
-uv run -- python -m benchmarks.stream_cost.run --output-dir benchmark-reports
+just benchmark-stream-cost -- --output-dir /tmp/agents/stream-cost
 ```
 
 Optional `--direct-path-proxy` measures bytes on the dedicated client/container path. Repeat `--workload <name>`, for example `--workload read_heavy-small`, to run only those workloads. Keep raw outputs untracked. The [maintainer protocols](https://github.com/alessio-locatelli/client-query-cache/blob/main/docs/development/stream-cost-benchmarks.md) contain the decision-evidence, await-time and compression commands, statistical gates and environment limits. The await-time matrix takes roughly three hours on the recorded host; inspect existing evidence before rerunning it.
