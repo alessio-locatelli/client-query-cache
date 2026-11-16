@@ -125,7 +125,7 @@ cython_debug/
 #.idea/
 
 .agents/
-.claude/
+.claude/skills/
 .codex/
 
 node_modules/
