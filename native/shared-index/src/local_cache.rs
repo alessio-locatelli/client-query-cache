@@ -14,6 +14,7 @@ use pyo3::types::{
 };
 
 use rustc_hash::FxBuildHasher;
+use slab::Slab;
 
 use crate::index::Block;
 use crate::keys::OrderedKeys;
@@ -23,7 +24,6 @@ mod shared;
 
 pub(crate) use shared::SharedOwner;
 
-const CHUNK: usize = 64;
 const ADMITTED: usize = 0;
 const OVERSIZE: usize = 1;
 const STALE: usize = 2;
@@ -55,99 +55,45 @@ trait Linked {
     fn links_mut(&mut self, link: Link) -> &mut Links;
 }
 
-enum Slot<T> {
-    Vacant(u64),
-    Occupied(T),
-}
-
 struct Slots<T> {
-    chunks: Vec<Box<[Slot<T>; CHUNK]>>,
-    free: u64,
-    count: usize,
+    entries: Slab<T>,
 }
 
 impl<T> Default for Slots<T> {
     fn default() -> Self {
         Self {
-            chunks: Vec::new(),
-            free: 0,
-            count: 0,
+            entries: Slab::new(),
         }
     }
 }
 
 impl<T> Slots<T> {
-    fn slot(&self, id: u64) -> &Slot<T> {
-        let index = (id - 1) as usize;
-        &self.chunks[index / CHUNK][index % CHUNK]
-    }
-    fn slot_mut(&mut self, id: u64) -> &mut Slot<T> {
-        let index = (id - 1) as usize;
-        &mut self.chunks[index / CHUNK][index % CHUNK]
+    fn len(&self) -> usize {
+        self.entries.len()
     }
     fn get(&self, id: u64) -> Option<&T> {
-        if id == 0 || id as usize > self.chunks.len() * CHUNK {
-            return None;
-        }
-        match self.slot(id) {
-            Slot::Occupied(value) => Some(value),
-            Slot::Vacant(_) => None,
-        }
+        self.entries.get(usize::try_from(id.checked_sub(1)?).ok()?)
     }
     fn get_mut(&mut self, id: u64) -> Option<&mut T> {
-        if id == 0 || id as usize > self.chunks.len() * CHUNK {
-            return None;
-        }
-        match self.slot_mut(id) {
-            Slot::Occupied(value) => Some(value),
-            Slot::Vacant(_) => None,
-        }
+        self.entries
+            .get_mut(usize::try_from(id.checked_sub(1)?).ok()?)
     }
     fn reserve(&mut self) -> u64 {
-        if self.free == 0 {
-            let first = (self.chunks.len() * CHUNK) as u64 + 1;
-            self.chunks.push(Box::new(std::array::from_fn(|offset| {
-                Slot::Vacant(if offset + 1 == CHUNK {
-                    0
-                } else {
-                    first + offset as u64 + 1
-                })
-            })));
-            self.free = first;
-        }
-        let id = self.free;
-        let Slot::Vacant(next) = self.slot(id) else {
-            unreachable!("free slot");
-        };
-        self.free = *next;
-        id
+        self.entries.vacant_key() as u64 + 1
     }
     fn install(&mut self, id: u64, value: T) {
-        *self.slot_mut(id) = Slot::Occupied(value);
-        self.count += 1;
+        let key = self.entries.insert(value);
+        assert_eq!(key as u64 + 1, id, "reserved slot");
     }
     fn take(&mut self, id: u64) -> T {
-        let free = self.free;
-        let Slot::Occupied(value) = std::mem::replace(self.slot_mut(id), Slot::Vacant(free)) else {
-            unreachable!("occupied slot");
-        };
-        self.free = id;
-        self.count -= 1;
-        value
+        self.entries.remove((id - 1) as usize)
     }
     fn iter(&self) -> impl Iterator<Item = &T> {
-        self.chunks
-            .iter()
-            .flat_map(|chunk| chunk.iter())
-            .filter_map(|slot| match slot {
-                Slot::Occupied(value) => Some(value),
-                Slot::Vacant(_) => None,
-            })
+        self.entries.iter().map(|(_, value)| value)
     }
     fn release_empty(&mut self) {
-        if self.count == 0 {
-            self.chunks.clear();
-            self.free = 0;
+        if self.entries.is_empty() {
+            self.entries = Slab::new();
         }
     }
 }
@@ -1515,7 +1461,7 @@ impl State {
             aliases: Vec::new(),
             removed: HashSet::default(),
             identity_removals: HashMap::default(),
-            records: self.rows.count,
+            records: self.rows.len(),
             used: self.used,
             next_alias: self.alias_chain.expect("alias chain").first,
         };
@@ -1630,7 +1576,7 @@ impl State {
                 .hold(slot, block);
         }
         if let Some(maximum) = self.max_entries {
-            while self.rows.count > maximum {
+            while self.rows.len() > maximum {
                 let alias = self.alias_chain.expect("alias chain").first;
                 if alias != 0 {
                     self.remove_alias(alias, retired);
@@ -1672,7 +1618,7 @@ impl State {
         if previous.is_none()
             && self
                 .max_entries
-                .is_some_and(|maximum| self.rows.count >= maximum)
+                .is_some_and(|maximum| self.rows.len() >= maximum)
         {
             if let Some(statistics) = &mut self.statistics {
                 statistics.declines[8] += 1;
@@ -2823,7 +2769,7 @@ impl LocalOwner {
                     statistics.evictions,
                     statistics.oversized,
                     statistics.bypasses.clone(),
-                    state.rows.count - state.value_count,
+                    state.rows.len() - state.value_count,
                 ),
                 statistics.declines,
             )
