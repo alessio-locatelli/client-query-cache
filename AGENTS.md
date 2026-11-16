@@ -86,6 +86,7 @@ For more details or a first time setup see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 - Commit proactively during the work after completing each dedicated part of a larger task.
 - The commit body should communicate the "why," not just the "what." Include the rationale behind the changes, non-trivial decisions, and any other information that may be useful for future developers.
+- The repository uses "rebase and merge" as the only merge strategy for PRs, so maintain a clean and tidy Git history. When addressing valid review findings against changes introduced on the current branch, create fixup commits targeting the affected commits. Autosquash the fixups before requesting another review or reporting the work complete.
 
 ## User-facing prose (README, program output)
 
