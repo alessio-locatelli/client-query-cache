@@ -105,7 +105,12 @@ impl FindKeyEncoder {
             let _recursion = Recursion::enter(value.py())?;
             let offsets = tuple(buffer, name)?;
             for (index, item) in items.iter().enumerate() {
-                self.node(buffer, &index.to_string(), &item, scalar_encoder)?;
+                self.node(
+                    buffer,
+                    itoa::Buffer::new().format(index),
+                    &item,
+                    scalar_encoder,
+                )?;
             }
             return finish_tuple(buffer, offsets);
         }
