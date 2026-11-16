@@ -1,5 +1,5 @@
-use std::collections::{BTreeSet, HashMap, HashSet, hash_map::DefaultHasher};
-use std::hash::{Hash, Hasher};
+use std::collections::{BTreeSet, HashMap, HashSet};
+use std::hash::{BuildHasher, BuildHasherDefault, Hash, Hasher, RandomState};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 
@@ -718,7 +718,8 @@ struct State {
     names: HashMap<Arc<str>, Database>,
     namespaces: HashMap<u64, Namespace>,
     availability: HashMap<Arc<str>, (bool, u64)>,
-    index: HashMap<u64, u64>,
+    hasher: RandomState,
+    index: HashMap<u64, u64, BuildHasherDefault<PassThrough>>,
     rows: Slots<Row>,
     identities: Slots<Identity>,
     lru: Chain,
@@ -1178,7 +1179,7 @@ impl State {
         self.rows.release_empty();
         self.identities.release_empty();
         if self.index.is_empty() {
-            self.index = HashMap::new();
+            self.index = HashMap::default();
         }
     }
     fn admission_gate(&mut self, database: &str, generation: u64, weight: usize) -> Option<usize> {
@@ -1309,15 +1310,26 @@ impl Query<'_, '_> {
     }
 }
 
-fn scoped_hash(namespace: u64, kind: Kind, hashes: (isize, Option<isize>)) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    namespace.hash(&mut hasher);
-    kind.hash(&mut hasher);
-    hashes.hash(&mut hasher);
-    hasher.finish()
+#[derive(Default)]
+struct PassThrough(u64);
+
+impl Hasher for PassThrough {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+    fn write(&mut self, bytes: &[u8]) {
+        self.0 = u64::from_ne_bytes(
+            bytes
+                .try_into()
+                .expect("scoped hashes are written as integers"),
+        );
+    }
 }
 
 impl State {
+    fn scoped_hash(&self, namespace: u64, kind: Kind, hashes: (isize, Option<isize>)) -> u64 {
+        self.hasher.hash_one((namespace, kind, hashes))
+    }
     fn pins(&self, py: Python<'_>, namespace: u64, kind: Kind, hash: u64) -> Pins {
         let Some(first) = self.index.get(&hash).copied() else {
             return Pins::Empty;
@@ -1474,7 +1486,7 @@ impl State {
             _namespaces: std::mem::take(&mut self.namespaces),
         };
         self.names = HashMap::new();
-        self.index = HashMap::new();
+        self.index = HashMap::default();
         self.lru = Chain::default();
         if let Some(order) = &mut self.alias_chain {
             *order = Chain::default();
@@ -2118,7 +2130,12 @@ impl LocalOwner {
                 };
                 (
                     state.revision,
-                    state.pins(py, namespace, kind, scoped_hash(namespace, kind, hashes)),
+                    state.pins(
+                        py,
+                        namespace,
+                        kind,
+                        state.scoped_hash(namespace, kind, hashes),
+                    ),
                 )
             };
             let found = pins.matching(py, &query)?;
@@ -2228,7 +2245,7 @@ impl LocalOwner {
                     return Ok(RETENTION);
                 }
                 let namespace = capture.namespace_id.expect("valid capture");
-                let hash = scoped_hash(namespace, Kind::Namespace, hashes);
+                let hash = state.scoped_hash(namespace, Kind::Namespace, hashes);
                 (
                     state.revision,
                     state.pins(py, namespace, Kind::Namespace, hash),
@@ -2344,9 +2361,9 @@ impl LocalOwner {
                     return Ok(RETENTION);
                 }
                 let namespace = capture.namespace_id.expect("valid capture");
-                let hash = scoped_hash(namespace, Kind::Identity, hashes);
+                let hash = state.scoped_hash(namespace, Kind::Identity, hashes);
                 let alias_hash =
-                    alias_hash.map(|hash| scoped_hash(namespace, Kind::Alias, (hash, None)));
+                    alias_hash.map(|hash| state.scoped_hash(namespace, Kind::Alias, (hash, None)));
                 (
                     state.revision,
                     state.pins(py, namespace, Kind::Identity, hash),
@@ -2501,9 +2518,9 @@ impl LocalOwner {
                     return Ok(STALE);
                 }
                 let namespace = capture.namespace_id.expect("valid capture");
-                let ns_hash = scoped_hash(namespace, Kind::Namespace, namespace_hashes);
-                let id_hash = scoped_hash(namespace, Kind::Identity, identity_hashes);
-                let alias_hash = scoped_hash(namespace, Kind::Alias, alias_hashes);
+                let ns_hash = state.scoped_hash(namespace, Kind::Namespace, namespace_hashes);
+                let id_hash = state.scoped_hash(namespace, Kind::Identity, identity_hashes);
+                let alias_hash = state.scoped_hash(namespace, Kind::Alias, alias_hashes);
                 (
                     state.revision,
                     state.meta_pins(py, namespace, identity_hash),
@@ -2710,7 +2727,8 @@ impl LocalOwner {
                 names: HashMap::new(),
                 namespaces: HashMap::new(),
                 availability: HashMap::new(),
-                index: HashMap::new(),
+                hasher: RandomState::new(),
+                index: HashMap::default(),
                 rows: Slots::default(),
                 identities: Slots::default(),
                 lru: Chain::default(),
@@ -3380,7 +3398,12 @@ impl LocalOwner {
                 };
                 (
                     state.revision,
-                    state.pins(py, id, Kind::Alias, scoped_hash(id, Kind::Alias, hashes)),
+                    state.pins(
+                        py,
+                        id,
+                        Kind::Alias,
+                        state.scoped_hash(id, Kind::Alias, hashes),
+                    ),
                 )
             };
             let found = pins.matching(py, &Query::Plain(&key))?;
@@ -3514,7 +3537,7 @@ impl LocalOwner {
                         py,
                         id,
                         Kind::Namespace,
-                        scoped_hash(id, Kind::Namespace, hashes),
+                        state.scoped_hash(id, Kind::Namespace, hashes),
                     ),
                 )
             };
@@ -3663,7 +3686,7 @@ impl LocalOwner {
                         py,
                         id,
                         Kind::Namespace,
-                        scoped_hash(id, Kind::Namespace, hashes),
+                        state.scoped_hash(id, Kind::Namespace, hashes),
                     ),
                 )
             };
@@ -3705,7 +3728,12 @@ impl LocalOwner {
                 let id = capture.namespace_id.expect("valid capture");
                 (
                     state.revision,
-                    state.pins(py, id, Kind::Alias, scoped_hash(id, Kind::Alias, hashes)),
+                    state.pins(
+                        py,
+                        id,
+                        Kind::Alias,
+                        state.scoped_hash(id, Kind::Alias, hashes),
+                    ),
                 )
             };
             let found = pins.matching(py, &Query::Plain(alias))?;
@@ -3820,9 +3848,9 @@ impl LocalOwner {
                     return self.outcome(py, STALE);
                 }
                 let id = capture.namespace_id.expect("valid capture");
-                let ns_hash = scoped_hash(id, Kind::Namespace, namespace_hashes);
-                let id_hash = scoped_hash(id, Kind::Identity, identity_hashes);
-                let alias_hash = scoped_hash(id, Kind::Alias, alias_hashes);
+                let ns_hash = state.scoped_hash(id, Kind::Namespace, namespace_hashes);
+                let id_hash = state.scoped_hash(id, Kind::Identity, identity_hashes);
+                let alias_hash = state.scoped_hash(id, Kind::Alias, alias_hashes);
                 (
                     state.revision,
                     state.meta_pins(py, id, identity_hash),
