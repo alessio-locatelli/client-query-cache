@@ -128,3 +128,6 @@ impl Probes {
         self.order.clear();
     }
 }
+
+#[cfg(all(test, not(loom)))]
+mod tests;

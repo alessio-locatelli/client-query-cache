@@ -444,6 +444,15 @@ fn attaches_only_to_a_complete_layout() {
 }
 
 #[test]
+fn rejects_a_mapping_of_another_layout_version() {
+    for version in [LAYOUT_VERSION - 1, LAYOUT_VERSION + 1] {
+        let (index, _writer) = fixture();
+        index.word(H_VERSION).store(version, Ordering::Relaxed);
+        assert!(Index::attach(index.memory).is_none());
+    }
+}
+
+#[test]
 fn rejects_a_descriptor_with_an_invalid_published_layout() {
     let (index, _writer) = fixture();
     index.word(H_SLOTS).store(0, Ordering::Release);

@@ -135,3 +135,15 @@ fn clearing_releases_the_buffer() {
     assert_eq!(builder.bytes.capacity(), 0);
     assert_eq!(builder.finish().len(), MINIMUM_ENVELOPE);
 }
+
+#[test]
+fn decimal_matches_standard_formatting_at_every_width_boundary() {
+    let boundaries = (1..u64::MAX.ilog10() + 1).flat_map(|exponent| {
+        let power = 10_u64.pow(exponent);
+        [power - 1, power]
+    });
+    for value in [0, u64::MAX].into_iter().chain(boundaries) {
+        let mut digits = [0; 20];
+        assert_eq!(decimal(value, &mut digits), value.to_string().as_bytes());
+    }
+}

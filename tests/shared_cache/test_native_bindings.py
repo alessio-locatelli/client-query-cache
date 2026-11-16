@@ -35,6 +35,7 @@ type DescriptorOperation = Literal["owner", "ring", "descriptor"]
 
 pytestmark = pytest.mark.unit
 
+_LAYOUT = (8, 4096, 1, 1)
 _INCARNATION = 41
 _EXPIRY_NS = 60 * 10**9
 _PROBE_TTL_SECONDS = 30.0
@@ -44,7 +45,7 @@ _NAMESPACE = NamespaceId("native", "values")
 
 @pytest.fixture
 def native_owner() -> OwnerIndex:
-    owner = OwnerIndex(8, 4096, 1, 1, _INCARNATION, _EXPIRY_NS)
+    owner = OwnerIndex(*_LAYOUT, _INCARNATION, _EXPIRY_NS)
     owner.set_progress(0, monotonic_ns())
     owner.enable_capture(enabled=True)
     return owner
@@ -340,9 +341,9 @@ def _exhausted_descriptors() -> Generator[None]:
 
 
 def _descriptor_allocation_failure(operation: DescriptorOperation) -> None:
-    owner = OwnerIndex(8, 4096, 1, 1, _INCARNATION, _EXPIRY_NS)
+    owner = OwnerIndex(*_LAYOUT, _INCARNATION, _EXPIRY_NS)
     operations: dict[DescriptorOperation, Callable[[], object]] = {
-        "owner": lambda: OwnerIndex(8, 4096, 1, 1, _INCARNATION, _EXPIRY_NS),
+        "owner": lambda: OwnerIndex(*_LAYOUT, _INCARNATION, _EXPIRY_NS),
         "ring": lambda: owner.session_ring(8),
         "descriptor": owner.reader_descriptor,
     }

@@ -227,9 +227,6 @@ async def test_incompatible_handshake_is_a_hard_error(
             SyncEndpoint(incompatible_peer, require_owner=False)
 
 
-@pytest.mark.parametrize(
-    "endpoint", [False, True], indirect=True, ids=["disabled", "enabled"]
-)
 def test_admission_recovery_expires_without_changing_diagnostic_counters(
     endpoint: AsyncEndpoint, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -256,9 +253,6 @@ def test_admission_recovery_expires_without_changing_diagnostic_counters(
         assert endpoint._counters is None
 
 
-@pytest.mark.parametrize(
-    "endpoint", [False, True], indirect=True, ids=["disabled", "enabled"]
-)
 def test_enqueue_started_before_a_new_drop_cannot_reopen_recovery(
     endpoint: AsyncEndpoint,
 ) -> None:
@@ -274,9 +268,6 @@ def test_enqueue_started_before_a_new_drop_cannot_reopen_recovery(
     assert not recovery.enqueued(in_flight_generation)
 
 
-@pytest.mark.parametrize(
-    "endpoint", [False, True], indirect=True, ids=["disabled", "enabled"]
-)
 def test_native_enqueue_updates_recovery_independently_of_counters(
     endpoint: AsyncEndpoint,
 ) -> None:
@@ -327,9 +318,6 @@ async def blocked_endpoint(endpoint: AsyncEndpoint) -> AsyncGenerator[AsyncEndpo
 
 @pytest.mark.parametrize(
     "native_overflow", [False, True], ids=["socket", "native-full"]
-)
-@pytest.mark.parametrize(
-    "endpoint", [False, True], indirect=True, ids=["disabled", "enabled"]
 )
 async def test_async_admissions_bound_socket_buffer(
     blocked_endpoint: AsyncEndpoint, native_overflow: bool

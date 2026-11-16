@@ -64,6 +64,8 @@ if TYPE_CHECKING:
 
 pytestmark = pytest.mark.unit
 
+_THREE_DIGIT_INDEX_LENGTH = 101
+_FIND_LIMIT = 16
 _INTEGERS = st.integers(min_value=-(2**63), max_value=2**63 - 1)
 _SCALARS = st.one_of(
     st.none(),
@@ -120,6 +122,10 @@ _VALUES = st.recursive(
 
 def _roundtrip(value: object) -> object:
     return from_wire(bson.decode(bson.encode({"v": to_wire(value)}))["v"])
+
+
+def _python_find_keys(family: object, limit: int) -> tuple[bytes, bytes]:
+    return encode_key(family), encode_key(find_discriminator(family, limit))
 
 
 @given(_VALUES)
@@ -190,7 +196,9 @@ def test_find_shapes_and_codec_profiles_round_trip(
 )
 def test_bson_scalars_keep_their_type(value: object) -> None:
     assert _roundtrip(value) == value
-    assert _find_encoder().encode(value, 16, encode_key)[0] == encode_key(value)
+    assert _find_encoder().encode(value, _FIND_LIMIT, encode_key)[0] == encode_key(
+        value
+    )
 
 
 @pytest.mark.parametrize(
@@ -211,7 +219,7 @@ def test_unportable_keys_are_rejected(value: object) -> None:
     with pytest.raises(UnportableKeyError):
         to_wire(canonicalize(value))
     with pytest.raises(UnportableKeyError):
-        KeyCache(2).find(canonicalize((value,)), 16)
+        KeyCache(2).find(canonicalize((value,)), _FIND_LIMIT)
 
 
 @pytest.mark.parametrize(
@@ -348,14 +356,15 @@ def test_regex_key_decoding_does_not_print_compile_debug_output(
 @pytest.mark.parametrize("build", [int, Int64], ids=["plain", "explicit-int64"])
 @given(value=_VALUES, limit=_INTEGERS)
 @example(value={"field": [True, None, "zero\x00inside"]}, limit=0)
+@example(value=list(range(_THREE_DIGIT_INDEX_LENGTH)), limit=0)
+@example(value=[[None] * _THREE_DIGIT_INDEX_LENGTH], limit=0)
 def test_native_find_keys_match_python_bytes(
     build: Callable[[int], int], value: object, limit: int
 ) -> None:
     family = canonicalize(order_sensitive_discriminator_key(value))
     signed_limit = build(limit)
-    assert KeyCache(2).find(family, signed_limit) == (
-        encode_key(family),
-        encode_key(find_discriminator(family, signed_limit)),
+    assert KeyCache(2).find(family, signed_limit) == _python_find_keys(
+        family, signed_limit
     )
 
 
@@ -370,19 +379,15 @@ def test_find_key_cache_distinguishes_equal_integer_representations(
     family = canonicalize({"field": limit})
     for build in (*builds, *builds):
         signed_limit = build(limit)
-        assert cache.find(family, signed_limit) == (
-            encode_key(family),
-            encode_key(find_discriminator(family, signed_limit)),
+        assert cache.find(family, signed_limit) == _python_find_keys(
+            family, signed_limit
         )
 
 
 @pytest.mark.parametrize("limit", [False, True], ids=["false", "true"])
 def test_native_find_keys_preserve_boolean_discriminators(*, limit: bool) -> None:
     family = canonicalize({"field": "value"})
-    assert KeyCache(2).find(family, limit) == (
-        encode_key(family),
-        encode_key(find_discriminator(family, limit)),
-    )
+    assert KeyCache(2).find(family, limit) == _python_find_keys(family, limit)
 
 
 @pytest.mark.parametrize("capacity", [1, 2, 8])
@@ -398,12 +403,9 @@ def test_find_and_generic_keys_share_the_retention_budget(
     for is_find, value in operations:
         if is_find:
             family = canonicalize({"field": value})
-            encoded = cache.find(family, 16)
-            assert encoded == (
-                encode_key(family),
-                encode_key(find_discriminator(family, 16)),
-            )
-            assert (cache.find(family, 16) is encoded) is (capacity >= 2)
+            encoded = cache.find(family, _FIND_LIMIT)
+            assert encoded == _python_find_keys(family, _FIND_LIMIT)
+            assert (cache.find(family, _FIND_LIMIT) is encoded) is (capacity >= 2)
         else:
             assert cache.encode(value) == encode_key(value)
         assert len(cache._encoded) + len(cache._finds) <= capacity
@@ -412,21 +414,21 @@ def test_find_and_generic_keys_share_the_retention_budget(
 @pytest.mark.parametrize("extra", [0, 1], ids=["at-bound", "above-bound"])
 def test_find_key_pairs_apply_the_per_key_size_bound(extra: NonNegativeInt) -> None:
     cache = KeyCache(2)
-    overhead = len(cache.find("", 16)[1])
+    overhead = len(cache.find("", _FIND_LIMIT)[1])
     family = "x" * (_MAX_CACHED_KEY_BYTES - overhead + extra)
-    keys = cache.find(family, 16)
+    keys = cache.find(family, _FIND_LIMIT)
     assert len(keys[1]) == _MAX_CACHED_KEY_BYTES + extra
-    assert keys == (encode_key(family), encode_key(find_discriminator(family, 16)))
-    assert ((family, 16) in cache._finds) is (extra == 0)
-    assert cache.find(family, 16)[0] is keys[0]
+    assert keys == _python_find_keys(family, _FIND_LIMIT)
+    assert ((family, _FIND_LIMIT) in cache._finds) is (extra == 0)
+    assert cache.find(family, _FIND_LIMIT)[0] is keys[0]
 
 
 def test_oversized_find_families_remain_usable_without_retention() -> None:
     cache = KeyCache(2)
     family = "x" * _MAX_CACHED_KEY_BYTES
-    keys = cache.find(family, 16)
-    assert keys == (encode_key(family), encode_key(find_discriminator(family, 16)))
-    assert cache.find(family, 16) == keys
+    keys = cache.find(family, _FIND_LIMIT)
+    assert keys == _python_find_keys(family, _FIND_LIMIT)
+    assert cache.find(family, _FIND_LIMIT) == keys
     assert not cache._encoded
     assert not cache._finds
 
@@ -436,7 +438,7 @@ def test_native_find_keys_preserve_unicode_encoding_errors() -> None:
     with pytest.raises(UnicodeEncodeError):
         encode_key(family)
     with pytest.raises(UnicodeEncodeError):
-        KeyCache(2).find(family, 16)
+        KeyCache(2).find(family, _FIND_LIMIT)
 
 
 def test_native_tuple_encoding_obeys_the_python_native_stack_guard() -> None:
@@ -444,24 +446,24 @@ def test_native_tuple_encoding_obeys_the_python_native_stack_guard() -> None:
     for _ in range(100_000):
         family = (family,)
     with pytest.raises(RecursionError):
-        _find_encoder().encode(family, 16, encode_key)
+        _find_encoder().encode(family, _FIND_LIMIT, encode_key)
 
 
 def test_native_find_encoder_visits_specialized_family_scalars_once(
     monkeypatch: pytest.MonkeyPatch, faker: Faker
 ) -> None:
     family = canonicalize((Int64(faker.pyint()), Int64(faker.pyint())))
-    expected = (encode_key(family), encode_key(find_discriminator(family, 16)))
+    expected = _python_find_keys(family, _FIND_LIMIT)
     scalars = count_current_thread_calls(monkeypatch, wire, "encode_key")
     encoder = find_key_encoder(wire._TAG_NAMES)
-    assert encoder.encode(family, 16, wire.encode_key) == expected
+    assert encoder.encode(family, _FIND_LIMIT, wire.encode_key) == expected
     assert scalars.count == 2
 
 
 def test_find_limits_reuse_the_encoded_family(faker: Faker) -> None:
     cache = KeyCache(8)
     family = canonicalize({"field": faker.pystr()})
-    first = cache.find(family, 16)
+    first = cache.find(family, _FIND_LIMIT)
     second = cache.find(family, 8)
     assert first[0] is second[0]
     assert first[1] != second[1]
@@ -476,7 +478,7 @@ def test_find_limits_reuse_the_encoded_family(faker: Faker) -> None:
 )
 def test_native_find_wrapping_rejects_invalid_envelopes(encoded: bytes) -> None:
     with pytest.raises(ValueError, match="invalid encoded key envelope"):
-        _find_encoder().wrap(encoded, 16, encode_key)
+        _find_encoder().wrap(encoded, _FIND_LIMIT, encode_key)
 
 
 @pytest.fixture
@@ -492,7 +494,7 @@ def test_generic_keys_do_not_initialize_the_find_encoder() -> None:
     cache.encode(17)
     assert _find_encoder.cache_info().currsize == 0
     family = canonicalize({"field": "value"})
-    cache.find(family, 16)
+    cache.find(family, _FIND_LIMIT)
     cache.find(family, 8)
     assert _find_encoder.cache_info().misses == 1
     assert _find_encoder.cache_info().hits == 1
