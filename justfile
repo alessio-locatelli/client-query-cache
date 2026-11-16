@@ -5,7 +5,8 @@ set positional-arguments
 set default-list
 
 # Bash 5.3 help set; set -euo pipefail in setup-rust, docs-build-editions, typecheck-examples,
-# verify-release, pytest, test-pymongo-min, test-pymongo-releases, test-mongodb-min,
+# verify-release, benchmark-shared-cache, benchmark-stream-cost, pytest, test-pymongo-min,
+# test-pymongo-releases, test-mongodb-min,
 # enable-podman-socket, podman, test-memory, test-integration, test-e2e, latency-chart and
 # tests_and_coverage:
 # The default is inherited Bash options, normally all three off. We override it because
@@ -248,6 +249,44 @@ verify-release tag='': build
     done
 
     printf 'Verified %s %s (%s, %s), no package published and no publishing credentials used.\n' "${package_slug}" "${declared_version}" "${sdist}" "${wheels[0]}"
+
+# Measure the installed wheel against a disposable MongoDB replica set.
+[arg("async_loop", long="async-loop", pattern="^(asyncio|uvloop)$")]
+benchmark-shared-cache async_loop="asyncio" *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    async_loop="$1"
+    shift
+
+    source "{{ justfile_directory() }}/scripts/testcontainers-bridge.sh"
+    wheel="{{ justfile_directory() }}/dist/client_query_cache-$(uv version --short)-cp314-abi3-manylinux_2_28_$(uname -m).whl"
+    if [[ ! -f "${wheel}" ]]; then
+        printf 'Benchmark wheel is missing: %s. Run just build first.\n' "${wheel}" >&2
+        exit 1
+    fi
+    extra_packages=()
+    if [[ "${async_loop}" == uvloop ]]; then
+        extra_packages=(--with uvloop)
+    fi
+    # uv: https://docs.astral.sh/uv/reference/cli/#uv-run
+    # --isolated --no-project: Measure the installed wheel without the editable project.
+    # Clear inherited sync/lock policy as in verify-release so installation is not skipped
+    # and --no-project does not warn about UV_LOCKED. The selected development Python
+    # can be overridden with UV_PYTHON for matched comparisons.
+    unset UV_LOCKED UV_NO_SYNC
+    exec uv run --isolated --no-project --python "${UV_PYTHON:-$(cat .python-version)}" \
+        --with "${wheel}" --with psutil --with testcontainers --with requests --with pyyaml \
+        "${extra_packages[@]}" -- python -m benchmarks.public_shared_cache \
+        --async-loop "${async_loop}" "$@"
+
+# Measure stream costs against a disposable MongoDB replica set.
+benchmark-stream-cost *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    [[ "${1:-}" == "--" ]] && shift
+
+    source "{{ justfile_directory() }}/scripts/testcontainers-bridge.sh"
+    exec uv run -- python -m benchmarks.stream_cost.run "$@"
 
 pytest *args:
     #!/usr/bin/env bash

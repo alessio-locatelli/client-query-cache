@@ -47,6 +47,13 @@ _ELECTION_POLL_INTERVAL_SECONDS = 0.1
 _NANOCPUS_PER_CPU = 1_000_000_000
 _NANOSECONDS_PER_SECOND = 1_000_000_000
 _STATS_ATTEMPTS = 3
+_CONTAINER_RUNTIME_GUIDANCE = (
+    "A reachable Docker-compatible container runtime is required. "
+    "Outside Toolbx/Distrobox, check Docker and DOCKER_HOST. Inside "
+    "Toolbx/Distrobox, run just enable-podman-socket and use a recipe "
+    "that sources scripts/testcontainers-bridge.sh. An existing MongoDB "
+    "server does not replace this disposable replica set. "
+)
 _MEMORY_PATTERN = re.compile(r"^(\d+(?:\.\d+)?)(kb|mb|gb|b|k|m|g)?$", re.IGNORECASE)
 _MEMORY_UNIT_MULTIPLIERS = {
     "": 1,
@@ -201,9 +208,9 @@ class IsolatedReplicaSet:
                 except DockerException:
                     pass
             message = (
-                "A Docker-compatible container runtime is required for the "
-                "stream-cost benchmark's isolated replica set. Start Docker or a "
-                "rootless Podman socket and try again. Container startup failed: "
+                "Could not start the benchmark's isolated MongoDB replica set. "
+                f"{_CONTAINER_RUNTIME_GUIDANCE}"
+                "Container startup failed: "
                 f"{error}"
             )
             raise BenchmarkSetupError(message) from None
@@ -402,9 +409,9 @@ class ReplicaSetTopology:
                 container.start()
         except DockerException as error:
             setup_error = BenchmarkSetupError(
-                "A Docker-compatible container runtime is required for the "
-                "stream-cost benchmark's three-member replica set. Start Docker or a "
-                "rootless Podman socket and try again. Container startup failed: "
+                "Could not start the benchmark's three-member MongoDB replica set. "
+                f"{_CONTAINER_RUNTIME_GUIDANCE}"
+                "Container startup failed: "
                 f"{error}"
             )
             _stop_containers(tuple(containers), setup_error)

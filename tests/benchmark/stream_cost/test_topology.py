@@ -121,9 +121,18 @@ def test_isolated_replica_set_wraps_docker_startup_failure() -> None:
             "benchmarks.stream_cost.topology.DockerContainer",
             side_effect=DockerException("no runtime"),
         ),
-        pytest.raises(BenchmarkSetupError, match="Docker-compatible container runtime"),
+        pytest.raises(
+            BenchmarkSetupError, match="isolated MongoDB replica set"
+        ) as failure,
     ):
         replica_set.__enter__()
+    message = str(failure.value)
+    assert "DOCKER_HOST" in message
+    assert "just enable-podman-socket" in message
+    assert "scripts/testcontainers-bridge.sh" in message
+    assert "An existing MongoDB server does not replace" in message
+    assert "Container startup failed: no runtime" in message
+    assert "stream-cost" not in message
 
 
 class _FakeDockerContainer:

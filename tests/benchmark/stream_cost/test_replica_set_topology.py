@@ -162,10 +162,16 @@ def test_container_start_failure_stops_started_members(
     )
     monkeypatch.setattr(topology_module, "DockerContainer", lambda _image: container)
 
-    with pytest.raises(BenchmarkSetupError, match="container failed"):
+    with pytest.raises(BenchmarkSetupError, match="container failed") as failure:
         ReplicaSetTopology().__enter__()
 
     assert container.stopped
+    message = str(failure.value)
+    assert "three-member MongoDB replica set" in message
+    assert "DOCKER_HOST" in message
+    assert "just enable-podman-socket" in message
+    assert "scripts/testcontainers-bridge.sh" in message
+    assert "stream-cost" not in message
 
 
 def test_primary_setup_failure_stops_members_and_clears_topology(

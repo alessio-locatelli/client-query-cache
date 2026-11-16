@@ -50,22 +50,25 @@ Native implementation and profile attribution are in the [maintainer reference](
 
 ## Reproduce
 
-To run this workload against the current checkout, build its wheel, then run the installed artifact whose version matches the checkout:
+Use a Linux checkout with the [development prerequisites](https://github.com/alessio-locatelli/client-query-cache/blob/main/CONTRIBUTING.md#prerequisites) and a working container runtime:
+
+- **Toolbx or Distrobox with host Podman:** first run `just enable-podman-socket`, as described in [Validate changes](https://github.com/alessio-locatelli/client-query-cache/blob/main/CONTRIBUTING.md#validate-changes). The benchmark recipe connects through the host Podman socket.
+- **Directly on Ubuntu or another Linux host with Docker:** start Docker and ensure your account can access its API. The recipe preserves `DOCKER_HOST` when set and otherwise uses the default Docker socket. See [Docker's Linux post-installation guidance](https://docs.docker.com/engine/install/linux-postinstall/) for access configuration.
+
+The benchmark starts and removes its own MongoDB replica set with CPU and memory limits. You do not need `podman compose up` or `docker compose up`. An existing MongoDB server is not used: the workload resets its benchmark database and measures MongoDB-container CPU.
+
+Build the checkout's wheel, then run the installed artifact:
 
 ```bash
 just build
-uv run --isolated --no-project \
-  --python 3.14.7 \
-  --with "dist/client_query_cache-$(uv version --short)-cp314-abi3-manylinux_2_28_$(uname -m).whl" \
-  --with psutil --with testcontainers --with requests --with pyyaml \
-  python -m benchmarks.public_shared_cache \
+just benchmark-shared-cache -- \
   --output /tmp/agents/shared-cache-performance.json
 ```
 
-The wheel name selects the checkout's version and the running architecture. This measures the current checkout, not the recorded 0.8.0 artifact. To repeat the 0.8.0 run, follow the [0.8.0 reproduction](https://github.com/alessio-locatelli/client-query-cache/blob/v0.8.0/docs/user/benchmarks/shared-cache.md#reproduce) from a `v0.8.0` checkout.
+The recipe selects the wheel for the checkout's version and running architecture, installs it in an isolated environment, and uses the repository's selected Python. Set `UV_PYTHON` to select another supported Python for matched comparisons. This measures the current checkout, not the recorded 0.8.0 artifact. To repeat the 0.8.0 run, follow the [0.8.0 reproduction](https://github.com/alessio-locatelli/client-query-cache/blob/v0.8.0/docs/user/benchmarks/shared-cache.md#reproduce) from a `v0.8.0` checkout.
 
-The asynchronous workers use standard asyncio by default. To compare uvloop, add `--with uvloop` to `uv run` and `--async-loop uvloop` to the harness arguments, keeping all other settings identical. See the [optional uvloop guidance](../getting-started/asyncio.md#optional-uvloop) for the workloads covered by the evidence.
+The asynchronous workers use standard asyncio by default. To compare uvloop, use `just benchmark-shared-cache --async-loop uvloop -- --output /tmp/agents/shared-cache-uvloop.json`, keeping all other settings identical. The recipe installs uvloop when selected. Put harness arguments after `--`. See the [optional uvloop guidance](../getting-started/asyncio.md#optional-uvloop) for the workloads covered by the evidence.
 
 Use `--validate --disable-telemetry` for matched measurements with production-default telemetry settings. Owner and group CPU from this mode may omit queued admission work and cannot establish a CPU saving. For a separate resource comparison, use `--validate --diagnostics` with telemetry enabled: shared cold windows verify completed admissions before sampling final owner CPU and reconcile worker counts afterward. Foreground latency and admission-drain time are reported separately; compare CPU only between runs with matching telemetry and accounting scopes.
 
-The benchmark requires a working Docker-compatible development runtime. Use the repository's documented [development environment](https://github.com/alessio-locatelli/client-query-cache/blob/main/CONTRIBUTING.md) when running in Toolbx. The harness accepts no production URI and writes only to its disposable replica set. Raw timing output is untracked.
+The harness accepts no production URI and writes only to its disposable replica set. Raw timing output is untracked.
