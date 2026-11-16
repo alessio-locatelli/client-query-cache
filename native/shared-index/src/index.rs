@@ -6,7 +6,7 @@ use crate::memory::{WORD_BYTES, Words};
 use crate::sync::{AtomicU64, Ordering, fence};
 
 const MAGIC: u64 = u64::from_le_bytes(*b"cqcsidx3");
-const LAYOUT_VERSION: u64 = 3;
+const LAYOUT_VERSION: u64 = 4;
 
 const H_MAGIC: usize = 0;
 const H_VERSION: usize = 1;
