@@ -490,22 +490,17 @@ fn a_release_after_snapshot_sizing_invalidates_the_copy() {
 
 #[test]
 fn equal_hashes_do_not_replace_or_return_a_different_identity() {
-    // Each pair has the same full hash in namespace 1, including unequal-length keys.
-    const COLLISIONS: [(&[u8], &[u8]); 2] = [
+    const FULL_HASH_COLLISIONS_IN_NAMESPACE_ONE: [(&[u8], &[u8]); 2] = [
         (
-            &[0; 16],
-            &[
-                1, 0, 0, 0, 0, 0, 0, 0, 0xae, 0x52, 0x43, 0x1c, 0xe5, 0xca, 0xe9, 0x37,
-            ],
+            &[0, 0, 0, 0, 0, 0, 0, 0, 85, 215, 220, 90, 67, 123, 207, 157],
+            &[0, 0, 0, 0, 0, 0, 0, 0, 107, 59, 89, 66, 252, 252, 74, 143],
         ),
         (
-            &[0; 8],
-            &[
-                0, 0, 0, 0, 0, 0, 0, 0, 0xbf, 0xcc, 0x1e, 0x61, 0x33, 0xe7, 0xf5, 0xc7,
-            ],
+            &[34, 101, 217, 139, 55, 116, 229, 101],
+            &[0, 0, 0, 0, 0, 0, 0, 0, 181, 195, 234, 68, 174, 123, 109, 82],
         ),
     ];
-    for (first_identity, second_identity) in COLLISIONS {
+    for (first_identity, second_identity) in FULL_HASH_COLLISIONS_IN_NAMESPACE_ONE {
         let first = query(first_identity);
         let second = query(second_identity);
         assert_eq!(first.hash(), second.hash());
