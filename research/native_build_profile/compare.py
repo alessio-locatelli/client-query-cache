@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import os
 import random
+import shutil
 import statistics
 import subprocess
 import sys
@@ -12,11 +14,17 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from client_query_cache._types import NonNegativeInt, PositiveInt
+from client_query_cache._types import (
+    ExclusiveProbability,
+    NonNegativeFloat,
+    NonNegativeInt,
+    PositiveFloat,
+    PositiveInt,
+)
 
 BOOTSTRAP_RESAMPLES = 2000
 STARTUP_RUNS = 15
-CONFIDENCE_TAIL = 0.025
+DEFAULT_CONFIDENCE = 0.95
 ROOT = Path(__file__).resolve().parents[2]
 TASKSET = "/usr/bin/taskset"
 SETARCH = "/usr/bin/setarch"
@@ -44,6 +52,14 @@ def child_environment(overlay: Path) -> dict[str, str]:
     return environment
 
 
+def refresh_extension(overlay: Path) -> Path:
+    extension = overlay / "client_query_cache" / "_shared_index.abi3.so"
+    replacement = extension.with_name(f"{extension.name}.refresh")
+    shutil.copyfile(extension, replacement)
+    replacement.replace(extension)
+    return extension
+
+
 def run_child(
     python: Path,
     overlay: Path,
@@ -51,6 +67,7 @@ def run_child(
     output: Path,
     workloads: list[str],
 ) -> dict[str, object]:
+    expected = refresh_extension(overlay)
     command = [
         SETARCH,
         "--addr-no-randomize",
@@ -73,9 +90,14 @@ def run_child(
         stdout=subprocess.DEVNULL,
     )
     report: dict[str, object] = json.loads(output.read_text(encoding="utf-8"))
-    expected = overlay / "client_query_cache" / "_shared_index.abi3.so"
     if report["extension"] != str(expected):
         message = f"imported {report['extension']}, expected {expected}"
+        raise SystemExit(message)
+    digest = hashlib.sha256(expected.read_bytes()).hexdigest()
+    if report["extension_sha256"] != digest:
+        message = (
+            f"imported extension digest {report['extension_sha256']}, expected {digest}"
+        )
         raise SystemExit(message)
     return report
 
@@ -105,14 +127,19 @@ def improvement_percent(baseline: float, candidate: float) -> float:
     return (baseline - candidate) / baseline * 100
 
 
-def interval(samples: list[float], generator: random.Random) -> tuple[float, float]:
+def interval(
+    samples: list[float],
+    generator: random.Random,
+    confidence: ExclusiveProbability = DEFAULT_CONFIDENCE,
+) -> tuple[float, float]:
+    tail = (1 - confidence) / 2
     means = sorted(
         statistics.median(generator.choices(samples, k=len(samples)))
         for _ in range(BOOTSTRAP_RESAMPLES)
     )
     return (
-        means[int(CONFIDENCE_TAIL * BOOTSTRAP_RESAMPLES)],
-        means[int((1 - CONFIDENCE_TAIL) * BOOTSTRAP_RESAMPLES) - 1],
+        means[int(tail * BOOTSTRAP_RESAMPLES)],
+        means[int((1 - tail) * BOOTSTRAP_RESAMPLES) - 1],
     )
 
 
@@ -122,7 +149,11 @@ def geometric_improvement(percentages: list[float]) -> float:
 
 
 def summarize(
-    runs: list[Run], baseline: str, labels: list[str], seed: PositiveInt
+    runs: list[Run],
+    baseline: str,
+    labels: list[str],
+    seed: PositiveInt,
+    confidence: ExclusiveProbability = DEFAULT_CONFIDENCE,
 ) -> dict[str, object]:
     generator = random.Random(seed)
     by_round: dict[tuple[str, int], Run] = {(r.label, r.round_index): r for r in runs}
@@ -139,7 +170,7 @@ def summarize(
                 )
                 for index in rounds
             ]
-            low, high = interval(paired, generator)
+            low, high = interval(paired, generator, confidence)
             per_workload[workload] = {
                 "improvement_percent": statistics.median(paired),
                 "low": low,
@@ -157,7 +188,7 @@ def summarize(
             )
             for index in rounds
         ]
-        low, high = interval(geomeans, generator)
+        low, high = interval(geomeans, generator, confidence)
         label_runs = [run for run in runs if run.label == label]
         baseline_runs = [run for run in runs if run.label == baseline]
         summary[label] = {
@@ -173,6 +204,7 @@ def summarize(
             )
             if baseline_runs[0].max_rss_kib
             else 0.0,
+            "worst_max_rss_kib": max(r.max_rss_kib for r in label_runs),
             "extension_bytes": label_runs[0].extension_bytes,
         }
     return summary
@@ -204,6 +236,34 @@ def markdown(summary: dict[str, object], labels: list[str]) -> str:
     return "\n".join(lines)
 
 
+@dataclass(frozen=True, slots=True)
+class Acquisition:
+    planned_rounds: PositiveInt
+    completed_rounds: NonNegativeInt
+    elapsed_seconds: NonNegativeFloat
+    first_round_seconds: NonNegativeFloat
+    timeout_seconds: PositiveFloat | None
+    confidence: ExclusiveProbability
+    statistic: str
+
+    @property
+    def complete(self) -> bool:
+        return self.completed_rounds == self.planned_rounds
+
+    def report(self) -> dict[str, object]:
+        return {
+            "planned_rounds": self.planned_rounds,
+            "completed_rounds": self.completed_rounds,
+            "complete": self.complete,
+            "elapsed_seconds": self.elapsed_seconds,
+            "first_round_seconds": self.first_round_seconds,
+            "projected_seconds": self.first_round_seconds * self.planned_rounds,
+            "timeout_seconds": self.timeout_seconds,
+            "confidence": self.confidence,
+            "statistic": self.statistic,
+        }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Alternate native builds in pinned subprocesses and compare them"
@@ -217,49 +277,106 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=20261102)
     parser.add_argument("--workloads", nargs="*", default=[])
     parser.add_argument("--startup", action="store_true")
+    parser.add_argument("--confidence", type=float, default=DEFAULT_CONFIDENCE)
+    parser.add_argument("--timeout-seconds", type=float)
+    parser.add_argument("--repeats", type=int, default=1)
+    parser.add_argument(
+        "--statistic", choices=["median_ns", "p10_ns", "min_ns"], default="median_ns"
+    )
     parser.add_argument("--output", type=Path, required=True)
     arguments = parser.parse_args()
+    if arguments.repeats < 1:
+        parser.error("--repeats must be at least 1")
+    if not 0 < arguments.confidence < 1:
+        parser.error("--confidence must lie strictly between 0 and 1")
     labels = [arguments.baseline, *arguments.labels]
     scratch = arguments.output.parent / f"{arguments.output.stem}-runs"
     scratch.mkdir(parents=True, exist_ok=True)
     generator = random.Random(arguments.seed)
     runs: list[Run] = []
+    started = time.monotonic()
+    first_round_seconds = 0.0
+    completed_rounds = 0
     for round_index in range(arguments.rounds):
         order = labels.copy()
         generator.shuffle(order)
         for label in order:
-            report = run_child(
-                arguments.python,
-                arguments.overlay_root / label,
-                arguments.cpu,
-                scratch / f"{label}-{round_index}.json",
-                arguments.workloads,
-            )
-            timings = report["results"]
-            assert isinstance(timings, dict)
+            reports = [
+                run_child(
+                    arguments.python,
+                    arguments.overlay_root / label,
+                    arguments.cpu,
+                    scratch / f"{label}-{round_index}-{repeat}.json",
+                    arguments.workloads,
+                )
+                for repeat in range(arguments.repeats)
+            ]
+            timings: list[dict[str, dict[str, NonNegativeFloat]]] = []
+            for report in reports:
+                workload_timings = report["results"]
+                assert isinstance(workload_timings, dict)
+                timings.append(workload_timings)
             runs.append(
                 Run(
                     label,
                     round_index,
-                    {name: entry["median_ns"] for name, entry in timings.items()},
-                    int(report["max_rss_kib"]),  # type: ignore[call-overload]
-                    int(report["extension_bytes"]),  # type: ignore[call-overload]
+                    {
+                        name: min(
+                            timing[name][arguments.statistic] for timing in timings
+                        )
+                        for name in timings[0]
+                    },
+                    max(int(report["max_rss_kib"]) for report in reports),  # type: ignore[call-overload]
+                    int(reports[0]["extension_bytes"]),  # type: ignore[call-overload]
                 )
             )
-        print(f"round {round_index} done: {order}", file=sys.stderr, flush=True)
-    summary = summarize(runs, arguments.baseline, arguments.labels, arguments.seed)
+        completed_rounds += 1
+        elapsed = time.monotonic() - started
+        if round_index == 0:
+            first_round_seconds = elapsed
+        print(
+            f"round {round_index} done after {elapsed:.1f} s: {order}",
+            file=sys.stderr,
+            flush=True,
+        )
+        if (
+            arguments.timeout_seconds is not None
+            and elapsed > arguments.timeout_seconds
+        ):
+            break
+    acquisition = Acquisition(
+        planned_rounds=arguments.rounds,
+        completed_rounds=completed_rounds,
+        elapsed_seconds=time.monotonic() - started,
+        first_round_seconds=first_round_seconds,
+        timeout_seconds=arguments.timeout_seconds,
+        confidence=arguments.confidence,
+        statistic=arguments.statistic,
+    )
+    summary = summarize(
+        runs, arguments.baseline, arguments.labels, arguments.seed, arguments.confidence
+    )
     if arguments.startup:
         for label in labels:
             milliseconds = startup_milliseconds(
                 arguments.python, arguments.overlay_root / label, arguments.cpu
             )
-            entry = summary.get(label)
-            if isinstance(entry, dict):
-                entry["startup_ms"] = milliseconds
-            else:
+            try:
+                entry = summary[label]
+            except KeyError:
                 summary[label] = {"startup_ms": milliseconds}
+            else:
+                assert isinstance(entry, dict)
+                entry["startup_ms"] = milliseconds
+    summary["acquisition"] = acquisition.report()
     arguments.output.write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
     print(markdown(summary, arguments.labels))
+    if not acquisition.complete:
+        print(
+            f"incomplete: {completed_rounds} of {arguments.rounds} rounds before the "
+            f"{arguments.timeout_seconds} s timeout",
+            file=sys.stderr,
+        )
 
 
 if __name__ == "__main__":
