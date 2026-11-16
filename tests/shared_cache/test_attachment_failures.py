@@ -193,10 +193,10 @@ async def test_handshake_timeout_reuses_unreachable_owner_backoff(
 
 @pytest.fixture
 def incompatible_peer(
-    endpoint: AsyncEndpoint, tmp_path: Path
+    endpoint: AsyncEndpoint, socket_directory: Path
 ) -> Iterator[AttachmentConfig]:
     listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    path = tmp_path / "incompatible.sock"
+    path = socket_directory / "incompatible.sock"
     listener.bind(str(path))
     listener.listen(1)
     listener.settimeout(5)
