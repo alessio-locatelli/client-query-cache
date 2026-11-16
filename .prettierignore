@@ -1,6 +1,7 @@
 specifications/
 site/
 .cache/
+.agents/skills/openspec*/
 
 /.docs-artifact-*/
 /.docs-previous-*/

@@ -124,9 +124,18 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 
-.agents/
-.claude/skills/
 .codex/
+
+/.claude/*
+!/.claude/settings.json
+!/.claude/skills/
+/.claude/skills/*
+!/.claude/skills/openspec-*
+
+/.agents/*
+!/.agents/skills/
+/.agents/skills/*
+!/.agents/skills/openspec-*
 
 node_modules/
 .lycheecache
