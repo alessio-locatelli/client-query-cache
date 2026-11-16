@@ -83,7 +83,7 @@ def create_collection(
 
 def wait_until(predicate: Callable[[], bool]) -> None:
     deadline = monotonic() + 10
-    while not predicate():
+    while not predicate():  # pragma: lax no cover (delivery may precede the first poll)
         assert monotonic() < deadline, "Timed out waiting for change-stream delivery"
         sleep(0.01)
 
