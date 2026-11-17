@@ -127,9 +127,8 @@ Repository administrators can merge a pull request by bypassing the ruleset. The
 
 ## npm quality options
 
-`package.json` selects Prettier 3.9.9 and markdownlint-cli2 0.23.3.
-Sources: [Prettier CLI options](https://prettier.io/docs/cli) and
-[markdownlint-cli2 options](https://github.com/DavidAnson/markdownlint-cli2/tree/v0.23.3#command-line).
+Sources: [Prettier CLI options](https://github.com/prettier/prettier/blob/3.9.10/docs/cli.md) and
+[markdownlint-cli2 options](https://github.com/DavidAnson/markdownlint-cli2/blob/v0.24.0/README.md#command-line).
 
 - `private: true`: The default is false. We override it because this npm project
   supplies development tools and must not be published as a package.
@@ -197,7 +196,7 @@ Pull requests affecting site inputs run **Documentation build** after **Prek** a
 
 An administrator must select **GitHub Actions** as the Pages publishing source and restrict the `github-pages` environment's deployment branches to `main`. Review any environment approval requirements before rollout. See GitHub's [Pages workflow setup](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages) and [environment protection guidance](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments). Public repositories can use the free project URL, `https://alessio-locatelli.github.io/client-query-cache/`, without a custom domain.
 
-**Publish documentation** runs after relevant `main` changes, main-only manual dispatch, or successful completion of **Publish to PyPI**. Failed/cancelled publication runs cannot deploy. It always checks out trusted `main` controller code and resolves GitHub’s current latest published non-draft, non-prerelease release. A delayed older release completion therefore builds the current stable edition. It never consumes code or artifacts from the triggering run. Both committed source snapshots and root redirects must build before one complete artifact is uploaded; a newer eligible run requests cancellation of the queued or running one instead of waiting behind it, and the site keeps its previous content until the newer deployment succeeds. Runs that are ineligible to publish never cancel or replace an eligible run. It uses GitHub's token and OIDC; no personal token is needed. Build and hosting configuration failures remain visible workflow failures. To redeploy, [run the workflow manually](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow) with `main` selected; other branches cannot publish. GitHub decides when a cancelled run is released; if a run stays queued after cancellation, an administrator can [force-cancel it](https://docs.github.com/en/rest/actions/workflow-runs#force-cancel-a-workflow-run) with `gh api --method POST repos/alessio-locatelli/client-query-cache/actions/runs/<run-id>/force-cancel`. For `--method POST`: The default is GET without request fields. We override it because force-cancellation requires POST ([gh 2.97.0 API](https://cli.github.com/manual/gh_api)).
+**Publish documentation** runs after relevant `main` changes, main-only manual dispatch, or successful completion of **Publish to PyPI**. Failed/cancelled publication runs cannot deploy. It always checks out trusted `main` controller code and resolves GitHub’s current latest published non-draft, non-prerelease release. A delayed older release completion therefore builds the current stable edition. It never consumes code or artifacts from the triggering run. Both committed source snapshots and root redirects must build before one complete artifact is uploaded; a newer eligible run requests cancellation of the queued or running one instead of waiting behind it, and the site keeps its previous content until the newer deployment succeeds. Runs that are ineligible to publish never cancel or replace an eligible run. It uses GitHub's token and OIDC; no personal token is needed. Build and hosting configuration failures remain visible workflow failures. To redeploy, [run the workflow manually](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow) with `main` selected; other branches cannot publish. GitHub decides when a cancelled run is released; if a run stays queued after cancellation, an administrator can [force-cancel it](https://docs.github.com/en/rest/actions/workflow-runs#force-cancel-a-workflow-run) with `gh api --method POST repos/alessio-locatelli/client-query-cache/actions/runs/<run-id>/force-cancel`. For `--method POST`: The default is GET without request fields. We override it because force-cancellation requires POST ([`gh api`](https://cli.github.com/manual/gh_api)).
 
 To roll back, revert the faulty controller/configuration on `main` and redeploy a complete working artifact. Preserve published package tags and stable-source provenance; do not substitute development guides for released behavior. If no working site exists, an administrator can disable the workflow and Pages hosting. Repository Markdown remains available.
 
@@ -221,7 +220,7 @@ just pytest -- -n 0 tests/benchmark/real_server/test_cache_benefit.py
 ```
 
 For `-n 0`: The default is the configured automatic worker count. We override it because latency
-measurements must run without competing workers ([xdist 3.8.0](https://pytest-xdist.readthedocs.io/en/stable/distribution.html)).
+measurements must run without competing workers ([pytest-xdist distribution](https://github.com/pytest-dev/pytest-xdist/blob/v3.8.0/docs/distribution.rst)).
 
 Its logged evidence, including any Atlas bandwidth evidence described below, lands in `pytest.log`
 at the repository root; search that file for the test's name instead of scrolling the full suite's

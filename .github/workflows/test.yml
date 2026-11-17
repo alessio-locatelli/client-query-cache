@@ -33,33 +33,33 @@ env:
   PREK_VERSION: "0.5.7"
 
 # Shared rationales for the occurrences listed below.
-# checkout v7.0.1:
-# https://github.com/actions/checkout/blob/3d3c42e5aac5ba805825da76410c181273ba90b1/action.yml
+# actions/checkout inputs: https://github.com/actions/checkout/blob/3d3c42e5aac5ba805825da76410c181273ba90b1/action.yml
 # persist-credentials in scope, prek, prettier, documentation, arm64, package, integration-e2e, pymongo-min,
 # mongodb-min, memory, guard and container: The default is true. We override it
 # because later repository commands must not inherit checkout credentials.
 # fetch-depth in scope and guard: The default is 1. We override it because revision
 # comparisons need earlier history.
-# uv 0.12.20: https://docs.astral.sh/uv/reference/cli/
 # uv sync --locked in arm64, package, integration-e2e, pymongo-min, mongodb-min, memory and
-# guard: The default is inherited UV_LOCKED, otherwise unlocked resolution.
+# guard: The default is inherited UV_LOCKED, otherwise unlocked resolution
+# (https://github.com/astral-sh/uv/blob/0.13.6/crates/uv-cli/src/lib.rs#L3674-L3679).
 # We override it because these standalone commands must validate the committed lockfile.
-# uv sync --no-default-groups --group: The default includes dev. We override it
-# because each job selects only its build, typing, test, compatibility, or benchmark
+# uv sync --no-default-groups --group: The default includes dev
+# (https://github.com/astral-sh/uv/blob/0.13.6/crates/uv-cli/src/lib.rs#L6801-L6806).
+# We override it because each job selects only its build, typing, test, compatibility, or benchmark
 # tools; full coverage also exercises the real documentation tools.
 # UV_NO_SYNC in arm64, package, integration-e2e, pymongo-min, mongodb-min, memory and
-# guard: The default is false. We override it because uv run must
-# reuse each job's explicitly synchronized environment without adding dev.
-# cache v6.1.0:
-# https://github.com/actions/cache/blob/55cc8345863c7cc4c66a329aec7e433d2d1c52a9/action.yml
+# guard: The default is false
+# (https://github.com/astral-sh/uv/blob/0.13.6/crates/uv-static/src/env_vars.rs#L383-L386).
+# We override it because uv run must reuse each job's explicitly synchronized environment
+# without adding dev.
+# actions/cache inputs: https://github.com/actions/cache/blob/55cc8345863c7cc4c66a329aec7e433d2d1c52a9/action.yml
 # restore-keys for prek-results (prek), prettier (prettier), rust-tools (rust-static),
 # mypy (package) and pytest-hypothesis (integration-e2e): The default is no prefix
 # fallback. We override it because compatible environment/dependency keys allow
 # reuse across commits.
 # strategy.fail-fast in package and integration-e2e: The default is true. We override
 # it because every supported Python lane must report even when another lane fails.
-# upload-artifact v7.0.1:
-# https://github.com/actions/upload-artifact/blob/043fb46d1a93c77aae656e7c1c64a875d1fc6a0a/action.yml
+# actions/upload-artifact inputs: https://github.com/actions/upload-artifact/blob/043fb46d1a93c77aae656e7c1c64a875d1fc6a0a/action.yml
 # if: failure() for pytest-log-arm64 (arm64), pytest-log (integration-e2e),
 # pytest-log-pymongo-min (pymongo-min), pytest-log-mongodb-min (mongodb-min) and
 # memory-reports (memory): The default
@@ -125,7 +125,7 @@ jobs:
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          # https://github.com/actions/setup-node/blob/820762786026740c76f36085b0efc47a31fe5020/action.yml
+          # https://github.com/actions/setup-node/blob/949feb2413d6458794dcd2491c4babbbce0c15c1/action.yml
           # node-version-file: The default is unset. We override it because the
           # Renovate hook needs the repository-selected Node.js version.
           node-version-file: .node-version
@@ -144,9 +144,8 @@ jobs:
           restore-keys: |
             prek-results-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml', 'lychee.toml', 'pyproject.toml') }}-
 
-      # Prek hook skipping:
-      # https://prek.j178.dev/quickstart/#temporarily-disabling-hooks
-      # SKIP: The default is no skipped hooks. We override it because slotscheck and
+      # SKIP: The default is no skipped hooks
+      # (https://github.com/j178/prek/blob/v0.5.7/docs/running-hooks.md#skip-hooks-for-one-commit). We override it because slotscheck and
       # formatting and Rust have dedicated lanes, while Lychee runs separately with its
       # step-scoped GitHub token.
       - run: SKIP=slotscheck,prettier,lychee,rust-lint uvx "prek@${PREK_VERSION}" run --all-files
@@ -172,16 +171,15 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
-          # setup-node v7.0.0:
-          # https://github.com/actions/setup-node/blob/820762786026740c76f36085b0efc47a31fe5020/action.yml
           # The default is automatic npm caching only when supported package-manager
-          # metadata selects npm; package.json has none. We override it because CI
+          # metadata selects npm; package.json has none
+          # (https://github.com/actions/setup-node/blob/949feb2413d6458794dcd2491c4babbbce0c15c1/action.yml#L21-L25). We override it because CI
           # should reuse locked npm downloads.
           cache: npm
 
       - if: needs.scope.outputs.format == 'true'
-        # npm 11: https://docs.npmjs.com/cli/v11/using-npm/config#loglevel
-        # --silent: The default is normal progress output. We override it because CI
+        # --silent: The default is the notice log level
+        # (https://docs.npmjs.com/cli/v12/using-npm/config#loglevel). We override it because CI
         # should emphasize diagnostics.
         run: npm ci --silent
 
@@ -197,7 +195,8 @@ jobs:
         run: npm run format:check
 
       - if: needs.scope.outputs.format == 'true'
-        # OpenSpec 1.14.0 validate --help: The default is strict=false. We override it
+        # The default is non-strict validation
+        # (https://github.com/Fission-AI/OpenSpec/blob/v1.15.0/src/cli/index.ts#L649). We override it
         # because specification warnings must fail the quality gate.
         run: npm exec -- openspec validate --all --strict
 
@@ -350,8 +349,8 @@ jobs:
           restore-keys: |
             mypy-${{ runner.os }}-py${{ matrix.python }}-${{ hashFiles('uv.lock', 'pyproject.toml') }}-
 
-      # mypy 2.3.1: https://mypy.readthedocs.io/en/stable/command_line.html
-      # --install-types: The default is false. We override it because validation also
+      # --install-types: The default is false
+      # (https://github.com/python/mypy/blob/v2.4.1/docs/source/command_line.rst). We override it because validation also
       # installs available missing stubs.
       - run: uv run -- mypy --install-types
 
@@ -523,8 +522,7 @@ jobs:
     timeout-minutes: 10
     env:
       UV_NO_SYNC: "true"
-      # uv 0.13.4: https://docs.astral.sh/uv/reference/cli/#uv-sync--no-managed-python
-      # The default allows uv-managed Python. We override it because this profiler
+      # The default allows uv-managed Python (https://github.com/astral-sh/uv/blob/0.13.6/crates/uv-static/src/env_vars.rs#L236-L239). We override it because this profiler
       # lane uses the shared Python build explained in the memory test guide.
       UV_NO_MANAGED_PYTHON: "true"
     steps:

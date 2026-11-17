@@ -306,7 +306,7 @@ def run_decision_evidence() -> JsonDict:
     return {
         "schema_version": 2,
         "revision": subprocess.check_output(  # noqa: S603 - fixed git arguments
-            # Git 2.55.0: https://git-scm.com/docs/git-rev-parse
+            # Git: https://git-scm.com/docs/git-rev-parse/2.56.1
             # --short=7: The default is effective core.abbrev, otherwise automatic
             # length. We override it because reports need a consistent minimum
             # seven-character identifier.

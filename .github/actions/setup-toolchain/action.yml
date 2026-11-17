@@ -12,14 +12,12 @@ inputs:
 runs:
   using: composite
   steps:
-    # rustup 1.29 toolchain install --no-self-update: The default may also update rustup. We override it because CI provisions only the selected toolchain.
+    # rustup toolchain install --no-self-update: The default may also update rustup (verified against rustup 1.29). We override it because CI provisions only the selected toolchain.
     - if: inputs.rust == 'true'
       shell: bash
       run: rustup toolchain install --no-self-update
 
-    # rustup 1.29 component add: https://rust-lang.github.io/rustup/concepts/components.html
-    # The default is the components of the toolchain's minimal profile. We override it because
-    # the profile-guided release build merges its profile with llvm-profdata from llvm-tools.
+    # component add: The default is the components of the toolchain's minimal profile (https://rust-lang.github.io/rustup/concepts/components.html). We override it because the profile-guided release build merges its profile with llvm-profdata from llvm-tools.
     - if: inputs.rust-components != ''
       shell: bash
       run: |

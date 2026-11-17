@@ -52,7 +52,7 @@ integration, and `_core/contracts.pyi` types the interface both cores implement.
   to bypass explicit sessions and sessions bound by `ClientSession.bind()` or `AsyncClientSession.bind()`.
   PyMongo exposes no public accessor for the effective session, so the guard feature-detects
   the private `_get_bound_session` callback. An unavailable or non-callable callback
-  conservatively bypasses all cached reads. Its behavior is checked against PyMongo 4.18.1 and 4.18.2. An explicit
+  conservatively bypasses all cached reads. Its behavior is checked against the declared PyMongo minimum, every other supported release, and the locked driver ([compatibility lanes](../../CONTRIBUTING.md#validate-changes)). An explicit
   non-`None` session takes precedence. If private inspection raises an ordinary exception, the classifier bypasses and
   lets the original native operation validate its arguments and session; this preserves native error ordering. Cancellation and process-control exceptions propagate.
   The resolver reads local context only and issues no database commands.
@@ -178,8 +178,9 @@ explain/distinct, and command batching remain inherited except for these localiz
 hooks. Copy/clone and rewind start independent executions. Hits have no server
 cursor, address, or session; find `retrieved` counts the loaded snapshot or prefix.
 Both execution models are checked with the same disposable replica-set cursor and
-bound-session cases on PyMongo 4.18.1 and the locked 4.18.2 driver. Future driver
-releases require the same differential checks because these hooks are protected.
+bound-session cases on the declared PyMongo minimum, every other supported release, and
+the locked driver. Future driver releases require the same differential checks because
+these hooks are protected.
 
 Process-local managers use `LocalCacheCore` from the extension, and shared-cache coordination uses `SharedOwnerCore`, which adds publication to the shared index and payload arena. Both implement the common read and coherence protocols; their capture objects are opaque handles. The [native evaluation report](../../reports/native-process-local-cache/results.md) records measured costs and adoption evidence.
 

@@ -1,7 +1,6 @@
 id: no-import-time-execution
 language: Python
-# ast-grep 0.51.0: https://github.com/ast-grep/ast-grep/blob/0.51.0/crates/config/src/rule_config.rs#L30-L42
-# The default is hint. We override it because a violation must fail the scan.
+# The default is hint (https://github.com/ast-grep/ast-grep/blob/0.51.0/crates/config/src/rule_config.rs#L30-L42). We override it because a violation must fail the scan.
 severity: error
 message: This statement runs at import time.
 note: Keep module and class scope to imports, definitions, and assignments. Move loops, `with` blocks, and bare calls into a function called from an `if __name__ == "__main__":` block.

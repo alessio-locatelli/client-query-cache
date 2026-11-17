@@ -12,8 +12,7 @@ ADD --checksum=sha256:8fe196b894ccf9072f98d4e1013a180306e17d244830b03986ee5e8eab
 
 # Dockerfile ENV inheritance: https://docs.docker.com/reference/dockerfile/#env
 # PATH: The default is inherited from the pinned Fedora base image. We override it because installed project tools in /usr/local/bin and the rustup proxies must precede system binaries.
-# rustup 1.29 CARGO_HOME and RUSTUP_HOME: https://rust-lang.github.io/rustup/installation/index.html#choosing-where-to-install
-# The defaults are ~/.cargo and ~/.rustup. We override them because the contributor's host account must use and update the image's Rust toolchain and Cargo caches.
+# CARGO_HOME and RUSTUP_HOME: The defaults are ~/.cargo and ~/.rustup (https://rust-lang.github.io/rustup/installation/index.html#choosing-where-to-install). We override them because the contributor's host account must use and update the image's Rust toolchain and Cargo caches.
 ENV PATH=/usr/local/bin:/opt/cargo/bin:${PATH} \
     CARGO_HOME=/opt/cargo \
     RUSTUP_HOME=/opt/rustup \
@@ -29,7 +28,7 @@ COPY rust-toolchain.toml /tmp/rust-toolchain-selection.toml
 # Fedora packages follow the base image's repositories; see CONTRIBUTING.md for the rationale.
 # DNF5 --assumeyes: https://dnf5.readthedocs.io/en/latest/dnf5.8.html
 # The default is inherited from DNF configuration (assumeyes=false unless configured). We override it because container builds cannot answer interactive package prompts.
-# rustup-init 1.29 --help: -y: The default prompts for confirmation. We override it because container builds cannot answer prompts.
+# rustup-init -y: The default prompts for confirmation (verified against rustup-init 1.29 --help, like --profile and --default-toolchain below). We override it because container builds cannot answer prompts.
 # --profile: The default is default. We override it because the image provides the source-build toolchain and just setup-rust adds development components.
 # --default-toolchain: The default is stable. We override it because Rust tools outside the checkout must use the selected release.
 RUN NODE_TOOL_VERSION="$(cat /tmp/node-version)" \

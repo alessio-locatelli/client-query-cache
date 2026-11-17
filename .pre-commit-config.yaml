@@ -2,8 +2,7 @@ default_install_hook_types: [pre-commit, commit-msg]
 exclude: ^specifications/
 
 default_language_version:
-  # Prek 0.5.2: https://github.com/j178/prek/blob/v0.5.2/docs/reference/configuration.md#default_language_version
-  # The default is no project language-version mapping; hooks use their own language_version or default resolution. We override it because Python hooks must stay on the supported 3.14 baseline when development Python advances.
+  # The default is no project language-version mapping; hooks use their own language_version or default resolution (https://github.com/j178/prek/blob/v0.5.7/docs/reference/configuration.md#default_language_version). We override it because Python hooks must stay on the supported 3.14 baseline when development Python advances.
   python: python3.14
 
 repos:
@@ -12,7 +11,7 @@ repos:
     hooks:
       - id: check-yaml
       - id: check-added-large-files
-        # pre-commit-hooks v6.0.0: https://github.com/pre-commit/pre-commit-hooks/blob/v6.0.0/pre_commit_hooks/check_added_large_files.py
+        # Hook arguments: https://github.com/pre-commit/pre-commit-hooks/blob/v6.0.0/pre_commit_hooks/check_added_large_files.py
         # --maxkb: The default is 500. We override it because tracked files must stay below 300 KiB.
         # --enforce-all: The default is added files only. We override it because enlarging an existing file must also fail the limit.
         args: ["--maxkb=300", "--enforce-all"]
@@ -24,8 +23,7 @@ repos:
         # Preserve Google's downloaded verification file unchanged.
         exclude: ^docs/site/google5a37145ea1915a18\.html$
       - id: mixed-line-ending
-        # v6.0.0: https://github.com/pre-commit/pre-commit-hooks/blob/v6.0.0/pre_commit_hooks/mixed_line_ending.py
-        # The default is auto. We override it because every contributor platform must produce LF line endings.
+        # The default is auto (https://github.com/pre-commit/pre-commit-hooks/blob/v6.0.0/pre_commit_hooks/mixed_line_ending.py). We override it because every contributor platform must produce LF line endings.
         args: ["--fix=lf"]
       - id: check-case-conflict
       - id: check-merge-conflict
@@ -35,7 +33,7 @@ repos:
     rev: "44.199.0"
     hooks:
       - id: renovate-config-validator
-        # Hook 44.199.0: https://github.com/renovatebot/pre-commit-hooks/blob/44.199.0/.pre-commit-hooks.yaml
+        # Hook arguments: https://github.com/renovatebot/pre-commit-hooks/blob/44.199.0/.pre-commit-hooks.yaml
         # --strict: The default is false. We override it because validation warnings must fail the quality gate.
         # --no-global: The default is global validation allowed. We override it because this file may contain only repository options.
         args: [--strict, --no-global]
@@ -54,7 +52,7 @@ repos:
     rev: v0.17.3
     hooks:
       - id: ruff-check
-        # Ruff v0.16.10: https://docs.astral.sh/ruff/configuration/
+        # Hook arguments: https://github.com/astral-sh/ruff/blob/0.17.3/docs/configuration.md#full-command-line-interface
         # --fix: The default is false. We override it because hook runs should repair supported violations.
         # --exit-non-zero-on-fix: The default is false. We override it because an edit must stop the commit until its repaired files are reviewed and staged.
         args: ["--fix", "--exit-non-zero-on-fix"]
@@ -74,17 +72,14 @@ repos:
     rev: "0.13.6"
     hooks:
       - id: uv-lock
-        # uv 0.12.23: https://docs.astral.sh/uv/reference/cli/#uv-lock--check
-        # The default is updating the lockfile. We override it because validation must reject stale resolution without changing it.
+        # The default is updating the lockfile (https://github.com/astral-sh/uv/blob/0.13.6/crates/uv-cli/src/lib.rs#L3814-L3821). We override it because validation must reject stale resolution without changing it.
         args: ["--check"]
 
   - repo: https://github.com/ariebovenberg/slotscheck
     rev: v0.21.0
     hooks:
       - id: slotscheck
-        # Prek 0.5.2 HookSpec::from_remote: https://github.com/j178/prek/blob/v0.5.2/crates/prek/src/hook.rs#L65-L87
-        # Hook language: https://github.com/ariebovenberg/slotscheck/blob/v0.21.0/.pre-commit-hooks.yaml
-        # The default is the hook's Python environment. We override it because slotscheck must import the synchronized project and its installed dependencies.
+        # The default is the hook's Python environment (https://github.com/ariebovenberg/slotscheck/blob/v0.21.0/.pre-commit-hooks.yaml), which a configured language replaces (https://github.com/j178/prek/blob/v0.5.7/crates/prek/src/hook.rs#L66-L88). We override it because slotscheck must import the synchronized project and its installed dependencies.
         language: system
 
   - repo: https://github.com/crate-ci/typos
@@ -97,14 +92,12 @@ repos:
     hooks:
       - id: taplo-format
       - id: taplo-lint
-        # Hook v0.9.3: https://github.com/ComPWA/taplo-pre-commit/blob/v0.9.3/.pre-commit-hooks.yaml
-        # The default is inherited --default-schema-catalogs arguments. We override it because Taplo cannot decode the remote catalog; syntax linting remains usable (https://github.com/tamasfe/taplo/issues/463).
+        # The default is inherited --default-schema-catalogs arguments (https://github.com/ComPWA/taplo-pre-commit/blob/v0.9.3/.pre-commit-hooks.yaml). We override it because Taplo cannot decode the remote catalog; syntax linting remains usable (https://github.com/tamasfe/taplo/issues/463).
         args: []
 
   - repo: local
     hooks:
-      # Prek 0.5.4: https://prek.j178.dev/configuration/#pass_filenames
-      # pass_filenames for rust-lint and ast-grep-test: The default is true. We override
+      # pass_filenames for rust-lint and ast-grep-test: The default is true (https://github.com/j178/prek/blob/v0.5.7/docs/reference/configuration.md#pass_filenames). We override
       # it because these commands validate the whole crate or rule set rather than file operands.
       - id: ast-grep
         name: ast-grep
@@ -130,8 +123,7 @@ repos:
         name: Prettier
         entry: npm run format:check --
         language: system
-        # Prek 0.5.2: https://github.com/j178/prek/blob/v0.5.2/docs/reference/configuration.md#pass_filenames
-        # The default is true. We override it because the npm script selects the complete formatting scope itself.
+        # The default is true (https://github.com/j178/prek/blob/v0.5.7/docs/reference/configuration.md#pass_filenames). We override it because the npm script selects the complete formatting scope itself.
         pass_filenames: false
         types_or: [markdown, yaml, json]
 
