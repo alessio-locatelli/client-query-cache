@@ -36,9 +36,10 @@ printf 'Native coverage artifacts: %s\n' "${measurement_dir}"
 # --locked: The default permits Cargo.lock updates. We override it for reproducibility.
 uv run --quiet --isolated --only-group build -- maturin build --compatibility linux --locked --out "${measurement_dir}/wheels"
 uv venv --quiet --python "${PYO3_PYTHON}" "${measurement_dir}/venv"
-# --only-group/--no-emit-project: The defaults include the editable project and
-# default groups. We override them to install the instrumented wheel with locked tests.
-uv export --quiet --locked --only-group test --no-emit-project --output-file "${measurement_dir}/requirements.txt"
+# --only-group test: The default exports the project and its default groups. We
+# override it because the instrumented wheel replaces the project and only test
+# dependencies are needed.
+uv export --quiet --locked --only-group test --output-file "${measurement_dir}/requirements.txt"
 # --link-mode copy: The default is clone on Linux. We override it because /tmp and
 # uv's cache can use different filesystems, which would produce fallback warnings.
 uv pip install --quiet --python "${measurement_dir}/venv/bin/python" --link-mode copy --requirement "${measurement_dir}/requirements.txt" "${measurement_dir}"/wheels/*.whl
