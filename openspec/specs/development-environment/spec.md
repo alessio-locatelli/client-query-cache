@@ -347,7 +347,7 @@ The default description SHALL state the behavior when the option is omitted in t
 
 ### Requirement: Default comparisons have authoritative evidence
 
-Default-removal decisions and override explanations SHALL be supported by official documentation, schemas, source, or help for the applicable tool version and execution context. Evidence SHALL remain traceable after delivery from the retained explanation or, for removals, the implementation commit body. A guessed omitted behavior SHALL NOT justify removal or a factual rationale.
+Default-removal decisions and override explanations SHALL be supported by official documentation, schemas, source, or help for the applicable tool version and execution context. Evidence SHALL remain traceable after delivery from the retained explanation, following the reference requirement below, or, for removals, the implementation commit body. A guessed omitted behavior SHALL NOT justify removal or a factual rationale.
 
 #### Scenario: Documentation describes another release
 
@@ -363,6 +363,44 @@ Default-removal decisions and override explanations SHALL be supported by offici
 
 - **WHEN** implementation removes a redundant setting or flag and its temporary audit ledger is no longer available
 - **THEN** the implementation commit body identifies the affected occurrence, supplied value, omitted behavior, authoritative source, tool version, and execution context, grouping occurrences only when their evidence and context agree
+
+### Requirement: Rationale references target the version in use
+
+A rationale SHALL cite a documentation or source URL only when it helps a future developer understand the option or decision. A cited URL SHALL be the first available of: non-redirecting documentation specific to the tool version in use; source code at a Git tag or commit SHA of that version; documentation for the latest stable release. Editing a rationale SHALL move its version-specific references to the version in use after rechecking the claim.
+
+#### Scenario: A pinned tool publishes versioned documentation
+
+- **WHEN** a rationale cites documentation for a tool whose repository-selected version has its own documentation edition
+- **THEN** the URL targets that edition rather than a latest or stable alias
+
+#### Scenario: The repository selects no version
+
+- **WHEN** a cited tool has no repository-selected version
+- **THEN** its version in use is the release against which the claim was checked
+
+#### Scenario: Only unversioned documentation exists
+
+- **WHEN** neither versioned documentation nor tagged source explains the option for the version in use
+- **THEN** the rationale cites the latest stable documentation and states any checked version only as verification evidence
+
+#### Scenario: A link adds no context
+
+- **WHEN** a URL neither explains the option nor supports the stated default or rationale
+- **THEN** the rationale omits it
+
+### Requirement: Rationale prose does not imply the version in use
+
+Prose SHALL NOT name a tool version in a way that implies the project currently uses it, such as a `<tool> <version>:` label or a sentence restating a pin. When evidence is not version-specific, the rationale MAY name the version it was checked against only as verification evidence, such as `verified against v0.12`. Dated measurement records MAY name the versions they used.
+
+#### Scenario: A version label precedes a rationale
+
+- **WHEN** a comment introduces its evidence with a label such as `uv 0.12.9 locally / 0.12.19 in CI:`
+- **THEN** the label is removed and the version, if still needed, appears only in a version-specific URL or a `verified against` phrase
+
+#### Scenario: Instructions name a tool release
+
+- **WHEN** contributor instructions need the release of a pinned tool
+- **THEN** they reference the file that pins it instead of repeating its version
 
 ### Requirement: Override explanations remain traceable and current
 
