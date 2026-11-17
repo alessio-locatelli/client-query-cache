@@ -22,6 +22,8 @@ mod keys;
 #[cfg(all(feature = "python", not(loom)))]
 mod local_cache;
 mod memory;
+#[cfg(not(loom))]
+mod probes;
 #[cfg(all(feature = "python", not(loom)))]
 mod python;
 mod ring;
