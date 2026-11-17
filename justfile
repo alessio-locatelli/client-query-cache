@@ -1,28 +1,28 @@
-# Just 1.57.0: https://just.systems/man/en/settings.html
+# Settings defaults: https://github.com/casey/just/blob/1.59.0/README.md#table-of-settings
 # The default is false. We override it because shell recipes consume original positional arguments.
 set positional-arguments
 # The default is running the first recipe. We override it because plain just must list commands without running setup.
 set default-list
 
-# Bash 5.3 help set; set -euo pipefail in setup-rust, docs-build-editions, typecheck-examples,
+# set -euo pipefail in setup-rust, docs-build-editions, typecheck-examples,
 # verify-release, benchmark-shared-cache, benchmark-stream-cost, pytest, test-pymongo-min,
 # test-pymongo-releases, test-mongodb-min,
 # enable-podman-socket, podman, test-memory, test-integration, test-e2e, latency-chart and
 # tests_and_coverage:
-# The default is inherited Bash options, normally all three off. We override it because
-# failed commands, unset variables and failed pipeline stages must stop the recipe.
-# npm 11 loglevel: https://docs.npmjs.com/cli/v11/using-npm/config#loglevel
-# --silent in setup/format: The default is normal progress output. We override it
-# because these commands should emphasize diagnostics.
+# The default is inherited from an exported SHELLOPTS, otherwise off (verified against the
+# SHELLOPTS entry in the Bash 5.3 manual). We override it because failed commands, unset
+# variables and failed pipeline stages must stop the recipe.
+# --silent in setup/format: The default is the notice log level
+# (https://docs.npmjs.com/cli/v12/using-npm/config#loglevel). We override it because these
+# commands should emphasize diagnostics.
 dev_image := "localhost/client-query-cache-dev:0.1.0"
 dev_container := "client-query-cache-dev"
-# uv 0.12.9 locally / 0.12.19 in CI: https://docs.astral.sh/uv/reference/environment/#uv_locked
-# The default is inherited from the caller, otherwise unset. We override it because project recipes must reject a stale lockfile.
+# The default is inherited from the caller, otherwise unset (https://github.com/astral-sh/uv/blob/0.13.6/crates/uv-static/src/env_vars.rs#L388-L391). We override it because project recipes must reject a stale lockfile.
 export UV_LOCKED := "1"
 # Project-local Cargo tools take precedence over unrelated global installations.
 export PATH := justfile_directory() / ".rust-tools/bin" + ":" + env("PATH")
 # Cargo check/test and cargo-shear/cargo-deny metadata:
-# https://doc.rust-lang.org/cargo/commands/cargo-test.html#manifest-options
+# https://doc.rust-lang.org/1.100.0/cargo/commands/cargo-test.html#manifest-options
 # --locked in rust-lint, rust-tests, and rust-models: The default permits updating
 # Cargo.lock. We override it because validation must reject stale locked metadata.
 # RUSTFLAGS in rust-lint/rust-models: The default inherits the caller's flags,
@@ -44,8 +44,8 @@ setup:
 
 lint:
     uv run -- prek run --all-files
-    # mypy 2.3.1: https://mypy.readthedocs.io/en/stable/command_line.html
-    # --install-types: The default is false. We override it because quality checks also
+    # --install-types: The default is false
+    # (https://github.com/python/mypy/blob/v2.4.1/docs/source/command_line.rst). We override it because quality checks also
     # install available missing stubs.
     uv run -- mypy --install-types
     just typecheck-examples
@@ -58,22 +58,21 @@ typecheck-examples:
     #!/usr/bin/env bash
     set -euo pipefail
 
-    # uv 0.12.9 locally / 0.12.19 in CI: https://docs.astral.sh/uv/reference/cli/
     # env -u UV_LOCKED: The default is the exported value 1. We override it because PEP
     # 723 environments resolve dependencies without the project lockfile.
     # uv --quiet: The default is normal progress output. We override it because this
     # loop should emphasize diagnostics.
     for example in examples/*.py; do
         script_python="$(env -u UV_LOCKED uv sync --quiet --script "${example}" --output-format json | uv run -- python -c 'import json, sys; print(json.load(sys.stdin)["sync"]["environment"]["python"]["path"])')"
-        # mypy 2.3.1 --python-executable: The default is mypy's interpreter. We override
-        # it because each example has its own installed dependencies.
+        # --python-executable: The default is mypy's interpreter. We override it because each example has its own installed dependencies.
         uv run -- mypy --python-executable "${script_python}" "${example}"
     done
 
 ci-lint:
-    # zizmor 1.30.0: https://docs.zizmor.sh/usage/
-    # ZIZMOR_OFFLINE: The default is false. We override it because local inspection must
-    # not query GitHub APIs.
+    # Option defaults: https://github.com/zizmorcore/zizmor/blob/v1.31.1/docs/usage.md
+    # ZIZMOR_OFFLINE: The default is inherited from the caller, otherwise online mode when
+    # a GitHub token is set. We override it because local inspection must not query GitHub
+    # APIs.
     # --fix: The default is no fixes. We override it because this recipe applies
     # available workflow corrections.
     # --persona: The default is regular. We override it because review includes pedantic
@@ -91,12 +90,13 @@ setup-rust:
     #!/usr/bin/env bash
     set -euo pipefail
     uv python install
-    # rustup 1.29 toolchain install --no-self-update: The default may also update rustup.
-    # We override it because setup installs only the selected toolchain.
+    # rustup toolchain install --no-self-update: The default may also update rustup
+    # (verified against rustup 1.29). We override it because setup installs only the
+    # selected toolchain.
     rustup toolchain install --no-self-update
     rustup component add rustfmt clippy llvm-tools-preview
     rust_toolchain="$("$(uv python find)" -c 'import tomllib; print(tomllib.load(open("rust-toolchain.toml", "rb"))["toolchain"]["channel"])')"
-    # Cargo install: https://doc.rust-lang.org/cargo/commands/cargo-install.html
+    # Cargo install: https://doc.rust-lang.org/1.100.0/cargo/commands/cargo-install.html
     # +toolchain: The default is the implicit toolchain-file selection, which Cargo reports
     # with a warning. We override it because the tools deliberately build with that release.
     # --locked: The default resolves dependencies anew. We override it because
@@ -114,7 +114,7 @@ rust-lint: rust-fmt-check
     #!/usr/bin/env bash
     set -euo pipefail
     export PYO3_PYTHON="$(uv python find)"
-    # Clippy: https://doc.rust-lang.org/clippy/usage.html
+    # Clippy: https://doc.rust-lang.org/1.100.0/clippy/usage.html
     # --all-targets/--all-features: The defaults select default targets/features. We
     # override them because checks must include tests and the shipped Python bindings.
     # -D warnings: The default reports warnings. We override it because warnings,
@@ -122,11 +122,11 @@ rust-lint: rust-fmt-check
     cargo clippy --locked --manifest-path native/shared-index/Cargo.toml --all-targets --all-features -- -D warnings
     # --cfg loom selects model synchronization instead of production atomics.
     RUSTFLAGS='--cfg loom' cargo clippy --locked --manifest-path native/shared-index/Cargo.toml --all-targets -- -D warnings
-    # cargo-shear: https://github.com/Boshen/cargo-shear#usage
+    # cargo-shear: https://github.com/Boshen/cargo-shear/blob/v1.14.0/README.md#usage
     # --deny-warnings: The default allows warnings. We override it because unused
     # optional dependencies and unlinked source files must fail validation too.
     cargo shear --locked --deny-warnings native/shared-index
-    # cargo-deny: https://embarkstudios.github.io/cargo-deny/cli/check.html
+    # cargo-deny: https://github.com/EmbarkStudios/cargo-deny/blob/0.20.2/docs/src/cli/check.md
     # --all-features: The default selects default features. We override it because
     # dependency policy must include optional Python bindings.
     # --deny warnings: The default permits warnings. We override it because every
@@ -134,7 +134,7 @@ rust-lint: rust-fmt-check
     cargo deny --locked --manifest-path native/shared-index/Cargo.toml --all-features check --deny warnings
 
 rust-models:
-    # Cargo test: https://doc.rust-lang.org/cargo/commands/cargo-test.html
+    # Cargo test: https://doc.rust-lang.org/1.100.0/cargo/commands/cargo-test.html
     # --release: The default is unoptimized. We override it because exhaustive
     # bounded Loom exploration must finish within the validation budget.
     RUSTFLAGS='--cfg loom' cargo test --locked --release --manifest-path native/shared-index/Cargo.toml --quiet
@@ -147,41 +147,42 @@ rust-tests:
     just rust-models
 
 build:
-    # Maturin 1.16: https://www.maturin.rs/distribution
+    # Maturin options: https://github.com/PyO3/maturin/blob/v1.16.0/guide/src/distribution.md
     # maturin pep517 write-sdist: The default maturin build writes only wheels. We write the
     # sdist to verify a source build too. The plain `maturin sdist` command probes
     # ./Cargo.toml and reports a missing manifest before reading pyproject.toml.
-    # --release: The default is the dev profile. We override it for optimized artifacts.
+    # --release: The default is the dev profile. We override it because release artifacts
+    # must be optimized.
     # --pgo: The default is a build without profile guidance. We override it because release
     # wheels are trained with the pgo-command in pyproject.toml; the editable and sdist builds
     # stay unprofiled.
-    # --zig: The default is the host linker. We override it for portable glibc symbols.
+    # --zig: The default is the host linker. We override it because release wheels need
+    # portable glibc symbols.
     # --compatibility: The default is the lowest detected tag, possibly linux. We
     # override it because PyPI requires a portable wheel for our glibc 2.28 target.
-    # --locked: The default permits lock updates. We override it for reproducibility.
-    # cargo-zigbuild python_path: https://github.com/rust-cross/cargo-zigbuild/blob/main/src/zig/locate.rs
-    # CARGO_ZIGBUILD_PYTHON_PATH: The default is python3, used to invoke ziglang.
+    # --locked: The default permits lock updates. We override it because release builds must
+    # use the committed Cargo.lock.
+    # CARGO_ZIGBUILD_PYTHON_PATH: The default is python3, used to invoke ziglang
+    # (https://github.com/rust-cross/cargo-zigbuild/blob/v0.24.0/src/zig/locate.rs#L163).
     # We override it because the release linker needs the argument fix in scripts/zig-linker.sh.
-    # uv: https://docs.astral.sh/uv/reference/environment/#uv_link_mode
-    # UV_LINK_MODE: The default is clone on Linux, with a warning when the training environment in
-    # /tmp sits on another filesystem than uv's cache. We override it to copy to avoid that warning.
-    # uv: https://docs.astral.sh/uv/reference/environment/#uv_no_default_groups
-    # UV_NO_DEFAULT_GROUPS: The default is false, so uv adds the dev group to every group
-    # selection, including the one Maturin 1.16 exports for the training environment. We
-    # override it so that environment holds only the wheel's dependencies. --group build
-    # supplies Maturin itself.
+    # UV_LINK_MODE: The default is clone on Linux (https://github.com/astral-sh/uv/blob/0.13.6/crates/uv-static/src/env_vars.rs#L175-L178), with a warning when
+    # the training environment in /tmp sits on another filesystem than uv's cache. We override
+    # it because copying avoids that warning.
+    # UV_NO_DEFAULT_GROUPS: The default is false (https://github.com/astral-sh/uv/blob/0.13.6/crates/uv-static/src/env_vars.rs#L283-L286), so uv adds the dev
+    # group to every group selection, including the one Maturin exports for the training
+    # environment. We override it because that environment must hold only the wheel's
+    # dependencies. --group build supplies Maturin itself.
     uv run --group build -- maturin pep517 write-sdist --sdist-directory dist
     UV_NO_DEFAULT_GROUPS=1 UV_LINK_MODE=copy CARGO_ZIGBUILD_PYTHON_PATH="{{ justfile_directory() }}/scripts/zig-linker.sh" uv run --group build -- maturin build --release --pgo --zig --compatibility manylinux_2_28 --locked --out dist
 
 docs-serve:
-    # uv 0.12.9 locally / 0.12.19 in CI --only-group docs in docs-serve/docs-build/docs-build-editions:
-    # The default is the project and default groups (dev). We override it because these
+    # --only-group docs in docs-serve/docs-build/docs-build-editions: The default is the
+    # project and default groups (dev) (https://github.com/astral-sh/uv/blob/0.13.6/crates/uv-cli/src/lib.rs#L6808-L6814). We override it because these
     # commands need only documentation tools.
     uv run --only-group docs -- zensical serve
 
 docs-build:
-    # Zensical 0.0.68:
-    # https://github.com/zensical/zensical/blob/v0.0.68/python/zensical/main.py
+    # Option defaults: https://github.com/zensical/zensical/blob/v0.0.74/python/zensical/main.py#L55-L68
     # --clean: The default is false. We override it because publication checks must
     # rebuild without the prior cache.
     # --strict: The default is false. We override it because publication must fail on
@@ -198,7 +199,7 @@ docs-build-editions stable_tag="":
         # --jq: The default is the complete response. We override it because the
         # assembler needs only the selected release tag.
         stable_tag="$(gh api 'repos/{owner}/{repo}/releases/latest' --jq .tag_name)"
-        # Git 2.55.0: https://git-scm.com/docs/git-fetch
+        # Git: https://git-scm.com/docs/git-fetch/2.56.1
         # --no-tags: The default is inherited remote.origin.tagOpt, otherwise
         # auto-following reachable tags. We override it because assembly needs only
         # the selected release tag.
@@ -238,7 +239,7 @@ verify-release tag='': build
         # uv --isolated --no-project: The default is the discovered project environment.
         # We override it because verification must import the installed artifact in a
         # fresh environment.
-        # Python 3.14 -I: https://docs.python.org/3.14/using/cmdline.html#cmdoption-I
+        # Python -I: https://docs.python.org/3.15/using/cmdline.html#cmdoption-I
         # The default is normal user-site/environment/script-path loading. We override
         # it because local packages must not satisfy artifact imports.
         # The default is the exported UV_LOCKED=1. We override it because --no-project
@@ -268,7 +269,7 @@ benchmark-shared-cache async_loop="asyncio" *args:
     if [[ "${async_loop}" == uvloop ]]; then
         extra_packages=(--with uvloop)
     fi
-    # uv: https://docs.astral.sh/uv/reference/cli/#uv-run
+    # uv run --isolated: https://github.com/astral-sh/uv/blob/0.13.6/crates/uv-cli/src/lib.rs#L3354-L3365
     # --isolated --no-project: Measure the installed wheel without the editable project.
     # Clear inherited sync/lock policy as in verify-release so installation is not skipped
     # and --no-project does not warn about UV_LOCKED. The selected development Python
@@ -305,7 +306,7 @@ test-pymongo-min:
     set -euo pipefail
 
     source "{{ justfile_directory() }}/scripts/testcontainers-bridge.sh"
-    # tox 4.64.5: https://tox.wiki/en/latest/cli_interface.html
+    # tox: https://tox.wiki/en/4.67.5/reference/cli.html
     # -r: The default reuses environments. We override it because each minimum-driver
     # run must resolve the current published dependency floor in a fresh environment.
     # -e: The default is tox.ini envlist. We override it because this command runs
@@ -346,7 +347,7 @@ test-mongodb-min:
     #!/usr/bin/env bash
     set -euo pipefail
 
-    # pytest 9.1.1: https://docs.pytest.org/en/stable/reference/reference.html
+    # pytest: https://github.com/pytest-dev/pytest/blob/9.2.0/doc/en/reference/reference.rst
     # -m: The default is pytest.ini not memory. We override it because this lane runs
     # only tests that use MongoDB.
     # --ignore: The default is pytest.ini specifications only. We override it because
@@ -443,13 +444,11 @@ test-memory:
         Linux) ;;
         *) printf '%s\n' 'Memory tests require the locked Linux environment: https://bloomberg.github.io/memray/' >&2; exit 1 ;;
     esac
-    # pytest 9.1.1 / xdist 3.8.0:
     # For -m memory: The default is not memory. We override it because this lane runs
     # allocation tests.
     # For -n 0: The default is auto. We override it because allocation measurements must
-    # run without competing worker processes.
-    # https://pytest-xdist.readthedocs.io/en/stable/distribution.html
-    # pytest-memray 1.11.0: https://pytest-memray.readthedocs.io/en/latest/usage.html
+    # run without competing worker processes (https://github.com/pytest-dev/pytest-xdist/blob/v3.8.0/docs/distribution.rst).
+    # pytest-memray: https://pytest-memray.readthedocs.io/en/v1.11.0/usage.html
     # --trace-python-allocators: The default is false. We override it because allocation
     # ceilings must include Python allocator activity.
     # --capture=no: The default is fd capture. We override it because retained captured
@@ -466,7 +465,7 @@ test-integration:
     #!/usr/bin/env bash
     set -euo pipefail
 
-    # pytest 9.1.1: https://docs.pytest.org/en/stable/reference/reference.html
+    # pytest: https://github.com/pytest-dev/pytest/blob/9.2.0/doc/en/reference/reference.rst
     # --log-file-level=WARNING in test-integration/test-e2e/tests_and_coverage:
     # The default is pytest.ini DEBUG. We override it because uploaded CI logs need
     # warnings/failures without verbose successful-operation traces.
@@ -501,7 +500,7 @@ latency-chart remote_deployment:
     report_dir="$(mktemp -d /tmp/client-query-cache-latency-chart.XXXXXX)"
     uv run -- python -m benchmarks.stream_cost.run --output-dir "${report_dir}" --workload read_heavy-small
     uv run -- python -m benchmarks.cached_hit_latency --output "${report_dir}/cached-hit-latency.json"
-    # pytest-xdist 3.8.0: https://pytest-xdist.readthedocs.io/en/stable/distribution.html
+    # pytest-xdist: https://github.com/pytest-dev/pytest-xdist/blob/v3.8.0/docs/distribution.rst
     # -n: The default is the configured automatic worker count. We override it because
     # latency measurements must run without competing workers.
     just pytest -- -n 0 tests/benchmark/real_server/test_cache_benefit.py
@@ -522,10 +521,10 @@ tests_and_coverage:
     if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
         pytest_log_args=(--log-file-level=WARNING)
     fi
-    # pytest-cov 7.1.0: https://pytest-cov.readthedocs.io/en/latest/config.html
+    # pytest-cov: https://github.com/pytest-dev/pytest-cov/blob/v7.1.0/docs/config.rst
     # --cov: The default is no coverage measurement. We override it because this gate
     # enforces the 100% threshold.
-    # pytest 9.1.1 -qq: The default is verbosity zero. We override it because
+    # -qq: The default is verbosity zero. We override it because
     # contributor output should emphasize failures.
     just pytest -- --cov -qq "${pytest_log_args[@]}"
     uv run -- python -c 'from pathlib import Path; import sys; coverage_exclusions = [(path, line_number) for path in Path("src/client_query_cache").rglob("*.py") for line_number, line in enumerate(path.read_text().splitlines(), start=1) if "pragma: no cover" in line]; sys.stderr.write("".join(f"{path}:{line_number}: prohibited pragma: no cover\n" for path, line_number in coverage_exclusions)); sys.exit(bool(coverage_exclusions))'

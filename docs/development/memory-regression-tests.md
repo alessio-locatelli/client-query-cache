@@ -33,7 +33,7 @@ decoded hits, and admission captures, so the harness keeps no growing workload h
 writes invalidate generations but can leave stale entries resident; only clearing and closing are
 required to reclaim all entries.
 
-[pytest-memray](https://pytest-memray.readthedocs.io/en/latest/usage.html) tracks peak live allocations
+[pytest-memray](https://pytest-memray.readthedocs.io/en/v1.11.0/usage.html) tracks peak live allocations
 in the test body, across all threads, with Python allocator tracing enabled. Fixtures and imports lie
 outside this boundary. The command disables stdio capture, raises both logging thresholds to CRITICAL,
 and sends file logging to `/dev/null` to avoid retaining debug history. Pytest's logging plugin stays
@@ -64,14 +64,14 @@ The calibration command below uses these options. Defaults include the inherited
 - `--timeout=120`: The default is configured 30s. We override it because profiled
   allocation workloads need a longer bounded runtime.
 
-Sources: [pytest-memray 1.11.0 options](https://pytest-memray.readthedocs.io/en/latest/usage.html),
-[pytest logging/capture](https://docs.pytest.org/en/stable/reference/reference.html),
-and [pytest-timeout 2.4.0](https://pypi.org/project/pytest-timeout/2.4.0/).
+Sources: [pytest-memray options](https://pytest-memray.readthedocs.io/en/v1.11.0/usage.html),
+[pytest logging/capture](https://github.com/pytest-dev/pytest/blob/9.2.0/doc/en/reference/reference.rst),
+and [pytest-timeout options](https://pypi.org/project/pytest-timeout/2.4.0/).
 
 ## Calibration
 
 Calibrate on Ubuntu 24.04, the same operating system family as CI's `ubuntu-24.04` runner label,
-using `.python-version`, `uv.lock`, uv 0.12.19, and Just 1.57.0. Run ten separate processes per case
+using `.python-version`, `uv.lock`, and the uv and Just versions pinned in [the CI toolchain action](../../.github/actions/setup-toolchain/action.yml). Run ten separate processes per case
 without coverage, preserving the command's capture and tracing flags. Use a temporary diagnostic
 ceiling while measuring, then commit each case's literal
 whole-MiB ceiling as `ceil(1.5 * H / 1048576)`, where H is its largest measured peak in bytes. Stop and
@@ -80,10 +80,10 @@ workload changes and record the reason for changing a ceiling.
 
 The calibration command below uses `uv --locked`: The default is inherited `UV_LOCKED`, otherwise
 unlocked resolution. We override it because this standalone command must validate the lockfile
-([uv 0.12.x](https://docs.astral.sh/uv/reference/environment/#uv_locked)). For `-m memory`: The
+([`UV_LOCKED`](https://github.com/astral-sh/uv/blob/0.13.6/crates/uv-static/src/env_vars.rs#L388-L391)). For `-m memory`: The
 default is configured `not memory`. We override it because calibration measures the memory tier.
 For `-n 0`: The default is configured `auto`. We override it because allocation measurements must
-run without competing worker processes ([xdist 3.8.0](https://pytest-xdist.readthedocs.io/en/stable/distribution.html)).
+run without competing worker processes ([pytest-xdist distribution](https://github.com/pytest-dev/pytest-xdist/blob/v3.8.0/docs/distribution.rst)).
 
 ```bash
 for case in identity-with-alias namespace; do

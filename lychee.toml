@@ -1,6 +1,5 @@
-# Lychee 0.24.2: https://github.com/lycheeverse/lychee/blob/lychee-v0.24.2/lychee-bin/src/config/mod.rs
-# Verbosity: https://github.com/lycheeverse/lychee/blob/lychee-v0.24.2/lychee-bin/src/verbosity.rs
-# The default is warn. We override it because link checks need per-link diagnostics in CI logs.
+# Defaults of the options below: https://github.com/lycheeverse/lychee/blob/lychee-v0.24.2/lychee-bin/src/config/mod.rs
+# The default is warn (https://github.com/lycheeverse/lychee/blob/lychee-v0.24.2/lychee-bin/src/verbosity.rs). We override it because link checks need per-link diagnostics in CI logs.
 verbose = "info"
 # The default is color. We override it because hook output must remain readable in plain logs.
 mode = "plain"

@@ -1,12 +1,13 @@
 [run]
 plugins = covdefaults
-# coverage.py 7.16.1: https://coverage.readthedocs.io/en/latest/config.html#run-concurrency
-# Retain thread measurement when adding spawned benchmark workers.
+# The default is thread (https://coverage.readthedocs.io/en/7.16.1/config.html#run-concurrency).
+# We override it because spawned benchmark workers need multiprocessing measurement while thread
+# measurement is retained.
 concurrency =
     multiprocessing
     thread
-# coverage.py 7.16.1: https://coverage.readthedocs.io/en/latest/config.html#run-sigterm
-# The default is false. We override it to retain measurements from terminated workers.
+# The default is false (https://coverage.readthedocs.io/en/7.16.1/config.html#run-sigterm).
+# We override it because measurements from terminated workers must be retained.
 sigterm = true
 omit =
     tests/e2e/*

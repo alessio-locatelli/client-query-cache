@@ -38,8 +38,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # checkout v7.0.1:
-          # https://github.com/actions/checkout/blob/3d3c42e5aac5ba805825da76410c181273ba90b1/action.yml
+          # actions/checkout inputs: https://github.com/actions/checkout/blob/3d3c42e5aac5ba805825da76410c181273ba90b1/action.yml
           # persist-credentials: The default is true. We override it because later
           # repository commands must not inherit checkout credentials.
           persist-credentials: false
@@ -57,14 +56,17 @@ jobs:
           rust: "true"
           rust-components: llvm-tools
 
-      # uv 0.12.19: https://docs.astral.sh/uv/reference/cli/
-      # --locked: The default is inherited UV_LOCKED, otherwise unlocked resolution. We
-      # override it because this standalone CI command must validate the committed
+      # --locked: The default is inherited UV_LOCKED, otherwise unlocked resolution
+      # (https://github.com/astral-sh/uv/blob/0.13.6/crates/uv-cli/src/lib.rs#L3674-L3679).
+      # We override it because this standalone CI command must validate the committed
       # lockfile.
-      # --no-default-groups --group: The default includes dev. We override it
-      # because this job needs only the build tools.
-      # UV_NO_SYNC: The default is false. We override it because uv run must
-      # reuse the explicitly synchronized environment without adding dev.
+      # --no-default-groups --group: The default includes dev
+      # (https://github.com/astral-sh/uv/blob/0.13.6/crates/uv-cli/src/lib.rs#L6801-L6806).
+      # We override it because this job needs only the build tools.
+      # UV_NO_SYNC: The default is false
+      # (https://github.com/astral-sh/uv/blob/0.13.6/crates/uv-static/src/env_vars.rs#L383-L386).
+      # We override it because uv run must reuse the explicitly synchronized environment
+      # without adding dev.
       - run: uv sync --locked --no-default-groups --group build
 
       - run: just verify-release "${RELEASE_TAG}"
@@ -76,8 +78,7 @@ jobs:
           name: dist-${{ matrix.runner }}
           # Keep one sdist; ARM contributes its verified wheel only.
           path: ${{ matrix.runner == 'ubuntu-24.04' && 'dist/' || 'dist/*.whl' }}
-          # upload-artifact v7.0.1:
-          # https://github.com/actions/upload-artifact/blob/043fb46d1a93c77aae656e7c1c64a875d1fc6a0a/action.yml
+          # actions/upload-artifact inputs: https://github.com/actions/upload-artifact/blob/043fb46d1a93c77aae656e7c1c64a875d1fc6a0a/action.yml
           # retention-days: The default is inherited repository/organization retention.
           # We override it because intermediate release artifacts and diagnostics need
           # bounded storage lifetimes.
@@ -110,7 +111,7 @@ jobs:
         with:
           subject-path: dist/*
 
-      # gh 2.97.0: https://cli.github.com/manual/gh_attestation_verify
+      # gh: https://cli.github.com/manual/gh_attestation_verify
       # --bundle: The default is fetching attestations from the GitHub attestation API.
       # We override it because the freshly created attestation may not be queryable yet.
       # --signer-workflow: The default is no constraint on the signing workflow. We
@@ -146,7 +147,7 @@ jobs:
         env:
           RELEASE_TAG: ${{ github.ref_name }}
 
-      # gh 2.97.0: https://cli.github.com/manual/gh_release_create
+      # gh: https://cli.github.com/manual/gh_release_create
       # --draft: The default is publishing immediately. We override it because the
       # GitHub release must stay staged until PyPI succeeds.
       - run: gh release create "${RELEASE_TAG}" --draft --title "${RELEASE_TAG}" --notes-file release-notes.md
@@ -185,7 +186,7 @@ jobs:
       # The default is workflow read access. Publishing the draft requires Contents write.
       contents: write # Required by gh release edit --draft=false.
     steps:
-      # gh 2.97.0: https://cli.github.com/manual/gh_release_edit
+      # gh: https://cli.github.com/manual/gh_release_edit
       # --draft=false: The default is preserving existing draft state. We override it
       # because successful PyPI publication must expose the staged release.
       - run: gh release edit "${RELEASE_TAG}" --draft=false --repo "${GITHUB_REPOSITORY}"

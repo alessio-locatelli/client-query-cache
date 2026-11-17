@@ -6,8 +6,7 @@ repository = "https://github.com/alessio-locatelli/client-query-cache"
 documentation = "https://alessio-locatelli.github.io/client-query-cache/"
 edition = "2024"
 license = "Apache-2.0"
-# Cargo 1.95 publish field: https://doc.rust-lang.org/cargo/reference/manifest.html#the-publish-field
-# The default is publishing to any registry allowed. We override it because the native crate ships only inside the Python distribution.
+# The default is publishing to any registry allowed (https://doc.rust-lang.org/1.100.0/cargo/reference/manifest.html#the-publish-field). We override it because the native crate ships only inside the Python distribution.
 publish = false
 
 [lib]
@@ -29,14 +28,11 @@ rustc-hash = { version = "2.1.3", optional = true }
 loom = "0.7.2"
 
 [lints.rust]
-# Rust 1.95 check-cfg: https://doc.rust-lang.org/rustc/check-cfg/cargo-specifics.html
-# The default is warning on every cfg name Cargo does not declare. We override it because the loom model tests are selected with --cfg loom.
+# The default is warning on every cfg name Cargo does not declare (https://doc.rust-lang.org/1.100.0/rustc/check-cfg/cargo-specifics.html). We override it because the loom model tests are selected with --cfg loom.
 unexpected_cfgs = { level = "warn", check-cfg = ["cfg(loom)"] }
 
 [profile.release]
-# Cargo 1.99 lto: https://doc.rust-lang.org/cargo/reference/profiles.html#lto
-# The default is false, which optimizes across a crate's own code generation units only. We override it because whole-program optimization across the crate and PyO3 shortens the native cache entry points (reports/rust-build-profile/summary.md).
+# The default is false (https://doc.rust-lang.org/1.100.0/cargo/reference/profiles.html#lto), which optimizes across a crate's own code generation units only. We override it because whole-program optimization across the crate and PyO3 shortens the native cache entry points (reports/rust-build-profile/summary.md).
 lto = "fat"
-# Cargo 1.99 codegen-units: https://doc.rust-lang.org/cargo/reference/profiles.html#codegen-units
-# The default is 16. We override it because a single unit lets the optimizer inline across the whole extension.
+# The default is 16 (https://doc.rust-lang.org/1.100.0/cargo/reference/profiles.html#codegen-units). We override it because a single unit lets the optimizer inline across the whole extension.
 codegen-units = 1

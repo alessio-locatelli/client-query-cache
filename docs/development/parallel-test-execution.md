@@ -1,7 +1,7 @@
 # Parallel test execution
 
 Ordinary pytest commands use automatic parallelism with at most four workers. The
-[`worksteal` scheduler](https://pytest-xdist.readthedocs.io/en/stable/distribution.html)
+[`worksteal` scheduler](https://github.com/pytest-dev/pytest-xdist/blob/v3.8.0/docs/distribution.rst)
 redistributes pending tests when workers run out of work, allowing slow tests in the same file
 to run on different workers. Module fixtures can therefore be instantiated on multiple workers.
 Workers that need MongoDB own separate session replica sets. MongoDB startup uses
@@ -11,7 +11,7 @@ Choose a worker count for the available resources:
 
 For `-n 2`, `-n 8` and `-n 0` below: The default is the configured automatic worker count.
 We override it because these examples select a concrete worker budget for available resources
-([xdist 3.8.0](https://pytest-xdist.readthedocs.io/en/stable/distribution.html)).
+([pytest-xdist distribution](https://github.com/pytest-dev/pytest-xdist/blob/v3.8.0/docs/distribution.rst)).
 
 ```console
 just pytest -- -n 2 tests/core
@@ -20,7 +20,7 @@ just pytest -- -n 0 tests/core
 ```
 
 Numeric counts have no repository ceiling; `-n 0` runs serially. Automatic and logical CPU selection
-are capped at four. Worker restarts retain [xdist's defaults](https://pytest-xdist.readthedocs.io/en/stable/distribution.html).
+are capped at four. Worker restarts retain [xdist's defaults](https://github.com/pytest-dev/pytest-xdist/blob/v3.8.0/docs/distribution.rst).
 
 ## Coverage
 
@@ -30,7 +30,7 @@ with pytest-cov. It uses the existing coverage configuration, isolated coverage 
 
 For `PYTEST_ADDOPTS='-n 0'`: The default is no environment-supplied options. We override it
 because this comparison must disable automatic workers while keeping the coverage recipe
-([pytest 9.1.1 precedence](https://docs.pytest.org/en/stable/how-to/usage.html#specifying-which-tests-to-run)).
+([pytest option precedence](https://github.com/pytest-dev/pytest/blob/9.2.0/doc/en/how-to/usage.rst#specifying-which-tests-to-run)).
 For both `CI=true` commands: The default is inherited from the caller, otherwise unset.
 We override it because this comparison must use the external benchmark's CI skip policy.
 
@@ -69,7 +69,7 @@ For serial-debugging `-n 0`: The default is the configured automatic worker coun
 because serial execution helps isolate distribution failures. For `--pdb`: The default is false.
 We override it because this example opens the debugger at the failure site. For `-s`, the default
 is configured fd capture. We override it because interactive debugging needs live input/output
-([pytest 9.1.1](https://docs.pytest.org/en/stable/reference/reference.html)).
+([pytest reference](https://github.com/pytest-dev/pytest/blob/9.2.0/doc/en/reference/reference.rst)).
 
 ```console
 just pytest -- -n 0 --pdb <node-id>

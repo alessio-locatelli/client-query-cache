@@ -218,11 +218,10 @@ class IsolatedReplicaSet:
         try:
             host = container.get_container_host_ip()
             port = container.get_exposed_port(_MONGODB_PORT)
-            # PyMongo 4.18:
-            # https://pymongo.readthedocs.io/en/4.18.1/api/pymongo/mongo_client.html
-            # directConnection: The default is false. We override it because discovery
-            # would follow the internally advertised localhost address instead of the
-            # mapped port.
+            # directConnection: The default is false
+            # (https://pymongo.readthedocs.io/en/4.19.0/api/pymongo/mongo_client.html).
+            # We override it because discovery would follow the internally advertised
+            # localhost address instead of the mapped port.
             self._uri = f"mongodb://{host}:{port}/?directConnection=true"
             self._await_writable_primary()
         except Exception as error:

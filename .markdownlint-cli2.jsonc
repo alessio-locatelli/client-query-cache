@@ -6,21 +6,18 @@
     "CONTRIBUTING.md",
     "CHANGELOG.md",
   ],
-  // markdownlint-cli2 0.23.3: https://github.com/DavidAnson/markdownlint-cli2/blob/v0.23.3/schema/markdownlint-cli2-config-schema.json
-  // The default is false. We override it because quality logs should show diagnostics without a repeated tool banner.
+  // The default is false (https://github.com/DavidAnson/markdownlint-cli2/blob/v0.24.0/schema/markdownlint-cli2-config-schema.json). We override it because quality logs should show diagnostics without a repeated tool banner.
   "noBanner": true,
   "ignores": ["specifications/**", "site/**", ".cache/**"],
   "config": {
-    // markdownlint 0.41.1 rules: https://github.com/DavidAnson/markdownlint/blob/v0.41.1/doc/md013.md
-    // The default is an 80-character limit. We override it because Markdown paragraphs, tables, and evidence links use their natural lengths.
+    // The default is an 80-character limit (https://github.com/DavidAnson/markdownlint/blob/v0.42.0/doc/md013.md). We override it because Markdown paragraphs, tables, and evidence links use their natural lengths.
     "line-length": false,
   },
   "overrides": [
     {
       "filter": ["CHANGELOG.md"],
       "config": {
-        // https://github.com/DavidAnson/markdownlint/blob/v0.41.1/doc/md024.md
-        // The default is false. We override it because changelog sections repeat headings across releases while sibling duplicates remain errors.
+        // The default is false (https://github.com/DavidAnson/markdownlint/blob/v0.42.0/doc/md024.md). We override it because changelog sections repeat headings across releases while sibling duplicates remain errors.
         "no-duplicate-heading": { "siblings_only": true },
       },
       "combine": "merge",
@@ -28,8 +25,7 @@
     {
       "filter": ["CLAUDE.md", "AGENTS.md"],
       "config": {
-        // https://github.com/DavidAnson/markdownlint/blob/v0.41.1/doc/md041.md
-        // The default is true. We override it because agent instruction files begin with sections rather than a document title.
+        // The default is true (https://github.com/DavidAnson/markdownlint/blob/v0.42.0/doc/md041.md). We override it because agent instruction files begin with sections rather than a document title.
         "first-line-heading": false,
       },
       "combine": "merge",

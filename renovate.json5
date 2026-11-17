@@ -1,15 +1,13 @@
 {
   $schema: "https://docs.renovatebot.com/renovate-schema.json",
-  // :semanticCommits, Renovate 44.133.0: https://docs.renovatebot.com/presets-default/#semanticcommits
-  // The default is auto-detection. We override it because every dependency commit must use semantic prefixes.
+  // :semanticCommits: The default is auto-detection (https://docs.renovatebot.com/presets-default/#semanticcommits, verified against Renovate 44.133). We override it because every dependency commit must use semantic prefixes.
   extends: [
     "config:best-practices",
     ":semanticCommits",
     "customManagers:dockerfileVersions",
     "customManagers:githubActionsVersions",
   ],
-  // Renovate 44.133.0 preset evidence: https://docs.renovatebot.com/presets-config/#configbest-practices
-  // The default is the best-practices preset's weekly lock maintenance and config migration. We override it because Dependabot owns lockfiles and updater policy must avoid experimental automatic rewrites.
+  // The default is the best-practices preset's weekly lock maintenance and config migration (https://docs.renovatebot.com/presets-config/#configbest-practices, verified against Renovate 44.133). We override it because Dependabot owns lockfiles and updater policy must avoid experimental automatic rewrites.
   ignorePresets: [":maintainLockFilesWeekly", ":configMigration"],
   // Option defaults: https://github.com/renovatebot/renovate/blob/44.133.0/lib/config/options/index.ts
   // The default is all supported managers. We override it because Dependabot owns manifests and action references.

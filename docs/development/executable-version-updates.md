@@ -112,7 +112,7 @@ For `--platform=local` in both commands: The default is GitHub. We override it b
 must read the checkout without updating hosted PRs. For `--dry-run=extract` and `--dry-run=lookup`:
 The default is no dry run. We override it because inspection must stop before updates.
 For `LOG_LEVEL=debug`: The default is info. We override it because inspection needs resolved
-extraction/lookup details ([Renovate 44.133.0 options](https://docs.renovatebot.com/self-hosted-configuration/)).
+extraction/lookup details ([Renovate options](https://docs.renovatebot.com/self-hosted-configuration/), verified against Renovate 44.133).
 
 ```console
 LOG_LEVEL=debug renovate --platform=local --dry-run=extract
@@ -233,7 +233,7 @@ Stop acceptance by disabling its workflow, canceling pending auto-merge requests
 with `gh pr merge <number> --repo alessio-locatelli/client-query-cache --disable-auto`,
 and withdrawing the acceptance App credentials/access. For `--disable-auto`: The default is
 requesting a merge. We override it because rollback must cancel an existing native auto-merge
-request ([gh 2.97.0](https://cli.github.com/manual/gh_pr_merge)). Disabling repository auto-merge
+request ([`gh pr merge`](https://cli.github.com/manual/gh_pr_merge)). Disabling repository auto-merge
 alone does not cancel requests already enabled on PRs. Restore
 operator-owned settings from the snapshot as appropriate, retaining unrelated
 rules. Revert the repository change through a normal reviewed PR for code rollback.

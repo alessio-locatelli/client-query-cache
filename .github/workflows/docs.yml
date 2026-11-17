@@ -51,8 +51,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # checkout v7.0.1:
-          # https://github.com/actions/checkout/blob/3d3c42e5aac5ba805825da76410c181273ba90b1/action.yml
+          # actions/checkout inputs: https://github.com/actions/checkout/blob/3d3c42e5aac5ba805825da76410c181273ba90b1/action.yml
           # persist-credentials: The default is true. We override it because later
           # repository commands must not inherit checkout credentials.
           persist-credentials: false

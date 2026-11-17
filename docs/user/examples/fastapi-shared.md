@@ -59,7 +59,7 @@ This localhost demonstration has no authentication. Add trusted authentication a
 
 ## Application lifecycle
 
-The example pins Granian 2.8.4 and uses its [programmatic `serve(target_loader=..., wrap_loader=False)` API](https://github.com/emmett-framework/granian/blob/v2.8.4/granian/server/common.py). A picklable `functools.partial` carries only the connection; it creates the FastAPI app inside each worker. The script selects the `spawn` process method and runs the ASGI lifespan in each worker. The ordinary `granian module:app --workers N` command alone cannot distribute this parent's live connection; run the provided launcher.
+The example pins Granian and uses its [programmatic `serve(target_loader=..., wrap_loader=False)` API](https://github.com/emmett-framework/granian/blob/v2.8.4/granian/server/common.py). A picklable `functools.partial` carries only the connection; it creates the FastAPI app inside each worker. The script selects the `spawn` process method and runs the ASGI lifespan in each worker. The ordinary `granian module:app --workers N` command alone cannot distribute this parent's live connection; run the provided launcher.
 
 <!-- fmt:off -->
 

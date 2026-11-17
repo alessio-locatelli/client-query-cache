@@ -176,14 +176,11 @@ jobs:
         with:
           app-id: ${{ vars.DEPENDENCY_AUTOMERGE_APP_ID }}
           private-key: ${{ secrets.DEPENDENCY_AUTOMERGE_APP_PRIVATE_KEY }} # zizmor: ignore[secrets-outside-env] -- Repository App credential goes only to this pinned action after metadata verification.
-          # https://github.com/actions/create-github-app-token/blob/bcd2ba49218906704ab6c1aa796996da409d3eb1/lib/main.js
-          # Pinned v3.2.0: owner omission with repositories supplied uses GITHUB_REPOSITORY_OWNER.
-          # The default is the current repository owner. We keep it explicit because privileged token creation must remain visibly bound to that owner; a changed resolution could issue credentials for an unintended installation, which safe tests without the live App cannot cover.
+          # The default is the current repository owner: with repositories supplied, an omitted owner resolves to GITHUB_REPOSITORY_OWNER (https://github.com/actions/create-github-app-token/blob/64ab729a6294000f5aa4a4bc0b73d1f32bc45510/lib/main.js#L112-L113). We keep it explicit because privileged token creation must remain visibly bound to that owner; a changed resolution could issue credentials for an unintended installation, which safe tests without the live App cannot cover.
           owner: ${{ github.repository_owner }}
           # The default is all repositories owned by the supplied owner. We override it because acceptance credentials must be limited to this repository.
           repositories: ${{ github.event.repository.name }}
-          # Pinned v3.2.0 lib/main.js/get-permissions-from-inputs.js: omitted permissions inherit installation grants.
-          # For permission-contents and permission-pull-requests: The default is the installation's grants when no permission inputs are supplied, or no requested grant for a permission omitted from an explicit list. We override it because approval/rebase auto-merge needs exactly these write grants, without expanding to the App's other installation permissions.
+          # For permission-contents and permission-pull-requests: The default is the installation's grants when no permission inputs are supplied, or no requested grant for a permission omitted from an explicit list (https://github.com/actions/create-github-app-token/blob/64ab729a6294000f5aa4a4bc0b73d1f32bc45510/lib/get-permissions-from-inputs.js#L8-L26). We override it because approval/rebase auto-merge needs exactly these write grants, without expanding to the App's other installation permissions.
           permission-contents: write
           permission-pull-requests: write
 
@@ -207,7 +204,7 @@ jobs:
           # permits only rebase merging.
           # expectedHeadOid: The default is no head constraint. We override it because
           # acceptance must not merge a newer unvalidated head.
-          # gh 2.97.0 api --silent here and for the approval: https://cli.github.com/manual/gh_api
+          # gh api --silent here and for the approval: https://cli.github.com/manual/gh_api
           # The default is printing the response. We override it because successful
           # request metadata should not obscure diagnostics.
           if ! gh api graphql --silent -f query="$AUTO_MERGE_MUTATION" -f id="$PR_ID" -f head="$HEAD_SHA"; then

@@ -1,7 +1,7 @@
 services:
   mongo:
     image: mongo:9.0.4@sha256:dc28ed5a9d0fc616903c3f463bb1e53b92b49f441721b91926e87d90bf957ce8
-    # MongoDB 9.0 / official image entrypoint: https://www.mongodb.com/docs/manual/reference/program/mongod/
+    # The official image's entrypoint passes these options to mongod: https://www.mongodb.com/docs/manual/reference/program/mongod/
     # --replSet: The default is no replica set. We override it because change-stream tests and examples require replication.
     # --quiet: The default is normal logging. We override it because this contributor service should suppress routine server chatter.
     command: ["--replSet", "rs0", "--quiet"]

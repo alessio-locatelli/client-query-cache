@@ -85,8 +85,7 @@ anchor_linenums = true
 [project.markdown_extensions.pymdownx.superfences]
 
 [project.markdown_extensions.pymdownx.snippets]
-# PyMdown Extensions 12.1: https://facelessuser.github.io/pymdown-extensions/extensions/snippets/#options
-# The default is false. We override it because missing source snippets must fail documentation builds.
+# The default is false (https://github.com/facelessuser/pymdown-extensions/blob/12.1/docs/src/markdown/extensions/snippets.md#options). We override it because missing source snippets must fail documentation builds.
 check_paths = true
 
 [project.plugins.llmstxt]
