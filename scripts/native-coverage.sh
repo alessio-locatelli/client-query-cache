@@ -1,17 +1,25 @@
 #!/usr/bin/env bash
+# set -euo pipefail: The default is inherited from an exported SHELLOPTS, otherwise
+# off (verified against the SHELLOPTS entry in the Bash 5.3 manual). We override it
+# because failed commands, unset variables and failed pipelines must stop coverage
+# validation.
 set -euo pipefail
 
-# The default permits cargo-llvm-cov warnings. We override it because measurement
-# diagnostics must fail validation (cargo-llvm-cov 0.9.1 src/main.rs).
+# CARGO_LLVM_COV_DENY_WARNINGS: The default is inherited from the caller, otherwise
+# unset, which lets warnings succeed
+# (https://github.com/taiki-e/cargo-llvm-cov/blob/v0.9.1/src/main.rs#L54). We override
+# it because measurement diagnostics must fail validation.
 export CARGO_LLVM_COV_DENY_WARNINGS=1
 
-# Cargo target-dir: https://doc.rust-lang.org/cargo/reference/config.html#buildtarget-dir
-# The default inherits Cargo configuration, normally target/. We override it so
-# ordinary builds and Loom cannot replace artifacts while coverage is collected.
+# CARGO_TARGET_DIR: The default is inherited from the caller, otherwise Cargo's
+# build.target-dir configuration, otherwise target/ in the workspace root
+# (https://doc.rust-lang.org/1.100.0/cargo/reference/config.html#buildtarget-dir). We
+# override it because ordinary builds and Loom must not replace artifacts while
+# coverage is collected.
 export CARGO_TARGET_DIR="${PWD}/native/shared-index/target/native-coverage"
 
-# cargo-llvm-cov 0.9.1 external tests:
-# https://github.com/taiki-e/cargo-llvm-cov#get-coverage-of-external-tests
+# External-test workflow:
+# https://github.com/taiki-e/cargo-llvm-cov/blob/v0.9.1/README.md#get-coverage-of-external-tests
 # show-env must succeed before its output is evaluated; cleaning follows it so
 # dependencies remain reusable while stale crate artifacts and profiles do not.
 coverage_env="$(cargo llvm-cov show-env --sh --manifest-path native/shared-index/Cargo.toml)"
@@ -22,32 +30,44 @@ cargo llvm-cov clean --workspace --manifest-path native/shared-index/Cargo.toml
 # Keep Python exports out of the native harness: PyInit__shared_index has the
 # same exported name in both artifacts but different test/non-test coverage hashes.
 # The instrumented wheel below measures the Python binding bodies.
+# --locked in cargo test, maturin build, and uv export: The default permits lockfile
+# updates, unless UV_LOCKED is inherited for uv. We override it because measurement
+# must reject stale locked metadata.
 cargo test --locked --quiet --manifest-path native/shared-index/Cargo.toml
 
 mkdir -p /tmp/agents
 measurement_dir="$(mktemp -d /tmp/agents/native-coverage.XXXXXX)"
 printf 'Native coverage artifacts: %s\n' "${measurement_dir}"
-# uv 0.13 and maturin 1.15: https://docs.astral.sh/uv/reference/cli/
-# https://www.maturin.rs/distribution
-# --isolated/--only-group: The defaults reuse the project environment and its
-# default groups. We override them to build without replacing its editable wheel.
-# --compatibility linux: The project selects manylinux_2_28. We override it because
-# coverage uses the host linker rather than the portable release linker.
-# --locked: The default permits Cargo.lock updates. We override it for reproducibility.
+# --isolated: The default is inherited from UV_ISOLATED, otherwise reusing and updating
+# the project environment (https://github.com/astral-sh/uv/blob/0.13.6/crates/uv-cli/src/lib.rs#L3354-L3365).
+# We override it because coverage must leave the ordinary installation unchanged.
+# --only-group build: The default installs the project and its default groups
+# (https://github.com/astral-sh/uv/blob/0.13.6/crates/uv-cli/src/lib.rs#L6808-L6814).
+# We override it because building the wheel needs only maturin.
+# --compatibility linux: The default is inherited from [tool.maturin] compatibility in
+# pyproject.toml
+# (https://github.com/PyO3/maturin/blob/v1.16.0/guide/src/distribution.md). We
+# override it because coverage uses the host linker rather than the portable release
+# linker.
 uv run --quiet --isolated --only-group build -- maturin build --compatibility linux --locked --out "${measurement_dir}/wheels"
 uv venv --quiet --python "${PYO3_PYTHON}" "${measurement_dir}/venv"
-# --only-group test: The default exports the project and its default groups. We
-# override it because the instrumented wheel replaces the project and only test
-# dependencies are needed.
+# --only-group test: The default exports the project and its default groups, as for
+# uv run above. We override it because the instrumented wheel replaces the project and
+# only test dependencies are needed.
 uv export --quiet --locked --only-group test --output-file "${measurement_dir}/requirements.txt"
-# --link-mode copy: The default is clone on Linux. We override it because /tmp and
-# uv's cache can use different filesystems, which would produce fallback warnings.
+# --link-mode copy: The default is inherited from UV_LINK_MODE, otherwise clone on
+# Linux (https://github.com/astral-sh/uv/blob/0.13.6/crates/uv-cli/src/lib.rs#L7355-L7370).
+# We override it because /tmp and uv's cache can use different filesystems, which
+# would produce fallback warnings.
 uv pip install --quiet --python "${measurement_dir}/venv/bin/python" --link-mode copy --requirement "${measurement_dir}/requirements.txt" "${measurement_dir}"/wheels/*.whl
-# -n 0: pytest.ini selects auto workers. We override it to keep this bounded suite
-# in one process, including its native background-thread profile counters.
-# tempfile TMPDIR: https://docs.python.org/3/library/tempfile.html#tempfile.gettempdir
-# The default inherits the caller's temporary directory. We override it so test
-# artifacts remain under this measurement's /tmp/agents directory.
+# -n 0: The default is inherited from pytest.ini addopts, -n auto. We override it
+# because this bounded suite and its native background-thread profile counters must
+# stay in one process.
+# TMPDIR: The default is inherited from the caller, otherwise unset, so tempfile falls
+# back to a platform directory such as /tmp
+# (https://docs.python.org/3.15/library/tempfile.html#tempfile.gettempdir). We
+# override it because test artifacts must remain under this measurement's /tmp/agents
+# directory.
 TMPDIR="${measurement_dir}" "${measurement_dir}/venv/bin/python" -m pytest tests/shared_cache -m unit -n 0 -q --log-file "${measurement_dir}/pytest.log"
 # --fail-under-*: The default accepts any coverage. We override it because the
 # production gate requires every line and function (cargo-llvm-cov report --help).
