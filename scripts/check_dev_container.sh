@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Build and check the contributor image with docker, podman, or a host bridge.
-# Bash 5.3 help set: The default is inherited Bash options, normally all three off. We
-# override it because failed commands, unset variables and failed pipelines must stop
-# validation.
+# set -euo pipefail: The default is inherited from an exported SHELLOPTS, otherwise
+# off (verified against the SHELLOPTS entry in the Bash 5.3 manual). We override it
+# because failed commands, unset variables and failed pipelines must stop validation.
 set -euo pipefail
 
 image=localhost/client-query-cache-pin-check
@@ -29,7 +29,8 @@ tar -cf - Containerfile .python-version .node-version rust-toolchain.toml | "$@"
 # the image from a non-root host account.
 # HOME: The default for an unnamed user is /. We override it because contributors have
 # a writable home directory.
-# RUSTUP_AUTO_INSTALL: The default installs a missing selected toolchain. We override it
+# RUSTUP_AUTO_INSTALL: The default installs a missing selected toolchain
+# (https://rust-lang.github.io/rustup/environment-variables.html). We override it
 # because the image must already provide the selected release.
 # bash -e below: The default is off in this fresh process. We override it because failed
 # version checks must fail container validation.

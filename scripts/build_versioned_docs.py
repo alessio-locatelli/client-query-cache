@@ -31,9 +31,9 @@ class Sources(TypedDict):
 
 
 def git(repo: Path, *arguments: Text) -> bytes:
-    # Python 3.14: https://docs.python.org/3.14/library/subprocess.html
-    # check=True: The default is false. We override it because failed commands must
-    # abort assembly or benchmark preparation.
+    # check=True: The default is false
+    # (https://docs.python.org/3.15/library/subprocess.html#subprocess.run). We override
+    # it because failed commands must abort assembly or benchmark preparation.
     return subprocess.run(  # noqa: S603 - Argument vectors never use a shell.
         ("git", "-C", str(repo), *arguments),  # noqa: S607 - Git is supplied by the toolchain.
         check=True,
@@ -97,10 +97,9 @@ def edition_config(corpus: Path, revision: Text, *, stable: bool) -> Table:
     configuration = tomllib.loads((corpus / "zensical.toml").read_text())
     project = table(configuration["project"])
     export_policy = table(table(project["plugins"])["llmstxt"])
-    # Zensical 0.0.68:
-    # https://github.com/zensical/zensical/blob/v0.0.68/python/zensical/config.py
-    # strict: The default is inherited from the extracted config. We override it because
-    # publication must fail on warnings, including broken links.
+    # strict: The default is inherited from the extracted config, otherwise false
+    # (https://github.com/zensical/zensical/blob/v0.0.74/python/zensical/config.py#L551).
+    # We override it because publication must fail on warnings, including broken links.
     project["strict"] = True
     project["site_dir"] = str(corpus / "output")
     if "extra" not in project:
@@ -180,10 +179,10 @@ def root_redirects(development: Path, destination: Path) -> None:
     (redirect_corpus / "zensical.toml").write_text(
         tomli_w.dumps(redirect_configuration)
     )
-    # Zensical 0.0.68:
-    # https://github.com/zensical/zensical/blob/v0.0.68/python/zensical/main.py
-    # --clean: The default is false. We override it because publication checks must
-    # rebuild without reusing the prior cache.
+    # --clean: The default is false
+    # (https://github.com/zensical/zensical/blob/v0.0.74/python/zensical/main.py#L55-L61).
+    # We override it because publication checks must rebuild without reusing the prior
+    # cache.
     run(redirect_corpus, "zensical", "build", "--clean")
 
 
@@ -210,7 +209,7 @@ def assemble(repo: Path, sources: Sources, output: Path) -> None:
         raise ValueError("Artifact output must not be a symbolic link")
     with TemporaryDirectory(prefix="docs-editions-") as temporary:
         workspace = Path(temporary)
-        # Git 2.55.0: https://git-scm.com/docs/git-config
+        # Git options below: https://git-scm.com/docs/git-config/2.56.1
         # For --local below: The default is GIT_CONFIG when set, otherwise
         # repository-local writes. We override it because external-file redirection must
         # be rejected before configuring this disposable repository.
@@ -261,7 +260,7 @@ def assemble(repo: Path, sources: Sources, output: Path) -> None:
                 edition,
                 "--title",
                 title,
-                # Mike 2d4ad799:
+                # --branch and --ignore-remote-status here and in set-default below:
                 # https://github.com/squidfunk/mike/blob/2d4ad799442f4592db8ad53b179bfb33db8c69ac/mike/driver.py
                 # --branch: The default is inherited remote_branch, otherwise gh-pages.
                 # We override it because assembly commits only to a disposable artifact
@@ -277,11 +276,6 @@ def assemble(repo: Path, sources: Sources, output: Path) -> None:
             "mike",
             "set-default",
             "stable",
-            # --branch: The default is inherited remote_branch, otherwise gh-pages. We
-            # override it because the default edition must use the disposable artifact
-            # branch.
-            # --ignore-remote-status: The default is checking the remote branch. We
-            # override it because this assembly repository has no remote.
             "--branch",
             "docs-artifact",
             "--ignore-remote-status",
