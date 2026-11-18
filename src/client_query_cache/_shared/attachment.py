@@ -610,7 +610,7 @@ class SyncEndpoint:
     def close(self) -> None:
         with self._lock:
             self._closed = True
-            connections = tuple(self._connections)
+            connections = tuple(self._connections)  # pytriage: TR6 - Cleared below.
             self._connections.clear()
         for connection in connections:
             connection.sock.close()

@@ -184,7 +184,7 @@ class UpstreamProgress(CommandListener):
         require_telemetry(enabled=self.counts is not None)
         assert self.counts is not None
         with self._lock:
-            return dict(self.counts)
+            return self.counts.copy()
 
 
 @dataclass(slots=True)
@@ -652,7 +652,7 @@ class SharedCacheOwner:
                 }
                 if self._index is not None:
                     assert slot is not None
-                    metadata["slot"] = list(slot)
+                    metadata["slot"] = slot
                 return metadata
             case "select-identity":
                 refresh = self._epoch_reply(namespace, message["epoch"])
@@ -782,7 +782,7 @@ class SharedCacheOwner:
             "r": "ok",
             "incarnation": self.incarnation,
             "session": connection.session,
-            "databases": list(self.config.databases),
+            "databases": self.config.databases,
         }
 
     def _admit_local(self, message: Message) -> None:
@@ -981,7 +981,7 @@ class SharedCacheOwner:
             return  # pragma: lax no cover (peer reset timing)
         connection.closed = True
         self._selector.unregister(connection.sock)
-        for handle_id in tuple(connection.handles):
+        for handle_id in tuple(connection.handles):  # pytriage: TR6 - Loop releases.
             self._release(handle_id)
         connection.handles.clear()
         connection.outbox.clear()

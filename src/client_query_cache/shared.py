@@ -221,8 +221,10 @@ class SharedCacheServer:
             socket_path=path,
             capability=secrets.token_bytes(32),
             mongodb_uri=mongodb_uri,
-            client_options={} if client_options is None else dict(client_options),
-            databases=tuple(databases),
+            client_options={}
+            if client_options is None
+            else dict(client_options),  # pytriage: TR6 - Own a copy.
+            databases=tuple(databases),  # pytriage: TR6 - Normalize caller input.
             budget_bytes=config.budget_bytes,
             max_entry_bytes=config.max_entry_bytes,
             max_await_time_ms=100,

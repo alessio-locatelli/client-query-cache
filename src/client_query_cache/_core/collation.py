@@ -31,4 +31,4 @@ def collation_document(
         return None
     if isinstance(collation, Collation):
         return collation.document
-    return dict(collation)
+    return dict(collation)  # pytriage: TR6 - Snapshot the caller's mapping.

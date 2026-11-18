@@ -234,7 +234,7 @@ class DatabaseStreamSupervisor:
     def _record_logical_event_bytes(self, event: Mapping[str, Any]) -> None:
         try:
             encoded_length = len(
-                bson.encode(dict(event), codec_options=self._database.codec_options)
+                bson.encode(event, codec_options=self._database.codec_options)
             )
         except BSONError:
             return
