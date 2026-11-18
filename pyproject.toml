@@ -35,6 +35,7 @@ dev = [
   { include-group = "typing" },
   { include-group = "compatibility" },
   { include-group = "lint" },
+  { include-group = "ruff-extra-rules-ty" },
 ]
 build = ["maturin[zig]>=1.16.0,<2.0"]
 benchmark = [
@@ -81,6 +82,7 @@ compatibility = [{ include-group = "test" }, "tox>=4.67.5", "tox-uv>=1.37.3"]
 docs = ["mike", "tomli-w>=1.2.0", "zensical>=0.0.74"]
 memory = ["pytest-memray>=1.11.0"]
 pgo = []
+ruff-extra-rules-ty = ["ruff-extra-rules", "ty>=0.0.106"]
 
 [build-system]
 requires = ["maturin>=1.16.0,<2.0"]
@@ -127,6 +129,7 @@ cache-keys = [
 
 [tool.uv.sources]
 mike = { git = "https://github.com/squidfunk/mike.git", rev = "2d4ad799442f4592db8ad53b179bfb33db8c69ac" } # pragma: allowlist secret
+ruff-extra-rules = { git = "https://github.com/alessio-locatelli/ruff-extra-rules", tag = "v0.6.0" }
 
 [tool.slotscheck]
 # Defaults of the options below: https://github.com/ariebovenberg/slotscheck/blob/v0.21.0/src/slotscheck/config.py

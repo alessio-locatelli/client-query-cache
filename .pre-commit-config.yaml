@@ -73,6 +73,16 @@ repos:
     hooks:
       - id: ruff-extra-rules
 
+  - repo: local
+    hooks:
+      # The hook from ruff-extra-rules runs the first `ty` on PATH with the hook's own environment active (https://github.com/alessio-locatelli/ruff-extra-rules/blob/v0.6.0/docs/rules/redundant-type-conversion.md#prerequisite-ty). We run it through uv instead because type inference must use the `ty` from uv.lock and the project environment, which a Git hook does not activate. Its ruff-extra-rules release comes from `[tool.uv.sources]` in pyproject.toml, not from the remote hook's rev above; keeping both in step is tracked in https://github.com/alessio-locatelli/client-query-cache/issues/479.
+      - id: ruff-extra-rules-ty
+        name: Extra Python rule checks (redundant-type-conversion, redundant-dict-get)
+        entry: uv run --locked -- python -m pre_commit_hooks.ruff_extra_rules_ty
+        language: system
+        types: [python]
+        require_serial: true
+
   - repo: https://github.com/jendrikseipp/vulture
     rev: v2.16
     hooks:
