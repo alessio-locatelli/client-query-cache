@@ -145,10 +145,10 @@ jobs:
             prek-results-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml', 'lychee.toml', 'pyproject.toml') }}-
 
       # SKIP: The default is no skipped hooks
-      # (https://github.com/j178/prek/blob/v0.5.7/docs/running-hooks.md#skip-hooks-for-one-commit). We override it because slotscheck and
-      # formatting and Rust have dedicated lanes, while Lychee runs separately with its
+      # (https://github.com/j178/prek/blob/v0.5.7/docs/running-hooks.md#skip-hooks-for-one-commit). We override it because slotscheck,
+      # ruff-extra-rules-ty, formatting, and Rust have dedicated lanes, while Lychee runs separately with its
       # step-scoped GitHub token.
-      - run: SKIP=slotscheck,prettier,lychee,rust-lint uvx "prek@${PREK_VERSION}" run --all-files
+      - run: SKIP=slotscheck,ruff-extra-rules-ty,prettier,lychee,rust-lint uvx "prek@${PREK_VERSION}" run --all-files
 
       - run: uvx "prek@${PREK_VERSION}" run lychee --all-files
         env:
@@ -340,7 +340,7 @@ jobs:
           rust: "true"
           rust-components: llvm-tools
 
-      - run: uv sync --locked --no-default-groups --group typing --group build
+      - run: uv sync --locked --no-default-groups --group typing --group build --group ruff-extra-rules-ty
 
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -360,6 +360,11 @@ jobs:
       # directories avoids installing Prek in each lane; we accept that a new top-level
       # Python directory must be added here manually.
       - run: uv run -- python -m slotscheck src tests benchmarks scripts research
+
+      # The local ruff-extra-rules-ty Prek hook checks every tracked Python file. Passing
+      # them explicitly avoids installing Prek in each lane and keeps the directory scan
+      # from warning about gitignored build and tool directories.
+      - run: git ls-files -z -- '*.py' | xargs -0 uv run -- python -m pre_commit_hooks.ruff_extra_rules_ty
 
       - run: just verify-release
 
