@@ -297,7 +297,7 @@ def reject_duplicates(records: Iterable[JsonDict]) -> None:
 def paired_blocks(
     records: Iterable[JsonDict], statistics: Statistics = block_statistics
 ) -> dict[CellKey, dict[str, dict[int, dict[str, float] | None]]]:
-    grouped = list(records)
+    grouped = list(records)  # pytriage: TR6 - Iterated twice.
     reject_duplicates(grouped)
     cells: dict[CellKey, dict[str, dict[int, dict[str, float] | None]]] = {}
     for record in grouped:

@@ -44,7 +44,7 @@ def test_controlled_matrix_emits_valid_reports(
             [
                 "benchmarks.stream_cost.run",
                 "--output-dir",
-                str(tmp_path),
+                str(tmp_path),  # pytriage: TR6 - argparse needs str.
                 *(argument for name in workloads for argument in ("--workload", name)),
             ],
         )

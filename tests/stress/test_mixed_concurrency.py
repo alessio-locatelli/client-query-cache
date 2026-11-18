@@ -32,7 +32,9 @@ async def test_mixed_crud_respects_processed_invalidations(
         async with run.traffic(traffic_targets) as readers:
             for _ in range(stress_cycles):
                 for kind in ("insert", "update", "replace", "delete"):
-                    before_reads = tuple(run.background_reads)
+                    before_reads = (
+                        tuple(run.background_reads)  # pytriage: TR6 - Pre-write copy.
+                    )
                     for target in targets:
                         expected = await run.write(target, kind)
                         await run.checkpoint(target, expected)

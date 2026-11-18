@@ -864,7 +864,7 @@ def _measure_sync(window: Window) -> Observation:
             manager=observed_manager,
             startup_resources=startup_resources,
             validate=window.validate,
-            predicates=None if commands is None else dict(commands.predicates),
+            predicates=None if commands is None else commands.predicates.copy(),
         )
         if not _follows_up(window):
             return observation
@@ -1116,7 +1116,7 @@ async def _measure_async(
             manager=observed_manager,
             startup_resources=startup_resources,
             validate=window.validate,
-            predicates=None if commands is None else dict(commands.predicates),
+            predicates=None if commands is None else commands.predicates.copy(),
         )
         if not _follows_up(window):
             return observation
@@ -1207,7 +1207,7 @@ def _owner_sampler(
             "--format",
             "raw",
             "--output",
-            str(output),
+            output,
         ),
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,

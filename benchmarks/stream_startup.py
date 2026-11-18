@@ -96,7 +96,7 @@ def measure_sync(profile: Path | None, warnings: Warnings) -> Measurement:
         if profile is not None:
             profiler = cProfile.Profile()
             profiler.runcall(_batch_sync, coordinator, "healthy")
-            profiler.dump_stats(str(profile))
+            profiler.dump_stats(profile)
         failed_seconds = _batch_sync(coordinator, "failed")
     finally:
         coordinator.close()
@@ -171,7 +171,7 @@ async def measure_async(profile: Path | None, warnings: Warnings) -> Measurement
             profiler.enable()
             await _batch_async(coordinator, "healthy")
             profiler.disable()
-            profiler.dump_stats(str(profile))
+            profiler.dump_stats(profile)
         failed_seconds = await _batch_async(coordinator, "failed")
     finally:
         await coordinator.close()

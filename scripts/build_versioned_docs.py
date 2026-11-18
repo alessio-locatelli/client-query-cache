@@ -35,7 +35,7 @@ def git(repo: Path, *arguments: Text) -> bytes:
     # (https://docs.python.org/3.15/library/subprocess.html#subprocess.run). We override
     # it because failed commands must abort assembly or benchmark preparation.
     return subprocess.run(  # noqa: S603 - Argument vectors never use a shell.
-        ("git", "-C", str(repo), *arguments),  # noqa: S607 - Git is supplied by the toolchain.
+        ("git", "-C", repo, *arguments),  # noqa: S607 - Git is supplied by the toolchain.
         check=True,
         stdout=subprocess.PIPE,
     ).stdout
@@ -107,7 +107,7 @@ def edition_config(corpus: Path, revision: Text, *, stable: bool) -> Table:
     table(project["extra"])["version"] = {"provider": "mike"}
     table(table(table(project["markdown_extensions"])["pymdownx"])["snippets"])[
         "base_path"
-    ] = [str(corpus)]
+    ] = [str(corpus)]  # pytriage: TR6 - TOML has no path type.
     repository = project["repo_url"]
     hosted_base = cast("Text", project["site_url"]).rstrip("/") + "/"
     edition = "stable" if stable else "dev"

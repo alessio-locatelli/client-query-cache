@@ -71,7 +71,7 @@ class FaultableProxy(DirectPathByteProxy):
 
     def sever(self) -> None:
         with self._lock:
-            sockets = tuple(self._sockets)
+            sockets = tuple(self._sockets)  # pytriage: TR6 - Snapshot under the lock.
         for sock in sockets:
             try:
                 sock.shutdown(socket.SHUT_RDWR)

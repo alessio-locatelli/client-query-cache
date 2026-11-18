@@ -899,7 +899,11 @@ def main() -> None:
         description="Run the native extension's profile-guided optimization training"
     )
     parser.add_argument("--seconds", type=float, default=0.5)
-    parser.add_argument("--workloads", nargs="*", default=list(WORKLOADS))
+    parser.add_argument(
+        "--workloads",
+        nargs="*",
+        default=list(WORKLOADS),  # pytriage: TR6 - Default to the dict keys.
+    )
     parser.add_argument("--disabled-share", type=float, default=DEFAULT_DISABLED_SHARE)
     arguments = parser.parse_args()
     train(

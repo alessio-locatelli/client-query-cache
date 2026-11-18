@@ -28,11 +28,11 @@ def tool_probe(tmp_path: Path, request: pytest.FixtureRequest) -> ToolProbe:
             "--settings",
             str(project / "pyproject.toml"),
             "--pythonpath",
-            str(tmp_path),
+            tmp_path,
         )
     )
     completed = subprocess.run(  # noqa: S603 - Fixed tool names and fixture inputs.
-        (sys.executable, "-m", tool, *arguments, str(source_path)),
+        (sys.executable, "-m", tool, *arguments, source_path),
         cwd=tmp_path,
         capture_output=True,
         text=True,

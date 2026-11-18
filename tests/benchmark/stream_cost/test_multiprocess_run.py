@@ -189,7 +189,12 @@ def test_cli_preserves_protocol_and_revision(
     output = tmp_path / "new-directory" / "report.json"
     monkeypatch.setattr(
         "sys.argv",
-        ["multiprocess_run", "--output", str(output), *(["--smoke"] if smoke else [])],
+        [
+            "multiprocess_run",
+            "--output",
+            str(output),  # pytriage: TR6 - argparse needs str.
+            *(["--smoke"] if smoke else []),
+        ],
     )
     multiprocess_run.main()
     report = json.loads(output.read_text())
@@ -204,7 +209,14 @@ def test_cli_records_failed_cell_and_stops(
 ) -> None:
     output = tmp_path / "failed.json"
     cli_collector.side_effect = BenchmarkSetupError("worker exited unsuccessfully")
-    monkeypatch.setattr("sys.argv", ["multiprocess_run", "--output", str(output)])
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "multiprocess_run",
+            "--output",
+            str(output),  # pytriage: TR6 - argparse needs str.
+        ],
+    )
     with pytest.raises(BenchmarkSetupError, match="worker exited unsuccessfully"):
         multiprocess_run.main()
     assert cli_collector.call_count == 1
@@ -216,14 +228,21 @@ def test_cli_records_failed_cell_and_stops(
 @pytest.fixture
 def cli_output(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     output = tmp_path / "report.json"
-    monkeypatch.setattr("sys.argv", ["multiprocess_run", "--output", str(output)])
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "multiprocess_run",
+            "--output",
+            str(output),  # pytriage: TR6 - argparse needs str.
+        ],
+    )
     return output
 
 
 def test_cli_preserves_existing_evidence(cli_output: Path) -> None:
     cli_output.write_text("existing evidence", encoding="utf-8")
     with pytest.raises(SystemExit) as error:
-        runpy.run_path(str(multiprocess_run.__file__), run_name="__main__")
+        runpy.run_path(multiprocess_run.__file__, run_name="__main__")
     assert error.value.code == 2
     assert cli_output.read_text(encoding="utf-8") == "existing evidence"
 
@@ -312,7 +331,9 @@ def record_capture(
 ) -> tuple[LagCaptureWindows, tuple[NonNegativeInt, ...]]:
     captures = LagCaptureWindows(LagCaptureWindowConfig(6, 20, 16))
     admitted_ordinals = tuple(
-        index for index in range(1, event_count + 1) if captures.record(float(index))
+        index
+        for index in range(1, event_count + 1)
+        if captures.record(float(index))  # pytriage: TR6 - Float samples.
     )
     return captures, admitted_ordinals
 

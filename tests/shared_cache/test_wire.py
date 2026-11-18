@@ -107,7 +107,7 @@ def test_damaged_integer_key_envelopes_remain_protocol_errors(
     encoded[offset] ^= 1
 
     with pytest.raises(ProtocolError):
-        decode_key(bytes(encoded))
+        decode_key(bytes(encoded))  # pytriage: TR6 - Not a bytearray.
 
 
 _VALUES = st.recursive(

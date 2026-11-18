@@ -76,7 +76,7 @@ def test_find_lookup_records_one_outcome(
     lookup = core.lookup_find(namespace, shape(request_limit))
     after = core.snapshot()
     assert lookup.hit is hit
-    assert after.hits - before.hits == int(hit)
+    assert after.hits - before.hits == hit
     assert after.misses - before.misses == int(not hit)
     assert after.used_bytes == before.used_bytes
     assert after.entry_count == before.entry_count

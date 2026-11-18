@@ -306,9 +306,9 @@ def failed_swap(
             raise OSError(
                 error,
                 "Forced artifact replacement failure",
-                str(source),
+                source,
                 None,
-                str(destination),
+                destination,
             )
         return rename(source, destination)
 

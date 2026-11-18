@@ -114,8 +114,8 @@ def run_step(tmp_path_factory: pytest.TempPathFactory) -> StepRunner:
             env={
                 **workflow["env"],
                 "PATH": f"{stub.parent}{os.pathsep}{os.environ['PATH']}",
-                "GH_LOG": str(log),
-                "GITHUB_OUTPUT": str(output),
+                "GH_LOG": log,
+                "GITHUB_OUTPUT": output,
                 "GH_REPO": _REPOSITORY,
                 "PR_POLICY": workflow["env"]["PR_POLICY"],
                 "RUN_HEAD": _VALIDATED_HEAD,

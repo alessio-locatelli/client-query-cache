@@ -462,7 +462,7 @@ async def test_identity_forms_preserve_shared_scope(
     await _warm(manager, view)
     before = manager.snapshot()
     assert await _read(view, filter_query) is not None
-    assert manager.snapshot().hits == before.hits + int(shared_hit)
+    assert manager.snapshot().hits == before.hits + shared_hit
     assert manager.snapshot().bypasses == before.bypasses
     assert manager.snapshot().misses == before.misses + int(not shared_hit)
 

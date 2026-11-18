@@ -57,7 +57,7 @@ def build_dedicated_client(
     kwargs: dict[str, Any] = {
         "directConnection": not config.discovery_enabled,
         "tls": config.tls_enabled,
-        "event_listeners": list(event_listeners),
+        "event_listeners": event_listeners,
     }
     if config.compressor is not WireCompressor.NONE:
         kwargs["compressors"] = _PYMONGO_COMPRESSOR_NAMES[config.compressor]

@@ -509,7 +509,7 @@ async def test_partial_to_list_and_early_close(
     assert await materialize(cursor, 1) == cursors["documents"][:1]
     assert view.database.manager.snapshot().entry_count == 0
     await close_cursor(cursor)
-    assert not bool(cursor.alive)
+    assert not cursor.alive
     assert await materialize(cursor) == []
 
     assert isinstance(
@@ -530,10 +530,10 @@ async def test_single_final_batch_requires_caller_consumption(cursors: Binding) 
     cursor = view.find({}).sort("_id").limit(3)
     assert await materialize(cursor, 1) == cursors["documents"][:1]
     assert cursor.cursor_id == 0
-    assert bool(cursor.alive)
+    assert cursor.alive
     assert view.database.manager.snapshot().entry_count == 0
     assert await materialize(cursor, 2) == cursors["documents"][1:3]
-    assert not bool(cursor.alive)
+    assert not bool(cursor.alive)  # pytriage: TR6 - Undo mypy's narrowing.
     assert view.database.manager.snapshot().entry_count == 1
 
 
@@ -651,7 +651,7 @@ async def test_later_batch_failure_discards_candidate(
     assert await materialize(cursor, 101) == cursors["documents"][:101]
     with pytest.raises(ConnectionFailure, match="later cursor batch failed"):
         await materialize(cursor)
-    assert not bool(cursor.alive)
+    assert not cursor.alive
     assert cursors["view"].database.manager.snapshot().entry_count == 0
     assert await materialize(cursor) == []
     assert isinstance(
@@ -951,7 +951,7 @@ async def test_cancelled_batch_await_discards_and_closes(
     pending.cancel()
     with pytest.raises(asyncio.CancelledError):
         await pending
-    assert not bool(cursor.alive)
+    assert not cursor.alive
     assert await cursor.to_list() == []
     assert cursors["view"].database.manager.snapshot().entry_count == 0
     assert any("killCursors" in command for command in cursors["commands"].commands)
@@ -976,7 +976,7 @@ async def test_cursor_reuses_one_raw_discriminator(
     assert await materialize(cursor_factory(view)) == cursors["documents"]
     after = view.database.manager.snapshot()
     assert raw_key_traversals == [1]
-    assert after.hits - before.hits == int(warm)
+    assert after.hits - before.hits == warm
     assert after.misses - before.misses == int(not warm)
     assert after.entry_count - before.entry_count == int(not warm)
     assert bool(cursors["commands"].commands) is (not warm)

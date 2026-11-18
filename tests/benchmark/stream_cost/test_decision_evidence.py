@@ -201,7 +201,15 @@ def test_main_writes_decision_evidence(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     output = tmp_path / "nested" / "evidence.json"
-    monkeypatch.setattr(sys, "argv", ["decision_evidence", "--output", str(output)])
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "decision_evidence",
+            "--output",
+            str(output),  # pytriage: TR6 - argparse needs str.
+        ],
+    )
     monkeypatch.setattr(
         decision_evidence, "run_decision_evidence", lambda: {"schema_version": 2}
     )

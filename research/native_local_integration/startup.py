@@ -49,7 +49,7 @@ async def measure(model: str) -> list[dict[str, object]]:
                 )
             checkpoints.append(checkpoint("closed"))
     assert all(
-        Path(str(checkpoints[-2]["implementation"][field])).is_relative_to(sys.prefix)
+        Path(checkpoints[-2]["implementation"][field]).is_relative_to(sys.prefix)
         for field in ("library", "extension")
     )
     return checkpoints

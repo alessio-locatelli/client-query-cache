@@ -876,7 +876,7 @@ def test_local_misses_in_new_threads_connect_only_for_socket_admission(
     assert reads.manager.endpoint.counters.requests == requests + new_thread
     assert reads.manager.endpoint.counters.connects == connects + new_thread
     assert reads.manager.observation.hits == 1
-    assert reads.manager.endpoint.counters.native_admissions == int(native_queue)
+    assert reads.manager.endpoint.counters.native_admissions == native_queue
 
 
 @pytest.mark.parametrize("native_queue", [False, True], ids=("socket", "native-queue"))
@@ -907,7 +907,7 @@ def test_local_misses_use_the_control_queue_or_reconnect_after_data_channel_loss
     assert reads.find_one(0) is not None
     assert endpoint.counters.requests == requests + int(not native_queue)
     assert endpoint.counters.connects == connects + int(not native_queue)
-    assert endpoint.counters.native_admissions == int(native_queue)
+    assert endpoint.counters.native_admissions == native_queue
     assert reads.manager.observation.hits == 1
     assert not reads.detached
 
@@ -950,8 +950,12 @@ def test_only_active_queue_recovery_makes_disconnected_misses_reconnect(
     if expired:
         time.sleep(_PAST_REATTACH_BACKOFF_SECONDS)
     if counters is not None:
-        counters.native_admission_drops = int(expired)
-        counters.native_admission_recoveries = int(expired)
+        counters.native_admission_drops = (
+            int(expired)  # pytriage: TR6 - Counters hold ints.
+        )
+        counters.native_admission_recoveries = (
+            int(expired)  # pytriage: TR6 - Counters hold ints.
+        )
     reconnect = recovered and not expired
 
     wait_for(
@@ -962,8 +966,8 @@ def test_only_active_queue_recovery_makes_disconnected_misses_reconnect(
     assert reads.find_one(0) is not None
     if before is not None:
         assert counters is not None
-        assert counters.requests == before[0] + int(reconnect)
-        assert counters.connects == before[1] + int(reconnect)
+        assert counters.requests == before[0] + reconnect
+        assert counters.connects == before[1] + reconnect
         assert counters.native_admissions == int(not reconnect)
         assert reads.manager.observation.hits == 1
     assert not reads.detached

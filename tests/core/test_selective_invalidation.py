@@ -92,7 +92,12 @@ def test_integer_subtypes_match_but_booleans_remain_distinct() -> None:
 def test_bson_integer_partition_identity_preserves_type_boundaries(value: int) -> None:
     assert partition_scalar(value) == partition_scalar(Int64(value))
     assert partition_scalar(value) != partition_scalar(bool(value))
-    assert partition_scalar(float(value)) is None
+    assert (
+        partition_scalar(
+            float(value)  # pytriage: TR6 - Floats are rejected.
+        )
+        is None
+    )
     assert partition_scalar(Decimal128(str(value))) is None
 
 

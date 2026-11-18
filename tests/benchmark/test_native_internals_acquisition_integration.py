@@ -149,7 +149,7 @@ def test_an_interrupted_collector_leaves_no_disposable_processes(
             "--workloads",
             "hot",
             "--output",
-            str(output),
+            output,
         ),
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,

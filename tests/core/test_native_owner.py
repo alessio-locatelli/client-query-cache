@@ -810,7 +810,7 @@ _CANDIDATE_CORES: dict[str, Callable[[CacheCoreConfig], LocalCacheCore]] = {
 }
 
 
-@pytest.mark.parametrize("candidate", tuple(_CANDIDATE_CORES))
+@pytest.mark.parametrize("candidate", _CANDIDATE_CORES)
 @settings(max_examples=100, deadline=None)
 @example(
     operations=[

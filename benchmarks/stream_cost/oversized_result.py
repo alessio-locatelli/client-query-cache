@@ -138,7 +138,9 @@ def measure_oversized_result_savings(
         prefix, codec_options=codec_options, repetitions=repetitions
     )
     full_costs = time_encoder_invocations(
-        list(documents), codec_options=codec_options, repetitions=repetitions
+        list(documents),  # pytriage: TR6 - Same type as the prefix.
+        codec_options=codec_options,
+        repetitions=repetitions,
     )
     return OversizedResultSavingsMeasurement(
         prefix_length=prefix_length,

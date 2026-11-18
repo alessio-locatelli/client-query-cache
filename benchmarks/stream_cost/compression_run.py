@@ -231,7 +231,7 @@ def main() -> None:  # pragma: no cover - manual CLI entry point, unused in CI
                         "mode": item.mode.value,
                         "qualifies": item.qualifies,
                         "idle_noisy": item.idle_noisy,
-                        "failures": list(item.failures),
+                        "failures": item.failures,
                         "median_stream_total_bytes": item.median_stream_total_bytes,
                         "median_added_cpu_seconds": item.median_added_cpu_seconds,
                     }

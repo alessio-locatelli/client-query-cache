@@ -20,5 +20,5 @@ class BenchmarkSetupError(BenchmarkError, RuntimeError):
 
 class ReportValidationError(BenchmarkError, ValueError):
     def __init__(self, errors: Sequence[str]) -> None:
-        self.errors = tuple(errors)
+        self.errors = tuple(errors)  # pytriage: TR6 - Immutable copy.
         super().__init__("; ".join(self.errors))

@@ -209,7 +209,10 @@ def incompatible_peer(
 
     thread = threading.Thread(target=respond, daemon=True)
     thread.start()
-    yield replace(endpoint.config, socket_path=str(path))
+    yield replace(
+        endpoint.config,
+        socket_path=str(path),  # pytriage: TR6 - socket_path is a str.
+    )
     listener.close()
     thread.join(5)
     assert not thread.is_alive()

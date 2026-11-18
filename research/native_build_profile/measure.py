@@ -185,7 +185,11 @@ def main() -> None:
         description="Time native extension entry points on realistic call sequences"
     )
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--workloads", nargs="*", default=list(WORKLOADS))
+    parser.add_argument(
+        "--workloads",
+        nargs="*",
+        default=list(WORKLOADS),  # pytriage: TR6 - Default to the dict keys.
+    )
     arguments = parser.parse_args()
     accept_previous_budget_keyword(pgo_training, CacheCoreConfig)
     with CLEANUP:

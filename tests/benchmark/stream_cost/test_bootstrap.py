@@ -113,7 +113,10 @@ def test_block_bootstrap_rejects_out_of_range_confidence(
 
 
 def test_block_bootstrap_point_estimate_matches_full_sample_percentile() -> None:
-    windows = tuple((float(value),) for value in range(1, 101))
+    windows = tuple(
+        (float(value),)  # pytriage: TR6 - Float samples.
+        for value in range(1, 101)
+    )
     ci = block_bootstrap_percentile_ci(
         windows, percentile=0.5, confidence_level=0.95, resample_count=200, seed=7
     )
@@ -122,7 +125,10 @@ def test_block_bootstrap_point_estimate_matches_full_sample_percentile() -> None
 
 
 def test_block_bootstrap_percentile_is_the_maximum_at_the_sample_count_floor() -> None:
-    windows = tuple((float(value),) for value in range(1, 101))
+    windows = tuple(
+        (float(value),)  # pytriage: TR6 - Float samples.
+        for value in range(1, 101)
+    )
     ci = block_bootstrap_percentile_ci(
         windows, percentile=0.99, confidence_level=0.95, resample_count=200, seed=7
     )
@@ -130,7 +136,10 @@ def test_block_bootstrap_percentile_is_the_maximum_at_the_sample_count_floor() -
 
 
 def test_block_bootstrap_is_deterministic_for_a_fixed_seed() -> None:
-    windows = tuple((float(value),) for value in range(1, 101))
+    windows = tuple(
+        (float(value),)  # pytriage: TR6 - Float samples.
+        for value in range(1, 101)
+    )
     first = block_bootstrap_percentile_ci(
         windows, percentile=0.9, confidence_level=0.95, resample_count=200, seed=42
     )
@@ -222,8 +231,14 @@ def test_bonferroni_confidence_level_rejects_out_of_range_target(
 
 
 def test_bonferroni_delta_interval_centers_on_the_supplied_delta() -> None:
-    control_windows = tuple((float(value),) for value in range(1, 101))
-    loaded_windows = tuple((float(value) + 10,) for value in range(1, 101))
+    control_windows = tuple(
+        (float(value),)  # pytriage: TR6 - Float samples.
+        for value in range(1, 101)
+    )
+    loaded_windows = tuple(
+        (float(value) + 10,)  # pytriage: TR6 - Float samples.
+        for value in range(1, 101)
+    )
     interval = bonferroni_delta_interval(
         control_windows,
         loaded_windows,
