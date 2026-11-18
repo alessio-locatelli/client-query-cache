@@ -88,8 +88,8 @@ class DirectPathByteProxy:
         if self._accept_thread is not None:
             self._accept_thread.join(timeout=_JOIN_TIMEOUT_SECONDS)
         with self._lock:
-            sockets = list(self._sockets)
-            connection_threads = list(self._connection_threads)
+            sockets = self._sockets.copy()
+            connection_threads = self._connection_threads.copy()
         for sock in sockets:
             try:
                 sock.shutdown(socket.SHUT_RDWR)

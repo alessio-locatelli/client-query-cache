@@ -561,36 +561,36 @@ def _change_event(
 
 def test_topology_change_listener_starts_unchanged() -> None:
     listener = TopologyChangeListener()
-    assert bool(listener.primary_changed) is False
+    assert listener.primary_changed is False
     listener.opened(cast("TopologyOpenedEvent", object()))
     listener.closed(cast("TopologyClosedEvent", object()))
-    assert bool(listener.primary_changed) is False
+    assert listener.primary_changed is False
 
 
 def test_topology_change_listener_ignores_no_writable_primary() -> None:
     listener = TopologyChangeListener()
     event = _change_event({("host", 1): _FakeServerDescription(is_writable=False)})
     listener.description_changed(event)
-    assert bool(listener.primary_changed) is False
+    assert listener.primary_changed is False
 
 
 def test_topology_change_listener_detects_primary_change() -> None:
     listener = TopologyChangeListener()
     first_event = _change_event({("host", 1): _FakeServerDescription(is_writable=True)})
     listener.description_changed(first_event)
-    assert bool(listener.primary_changed) is False
+    assert listener.primary_changed is False
 
     same_primary_event = _change_event(
         {("host", 1): _FakeServerDescription(is_writable=True)}
     )
     listener.description_changed(same_primary_event)
-    assert bool(listener.primary_changed) is False
+    assert listener.primary_changed is False
 
     new_primary_event = _change_event(
         {("host", 2): _FakeServerDescription(is_writable=True)}
     )
     listener.description_changed(new_primary_event)
-    assert bool(listener.primary_changed) is True
+    assert listener.primary_changed is True
 
 
 def test_topology_change_listener_flags_primary_loss_immediately() -> None:
@@ -605,13 +605,13 @@ def test_topology_change_listener_flags_primary_loss_immediately() -> None:
         {("host", 1): _FakeServerDescription(is_writable=False)}
     )
     listener.description_changed(no_primary_event)
-    assert bool(listener.primary_changed)
+    assert listener.primary_changed
 
     same_primary_returns_event = _change_event(
         {("host", 1): _FakeServerDescription(is_writable=True)}
     )
     listener.description_changed(same_primary_returns_event)
-    assert bool(listener.primary_changed)
+    assert listener.primary_changed
 
 
 def test_topology_change_listener_reset_clears_a_latched_change() -> None:
@@ -625,12 +625,12 @@ def test_topology_change_listener_reset_clears_a_latched_change() -> None:
     assert bool(listener.primary_changed) is True
 
     listener.reset()
-    assert bool(listener.primary_changed) is False
+    assert listener.primary_changed is False
 
     listener.description_changed(
         _change_event({("host", 2): _FakeServerDescription(is_writable=True)})
     )
-    assert bool(listener.primary_changed) is False
+    assert listener.primary_changed is False
 
 
 def test_topology_change_listener_reset_preserves_the_primary_baseline() -> None:
@@ -646,7 +646,7 @@ def test_topology_change_listener_reset_preserves_the_primary_baseline() -> None
     listener.description_changed(
         _change_event({("host", 1): _FakeServerDescription(is_writable=True)})
     )
-    assert bool(listener.primary_changed) is True
+    assert listener.primary_changed is True
 
 
 def _stub_send_hello() -> BsonDict:

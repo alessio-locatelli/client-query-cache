@@ -152,7 +152,7 @@ def test_lag_capture_window_config_accepts_every_annotated_value(
             LagCaptureWindowConfig(
                 window_count=2, events_per_window=3, min_separation_events=0
             ),
-            tuple(float(value) for value in range(9)),
+            tuple(float(value) for value in range(9)),  # pytriage: TR6 - Float samples.
             ((3.0, 4.0, 5.0), (6.0, 7.0, 8.0)),
             id="fixed_contiguous_gap_free_blocks",
         ),
@@ -168,7 +168,7 @@ def test_lag_capture_window_config_accepts_every_annotated_value(
             LagCaptureWindowConfig(
                 window_count=2, events_per_window=2, min_separation_events=2
             ),
-            tuple(float(value) for value in range(8)),
+            tuple(float(value) for value in range(8)),  # pytriage: TR6 - Float samples.
             ((0.0, 1.0), (4.0, 5.0)),
             id="minimum_separation_between_windows",
         ),
@@ -202,7 +202,7 @@ def test_lag_capture_windows_stays_within_its_configured_memory_bound() -> None:
     windows = LagCaptureWindows(config)
 
     for value in range(10_000):
-        windows.record(float(value))
+        windows.record(float(value))  # pytriage: TR6 - Float samples.
         assert len(windows._windows) <= config.window_count
         assert len(windows._current) < config.events_per_window
 

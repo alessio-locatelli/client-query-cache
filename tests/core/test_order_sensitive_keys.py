@@ -134,7 +134,7 @@ def test_order_sensitive_key_differs_exactly_when_relative_key_order_changes(
         )
     )
     permuted = hypothesis_data.draw(st.permutations(items))
-    order_changed = list(items) != list(permuted)
+    order_changed = items != permuted
 
     original_key = canonicalize(order_sensitive_key(dict(items)))
     permuted_key = canonicalize(order_sensitive_key(dict(permuted)))
@@ -148,7 +148,7 @@ def test_order_sensitive_discriminator_key_distinguishes_equal_valued_numeric_su
     value: int,
 ) -> None:
     int_key = order_sensitive_key(value)
-    float_key = order_sensitive_key(float(value))
+    float_key = order_sensitive_key(float(value))  # pytriage: TR6 - Float keys differ.
     int64_key = order_sensitive_key(Int64(value))
     decimal_key = order_sensitive_key(Decimal128(str(value)))
     assert (
@@ -160,7 +160,9 @@ def test_order_sensitive_discriminator_key_distinguishes_equal_valued_numeric_su
     assert hash(canonicalize(decimal_key)) == hash(canonicalize(int_key))
 
     int_discriminator_key = order_sensitive_discriminator_key(value)
-    float_discriminator_key = order_sensitive_discriminator_key(float(value))
+    float_discriminator_key = order_sensitive_discriminator_key(
+        float(value)  # pytriage: TR6 - Float keys differ.
+    )
     int64_discriminator_key = order_sensitive_discriminator_key(Int64(value))
     assert canonicalize(int_discriminator_key) != canonicalize(float_discriminator_key)
     assert canonicalize(int_discriminator_key) != canonicalize(int64_discriminator_key)

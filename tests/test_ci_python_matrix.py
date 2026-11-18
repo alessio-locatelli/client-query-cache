@@ -111,7 +111,7 @@ def test_python_matrix_retains_exact_minimum(
     completed = subprocess.run(
         (sys.executable, "-m", "scripts.ci_python_matrix"),
         cwd=matrix_checkout,
-        env=os.environ | {"PYTHONPATH": str(Path(__file__).resolve().parents[1])},
+        env=os.environ | {"PYTHONPATH": Path(__file__).resolve().parents[1]},
         capture_output=True,
         check=True,
         text=True,

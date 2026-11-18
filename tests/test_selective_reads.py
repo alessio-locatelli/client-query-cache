@@ -712,7 +712,7 @@ async def test_count_dependencies_follow_real_update_descriptions(
     assert await resolved(view.count_documents(query)) == await resolved(
         view.raw.count_documents(query)
     )
-    assert manager.snapshot().hits - before == int(retained)
+    assert manager.snapshot().hits - before == retained
 
 
 @pytest.mark.parametrize(

@@ -68,17 +68,17 @@ def run_child(
     workloads: list[str],
 ) -> dict[str, object]:
     expected = refresh_extension(overlay)
-    command = [
+    command: list[str | Path] = [
         SETARCH,
         "--addr-no-randomize",
         TASKSET,
         "-c",
         str(cpu),
-        str(python),
+        python,
         "-m",
         "research.native_build_profile.measure",
         "--output",
-        str(output),
+        output,
     ]
     if workloads:
         command += ["--workloads", *workloads]
@@ -111,7 +111,7 @@ def startup_milliseconds(python: Path, overlay: Path, cpu: NonNegativeInt) -> fl
                 TASKSET,
                 "-c",
                 str(cpu),
-                str(python),
+                python,
                 "-c",
                 "import client_query_cache._shared_index",
             ],

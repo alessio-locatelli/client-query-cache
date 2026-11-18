@@ -167,7 +167,7 @@ async def test_cursor_measurements(
             else:
                 assert await materialize(cursor) == documents[1:]
                 if phase == "cold":
-                    assert core.snapshot().entry_count == int(can_admit)
+                    assert core.snapshot().entry_count == can_admit
             elapsed.append(perf_counter() - started)
             origin_counts.append(counts(cursors["commands"]))
             if isinstance(cursor, CACHED_CURSORS):

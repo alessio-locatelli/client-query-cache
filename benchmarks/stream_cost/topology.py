@@ -366,7 +366,7 @@ class IsolatedReplicaSet:
         memory_stats = cast(
             "dict[str, NonNegativeInt]", cast("JsonDict", stats)["memory_stats"]
         )
-        return int(memory_stats["usage"])
+        return memory_stats["usage"]
 
 
 class ReplicaSetTopology:

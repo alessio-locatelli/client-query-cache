@@ -149,7 +149,7 @@ def test_capture_owns_values_before_caller_mutation(
     core: LocalCacheCore, namespace: NamespaceId, documents: list[dict[str, int]]
 ) -> None:
     core.clear_namespace(namespace)
-    expected = [dict(document) for document in documents]
+    expected = [document.copy() for document in documents]
     capture = capture_for(core, namespace)
     for document in documents:
         capture.append(document)

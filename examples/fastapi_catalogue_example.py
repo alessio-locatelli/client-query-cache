@@ -531,7 +531,7 @@ def serve(workers: PositiveInt, port: PositiveInt) -> None:
         factory=True,
         workers=workers,
         port=port,
-        app_dir=str(Path(__file__).parent),
+        app_dir=str(Path(__file__).parent),  # pytriage: TR6 - sys.path needs str.
     )
 
 

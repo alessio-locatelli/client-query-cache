@@ -449,7 +449,14 @@ def test_validation_cli_reproduces_decision_from_retained_report(
     output = tmp_path / "report.json"
     output.write_text(json.dumps(report))
     monkeypatch.setattr(
-        sys, "argv", ["await_run", "--output", str(output), "--validate-only"]
+        sys,
+        "argv",
+        [
+            "await_run",
+            "--output",
+            str(output),  # pytriage: TR6 - argparse needs str.
+            "--validate-only",
+        ],
     )
     await_run.main()
     decision = json.loads(output.with_suffix(".decision.json").read_bytes())
@@ -510,7 +517,15 @@ def test_matrix_retains_complete_report_and_failure_evidence(
         ),
     )
     output = tmp_path / "new-directory" / "report.json"
-    monkeypatch.setattr(sys, "argv", ["await_run", "--output", str(output)])
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "await_run",
+            "--output",
+            str(output),  # pytriage: TR6 - argparse needs str.
+        ],
+    )
     await_run.main()
     retained = json.loads(output.read_bytes())
     assert retained["configuration_sha256"] == report["configuration_sha256"]

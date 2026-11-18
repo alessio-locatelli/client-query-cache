@@ -51,7 +51,7 @@ def _topology(**overrides: object) -> BenchmarkClientTopologyConfig:
             {
                 "directConnection": True,
                 "tls": False,
-                "event_listeners": [],
+                "event_listeners": (),
             },
         ),
         (
@@ -65,7 +65,7 @@ def _topology(**overrides: object) -> BenchmarkClientTopologyConfig:
                 "tls": True,
                 "compressors": "zstd",
                 "zlibCompressionLevel": -1,
-                "event_listeners": [],
+                "event_listeners": (),
             },
         ),
     ],

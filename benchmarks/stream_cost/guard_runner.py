@@ -24,7 +24,7 @@ def _run(command: Sequence[str], *, cwd: Path | None = None) -> str:
     # (https://docs.python.org/3.15/library/subprocess.html#subprocess.run). We override
     # it because failed commands must abort assembly or benchmark preparation.
     completed_process = subprocess.run(  # noqa: S603 - fixed argument lists built from trusted values
-        list(command), cwd=cwd, check=True, capture_output=True, text=True
+        command, cwd=cwd, check=True, capture_output=True, text=True
     )
     return completed_process.stdout
 

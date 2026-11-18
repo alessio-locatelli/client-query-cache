@@ -92,6 +92,7 @@ def build_report(
     *,
     change_stream_cost: ChangeStreamCostComparison | None = None,
 ) -> JsonDict:
+    environment = config.environment
     report: JsonDict = {
         "schema_version": SCHEMA_VERSION,
         "identity": {
@@ -101,14 +102,18 @@ def build_report(
             "pymongo_version": config.identity.pymongo_version,
         },
         "environment": {
-            "mongodb_version": config.environment.mongodb_version,
-            "topology": config.environment.topology,
-            "member_count": config.environment.member_count,
-            "resource_limits": dict(config.environment.resource_limits),
+            "mongodb_version": environment.mongodb_version,
+            "topology": environment.topology,
+            "member_count": environment.member_count,
+            "resource_limits": (
+                dict(environment.resource_limits)  # pytriage: TR6 - JSON needs a dict.
+            ),
         },
         "workload": {
             "name": config.workload.name,
-            "parameters": dict(config.workload.parameters),
+            "parameters": (
+                dict(config.workload.parameters)  # pytriage: TR6 - JSON needs a dict.
+            ),
         },
         "limitations": [
             {"label": limitation.label, "description": limitation.description}
@@ -145,7 +150,9 @@ def build_report(
                     ),
                 },
             ],
-            "logical_metrics": dict(logical_metrics),
+            "logical_metrics": (
+                dict(logical_metrics)  # pytriage: TR6 - JSON needs a dict.
+            ),
         },
     }
     if change_stream_cost is not None:

@@ -57,7 +57,11 @@ class BenchmarkEnvironment:
             message = "resource_limits must not be empty"
             raise BenchmarkConfigurationError(message)
         object.__setattr__(
-            self, "resource_limits", MappingProxyType(dict(self.resource_limits))
+            self,
+            "resource_limits",
+            MappingProxyType(
+                dict(self.resource_limits)  # pytriage: TR6 - Private copy.
+            ),
         )
 
 
@@ -72,7 +76,13 @@ class WorkloadParameters:
             message = "parameters must not be empty"
             raise BenchmarkConfigurationError(message)
         _require_scalar_values(self.parameters, "parameters")
-        object.__setattr__(self, "parameters", MappingProxyType(dict(self.parameters)))
+        object.__setattr__(
+            self,
+            "parameters",
+            MappingProxyType(
+                dict(self.parameters)  # pytriage: TR6 - Private copy.
+            ),
+        )
 
 
 @dataclass(frozen=True, slots=True)

@@ -973,7 +973,7 @@ def test_transport_failure_bypasses_in_both_modes(
         is None
     )
     if faulted_endpoint.config.enable_telemetry:
-        assert faulted_endpoint.counters.failures == int(disconnected_transport)
+        assert faulted_endpoint.counters.failures == disconnected_transport
         assert faulted_endpoint.counters.timeouts == int(not disconnected_transport)
 
 
@@ -1975,7 +1975,7 @@ def local_miss(session: _Session, faker: Faker) -> Message:
         "incarnation": session.owner.incarnation,
         "identity": _identity(0),
         "shape": encode_key(_SHAPE),
-        "token": list(token),
+        "token": list(token),  # pytriage: TR6 - Decoded frames hold lists.
         "value": encode_value({"_id": 0, "name": faker.name()}),
     }
 
@@ -2345,9 +2345,9 @@ async def test_full_native_queues_use_bounded_fallback_or_skip_admission(
         assert admission_endpoint.counters.native_admissions == 0
         assert admission_endpoint.counters.native_admission_drops == int(not connected)
         assert admission_endpoint.counters.native_admission_recoveries == 0
-        assert admission_endpoint.counters.one_way == int(connected)
+        assert admission_endpoint.counters.one_way == connected
         assert admission_endpoint.counters.dropped_one_way == int(not connected)
-        assert session.owner.counters.admitted == int(connected)
+        assert session.owner.counters.admitted == connected
     assert session.local(0) == (local_miss["value"] if connected else None)
     assert not session.owner._handles
 

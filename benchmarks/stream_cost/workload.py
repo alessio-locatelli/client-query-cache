@@ -142,7 +142,7 @@ def insert_dataset(collection: Collection[BsonDict], dataset: SeededDataset) -> 
     if not dataset.documents:
         message = "dataset must not be empty"
         raise BenchmarkConfigurationError(message)
-    collection.insert_many(list(dataset.documents))
+    collection.insert_many(dataset.documents)
 
 
 def sample_operation_ids(

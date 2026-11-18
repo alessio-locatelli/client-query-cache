@@ -29,7 +29,7 @@ def run_case(python: Path, overlay: Path, cpu: int, uri: str, cell: str) -> floa
             TASKSET,
             "-c",
             str(cpu),
-            str(python),
+            python,
             "-m",
             "benchmarks.stream_cost.guard_workload",
             "--uri",

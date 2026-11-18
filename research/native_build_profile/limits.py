@@ -260,7 +260,7 @@ def collect(
     samples: list[Sample] = []
     for round_index in range(rounds):
         for workload in workloads:
-            order = list(configs)
+            order = configs.copy()
             generator.shuffle(order)
             for config in order:
                 nanoseconds = measure_once(WORKLOADS[workload], CONFIGS[config])
@@ -325,8 +325,16 @@ def main() -> None:
     )
     parser.add_argument("--rounds", type=int, default=9)
     parser.add_argument("--seed", type=int, default=20261103)
-    parser.add_argument("--workloads", nargs="*", default=list(WORKLOADS))
-    parser.add_argument("--configs", nargs="*", default=list(CONFIGS))
+    parser.add_argument(
+        "--workloads",
+        nargs="*",
+        default=list(WORKLOADS),  # pytriage: TR6 - Default to the dict keys.
+    )
+    parser.add_argument(
+        "--configs",
+        nargs="*",
+        default=list(CONFIGS),  # pytriage: TR6 - Default to the dict keys.
+    )
     parser.add_argument("--output", type=Path, required=True)
     arguments = parser.parse_args()
     configs = ["disabled", *[c for c in arguments.configs if c != "disabled"]]

@@ -32,7 +32,11 @@ class CompressorPreflightResult:
 
     def __post_init__(self) -> None:
         object.__setattr__(
-            self, "counter_deltas", MappingProxyType(dict(self.counter_deltas))
+            self,
+            "counter_deltas",
+            MappingProxyType(
+                dict(self.counter_deltas)  # pytriage: TR6 - Private copy.
+            ),
         )
 
 

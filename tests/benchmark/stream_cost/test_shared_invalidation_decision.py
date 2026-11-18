@@ -52,8 +52,14 @@ def test_cli_prints_gate_and_lag_context(
             )
     output = tmp_path / "baseline.json"
     output.write_text(json.dumps(report))
-    monkeypatch.setattr("sys.argv", ["shared_invalidation_decision", str(output)])
-    runpy.run_path(str(shared_invalidation_decision.__file__), run_name="__main__")
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "shared_invalidation_decision",
+            str(output),  # pytriage: TR6 - argparse needs str.
+        ],
+    )
+    runpy.run_path(shared_invalidation_decision.__file__, run_name="__main__")
     decision = json.loads(capsys.readouterr().out)
     assert decision["outcome"] == "below-threshold"
     assert len(decision["native_lag_context"]) == 24

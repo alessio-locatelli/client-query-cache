@@ -158,7 +158,8 @@ def snapshot_logical_metrics(
                 "logical_event_bytes": stream.logical_event_bytes,
                 "invalidations": stream.invalidations,
                 "invalidation_lag_windows": [
-                    list(window) for window in stream.invalidation_lag_windows
+                    list(window)  # pytriage: TR6 - jsonschema needs a list.
+                    for window in stream.invalidation_lag_windows
                 ],
                 "invalidation_lag_clock_skew_limitation": lag_limitation,
                 "resident_bytes": stream.resident_bytes,

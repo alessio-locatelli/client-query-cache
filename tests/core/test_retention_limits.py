@@ -221,7 +221,7 @@ def test_raising_size_callback_declines_only_retention(
         == 1
     )
 
-    assert core.snapshot().entry_count == int(existing)
+    assert core.snapshot().entry_count == existing
     if existing:
         assert core.lookup_namespace(namespace, sized_key).value == 1
 
@@ -318,7 +318,7 @@ def test_identity_lookup_defers_only_a_requested_available_miss(
     assert deferred.hit is hit
     assert deferred.deferred_miss is (available and not resident)
     assert (snapshot.hits, snapshot.misses, snapshot.bypasses) == (
-        int(hit),
+        hit,
         0,
         int(not available),
     )
@@ -631,11 +631,11 @@ def test_composite_key_declines_and_fallback_observations(
         snapshot = core.snapshot()
         assert snapshot.bypasses == snapshot.oversized_bypasses == 0
         assert snapshot.entry_count == (
-            (int(namespace_fits) + int("identity" not in large_record))
+            (namespace_fits + int("identity" not in large_record))
             if maximum is None
             else int(pair_fits or namespace_fits)
         )
-        assert snapshot.alias_count == int(pair_fits)
+        assert snapshot.alias_count == pair_fits
         if maximum == 1:
             assert (
                 decline_count(
@@ -748,7 +748,7 @@ def test_last_value_eviction_and_capture_release_reclaim_alias_ownership(
         is AdmissionOutcome.ADMITTED
     )
     assert core.snapshot().entry_count == 1
-    assert core.snapshot().alias_count == int(pinned)
+    assert core.snapshot().alias_count == pinned
     capture.release()
     assert core.snapshot().alias_count == 0
 
@@ -1192,7 +1192,7 @@ def test_repeated_identity_admission_records_each_declined_alias(
         if maximum is None
         else AdmissionOutcome.ADMITTED
     )
-    assert core.snapshot().entry_count == 1 + int(composite)
+    assert core.snapshot().entry_count == 1 + composite
     assert core.snapshot().alias_count == 0
     assert (
         decline_count(

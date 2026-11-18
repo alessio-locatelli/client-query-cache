@@ -114,7 +114,7 @@ def test_namespace_lookup_defers_only_a_requested_miss(
     snapshot = core.snapshot()
     assert lookup_result.hit is hit
     assert lookup_result.deferred_miss is (defer_miss and not hit)
-    assert snapshot.hits == int(hit)
+    assert snapshot.hits == hit
     assert snapshot.misses == int(not hit and not defer_miss)
     assert snapshot.bypasses == 0
 

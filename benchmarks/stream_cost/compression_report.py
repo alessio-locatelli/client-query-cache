@@ -146,7 +146,9 @@ def _negotiation_payload(
         "block_index": block_index,
         "mode": mode.value,
         "verified": True,
-        "counter_deltas": dict(preflight_result.counter_deltas),
+        "counter_deltas": (
+            dict(preflight_result.counter_deltas)  # pytriage: TR6 - JSON needs a dict.
+        ),
     }
 
 
@@ -198,7 +200,9 @@ def build_compression_report(
             "mongodb_version": environment.mongodb_version,
             "topology": environment.topology,
             "member_count": environment.member_count,
-            "resource_limits": dict(environment.resource_limits),
+            "resource_limits": (
+                dict(environment.resource_limits)  # pytriage: TR6 - JSON needs a dict.
+            ),
         },
         "compressors": [mode.value for mode in WIRE_COMPRESSION_MODES],
         "windows": [_window_payload(window) for window in windows],

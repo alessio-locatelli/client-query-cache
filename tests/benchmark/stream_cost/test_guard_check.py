@@ -187,7 +187,7 @@ def test_main_writes_report_and_exits_on_failure(
         [
             "guard_check",
             "--repo-root",
-            str(tmp_path),
+            str(tmp_path),  # pytriage: TR6 - argparse needs str.
             "--base-revision",
             "abc123",
             "--head-revision",
@@ -195,7 +195,7 @@ def test_main_writes_report_and_exits_on_failure(
             "--work-dir",
             str(tmp_path / "work"),
             "--output",
-            str(output),
+            str(output),  # pytriage: TR6 - argparse needs str.
         ],
     )
 
