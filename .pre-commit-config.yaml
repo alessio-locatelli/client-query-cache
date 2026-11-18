@@ -48,15 +48,25 @@ repos:
         files: ^context7\.json$
         args: ["--schemafile", "https://context7.com/schema/context7.json"]
 
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.17.3
+  - repo: local
     hooks:
+      # uv run --locked in ruff-check and ruff-format: The default is inherited UV_LOCKED, otherwise updating a stale lockfile (https://github.com/astral-sh/uv/blob/0.13.6/crates/uv-cli/src/lib.rs#L3387-L3392). We override it because hooks must run the Ruff release committed in uv.lock.
+      # --only-group lint in ruff-check and ruff-format: The default is the project and default groups (dev) (https://github.com/astral-sh/uv/blob/0.13.6/crates/uv-cli/src/lib.rs#L6808-L6814). We override it because hooks need only Ruff, without installing every development tool or building the native extension.
       - id: ruff-check
-        # Hook arguments: https://github.com/astral-sh/ruff/blob/0.17.3/docs/configuration.md#full-command-line-interface
+        name: ruff check
+        # Ruff arguments: https://github.com/astral-sh/ruff/blob/0.17.5/docs/configuration.md#full-command-line-interface
         # --fix: The default is false. We override it because hook runs should repair supported violations.
         # --exit-non-zero-on-fix: The default is false. We override it because an edit must stop the commit until its repaired files are reviewed and staged.
-        args: ["--fix", "--exit-non-zero-on-fix"]
+        entry: uv run --locked --only-group lint -- ruff check --fix --exit-non-zero-on-fix
+        language: system
+        types_or: [python, pyi, jupyter]
+        require_serial: true
       - id: ruff-format
+        name: ruff format
+        entry: uv run --locked --only-group lint -- ruff format
+        language: system
+        types_or: [python, pyi, jupyter, markdown]
+        require_serial: true
 
   - repo: https://github.com/alessio-locatelli/ruff-extra-rules
     rev: v0.6.0

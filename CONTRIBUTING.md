@@ -96,6 +96,7 @@ For a specific path, node ID, or other pytest argument, run `just pytest -- <arg
 include the leading `--`, mirroring `just podman -- <arguments>` below, since some pytest flags
 (such as `-q` or `-v`) share a letter with `just`'s own short flags. Run `just lint` and
 `just format` for repository quality checks, and run `just ci-lint` after changing GitHub Actions.
+Ruff comes from the locked `lint` dependency group: the Prek hooks run it through `uv run`, and editor integrations should use `.venv/bin/ruff`. `ruff.toml` rejects older Ruff releases, so upgrade a standalone Ruff installation or use the project's.
 
 See [native Rust quality checks](docs/development/native-quality.md) for the native
 lint, dependency-policy, and concurrency-model gates.

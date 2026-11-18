@@ -1,4 +1,6 @@
-# Defaults of the options in this file: https://github.com/astral-sh/ruff/blob/0.17.3/crates/ruff_workspace/src/options.rs
+# Defaults of the options in this file: https://github.com/astral-sh/ruff/blob/0.17.5/crates/ruff_workspace/src/options.rs
+# The default accepts any Ruff version. We override it because an outdated executable, such as a standalone installation, must fail instead of checking with older rules.
+required-version = ">=0.17.5"
 extend-exclude = ["specifications"]
 # The default is false. We override it because explicitly passed hook filenames must still respect the submodule exclusion.
 force-exclude = true
@@ -6,7 +8,7 @@ force-exclude = true
 [lint]
 # The default is false. We override it because quality checks include the selected preview rules.
 preview = true
-# The default is Ruff's default rule set (https://github.com/astral-sh/ruff/blob/0.17.3/crates/ruff_linter/src/settings/mod.rs#L357-L765). We override it because every applicable rule should run unless its accepted exception is listed below.
+# The default is Ruff's default rule set (https://github.com/astral-sh/ruff/blob/0.17.5/crates/ruff_linter/src/settings/mod.rs#L357-L765). We override it because every applicable rule should run unless its accepted exception is listed below.
 select = ["ALL"]
 # For ignore/per-file-ignores, the default is no exclusions from the selected policy
 # (apart from Ruff's conflicting-rule resolution). Each group permits the stated repository idiom.
