@@ -410,7 +410,7 @@ def _local_select(view: View, keys: tuple[bytes, bytes] | str) -> object:
                     "incarnation": incarnation,
                     "identity": identity_key,
                     "shape": shape_key,
-                    "token": list(token),
+                    "token": token,
                 },
                 local.reader,
                 recover_socket=(

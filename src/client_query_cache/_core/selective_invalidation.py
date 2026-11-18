@@ -134,7 +134,7 @@ def partition_scalar(value: object) -> bytes | None:
             return None
         canonical = canonical_order_sensitive_key(value)
         assert isinstance(canonical, int)
-        value = int(canonical)
+        value = int(canonical)  # pytriage: TR6 - Encode Int64 as a plain int.
     encoded = BSON.encode({"value": value})
     return encoded if len(encoded) <= MAX_PARTITION_WIRE_BYTES else None
 

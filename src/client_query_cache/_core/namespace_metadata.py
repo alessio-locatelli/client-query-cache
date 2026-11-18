@@ -68,7 +68,7 @@ class NamespaceMetadataCache[Metadata]:
     def remove_database(self, database: str) -> None:
         with self._lock:
             self._version += 1
-            for namespace in tuple(self._entries):
+            for namespace in tuple(self._entries):  # pytriage: TR6 - Loop deletes.
                 if namespace.database == database:
                     del self._entries[namespace]
 

@@ -280,7 +280,7 @@ class KeyCache:
             new_family = False
         if len(family_bytes) <= _MAX_CACHED_KEY_BYTES:
             retain_pair = self._limit >= 2 and len(exact) <= _MAX_CACHED_KEY_BYTES
-            required = int(new_family) + int(retain_pair)
+            required = new_family + retain_pair
             if len(self._encoded) + len(self._finds) + required > self._limit:
                 self._encoded.clear()
                 self._finds.clear()
