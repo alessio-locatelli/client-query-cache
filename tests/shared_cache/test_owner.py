@@ -73,7 +73,10 @@ if TYPE_CHECKING:
     from client_query_cache._shared.coordinator import ActivationState
     from client_query_cache._shared_index import SessionRing
 
-pytestmark = pytest.mark.unit
+pytestmark = [
+    pytest.mark.unit,
+    pytest.mark.filterwarnings("error::pytest.PytestUnhandledThreadExceptionWarning"),
+]
 
 _DATABASE = "unreachable"
 # Linux raises any smaller SO_SNDBUF request to its minimum send buffer.
@@ -927,35 +930,39 @@ def disconnected_transport(request: pytest.FixtureRequest) -> bool:
     return request.param
 
 
+def _reset_send(*_args: object) -> int:
+    raise ConnectionResetError
+
+
+_handle_request = SharedCacheOwner._handle_request
+
+
+def _delayed_request(
+    instance: SharedCacheOwner,
+    connection: coordinator._Connection,
+    message: Message,
+    now: NonNegativeFloat,
+    *,
+    queued: bool = False,
+) -> Message | None:
+    time.sleep(_RPC_DEADLINE_SECONDS * 2)
+    return _handle_request(instance, connection, message, now, queued=queued)
+
+
 @pytest.fixture
 def faulted_endpoint(
     owner: SharedCacheOwner,
     disconnected_transport: bool,
     monkeypatch: pytest.MonkeyPatch,
 ) -> Iterator[SyncEndpoint]:
-    endpoint = SyncEndpoint(
-        replace(
-            attachment_for(owner.config), rpc_deadline_seconds=_RPC_DEADLINE_SECONDS
-        )
-    )
+    config = attachment_for(owner.config)
     if disconnected_transport:
-        (connection,) = owner._connections.values()
-        owner.detach(connection)
+        fault: tuple[str, object] = ("_send", staticmethod(_reset_send))
     else:
-        handle = SharedCacheOwner._handle_request
-
-        def delayed(
-            instance: SharedCacheOwner,
-            connection: coordinator._Connection,
-            message: Message,
-            now: NonNegativeFloat,
-            *,
-            queued: bool = False,
-        ) -> Message | None:
-            time.sleep(_RPC_DEADLINE_SECONDS * 2)
-            return handle(instance, connection, message, now, queued=queued)
-
-        monkeypatch.setattr(type(owner), "_handle_request", delayed)
+        config = replace(config, rpc_deadline_seconds=_RPC_DEADLINE_SECONDS)
+        fault = ("_handle_request", _delayed_request)
+    endpoint = SyncEndpoint(config)
+    monkeypatch.setattr(type(owner), *fault)
     yield endpoint
     endpoint.close()
 
