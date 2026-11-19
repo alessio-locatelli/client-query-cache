@@ -472,7 +472,7 @@ class _SharedIndexMachine(RuleBasedStateMachine):
             shape_key(_SHAPES[0]),
             _EXPIRY_NS,
         )
-        if outcome is AdmissionOutcome.ADMITTED:
+        if outcome is AdmissionOutcome.ADMITTED:  # pragma: lax no cover (draws vary)
             assert capture["version"] == self.versions[namespace]
 
     @rule(
