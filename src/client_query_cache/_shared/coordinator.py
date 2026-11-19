@@ -1020,7 +1020,7 @@ class SharedCacheOwner:
                 sent = self._send(connection, view)
             except BlockingIOError:
                 break
-            except OSError:  # pragma: lax no cover (peer reset timing)
+            except OSError:
                 self.detach(connection)
                 return False
             if self._counters is not None:
