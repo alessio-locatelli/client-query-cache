@@ -17,17 +17,20 @@ Add caching through an explicit [cached collection view](https://alessio-locatel
 
 Choose `CacheManager` for caching within one process, or `SharedCacheManager` to reuse eligible collection reads across trusted same-host workers. Both support sync and asyncio. See [which manager to choose](https://alessio-locatelli.github.io/client-query-cache/getting-started/choose-a-manager/).
 
-With shared caching, workers look up the same cache and use their own PyMongo clients for misses and bypasses:
+Both cache managers can serve eligible reads from memory, falling back to PyMongo for cache misses and bypasses. MongoDB change streams asynchronously invalidate cached results.
 
 ```mermaid
 flowchart TB
-    subgraph Application["Python application"]
-        Worker1["Python worker 1"] -->|"Cache lookup"| Cache["Rust-backed<br/>shared cache"]
-        Worker2["Python worker 2"] -->|"Cache lookup"| Cache
-    end
-    Worker1 -->|"Miss / bypass"| DB[("MongoDB")]
-    Worker2 -->|"Miss / bypass"| DB
-    DB -.->|"Change streams<br/>Async invalidation"| Cache
+    App["Python application"]
+    API["client-query-cache"]
+    Cache["In-memory cache<br/>(per-process or shared across processes)"]
+    DB[("MongoDB")]
+
+    App -->|"Query"| API
+    API -->|"Cache lookup"| Cache
+    Cache -->|"Hit"| API
+    API -->|"Miss / bypass"| DB
+    DB -.->|"Change-stream invalidation"| Cache
 ```
 
 [Benchmarks](https://alessio-locatelli.github.io/client-query-cache/benchmarks/shared-cache/) compare direct reads, independent caches and shared caching. Sharing avoids duplicated values and streams, but its owner process and cache misses have costs. Rust does not guarantee a faster application or lower total memory for every workload.
