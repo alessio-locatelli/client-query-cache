@@ -13,6 +13,10 @@ bodies or OpenSpec. An empty Unreleased section is valid.
 
 ## Unreleased
 
+## [0.14.2] - 2026-11-22
+
+No significant changes.
+
 ## [0.14.1] - 2026-11-19
 
 ### Performance
