@@ -19,6 +19,8 @@ import tomli_w
 type Text = str
 type Table = dict[Text, object]
 
+_EXAMPLE_DIRECTORIES = ("docs/examples", "examples")
+
 
 def table(value: object) -> Table:
     return cast("Table", value)
@@ -75,14 +77,17 @@ def extract_corpus(repo: Path, revision: Text, destination: Path) -> None:
             "--name-only",
             revision,
             "docs/user",
-            "examples",
+            *_EXAMPLE_DIRECTORIES,
             "zensical.toml",
         )
         .decode()
         .splitlines()
         if name.startswith("docs/user/")
-        or name in {"zensical.toml", "examples/README.md"}
-        or (name.startswith("examples/") and name.endswith(".py"))
+        or name == "zensical.toml"
+        or (
+            name.rpartition("/")[0] in _EXAMPLE_DIRECTORIES
+            and name.endswith(("/README.md", ".py"))
+        )
     )
     if "zensical.toml" not in files or "docs/user/index.md" not in files:
         raise ValueError("Documentation source lacks the public guide layout")
@@ -111,7 +116,12 @@ def edition_config(corpus: Path, revision: Text, *, stable: bool) -> Table:
     repository = project["repo_url"]
     hosted_base = cast("Text", project["site_url"]).rstrip("/") + "/"
     edition = "stable" if stable else "dev"
-    for page in (*corpus.glob("docs/user/**/*.md"), corpus / "examples/README.md"):
+    example_catalogues = (
+        page
+        for directory in _EXAMPLE_DIRECTORIES
+        for page in (corpus / directory).glob("README.md")
+    )
+    for page in (*corpus.glob("docs/user/**/*.md"), *example_catalogues):
         text = re.sub(
             re.escape(hosted_base) + r"(?!stable/|dev/)",
             hosted_base + edition + "/",

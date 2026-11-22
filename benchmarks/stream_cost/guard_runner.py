@@ -6,6 +6,7 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 from importlib.metadata import version
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from benchmarks.stream_cost.errors import BenchmarkSetupError
@@ -14,8 +15,9 @@ from client_query_cache._types import NonNegativeFloat, PositiveInt
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
-    from pathlib import Path
 
+_WORKLOAD_PACKAGE_DIR = Path(*__package__.split("."))
+_WORKLOAD_MODULE = f"{__package__}.guard_workload"
 _WORKLOAD_SOURCE_FILES = ("errors.py", "generators.py", "guard_workload.py")
 
 
@@ -47,8 +49,9 @@ def revision_python_version(repo_root: Path, revision: str) -> str:
 
 def _workload_digest(repo_root: Path) -> str:
     digest = hashlib.sha256()
+    workload_dir = repo_root / _WORKLOAD_PACKAGE_DIR
     for name in _WORKLOAD_SOURCE_FILES:
-        path = repo_root / "benchmarks" / "stream_cost" / name
+        path = workload_dir / name
         try:
             content = path.read_bytes()
         except FileNotFoundError:
@@ -97,10 +100,16 @@ def prepare_environment(
         )
         raise BenchmarkSetupError(message)
     if workload_source_root is not None:
-        target_dir = worktree_dir / "benchmarks" / "stream_cost"
+        target_dir = worktree_dir / _WORKLOAD_PACKAGE_DIR
+        target_dir.mkdir(parents=True, exist_ok=True)
+        for directory in (_WORKLOAD_PACKAGE_DIR, *_WORKLOAD_PACKAGE_DIR.parents[:-1]):
+            initializer = directory / "__init__.py"
+            shutil.copyfile(
+                workload_source_root / initializer, worktree_dir / initializer
+            )
         for name in _WORKLOAD_SOURCE_FILES:
             shutil.copyfile(
-                workload_source_root / "benchmarks" / "stream_cost" / name,
+                workload_source_root / _WORKLOAD_PACKAGE_DIR / name,
                 target_dir / name,
             )
     uv_path = shutil.which("uv")
@@ -172,7 +181,7 @@ def _run_case_subprocess(
             [
                 str(environment.python_executable),
                 "-m",
-                "benchmarks.stream_cost.guard_workload",
+                _WORKLOAD_MODULE,
                 "--uri",
                 uri,
                 "--case",

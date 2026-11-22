@@ -146,6 +146,20 @@ def exported_repo(release_repo: Path, combined_output: Text | None) -> Path:
     return release_repo
 
 
+@pytest.fixture(params=["root", "moved"])
+def development_examples(exported_repo: Path, request: pytest.FixtureRequest) -> Path:
+    if request.param == "root":
+        return Path("examples")
+    directory = Path("docs/examples")
+    git(exported_repo, "mv", "examples", str(directory))
+    guide = exported_repo / "docs/user/guide.md"
+    guide.write_text(
+        guide.read_text().replace("examples/example.py", f"{directory}/example.py")
+    )
+    commit(exported_repo)
+    return directory
+
+
 @pytest.fixture
 def artifact_exists() -> bool:
     return True
@@ -212,7 +226,10 @@ def assert_previous_artifact(directory: Path) -> None:
 
 @pytest.fixture
 def failed_edition(
-    exported_repo: Path, request: pytest.FixtureRequest, failed_snapshot: Text
+    exported_repo: Path,
+    request: pytest.FixtureRequest,
+    failed_snapshot: Text,
+    development_examples: Path,
 ) -> tuple[type[Exception], Text]:
     failure: tuple[type[Exception], Text]
     if request.param == "heading":
@@ -227,12 +244,12 @@ def failed_edition(
         failure = subprocess.CalledProcessError, "page does not exist"
     elif request.param == "snippet":
         (exported_repo / "docs/user/index.md").write_text(
-            '# Invalid guide\n\n--8<-- "examples/absent.py"\n'
+            f'# Invalid guide\n\n--8<-- "{development_examples}/absent.py"\n'
         )
         failure = subprocess.CalledProcessError, "Snippet at path"
     elif request.param == "outside-snippet":
         (exported_repo / "docs/user/index.md").write_text(
-            '# Invalid guide\n\n--8<-- "../stable/examples/example.py"\n'
+            f'# Invalid guide\n\n--8<-- "../stable/{development_examples}/example.py"\n'
         )
         failure = subprocess.CalledProcessError, "Snippet at path"
     elif request.param == "exports":
@@ -366,7 +383,10 @@ def test_failed_first_install_leaves_no_partial_artifact(
 
 
 @pytest.fixture
-def development_only_edition(exported_repo: Path) -> None:
+def development_only_edition(
+    exported_repo: Path,
+    development_examples: Path,  # noqa: ARG001 - orders fixture setup
+) -> None:
     (exported_repo / "docs/user/index.md").write_text("# DevelopmentOnlyToken\n")
     (exported_repo / "docs/user/preview.md").write_text("# UnreleasedPageToken\n")
     with (exported_repo / "zensical.toml").open("a") as configuration:
@@ -398,6 +418,7 @@ def test_assembles_independent_snapshots_with_development_only_page(
     assert "DevelopmentOnlyToken" not in (output / "stable/index.html").read_text()
     assert "DevelopmentOnlyToken" in (output / "dev/index.html").read_text()
     for edition in ("stable", "dev"):
+        assert "released" in (output / edition / "guide/index.html").read_text()
         assert 'print("released")' in (output / edition / "guide/index.md").read_text()
     assert not (output / "stable/preview/index.html").exists()
     assert "UnreleasedPageToken" in (output / "dev/preview/index.html").read_text()
