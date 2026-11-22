@@ -10,7 +10,7 @@ Each numbered group is one commit that leaves `just lint` and the affected tests
 
 ## 2. ast-grep rules
 
-- [ ] 2.1 Move `rules/` to `development/ast-grep/rules/` and `rule-tests/` to `development/ast-grep/rule-tests/` (`design.md` D4). Update `sgconfig.yml` (`ruleDirs`, `testConfigs.testDir`), the `ast-grep-test` hook's `files` pattern in `.pre-commit-config.yaml`, and the snapshot path in `.prettierignore`. Verify with `prek run ast-grep-test --all-files` and `prek run ast-grep --all-files`, both passing with the same rule count as before.
+- [x] 2.1 Move `rules/` to `development/ast-grep/rules/` and `rule-tests/` to `development/ast-grep/rule-tests/` (`design.md` D4). Update `sgconfig.yml` (`ruleDirs`, `testConfigs.testDir`), the `ast-grep-test` hook's `files` pattern in `.pre-commit-config.yaml`, and the snapshot path in `.prettierignore`. Verify with `prek run ast-grep-test --all-files` and `prek run ast-grep --all-files`, both passing with the same rule count as before.
 
 ## 3. Documentation-type content under `docs/`
 

@@ -10,4 +10,4 @@ site/
 /docs/site/google5a37145ea1915a18.html
 
 # Keep ast-grep-generated rule snapshots in the format that `ast-grep test --update-all` writes.
-/rule-tests/__snapshots__/
+/development/ast-grep/rule-tests/__snapshots__/
