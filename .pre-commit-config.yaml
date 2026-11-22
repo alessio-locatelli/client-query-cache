@@ -131,7 +131,7 @@ repos:
         entry: ast-grep test
         language: python
         additional_dependencies: ["ast-grep-cli==0.51.0"]
-        files: ^(sgconfig\.yml|rules/|rule-tests/)
+        files: ^(sgconfig\.yml|development/ast-grep/(rules|rule-tests)/)
         pass_filenames: false
       - id: rust-lint
         name: Rust quality checks

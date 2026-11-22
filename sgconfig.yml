@@ -1,4 +1,4 @@
 ruleDirs:
-  - rules
+  - development/ast-grep/rules
 testConfigs:
-  - testDir: rule-tests
+  - testDir: development/ast-grep/rule-tests
