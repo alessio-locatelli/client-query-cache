@@ -31,7 +31,7 @@ Each numbered group is one commit that leaves `just lint` and the affected tests
 
 ## 6. Layout documentation
 
-- [ ] 6.1 Add a short "Repository layout" section to `CONTRIBUTING.md` that names each top-level directory with its purpose and states the placement rule from the `development-environment` requirement "New top-level directories have a placement justification". Verify with `prek run markdownlint-cli2 --files CONTRIBUTING.md` and `prek run prettier --files CONTRIBUTING.md`.
+- [x] 6.1 Add a short "Repository layout" section to `CONTRIBUTING.md` that names each top-level directory with its purpose and states the placement rule from the `development-environment` requirement "New top-level directories have a placement justification". Verify with `npm exec -- markdownlint-cli2 CONTRIBUTING.md` and `prek run prettier --files CONTRIBUTING.md`.
 
 ## 7. Integration checks
 
