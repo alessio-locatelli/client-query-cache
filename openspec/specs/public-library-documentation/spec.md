@@ -472,7 +472,7 @@ Context7 configuration SHALL select the authored public guides and root README. 
 #### Scenario: Context7 selects repository inputs
 
 - **WHEN** the configuration's include and exclude settings are applied
-- **THEN** `docs/user` and `README.md` are eligible while `docs/user/examples`, `docs/development`, `openspec`, `specifications`, `AGENTS.md`, `CLAUDE.md`, and `CONTRIBUTING.md` are not
+- **THEN** `docs/user` and `README.md` are eligible while `docs/user/examples`, `docs/examples`, `docs/development`, `docs/specifications`, `openspec`, `AGENTS.md`, `CLAUDE.md`, and `CONTRIBUTING.md` are not
 
 ### Requirement: Context7 rules reflect implemented usage contracts
 

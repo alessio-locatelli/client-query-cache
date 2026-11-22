@@ -10,12 +10,12 @@ See the [example catalogue](index.md) for prerequisites, run commands, expected 
 
 ## Complete program
 
-The code below is included from the [canonical Python source](https://github.com/alessio-locatelli/client-query-cache/blob/main/examples/aiohttp_client_cache_example.py).
+The code below is included from the [canonical Python source](https://github.com/alessio-locatelli/client-query-cache/blob/main/docs/examples/aiohttp_client_cache_example.py).
 
 <!-- fmt:off -->
 
 ```python
---8<-- "examples/aiohttp_client_cache_example.py"
+--8<-- "docs/examples/aiohttp_client_cache_example.py"
 ```
 
 <!-- fmt:on -->

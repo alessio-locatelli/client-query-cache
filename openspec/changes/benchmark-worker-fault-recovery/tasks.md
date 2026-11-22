@@ -1,7 +1,7 @@
 # Tasks
 
 The v8 outcome is preserved in
-[`reports/worker-fault-recovery/research-outcome.md`](../../../reports/worker-fault-recovery/research-outcome.md).
+[`docs/development/reports/worker-fault-recovery/research-outcome.md`](../../../docs/development/reports/worker-fault-recovery/research-outcome.md).
 This PR delivers the regression-coverage tasks below. The quantitative study
 remains unfinished.
 

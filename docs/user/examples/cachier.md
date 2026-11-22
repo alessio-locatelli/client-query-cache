@@ -13,8 +13,8 @@ Use a [repository checkout](https://github.com/alessio-locatelli/client-query-ca
 Run from the repository root, without editing the source:
 
 ```console
-uv run examples/cachier_example.py
-uv run examples/cachier_async_example.py
+uv run docs/examples/cachier_example.py
+uv run docs/examples/cachier_async_example.py
 ```
 
 Each script declares `cachier[mongo]>=4.2.0` and uses the working-tree `client-query-cache` package. uv resolves the published cachier package into a separate script environment; no local cachier checkout is needed.
@@ -46,24 +46,24 @@ The demonstrated benefit comes from repeated reads between storage writes. cachi
 
 ## Complete synchronous program
 
-The code is included from the [canonical Python source](https://github.com/alessio-locatelli/client-query-cache/blob/main/examples/cachier_example.py).
+The code is included from the [canonical Python source](https://github.com/alessio-locatelli/client-query-cache/blob/main/docs/examples/cachier_example.py).
 
 <!-- fmt:off -->
 
 ```python
---8<-- "examples/cachier_example.py"
+--8<-- "docs/examples/cachier_example.py"
 ```
 
 <!-- fmt:on -->
 
 ## Complete asyncio program
 
-The code is included from the [canonical Python source](https://github.com/alessio-locatelli/client-query-cache/blob/main/examples/cachier_async_example.py).
+The code is included from the [canonical Python source](https://github.com/alessio-locatelli/client-query-cache/blob/main/docs/examples/cachier_async_example.py).
 
 <!-- fmt:off -->
 
 ```python
---8<-- "examples/cachier_async_example.py"
+--8<-- "docs/examples/cachier_async_example.py"
 ```
 
 <!-- fmt:on -->

@@ -11,7 +11,7 @@ With the stream healthy and the document not yet cached, the first request recor
 <!-- fmt:off -->
 
 ```python
---8<-- "examples/fastapi_minimal_example.py:reuse"
+--8<-- "docs/examples/fastapi_minimal_example.py:reuse"
 ```
 
 <!-- fmt:on -->
@@ -29,15 +29,15 @@ Each operation below delivers a document but records one ordinary bypass and one
 <!-- fmt:off -->
 
 ```python
---8<-- "examples/fastapi_minimal_example.py:session"
+--8<-- "docs/examples/fastapi_minimal_example.py:session"
 ```
 
 ```python
---8<-- "examples/fastapi_minimal_example.py:cursor"
+--8<-- "docs/examples/fastapi_minimal_example.py:cursor"
 ```
 
 ```python
---8<-- "examples/fastapi_minimal_example.py:sample"
+--8<-- "docs/examples/fastapi_minimal_example.py:sample"
 ```
 
 <!-- fmt:on -->
@@ -51,7 +51,7 @@ The example sets `max_entry_bytes` to 1 KiB and seeds a document with a 2,048-ch
 <!-- fmt:off -->
 
 ```python
---8<-- "examples/fastapi_minimal_example.py:oversized"
+--8<-- "docs/examples/fastapi_minimal_example.py:oversized"
 ```
 
 <!-- fmt:on -->

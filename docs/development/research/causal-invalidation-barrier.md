@@ -128,7 +128,7 @@ particular write, not that ordinary client construction necessarily violates it.
 
 The delivered requests-cache, Celery, and py-abac examples poll consumer results after writes. Their integration
 paths do not supply the session boundary needed by this API. Retaining that polling does not demonstrate that
-the proposed barrier solves the examples' application needs. See the [examples](https://github.com/alessio-locatelli/client-query-cache/blob/main/examples/README.md).
+the proposed barrier solves the examples' application needs. See the [examples](https://github.com/alessio-locatelli/client-query-cache/blob/main/docs/examples/README.md).
 
 ## Independent timeout-context finding
 

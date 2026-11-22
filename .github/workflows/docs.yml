@@ -13,8 +13,8 @@ on: # zizmor: ignore[dangerous-triggers] Trusted main only; no triggering-run co
     paths:
       - "docs/user/**"
       - "docs/site/**"
-      - "examples/README.md"
-      - "examples/*.py"
+      - "docs/examples/README.md"
+      - "docs/examples/*.py"
       - "zensical.toml"
       - "scripts/build_versioned_docs.py"
       - "pyproject.toml"

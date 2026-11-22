@@ -38,7 +38,9 @@ if TYPE_CHECKING:
 
 pytestmark = pytest.mark.unit
 
-_CONFIGURATION_PATH = Path("reports/stream-cost/await-v1/config.v1.json")
+_CONFIGURATION_PATH = Path(
+    "docs/development/reports/stream-cost/await-v1/config.v1.json"
+)
 _BASELINE_SERVER_CPU = 12.0
 _BASELINE_BYTES = 100_000
 _ACTIVE_CPU = 1.0

@@ -41,8 +41,8 @@ def main() -> None:
     )
     documentation = any(
         path.startswith(("docs/user/", ".github/actions/setup-toolchain/"))
-        or path == "examples/README.md"
-        or (path.startswith("examples/") and path.endswith(".py"))
+        or path == "docs/examples/README.md"
+        or (path.startswith("docs/examples/") and path.endswith(".py"))
         or path
         in {
             "zensical.toml",

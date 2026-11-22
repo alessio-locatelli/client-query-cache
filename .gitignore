@@ -145,8 +145,8 @@ node_modules/
 # Reproducible raw benchmark output; keep summaries and compact inputs in Git.
 /benchmark-reports/
 /memory-reports/
-/reports/**/*.report*.json
-/reports/stream-cost/await-v1/config.expanded.v1.json
+/docs/development/reports/**/*.report*.json
+/docs/development/reports/stream-cost/await-v1/config.expanded.v1.json
 
 /.docs-artifact-*/
 /.docs-previous-*/

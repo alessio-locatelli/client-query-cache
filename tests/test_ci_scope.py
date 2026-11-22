@@ -185,7 +185,7 @@ pytestmark = pytest.mark.unit
             id="asset",
         ),
         pytest.param(
-            ("examples/README.md",),
+            ("docs/examples/README.md",),
             False,
             True,
             False,
@@ -256,9 +256,9 @@ pytestmark = pytest.mark.unit
         *[
             pytest.param((path,), True, False, False, True, id=path)
             for path in (
-                "examples/requests_cache_example.py",
-                "examples/celery_example.py",
-                "examples/py_abac_example.py",
+                "docs/examples/requests_cache_example.py",
+                "docs/examples/celery_example.py",
+                "docs/examples/py_abac_example.py",
             )
         ],
         pytest.param(
@@ -270,7 +270,7 @@ pytestmark = pytest.mark.unit
             id="mixed-documentation",
         ),
         pytest.param(
-            ("docs/development/index.md", "examples/celery_example.py"),
+            ("docs/development/index.md", "docs/examples/celery_example.py"),
             True,
             True,
             False,

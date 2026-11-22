@@ -66,7 +66,9 @@ _V5_CONFIG = Path("benchmarks/stream_cost/shared_cache/fixtures/v5/config.json")
 _V5_PATHS = {"direct", "independent", "shared-index"}
 _FROZEN_RATES = {"primary": 3000, "cold": 1000, "sensitivity": 500}
 _FROZEN_WINDOWS = {"hot": 30, "active": 60, "sensitivity": 30}
-_CONCURRENT_CONFIG = Path("reports/concurrent-worker-workload/v1/config.json")
+_CONCURRENT_CONFIG = Path(
+    "docs/development/reports/concurrent-worker-workload/v1/config.json"
+)
 _CONCURRENT_RATE = 1000
 _CONCURRENT_CELLS = {
     ("active", "async", workers, path)

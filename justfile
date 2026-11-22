@@ -62,7 +62,7 @@ typecheck-examples:
     # 723 environments resolve dependencies without the project lockfile.
     # uv --quiet: The default is normal progress output. We override it because this
     # loop should emphasize diagnostics.
-    for example in examples/*.py; do
+    for example in docs/examples/*.py; do
         script_python="$(env -u UV_LOCKED uv sync --quiet --script "${example}" --output-format json | uv run -- python -c 'import json, sys; print(json.load(sys.stdin)["sync"]["environment"]["python"]["path"])')"
         # --python-executable: The default is mypy's interpreter. We override it because each example has its own installed dependencies.
         uv run -- mypy --python-executable "${script_python}" "${example}"

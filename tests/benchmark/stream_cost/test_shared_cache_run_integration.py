@@ -33,7 +33,9 @@ pytestmark = pytest.mark.integration
 
 _CONFIG = Path("benchmarks/stream_cost/shared_cache/fixtures/v4/config.json")
 _V5_CONFIG = Path("benchmarks/stream_cost/shared_cache/fixtures/v5/config.json")
-_CONCURRENT_CONFIG = Path("reports/concurrent-worker-workload/v1/config.json")
+_CONCURRENT_CONFIG = Path(
+    "docs/development/reports/concurrent-worker-workload/v1/config.json"
+)
 _ORIGINAL_WORKLOAD = window._workload
 _ORIGINAL_SEED = seed_catalogue
 

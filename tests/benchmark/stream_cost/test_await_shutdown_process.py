@@ -21,7 +21,9 @@ pytestmark = pytest.mark.unit
 @pytest.fixture
 def configuration() -> AwaitConfiguration:
     return load_await_configuration(
-        Path("reports/stream-cost/await-v1/config.v1.json").read_bytes()
+        Path(
+            "docs/development/reports/stream-cost/await-v1/config.v1.json"
+        ).read_bytes()
     )
 
 
