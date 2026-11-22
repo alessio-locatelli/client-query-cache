@@ -31,7 +31,6 @@ def main() -> None:
         or path.startswith(
             (
                 ".github/actions/setup-toolchain/",
-                "native/",
                 "src/",
                 "tests/",
                 "benchmarks/",

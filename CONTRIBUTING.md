@@ -33,7 +33,7 @@ or benchmark results, so validate the rebuilt image before using it.
 
 The image installs Rust through Fedora's `rustup` package instead of Fedora's `rust` and `cargo` packages, which Fedora updates on its own schedule and which cannot provide the `llvm-tools-preview` component that `just setup-rust` installs. The image's rustup defaults to the [selected Rust release](docs/development/native-quality.md#rust-toolchain), including outside the checkout. The rustup, Cargo, and uv interpreter directories are writable by every container user. This lets your host account install a newly selected Rust release on first use, add components with `just setup-rust`, and let `uv python install` rewrite its interpreter marker, all without rebuilding the image. The trade-off is that anything running in the container can modify these toolchains, which suits an image used by one contributor. Rebuilding the image also updates the default outside the checkout. During the build, Fedora's rustup 1.29.0 prints a spurious warning about an existing settings file ([rustup #4744](https://github.com/rust-lang/rustup/issues/4744), fixed in rustup 1.29.1; Fedora update tracked in [bug 2526789](https://bugzilla.redhat.com/show_bug.cgi?id=2526789)).
 
-Installing the project builds its bundled Rust extension in `native/shared-index`, so an environment outside the image also needs [rustup](https://rust-lang.org/tools/install) on `PATH`.
+Installing the project builds its bundled Rust extension in `src/shared-index`, so an environment outside the image also needs [rustup](https://rust-lang.org/tools/install) on `PATH`.
 
 From the host, build the image and create a Toolbx container:
 

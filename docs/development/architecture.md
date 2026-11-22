@@ -26,7 +26,7 @@ A read against a `CachedCollection` either returns a cached value, executes agai
 to the cache, or bypasses the cache entirely and executes a normal PyMongo call — see the [cached-read guide](../user/usage/cached-reads.md) for the public behavior. `ChangeStreamCoordinator` starts one `DatabaseStreamSupervisor` per database the first time a
 read touches it; each supervisor watches that one database and invalidates affected cache entries in the native cache core as
 writes and schema changes occur. The public `CacheCore` is the Rust `LocalCacheCore` in
-`native/shared-index/src/local_cache.rs`; the shared owner uses its `SharedOwnerCore` extension
+`src/shared-index/src/local_cache.rs`; the shared owner uses its `SharedOwnerCore` extension
 (`local_cache/shared.rs`). `_core/native.py` supplies configuration, codec, key, error and snapshot
 integration, and `_core/contracts.pyi` types the interface both cores implement.
 
@@ -188,4 +188,4 @@ Process-local managers use `LocalCacheCore` from the extension, and shared-cache
 
 The `tests/core/` contract tests construct the production native core (`LocalCacheCore`, and `SharedOwnerCore` where a behavior applies to it) and assert explicit outcomes: admission results, lookup hits, snapshots, alias resolution and object lifetime through weak references. No second cache implementation serves as an oracle. Generated schedules in `test_manager_state_machine.py`, `test_find_limit_subsumption.py` and `test_native_owner.py` keep only a record of the values each operation was admitted with, and assert that a hit never returns a value older than the latest write, clear, drop or availability transition affecting its key and that the budget holds. They do not predict which entries eviction removes.
 
-Collision and race cases use keys whose equality callbacks re-enter or block the core, because the native owner runs those callbacks outside its critical sections. Native synchronization is checked by the unit and Loom models under `native/shared-index/` (`just rust-tests`).
+Collision and race cases use keys whose equality callbacks re-enter or block the core, because the native owner runs those callbacks outside its critical sections. Native synchronization is checked by the unit and Loom models under `src/shared-index/` (`just rust-tests`).

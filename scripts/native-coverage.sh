@@ -16,24 +16,24 @@ export CARGO_LLVM_COV_DENY_WARNINGS=1
 # (https://doc.rust-lang.org/1.100.0/cargo/reference/config.html#buildtarget-dir). We
 # override it because ordinary builds and Loom must not replace artifacts while
 # coverage is collected.
-export CARGO_TARGET_DIR="${PWD}/native/shared-index/target/native-coverage"
+export CARGO_TARGET_DIR="${PWD}/src/shared-index/target/native-coverage"
 
 # External-test workflow:
 # https://github.com/taiki-e/cargo-llvm-cov/blob/v0.9.1/README.md#get-coverage-of-external-tests
 # show-env must succeed before its output is evaluated; cleaning follows it so
 # dependencies remain reusable while stale crate artifacts and profiles do not.
-coverage_env="$(cargo llvm-cov show-env --sh --manifest-path native/shared-index/Cargo.toml)"
+coverage_env="$(cargo llvm-cov show-env --sh --manifest-path src/shared-index/Cargo.toml)"
 eval "${coverage_env}"
 PYO3_PYTHON="$(uv python find)"
 export PYO3_PYTHON
-cargo llvm-cov clean --workspace --manifest-path native/shared-index/Cargo.toml
+cargo llvm-cov clean --workspace --manifest-path src/shared-index/Cargo.toml
 # Keep Python exports out of the native harness: PyInit__shared_index has the
 # same exported name in both artifacts but different test/non-test coverage hashes.
 # The instrumented wheel below measures the Python binding bodies.
 # --locked in cargo test, maturin build, and uv export: The default permits lockfile
 # updates, unless UV_LOCKED is inherited for uv. We override it because measurement
 # must reject stale locked metadata.
-cargo test --locked --quiet --manifest-path native/shared-index/Cargo.toml
+cargo test --locked --quiet --manifest-path src/shared-index/Cargo.toml
 
 mkdir -p /tmp/agents
 measurement_dir="$(mktemp -d /tmp/agents/native-coverage.XXXXXX)"
@@ -74,7 +74,7 @@ TMPDIR="${measurement_dir}" "${measurement_dir}/venv/bin/python" -m pytest tests
 # LLVM may warn on stderr without a failing exit status; preserve those
 # diagnostics and reject the report as well as cargo-llvm-cov's own warnings.
 report_status=0
-cargo llvm-cov report --manifest-path native/shared-index/Cargo.toml --show-missing-lines --fail-under-lines 100 --fail-under-functions 100 2> "${measurement_dir}/report.stderr" || report_status=$?
+cargo llvm-cov report --manifest-path src/shared-index/Cargo.toml --show-missing-lines --fail-under-lines 100 --fail-under-functions 100 2> "${measurement_dir}/report.stderr" || report_status=$?
 if [[ -s "${measurement_dir}/report.stderr" ]]; then
     cat "${measurement_dir}/report.stderr" >&2
     exit 1

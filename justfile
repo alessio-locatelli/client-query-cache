@@ -82,7 +82,7 @@ ci-lint:
     ZIZMOR_OFFLINE=true zizmor --fix=all -q --persona=auditor .github
 
 format:
-    cargo fmt --manifest-path native/shared-index/Cargo.toml
+    cargo fmt --manifest-path src/shared-index/Cargo.toml
     npm run format --silent
     just --fmt
 
@@ -108,7 +108,7 @@ setup-rust:
 rust-fmt-check:
     # rustfmt: https://github.com/rust-lang/rustfmt#checking-style-on-a-ci-server
     # --check: The default edits files. We override it because validation must reject drift.
-    cargo fmt --manifest-path native/shared-index/Cargo.toml --check
+    cargo fmt --manifest-path src/shared-index/Cargo.toml --check
 
 rust-lint: rust-fmt-check
     #!/usr/bin/env bash
@@ -119,31 +119,31 @@ rust-lint: rust-fmt-check
     # override them because checks must include tests and the shipped Python bindings.
     # -D warnings: The default reports warnings. We override it because warnings,
     # including unused production code, must fail the gate.
-    cargo clippy --locked --manifest-path native/shared-index/Cargo.toml --all-targets --all-features -- -D warnings
+    cargo clippy --locked --manifest-path src/shared-index/Cargo.toml --all-targets --all-features -- -D warnings
     # --cfg loom selects model synchronization instead of production atomics.
-    RUSTFLAGS='--cfg loom' cargo clippy --locked --manifest-path native/shared-index/Cargo.toml --all-targets -- -D warnings
+    RUSTFLAGS='--cfg loom' cargo clippy --locked --manifest-path src/shared-index/Cargo.toml --all-targets -- -D warnings
     # cargo-shear: https://github.com/Boshen/cargo-shear/blob/v1.14.0/README.md#usage
     # --deny-warnings: The default allows warnings. We override it because unused
     # optional dependencies and unlinked source files must fail validation too.
-    cargo shear --locked --deny-warnings native/shared-index
+    cargo shear --locked --deny-warnings src/shared-index
     # cargo-deny: https://github.com/EmbarkStudios/cargo-deny/blob/0.20.2/docs/src/cli/check.md
     # --all-features: The default selects default features. We override it because
     # dependency policy must include optional Python bindings.
     # --deny warnings: The default permits warnings. We override it because every
     # dependency-policy diagnostic must fail validation.
-    cargo deny --locked --manifest-path native/shared-index/Cargo.toml --all-features check --deny warnings
+    cargo deny --locked --manifest-path src/shared-index/Cargo.toml --all-features check --deny warnings
 
 rust-models:
     # Cargo test: https://doc.rust-lang.org/1.100.0/cargo/commands/cargo-test.html
     # --release: The default is unoptimized. We override it because exhaustive
     # bounded Loom exploration must finish within the validation budget.
-    RUSTFLAGS='--cfg loom' cargo test --locked --release --manifest-path native/shared-index/Cargo.toml --quiet
+    RUSTFLAGS='--cfg loom' cargo test --locked --release --manifest-path src/shared-index/Cargo.toml --quiet
 
 rust-coverage:
     bash scripts/native-coverage.sh
 
 rust-tests:
-    cargo test --locked --manifest-path native/shared-index/Cargo.toml --quiet
+    cargo test --locked --manifest-path src/shared-index/Cargo.toml --quiet
     just rust-models
 
 build:

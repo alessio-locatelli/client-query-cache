@@ -172,7 +172,7 @@ def test_selection_accepts_only_a_unique_eligible_pr(
             _files("package.json", "package-lock.json"), 2, True, True, id="npm"
         ),
         pytest.param(
-            _files("native/shared-index/Cargo.toml", "native/shared-index/Cargo.lock"),
+            _files("src/shared-index/Cargo.toml", "src/shared-index/Cargo.lock"),
             2,
             True,
             True,
@@ -222,7 +222,7 @@ def test_selection_accepts_only_a_unique_eligible_pr(
             id="python-source",
         ),
         pytest.param(
-            _files("native/shared-index/src/lib.rs"), 1, False, True, id="rust-source"
+            _files("src/shared-index/src/lib.rs"), 1, False, True, id="rust-source"
         ),
         pytest.param(
             _files("tests/test_dependency_acceptance_workflow.py"),

@@ -31,8 +31,8 @@ env:
   DEPENDENCY_FILES: >-
     ["pyproject.toml", "uv.lock", "package.json", "package-lock.json",
      ".pre-commit-config.yaml", ".python-version", ".node-version",
-     "rust-toolchain.toml", "native/shared-index/Cargo.toml",
-     "native/shared-index/Cargo.lock", "docker-compose.yaml",
+     "rust-toolchain.toml", "src/shared-index/Cargo.toml",
+     "src/shared-index/Cargo.lock", "docker-compose.yaml",
      "tests/mongodb-minimum/docker-compose.yaml", "Containerfile", "justfile",
      ".github/actions/setup-toolchain/action.yml",
      ".github/workflows/dependency-automerge.yml", ".github/workflows/docs.yml",

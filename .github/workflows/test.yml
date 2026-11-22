@@ -300,7 +300,7 @@ jobs:
           git rev-parse HEAD
           uv run -- python -c 'import sys; print(sys.version)'
 
-      - run: cargo test --locked --manifest-path native/shared-index/Cargo.toml --quiet
+      - run: cargo test --locked --manifest-path src/shared-index/Cargo.toml --quiet
 
       - run: just verify-release
 

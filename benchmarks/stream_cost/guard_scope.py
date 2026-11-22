@@ -9,7 +9,7 @@ if TYPE_CHECKING:
 
 _RELEVANT_PATTERNS = (
     "*.py",
-    "native/*",
+    "src/shared-index/*",
     "pyproject.toml",
     "rust-toolchain.toml",
     "uv.lock",

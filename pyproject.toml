@@ -89,7 +89,7 @@ requires = ["maturin>=1.16.0,<2.0"]
 build-backend = "maturin"
 
 [tool.maturin]
-manifest-path = "native/shared-index/Cargo.toml"
+manifest-path = "src/shared-index/Cargo.toml"
 python-source = "src"
 module-name = "client_query_cache._shared_index"
 features = ["python"]
@@ -122,9 +122,9 @@ extra-build-variables = { client-query-cache = { MATURIN_NO_INSTALL_RUST = "1" }
 cache-keys = [
   { file = "pyproject.toml" },
   { file = "rust-toolchain.toml" },
-  { file = "native/shared-index/Cargo.toml" },
-  { file = "native/shared-index/Cargo.lock" },
-  { file = "native/shared-index/src/**/*.rs" },
+  { file = "src/shared-index/Cargo.toml" },
+  { file = "src/shared-index/Cargo.lock" },
+  { file = "src/shared-index/src/**/*.rs" },
 ]
 
 [tool.uv.sources]
@@ -148,7 +148,7 @@ exclude-modules = '''
 '''
 
 [tool.vulture]
-paths = ["src", "tests", "benchmarks", ".vulture_whitelist"]
+paths = ["src/client_query_cache", "tests", "benchmarks", ".vulture_whitelist"]
 
 [tool.ruff-extra-rules]
 # The default is false (https://github.com/alessio-locatelli/ruff-extra-rules/blob/v0.6.0/README.md#configuration). We override it because hook runs should apply available repairs.
