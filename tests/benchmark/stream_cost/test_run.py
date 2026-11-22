@@ -6,9 +6,13 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from benchmarks.stream_cost.run import _revision, _sample_variant, run_standard_matrix
-from benchmarks.stream_cost.topology import ResourceLimits
-from benchmarks.stream_cost.workload import STANDARD_WORKLOAD_VARIANTS
+from development.benchmarks.stream_cost.run import (
+    _revision,
+    _sample_variant,
+    run_standard_matrix,
+)
+from development.benchmarks.stream_cost.topology import ResourceLimits
+from development.benchmarks.stream_cost.workload import STANDARD_WORKLOAD_VARIANTS
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -18,7 +22,7 @@ pytestmark = pytest.mark.unit
 
 def test_revision_requires_git() -> None:
     with (
-        patch("benchmarks.stream_cost.run.shutil.which", return_value=None),
+        patch("development.benchmarks.stream_cost.run.shutil.which", return_value=None),
         pytest.raises(RuntimeError, match="git is required"),
     ):
         _revision()
@@ -47,11 +51,15 @@ def test_controlled_run_closes_resources_on_failure(
     )
     with (
         patch(
-            "benchmarks.stream_cost.run.IsolatedReplicaSet", return_value=replica_set
+            "development.benchmarks.stream_cost.run.IsolatedReplicaSet",
+            return_value=replica_set,
         ),
-        patch("benchmarks.stream_cost.run.build_dedicated_client", client_factory),
         patch(
-            "benchmarks.stream_cost.run._run_matrix_with_client",
+            "development.benchmarks.stream_cost.run.build_dedicated_client",
+            client_factory,
+        ),
+        patch(
+            "development.benchmarks.stream_cost.run._run_matrix_with_client",
             side_effect=RuntimeError("run failed"),
         ),
         pytest.raises(RuntimeError),
@@ -70,9 +78,13 @@ def test_controlled_run_fails_if_stream_delivery_does_not_settle() -> None:
     )
     outcome = SimpleNamespace(writes_issued=1)
     with (
-        patch("benchmarks.stream_cost.run.run_workload_variant", return_value=outcome),
         patch(
-            "benchmarks.stream_cost.workload.time.monotonic", side_effect=[0.0, 16.0]
+            "development.benchmarks.stream_cost.run.run_workload_variant",
+            return_value=outcome,
+        ),
+        patch(
+            "development.benchmarks.stream_cost.workload.time.monotonic",
+            side_effect=[0.0, 16.0],
         ),
         pytest.raises(RuntimeError, match="stream invalidations did not settle"),
     ):

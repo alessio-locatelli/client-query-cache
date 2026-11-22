@@ -14,7 +14,7 @@ import pytest
 import tomli_w
 
 from client_query_cache._types import PositiveInt
-from scripts.build_versioned_docs import (
+from development.scripts.build_versioned_docs import (
     Sources,
     Table,
     Text,
@@ -190,7 +190,9 @@ def restricted_checkout(
         commands.append(cwd)
         run(cwd, *arguments)
 
-    monkeypatch.setattr("scripts.build_versioned_docs.run", record_workspace)
+    monkeypatch.setattr(
+        "development.scripts.build_versioned_docs.run", record_workspace
+    )
     parent = exported_repo.parent
     original_mode = parent.stat().st_mode & 0o7777
     parent.chmod(original_mode & ~0o222)
@@ -554,7 +556,9 @@ def missing_export(
             source_path.rename(source_path.with_suffix(".missing"))
         return copy(source, str(destination), follow_symlinks=follow_symlinks)
 
-    monkeypatch.setattr("scripts.build_versioned_docs.shutil.copy2", fail_export_copy)
+    monkeypatch.setattr(
+        "development.scripts.build_versioned_docs.shutil.copy2", fail_export_copy
+    )
     return filename
 
 

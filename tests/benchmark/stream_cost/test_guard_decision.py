@@ -2,8 +2,12 @@ from __future__ import annotations
 
 import pytest
 
-from benchmarks.stream_cost.guard_decision import BLOCK_PAIRS, Decision, evaluate_case
 from client_query_cache._types import NonNegativeFloat
+from development.benchmarks.stream_cost.guard_decision import (
+    BLOCK_PAIRS,
+    Decision,
+    evaluate_case,
+)
 
 BASE_BLOCK_SECONDS = 0.025
 # Small timing variation stays safely below the material-slowdown boundary.

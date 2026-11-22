@@ -1,0 +1,393 @@
+from __future__ import annotations
+
+import enum
+import random
+import time
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+from client_query_cache._types import (
+    BsonDict,
+    NonNegativeFloat,
+    NonNegativeInt,
+    PositiveInt,
+)
+from development.benchmarks.stream_cost.errors import (
+    BenchmarkConfigurationError,
+    BenchmarkSetupError,
+)
+from development.benchmarks.stream_cost.generators import (
+    LARGE_DOCUMENT_PROFILE,
+    MEDIUM_DOCUMENT_PROFILE,
+    SMALL_DOCUMENT_PROFILE,
+    DocumentSizeProfile,
+    generate_seeded_documents,
+)
+from development.benchmarks.stream_cost.measurement import OperationLatency
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Mapping, Sequence
+
+    from pymongo.synchronous.collection import Collection
+
+    from client_query_cache._core.snapshots import CacheSnapshot
+    from client_query_cache.synchronous.collection import CachedCollection
+    from client_query_cache.synchronous.manager import CacheManager
+
+_WARMUP_READ_REPEATS = 2
+_STREAM_SETTLE_TIMEOUT_SECONDS = 15.0
+_STREAM_SETTLE_POLL_SECONDS = 0.02
+
+
+class WorkloadKind(enum.Enum):
+    IDLE = "idle"
+    READ_HEAVY = "read_heavy"
+    BALANCED = "balanced"
+    WRITE_DOMINANT = "write_dominant"
+
+
+@dataclass(frozen=True, slots=True)
+class OperationCounts:
+    reads: NonNegativeInt
+    writes: NonNegativeInt
+
+    def __post_init__(self) -> None:
+        if self.reads < 0:
+            message = "reads must not be negative"
+            raise BenchmarkConfigurationError(message)
+        if self.writes < 0:
+            message = "writes must not be negative"
+            raise BenchmarkConfigurationError(message)
+
+
+DATA_SIZE_PROFILES: tuple[DocumentSizeProfile, ...] = (
+    SMALL_DOCUMENT_PROFILE,
+    MEDIUM_DOCUMENT_PROFILE,
+    LARGE_DOCUMENT_PROFILE,
+)
+
+_SAMPLING_OPERATIONS_BY_KIND: dict[WorkloadKind, OperationCounts] = {
+    WorkloadKind.IDLE: OperationCounts(reads=0, writes=0),
+    WorkloadKind.READ_HEAVY: OperationCounts(reads=100, writes=10),
+    WorkloadKind.BALANCED: OperationCounts(reads=50, writes=50),
+    WorkloadKind.WRITE_DOMINANT: OperationCounts(reads=10, writes=100),
+}
+
+_DEFAULT_DOCUMENT_COUNT = 100
+
+
+@dataclass(frozen=True, slots=True)
+class WorkloadVariant:
+    kind: WorkloadKind
+    data_size: DocumentSizeProfile
+    document_count: NonNegativeInt
+    warmup: OperationCounts
+    sampling: OperationCounts
+    seed: int
+
+    def __post_init__(self) -> None:
+        if self.document_count <= 0:
+            message = "document_count must be positive"
+            raise BenchmarkConfigurationError(message)
+        if self.warmup.reads < _WARMUP_READ_REPEATS:
+            message = (
+                f"warmup.reads ({self.warmup.reads}) must be at least "
+                f"{_WARMUP_READ_REPEATS} to exercise both an admission and a hit"
+            )
+            raise BenchmarkConfigurationError(message)
+
+    @property
+    def name(self) -> str:
+        return f"{self.kind.value}-{self.data_size.name}"
+
+
+def _standard_variant(
+    kind: WorkloadKind, data_size: DocumentSizeProfile, *, seed: int
+) -> WorkloadVariant:
+    return WorkloadVariant(
+        kind=kind,
+        data_size=data_size,
+        document_count=_DEFAULT_DOCUMENT_COUNT,
+        warmup=OperationCounts(reads=_WARMUP_READ_REPEATS, writes=0),
+        sampling=_SAMPLING_OPERATIONS_BY_KIND[kind],
+        seed=seed,
+    )
+
+
+STANDARD_WORKLOAD_VARIANTS: tuple[WorkloadVariant, ...] = tuple(
+    _standard_variant(kind, data_size, seed=index)
+    for index, (kind, data_size) in enumerate(
+        (kind, data_size) for kind in WorkloadKind for data_size in DATA_SIZE_PROFILES
+    )
+)
+
+
+@dataclass(frozen=True, slots=True)
+class SeededDataset:
+    documents: tuple[BsonDict, ...]
+
+    @property
+    def ids(self) -> tuple[object, ...]:
+        return tuple(document["_id"] for document in self.documents)
+
+
+def seed_dataset(variant: WorkloadVariant) -> SeededDataset:
+    documents = generate_seeded_documents(
+        variant.data_size, count=variant.document_count, seed=variant.seed
+    )
+    return SeededDataset(documents=tuple(documents))
+
+
+def insert_dataset(collection: Collection[BsonDict], dataset: SeededDataset) -> None:
+    if not dataset.documents:
+        message = "dataset must not be empty"
+        raise BenchmarkConfigurationError(message)
+    collection.insert_many(dataset.documents)
+
+
+def sample_operation_ids(
+    dataset: SeededDataset, count: NonNegativeInt, *, seed: int
+) -> tuple[object, ...]:
+    if count == 0:
+        return ()
+    rng = random.Random(seed)
+    return tuple(rng.choice(dataset.ids) for _ in range(count))
+
+
+@dataclass(frozen=True, slots=True)
+class PrimingDelta:
+    admissions: NonNegativeInt
+    hits: NonNegativeInt
+
+
+def priming_delta(before: CacheSnapshot, after: CacheSnapshot) -> PrimingDelta:
+    return PrimingDelta(
+        admissions=after.misses - before.misses,
+        hits=after.hits - before.hits,
+    )
+
+
+def verify_primed(
+    before: CacheSnapshot, after: CacheSnapshot, *, variant_name: str
+) -> None:
+    delta = priming_delta(before, after)
+    if delta.admissions <= 0 or delta.hits <= 0:
+        message = (
+            f"workload variant {variant_name!r} was not primed through the normal "
+            f"cache admission path before sampling: admission delta="
+            f"{delta.admissions}, hit delta={delta.hits}"
+        )
+        raise BenchmarkSetupError(message)
+
+
+def verify_oversized_primed(
+    before: CacheSnapshot, after: CacheSnapshot, *, variant_name: str
+) -> None:
+    delta = after.oversized_bypasses - before.oversized_bypasses
+    if delta <= 0:
+        message = (
+            f"oversized-result workload variant {variant_name!r} did not record a "
+            f"positive oversized-bypass counter delta during warmup (delta={delta})"
+        )
+        raise BenchmarkSetupError(message)
+
+
+def prime_read_variant(
+    read_once: Callable[[], object], *, repeats: PositiveInt = _WARMUP_READ_REPEATS
+) -> None:
+    if repeats < _WARMUP_READ_REPEATS:
+        message = (
+            f"repeats ({repeats}) must be at least {_WARMUP_READ_REPEATS} to "
+            "exercise both an admission and a hit"
+        )
+        raise BenchmarkConfigurationError(message)
+    for _ in range(repeats):
+        read_once()
+
+
+def assert_identical_results(
+    raw_value: object, cache_value: object, *, variant_name: str
+) -> None:
+    if raw_value != cache_value:
+        message = (
+            f"workload variant {variant_name!r} returned different data for the "
+            "raw and cache variants"
+        )
+        raise BenchmarkSetupError(message)
+
+
+def assert_identical_workload_parameters(
+    raw_parameters: Mapping[str, object],
+    cache_parameters: Mapping[str, object],
+    *,
+    variant_name: str,
+) -> None:
+    if dict(raw_parameters) != dict(cache_parameters):
+        message = (
+            f"workload variant {variant_name!r} used different parameters for the "
+            "raw and cache variants"
+        )
+        raise BenchmarkConfigurationError(message)
+
+
+@dataclass(frozen=True, slots=True)
+class PairedReadOutcome:
+    variant: WorkloadVariant
+    raw_results: tuple[object, ...]
+    cache_results: tuple[object, ...]
+    raw_latencies: tuple[OperationLatency, ...] = ()
+    cache_latencies: tuple[OperationLatency, ...] = ()
+
+
+def run_paired_reads(
+    raw_collection: Collection[BsonDict],
+    cache_collection: CachedCollection[BsonDict],
+    variant: WorkloadVariant,
+    ids: Sequence[object],
+) -> PairedReadOutcome:
+    raw_values: list[object] = []
+    cache_values: list[object] = []
+    raw_latencies: list[OperationLatency] = []
+    cache_latencies: list[OperationLatency] = []
+    for document_id in ids:
+        raw_started = time.monotonic()
+        raw_value = raw_collection.find_one({"_id": document_id})
+        seconds = time.monotonic() - raw_started
+        raw_values.append(raw_value)
+        raw_latencies.append(OperationLatency("read", "raw", seconds))
+        before = cache_collection.database.manager.cache_core.snapshot()
+        cache_started = time.monotonic()
+        cache_value = cache_collection.find_one({"_id": document_id})
+        seconds = time.monotonic() - cache_started
+        after = cache_collection.database.manager.cache_core.snapshot()
+        if after.hits > before.hits:
+            outcome = "hit"
+        elif after.misses > before.misses:
+            outcome = "miss"
+        else:
+            outcome = "bypass"
+        cache_values.append(cache_value)
+        cache_latencies.append(OperationLatency("read", outcome, seconds))
+    raw_results = tuple(raw_values)
+    cache_results = tuple(cache_values)
+    for observed_raw, observed_cache in zip(raw_results, cache_results, strict=True):
+        assert_identical_results(
+            observed_raw, observed_cache, variant_name=variant.name
+        )
+    return PairedReadOutcome(
+        variant=variant,
+        raw_results=raw_results,
+        cache_results=cache_results,
+        raw_latencies=tuple(raw_latencies),
+        cache_latencies=tuple(cache_latencies),
+    )
+
+
+def perform_raw_only_reads(
+    raw_collection: Collection[BsonDict], ids: Sequence[object]
+) -> None:
+    for document_id in ids:
+        raw_collection.find_one({"_id": document_id})
+
+
+def perform_cache_only_reads(
+    cache_collection: CachedCollection[BsonDict], ids: Sequence[object]
+) -> None:
+    for document_id in ids:
+        cache_collection.find_one({"_id": document_id})
+
+
+def issue_writes(
+    collection: Collection[BsonDict],
+    dataset: SeededDataset,
+    count: NonNegativeInt,
+    *,
+    seed: int,
+    latencies: list[OperationLatency] | None = None,
+) -> NonNegativeInt:
+    ids = sample_operation_ids(dataset, count, seed=seed)
+    for document_id in ids:
+        started = time.monotonic()
+        collection.update_one({"_id": document_id}, {"$inc": {"touched": 1}})
+        if latencies is not None:
+            latencies.append(
+                OperationLatency("write", "shared_write", time.monotonic() - started)
+            )
+    return len(ids)
+
+
+@dataclass(frozen=True, slots=True)
+class WorkloadVariantOutcome:
+    variant: WorkloadVariant
+    reads: PairedReadOutcome
+    writes_issued: NonNegativeInt
+    warmup_delta: PrimingDelta
+    write_latencies: tuple[OperationLatency, ...] = ()
+
+
+def run_workload_variant(
+    manager: CacheManager[BsonDict],
+    raw_collection: Collection[BsonDict],
+    cache_collection: CachedCollection[BsonDict],
+    variant: WorkloadVariant,
+    dataset: SeededDataset,
+) -> WorkloadVariantOutcome:
+    if variant.warmup.writes:
+        issue_writes(
+            raw_collection, dataset, variant.warmup.writes, seed=variant.seed + 3
+        )
+
+    warmup_id = dataset.ids[0]
+    before = manager.cache_core.snapshot()
+    prime_read_variant(
+        lambda: cache_collection.find_one({"_id": warmup_id}),
+        repeats=variant.warmup.reads,
+    )
+    after = manager.cache_core.snapshot()
+    verify_primed(before, after, variant_name=variant.name)
+
+    read_ids = sample_operation_ids(dataset, variant.sampling.reads, seed=variant.seed)
+    reads = run_paired_reads(raw_collection, cache_collection, variant, read_ids)
+    write_latencies: list[OperationLatency] = []
+    writes_issued = issue_writes(
+        raw_collection,
+        dataset,
+        variant.sampling.writes,
+        seed=variant.seed + 1,
+        latencies=write_latencies,
+    )
+    return WorkloadVariantOutcome(
+        variant=variant,
+        reads=reads,
+        writes_issued=writes_issued,
+        warmup_delta=priming_delta(before, after),
+        write_latencies=tuple(write_latencies),
+    )
+
+
+def time_call[T](call: Callable[[], T]) -> tuple[T, NonNegativeFloat]:
+    start = time.monotonic()
+    call_result = call()
+    elapsed_seconds = time.monotonic() - start
+    return call_result, elapsed_seconds
+
+
+def wait_for_invalidations_to_settle(
+    manager: CacheManager[BsonDict],
+    database_name: str,
+    expected_count: NonNegativeInt,
+    *,
+    context: str,
+) -> None:
+    deadline = time.monotonic() + _STREAM_SETTLE_TIMEOUT_SECONDS
+    while (
+        manager.cache_core.stream_cost_snapshot(database_name).invalidations
+        < expected_count
+    ):
+        if time.monotonic() >= deadline:
+            message = (
+                f"stream invalidations did not settle for {context} "
+                f"within {_STREAM_SETTLE_TIMEOUT_SECONDS:.0f} seconds"
+            )
+            raise BenchmarkSetupError(message)
+        time.sleep(_STREAM_SETTLE_POLL_SECONDS)

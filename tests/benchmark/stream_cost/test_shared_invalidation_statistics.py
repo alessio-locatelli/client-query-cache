@@ -8,12 +8,12 @@ from statistics import fmean
 
 import pytest
 
-from benchmarks.stream_cost.await_statistics import (
+from client_query_cache._types import NonNegativeInt, PositiveInt
+from development.benchmarks.stream_cost.await_statistics import (
     exact_basic_bootstrap,
     exact_block_bootstrap,
     exact_block_draws,
 )
-from client_query_cache._types import NonNegativeInt, PositiveInt
 
 pytestmark = pytest.mark.unit
 

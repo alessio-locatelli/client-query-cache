@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from benchmarks import public_shared_cache as harness
+from development.benchmarks import public_shared_cache as harness
 
 if TYPE_CHECKING:
     from pathlib import Path

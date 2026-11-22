@@ -11,8 +11,8 @@ from unittest.mock import Mock
 import pytest
 from pymongo.monitoring import CommandStartedEvent
 
-from benchmarks.stream_cost import guard_workload
-from benchmarks.stream_cost.guard_workload import run_case
+from development.benchmarks.stream_cost import guard_workload
+from development.benchmarks.stream_cost.guard_workload import run_case
 
 if TYPE_CHECKING:
     from types import ModuleType
@@ -22,10 +22,10 @@ if TYPE_CHECKING:
 pytestmark = pytest.mark.unit
 
 _EXCLUDED_MODULES = (
-    "benchmarks.stream_cost.workload",
-    "benchmarks.stream_cost.decision_evidence",
-    "benchmarks.stream_cost.pair_runner",
-    "benchmarks.stream_cost.topology",
+    "development.benchmarks.stream_cost.workload",
+    "development.benchmarks.stream_cost.decision_evidence",
+    "development.benchmarks.stream_cost.pair_runner",
+    "development.benchmarks.stream_cost.topology",
 )
 
 
@@ -47,7 +47,7 @@ def test_guard_workload_does_not_import_controlled_matrix_or_decision_runner() -
 
 def test_guard_workload_reuses_shared_generators_and_cache_snapshots() -> None:
     imported = _imported_module_names(guard_workload)
-    assert "benchmarks.stream_cost.generators" in imported
+    assert "development.benchmarks.stream_cost.generators" in imported
     assert "client_query_cache._core.stream_events" in imported
 
 

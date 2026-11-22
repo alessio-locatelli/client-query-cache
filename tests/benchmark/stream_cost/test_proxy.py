@@ -7,17 +7,20 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from benchmarks.stream_cost.client import BenchmarkClientTopologyConfig, WireCompressor
-from benchmarks.stream_cost.errors import (
+from client_query_cache._types import NonNegativeInt
+from development.benchmarks.stream_cost.client import (
+    BenchmarkClientTopologyConfig,
+    WireCompressor,
+)
+from development.benchmarks.stream_cost.errors import (
     BenchmarkConfigurationError,
     BenchmarkSetupError,
 )
-from benchmarks.stream_cost.proxy import (
+from development.benchmarks.stream_cost.proxy import (
     DIRECT_PATH_BYTES_LIMITATION,
     DirectPathByteProxy,
     DirectPathProxyConfig,
 )
-from client_query_cache._types import NonNegativeInt
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

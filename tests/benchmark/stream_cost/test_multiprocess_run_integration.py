@@ -13,14 +13,6 @@ from pymongo import AsyncMongoClient, MongoClient
 from pymongo.errors import ConnectionFailure
 from pymongo.synchronous.collection import Collection
 
-from benchmarks.stream_cost import multiprocess_run
-from benchmarks.stream_cost.calibration import (
-    CalibrationSeries,
-    PeriodicCalibrationSampler,
-)
-from benchmarks.stream_cost.errors import BenchmarkSetupError
-from benchmarks.stream_cost.multiprocess_run import Protocol, planned_cells, run_cell
-from benchmarks.stream_cost.topology import IsolatedReplicaSet, ResourceLimits
 from client_query_cache import CacheCoreConfig, CacheManager
 from client_query_cache._core.stream_health import (
     StreamHealthSnapshot,
@@ -32,6 +24,21 @@ from client_query_cache._types import (
     NonNegativeInt,
     PositiveFloat,
 )
+from development.benchmarks.stream_cost import multiprocess_run
+from development.benchmarks.stream_cost.calibration import (
+    CalibrationSeries,
+    PeriodicCalibrationSampler,
+)
+from development.benchmarks.stream_cost.errors import BenchmarkSetupError
+from development.benchmarks.stream_cost.multiprocess_run import (
+    Protocol,
+    planned_cells,
+    run_cell,
+)
+from development.benchmarks.stream_cost.topology import (
+    IsolatedReplicaSet,
+    ResourceLimits,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -40,7 +47,7 @@ if TYPE_CHECKING:
 
     from pymongo.monitoring import CommandStartedEvent
 
-from benchmarks.stream_cost.multiprocess_run import Model, PathKind, Payload
+from development.benchmarks.stream_cost.multiprocess_run import Model, PathKind, Payload
 
 pytestmark = pytest.mark.integration
 _ORIGINAL_CALIBRATION_STOP = PeriodicCalibrationSampler.stop

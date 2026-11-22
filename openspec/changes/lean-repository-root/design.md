@@ -119,7 +119,7 @@ Move with `git mv` (the submodule included, which updates `.gitmodules`) so that
 - `Path(__file__).parents[N]` depths increase by one for every module that moved one level deeper.
 - GitHub URLs that point to `blob/main` or `tree/main` are updated; URLs pinned to a commit SHA or tag keep the old path, which still resolves at that revision.
 - Historical evidence: commands, module paths, and file paths in `docs/development/reports/` and `docs/development/research/` that record how a measurement was taken at a stated or pinned revision keep their original form, because they must run against that revision's checkout. The mechanical substitutions skip these two trees; each hit there is reviewed by hand, which updates only relative links, `blob/main`/`tree/main` URLs, and commands the document presents for the current checkout.
-- Scope exclusions: `openspec/changes/archive/`, `CHANGELOG.md`, the submodule, lockfiles, and `.vulture_whitelist`, which is regenerated with `vulture --make-whitelist` instead of edited.
+- Scope exclusions: `openspec/changes/archive/`, `CHANGELOG.md`, the submodule, lockfiles, and `.vulture_whitelist`. Regenerate the whitelist as documented in `.pre-commit-config.yaml`.
 
 The active changes `benchmark-worker-fault-recovery` and `complete-native-coverage` are updated because their remaining tasks will execute against the new layout.
 

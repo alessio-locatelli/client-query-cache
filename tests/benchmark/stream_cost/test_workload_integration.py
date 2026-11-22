@@ -4,8 +4,9 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from benchmarks.stream_cost.errors import BenchmarkSetupError
-from benchmarks.stream_cost.workload import (
+from client_query_cache._types import BsonDict
+from development.benchmarks.stream_cost.errors import BenchmarkSetupError
+from development.benchmarks.stream_cost.workload import (
     STANDARD_WORKLOAD_VARIANTS,
     OperationCounts,
     WorkloadKind,
@@ -19,7 +20,6 @@ from benchmarks.stream_cost.workload import (
     seed_dataset,
     verify_primed,
 )
-from client_query_cache._types import BsonDict
 
 if TYPE_CHECKING:
     from client_query_cache.synchronous.manager import CacheManager

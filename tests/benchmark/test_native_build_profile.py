@@ -5,20 +5,24 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from research.native_build_profile.compare import ROOT, child_environment
-from research.native_build_profile.limits import CONFIGS, WORKLOADS, measure_once
-from research.native_build_profile.measure import (
+from development.research.native_build_profile.compare import ROOT, child_environment
+from development.research.native_build_profile.limits import (
+    CONFIGS,
+    WORKLOADS,
+    measure_once,
+)
+from development.research.native_build_profile.measure import (
     accept_previous_budget_keyword,
     namespace_lifecycle,
     snapshot,
 )
-from scripts.pgo_training import CLEANUP, CORE_TELEMETRY_POLICY
+from development.scripts.pgo_training import CLEANUP, CORE_TELEMETRY_POLICY
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
     from pathlib import Path
 
-    from scripts.pgo_training import Workload
+    from development.scripts.pgo_training import Workload
 
 pytestmark = pytest.mark.unit
 

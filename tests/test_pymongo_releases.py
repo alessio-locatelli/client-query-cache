@@ -10,7 +10,7 @@ from packaging.specifiers import SpecifierSet
 from packaging.version import Version
 
 from client_query_cache._types import NonEmptyStr
-from scripts.pymongo_releases import select_releases
+from development.scripts.pymongo_releases import select_releases
 
 pytestmark = pytest.mark.unit
 
@@ -136,7 +136,7 @@ def test_unusable_listing_fails_with_message(
     stdin: bytes, message: NonEmptyStr
 ) -> None:
     completed = subprocess.run(
-        (sys.executable, "-m", "scripts.pymongo_releases"),
+        (sys.executable, "-m", "development.scripts.pymongo_releases"),
         input=stdin,
         capture_output=True,
         check=False,

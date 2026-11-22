@@ -20,7 +20,6 @@ from pymongo.collation import Collation
 from pymongo.errors import ConnectionFailure, OperationFailure
 from pymongo.monitoring import CommandListener
 
-from benchmarks.stream_cost.multiprocess_run import reclaim_workers
 from client_query_cache import (
     SharedCacheConfig,
     SharedCacheManager,
@@ -34,6 +33,7 @@ from client_query_cache._types import BsonDict, NonNegativeInt
 from client_query_cache.asynchronous import (
     SharedCacheManager as AsyncSharedCacheManager,
 )
+from development.benchmarks.stream_cost.multiprocess_run import reclaim_workers
 from tests.cursor_helpers import advance, close_cursor, materialize, resolve_cursor
 from tests.polling import wait_until_async
 

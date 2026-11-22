@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Literal
 import pytest
 import uvloop
 
-from benchmarks import public_shared_cache as harness
+from development.benchmarks import public_shared_cache as harness
 
 if TYPE_CHECKING:
     from pathlib import Path

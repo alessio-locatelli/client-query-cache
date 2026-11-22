@@ -7,10 +7,10 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from benchmarks.stream_cost.report import validate_report
-from benchmarks.stream_cost.run import run_standard_matrix
-from benchmarks.stream_cost.topology import ResourceLimits
-from benchmarks.stream_cost.workload import STANDARD_WORKLOAD_VARIANTS
+from development.benchmarks.stream_cost.report import validate_report
+from development.benchmarks.stream_cost.run import run_standard_matrix
+from development.benchmarks.stream_cost.topology import ResourceLimits
+from development.benchmarks.stream_cost.workload import STANDARD_WORKLOAD_VARIANTS
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -42,13 +42,13 @@ def test_controlled_matrix_emits_valid_reports(
             sys,
             "argv",
             [
-                "benchmarks.stream_cost.run",
+                "development.benchmarks.stream_cost.run",
                 "--output-dir",
                 str(tmp_path),  # pytriage: TR6 - argparse needs str.
                 *(argument for name in workloads for argument in ("--workload", name)),
             ],
         )
-        runpy.run_path("benchmarks/stream_cost/run.py", run_name="__main__")
+        runpy.run_path("development/benchmarks/stream_cost/run.py", run_name="__main__")
 
     reports = [
         json.loads(report_path.read_text())

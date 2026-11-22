@@ -9,18 +9,23 @@ from typing import TYPE_CHECKING, cast
 import psutil
 import pytest
 
-from benchmarks.stream_cost.errors import BenchmarkSetupError
-from benchmarks.stream_cost.shared_cache import window
-from benchmarks.stream_cost.shared_cache.protocol import Registration, smoke_cells
-from benchmarks.stream_cost.shared_cache.worker import _query, _verify
 from client_query_cache._types import JsonDict
+from development.benchmarks.stream_cost.errors import BenchmarkSetupError
+from development.benchmarks.stream_cost.shared_cache import window
+from development.benchmarks.stream_cost.shared_cache.protocol import (
+    Registration,
+    smoke_cells,
+)
+from development.benchmarks.stream_cost.shared_cache.worker import _query, _verify
 
 if TYPE_CHECKING:
-    from benchmarks.stream_cost.shared_cache.worker import WorkerSpec
+    from development.benchmarks.stream_cost.shared_cache.worker import WorkerSpec
 
 pytestmark = pytest.mark.unit
 
-_CONFIG = Path("benchmarks/stream_cost/shared_cache/fixtures/v4/config.json")
+_CONFIG = Path(
+    "development/benchmarks/stream_cost/shared_cache/fixtures/v4/config.json"
+)
 
 
 @pytest.fixture

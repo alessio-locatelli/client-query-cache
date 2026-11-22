@@ -11,8 +11,6 @@ from typing import TYPE_CHECKING, Literal, Self, assert_never, cast, override
 from pymongo import AsyncMongoClient
 from pymongo.errors import OperationFailure, PyMongoError
 
-from benchmarks.stream_cost.multiprocess_run import WireCommands
-from benchmarks.stream_cost.shared_cache.owner import proxy_for
 from client_query_cache import CacheCoreConfig
 from client_query_cache._types import (
     BsonDict,
@@ -22,6 +20,8 @@ from client_query_cache._types import (
     PositiveFloat,
 )
 from client_query_cache.asynchronous.manager import CacheManager
+from development.benchmarks.stream_cost.multiprocess_run import WireCommands
+from development.benchmarks.stream_cost.shared_cache.owner import proxy_for
 
 if TYPE_CHECKING:
     import socket
@@ -33,11 +33,11 @@ if TYPE_CHECKING:
     from pymongo.asynchronous.collection import AsyncCollection
     from pymongo.monitoring import CommandFailedEvent, CommandStartedEvent
 
-    from benchmarks.stream_cost.shared_cache.owner import FaultableProxy
     from client_query_cache.asynchronous.collection import CachedCollection
     from client_query_cache.asynchronous.streams import (
         DatabaseStreamSupervisor as AsyncDatabaseStreamSupervisor,
     )
+    from development.benchmarks.stream_cost.shared_cache.owner import FaultableProxy
 
     type WorkerCollection = AsyncCollection[BsonDict] | CachedCollection[BsonDict]
 

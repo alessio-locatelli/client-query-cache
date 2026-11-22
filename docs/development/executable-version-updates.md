@@ -72,7 +72,7 @@ the earliest eligible patch must pass validation before widening eligibility
 ([issue #195](https://github.com/alessio-locatelli/client-query-cache/issues/195)).
 
 Renovate advances `.python-version` to stable development releases. The shared
-`scripts/ci_python_matrix.py` generator reads the package minimum, classifiers,
+`development/scripts/ci_python_matrix.py` generator reads the package minimum, classifiers,
 and development selection. Packaging and full tests cover the exact earliest
 eligible patch (an omitted patch means zero), the exact development interpreter,
 and every release line between the minimum and the highest classified or

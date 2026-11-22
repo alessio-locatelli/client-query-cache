@@ -102,7 +102,7 @@ compatibility = "manylinux_2_28"
 include = [{ path = "rust-toolchain.toml", format = "sdist" }]
 # The default is unset (https://github.com/PyO3/maturin/blob/v1.16.0/guide/src/config.md#pgo-command), which makes `maturin build --pgo` fail. We set it because the release
 # build trains on a workload that needs no MongoDB.
-pgo-command = "python scripts/pgo_training.py"
+pgo-command = "python development/scripts/pgo_training.py"
 # The default is dev (https://github.com/PyO3/maturin/blob/v1.16.0/guide/src/config.md#pgo-dependency-group), which installs every contributor tool into the training environment. We
 # override it because training needs only the wheel's own dependencies.
 pgo-dependency-group = "pgo"
@@ -148,7 +148,12 @@ exclude-modules = '''
 '''
 
 [tool.vulture]
-paths = ["src/client_query_cache", "tests", "benchmarks", ".vulture_whitelist"]
+paths = [
+  "src/client_query_cache",
+  "tests",
+  "development/benchmarks",
+  ".vulture_whitelist",
+]
 
 [tool.ruff-extra-rules]
 # The default is false (https://github.com/alessio-locatelli/ruff-extra-rules/blob/v0.6.0/README.md#configuration). We override it because hook runs should apply available repairs.

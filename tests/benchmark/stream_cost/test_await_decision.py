@@ -14,27 +14,30 @@ from hypothesis import given
 from hypothesis import strategies as st
 from pymongo.errors import ConnectionFailure
 
-from benchmarks.stream_cost import await_report, await_run
-from benchmarks.stream_cost.await_configuration import (
-    expand_await_configuration,
-    load_await_configuration,
-)
-from benchmarks.stream_cost.await_decision import evaluate_await_decision
-from benchmarks.stream_cost.await_model import AwaitWindow
-from benchmarks.stream_cost.await_statistics import exact_block_bootstrap, holm_adjusted
-from benchmarks.stream_cost.errors import (
-    BenchmarkConfigurationError,
-    BenchmarkSetupError,
-)
 from client_query_cache._types import (
     JsonDict,
     MaxAwaitTimeMs,
     NonNegativeInt,
     Probability,
 )
+from development.benchmarks.stream_cost import await_report, await_run
+from development.benchmarks.stream_cost.await_configuration import (
+    expand_await_configuration,
+    load_await_configuration,
+)
+from development.benchmarks.stream_cost.await_decision import evaluate_await_decision
+from development.benchmarks.stream_cost.await_model import AwaitWindow
+from development.benchmarks.stream_cost.await_statistics import (
+    exact_block_bootstrap,
+    holm_adjusted,
+)
+from development.benchmarks.stream_cost.errors import (
+    BenchmarkConfigurationError,
+    BenchmarkSetupError,
+)
 
 if TYPE_CHECKING:
-    from benchmarks.stream_cost.await_model import AwaitConfiguration
+    from development.benchmarks.stream_cost.await_model import AwaitConfiguration
 
 pytestmark = pytest.mark.unit
 

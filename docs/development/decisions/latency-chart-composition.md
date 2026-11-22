@@ -8,7 +8,7 @@ Cached-hit latency is sensitive to the client CPU's power state. On a host whose
 
 ## Decision
 
-The chart shows one cached-read bar for both deployments. Its value is the median of repeated cache hits measured with no concurrent writes, immediately after keeping the CPU busy, by a dedicated benchmark (`benchmarks/cached_hit_latency.py`). Direct-read rows remain medians from the stream-cost and real-server benchmarks. Every bar is a median.
+The chart shows one cached-read bar for both deployments. Its value is the median of repeated cache hits measured with no concurrent writes, immediately after keeping the CPU busy, by a dedicated benchmark (`development/benchmarks/cached_hit_latency.py`). Direct-read rows remain medians from the stream-cost and real-server benchmarks. Every bar is a median.
 
 ## Alternatives considered
 

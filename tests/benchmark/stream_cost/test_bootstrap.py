@@ -2,7 +2,13 @@ from __future__ import annotations
 
 import pytest
 
-from benchmarks.stream_cost.bootstrap import (
+from client_query_cache._types import (
+    ExclusiveProbability,
+    NonNegativeFloat,
+    PositiveFloat,
+    PositiveInt,
+)
+from development.benchmarks.stream_cost.bootstrap import (
     ConfidenceInterval,
     absolute_threshold_decisive,
     block_bootstrap_percentile_ci,
@@ -12,13 +18,7 @@ from benchmarks.stream_cost.bootstrap import (
     expand_with_uncertainty,
     minimum_sample_count,
 )
-from benchmarks.stream_cost.errors import BenchmarkConfigurationError
-from client_query_cache._types import (
-    ExclusiveProbability,
-    NonNegativeFloat,
-    PositiveFloat,
-    PositiveInt,
-)
+from development.benchmarks.stream_cost.errors import BenchmarkConfigurationError
 
 pytestmark = pytest.mark.unit
 

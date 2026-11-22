@@ -5,21 +5,6 @@ from typing import TYPE_CHECKING, ClassVar
 
 import pytest
 
-from benchmarks.stream_cost import pair_runner
-from benchmarks.stream_cost.calibration import TopologyChangeListener
-from benchmarks.stream_cost.client import (
-    BenchmarkClientTopologyConfig,
-    WireCompressor,
-    build_dedicated_client,
-)
-from benchmarks.stream_cost.consolidated_stream import (
-    ConsolidatedStreamPairConfig,
-    PairVariant,
-    counterbalanced_pair_order,
-    generate_relevant_write_schedule,
-)
-from benchmarks.stream_cost.errors import BenchmarkSetupError
-from benchmarks.stream_cost.pair_runner import run_consolidated_stream_pair
 from client_query_cache import CacheCoreConfig
 from client_query_cache._core.stream_cost import LagCaptureWindowConfig
 from client_query_cache._types import (
@@ -29,6 +14,21 @@ from client_query_cache._types import (
     PositiveFloat,
 )
 from client_query_cache.synchronous.manager import CacheManager
+from development.benchmarks.stream_cost import pair_runner
+from development.benchmarks.stream_cost.calibration import TopologyChangeListener
+from development.benchmarks.stream_cost.client import (
+    BenchmarkClientTopologyConfig,
+    WireCompressor,
+    build_dedicated_client,
+)
+from development.benchmarks.stream_cost.consolidated_stream import (
+    ConsolidatedStreamPairConfig,
+    PairVariant,
+    counterbalanced_pair_order,
+    generate_relevant_write_schedule,
+)
+from development.benchmarks.stream_cost.errors import BenchmarkSetupError
+from development.benchmarks.stream_cost.pair_runner import run_consolidated_stream_pair
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator

@@ -140,7 +140,7 @@ rust-models:
     RUSTFLAGS='--cfg loom' cargo test --locked --release --manifest-path src/shared-index/Cargo.toml --quiet
 
 rust-coverage:
-    bash scripts/native-coverage.sh
+    bash development/scripts/native-coverage.sh
 
 rust-tests:
     cargo test --locked --manifest-path src/shared-index/Cargo.toml --quiet
@@ -164,7 +164,7 @@ build:
     # use the committed Cargo.lock.
     # CARGO_ZIGBUILD_PYTHON_PATH: The default is python3, used to invoke ziglang
     # (https://github.com/rust-cross/cargo-zigbuild/blob/v0.24.0/src/zig/locate.rs#L163).
-    # We override it because the release linker needs the argument fix in scripts/zig-linker.sh.
+    # We override it because the release linker needs the argument fix in development/scripts/zig-linker.sh.
     # UV_LINK_MODE: The default is clone on Linux (https://github.com/astral-sh/uv/blob/0.13.6/crates/uv-static/src/env_vars.rs#L175-L178), with a warning when
     # the training environment in /tmp sits on another filesystem than uv's cache. We override
     # it because copying avoids that warning.
@@ -173,7 +173,7 @@ build:
     # environment. We override it because that environment must hold only the wheel's
     # dependencies. --group build supplies Maturin itself.
     uv run --group build -- maturin pep517 write-sdist --sdist-directory dist
-    UV_NO_DEFAULT_GROUPS=1 UV_LINK_MODE=copy CARGO_ZIGBUILD_PYTHON_PATH="{{ justfile_directory() }}/scripts/zig-linker.sh" uv run --group build -- maturin build --release --pgo --zig --compatibility manylinux_2_28 --locked --out dist
+    UV_NO_DEFAULT_GROUPS=1 UV_LINK_MODE=copy CARGO_ZIGBUILD_PYTHON_PATH="{{ justfile_directory() }}/development/scripts/zig-linker.sh" uv run --group build -- maturin build --release --pgo --zig --compatibility manylinux_2_28 --locked --out dist
 
 docs-serve:
     # --only-group docs in docs-serve/docs-build/docs-build-editions: The default is the
@@ -205,7 +205,7 @@ docs-build-editions stable_tag="":
         # the selected release tag.
         git fetch --no-tags origin "refs/tags/${stable_tag}:refs/tags/${stable_tag}"
     fi
-    uv run --only-group docs -- python -m scripts.build_versioned_docs "${stable_tag}"
+    uv run --only-group docs -- python -m development.scripts.build_versioned_docs "${stable_tag}"
 
 verify-release tag='': build
     #!/usr/bin/env bash
@@ -246,7 +246,7 @@ verify-release tag='': build
         # ignores it and emits a warning. Clear UV_NO_SYNC too so CI’s narrowed
         # project environment cannot prevent installation of the isolated artifact.
         unset UV_LOCKED UV_NO_SYNC && uv run --isolated --no-project --python "${UV_PYTHON:-$(cat .python-version)}" --with "${artifact}" -- \
-            python -I "{{ justfile_directory() }}/scripts/verify_release_artifacts.py"
+            python -I "{{ justfile_directory() }}/development/scripts/verify_release_artifacts.py"
     done
 
     printf 'Verified %s %s (%s, %s), no package published and no publishing credentials used.\n' "${package_slug}" "${declared_version}" "${sdist}" "${wheels[0]}"
@@ -259,7 +259,7 @@ benchmark-shared-cache async_loop="asyncio" *args:
     async_loop="$1"
     shift
 
-    source "{{ justfile_directory() }}/scripts/testcontainers-bridge.sh"
+    source "{{ justfile_directory() }}/development/scripts/testcontainers-bridge.sh"
     wheel="{{ justfile_directory() }}/dist/client_query_cache-$(uv version --short)-cp314-abi3-manylinux_2_28_$(uname -m).whl"
     if [[ ! -f "${wheel}" ]]; then
         printf 'Benchmark wheel is missing: %s. Run just build first.\n' "${wheel}" >&2
@@ -277,7 +277,7 @@ benchmark-shared-cache async_loop="asyncio" *args:
     unset UV_LOCKED UV_NO_SYNC
     exec uv run --isolated --no-project --python "${UV_PYTHON:-$(cat .python-version)}" \
         --with "${wheel}" --with psutil --with testcontainers --with requests --with pyyaml \
-        "${extra_packages[@]}" -- python -m benchmarks.public_shared_cache \
+        "${extra_packages[@]}" -- python -m development.benchmarks.public_shared_cache \
         --async-loop "${async_loop}" "$@"
 
 # Measure stream costs against a disposable MongoDB replica set.
@@ -286,15 +286,15 @@ benchmark-stream-cost *args:
     set -euo pipefail
     [[ "${1:-}" == "--" ]] && shift
 
-    source "{{ justfile_directory() }}/scripts/testcontainers-bridge.sh"
-    exec uv run -- python -m benchmarks.stream_cost.run "$@"
+    source "{{ justfile_directory() }}/development/scripts/testcontainers-bridge.sh"
+    exec uv run -- python -m development.benchmarks.stream_cost.run "$@"
 
 pytest *args:
     #!/usr/bin/env bash
     set -euo pipefail
     [[ "${1:-}" == "--" ]] && shift
 
-    source "{{ justfile_directory() }}/scripts/testcontainers-bridge.sh"
+    source "{{ justfile_directory() }}/development/scripts/testcontainers-bridge.sh"
     env_file_args=()
     if [[ -f "{{ justfile_directory() }}/.env" ]]; then
         env_file_args=(--env-file "{{ justfile_directory() }}/.env")
@@ -305,7 +305,7 @@ test-pymongo-min:
     #!/usr/bin/env bash
     set -euo pipefail
 
-    source "{{ justfile_directory() }}/scripts/testcontainers-bridge.sh"
+    source "{{ justfile_directory() }}/development/scripts/testcontainers-bridge.sh"
     # tox: https://tox.wiki/en/4.67.5/reference/cli.html
     # -r: The default reuses environments. We override it because each minimum-driver
     # run must resolve the current published dependency floor in a fresh environment.
@@ -317,12 +317,12 @@ test-pymongo-releases:
     #!/usr/bin/env bash
     set -euo pipefail
 
-    source "{{ justfile_directory() }}/scripts/testcontainers-bridge.sh"
+    source "{{ justfile_directory() }}/development/scripts/testcontainers-bridge.sh"
     listing="$(curl --fail --silent --show-error --retry 3 --max-time 60 https://pypi.org/pypi/pymongo/json)" || {
         printf 'Could not query https://pypi.org/pypi/pymongo/json for the PyMongo release list.\n' >&2
         exit 1
     }
-    selected="$(uv run -- python -m scripts.pymongo_releases <<<"${listing}")"
+    selected="$(uv run -- python -m development.scripts.pymongo_releases <<<"${listing}")"
     if [[ -z "${selected}" ]]; then
         printf 'No PyMongo release besides the declared minimum and the locked release is in range.\n'
         exit 0
@@ -496,15 +496,15 @@ latency-chart remote_deployment:
     #!/usr/bin/env bash
     set -euo pipefail
 
-    source "{{ justfile_directory() }}/scripts/testcontainers-bridge.sh"
+    source "{{ justfile_directory() }}/development/scripts/testcontainers-bridge.sh"
     report_dir="$(mktemp -d /tmp/client-query-cache-latency-chart.XXXXXX)"
-    uv run -- python -m benchmarks.stream_cost.run --output-dir "${report_dir}" --workload read_heavy-small
-    uv run -- python -m benchmarks.cached_hit_latency --output "${report_dir}/cached-hit-latency.json"
+    uv run -- python -m development.benchmarks.stream_cost.run --output-dir "${report_dir}" --workload read_heavy-small
+    uv run -- python -m development.benchmarks.cached_hit_latency --output "${report_dir}/cached-hit-latency.json"
     # pytest-xdist: https://github.com/pytest-dev/pytest-xdist/blob/v3.8.0/docs/distribution.rst
     # -n: The default is the configured automatic worker count. We override it because
     # latency measurements must run without competing workers.
     just pytest -- -n 0 tests/benchmark/real_server/test_cache_benefit.py
-    uv run -- python scripts/render_latency_chart.py \
+    uv run -- python development/scripts/render_latency_chart.py \
         --local-report "${report_dir}/read_heavy-small.report.v1.json" \
         --real-server-log "{{ justfile_directory() }}/pytest.log" \
         --remote-deployment "$1" \

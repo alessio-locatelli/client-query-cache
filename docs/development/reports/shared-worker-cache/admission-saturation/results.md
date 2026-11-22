@@ -4,7 +4,7 @@ This assessment addresses [issue #289](https://github.com/alessio-locatelli/clie
 
 ## Workload and evidence
 
-The [runner](../../../../../research/admission_saturation/run.py) reuses the isolated MongoDB replica-set infrastructure and retains each worker group across passes. Eight spawned processes each use four synchronous reader threads. Each worker reads 256 distinct documents in cold, revisit and recovery passes, with 500 ms settling after each pass. Payloads contain 4,096 or 65,536 bytes; BSON documents and admission frames are larger. The cache budget is 256 MiB and the arena is 320 MiB, sufficient for the 2,048-document set. MongoDB has two CPUs and a 2 GiB memory limit.
+The [runner](../../../../../development/research/admission_saturation/run.py) reuses the isolated MongoDB replica-set infrastructure and retains each worker group across passes. Eight spawned processes each use four synchronous reader threads. Each worker reads 256 distinct documents in cold, revisit and recovery passes, with 500 ms settling after each pass. Payloads contain 4,096 or 65,536 bytes; BSON documents and admission frames are larger. The cache budget is 256 MiB and the arena is 320 MiB, sufficient for the 2,048-document set. MongoDB has two CPUs and a 2 GiB memory limit.
 
 The public queue is 1,114,112 bytes per worker. Deliberately reduced queues contain twice the payload bytes, enough for one complete frame. Paused windows suspend the disposable owner during the cold pass, then resume it before settling. These two scenarios are fault injections. Normal windows use public sizing and leave the owner running; their synchronized closed-loop bursts are stress evidence, not a production traffic estimate. A preconnected control opens all reader-thread data sockets before measurement.
 
@@ -74,9 +74,9 @@ defines how to load each historical variant with its matching native binary.
 For fresh current-code stress measurements, use the contributor environment:
 
 ```bash
-source scripts/testcontainers-bridge.sh
-uv run python -m research.admission_saturation.run --modes default --repetitions 6 --output /tmp/agents/admission-normal.json
-uv run python -m research.admission_saturation.run --modes paused --output /tmp/agents/admission-paused.json
+source development/scripts/testcontainers-bridge.sh
+uv run python -m development.research.admission_saturation.run --modes default --repetitions 6 --output /tmp/agents/admission-normal.json
+uv run python -m development.research.admission_saturation.run --modes paused --output /tmp/agents/admission-paused.json
 ```
 
 The runner verifies identity/revision on each read and eventual post-write

@@ -9,13 +9,19 @@ from pymongo.errors import PyMongoError
 from requests.exceptions import ConnectionError as RequestsConnectionError
 from requests.exceptions import Timeout as RequestsTimeout
 
-from benchmarks.stream_cost.client import BenchmarkClientTopologyConfig, WireCompressor
-from benchmarks.stream_cost.errors import (
+from client_query_cache._types import BsonDict, NonNegativeInt
+from development.benchmarks.stream_cost.client import (
+    BenchmarkClientTopologyConfig,
+    WireCompressor,
+)
+from development.benchmarks.stream_cost.errors import (
     BenchmarkConfigurationError,
     BenchmarkSetupError,
 )
-from benchmarks.stream_cost.topology import IsolatedReplicaSet, ResourceLimits
-from client_query_cache._types import BsonDict, NonNegativeInt
+from development.benchmarks.stream_cost.topology import (
+    IsolatedReplicaSet,
+    ResourceLimits,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -118,7 +124,7 @@ def test_isolated_replica_set_wraps_docker_startup_failure() -> None:
     replica_set = IsolatedReplicaSet(ResourceLimits(cpus=1.0, memory="512m"))
     with (
         patch(
-            "benchmarks.stream_cost.topology.DockerContainer",
+            "development.benchmarks.stream_cost.topology.DockerContainer",
             side_effect=DockerException("no runtime"),
         ),
         pytest.raises(
@@ -129,7 +135,7 @@ def test_isolated_replica_set_wraps_docker_startup_failure() -> None:
     message = str(failure.value)
     assert "DOCKER_HOST" in message
     assert "just enable-podman-socket" in message
-    assert "scripts/testcontainers-bridge.sh" in message
+    assert "development/scripts/testcontainers-bridge.sh" in message
     assert "An existing MongoDB server does not replace" in message
     assert "Container startup failed: no runtime" in message
     assert "stream-cost" not in message
@@ -213,7 +219,7 @@ def test_enter_stops_container_when_post_start_setup_fails(
 ) -> None:
     fake_container = _FakeDockerContainer(fail_stop=fail_stop, log_error=log_error)
     monkeypatch.setattr(
-        "benchmarks.stream_cost.topology.DockerContainer",
+        "development.benchmarks.stream_cost.topology.DockerContainer",
         lambda _image: fake_container,
     )
     monkeypatch.setattr(
@@ -241,7 +247,7 @@ def test_enter_stops_partially_created_container_when_start_fails(
         fail_start_exception=DockerException, fail_stop=fail_stop
     )
     monkeypatch.setattr(
-        "benchmarks.stream_cost.topology.DockerContainer",
+        "development.benchmarks.stream_cost.topology.DockerContainer",
         lambda _image: fake_container,
     )
     replica_set = IsolatedReplicaSet(ResourceLimits(cpus=1.0, memory="512m"))
@@ -441,7 +447,7 @@ def test_await_writable_primary_advertises_the_containers_own_listening_address(
 ) -> None:
     _CapturingHelloClient.captured.clear()
     monkeypatch.setattr(
-        "benchmarks.stream_cost.topology.MongoClient", _CapturingHelloClient
+        "development.benchmarks.stream_cost.topology.MongoClient", _CapturingHelloClient
     )
     replica_set = IsolatedReplicaSet(ResourceLimits(cpus=1.0, memory="512m"))
     replica_set._uri = "mongodb://stub/"
@@ -470,9 +476,12 @@ def test_await_writable_primary_retries_ping_until_reachable(
 ) -> None:
     _FlakyPingClient.ping_attempts = 0
     monkeypatch.setattr(
-        "benchmarks.stream_cost.topology._ELECTION_POLL_INTERVAL_SECONDS", 0.001
+        "development.benchmarks.stream_cost.topology._ELECTION_POLL_INTERVAL_SECONDS",
+        0.001,
     )
-    monkeypatch.setattr("benchmarks.stream_cost.topology.MongoClient", _FlakyPingClient)
+    monkeypatch.setattr(
+        "development.benchmarks.stream_cost.topology.MongoClient", _FlakyPingClient
+    )
     replica_set = IsolatedReplicaSet(ResourceLimits(cpus=1.0, memory="512m"))
     replica_set._uri = "mongodb://stub/"
     replica_set._await_writable_primary()
@@ -497,10 +506,11 @@ def test_await_writable_primary_retries_transient_hello_errors(
 ) -> None:
     _FlakyElectionClient.hello_attempts = 0
     monkeypatch.setattr(
-        "benchmarks.stream_cost.topology._ELECTION_POLL_INTERVAL_SECONDS", 0.001
+        "development.benchmarks.stream_cost.topology._ELECTION_POLL_INTERVAL_SECONDS",
+        0.001,
     )
     monkeypatch.setattr(
-        "benchmarks.stream_cost.topology.MongoClient", _FlakyElectionClient
+        "development.benchmarks.stream_cost.topology.MongoClient", _FlakyElectionClient
     )
     replica_set = IsolatedReplicaSet(ResourceLimits(cpus=1.0, memory="512m"))
     replica_set._uri = "mongodb://stub/"
@@ -535,12 +545,15 @@ def test_await_writable_primary_times_out(
     monkeypatch: pytest.MonkeyPatch, client_class: type[_FakeMongoClient], match: str
 ) -> None:
     monkeypatch.setattr(
-        "benchmarks.stream_cost.topology._ELECTION_TIMEOUT_SECONDS", 0.02
+        "development.benchmarks.stream_cost.topology._ELECTION_TIMEOUT_SECONDS", 0.02
     )
     monkeypatch.setattr(
-        "benchmarks.stream_cost.topology._ELECTION_POLL_INTERVAL_SECONDS", 0.001
+        "development.benchmarks.stream_cost.topology._ELECTION_POLL_INTERVAL_SECONDS",
+        0.001,
     )
-    monkeypatch.setattr("benchmarks.stream_cost.topology.MongoClient", client_class)
+    monkeypatch.setattr(
+        "development.benchmarks.stream_cost.topology.MongoClient", client_class
+    )
     replica_set = IsolatedReplicaSet(ResourceLimits(cpus=1.0, memory="512m"))
     replica_set._uri = "mongodb://stub/"
     with pytest.raises(BenchmarkSetupError, match=match) as failure:
@@ -584,7 +597,7 @@ def test_build_client_delegates_when_discovery_is_disabled(
         return "fake-client"
 
     monkeypatch.setattr(
-        "benchmarks.stream_cost.topology.build_dedicated_client",
+        "development.benchmarks.stream_cost.topology.build_dedicated_client",
         _fake_build_dedicated_client,
     )
     replica_set = IsolatedReplicaSet(ResourceLimits(cpus=1.0, memory="512m"))
@@ -614,7 +627,7 @@ def test_build_client_passes_through_event_listeners(
         return "fake-client"
 
     monkeypatch.setattr(
-        "benchmarks.stream_cost.topology.build_dedicated_client",
+        "development.benchmarks.stream_cost.topology.build_dedicated_client",
         _fake_build_dedicated_client,
     )
     replica_set = IsolatedReplicaSet(ResourceLimits(cpus=1.0, memory="512m"))

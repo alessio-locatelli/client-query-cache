@@ -9,9 +9,9 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from benchmarks.stream_cost import guard_runner
-from benchmarks.stream_cost.errors import BenchmarkSetupError
-from benchmarks.stream_cost.guard_runner import (
+from development.benchmarks.stream_cost import guard_runner
+from development.benchmarks.stream_cost.errors import BenchmarkSetupError
+from development.benchmarks.stream_cost.guard_runner import (
     RevisionEnvironment,
     measure_paired_case,
     prepare_environment,

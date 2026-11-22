@@ -37,7 +37,7 @@ Real server startup latency remains outside this measurement.
 
 ## Reproduction
 
-The committed harness is `benchmarks/stream_startup.py`. It uses the shared
+The committed harness is `development/benchmarks/stream_startup.py`. It uses the shared
 scripted streams and databases in `tests/stream_fakes.py`, a real `CacheCore`, and
 one healthy stream before timing repeated activation. Its failing script contains
 10,000 `ConnectionFailure` entries. The two-database probe gates A's first watch,
@@ -62,7 +62,7 @@ for repetition in $(seq 1 21); do
             if [ "$revision" = parent ]; then
                 checkout=/tmp/cqc-stream-parent
             fi
-            PYTHONPATH="$checkout/src:$PWD" uv run -- python -m benchmarks.stream_startup "$mode" \
+            PYTHONPATH="$checkout/src:$PWD" uv run -- python -m development.benchmarks.stream_startup "$mode" \
                 > "benchmark-reports/stream-startup/$revision-$mode-$repetition.json"
         done
     done
@@ -73,9 +73,9 @@ Run profiles separately from the timing trials:
 
 ```sh
 for mode in synchronous asynchronous; do
-    PYTHONPATH="/tmp/cqc-stream-parent/src:$PWD" uv run -- python -m benchmarks.stream_startup "$mode" \
+    PYTHONPATH="/tmp/cqc-stream-parent/src:$PWD" uv run -- python -m development.benchmarks.stream_startup "$mode" \
         --profile "/tmp/cqc-parent-$mode.prof"
-    PYTHONPATH="$PWD/src:$PWD" uv run -- python -m benchmarks.stream_startup "$mode" \
+    PYTHONPATH="$PWD/src:$PWD" uv run -- python -m development.benchmarks.stream_startup "$mode" \
         --profile "/tmp/cqc-candidate-$mode.prof"
 done
 uv run -- python -m pstats /tmp/cqc-candidate-synchronous.prof

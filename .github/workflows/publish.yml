@@ -143,7 +143,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - run: python3 scripts/extract_changelog_section.py "${RELEASE_TAG#v}" > release-notes.md
+      - run: python3 development/scripts/extract_changelog_section.py "${RELEASE_TAG#v}" > release-notes.md
         env:
           RELEASE_TAG: ${{ github.ref_name }}
 

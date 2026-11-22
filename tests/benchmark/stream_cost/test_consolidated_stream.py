@@ -10,8 +10,15 @@ from typing import TYPE_CHECKING, cast
 import pytest
 from pymongo.errors import ConnectionFailure
 
-from benchmarks.stream_cost import consolidated_stream
-from benchmarks.stream_cost.consolidated_stream import (
+from client_query_cache._types import (
+    BsonDict,
+    NonNegativeFloat,
+    NonNegativeInt,
+    PositiveInt,
+)
+from client_query_cache.synchronous.manager import CacheManager
+from development.benchmarks.stream_cost import consolidated_stream
+from development.benchmarks.stream_cost.consolidated_stream import (
     MINIMUM_REPEATED_PAIRS,
     ConsolidatedStreamPairConfig,
     PairVariant,
@@ -24,17 +31,10 @@ from benchmarks.stream_cost.consolidated_stream import (
     verify_single_consolidated_stream,
     verify_unrelated_write_minimum,
 )
-from benchmarks.stream_cost.errors import (
+from development.benchmarks.stream_cost.errors import (
     BenchmarkConfigurationError,
     BenchmarkSetupError,
 )
-from client_query_cache._types import (
-    BsonDict,
-    NonNegativeFloat,
-    NonNegativeInt,
-    PositiveInt,
-)
-from client_query_cache.synchronous.manager import CacheManager
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

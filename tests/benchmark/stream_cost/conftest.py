@@ -8,10 +8,10 @@ from typing import TYPE_CHECKING
 import pytest
 from pymongo import MongoClient
 
-from benchmarks.stream_cost import calibration
 from client_query_cache import CacheCoreConfig
 from client_query_cache._types import BsonDict
 from client_query_cache.synchronous.manager import CacheManager
+from development.benchmarks.stream_cost import calibration
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

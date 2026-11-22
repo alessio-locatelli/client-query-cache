@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import pytest
 
-from benchmarks.stream_cost.errors import BenchmarkConfigurationError
-from benchmarks.stream_cost.oversized_result import (
+from client_query_cache._core.codec import encode_value
+from client_query_cache._types import BsonDict, NonNegativeInt, PositiveInt
+from development.benchmarks.stream_cost.errors import BenchmarkConfigurationError
+from development.benchmarks.stream_cost.oversized_result import (
     MINIMUM_ENCODER_REPETITIONS,
     OversizedResultSavingsMeasurement,
     OversizedResultWorkloadMeasurement,
@@ -12,8 +14,6 @@ from benchmarks.stream_cost.oversized_result import (
     measure_oversized_result_workload,
     time_encoder_invocations,
 )
-from client_query_cache._core.codec import encode_value
-from client_query_cache._types import BsonDict, NonNegativeInt, PositiveInt
 
 pytestmark = pytest.mark.unit
 

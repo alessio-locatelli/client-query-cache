@@ -10,20 +10,20 @@ from unittest.mock import MagicMock, call
 
 import pytest
 
-from benchmarks.stream_cost import decision_evidence
-from benchmarks.stream_cost.calibration import (
+from client_query_cache._types import JsonDict, NonNegativeFloat
+from development.benchmarks.stream_cost import decision_evidence
+from development.benchmarks.stream_cost.calibration import (
     CalibrationPoint,
     CalibrationSeries,
     ClockSample,
     TopologyChangeListener,
 )
-from benchmarks.stream_cost.consolidated_stream import PairVariant
-from benchmarks.stream_cost.oversized_result import (
+from development.benchmarks.stream_cost.consolidated_stream import PairVariant
+from development.benchmarks.stream_cost.oversized_result import (
     OversizedResultSavingsMeasurement,
     OversizedResultWorkloadMeasurement,
 )
-from benchmarks.stream_cost.pair_runner import PairResult, RunResult
-from client_query_cache._types import JsonDict, NonNegativeFloat
+from development.benchmarks.stream_cost.pair_runner import PairResult, RunResult
 
 if TYPE_CHECKING:
     from pathlib import Path

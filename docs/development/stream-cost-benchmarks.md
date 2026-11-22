@@ -5,7 +5,7 @@ Start with the [public workload guide](../user/benchmarks/index.md) to choose wh
 Follow the [container runtime setup](../user/benchmarks/shared-cache.md#reproduce). For the direct `uv run` commands below, load the runtime bridge once in the same Bash or Zsh session from the repository root:
 
 ```bash
-source scripts/testcontainers-bridge.sh
+source development/scripts/testcontainers-bridge.sh
 ```
 
 The `just benchmark-stream-cost` recipe loads the bridge automatically.
@@ -31,7 +31,7 @@ The optional `--direct-path-proxy` flag also measures bytes on the dedicated cli
 To collect fresh [decision evidence](./reports/stream-cost/v1/summary.md#consolidated-stream-decision) for the consolidated stream and oversized result on your host, run:
 
 ```sh
-uv run -- python -m benchmarks.stream_cost.decision_evidence --output /tmp/agents/decision-evidence.json
+uv run -- python -m development.benchmarks.stream_cost.decision_evidence --output /tmp/agents/decision-evidence.json
 ```
 
 The runner uses the [recorded workload and decision thresholds](https://github.com/alessio-locatelli/client-query-cache/blob/main/docs/development/reports/stream-cost/v1/decision-pre-registration.json). Compare its outcomes only with a comparable host and topology; the retained report supports decisions for its stated workload.
@@ -66,7 +66,7 @@ waits per idle window, 200 writes per paced or burst window, and separate in-fli
 Reproduce the matrix from the repository root with the [benchmark prerequisites](https://github.com/alessio-locatelli/client-query-cache/blob/main/CONTRIBUTING.md):
 
 ```console
-uv run -- python -m benchmarks.stream_cost.await_run --output benchmark-reports/await.report.v1.json
+uv run -- python -m development.benchmarks.stream_cost.await_run --output benchmark-reports/await.report.v1.json
 ```
 
 Allow roughly three hours on a comparable host. The output path must be new. The runner records actual
@@ -85,7 +85,7 @@ If none qualifies, the default remains 1,000 ms.
 Keep generated raw results out of Git. Validate your local report and recompute its decision with:
 
 ```console
-uv run -- python -m benchmarks.stream_cost.await_run --output benchmark-reports/await.report.v1.json --validate-only
+uv run -- python -m development.benchmarks.stream_cost.await_run --output benchmark-reports/await.report.v1.json --validate-only
 ```
 
 The isolated single-member replica set runs the MongoDB server pinned in the repository's [`docker-compose.yaml`](https://github.com/alessio-locatelli/client-query-cache/blob/main/docker-compose.yaml) with one CPU and 512 MiB of memory, and with no TLS or wire
@@ -109,7 +109,7 @@ Wire compression is a caller-owned PyMongo client setting, not something `CacheM
 Reproduce the matrix locally against a fresh isolated replica set:
 
 ```console
-uv run -- python -m benchmarks.stream_cost.compression_run --output benchmark-reports/wire-compression.report.v1.json
+uv run -- python -m development.benchmarks.stream_cost.compression_run --output benchmark-reports/wire-compression.report.v1.json
 ```
 
 The default isolated container uses 1 CPU and 1 GiB of memory; a busier or larger host may see different — and more or less noisy — results. The reported CPU and byte figures cover only the dedicated benchmark connection the runner measures, and the report's stream-minus-control figures approximate the change stream's own added cost rather than attributing it exactly. As with the rest of this page, treat these numbers as evidence for your own investigation, not a performance guarantee — measure your own workload, document sizes, and host before choosing a non-default compressor.

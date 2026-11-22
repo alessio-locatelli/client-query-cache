@@ -10,7 +10,7 @@ from pymongo.monitoring import (
     CommandSucceededEvent,
 )
 
-from benchmarks.stream_cost.await_commands import AwaitCommandListener
+from development.benchmarks.stream_cost.await_commands import AwaitCommandListener
 
 pytestmark = pytest.mark.unit
 

@@ -183,9 +183,9 @@ sizing alternatives and their correctness/resource constraints belong in the
 Use the [contributor environment](../../../../CONTRIBUTING.md) and disposable MongoDB:
 
 ```bash
-source scripts/testcontainers-bridge.sh
-uv run -- python -m research.process_memory.measure run --image docker.io/library/mongo:8.0.4-noble --runs 5 --output /tmp/agents/process-memory.json
-uv run -- python -m research.process_memory.measure summarize /tmp/agents/process-memory.json
+source development/scripts/testcontainers-bridge.sh
+uv run -- python -m development.research.process_memory.measure run --image docker.io/library/mongo:8.0.4-noble --runs 5 --output /tmp/agents/process-memory.json
+uv run -- python -m development.research.process_memory.measure summarize /tmp/agents/process-memory.json
 ```
 
 The current runner measures current code; use the named historical revisions
@@ -198,13 +198,13 @@ Keep raw outputs untracked.
 To repeat retention-pressure cells, seed 100,000 documents in
 `process_memory.codes`, with `_id=i`, `code=f"C{i:07d}"`, `state="active"`
 and a nonunique `code` index, using the same disposable replica-set fixture.
-Run `python -m research.process_memory.measure child <uri> <scenario> <sync|async>
+Run `python -m development.research.process_memory.measure child <uri> <scenario> <sync|async>
 <direct|cached>` for the four named scenarios, adding `--max-entries 10000`,
 `--max-key-bytes 2048`, both, or the example limits. Three repetitions per
 configuration produced the pressure tables. Use the same installed candidate
 wheel for direct and cached children and a new process each time.
 
-`research.native_build_profile.limits` measures the isolated sizing floor;
+`development.research.native_build_profile.limits` measures the isolated sizing floor;
 `retention-child` in the memory runner measures equal-residency public reads.
 The [historical procedure](https://github.com/alessio-locatelli/client-query-cache/blob/94065fbff5439c47268bd38e85b2101c95f9f30f/reports/process-memory/summary.md#test-cost-and-reproduction)
 specifies unique-key fixtures, per-limit cells and wheel selection.

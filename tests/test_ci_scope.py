@@ -41,7 +41,7 @@ pytestmark = pytest.mark.unit
         pytest.param(("notes.txt",), False, False, False, False, id="unrelated"),
         pytest.param(("justfile",), True, False, False, True, id="justfile"),
         pytest.param(
-            ("scripts/zig-linker.sh",),
+            ("development/scripts/zig-linker.sh",),
             True,
             False,
             False,
@@ -72,7 +72,7 @@ pytestmark = pytest.mark.unit
             id="typing-marker",
         ),
         pytest.param(
-            ("benchmarks/stream_cost/schemas/report.v1.schema.json",),
+            ("development/benchmarks/stream_cost/schemas/report.v1.schema.json",),
             True,
             True,
             False,
@@ -117,7 +117,7 @@ pytestmark = pytest.mark.unit
             id="shared-pytest-fixtures",
         ),
         pytest.param(
-            ("benchmarks/stream_cost/topology.py",),
+            ("development/benchmarks/stream_cost/topology.py",),
             True,
             False,
             False,
@@ -125,7 +125,7 @@ pytestmark = pytest.mark.unit
             id="benchmark-mongodb",
         ),
         pytest.param(
-            ("benchmarks/mongodb_image.py",),
+            ("development/benchmarks/mongodb_image.py",),
             True,
             False,
             False,
@@ -149,7 +149,7 @@ pytestmark = pytest.mark.unit
             id="benchmark-tools",
         ),
         pytest.param(
-            ("benchmarks/stream_cost/guard_report.py",),
+            ("development/benchmarks/stream_cost/guard_report.py",),
             True,
             False,
             False,
@@ -165,7 +165,7 @@ pytestmark = pytest.mark.unit
             id="startup-test",
         ),
         pytest.param(
-            ("scripts/check_dev_container.sh",),
+            ("development/scripts/check_dev_container.sh",),
             False,
             False,
             True,
@@ -207,7 +207,7 @@ pytestmark = pytest.mark.unit
             id="minimum-mongodb-image",
         ),
         pytest.param(
-            ("scripts/build_versioned_docs.py",),
+            ("development/scripts/build_versioned_docs.py",),
             True,
             False,
             False,
@@ -215,7 +215,7 @@ pytestmark = pytest.mark.unit
             id="edition-builder",
         ),
         pytest.param(
-            ("scripts/ci_scope.py",),
+            ("development/scripts/ci_scope.py",),
             True,
             False,
             False,
@@ -320,7 +320,7 @@ def test_ci_scope_selects_native_inputs(
 
 def _selected_tiers(changed_paths: tuple[str, ...]) -> dict[str, str]:
     completed = subprocess.run(
-        (sys.executable, "-m", "scripts.ci_scope"),
+        (sys.executable, "-m", "development.scripts.ci_scope"),
         input=b"\0".join(path.encode() for path in changed_paths) + b"\0",
         capture_output=True,
         check=True,

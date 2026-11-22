@@ -15,9 +15,20 @@ import psutil
 import pytest
 from pymongo.errors import ConnectionFailure
 
-from benchmarks.stream_cost import multiprocess_run
-from benchmarks.stream_cost.errors import BenchmarkSetupError
-from benchmarks.stream_cost.multiprocess_run import (
+from client_query_cache._core.stream_cost import (
+    LagCaptureWindowConfig,
+    LagCaptureWindows,
+)
+from client_query_cache._types import (
+    NonEmptyStr,
+    NonNegativeFloat,
+    NonNegativeInt,
+    PositiveFloat,
+    PositiveInt,
+)
+from development.benchmarks.stream_cost import multiprocess_run
+from development.benchmarks.stream_cost.errors import BenchmarkSetupError
+from development.benchmarks.stream_cost.multiprocess_run import (
     Protocol,
     capture_ordinals,
     command_delta,
@@ -33,17 +44,6 @@ from benchmarks.stream_cost.multiprocess_run import (
     validate_capture,
     wait_until,
 )
-from client_query_cache._core.stream_cost import (
-    LagCaptureWindowConfig,
-    LagCaptureWindows,
-)
-from client_query_cache._types import (
-    NonEmptyStr,
-    NonNegativeFloat,
-    NonNegativeInt,
-    PositiveFloat,
-    PositiveInt,
-)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -51,7 +51,7 @@ if TYPE_CHECKING:
     from multiprocessing.process import BaseProcess
     from pathlib import Path
 
-    from benchmarks.stream_cost.multiprocess_run import PathKind, Workload
+    from development.benchmarks.stream_cost.multiprocess_run import PathKind, Workload
 
 pytestmark = pytest.mark.unit
 
@@ -85,10 +85,11 @@ def schedule_clock(
         side_effect=partial(_advance_clock, clock, request.param[1])
     )
     monkeypatch.setattr(
-        "benchmarks.stream_cost.multiprocess_run.time.monotonic", clock.monotonic
+        "development.benchmarks.stream_cost.multiprocess_run.time.monotonic",
+        clock.monotonic,
     )
     monkeypatch.setattr(
-        "benchmarks.stream_cost.multiprocess_run.asyncio.sleep", clock.sleep
+        "development.benchmarks.stream_cost.multiprocess_run.asyncio.sleep", clock.sleep
     )
     return clock
 
@@ -250,7 +251,7 @@ def test_cli_preserves_existing_evidence(cli_output: Path) -> None:
 @pytest.mark.usefixtures("cli_output")
 def test_cli_requires_git(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "benchmarks.stream_cost.multiprocess_run.shutil.which",
+        "development.benchmarks.stream_cost.multiprocess_run.shutil.which",
         Mock(return_value=None),
     )
     with pytest.raises(BenchmarkSetupError, match="git is required"):

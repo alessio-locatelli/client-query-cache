@@ -48,7 +48,7 @@ jobs:
       # without adding dev.
       - run: uv sync --locked --no-default-groups --group benchmark
 
-      - run: uv run -- python -m benchmarks.stream_cost.run --output-dir benchmark-reports
+      - run: uv run -- python -m development.benchmarks.stream_cost.run --output-dir benchmark-reports
 
       # The default is implicit success(). We override it because partial reports must
       # remain available after failed measurements.

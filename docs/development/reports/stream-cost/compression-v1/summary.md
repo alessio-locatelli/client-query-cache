@@ -23,7 +23,7 @@ To collect fresh evidence with complete provenance, use the contributor
 environment and the runner's disposable replica set:
 
 ```bash
-uv run -- python -m benchmarks.stream_cost.compression_run --output /tmp/agents/compression.json
+uv run -- python -m development.benchmarks.stream_cost.compression_run --output /tmp/agents/compression.json
 ```
 
 The historical runner and thresholds remain available at the publication
