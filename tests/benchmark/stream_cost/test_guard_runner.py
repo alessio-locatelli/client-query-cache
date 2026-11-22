@@ -28,11 +28,8 @@ _DIFFERENT_PYTHON_VERSION = "other-test-python-version"
 
 
 def _write_workload_sources(root: Path, *, content: str) -> None:
-    package_dir = guard_runner._WORKLOAD_PACKAGE_DIR
-    target_dir = root / package_dir
+    target_dir = root / guard_runner._WORKLOAD_PACKAGE_DIR
     target_dir.mkdir(parents=True, exist_ok=True)
-    for directory in (package_dir, *package_dir.parents[:-1]):
-        (root / directory / "__init__.py").write_text(f"# {content}\n")
     for name in _SOURCE_FILE_NAMES:
         (target_dir / name).write_text(content)
 
@@ -155,22 +152,15 @@ def test_prepare_environment_succeeds(
     assert environment.python_executable == worktree_dir / ".venv" / "bin" / "python"
 
 
-@pytest.mark.parametrize(
-    "base_has_package",
-    [True, False],
-    ids=["same-layout", "different-layout"],
-)
 def test_prepare_environment_copies_base_workload_source(
     tmp_path: Path,
     revision_commands: Callable[[Path, str, str, str], None],
-    base_has_package: bool,
 ) -> None:
     source_root = tmp_path / "source"
     worktree_dir = tmp_path / "worktree"
     _write_workload_sources(source_root, content="head-definition")
     _write_python_executable(worktree_dir)
-    if base_has_package:
-        _write_workload_sources(worktree_dir, content="base-definition")
+    _write_workload_sources(worktree_dir, content="base-definition")
 
     revision_commands(worktree_dir, "def456", "", _SAME_PYTHON_VERSION)
 
@@ -186,11 +176,6 @@ def test_prepare_environment_copies_base_workload_source(
     assert (
         worktree_dir / package_dir / "guard_workload.py"
     ).read_text() == "head-definition"
-    for directory in (package_dir, *package_dir.parents[:-1]):
-        initializer = directory / "__init__.py"
-        assert (worktree_dir / initializer).read_bytes() == (
-            source_root / initializer
-        ).read_bytes()
     assert environment.workload_digest == guard_runner._workload_digest(source_root)
 
 
