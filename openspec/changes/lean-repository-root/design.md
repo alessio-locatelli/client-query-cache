@@ -86,7 +86,7 @@ Alternatives:
 
 `guard_runner.py` derives the workload package path and module name from its own `__package__` (for example `development.benchmarks.stream_cost` and `development/benchmarks/stream_cost`) instead of hard-coding `benchmarks/stream_cost`. When it copies the head's workload files into the base worktree, it creates that package directory and copies each `__init__.py` from the repository root down to the workload package, so the copied workload imports only itself and the base revision's installed library. The digest and the `python -m` target use the same derived path. This keeps the guard requirement "Guard decisions compare matched base and proposed runs" satisfied on the pull request that performs this move, whose base still keeps the harness in `benchmarks/`.
 
-The directory creation and `__init__.py` copying are temporary transition code, needed only while a guard base predates the move. Removal condition: the move is on `main`. The second pull request deletes them and their regression case (`tasks.md` group 8); the `__package__` derivation stays because it only replaces a hard-coded path. The tracking issue is recorded here by `tasks.md` task 1.3.
+The directory creation and `__init__.py` copying are temporary transition code, needed only while a guard base predates the move. Removal condition: the move is on `main`. The second pull request deletes them and their regression case (`tasks.md` group 8); the `__package__` derivation stays because it only replaces a hard-coded path. Track removal in [GitHub issue #487](https://github.com/alessio-locatelli/client-query-cache/issues/487).
 
 Alternatives:
 
@@ -100,7 +100,7 @@ Unknowns: none; a regression test builds a base revision without the head's pack
 
 `extract_corpus` lists `docs/user`, `docs/examples`, `examples`, and `zensical.toml` from the selected revision and keeps the example programs and catalogue README found under whichever example directory that revision has; `edition_config` rewrites links in that README. Without this, the stable edition, built from the latest release tag that still keeps root `examples/`, fails the strict build as soon as the move reaches `main`.
 
-The root `examples` location is temporary transition code. Removal condition: the latest published GitHub Release keeps its examples in `docs/examples/`. The second pull request deletes the root location and its test parametrization (`tasks.md` group 8), after which pre-move release tags can no longer be assembled; see the `public-library-documentation` requirement "Combined builds discover the published release". The tracking issue is recorded here by `tasks.md` task 1.3.
+The root `examples` location is temporary transition code. Removal condition: the latest published GitHub Release keeps its examples in `docs/examples/`. The second pull request deletes the root location and its test parametrization (`tasks.md` group 8), after which pre-move release tags can no longer be assembled; see the `public-library-documentation` requirement "Combined builds discover the published release". Track removal in [GitHub issue #487](https://github.com/alessio-locatelli/client-query-cache/issues/487).
 
 Alternatives:
 
