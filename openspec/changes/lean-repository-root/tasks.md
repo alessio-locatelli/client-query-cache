@@ -35,8 +35,8 @@ Each numbered group is one commit that leaves `just lint` and the affected tests
 
 ## 7. Integration checks
 
-- [ ] 7.1 Confirm the layout: `git ls-tree -d --name-only HEAD` prints exactly `.agents`, `.claude`, `.github`, `development`, `docs`, `openspec`, `src`, and `tests`. Then run `git grep -n -E '(^|[^A-Za-z0-9_./-])(benchmarks|research|scripts|examples|reports|rules|rule-tests|specifications|native)(/|\.[a-z_])' -- . ':!openspec/changes/archive' ':!CHANGELOG.md' ':!*.lock' ':!package-lock.json'` and confirm that every remaining hit is a D7 exclusion, the legacy `examples` location of D6 and its tests, historical evidence kept under D7, or prose that is not a path. Also confirm that `git grep -n -E '^\s*(from|import) (benchmarks|research|scripts)\b' -- '*.py'` prints nothing.
-- [ ] 7.2 Run `just docs-build-editions` and confirm that the stable edition, built from the latest release tag with root `examples/`, and the development edition both pass the strict build.
+- [x] 7.1 Confirm the layout: `git ls-tree -d --name-only HEAD` prints exactly `.agents`, `.claude`, `.github`, `development`, `docs`, `openspec`, `src`, and `tests`. Then run `git grep -n -E '(^|[^A-Za-z0-9_./-])(benchmarks|research|scripts|examples|reports|rules|rule-tests|specifications|native)(/|\.[a-z_])' -- . ':!openspec/changes/archive' ':!CHANGELOG.md' ':!*.lock' ':!package-lock.json'` and confirm that every remaining hit is a D7 exclusion, the legacy `examples` location of D6 and its tests, historical evidence kept under D7, or prose that is not a path. Also confirm that `git grep -n -E '^\s*(from|import) (benchmarks|research|scripts)\b' -- '*.py'` prints nothing.
+- [x] 7.2 Run `just docs-build-editions` and confirm that the stable edition, built from the latest release tag with root `examples/`, and the development edition both pass the strict build.
 
 ## 8. Second pull request: remove the transition code
 
