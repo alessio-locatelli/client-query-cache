@@ -101,12 +101,6 @@ def prepare_environment(
         raise BenchmarkSetupError(message)
     if workload_source_root is not None:
         target_dir = worktree_dir / _WORKLOAD_PACKAGE_DIR
-        target_dir.mkdir(parents=True, exist_ok=True)
-        for directory in (_WORKLOAD_PACKAGE_DIR, *_WORKLOAD_PACKAGE_DIR.parents[:-1]):
-            initializer = directory / "__init__.py"
-            shutil.copyfile(
-                workload_source_root / initializer, worktree_dir / initializer
-            )
         for name in _WORKLOAD_SOURCE_FILES:
             shutil.copyfile(
                 workload_source_root / _WORKLOAD_PACKAGE_DIR / name,

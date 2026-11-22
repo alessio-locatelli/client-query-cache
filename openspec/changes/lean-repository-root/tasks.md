@@ -40,10 +40,10 @@ Each numbered group is one commit that leaves `just lint` and the affected tests
 
 ## 8. Second pull request: remove the transition code
 
-- [ ] 8.1 Start this group in a separate pull request only after both removal conditions in `design.md` D5 and D6 hold: the move is on `main`, and `git ls-tree --name-only "$(gh api 'repos/{owner}/{repo}/releases/latest' --jq .tag_name)" docs/examples/README.md` prints `docs/examples/README.md` after fetching that tag.
-- [ ] 8.2 Delete the D5 directory creation and `__init__.py` copying from `development/benchmarks/stream_cost/guard_runner.py` and the cross-layout case from `tests/benchmark/stream_cost/test_guard_runner.py`. Verify with `just pytest tests/benchmark/stream_cost/test_guard_runner.py`.
-- [ ] 8.3 Delete the root `examples` location from `development/scripts/build_versioned_docs.py` from `tests/test_build_versioned_docs.py` remove the `development_examples` fixture and its uses and make `release_repo` create `docs/examples/`, and add a case for the `public-library-documentation` scenario "A tag uses a different documentation layout" that assembles from a fixture tag with root `examples/` and asserts failure without an installed artifact. Verify with `just pytest tests/test_build_versioned_docs.py` and `just docs-build-editions`.
-- [ ] 8.4 Rerun the task 7.1 grep and confirm that no hit remains for the D6 root `examples` location.
+- [x] 8.1 Start this group in a separate pull request only after both removal conditions in `design.md` D5 and D6 hold: the move is on `main`, and `git ls-tree --name-only "$(gh api 'repos/{owner}/{repo}/releases/latest' --jq .tag_name)" docs/examples/README.md` prints `docs/examples/README.md` after fetching that tag.
+- [x] 8.2 Delete the D5 directory creation and `__init__.py` copying from `development/benchmarks/stream_cost/guard_runner.py` and the cross-layout case from `tests/benchmark/stream_cost/test_guard_runner.py`. Verify with `just pytest tests/benchmark/stream_cost/test_guard_runner.py`.
+- [x] 8.3 Delete the root `examples` location from `development/scripts/build_versioned_docs.py` from `tests/test_build_versioned_docs.py` remove the `development_examples` fixture and its uses and make `release_repo` create `docs/examples/`, and add a case for the `public-library-documentation` scenario "A tag uses a different documentation layout" that assembles from a fixture tag with root `examples/` and asserts failure without an installed artifact. Verify with `just pytest tests/test_build_versioned_docs.py` and `just docs-build-editions`.
+- [x] 8.4 Rerun the task 7.1 grep and confirm that no hit remains for the D6 root `examples` location.
 
 ## 9. Code Quality
 

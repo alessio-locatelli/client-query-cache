@@ -19,7 +19,8 @@ import tomli_w
 type Text = str
 type Table = dict[Text, object]
 
-_EXAMPLE_DIRECTORIES = ("docs/examples", "examples")
+_EXAMPLES_DIR = "docs/examples"
+_EXAMPLE_CATALOGUE = f"{_EXAMPLES_DIR}/README.md"
 
 
 def table(value: object) -> Table:
@@ -77,20 +78,20 @@ def extract_corpus(repo: Path, revision: Text, destination: Path) -> None:
             "--name-only",
             revision,
             "docs/user",
-            *_EXAMPLE_DIRECTORIES,
+            _EXAMPLES_DIR,
             "zensical.toml",
         )
         .decode()
         .splitlines()
         if name.startswith("docs/user/")
-        or name == "zensical.toml"
-        or (
-            name.rpartition("/")[0] in _EXAMPLE_DIRECTORIES
-            and name.endswith(("/README.md", ".py"))
-        )
+        or name in {"zensical.toml", _EXAMPLE_CATALOGUE}
+        or (name.rpartition("/")[0] == _EXAMPLES_DIR and name.endswith(".py"))
     )
     if "zensical.toml" not in files or "docs/user/index.md" not in files:
         raise ValueError("Documentation source lacks the public guide layout")
+    if _EXAMPLE_CATALOGUE not in files:
+        message = f"Documentation source lacks {_EXAMPLE_CATALOGUE}"
+        raise ValueError(message)
     destination.mkdir()
     with tarfile.open(
         fileobj=io.BytesIO(git(repo, "archive", revision, "--", *files))
@@ -116,12 +117,7 @@ def edition_config(corpus: Path, revision: Text, *, stable: bool) -> Table:
     repository = project["repo_url"]
     hosted_base = cast("Text", project["site_url"]).rstrip("/") + "/"
     edition = "stable" if stable else "dev"
-    example_catalogues = (
-        page
-        for directory in _EXAMPLE_DIRECTORIES
-        for page in (corpus / directory).glob("README.md")
-    )
-    for page in (*corpus.glob("docs/user/**/*.md"), *example_catalogues):
+    for page in (*corpus.glob("docs/user/**/*.md"), corpus / _EXAMPLE_CATALOGUE):
         text = re.sub(
             re.escape(hosted_base) + r"(?!stable/|dev/)",
             hosted_base + edition + "/",
