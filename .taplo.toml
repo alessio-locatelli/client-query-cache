@@ -1,1 +1,1 @@
-exclude = ["specifications/*", ".venv/*", ".tox/*"]
+exclude = ["docs/specifications/**", ".venv/*", ".tox/*"]

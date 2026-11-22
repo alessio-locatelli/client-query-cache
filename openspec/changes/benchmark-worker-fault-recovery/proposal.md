@@ -10,7 +10,7 @@ behaviors.
 
 The quantitative study remains unfinished. Its V8 observer-overhead result and
 stop rule are recorded in
-[`reports/worker-fault-recovery/research-outcome.md`](../../../reports/worker-fault-recovery/research-outcome.md).
+[`docs/development/reports/worker-fault-recovery/research-outcome.md`](../../../docs/development/reports/worker-fault-recovery/research-outcome.md).
 
 ## What Changes
 
@@ -41,6 +41,6 @@ None.
 - Code and tests: `benchmarks/stream_cost/topology.py` and
   `tests/benchmark/stream_cost/`.
 - Research history: the concise V1–V8 outcome is retained at
-  `reports/worker-fault-recovery/research-outcome.md`.
+  `docs/development/reports/worker-fault-recovery/research-outcome.md`.
 - The library's public interfaces and user-facing performance guidance do not
   change.

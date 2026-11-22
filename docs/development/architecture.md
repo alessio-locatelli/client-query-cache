@@ -110,7 +110,7 @@ unchanged order-sensitive representation. The helper performs no recursive
 semantic classification and never rewrites the native `_spec`; eligibility
 still examines the original query. Lookup, limit-family membership, and capture
 admission share the same filter representation. Other read methods do not use
-this helper. [Differential semantic evidence](../../reports/query-filter-normalization/summary.md)
+this helper. [Differential semantic evidence](./reports/query-filter-normalization/summary.md)
 record the tested MongoDB/PyMongo versions and limitations.
 Only non-boolean integer limits at least zero
 produce `FindSource` admission metadata; zero denotes an unlimited source.
@@ -182,7 +182,7 @@ bound-session cases on the declared PyMongo minimum, every other supported relea
 the locked driver. Future driver releases require the same differential checks because
 these hooks are protected.
 
-Process-local managers use `LocalCacheCore` from the extension, and shared-cache coordination uses `SharedOwnerCore`, which adds publication to the shared index and payload arena. Both implement the common read and coherence protocols; their capture objects are opaque handles. The [native evaluation report](../../reports/native-process-local-cache/results.md) records measured costs and adoption evidence.
+Process-local managers use `LocalCacheCore` from the extension, and shared-cache coordination uses `SharedOwnerCore`, which adds publication to the shared index and payload arena. Both implement the common read and coherence protocols; their capture objects are opaque handles. The [native evaluation report](./reports/native-process-local-cache/results.md) records measured costs and adoption evidence.
 
 ## Core verification
 

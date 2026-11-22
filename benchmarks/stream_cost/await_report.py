@@ -23,7 +23,9 @@ CONFIGURATION_SHA256 = (
     # pragma: allowlist nextline secret
     "3285da5566b0afc9ecb29acd3de9aad8915bb4365e3fa6644b44764a1eb44bf9"
 )
-CONFIGURATION_PATH = Path("reports/stream-cost/await-v1/config.v1.json")
+CONFIGURATION_PATH = Path(
+    "docs/development/reports/stream-cost/await-v1/config.v1.json"
+)
 
 _SCALARS = ("elapsed_seconds", "server_cpu_seconds", "client_cpu_seconds")
 _COUNTS = (

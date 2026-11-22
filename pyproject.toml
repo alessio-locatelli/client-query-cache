@@ -142,8 +142,8 @@ exclude-classes = '^client_query_cache\._shared_index:LocalCacheCore$'
 # are outside the installed project environment.
 exclude-modules = '''
 (
-  ^specifications
-  | ^examples
+  ^docs\.specifications(\.|$)
+  | ^docs\.examples(\.|$)
 )
 '''
 
@@ -153,7 +153,7 @@ paths = ["src", "tests", "benchmarks", ".vulture_whitelist"]
 [tool.ruff-extra-rules]
 # The default is false (https://github.com/alessio-locatelli/ruff-extra-rules/blob/v0.6.0/README.md#configuration). We override it because hook runs should apply available repairs.
 fix = true
-exclude = ["specifications"]
+exclude = ["docs/specifications"]
 extend-select = ["unused-pytriage", "suppression-rationale"]
 [tool.ruff-extra-rules.meaningless-vars]
 # For meaningless-vars, redundant-assignment, redundant-type-conversion, redundant-dict-get, and defined-far-from-use level:

@@ -8,7 +8,7 @@
   ],
   // The default is false (https://github.com/DavidAnson/markdownlint-cli2/blob/v0.24.0/schema/markdownlint-cli2-config-schema.json). We override it because quality logs should show diagnostics without a repeated tool banner.
   "noBanner": true,
-  "ignores": ["specifications/**", "site/**", ".cache/**"],
+  "ignores": ["docs/specifications/**", "site/**", ".cache/**"],
   "config": {
     // The default is an 80-character limit (https://github.com/DavidAnson/markdownlint/blob/v0.42.0/doc/md013.md). We override it because Markdown paragraphs, tables, and evidence links use their natural lengths.
     "line-length": false,

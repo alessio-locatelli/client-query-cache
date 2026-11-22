@@ -14,7 +14,7 @@ Pages have a bounded size and stable ordering, and their cursors are fully mater
 
 Large offsets increase the database work required by `skip()`. For large catalogues, prefer [indexed range queries for pagination](https://www.mongodb.com/docs/manual/reference/method/cursor.skip/#using-range-queries).
 
-Run `uv run examples/fastapi_catalogue_example.py` from the repository checkout. The program uses FastAPI's in-process HTTP client to exercise startup, tenant isolation, rejected writes, update responses, and shutdown for each deployment described in [feature-flagged rollout](#feature-flagged-rollout). With caching enabled, it also checks repeated item/page cache hits and eventual invalidation within five seconds, requiring cache hits for both updated responses. This deadline is a self-check limit, not a freshness guarantee. No external HTTP server is needed. The run resets and cleans up `client_query_cache_example_fastapi_catalogue`; use a disposable MongoDB deployment. See the [example catalogue](index.md) for prerequisites and connection settings.
+Run `uv run docs/examples/fastapi_catalogue_example.py` from the repository checkout. The program uses FastAPI's in-process HTTP client to exercise startup, tenant isolation, rejected writes, update responses, and shutdown for each deployment described in [feature-flagged rollout](#feature-flagged-rollout). With caching enabled, it also checks repeated item/page cache hits and eventual invalidation within five seconds, requiring cache hits for both updated responses. This deadline is a self-check limit, not a freshness guarantee. No external HTTP server is needed. The run resets and cleans up `client_query_cache_example_fastapi_catalogue`; use a disposable MongoDB deployment. See the [example catalogue](index.md) for prerequisites and connection settings.
 
 ## Feature-flagged rollout
 
@@ -37,7 +37,7 @@ The self-check starts three deployments over the same data: direct, cached, then
 To serve the catalogue over HTTP with several worker processes, run this command from the repository checkout:
 
 ```console
-CONTENT_CACHE_ENABLED=true uv run examples/fastapi_catalogue_example.py --serve --workers 2 --port 8000
+CONTENT_CACHE_ENABLED=true uv run docs/examples/fastapi_catalogue_example.py --serve --workers 2 --port 8000
 ```
 
 [Uvicorn](https://uvicorn.dev/deployment/) starts the requested number of worker processes, and each one builds the application itself. The cache flag therefore comes from the `CONTENT_CACHE_ENABLED` environment variable: `true` caches content reads, and `false`, the default, reads directly. Each worker's lifespan creates its own client and manager and prints its process ID when the manager starts. When you stop the server with Ctrl+C, each worker closes its manager before its client.
@@ -46,12 +46,12 @@ This launch mode gives every worker an independent cache and change stream. It d
 
 ## Complete program
 
-The code below is included from the [canonical Python source](https://github.com/alessio-locatelli/client-query-cache/blob/main/examples/fastapi_catalogue_example.py).
+The code below is included from the [canonical Python source](https://github.com/alessio-locatelli/client-query-cache/blob/main/docs/examples/fastapi_catalogue_example.py).
 
 <!-- fmt:off -->
 
 ```python
---8<-- "examples/fastapi_catalogue_example.py"
+--8<-- "docs/examples/fastapi_catalogue_example.py"
 ```
 
 <!-- fmt:on -->

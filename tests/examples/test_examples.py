@@ -53,7 +53,7 @@ def served_catalogue(
         (
             _uv(),
             "run",
-            "examples/fastapi_catalogue_example.py",
+            "docs/examples/fastapi_catalogue_example.py",
             "--serve",
             "--workers",
             str(SERVED_WORKERS),
@@ -105,7 +105,7 @@ def served_catalogue(
 )
 def test_example_runs(name: str, mongodb_uri: MongoDbUri) -> None:
     completed = subprocess.run(  # noqa: S603 - Example names come from the fixed parametrized test cases; no shell is used.
-        (_uv(), "run", f"examples/{name}"),
+        (_uv(), "run", f"docs/examples/{name}"),
         cwd=REPOSITORY,
         env={**os.environ, "MONGODB_URI": mongodb_uri, "UV_LOCKED": "0"},
         capture_output=True,

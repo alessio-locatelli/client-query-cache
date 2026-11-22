@@ -1,6 +1,6 @@
 # Shared-cache workloads
 
-The [collection-read comparison](https://github.com/alessio-locatelli/client-query-cache/blob/main/reports/shared-worker-cache/collection-reads.md) covers filtered reads, aggregation, counts and distinct values, including cold misses, larger results and concurrent writes.
+The [collection-read comparison](https://github.com/alessio-locatelli/client-query-cache/blob/main/docs/development/reports/shared-worker-cache/collection-reads.md) covers filtered reads, aggregation, counts and distinct values, including cold misses, larger results and concurrent writes.
 
 ## Identity-read workload
 
@@ -44,7 +44,7 @@ Independent sync caches were faster. Async hot medians were close in this run, w
 
 Shared cold windows recorded zero hits. Their median was below independent caches, but CPU and P99 were higher. Admission work and background publication add cost to MongoDB reads; the owner occupied about 77–78 MiB in these windows. CPU including warmup and owner startup was 5.41 seconds sync and 8.81 seconds async, versus 4.67 and 7.37 seconds for independent caches. These results support using sharing for a reused identity hot set; measure miss-heavy applications before opting in.
 
-These are 0.8.0 measurements. Later studies measured development revisions with their own workloads: the [completed identity study](https://github.com/alessio-locatelli/client-query-cache/blob/main/reports/shared-worker-cache/v15/results.md) tests cold `_id` misses against the direct-read bounds of [issue #272](https://github.com/alessio-locatelli/client-query-cache/issues/272), and the [collection-read comparison](https://github.com/alessio-locatelli/client-query-cache/blob/main/reports/shared-worker-cache/collection-reads.md) includes cold misses for the other shared read methods. Neither is a current-release measurement or a universal latency guarantee, and neither replaces this dated public-API comparison.
+These are 0.8.0 measurements. Later studies measured development revisions with their own workloads: the [completed identity study](https://github.com/alessio-locatelli/client-query-cache/blob/main/docs/development/reports/shared-worker-cache/v15/results.md) tests cold `_id` misses against the direct-read bounds of [issue #272](https://github.com/alessio-locatelli/client-query-cache/issues/272), and the [collection-read comparison](https://github.com/alessio-locatelli/client-query-cache/blob/main/docs/development/reports/shared-worker-cache/collection-reads.md) includes cold misses for the other shared read methods. Neither is a current-release measurement or a universal latency guarantee, and neither replaces this dated public-API comparison.
 
 Native implementation and profile attribution are in the [maintainer reference](https://github.com/alessio-locatelli/client-query-cache/blob/main/docs/development/shared-cache.md#profile-attribution-for-the-public-release-workload).
 

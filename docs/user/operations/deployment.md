@@ -44,7 +44,7 @@ cache_config = CacheCoreConfig(
 )
 ```
 
-Choose these example limits from measurements of your own workload. `max_entries` bounds the number of retained entries, not their memory: in the [process-memory report](https://github.com/alessio-locatelli/client-query-cache/blob/main/reports/process-memory/summary.md#memory-protection-on-the-issue-337-workload)'s long-filter workload, 50,000 entries still held about 210 MiB, while a `max_key_bytes` below the filters' size retained none. Unique-key aliases also consume slots, so `entry_count` alone does not describe count occupancy. The [API reference](../reference/api.md#optional-retention-limits) explains one-slot fallback, pair admission, occupied caches, key charging and decline observations. In-flight requests, decoded results, opaque scalar referents and allocator retention remain outside these bounds. [Shared managers](../reference/shared-cache.md) have a separate capacity policy.
+Choose these example limits from measurements of your own workload. `max_entries` bounds the number of retained entries, not their memory: in the [process-memory report](https://github.com/alessio-locatelli/client-query-cache/blob/main/docs/development/reports/process-memory/summary.md#memory-protection-on-the-issue-337-workload)'s long-filter workload, 50,000 entries still held about 210 MiB, while a `max_key_bytes` below the filters' size retained none. Unique-key aliases also consume slots, so `entry_count` alone does not describe count occupancy. The [API reference](../reference/api.md#optional-retention-limits) explains one-slot fallback, pair admission, occupied caches, key charging and decline observations. In-flight requests, decoded results, opaque scalar referents and allocator retention remain outside these bounds. [Shared managers](../reference/shared-cache.md) have a separate capacity policy.
 
 One manager watching three databases opens three streams. Four workers watching those databases open twelve streams and hold four independent cache budgets. Sync and asyncio managers are also independent, even in one process. Avoid constructing a manager per request: startup and independent warming can consume the benefit before the process reuses any data.
 
@@ -56,7 +56,7 @@ application add memory outside those limits.
 
 In the project's native-core measurements, 64,001 cached 59-byte results added
 about 38 MiB of process memory with short filters and 262 MiB with long filters,
-despite holding only 3.6 MiB of BSON. The [measurement record](https://github.com/alessio-locatelli/client-query-cache/blob/main/reports/process-memory/summary.md#native-core-residency)
+despite holding only 3.6 MiB of BSON. The [measurement record](https://github.com/alessio-locatelli/client-query-cache/blob/main/docs/development/reports/process-memory/summary.md#native-core-residency)
 identifies the historical revision, environment and workload. These figures
 illustrate the effect of entry shape; they are not current memory guarantees.
 
@@ -68,7 +68,7 @@ retain candidate data outside the stored cache budget.
 
 Freed allocations may remain mapped for reuse after eviction or manager close.
 Size memory limits for observed peaks and repeated workload cycles, not only
-current charged bytes. The [memory report](https://github.com/alessio-locatelli/client-query-cache/blob/main/reports/process-memory/summary.md)
+current charged bytes. The [memory report](https://github.com/alessio-locatelli/client-query-cache/blob/main/docs/development/reports/process-memory/summary.md)
 distinguishes allocator retention from live ownership and describes reproduction.
 
 Monitor [cache outcomes and stream health](monitoring.md) alongside your application workload. Use the [benchmark guide](../benchmarks/index.md) to decide what to measure before deployment.

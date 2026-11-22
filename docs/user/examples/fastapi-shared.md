@@ -9,7 +9,7 @@ The product read retains both its `_id` and `tenant_id` predicate across workers
 From the repository checkout, with the [example prerequisites](index.md#prerequisites):
 
 ```console
-uv run examples/fastapi_shared_example.py
+uv run docs/examples/fastapi_shared_example.py
 ```
 
 The self-check starts Granian with two spawned workers on a free localhost port and uses real HTTP connections. It resets and cleans `client_query_cache_example_fastapi_shared`; use a disposable deployment meeting the [MongoDB requirements](../getting-started/installation.md#requirements). It fails unless:
@@ -39,7 +39,7 @@ Startup and admission can take several reads. The check allows preceding cached 
 ## Serve the application
 
 ```console
-uv run examples/fastapi_shared_example.py --serve --workers 4 --port 8000
+uv run docs/examples/fastapi_shared_example.py --serve --workers 4 --port 8000
 curl http://127.0.0.1:8000/health
 curl http://127.0.0.1:8000/products/book
 curl http://127.0.0.1:8000/diagnostics
@@ -64,9 +64,9 @@ The example pins Granian and uses its [programmatic `serve(target_loader=..., wr
 <!-- fmt:off -->
 
 ```python
---8<-- "examples/fastapi_shared_example.py:application"
+--8<-- "docs/examples/fastapi_shared_example.py:application"
 ```
 
 <!-- fmt:on -->
 
-The [complete source](https://github.com/alessio-locatelli/client-query-cache/blob/main/examples/fastapi_shared_example.py) includes imports, response types, command counting and the HTTP self-check. It is exercised by `just examples`. The parent and each worker use bounded MongoDB operation timeouts; configure those for your own service and shutdown policy. See [shared deployment](../operations/shared-cache.md) for capacity, outage behavior and security.
+The [complete source](https://github.com/alessio-locatelli/client-query-cache/blob/main/docs/examples/fastapi_shared_example.py) includes imports, response types, command counting and the HTTP self-check. It is exercised by `just examples`. The parent and each worker use bounded MongoDB operation timeouts; configure those for your own service and shutdown policy. See [shared deployment](../operations/shared-cache.md) for capacity, outage behavior and security.

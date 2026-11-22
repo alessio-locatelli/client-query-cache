@@ -101,7 +101,7 @@ Ruff comes from the locked `lint` dependency group: the Prek hooks run it throug
 See [native Rust quality checks](docs/development/native-quality.md) for the native
 lint, dependency-policy, and concurrency-model gates.
 
-Run `just examples` to run every program in [`examples/`](examples/README.md) against a disposable replica set. The first run downloads each example's libraries.
+Run `just examples` to run every program in [`docs/examples/`](docs/examples/README.md) against a disposable replica set. The first run downloads each example's libraries.
 
 To run a single example or an experiment against a long-lived local replica set, follow the [local MongoDB setup](docs/user/getting-started/installation.md#local-mongodb), replacing `docker compose` with `just podman -- compose` inside the contributor container. Run examples only after the helper exits successfully: until then, the server can reject writes. The replica set listens on `localhost:27017`, which the examples use by default. Podman's `compose` command requires a [compose provider](https://docs.podman.io/en/latest/markdown/podman-compose.1.html) on the host.
 
@@ -159,7 +159,7 @@ are explained [above](#npm-quality-options).
 Recheck effective defaults against the selected tool version, presets, wrappers and environment
 before adding or removing an option.
 
-Keep one canonical source for each detailed topic. The example command/prerequisite catalogue stays in `examples/README.md`, and runnable programs stay in `examples/*.py`. Hosted example pages include these files with `pymdownx.snippets`, using repository-relative paths and `check_paths = true`. Include program text in Python code blocks; surround snippet-only fences with `<!-- fmt:off -->` and `<!-- fmt:on -->` so [Ruff Markdown formatting](https://docs.astral.sh/ruff/formatter/#markdown-code-formatting) preserves the inclusion directive. Never import or execute examples during a site build. Link the canonical file from each wrapper for repository readers.
+Keep one canonical source for each detailed topic. The example command/prerequisite catalogue stays in `docs/examples/README.md`, and runnable programs stay in `docs/examples/*.py`. Hosted example pages include these files with `pymdownx.snippets`, using repository-relative paths and `check_paths = true`. Include program text in Python code blocks; surround snippet-only fences with `<!-- fmt:off -->` and `<!-- fmt:on -->` so [Ruff Markdown formatting](https://docs.astral.sh/ruff/formatter/#markdown-code-formatting) preserves the inclusion directive. Never import or execute examples during a site build. Link the canonical file from each wrapper for repository readers.
 
 Link hosted guidance with relative Markdown paths and heading fragments. Use clearly labelled, explicit GitHub links for source files, checkout instructions, development documentation, and benchmark evidence. Keep revision-pinned evidence links pinned. Do not use GitHub READMEs as substitutes for hosted tutorials or examples. After moving a public page or heading, update local links and Zensical's page/anchor redirect mappings so existing bookmarks still reach hosted guidance.
 

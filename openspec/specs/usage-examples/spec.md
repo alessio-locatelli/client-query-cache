@@ -8,7 +8,7 @@ This capability gives new users complete, runnable integrations of the cache int
 
 ### Requirement: Examples are complete real-library integrations
 
-The repository SHALL provide a top-level `examples/` directory of complete programs integrating a published MongoDB-backed library or a published web framework with explicit MongoDB storage. Each SHALL use only the package's public API, without private imports. Each SHALL keep writes on PyMongo, route only supported reads through cached views, and close its manager and client on exit.
+The repository SHALL provide a `docs/examples/` directory of complete programs integrating a published MongoDB-backed library or a published web framework with explicit MongoDB storage. Each SHALL use only the package's public API, without private imports. Each SHALL keep writes on PyMongo, route only supported reads through cached views, and close its manager and client on exit.
 
 #### Scenario: A reader studies an example
 
@@ -22,12 +22,12 @@ The repository SHALL provide a top-level `examples/` directory of complete progr
 
 ### Requirement: Examples run without project dependency changes
 
-Each example SHALL declare its third-party libraries, with a minimum version, in inline script metadata inside the example file. From a repository checkout, `uv run examples/<example>.py` SHALL provision those libraries ephemerally and run the example against the working-tree `client_query_cache`. Adding an example SHALL not add a runtime, optional, or development dependency to `pyproject.toml` or `uv.lock`. `examples/README.md` SHALL list each example's run command.
+Each example SHALL declare its third-party libraries, with a minimum version, in inline script metadata inside the example file. From a repository checkout, `uv run docs/examples/<example>.py` SHALL provision those libraries ephemerally and run the example against the working-tree `client_query_cache`. Adding an example SHALL not add a runtime, optional, or development dependency to `pyproject.toml` or `uv.lock`. `docs/examples/README.md` SHALL list each example's run command.
 
 #### Scenario: A contributor adds an example
 
 - **WHEN** a contributor adds an example that needs a third-party library
-- **THEN** `pyproject.toml` and `uv.lock` are unchanged, and `uv run examples/<example>.py` runs it against the working-tree package
+- **THEN** `pyproject.toml` and `uv.lock` are unchanged, and `uv run docs/examples/<example>.py` runs it against the working-tree package
 
 ### Requirement: Examples are self-contained
 
@@ -67,7 +67,7 @@ The pytest suite SHALL run every example as a subprocess with its documented `uv
 
 ### Requirement: Examples are discoverable
 
-The README SHALL link to the `examples/` directory. `examples/README.md` SHALL list each example with the library or framework it integrates, its run command, and its MongoDB prerequisite. It SHALL describe current behavior only.
+The README SHALL link to the hosted examples catalogue. `docs/examples/README.md` SHALL list each example with the library or framework it integrates, its run command, and its MongoDB prerequisite. It SHALL describe current behavior only.
 
 #### Scenario: A new user looks for integration guidance
 

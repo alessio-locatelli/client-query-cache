@@ -9,7 +9,7 @@ workers running in separate processes against disposable MongoDB instances.
 
 The quantitative study did not establish an acceptable observer method. Its
 recorded outcome and stop rule are in
-[`reports/worker-fault-recovery/research-outcome.md`](../../../reports/worker-fault-recovery/research-outcome.md).
+[`docs/development/reports/worker-fault-recovery/research-outcome.md`](../../../docs/development/reports/worker-fault-recovery/research-outcome.md).
 This PR does not implement or claim quantitative recovery measurements.
 
 ## Decisions

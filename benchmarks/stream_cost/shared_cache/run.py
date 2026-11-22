@@ -71,7 +71,7 @@ def environment(registration: Registration) -> JsonDict:
                 "benchmarks",
                 "native",
                 "src",
-                "reports",
+                "docs/development/reports",
             ],
             text=True,
         ).strip()

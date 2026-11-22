@@ -6,7 +6,7 @@ This study measured how direct MongoDB reads compare with independent per-worker
 
 ## What was measured
 
-The [version 1 registration](../../../reports/concurrent-worker-workload/v1/registration.md) and its frozen [configuration](../../../reports/concurrent-worker-workload/v1/config.json) define the workload, measures and analysis. In short:
+The [version 1 registration](../reports/concurrent-worker-workload/v1/registration.md) and its frozen [configuration](../reports/concurrent-worker-workload/v1/config.json) define the workload, measures and analysis. In short:
 
 - **Direct** workers read MongoDB with primary read preference and majority read concern.
 - **Independent** workers each own a supported `CacheManager` with a 96 MiB budget and their own change stream.
@@ -15,7 +15,7 @@ One or four asyncio worker processes, each with four requests in flight, issue `
 
 ## Calibration
 
-Read-only closed-loop probes found one direct worker to be the weakest cell at about 4,900 reads/s, which proposed 3,663 reads/s. With writes running, one of its one-worker direct validation windows ended with 9 requests outstanding against a bound of 8, so the registered rule halved the rate once to 1,831 reads/s, which every validation window sustained. The [calibration result](../../../reports/concurrent-worker-workload/v1/registration.md#calibration-result) records the probe ranges and dispatch lateness.
+Read-only closed-loop probes found one direct worker to be the weakest cell at about 4,900 reads/s, which proposed 3,663 reads/s. With writes running, one of its one-worker direct validation windows ended with 9 requests outstanding against a bound of 8, so the registered rule halved the rate once to 1,831 reads/s, which every validation window sustained. The [calibration result](../reports/concurrent-worker-workload/v1/registration.md#calibration-result) records the probe ranges and dispatch lateness.
 
 ## Results
 
@@ -72,4 +72,4 @@ uv run -- python -m benchmarks.stream_cost.shared_cache.run --phase steady --con
 uv run -- python -m benchmarks.stream_cost.shared_cache.analysis benchmark-reports/concurrent-worker-workload/steady.json --config reports/concurrent-worker-workload/v1/config.json --phase steady --blocks 12
 ```
 
-The steady phase takes about an hour; a run interrupted by the host can continue with `--resume <earlier report>`. The smoke check and calibration commands are listed in the [registration](../../../reports/concurrent-worker-workload/v1/registration.md#reproduction). The steady phase ran at revision `23a6fb7ddda311851d8f452cd3cf921eb10fce35` with configuration SHA-256 `2057af0088101622b441f977fbc9bd78397f2e023fafd8b092cc1e74d1b6d0bc`. Raw reports remain untracked.
+The steady phase takes about an hour; a run interrupted by the host can continue with `--resume <earlier report>`. The smoke check and calibration commands are listed in the [registration](../reports/concurrent-worker-workload/v1/registration.md#reproduction). The steady phase ran at revision `23a6fb7ddda311851d8f452cd3cf921eb10fce35` with configuration SHA-256 `2057af0088101622b441f977fbc9bd78397f2e023fafd8b092cc1e74d1b6d0bc`. Raw reports remain untracked.

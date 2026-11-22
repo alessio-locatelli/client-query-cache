@@ -14,9 +14,9 @@ The extension's release profile uses whole-program link-time optimization and a 
 
 Maturin fails the build instead of emitting an unprofiled wheel when a stage fails, and it reports a missing `llvm-profdata` with the `rustup component add llvm-tools` command (`just setup-rust` already adds the component). Profile-guided wheels are not byte-reproducible, because the recorded counts vary between training runs.
 
-Cache-core workloads train both telemetry policies: 80% of each workload's timed allocation uses disabled telemetry and 20% uses enabled telemetry. This preserves each workload's total allocation and its existing admission weighting. Setup and enabled counter verification add fixed passes outside those allocations. New cache-core workloads train both policies unless explicitly listed as core-policy-independent in `scripts/pgo_training.py`. The [telemetry measurement report](../../reports/opt-in-telemetry/summary.md#pgo-training-comparison) records the compared mixes and their limits.
+Cache-core workloads train both telemetry policies: 80% of each workload's timed allocation uses disabled telemetry and 20% uses enabled telemetry. This preserves each workload's total allocation and its existing admission weighting. Setup and enabled counter verification add fixed passes outside those allocations. New cache-core workloads train both policies unless explicitly listed as core-policy-independent in `scripts/pgo_training.py`. The [telemetry measurement report](./reports/opt-in-telemetry/summary.md#pgo-training-comparison) records the compared mixes and their limits.
 
-[The measurement report](../../reports/rust-build-profile/summary.md) records measured build trade-offs, rejected options and the method.
+[The measurement report](./reports/rust-build-profile/summary.md) records measured build trade-offs, rejected options and the method.
 
 ## Comparing native measurements
 
@@ -43,11 +43,11 @@ On shared or virtualized hosts, control layout and interference before comparing
 - `compare.py` rewrites each extension as a new file before every child run. With address-space randomization off, a fixed file copy otherwise keeps its page-cache pages, and an identical copy was slower in six of seven rounds (geometric mean −6.6%).
 - Move other processes off the measured CPU (`taskset -a -p -c` with the other CPUs), and on hosts with bursts lasting seconds select `--statistic p10_ns` with `--repeats 2` so a burst counts only when it hits every repeat.
 
-The [crate-replacement evaluation](../../reports/rust-crate-replacements/summary.md) records the controls that motivated these settings.
+The [crate-replacement evaluation](./reports/rust-crate-replacements/summary.md) records the controls that motivated these settings.
 
 ## Shared key hash
 
-`hash.rs` uses `rapidhash`'s portable v3 algorithm with a fixed secret, and owners and readers must agree on its output. A pinned known key in `hash/tests.rs` fails when a dependency update changes that output; raise `LAYOUT_VERSION` in `index.rs` and update the pinned value together, so that mappings of the old layout are refused instead of read with another hash. The full-hash collision pairs in `index/tests.rs` must then be found again; the [evaluation report](../../reports/rust-crate-replacements/summary.md#reproduction) gives the search.
+`hash.rs` uses `rapidhash`'s portable v3 algorithm with a fixed secret, and owners and readers must agree on its output. A pinned known key in `hash/tests.rs` fails when a dependency update changes that output; raise `LAYOUT_VERSION` in `index.rs` and update the pinned value together, so that mappings of the old layout are refused instead of read with another hash. The full-hash collision pairs in `index/tests.rs` must then be found again; the [evaluation report](./reports/rust-crate-replacements/summary.md#reproduction) gives the search.
 
 ## Commands
 

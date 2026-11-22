@@ -34,7 +34,7 @@ set, and stream polling wait and cannot support the investment gate. The registe
 uv run -- python -m benchmarks.stream_cost.multiprocess_run --output benchmark-reports/shared-invalidation/baseline-retry.json
 ```
 
-The [frozen configuration](../../../reports/stream-cost/shared-invalidation-v1/config.json)
+The [frozen configuration](../reports/stream-cost/shared-invalidation-v1/config.json)
 registers both phases' research criteria before baseline sampling. The baseline
 contains 192 one-minute application windows in six counterbalanced blocks,
 with additional startup, drain, and shutdown time. Each window resets the data

@@ -8,7 +8,7 @@ Start with [CONTRIBUTING](../../CONTRIBUTING.md) for the development environment
 - [Stream-cost benchmark protocols](stream-cost-benchmarks.md): report accounting, retained studies and reproduction commands.
 - [Performance regression guard](performance-regression-guard.md): measurements and maintainer review policy.
 - [Memory regression tests](memory-regression-tests.md): opt-in allocation checks, calibration, and failure traces.
-- [Process memory measurements](../../reports/process-memory/summary.md): cached versus direct process memory by entry shape, retention after release, and reproduction guidance.
+- [Process memory measurements](./reports/process-memory/summary.md): cached versus direct process memory by entry shape, retention after release, and reproduction guidance.
 - [Parallel test execution](parallel-test-execution.md): worker defaults, coverage, diagnostics, and serial troubleshooting.
 - [Concurrency stress tests](concurrency-stress-tests.md): mixed CRUD, admission and recovery races, and longer local runs.
 - [PyPI publishing setup](pypi-publishing-setup.md): repository and release setup.

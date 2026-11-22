@@ -12,12 +12,12 @@ See the [example catalogue](index.md) for prerequisites, run commands, expected 
 
 ## Complete program
 
-The code below is included from the [canonical Python source](https://github.com/alessio-locatelli/client-query-cache/blob/main/examples/eve_example.py).
+The code below is included from the [canonical Python source](https://github.com/alessio-locatelli/client-query-cache/blob/main/docs/examples/eve_example.py).
 
 <!-- fmt:off -->
 
 ```python
---8<-- "examples/eve_example.py"
+--8<-- "docs/examples/eve_example.py"
 ```
 
 <!-- fmt:on -->

@@ -7,23 +7,23 @@ This application owns one `AsyncMongoClient` and one `CacheManager` per lifespan
 Run the self-check from the repository checkout:
 
 ```console
-uv run examples/fastapi_minimal_example.py
+uv run docs/examples/fastapi_minimal_example.py
 ```
 
 Use a disposable deployment meeting the [MongoDB requirements](../getting-started/installation.md#requirements). The self-check resets and cleans `client_query_cache_example_fastapi_minimal`; the application lifespan itself never resets data. See [example prerequisites](index.md#prerequisites) for connection settings. The self-check uses FastAPI's in-process client and exposes no HTTP listener. Supply your own authentication before serving these endpoints; the [advanced catalogue](fastapi.md) demonstrates trusted identity and tenant separation.
 
 ## Application
 
-The application and verification share one [canonical source](https://github.com/alessio-locatelli/client-query-cache/blob/main/examples/fastapi_minimal_example.py). Imports are shown separately from the application below.
+The application and verification share one [canonical source](https://github.com/alessio-locatelli/client-query-cache/blob/main/docs/examples/fastapi_minimal_example.py). Imports are shown separately from the application below.
 
 <!-- fmt:off -->
 
 ```python
---8<-- "examples/fastapi_minimal_example.py:imports"
+--8<-- "docs/examples/fastapi_minimal_example.py:imports"
 ```
 
 ```python
---8<-- "examples/fastapi_minimal_example.py:application"
+--8<-- "docs/examples/fastapi_minimal_example.py:application"
 ```
 
 <!-- fmt:on -->

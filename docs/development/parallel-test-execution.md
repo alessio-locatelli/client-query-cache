@@ -41,7 +41,7 @@ CI=true just tests_and_coverage
 
 `CI=true` uses the external MongoDB benchmark's existing skip policy. Ordinary runs keep the same
 test selection and conditional skips, including exclusion of the opt-in memory tier and the
-specifications submodule. Independent example subprocesses and installed wheels are not
+submodule at `docs/specifications/`. Independent example subprocesses and installed wheels are not
 instrumented by this coverage command.
 
 An intermittent combine warning from an incomplete child SQLite coverage file is tracked in

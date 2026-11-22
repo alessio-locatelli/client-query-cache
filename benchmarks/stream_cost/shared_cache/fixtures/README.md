@@ -6,6 +6,6 @@ and `v6` declares fault applicability and recovery timing. Version numbers name
 protocols, not supported library releases.
 
 For a fresh comparison, register the workload and environment explicitly; frozen
-rates are host-specific. The [concurrent-worker protocol](../../../../reports/concurrent-worker-workload/v1/registration.md)
+rates are host-specific. The [concurrent-worker protocol](../../../../docs/development/reports/concurrent-worker-workload/v1/registration.md)
 provides a sustained read/write workload. Historical studies link their immutable
 inputs and source revisions from their reports.

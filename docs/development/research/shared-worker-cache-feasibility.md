@@ -45,11 +45,11 @@ predict application latency.
 
 ## Later evidence and reproduction
 
-The [identity-miss study](../../../reports/shared-worker-cache/v15/results.md)
+The [identity-miss study](../reports/shared-worker-cache/v15/results.md)
 retains the completed cold-bound comparison and its lost-raw-data limitation.
-The [small-catalogue study](../../../reports/shared-worker-cache/sorted-find/results.md)
+The [small-catalogue study](../reports/shared-worker-cache/sorted-find/results.md)
 shows why saving payload copies need not amortize the owner, and the
-[duration study](../../../reports/shared-worker-cache/runtime/empirical-results.md)
+[duration study](../reports/shared-worker-cache/runtime/empirical-results.md)
 records acquisition constraints. These workloads answer different questions.
 
 To repeat the socket prototype, check out the named historical source and run

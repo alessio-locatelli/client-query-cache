@@ -40,7 +40,9 @@ def await_replica() -> Iterator[IsolatedReplicaSet]:
 @pytest.fixture
 def instrumentation_configuration() -> AwaitConfiguration:
     configuration = load_await_configuration(
-        Path("reports/stream-cost/await-v1/config.v1.json").read_bytes()
+        Path(
+            "docs/development/reports/stream-cost/await-v1/config.v1.json"
+        ).read_bytes()
     )
     configuration.update(
         {

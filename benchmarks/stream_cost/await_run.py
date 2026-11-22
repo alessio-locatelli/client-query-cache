@@ -55,7 +55,7 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
     from multiprocessing.connection import Connection
 
-_CONFIG_PATH = Path("reports/stream-cost/await-v1/config.v1.json")
+_CONFIG_PATH = Path("docs/development/reports/stream-cost/await-v1/config.v1.json")
 _TOPOLOGY = BenchmarkClientTopologyConfig(
     tls_enabled=False,
     compressor=WireCompressor.NONE,

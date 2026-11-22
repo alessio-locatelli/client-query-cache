@@ -65,7 +65,9 @@ if TYPE_CHECKING:
         CommandSucceededEvent,
     )
 
-_CONFIG = Path("reports/stream-cost/shared-invalidation-v1/config.json")
+_CONFIG = Path(
+    "docs/development/reports/stream-cost/shared-invalidation-v1/config.json"
+)
 _DATABASE = "shared_invalidation_research"
 _TOPOLOGY = BenchmarkClientTopologyConfig(
     tls_enabled=False,

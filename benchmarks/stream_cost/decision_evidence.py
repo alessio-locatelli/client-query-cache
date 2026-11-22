@@ -42,7 +42,8 @@ if TYPE_CHECKING:
     from pymongo import MongoClient
 
 _PREREGISTRATION = (
-    Path(__file__).parents[2] / "reports/stream-cost/v1/decision-pre-registration.json"
+    Path(__file__).parents[2]
+    / "docs/development/reports/stream-cost/v1/decision-pre-registration.json"
 )
 _TOPOLOGY = BenchmarkClientTopologyConfig(
     tls_enabled=False,

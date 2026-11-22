@@ -106,4 +106,4 @@ Update existing Context7 rules when their instructions become inaccurate or inco
 
 ## References
 
-- [MongoDB Specifications](./specifications) repository (Git submodule).
+- [MongoDB Specifications](./docs/specifications) repository (Git submodule).
