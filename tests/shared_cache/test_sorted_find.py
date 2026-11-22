@@ -11,7 +11,6 @@ import pytest
 from bson.codec_options import CodecOptions, TypeRegistry
 from pymongo import AsyncMongoClient, MongoClient
 
-from benchmarks.stream_cost.multiprocess_run import reclaim_workers
 from client_query_cache._shared.adapters import (
     AsyncSharedCacheManager,
     SharedCachedCollection,
@@ -26,6 +25,7 @@ from client_query_cache._shared.attachment import (
 from client_query_cache._shared.diagnostics import SharedBypassReason
 from client_query_cache._shared.shared_index import SharedIndexLimits
 from client_query_cache._types import BsonDict
+from development.benchmarks.stream_cost.multiprocess_run import reclaim_workers
 from tests.codec_helpers import Decimal128ToDecimalDecoder
 from tests.cursor_helpers import advance, close_cursor, materialize
 from tests.polling import wait_until_async

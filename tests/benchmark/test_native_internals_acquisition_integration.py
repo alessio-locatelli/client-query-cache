@@ -12,12 +12,15 @@ import psutil
 import pytest
 from pymongo import MongoClient
 
-from benchmarks.public_shared_cache import (
+from client_query_cache._types import BsonDict, PositiveInt
+from development.benchmarks.public_shared_cache import (
     _run_window,
     _seed,
 )
-from benchmarks.stream_cost.topology import IsolatedReplicaSet, ResourceLimits
-from client_query_cache._types import BsonDict, PositiveInt
+from development.benchmarks.stream_cost.topology import (
+    IsolatedReplicaSet,
+    ResourceLimits,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -133,7 +136,7 @@ def test_an_interrupted_collector_leaves_no_disposable_processes(
         (
             sys.executable,
             "-m",
-            "benchmarks.public_shared_cache",
+            "development.benchmarks.public_shared_cache",
             "--method",
             "identity",
             "--hot-keys",

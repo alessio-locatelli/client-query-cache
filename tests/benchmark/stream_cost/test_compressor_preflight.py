@@ -4,14 +4,14 @@ from typing import Any
 
 import pytest
 
-from benchmarks.stream_cost.client import WireCompressor
-from benchmarks.stream_cost.compressor_preflight import (
+from client_query_cache._types import BsonDict, NonNegativeInt
+from development.benchmarks.stream_cost.client import WireCompressor
+from development.benchmarks.stream_cost.compressor_preflight import (
     PREFLIGHT_PAYLOAD_BYTES,
     CompressorPreflightResult,
     verify_compressor_negotiation,
 )
-from benchmarks.stream_cost.errors import BenchmarkSetupError
-from client_query_cache._types import BsonDict, NonNegativeInt
+from development.benchmarks.stream_cost.errors import BenchmarkSetupError
 
 pytestmark = pytest.mark.unit
 

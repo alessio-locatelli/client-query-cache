@@ -7,15 +7,15 @@ import pytest
 from docker.errors import DockerException
 from pymongo.errors import AutoReconnect
 
-from benchmarks.stream_cost import topology as topology_module
-from benchmarks.stream_cost.errors import BenchmarkSetupError
-from benchmarks.stream_cost.topology import (
+from client_query_cache._types import BsonDict, PositiveInt
+from development.benchmarks.stream_cost import topology as topology_module
+from development.benchmarks.stream_cost.errors import BenchmarkSetupError
+from development.benchmarks.stream_cost.topology import (
     ReplicaSetTopology,
     _available_loopback_ports,
     _await_member_reachable,
     _stop_containers,
 )
-from client_query_cache._types import BsonDict, PositiveInt
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -170,7 +170,7 @@ def test_container_start_failure_stops_started_members(
     assert "three-member MongoDB replica set" in message
     assert "DOCKER_HOST" in message
     assert "just enable-podman-socket" in message
-    assert "scripts/testcontainers-bridge.sh" in message
+    assert "development/scripts/testcontainers-bridge.sh" in message
     assert "stream-cost" not in message
 
 

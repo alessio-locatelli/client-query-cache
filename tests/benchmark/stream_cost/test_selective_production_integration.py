@@ -4,10 +4,13 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from benchmarks.stream_cost.topology import IsolatedReplicaSet, ResourceLimits
 from client_query_cache._types import NonNegativeFloat, NonNegativeInt
-from research.invalidation_scope.end_to_end import run_cell, seed
-from research.invalidation_scope.workload import TOPOLOGY
+from development.benchmarks.stream_cost.topology import (
+    IsolatedReplicaSet,
+    ResourceLimits,
+)
+from development.research.invalidation_scope.end_to_end import run_cell, seed
+from development.research.invalidation_scope.workload import TOPOLOGY
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -15,7 +18,7 @@ if TYPE_CHECKING:
     from pymongo.synchronous.database import Database
 
     from client_query_cache._types import BsonDict
-    from research.invalidation_scope.end_to_end import Mix, Policy, Scenario
+    from development.research.invalidation_scope.end_to_end import Mix, Policy, Scenario
 
 pytestmark = pytest.mark.integration
 

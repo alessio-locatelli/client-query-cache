@@ -5,8 +5,8 @@ import sys
 
 import pytest
 
-from benchmarks.stream_cost import guard_scope
-from benchmarks.stream_cost.guard_scope import changed_files_require_guard
+from development.benchmarks.stream_cost import guard_scope
+from development.benchmarks.stream_cost.guard_scope import changed_files_require_guard
 
 pytestmark = pytest.mark.unit
 
@@ -15,7 +15,7 @@ pytestmark = pytest.mark.unit
     ("paths", "expected"),
     [
         (("src/client_query_cache/synchronous/manager.py",), True),
-        (("benchmarks/stream_cost/guard_workload.py",), True),
+        (("development/benchmarks/stream_cost/guard_workload.py",), True),
         (("src/shared-index/src/local_cache.rs",), True),
         (("src/shared-index/Cargo.toml",), True),
         (("src/shared-index/Cargo.lock",), True),

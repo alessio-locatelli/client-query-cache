@@ -13,9 +13,6 @@ from typing import TYPE_CHECKING, Any, cast
 import pytest
 from pymongo import AsyncMongoClient, MongoClient
 
-from benchmarks.stream_cost.multiprocess_run import reclaim_workers
-from benchmarks.stream_cost.shared_cache.owner import owner_main
-from benchmarks.stream_cost.shared_cache.window import attachment_for
 from client_query_cache._core.keys import NamespaceId
 from client_query_cache._shared.adapters import (
     AsyncSharedCacheManager,
@@ -30,6 +27,9 @@ from client_query_cache._shared.attachment import (
 from client_query_cache._shared.coordinator import OwnerConfig, TransportLimits
 from client_query_cache._shared.wire import encode_key
 from client_query_cache._types import BsonDict, NonNegativeInt
+from development.benchmarks.stream_cost.multiprocess_run import reclaim_workers
+from development.benchmarks.stream_cost.shared_cache.owner import owner_main
+from development.benchmarks.stream_cost.shared_cache.window import attachment_for
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Callable, Iterator

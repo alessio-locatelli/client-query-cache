@@ -32,7 +32,7 @@ error contract would require a new decision and compatibility investigation.
 
 ## Decisive reproduction
 
-The directly executable [live_error.py](../../../research/collection_adapter/live_error.py)
+The directly executable [live_error.py](../../../development/research/collection_adapter/live_error.py)
 warms `count_documents({})` using the existing cache. It then enables MongoDB's
 `failCommand` fail point for that application's aggregation commands, with
 non-retryable error code 2. The control client and change-stream getMore commands
@@ -54,11 +54,11 @@ container bridge:
 
 ```bash
 bash -c 'set -euo pipefail
-source scripts/testcontainers-bridge.sh
-PYTHONPATH="$PWD/src:$PWD" uv run --frozen --no-sync python research/collection_adapter/live_error.py'
+source development/scripts/testcontainers-bridge.sh
+uv run --frozen --no-sync python -m development.research.collection_adapter.live_error'
 bash -c 'set -euo pipefail
-source scripts/testcontainers-bridge.sh
-PYTHONPATH="$PWD/src:$PWD" uv run --isolated --no-project --with pymongo==4.18.1 --with pytest==9.1.1 --with "testcontainers[mongodb]==4.15.0" python research/collection_adapter/live_error.py'
+source development/scripts/testcontainers-bridge.sh
+uv run --isolated --no-project --with-editable . --with pymongo==4.18.1 --with pytest==9.1.1 --with "testcontainers[mongodb]==4.15.0" python -m development.research.collection_adapter.live_error'
 ```
 
 Each run owns its disposable container and UUID database, disables the fail point

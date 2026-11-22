@@ -6,23 +6,34 @@ from urllib.parse import urlparse
 
 import pytest
 
-from benchmarks.stream_cost import compression_matrix_runner as runner_module
-from benchmarks.stream_cost.client import (
+from client_query_cache._types import BsonDict
+from development.benchmarks.stream_cost import (
+    compression_matrix_runner as runner_module,
+)
+from development.benchmarks.stream_cost.client import (
     BenchmarkClientTopologyConfig,
     WireCompressor,
     build_dedicated_client,
 )
-from benchmarks.stream_cost.compression_matrix import CompressionWindowSpec, WirePath
-from benchmarks.stream_cost.compression_matrix_runner import (
+from development.benchmarks.stream_cost.compression_matrix import (
+    CompressionWindowSpec,
+    WirePath,
+)
+from development.benchmarks.stream_cost.compression_matrix_runner import (
     run_compression_mode_block,
     run_compression_window,
 )
-from benchmarks.stream_cost.errors import BenchmarkSetupError
-from benchmarks.stream_cost.generators import SMALL_DOCUMENT_PROFILE
-from benchmarks.stream_cost.proxy import DirectPathByteProxy, DirectPathProxyConfig
-from benchmarks.stream_cost.topology import IsolatedReplicaSet, ResourceLimits
-from benchmarks.stream_cost.workload import OperationCounts, WorkloadKind
-from client_query_cache._types import BsonDict
+from development.benchmarks.stream_cost.errors import BenchmarkSetupError
+from development.benchmarks.stream_cost.generators import SMALL_DOCUMENT_PROFILE
+from development.benchmarks.stream_cost.proxy import (
+    DirectPathByteProxy,
+    DirectPathProxyConfig,
+)
+from development.benchmarks.stream_cost.topology import (
+    IsolatedReplicaSet,
+    ResourceLimits,
+)
+from development.benchmarks.stream_cost.workload import OperationCounts, WorkloadKind
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator

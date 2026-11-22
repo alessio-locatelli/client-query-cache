@@ -163,24 +163,24 @@ and plateau in the final rounds. No write-value history is retained.
 Use locked release installations for both revisions and the same runner checkout.
 Keep raw output untracked; each output path must be new. The image and resource
 limits are recorded by the runner. For historical reproduction, use the revisions
-in the [invalidation-scope study](research/invalidation-scope.md) for churn,
+in the [invalidation-scope study](./research/invalidation-scope.md) for churn,
 modeled policies and miss costs, and the
-[stream-assisted study](research/stream-assisted-invalidation.md) for experimental
+[stream-assisted study](./research/stream-assisted-invalidation.md) for experimental
 guards and projection costs.
 
 ```bash
-source scripts/testcontainers-bridge.sh
+source development/scripts/testcontainers-bridge.sh
 export PYTHONHASHSEED=257
 client_cpu="$(.venv/bin/python -c 'import os; print(min(os.sched_getaffinity(0)))')"
-taskset -c "$client_cpu" .venv/bin/python -m research.invalidation_scope.end_to_end --suite churn --paths production --policies disabled insert --mixes insert --reps 4 --out /tmp/agents/selective-insert.json
-taskset -c "$client_cpu" .venv/bin/python -m research.invalidation_scope.end_to_end --suite churn --paths production --policies disabled counts --mixes update --reps 4 --out /tmp/agents/selective-counts.json
-taskset -c "$client_cpu" .venv/bin/python -m research.invalidation_scope.end_to_end --suite churn --paths production --policies disabled both --mixes mixed --reps 4 --out /tmp/agents/selective-both.json
-taskset -c "$client_cpu" .venv/bin/python -m research.invalidation_scope.end_to_end --suite controls --paths production --policies disabled insert counts both --reps 4 --seconds 2 --out /tmp/agents/selective-controls.json
-taskset -c "$client_cpu" .venv/bin/python -m research.invalidation_scope.end_to_end --suite controls --paths production --policies disabled both --mixes update --scenarios unrelated --ratios 100 --reps 4 --seconds 8 --out /tmp/agents/selective-update-cost.json
-taskset -c "$client_cpu" .venv/bin/python -m research.invalidation_scope.end_to_end --suite controls --paths production --policies disabled insert --mixes update --scenarios cached --reps 4 --seconds 8 --out /tmp/agents/selective-insert-opposite.json
-taskset -c "$client_cpu" .venv/bin/python -m research.invalidation_scope.end_to_end --suite controls --paths production --policies disabled counts --mixes insert --scenarios cached --reps 4 --seconds 8 --out /tmp/agents/selective-counts-opposite.json
-.venv/bin/python -m research.invalidation_scope.memory --rounds 16 --out /tmp/agents/selective-memory.json
-.venv/bin/python -m research.invalidation_scope.paired --base-python /path/to/main/.venv/bin/python --head-python .venv/bin/python --reps 4 --batches 100 --reads 1000 --out /tmp/agents/selective-paired.json
+taskset -c "$client_cpu" .venv/bin/python -m development.research.invalidation_scope.end_to_end --suite churn --paths production --policies disabled insert --mixes insert --reps 4 --out /tmp/agents/selective-insert.json
+taskset -c "$client_cpu" .venv/bin/python -m development.research.invalidation_scope.end_to_end --suite churn --paths production --policies disabled counts --mixes update --reps 4 --out /tmp/agents/selective-counts.json
+taskset -c "$client_cpu" .venv/bin/python -m development.research.invalidation_scope.end_to_end --suite churn --paths production --policies disabled both --mixes mixed --reps 4 --out /tmp/agents/selective-both.json
+taskset -c "$client_cpu" .venv/bin/python -m development.research.invalidation_scope.end_to_end --suite controls --paths production --policies disabled insert counts both --reps 4 --seconds 2 --out /tmp/agents/selective-controls.json
+taskset -c "$client_cpu" .venv/bin/python -m development.research.invalidation_scope.end_to_end --suite controls --paths production --policies disabled both --mixes update --scenarios unrelated --ratios 100 --reps 4 --seconds 8 --out /tmp/agents/selective-update-cost.json
+taskset -c "$client_cpu" .venv/bin/python -m development.research.invalidation_scope.end_to_end --suite controls --paths production --policies disabled insert --mixes update --scenarios cached --reps 4 --seconds 8 --out /tmp/agents/selective-insert-opposite.json
+taskset -c "$client_cpu" .venv/bin/python -m development.research.invalidation_scope.end_to_end --suite controls --paths production --policies disabled counts --mixes insert --scenarios cached --reps 4 --seconds 8 --out /tmp/agents/selective-counts-opposite.json
+.venv/bin/python -m development.research.invalidation_scope.memory --rounds 16 --out /tmp/agents/selective-memory.json
+.venv/bin/python -m development.research.invalidation_scope.paired --base-python /path/to/main/.venv/bin/python --head-python .venv/bin/python --reps 4 --batches 100 --reads 1000 --out /tmp/agents/selective-paired.json
 ```
 
 Repeat the paired command with the baseline interpreter in both positions for

@@ -6,20 +6,25 @@ from unittest.mock import Mock
 
 import pytest
 
-from benchmarks.stream_cost.await_configuration import load_await_configuration
-from benchmarks.stream_cost.await_run import (
+from client_query_cache import CacheCore
+from development.benchmarks.stream_cost.await_configuration import (
+    load_await_configuration,
+)
+from development.benchmarks.stream_cost.await_run import (
     run_bounded_shutdown,
     run_shutdown,
     run_window,
 )
-from benchmarks.stream_cost.errors import BenchmarkSetupError
-from benchmarks.stream_cost.topology import IsolatedReplicaSet, ResourceLimits
-from client_query_cache import CacheCore
+from development.benchmarks.stream_cost.errors import BenchmarkSetupError
+from development.benchmarks.stream_cost.topology import (
+    IsolatedReplicaSet,
+    ResourceLimits,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from benchmarks.stream_cost.await_model import (
+    from development.benchmarks.stream_cost.await_model import (
         AwaitConfiguration,
         AwaitWorkload,
         ExecutionModel,

@@ -12,8 +12,8 @@ from client_query_cache._types import (
     NonNegativeFloat,
     NonNegativeInt,
 )
-from scripts import pgo_training
-from scripts.pgo_training import (
+from development.scripts import pgo_training
+from development.scripts.pgo_training import (
     CLEANUP,
     CORE_POLICY_INDEPENDENT,
     CORE_TELEMETRY_POLICY,
@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
     from client_query_cache._shared_index import LocalCacheCore
-    from scripts.pgo_training import Workload
+    from development.scripts.pgo_training import Workload
 
 pytestmark = pytest.mark.unit
 

@@ -6,12 +6,12 @@ from unittest import mock
 
 import pytest
 
-from benchmarks.stream_cost.client import (
+from development.benchmarks.stream_cost.client import (
     BenchmarkClientTopologyConfig,
     WireCompressor,
     build_dedicated_client,
 )
-from benchmarks.stream_cost.errors import (
+from development.benchmarks.stream_cost.errors import (
     BenchmarkConfigurationError,
     BenchmarkSetupError,
 )
@@ -75,7 +75,9 @@ def test_build_dedicated_client_passes_expected_kwargs(
     config: BenchmarkClientTopologyConfig,
     expected_kwargs: dict[str, Any],
 ) -> None:
-    monkeypatch.setattr("benchmarks.stream_cost.client.MongoClient", _StubClient)
+    monkeypatch.setattr(
+        "development.benchmarks.stream_cost.client.MongoClient", _StubClient
+    )
     build_dedicated_client("mongodb://example/", config)
     assert _StubClient.last_uri == "mongodb://example/"
     assert _StubClient.last_kwargs == expected_kwargs
@@ -94,7 +96,9 @@ def test_build_dedicated_client_requests_each_compressor_mode(
     compressor: WireCompressor,
     expected_name: str,
 ) -> None:
-    monkeypatch.setattr("benchmarks.stream_cost.client.MongoClient", _StubClient)
+    monkeypatch.setattr(
+        "development.benchmarks.stream_cost.client.MongoClient", _StubClient
+    )
     build_dedicated_client("mongodb://example/", _topology(compressor=compressor))
     assert _StubClient.last_kwargs is not None
     assert _StubClient.last_kwargs["compressors"] == expected_name
@@ -103,7 +107,9 @@ def test_build_dedicated_client_requests_each_compressor_mode(
 def test_build_dedicated_client_passes_through_event_listeners(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("benchmarks.stream_cost.client.MongoClient", _StubClient)
+    monkeypatch.setattr(
+        "development.benchmarks.stream_cost.client.MongoClient", _StubClient
+    )
     listener = object()
     build_dedicated_client(
         "mongodb://example/", _topology(), event_listeners=[listener]
@@ -131,7 +137,9 @@ def test_build_dedicated_client_fails_visibly_when_compressor_is_unavailable(
             )
             super().__init__(uri, **kwargs)  # pragma: no cover - error raised above
 
-    monkeypatch.setattr("benchmarks.stream_cost.client.MongoClient", _WarningStubClient)
+    monkeypatch.setattr(
+        "development.benchmarks.stream_cost.client.MongoClient", _WarningStubClient
+    )
     with pytest.raises(BenchmarkSetupError, match="silently fallen back"):
         build_dedicated_client(
             "mongodb://example/", _topology(compressor=WireCompressor.ZSTD)

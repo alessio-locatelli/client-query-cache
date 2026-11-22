@@ -5,8 +5,11 @@ from typing import TYPE_CHECKING
 import pytest
 from pymongo import MongoClient
 
-from benchmarks.stream_cost.topology import IsolatedReplicaSet, ResourceLimits
 from client_query_cache._types import BsonDict
+from development.benchmarks.stream_cost.topology import (
+    IsolatedReplicaSet,
+    ResourceLimits,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

@@ -12,15 +12,15 @@ sigterm = true
 omit =
     tests/e2e/*
     tests/memory/*
-    scripts/*
+    development/scripts/*
     # Performance acceptance harnesses run without instrumentation.
-    benchmarks/public_shared_cache.py
-    benchmarks/implementation.py
-    benchmarks/cached_hit_latency.py
-    research/process_memory/measure.py
-    research/invalidation_scope/*
-    research/native_build_profile/*
-    research/native_local_integration/*
+    development/benchmarks/public_shared_cache.py
+    development/benchmarks/implementation.py
+    development/benchmarks/cached_hit_latency.py
+    development/research/process_memory/measure.py
+    development/research/invalidation_scope/*
+    development/research/native_build_profile/*
+    development/research/native_local_integration/*
     tests/benchmark/real_server/test_cache_benefit.py
 
 [report]

@@ -21,12 +21,12 @@ from pymongo.errors import AutoReconnect
 from testcontainers.core.container import DockerContainer
 from testcontainers.core.docker_client import DockerClient
 
-from benchmarks.mongodb_diagnostics import note_mongodb_startup_failure
-from benchmarks.mongodb_image import MONGODB_IMAGE, compose_mongodb_image
 from client_query_cache._core.stream_events import route_change_event
 from client_query_cache._types import BsonDict, NonNegativeInt
 from client_query_cache.asynchronous import streams as asynchronous_streams
 from client_query_cache.synchronous import streams as synchronous_streams
+from development.benchmarks.mongodb_diagnostics import note_mongodb_startup_failure
+from development.benchmarks.mongodb_image import MONGODB_IMAGE, compose_mongodb_image
 from tests.stream_helpers import StreamBarrier
 
 if TYPE_CHECKING:

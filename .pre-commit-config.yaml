@@ -152,7 +152,9 @@ repos:
     hooks:
       - id: detect-secrets
         args: ["--baseline", ".secrets.baseline"]
-        # `vulture` whitelist must be auto-generated via `vulture --make-whitelist > .vulture_whitelist`, not edited by hand.
+        # Regenerate the whitelist from the repository root with this command.
+        # vulture --make-whitelist src/client_query_cache tests development/benchmarks > .vulture_whitelist
+        # Vulture exits with status 3 when it reports candidates.
         exclude: .vulture_whitelist
 
   - repo: https://github.com/lycheeverse/lychee.git

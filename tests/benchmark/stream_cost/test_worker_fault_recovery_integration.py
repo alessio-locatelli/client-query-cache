@@ -7,12 +7,12 @@ from uuid import uuid4
 import pytest
 from pymongo import MongoClient
 
-from benchmarks.stream_cost.topology import (
+from client_query_cache._types import BsonDict, NonNegativeInt
+from development.benchmarks.stream_cost.topology import (
     IsolatedReplicaSet,
     ReplicaSetTopology,
     ResourceLimits,
 )
-from client_query_cache._types import BsonDict, NonNegativeInt
 from tests.benchmark.stream_cost.worker_fault_harness import (
     Payload,
     TcpFault,

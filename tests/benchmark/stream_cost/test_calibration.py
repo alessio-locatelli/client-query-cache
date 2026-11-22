@@ -8,7 +8,13 @@ from typing import TYPE_CHECKING, cast
 import pytest
 from pymongo.errors import ConnectionFailure
 
-from benchmarks.stream_cost.calibration import (
+from client_query_cache._types import (
+    BsonDict,
+    NonNegativeFloat,
+    NonNegativeInt,
+    PositiveFloat,
+)
+from development.benchmarks.stream_cost.calibration import (
     CalibrationPoint,
     CalibrationSeries,
     ClockSample,
@@ -23,15 +29,9 @@ from benchmarks.stream_cost.calibration import (
     sample_clock_offset,
     validate_cadence,
 )
-from benchmarks.stream_cost.errors import (
+from development.benchmarks.stream_cost.errors import (
     BenchmarkConfigurationError,
     BenchmarkSetupError,
-)
-from client_query_cache._types import (
-    BsonDict,
-    NonNegativeFloat,
-    NonNegativeInt,
-    PositiveFloat,
 )
 
 if TYPE_CHECKING:
@@ -72,10 +72,11 @@ def test_sample_clock_offset_computes_offset_and_uncertainty(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "benchmarks.stream_cost.calibration.time.time", _sequence_source([100.0, 100.2])
+        "development.benchmarks.stream_cost.calibration.time.time",
+        _sequence_source([100.0, 100.2]),
     )
     monkeypatch.setattr(
-        "benchmarks.stream_cost.calibration.time.monotonic",
+        "development.benchmarks.stream_cost.calibration.time.monotonic",
         _sequence_source([1.0, 1.2]),
     )
     server_time = datetime(2024, 1, 1, tzinfo=UTC)
@@ -97,10 +98,11 @@ def test_sample_clock_offset_treats_naive_datetime_as_utc(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "benchmarks.stream_cost.calibration.time.time", _sequence_source([0.0, 0.0])
+        "development.benchmarks.stream_cost.calibration.time.time",
+        _sequence_source([0.0, 0.0]),
     )
     monkeypatch.setattr(
-        "benchmarks.stream_cost.calibration.time.monotonic",
+        "development.benchmarks.stream_cost.calibration.time.monotonic",
         _sequence_source([0.0, 0.0]),
     )
     naive_time = datetime(2024, 1, 1)  # noqa: DTZ001 - Exercise normalization of a server timestamp without timezone metadata.
@@ -121,11 +123,11 @@ def test_sample_clock_offset_selects_minimum_round_trip(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "benchmarks.stream_cost.calibration.time.time",
+        "development.benchmarks.stream_cost.calibration.time.time",
         _sequence_source([100.0, 100.5, 200.0, 200.05, 300.0, 300.3]),
     )
     monkeypatch.setattr(
-        "benchmarks.stream_cost.calibration.time.monotonic",
+        "development.benchmarks.stream_cost.calibration.time.monotonic",
         _sequence_source([1000.0, 1000.5, 2000.0, 2000.05, 3000.0, 3000.3]),
     )
     responses = iter(
@@ -158,11 +160,11 @@ def test_sample_clock_offset_retains_every_round_not_just_the_winner(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "benchmarks.stream_cost.calibration.time.time",
+        "development.benchmarks.stream_cost.calibration.time.time",
         _sequence_source([100.0, 100.5, 200.0, 200.05]),
     )
     monkeypatch.setattr(
-        "benchmarks.stream_cost.calibration.time.monotonic",
+        "development.benchmarks.stream_cost.calibration.time.monotonic",
         _sequence_source([1000.0, 1000.5, 2000.0, 2000.05]),
     )
     responses = iter(

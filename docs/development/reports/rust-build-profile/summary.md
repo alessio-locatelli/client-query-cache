@@ -61,7 +61,7 @@ Use separate installed release environments with matched source, compiler,
 dependencies and training. The [historical commands](https://github.com/alessio-locatelli/client-query-cache/blob/243cbfb790766e9ee25b3ecced1ffe83e96d083c/reports/rust-build-profile/summary.md#reproduction)
 reconstruct the variants from `46edbdac` and original training source. Later
 workloads/telemetry policies differ. For current comparisons use
-`research.native_build_profile.compare` and `end_to_end` with matched package
+`development.research.native_build_profile.compare` and `end_to_end` with matched package
 overlays, verified imported binaries and an identical-build A/A copy. Parent
 allocator variables are not forwarded to measured children. Keep raw outputs
 untracked; compare native and held-out complete-read results separately.
@@ -70,5 +70,5 @@ untracked; compare native and held-out complete-read results separately.
 
 - One x86-64 host with frequency scaling and neighbouring containers; the intervals reflect that noise but not other machines.
 - The ARM64 wheels follow the same pipeline and are verified by the ARM64 CI job, but their gain was not measured: [#401](https://github.com/alessio-locatelli/client-query-cache/issues/401) tracks it. Run the shipped-wheel comparisons of the reproduction section on an ARM64 host: the A/A controls give the noise, `lto_wheel` against `main_wheel` the effect of the Cargo profile, and `pgo_wheel` against `lto_wheel`, in the native workloads and end to end, the effect of profile guidance alone.
-- The native workloads model the facade's call sequences rather than observe them; a native entry point that joins the hot path must be added to `scripts/pgo_training.py`.
+- The native workloads model the facade's call sequences rather than observe them; a native entry point that joins the hot path must be added to `development/scripts/pgo_training.py`.
 - The end-to-end gain is bounded by the Python facade and PyMongo, which this change leaves untouched.

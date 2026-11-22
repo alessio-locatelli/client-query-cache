@@ -7,8 +7,8 @@ from pathlib import Path
 import pytest
 
 import client_query_cache
-from benchmarks import stream_startup
 from client_query_cache._core import stream_activation
+from development.benchmarks import stream_startup
 
 pytestmark = pytest.mark.unit
 

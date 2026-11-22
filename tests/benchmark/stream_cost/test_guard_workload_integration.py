@@ -4,15 +4,19 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from benchmarks.stream_cost import guard_workload
-from benchmarks.stream_cost.errors import BenchmarkSetupError
-from benchmarks.stream_cost.guard_workload import CASE_NAMES, PROFILES, run_case
 from client_query_cache._core.stream_events import route_change_event
 from client_query_cache._types import BsonDict, NonNegativeInt
 from client_query_cache.asynchronous.collection import (
     CachedCollection as AsyncCachedCollection,
 )
 from client_query_cache.synchronous.collection import CachedCollection
+from development.benchmarks.stream_cost import guard_workload
+from development.benchmarks.stream_cost.errors import BenchmarkSetupError
+from development.benchmarks.stream_cost.guard_workload import (
+    CASE_NAMES,
+    PROFILES,
+    run_case,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence

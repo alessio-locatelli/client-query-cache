@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from benchmarks.stream_cost.compression_matrix import (
+from client_query_cache._types import NonNegativeInt
+from development.benchmarks.stream_cost.compression_matrix import (
     MINIMUM_COMPRESSION_BLOCKS,
     STANDARD_COMPRESSION_WINDOWS,
     WARMUP_READ_REPEATS,
@@ -13,10 +14,9 @@ from benchmarks.stream_cost.compression_matrix import (
     counterbalanced_path_order,
     require_minimum_compression_blocks,
 )
-from benchmarks.stream_cost.errors import BenchmarkConfigurationError
-from benchmarks.stream_cost.generators import SMALL_DOCUMENT_PROFILE
-from benchmarks.stream_cost.workload import OperationCounts, WorkloadKind
-from client_query_cache._types import NonNegativeInt
+from development.benchmarks.stream_cost.errors import BenchmarkConfigurationError
+from development.benchmarks.stream_cost.generators import SMALL_DOCUMENT_PROFILE
+from development.benchmarks.stream_cost.workload import OperationCounts, WorkloadKind
 
 pytestmark = pytest.mark.unit
 

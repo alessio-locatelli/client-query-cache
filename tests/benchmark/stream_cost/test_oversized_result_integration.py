@@ -4,14 +4,14 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from benchmarks.stream_cost.oversized_result import (
-    MINIMUM_ENCODER_REPETITIONS,
-    measure_oversized_result_workload,
-)
-from benchmarks.stream_cost.workload import verify_oversized_primed
 from client_query_cache import CacheCoreConfig
 from client_query_cache._types import BsonDict
 from client_query_cache.synchronous.manager import CacheManager
+from development.benchmarks.stream_cost.oversized_result import (
+    MINIMUM_ENCODER_REPETITIONS,
+    measure_oversized_result_workload,
+)
+from development.benchmarks.stream_cost.workload import verify_oversized_primed
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

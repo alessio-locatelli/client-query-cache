@@ -10,15 +10,15 @@ import pytest
 from pymongo import MongoClient
 
 import client_query_cache
-from benchmarks.public_shared_cache import (
+from client_query_cache import CacheManager
+from client_query_cache._types import BsonDict, NonNegativeFloat, NonNegativeInt
+from development.benchmarks.public_shared_cache import (
     _implementation,
     await_admissions,
     in_predicate,
     reconcile_admissions,
 )
-from client_query_cache import CacheManager
-from client_query_cache._types import BsonDict, NonNegativeFloat, NonNegativeInt
-from research.native_local_integration.registration import (
+from development.research.native_local_integration.registration import (
     NATIVE_CORE,
     Build,
     verify_core,

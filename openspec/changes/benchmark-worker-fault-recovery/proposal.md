@@ -38,7 +38,7 @@ None.
 
 ## Impact
 
-- Code and tests: `benchmarks/stream_cost/topology.py` and
+- Code and tests: `development/benchmarks/stream_cost/topology.py` and
   `tests/benchmark/stream_cost/`.
 - Research history: the concise V1–V8 outcome is retained at
   `docs/development/reports/worker-fault-recovery/research-outcome.md`.

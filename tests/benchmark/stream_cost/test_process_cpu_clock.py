@@ -8,8 +8,8 @@ from typing import IO, TYPE_CHECKING
 
 import pytest
 
-from benchmarks.public_shared_cache import _process_cpu_clock
 from client_query_cache._types import PositiveFloat
+from development.benchmarks.public_shared_cache import _process_cpu_clock
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

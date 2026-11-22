@@ -64,12 +64,12 @@ The measurements cover one host with eight logical CPUs (Intel Core i3-13100, fo
 
 ## Reproduce
 
-Use the [contributor environment](../../../CONTRIBUTING.md) and configure the container bridge:
+For fresh measurements, use the [contributor environment](../../../CONTRIBUTING.md) and configure the container bridge:
 
 ```bash
-source scripts/testcontainers-bridge.sh
-uv run -- python -m benchmarks.stream_cost.shared_cache.run --phase steady --config reports/concurrent-worker-workload/v1/config.json --output benchmark-reports/concurrent-worker-workload/steady.json
-uv run -- python -m benchmarks.stream_cost.shared_cache.analysis benchmark-reports/concurrent-worker-workload/steady.json --config reports/concurrent-worker-workload/v1/config.json --phase steady --blocks 12
+source development/scripts/testcontainers-bridge.sh
+uv run -- python -m development.benchmarks.stream_cost.shared_cache.run --phase steady --config docs/development/reports/concurrent-worker-workload/v1/config.json --output benchmark-reports/concurrent-worker-workload/steady.json
+uv run -- python -m development.benchmarks.stream_cost.shared_cache.analysis benchmark-reports/concurrent-worker-workload/steady.json --config docs/development/reports/concurrent-worker-workload/v1/config.json --phase steady --blocks 12
 ```
 
-The steady phase takes about an hour; a run interrupted by the host can continue with `--resume <earlier report>`. The smoke check and calibration commands are listed in the [registration](../reports/concurrent-worker-workload/v1/registration.md#reproduction). The steady phase ran at revision `23a6fb7ddda311851d8f452cd3cf921eb10fce35` with configuration SHA-256 `2057af0088101622b441f977fbc9bd78397f2e023fafd8b092cc1e74d1b6d0bc`. Raw reports remain untracked.
+The steady phase takes about an hour. A run interrupted by the host can continue with `--resume <earlier report>`. The [historical registration](../reports/concurrent-worker-workload/v1/registration.md#reproduction) records the original smoke and calibration commands. The reported steady phase ran at revision `23a6fb7ddda311851d8f452cd3cf921eb10fce35` with configuration SHA-256 `2057af0088101622b441f977fbc9bd78397f2e023fafd8b092cc1e74d1b6d0bc`. Raw reports remain untracked.

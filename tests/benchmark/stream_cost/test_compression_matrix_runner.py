@@ -6,9 +6,13 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from benchmarks.stream_cost import compression_matrix_runner as runner_module
-from benchmarks.stream_cost.compression_matrix import CompressionWindowSpec
-from benchmarks.stream_cost.compression_matrix_runner import (
+from client_query_cache._core.stream_cost import InvalidationApplyReading
+from client_query_cache._types import BsonDict, NonNegativeFloat, NonNegativeInt
+from development.benchmarks.stream_cost import (
+    compression_matrix_runner as runner_module,
+)
+from development.benchmarks.stream_cost.compression_matrix import CompressionWindowSpec
+from development.benchmarks.stream_cost.compression_matrix_runner import (
     _invalidation_latencies,
     _issue_cache_reads,
     _prime_cache_reads,
@@ -16,11 +20,9 @@ from benchmarks.stream_cost.compression_matrix_runner import (
     _seed_window_dataset,
     _write_schedule,
 )
-from benchmarks.stream_cost.errors import BenchmarkSetupError
-from benchmarks.stream_cost.generators import SMALL_DOCUMENT_PROFILE
-from benchmarks.stream_cost.workload import OperationCounts, WorkloadKind
-from client_query_cache._core.stream_cost import InvalidationApplyReading
-from client_query_cache._types import BsonDict, NonNegativeFloat, NonNegativeInt
+from development.benchmarks.stream_cost.errors import BenchmarkSetupError
+from development.benchmarks.stream_cost.generators import SMALL_DOCUMENT_PROFILE
+from development.benchmarks.stream_cost.workload import OperationCounts, WorkloadKind
 
 pytestmark = pytest.mark.unit
 

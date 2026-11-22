@@ -12,13 +12,13 @@ from typing import TYPE_CHECKING, Literal
 
 import pytest
 
-from benchmarks.stream_cost.multiprocess_run import reclaim_workers
 from client_query_cache import CacheCoreConfig
 from client_query_cache._core.codec import encode_value
 from client_query_cache._core.entries import AdmissionOutcome
 from client_query_cache._core.keys import NamespaceId
 from client_query_cache._shared_index import OwnerIndex, ReaderIndex, SharedOwnerCore
 from client_query_cache._types import NonEmptyStr, NonNegativeInt, PositiveInt
+from development.benchmarks.stream_cost.multiprocess_run import reclaim_workers
 from tests.epoch_helpers import current_epoch
 from tests.shared_cache.index_helpers import assign_slot, shape_key
 

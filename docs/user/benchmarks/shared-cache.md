@@ -4,7 +4,7 @@ The [collection-read comparison](https://github.com/alessio-locatelli/client-que
 
 ## Identity-read workload
 
-The reproducible harness in [`benchmarks/public_shared_cache.py`](https://github.com/alessio-locatelli/client-query-cache/blob/main/benchmarks/public_shared_cache.py) measures the public APIs against direct majority reads and independent process-local caches. It starts a disposable MongoDB replica set and four spawned workers, using 4,096 hot identities and approximately 4 KiB documents. Cold windows use distinct seeded identities per worker.
+The reproducible harness in [`development/benchmarks/public_shared_cache.py`](https://github.com/alessio-locatelli/client-query-cache/blob/main/development/benchmarks/public_shared_cache.py) measures the public APIs against direct majority reads and independent process-local caches. It starts a disposable MongoDB replica set and four spawned workers, using 4,096 hot identities and approximately 4 KiB documents. Cold windows use distinct seeded identities per worker.
 
 Each of three repetitions rotates path order. Workers warm before a shared start barrier; memory is sampled with managers and mappings still attached. Each worker completes 2,000 measured reads per window. Latency measures each read; CPU is recorded both during the measured reads and including warmup and owner startup, and proportional set size (PSS) apportions shared pages. The shared owner uses a 64 MiB cache budget, 80 MiB arena and 16,384 slots; independent managers use their default 64 MiB budget each. Both the hot set and the combined warm and cold entries fit these configurations. These finite windows describe this workload, rather than establish a universal P99 guarantee or general research qualification.
 

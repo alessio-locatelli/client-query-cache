@@ -17,11 +17,11 @@ Start with [CONTRIBUTING](../../CONTRIBUTING.md) for the development environment
 - [Causal invalidation barrier decision](decisions/defer-causal-invalidation-barrier.md): the deferred API and reopening criteria.
 - [README chart path decision](decisions/repository-relative-readme-chart.md): why the README chart uses repository-relative paths and is broken on PyPI.
 - [Latency chart composition decision](decisions/latency-chart-composition.md): why the chart shows one cached-read bar measured on a busy CPU.
-- [Causal invalidation barrier research](research/causal-invalidation-barrier.md): provenance, findings, and reproduction guidance.
-- [Shared invalidation research](research/shared-invalidation-feasibility.md): multi-process measurements, coordination assessment, and reproduction guidance.
-- [Shared worker cache research](research/shared-worker-cache-feasibility.md): shared-storage prototype, screening verdict, bottleneck attribution, and reproduction guidance.
-- [Concurrent worker workload research](research/concurrent-worker-workload.md): direct reads versus per-worker managers under concurrent writes, with latency, CPU, memory, and invalidation-lag estimates and reproduction guidance.
-- [Invalidation scope research](research/invalidation-scope.md): anchored reads under interleaved writes, modeled alternatives, and miss-cost follow-ups.
-- [Stream-assisted invalidation evaluation](research/stream-assisted-invalidation.md): measured read savings, projection/routing costs and default-policy decisions.
+- [Causal invalidation barrier research](./research/causal-invalidation-barrier.md): provenance, findings, and reproduction guidance.
+- [Shared invalidation research](./research/shared-invalidation-feasibility.md): multi-process measurements, coordination assessment, and reproduction guidance.
+- [Shared worker cache research](./research/shared-worker-cache-feasibility.md): shared-storage prototype, screening verdict, bottleneck attribution, and reproduction guidance.
+- [Concurrent worker workload research](./research/concurrent-worker-workload.md): direct reads versus per-worker managers under concurrent writes, with latency, CPU, memory, and invalidation-lag estimates and reproduction guidance.
+- [Invalidation scope research](./research/invalidation-scope.md): anchored reads under interleaved writes, modeled alternatives, and miss-cost follow-ups.
+- [Stream-assisted invalidation evaluation](./research/stream-assisted-invalidation.md): measured read savings, projection/routing costs and default-policy decisions.
 
 Published library guides live in [docs/user](../user/index.md).

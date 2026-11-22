@@ -6,12 +6,12 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from benchmarks.stream_cost.consolidated_stream import (
+from client_query_cache._types import BsonDict, PositiveFloat
+from development.benchmarks.stream_cost.consolidated_stream import (
     reset_run_state,
     verify_single_consolidated_stream,
 )
-from benchmarks.stream_cost.errors import BenchmarkSetupError
-from client_query_cache._types import BsonDict, PositiveFloat
+from development.benchmarks.stream_cost.errors import BenchmarkSetupError
 
 if TYPE_CHECKING:
     from collections.abc import Callable

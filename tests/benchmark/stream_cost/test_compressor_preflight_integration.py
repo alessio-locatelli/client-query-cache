@@ -5,17 +5,17 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from benchmarks.stream_cost.client import (
+from client_query_cache._types import BsonDict
+from development.benchmarks.stream_cost.client import (
     BenchmarkClientTopologyConfig,
     WireCompressor,
     build_dedicated_client,
 )
-from benchmarks.stream_cost.compressor_preflight import (
+from development.benchmarks.stream_cost.compressor_preflight import (
     PREFLIGHT_PAYLOAD_BYTES,
     verify_compressor_negotiation,
 )
-from benchmarks.stream_cost.errors import BenchmarkSetupError
-from client_query_cache._types import BsonDict
+from development.benchmarks.stream_cost.errors import BenchmarkSetupError
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 import pytest
 from pymongo.synchronous.collection import Collection
 
-from research.process_memory import measure
+from development.research.process_memory import measure
 from tests.cursor_helpers import resolved
 
 if TYPE_CHECKING:

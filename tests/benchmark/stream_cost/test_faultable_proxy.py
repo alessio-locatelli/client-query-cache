@@ -7,9 +7,12 @@ from typing import TYPE_CHECKING, cast
 
 import pytest
 
-from benchmarks.stream_cost.client import BenchmarkClientTopologyConfig, WireCompressor
-from benchmarks.stream_cost.proxy import DirectPathProxyConfig
-from benchmarks.stream_cost.shared_cache.owner import FaultableProxy
+from development.benchmarks.stream_cost.client import (
+    BenchmarkClientTopologyConfig,
+    WireCompressor,
+)
+from development.benchmarks.stream_cost.proxy import DirectPathProxyConfig
+from development.benchmarks.stream_cost.shared_cache.owner import FaultableProxy
 from tests.polling import wait_until
 
 if TYPE_CHECKING:

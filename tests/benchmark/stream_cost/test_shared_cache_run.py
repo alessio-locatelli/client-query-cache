@@ -15,17 +15,18 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from benchmarks.stream_cost.errors import (
+from client_query_cache._types import BsonDict, JsonDict, NonNegativeInt
+from development.benchmarks.stream_cost.errors import (
     BenchmarkConfigurationError,
     BenchmarkSetupError,
 )
-from benchmarks.stream_cost.shared_cache import analysis, run, window
-from benchmarks.stream_cost.shared_cache.dataset import (
+from development.benchmarks.stream_cost.shared_cache import analysis, run, window
+from development.benchmarks.stream_cost.shared_cache.dataset import (
     catalogue,
     checksum,
     seed_catalogue,
 )
-from benchmarks.stream_cost.shared_cache.protocol import (
+from development.benchmarks.stream_cost.shared_cache.protocol import (
     BASELINES,
     Registration,
     capacity_cells,
@@ -39,7 +40,7 @@ from benchmarks.stream_cost.shared_cache.protocol import (
     window_for,
     write_count,
 )
-from benchmarks.stream_cost.shared_cache.workload import (
+from development.benchmarks.stream_cost.shared_cache.workload import (
     Assignment,
     LoopResult,
     closed_loop_async,
@@ -49,20 +50,23 @@ from benchmarks.stream_cost.shared_cache.workload import (
     open_loop_sync,
     worker_keys,
 )
-from client_query_cache._types import BsonDict, JsonDict, NonNegativeInt
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from faker import Faker
 
-    from benchmarks.stream_cost.shared_cache.protocol import Cell, PathKind
-    from benchmarks.stream_cost.shared_cache.worker import WorkerSpec
+    from development.benchmarks.stream_cost.shared_cache.protocol import Cell, PathKind
+    from development.benchmarks.stream_cost.shared_cache.worker import WorkerSpec
 
 pytestmark = pytest.mark.unit
 
-_CONFIG = Path("benchmarks/stream_cost/shared_cache/fixtures/v4/config.json")
-_V5_CONFIG = Path("benchmarks/stream_cost/shared_cache/fixtures/v5/config.json")
+_CONFIG = Path(
+    "development/benchmarks/stream_cost/shared_cache/fixtures/v4/config.json"
+)
+_V5_CONFIG = Path(
+    "development/benchmarks/stream_cost/shared_cache/fixtures/v5/config.json"
+)
 _V5_PATHS = {"direct", "independent", "shared-index"}
 _FROZEN_RATES = {"primary": 3000, "cold": 1000, "sensitivity": 500}
 _FROZEN_WINDOWS = {"hot": 30, "active": 60, "sensitivity": 30}

@@ -8,12 +8,14 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from pymongo.errors import ConnectionFailure
 
-from benchmarks.stream_cost import await_run
-from benchmarks.stream_cost.await_configuration import load_await_configuration
-from benchmarks.stream_cost.errors import BenchmarkSetupError
+from development.benchmarks.stream_cost import await_run
+from development.benchmarks.stream_cost.await_configuration import (
+    load_await_configuration,
+)
+from development.benchmarks.stream_cost.errors import BenchmarkSetupError
 
 if TYPE_CHECKING:
-    from benchmarks.stream_cost.await_model import AwaitConfiguration
+    from development.benchmarks.stream_cost.await_model import AwaitConfiguration
 
 pytestmark = pytest.mark.unit
 

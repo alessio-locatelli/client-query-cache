@@ -6,15 +6,18 @@ from unittest.mock import Mock
 
 import pytest
 
-from benchmarks.stream_cost.errors import BenchmarkSetupError
-from benchmarks.stream_cost.measurement import (
+from client_query_cache._types import JsonDict
+from development.benchmarks.stream_cost.errors import BenchmarkSetupError
+from development.benchmarks.stream_cost.measurement import (
     OperationLatency,
     latency_distribution,
     measure_controlled,
     scalar_latency_distribution,
 )
-from benchmarks.stream_cost.workload import STANDARD_WORKLOAD_VARIANTS, run_paired_reads
-from client_query_cache._types import JsonDict
+from development.benchmarks.stream_cost.workload import (
+    STANDARD_WORKLOAD_VARIANTS,
+    run_paired_reads,
+)
 
 pytestmark = pytest.mark.unit
 

@@ -10,24 +10,6 @@ from unittest.mock import MagicMock, Mock
 import pytest
 from pymongo.errors import PyMongoError
 
-from benchmarks.stream_cost.errors import (
-    BenchmarkConfigurationError,
-    BenchmarkSetupError,
-)
-from benchmarks.stream_cost.shared_cache import analysis, fault_worker, faults
-from benchmarks.stream_cost.shared_cache.analysis import analyze_faults
-from benchmarks.stream_cost.shared_cache.fault_worker import verify_document
-from benchmarks.stream_cost.shared_cache.protocol import (
-    FAULT_CASES,
-    FaultCell,
-    Registration,
-    fault_applicability,
-    fault_cells,
-)
-from benchmarks.stream_cost.shared_cache.safety import (
-    local_read,
-    verify_published_payloads,
-)
 from client_query_cache._core.keys import NamespaceId
 from client_query_cache._shared.coordinator import UpstreamProgress
 from client_query_cache._shared.wire import ProtocolError
@@ -37,14 +19,38 @@ from client_query_cache._types import (
     PositiveFloat,
     PositiveInt,
 )
+from development.benchmarks.stream_cost.errors import (
+    BenchmarkConfigurationError,
+    BenchmarkSetupError,
+)
+from development.benchmarks.stream_cost.shared_cache import (
+    analysis,
+    fault_worker,
+    faults,
+)
+from development.benchmarks.stream_cost.shared_cache.analysis import analyze_faults
+from development.benchmarks.stream_cost.shared_cache.fault_worker import verify_document
+from development.benchmarks.stream_cost.shared_cache.protocol import (
+    FAULT_CASES,
+    FaultCell,
+    Registration,
+    fault_applicability,
+    fault_cells,
+)
+from development.benchmarks.stream_cost.shared_cache.safety import (
+    local_read,
+    verify_published_payloads,
+)
 
 if TYPE_CHECKING:
-    from benchmarks.stream_cost.shared_cache.protocol import PathKind
     from client_query_cache._shared.coordinator import Message
     from client_query_cache._types import BsonDict
+    from development.benchmarks.stream_cost.shared_cache.protocol import PathKind
 
 pytestmark = pytest.mark.unit
-_CONFIG = Path("benchmarks/stream_cost/shared_cache/fixtures/v6/config.json")
+_CONFIG = Path(
+    "development/benchmarks/stream_cost/shared_cache/fixtures/v6/config.json"
+)
 
 
 @pytest.fixture
@@ -88,7 +94,9 @@ def test_fault_plan(registration: Registration) -> None:
 @pytest.mark.parametrize("version", [4, 5], ids=["v4", "v5"])
 def test_frozen_fault_lists_require_metadata(version: PositiveInt) -> None:
     registration = Registration.load(
-        Path(f"benchmarks/stream_cost/shared_cache/fixtures/v{version}/config.json")
+        Path(
+            f"development/benchmarks/stream_cost/shared_cache/fixtures/v{version}/config.json"
+        )
     )
     with pytest.raises(BenchmarkConfigurationError, match="applicability"):
         fault_cells(registration)
@@ -383,7 +391,7 @@ def test_first_hit_is_independent_of_readiness(
     cached_hit: Message,
 ) -> None:
     monkeypatch.setattr(
-        "benchmarks.stream_cost.shared_cache.faults.time",
+        "development.benchmarks.stream_cost.shared_cache.faults.time",
         Mock(monotonic=Mock(side_effect=[2.0, 5.0])),
     )
     trial.events["recovery"] = 0.0
@@ -701,7 +709,7 @@ def test_per_read_evidence_retains_unsafe_hits(
     read_evidence: fault_worker.ReadEvidence, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(
-        "benchmarks.stream_cost.shared_cache.fault_worker.time",
+        "development.benchmarks.stream_cost.shared_cache.fault_worker.time",
         Mock(monotonic=Mock(side_effect=[1.0, 2.0])),
     )
     read_evidence.observe(0, 0, eligible=False)
@@ -730,7 +738,7 @@ def test_sampled_transition_uses_the_actual_ready_window(
         "monotonic": 0.0,
     }
     monkeypatch.setattr(
-        "benchmarks.stream_cost.shared_cache.faults.time",
+        "development.benchmarks.stream_cost.shared_cache.faults.time",
         Mock(monotonic=Mock(return_value=2.0)),
     )
     assert trial._record_readiness(before, [cached_hit], healthy_owner)
@@ -755,7 +763,7 @@ def test_owner_evidence_uses_snapshot_time_not_receipt_time(
     }
     monkeypatch.setattr(faults.FaultTrial, "observe", Mock(return_value=observation))
     monkeypatch.setattr(
-        "benchmarks.stream_cost.shared_cache.faults.time",
+        "development.benchmarks.stream_cost.shared_cache.faults.time",
         Mock(monotonic=Mock(return_value=2.0)),
     )
     after = trial._owner_state()
@@ -801,7 +809,7 @@ def test_safe_hit_precedes_a_later_readiness_observation(
     assert trial.events == {"recovery": 0.0, "first_hit": 1.0}
     cached_hit.update(eligible=True, hit=False)
     monkeypatch.setattr(
-        "benchmarks.stream_cost.shared_cache.faults.time",
+        "development.benchmarks.stream_cost.shared_cache.faults.time",
         Mock(monotonic=Mock(return_value=2.0)),
     )
     assert trial._record_readiness(before, [cached_hit], healthy_owner)

@@ -17,19 +17,6 @@ import pytest
 from bson.codec_options import CodecOptions, TypeRegistry
 from pymongo import MongoClient
 
-from benchmarks.stream_cost.shared_cache.safety import (
-    closed_peer as _closed,
-)
-from benchmarks.stream_cost.shared_cache.safety import (
-    local_key as _local_key,
-)
-from benchmarks.stream_cost.shared_cache.safety import (
-    local_read,
-    verify_published_payloads,
-)
-from benchmarks.stream_cost.shared_cache.safety import (
-    raw_connection as _raw_connection,
-)
 from client_query_cache._core.keys import NamespaceId
 from client_query_cache._shared.adapters import (
     METADATA_REFRESH,
@@ -49,6 +36,19 @@ from client_query_cache._shared.diagnostics import SharedBypassReason
 from client_query_cache._shared.shared_index import SharedIndexLimits
 from client_query_cache._shared.wire import encode_frame, encode_key
 from client_query_cache._types import BsonDict
+from development.benchmarks.stream_cost.shared_cache.safety import (
+    closed_peer as _closed,
+)
+from development.benchmarks.stream_cost.shared_cache.safety import (
+    local_key as _local_key,
+)
+from development.benchmarks.stream_cost.shared_cache.safety import (
+    local_read,
+    verify_published_payloads,
+)
+from development.benchmarks.stream_cost.shared_cache.safety import (
+    raw_connection as _raw_connection,
+)
 from tests.codec_helpers import Decimal128ToDecimalDecoder
 from tests.shared_cache.conftest import (
     COLLECTION,

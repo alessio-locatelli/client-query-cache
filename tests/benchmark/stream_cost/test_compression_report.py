@@ -5,30 +5,37 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from benchmarks.stream_cost.client import WireCompressor
-from benchmarks.stream_cost.compression_matrix import (
+from client_query_cache._types import JsonDict, NonNegativeFloat, NonNegativeInt
+from development.benchmarks.stream_cost.client import WireCompressor
+from development.benchmarks.stream_cost.compression_matrix import (
     CompressionWindowSpec,
     WirePath,
     counterbalanced_mode_order,
     counterbalanced_path_order,
 )
-from benchmarks.stream_cost.compression_matrix_runner import CompressionWindowResult
-from benchmarks.stream_cost.compression_report import (
+from development.benchmarks.stream_cost.compression_matrix_runner import (
+    CompressionWindowResult,
+)
+from development.benchmarks.stream_cost.compression_report import (
     CompressionBlockPlan,
     build_compression_report,
     validate_compression_report,
 )
-from benchmarks.stream_cost.compressor_preflight import CompressorPreflightResult
-from benchmarks.stream_cost.config import (
+from development.benchmarks.stream_cost.compressor_preflight import (
+    CompressorPreflightResult,
+)
+from development.benchmarks.stream_cost.config import (
     BenchmarkEnvironment,
     BenchmarkIdentity,
     Limitation,
 )
-from benchmarks.stream_cost.errors import ReportValidationError
-from benchmarks.stream_cost.generators import SMALL_DOCUMENT_PROFILE
-from benchmarks.stream_cost.measurement import ControlledMeasurement, OperationLatency
-from benchmarks.stream_cost.workload import OperationCounts, WorkloadKind
-from client_query_cache._types import JsonDict, NonNegativeFloat, NonNegativeInt
+from development.benchmarks.stream_cost.errors import ReportValidationError
+from development.benchmarks.stream_cost.generators import SMALL_DOCUMENT_PROFILE
+from development.benchmarks.stream_cost.measurement import (
+    ControlledMeasurement,
+    OperationLatency,
+)
+from development.benchmarks.stream_cost.workload import OperationCounts, WorkloadKind
 
 if TYPE_CHECKING:
     from collections.abc import Callable

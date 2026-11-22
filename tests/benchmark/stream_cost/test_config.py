@@ -4,14 +4,14 @@ import dataclasses
 
 import pytest
 
-from benchmarks.stream_cost.config import (
+from development.benchmarks.stream_cost.config import (
     BenchmarkConfig,
     BenchmarkEnvironment,
     BenchmarkIdentity,
     Limitation,
     WorkloadParameters,
 )
-from benchmarks.stream_cost.errors import BenchmarkConfigurationError
+from development.benchmarks.stream_cost.errors import BenchmarkConfigurationError
 
 pytestmark = pytest.mark.unit
 

@@ -20,8 +20,6 @@ from unittest.mock import Mock
 
 import pytest
 
-from benchmarks.stream_cost.shared_cache.owner import PausableOwner, pause_owner
-from benchmarks.stream_cost.shared_cache.window import attachment_for
 from client_query_cache._core.canonical import canonicalize
 from client_query_cache._core.codec import encode_value
 from client_query_cache._core.collection_metadata import CollectionProbeResult
@@ -60,6 +58,11 @@ from client_query_cache._shared.wire import (
 )
 from client_query_cache._shared_index import ReaderIndex
 from client_query_cache._types import NonNegativeFloat, NonNegativeInt, PositiveFloat
+from development.benchmarks.stream_cost.shared_cache.owner import (
+    PausableOwner,
+    pause_owner,
+)
+from development.benchmarks.stream_cost.shared_cache.window import attachment_for
 from tests.descriptors import file_identity, references
 from tests.shared_cache.conftest import LIMITS, Racing, refresh_metadata, wait_for
 

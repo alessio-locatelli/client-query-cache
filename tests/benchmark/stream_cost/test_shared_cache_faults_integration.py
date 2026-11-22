@@ -8,17 +8,20 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from benchmarks.stream_cost.errors import BenchmarkSetupError
-from benchmarks.stream_cost.shared_cache import faults, run
-from benchmarks.stream_cost.shared_cache.protocol import (
+from development.benchmarks.stream_cost.errors import BenchmarkSetupError
+from development.benchmarks.stream_cost.shared_cache import faults, run
+from development.benchmarks.stream_cost.shared_cache.protocol import (
     FAULT_CASES,
     FaultCell,
     Registration,
     fault_applicability,
     fault_cells,
 )
-from benchmarks.stream_cost.shared_cache.window import run_window
-from benchmarks.stream_cost.topology import IsolatedReplicaSet, ResourceLimits
+from development.benchmarks.stream_cost.shared_cache.window import run_window
+from development.benchmarks.stream_cost.topology import (
+    IsolatedReplicaSet,
+    ResourceLimits,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Generator, Iterator
@@ -35,7 +38,7 @@ def replica() -> Iterator[IsolatedReplicaSet]:
 @pytest.fixture(scope="module")
 def registration() -> Registration:
     return Registration.load(
-        Path("benchmarks/stream_cost/shared_cache/fixtures/v6/config.json")
+        Path("development/benchmarks/stream_cost/shared_cache/fixtures/v6/config.json")
     )
 
 

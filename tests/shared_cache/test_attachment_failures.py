@@ -12,8 +12,6 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from benchmarks.stream_cost.shared_cache.protocol import Registration
-from benchmarks.stream_cost.shared_cache.window import attachment_for, owner_config
 from client_query_cache._core.codec import encode_value
 from client_query_cache._shared import attachment
 from client_query_cache._shared.attachment import (
@@ -30,6 +28,11 @@ from client_query_cache._shared.wire import (
     encode_key,
 )
 from client_query_cache._shared_index import ReaderIndex
+from development.benchmarks.stream_cost.shared_cache.protocol import Registration
+from development.benchmarks.stream_cost.shared_cache.window import (
+    attachment_for,
+    owner_config,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -81,7 +84,7 @@ def test_sync_receive_rejects_eof_before_a_complete_reply(
 @pytest.fixture(params=[False, True], ids=["disabled", "enabled"])
 def endpoint(tmp_path: Path, request: pytest.FixtureRequest) -> AsyncEndpoint:
     registration = Registration.load(
-        Path("benchmarks/stream_cost/shared_cache/fixtures/v6/config.json")
+        Path("development/benchmarks/stream_cost/shared_cache/fixtures/v6/config.json")
     )
     config = owner_config(
         registration,

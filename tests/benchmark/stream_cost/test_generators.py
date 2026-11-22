@@ -9,8 +9,8 @@ from bson import ObjectId
 from hypothesis import given
 from hypothesis import strategies as st
 
-from benchmarks.stream_cost.errors import BenchmarkConfigurationError
-from benchmarks.stream_cost.generators import (
+from development.benchmarks.stream_cost.errors import BenchmarkConfigurationError
+from development.benchmarks.stream_cost.generators import (
     LARGE_DOCUMENT_PROFILE,
     MEDIUM_DOCUMENT_PROFILE,
     SMALL_DOCUMENT_PROFILE,

@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import pytest
 
-from benchmarks.stream_cost.client import WireCompressor
-from benchmarks.stream_cost.compression_decision import evaluate_compression_decision
-from benchmarks.stream_cost.compression_matrix import CompressionWindowSpec
-from benchmarks.stream_cost.compression_run import run_compression_matrix
-from benchmarks.stream_cost.generators import SMALL_DOCUMENT_PROFILE
-from benchmarks.stream_cost.topology import ResourceLimits
-from benchmarks.stream_cost.workload import OperationCounts, WorkloadKind
+from development.benchmarks.stream_cost.client import WireCompressor
+from development.benchmarks.stream_cost.compression_decision import (
+    evaluate_compression_decision,
+)
+from development.benchmarks.stream_cost.compression_matrix import CompressionWindowSpec
+from development.benchmarks.stream_cost.compression_run import run_compression_matrix
+from development.benchmarks.stream_cost.generators import SMALL_DOCUMENT_PROFILE
+from development.benchmarks.stream_cost.topology import ResourceLimits
+from development.benchmarks.stream_cost.workload import OperationCounts, WorkloadKind
 
 pytestmark = pytest.mark.integration
 

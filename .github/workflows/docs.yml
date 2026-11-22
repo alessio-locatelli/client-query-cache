@@ -16,7 +16,7 @@ on: # zizmor: ignore[dangerous-triggers] Trusted main only; no triggering-run co
       - "docs/examples/README.md"
       - "docs/examples/*.py"
       - "zensical.toml"
-      - "scripts/build_versioned_docs.py"
+      - "development/scripts/build_versioned_docs.py"
       - "pyproject.toml"
       - "uv.lock"
       - ".python-version"

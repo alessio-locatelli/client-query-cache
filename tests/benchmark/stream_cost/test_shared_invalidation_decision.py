@@ -10,10 +10,14 @@ from typing import TYPE_CHECKING, cast
 
 import pytest
 
-from benchmarks.stream_cost import shared_invalidation_decision
-from benchmarks.stream_cost.errors import BenchmarkSetupError
-from benchmarks.stream_cost.multiprocess_run import _CONFIG, Protocol, planned_cells
-from benchmarks.stream_cost.shared_invalidation_decision import (
+from development.benchmarks.stream_cost import shared_invalidation_decision
+from development.benchmarks.stream_cost.errors import BenchmarkSetupError
+from development.benchmarks.stream_cost.multiprocess_run import (
+    _CONFIG,
+    Protocol,
+    planned_cells,
+)
+from development.benchmarks.stream_cost.shared_invalidation_decision import (
     describe_native_lag,
     evaluate_baseline,
 )
@@ -22,7 +26,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
 
-    from benchmarks.stream_cost.multiprocess_run import Payload
+    from development.benchmarks.stream_cost.multiprocess_run import Payload
 
 pytestmark = pytest.mark.unit
 _CONTROL_CPU_SECONDS = 6.0

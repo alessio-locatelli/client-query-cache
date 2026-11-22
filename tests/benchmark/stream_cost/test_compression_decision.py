@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import pytest
 
-from benchmarks.stream_cost.client import WireCompressor
-from benchmarks.stream_cost.compression_decision import evaluate_compression_decision
 from client_query_cache._types import JsonDict, NonNegativeFloat, NonNegativeInt
+from development.benchmarks.stream_cost.client import WireCompressor
+from development.benchmarks.stream_cost.compression_decision import (
+    evaluate_compression_decision,
+)
 
 pytestmark = pytest.mark.unit
 

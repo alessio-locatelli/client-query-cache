@@ -14,7 +14,8 @@ or topologies.
 
 ## Reproduce the measurements
 
-Use the repository's [contributor environment](../../../CONTRIBUTING.md).
+Check out the reachable equivalent for the complete baseline listed in the
+[baseline result](#baseline-result) and use its contributor environment.
 The runner creates and removes its own single-member replica set. It requires
 container CPU counters and process private-memory (USS) counters; a missing
 required metric fails the run visibly.

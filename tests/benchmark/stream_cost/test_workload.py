@@ -6,16 +6,18 @@ from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
-from benchmarks.stream_cost.errors import (
+from client_query_cache._core.snapshots import CacheSnapshot
+from client_query_cache._types import BsonDict, NonNegativeInt
+from development.benchmarks.stream_cost.errors import (
     BenchmarkConfigurationError,
     BenchmarkSetupError,
 )
-from benchmarks.stream_cost.generators import (
+from development.benchmarks.stream_cost.generators import (
     LARGE_DOCUMENT_PROFILE,
     MEDIUM_DOCUMENT_PROFILE,
     SMALL_DOCUMENT_PROFILE,
 )
-from benchmarks.stream_cost.workload import (
+from development.benchmarks.stream_cost.workload import (
     DATA_SIZE_PROFILES,
     STANDARD_WORKLOAD_VARIANTS,
     OperationCounts,
@@ -36,8 +38,6 @@ from benchmarks.stream_cost.workload import (
     verify_primed,
     wait_for_invalidations_to_settle,
 )
-from client_query_cache._core.snapshots import CacheSnapshot
-from client_query_cache._types import BsonDict, NonNegativeInt
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -335,7 +335,8 @@ def test_wait_for_invalidations_to_settle_times_out() -> None:
 
     with (
         patch(
-            "benchmarks.stream_cost.workload.time.monotonic", side_effect=[0.0, 16.0]
+            "development.benchmarks.stream_cost.workload.time.monotonic",
+            side_effect=[0.0, 16.0],
         ),
         pytest.raises(BenchmarkSetupError, match="stream invalidations did not settle"),
     ):

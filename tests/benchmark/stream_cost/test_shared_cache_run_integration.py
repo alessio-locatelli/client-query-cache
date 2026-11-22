@@ -11,28 +11,35 @@ import pytest
 from pymongo.errors import OperationFailure
 from pymongo.synchronous.collection import Collection
 
-from benchmarks.stream_cost.errors import BenchmarkSetupError
-from benchmarks.stream_cost.shared_cache import run, window
-from benchmarks.stream_cost.shared_cache.dataset import seed_catalogue
-from benchmarks.stream_cost.shared_cache.protocol import (
+from client_query_cache._types import BsonDict, JsonDict
+from development.benchmarks.stream_cost.errors import BenchmarkSetupError
+from development.benchmarks.stream_cost.shared_cache import run, window
+from development.benchmarks.stream_cost.shared_cache.dataset import seed_catalogue
+from development.benchmarks.stream_cost.shared_cache.protocol import (
     Registration,
     smoke_cells,
     validation_failure,
 )
-from benchmarks.stream_cost.topology import IsolatedReplicaSet, ResourceLimits
-from client_query_cache._types import BsonDict, JsonDict
+from development.benchmarks.stream_cost.topology import (
+    IsolatedReplicaSet,
+    ResourceLimits,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Generator, Iterator
 
     from pymongo import MongoClient
 
-    from benchmarks.stream_cost.shared_cache.protocol import Cell
+    from development.benchmarks.stream_cost.shared_cache.protocol import Cell
 
 pytestmark = pytest.mark.integration
 
-_CONFIG = Path("benchmarks/stream_cost/shared_cache/fixtures/v4/config.json")
-_V5_CONFIG = Path("benchmarks/stream_cost/shared_cache/fixtures/v5/config.json")
+_CONFIG = Path(
+    "development/benchmarks/stream_cost/shared_cache/fixtures/v4/config.json"
+)
+_V5_CONFIG = Path(
+    "development/benchmarks/stream_cost/shared_cache/fixtures/v5/config.json"
+)
 _CONCURRENT_CONFIG = Path(
     "docs/development/reports/concurrent-worker-workload/v1/config.json"
 )

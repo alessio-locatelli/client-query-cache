@@ -46,8 +46,8 @@ For the historical measurements, check out the named source and use its locked
 contributor environment. For fresh current-code measurements:
 
 ```bash
-uv run -- python -m benchmarks.stream_cost.run --direct-path-proxy --output-dir /tmp/agents/stream-cost
-uv run -- python -m benchmarks.stream_cost.decision_evidence --output /tmp/agents/stream-decision.json
+uv run -- python -m development.benchmarks.stream_cost.run --direct-path-proxy --output-dir /tmp/agents/stream-cost
+uv run -- python -m development.benchmarks.stream_cost.decision_evidence --output /tmp/agents/stream-decision.json
 ```
 
 Choose a new output path each time and keep raw results untracked. Current

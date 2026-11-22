@@ -7,12 +7,15 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from benchmarks.stream_cost import guard_check
-from benchmarks.stream_cost.errors import BenchmarkSetupError
-from benchmarks.stream_cost.guard_decision import Decision
-from benchmarks.stream_cost.guard_report import CaseReport, build_guard_report
-from benchmarks.stream_cost.guard_runner import RevisionEnvironment
-from benchmarks.stream_cost.guard_workload import CASE_NAMES, PROFILES
+from development.benchmarks.stream_cost import guard_check
+from development.benchmarks.stream_cost.errors import BenchmarkSetupError
+from development.benchmarks.stream_cost.guard_decision import Decision
+from development.benchmarks.stream_cost.guard_report import (
+    CaseReport,
+    build_guard_report,
+)
+from development.benchmarks.stream_cost.guard_runner import RevisionEnvironment
+from development.benchmarks.stream_cost.guard_workload import CASE_NAMES, PROFILES
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -124,7 +127,8 @@ def test_run_guard_reports_a_setup_failure_across_every_case(
         _repo_root: Path, revision: str, **_kwargs: object
     ) -> RevisionEnvironment:
         message = (
-            f"benchmarks/stream_cost/guard_workload.py does not exist on {revision}"
+            "development/benchmarks/stream_cost/guard_workload.py "
+            f"does not exist on {revision}"
         )
         raise BenchmarkSetupError(message)
 

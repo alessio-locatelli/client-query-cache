@@ -7,19 +7,19 @@ from typing import TYPE_CHECKING, cast
 import pytest
 from pymongo import AsyncMongoClient, MongoClient
 
-from benchmarks.stream_cost.await_commands import AwaitCommandListener
-from benchmarks.stream_cost.await_run import _invoke, _wait_for
 from client_query_cache import CacheCoreConfig
 from client_query_cache._core.stream_options import DEFAULT_MAX_AWAIT_TIME_MS
 from client_query_cache._types import BsonDict, MaxAwaitTimeMs, NonEmptyStr
 from client_query_cache.asynchronous.manager import CacheManager as AsyncCacheManager
 from client_query_cache.synchronous.manager import CacheManager
+from development.benchmarks.stream_cost.await_commands import AwaitCommandListener
+from development.benchmarks.stream_cost.await_run import _invoke, _wait_for
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
-    from benchmarks.stream_cost.await_model import ExecutionModel
-    from benchmarks.stream_cost.await_run import _Manager
+    from development.benchmarks.stream_cost.await_model import ExecutionModel
+    from development.benchmarks.stream_cost.await_run import _Manager
     from tests.conftest import DatabaseName, MongoDbUri
 
 pytestmark = pytest.mark.integration

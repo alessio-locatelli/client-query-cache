@@ -5,20 +5,20 @@ from typing import TYPE_CHECKING, cast
 
 import pytest
 
-from benchmarks.stream_cost import guard_report
-from benchmarks.stream_cost.errors import BenchmarkSetupError
-from benchmarks.stream_cost.guard_decision import BLOCK_PAIRS, Decision
-from benchmarks.stream_cost.guard_report import (
+from client_query_cache._types import JsonDict, NonNegativeFloat
+from development.benchmarks.stream_cost import guard_report
+from development.benchmarks.stream_cost.errors import BenchmarkSetupError
+from development.benchmarks.stream_cost.guard_decision import BLOCK_PAIRS, Decision
+from development.benchmarks.stream_cost.guard_report import (
     build_guard_report,
     measure_and_evaluate_case,
     report_to_json,
     report_to_summary,
 )
-from benchmarks.stream_cost.guard_runner import (
+from development.benchmarks.stream_cost.guard_runner import (
     PairedCaseMeasurement,
     RevisionEnvironment,
 )
-from client_query_cache._types import JsonDict, NonNegativeFloat
 
 if TYPE_CHECKING:
     from pathlib import Path
