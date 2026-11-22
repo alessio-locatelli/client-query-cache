@@ -52,7 +52,7 @@ if TYPE_CHECKING:
 _CONFIG = Path("benchmarks/stream_cost/shared_cache/fixtures/v4/config.json")
 _CEILING_FAMILY = "primary"
 _NATIVE_DISTRIBUTION = "client-query-cache"
-_CARGO_LOCK = Path("native/shared-index/Cargo.lock")
+_CARGO_LOCK = Path("src/shared-index/Cargo.lock")
 _RUSTC_MARKER = b"rustc version "
 
 
@@ -69,7 +69,6 @@ def environment(registration: Registration) -> JsonDict:
                 "--porcelain",
                 "--",
                 "benchmarks",
-                "native",
                 "src",
                 "docs/development/reports",
             ],

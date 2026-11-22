@@ -29,7 +29,7 @@ pytestmark = pytest.mark.unit
             id="python-source",
         ),
         pytest.param(
-            ("native/shared-index/src/index.rs",),
+            ("src/shared-index/src/index.rs",),
             True,
             False,
             False,
@@ -302,9 +302,9 @@ def test_ci_scope_selects_validation_tiers(
 @pytest.mark.parametrize(
     ("path", "expected"),
     [
-        ("native/shared-index/deny.toml", "true"),
-        ("native/shared-index/Cargo.lock", "true"),
-        ("native/shared-index/src/python.rs", "true"),
+        ("src/shared-index/deny.toml", "true"),
+        ("src/shared-index/Cargo.lock", "true"),
+        ("src/shared-index/src/python.rs", "true"),
         (".pre-commit-config.yaml", "true"),
         ("justfile", "true"),
         ("tests/shared_cache/test_owner.py", "true"),
