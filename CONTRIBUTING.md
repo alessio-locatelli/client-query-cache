@@ -3,6 +3,21 @@
 Develop inside the Toolbx or Distrobox image, or an equivalent environment with the declared
 tools on `PATH`.
 
+## Repository layout
+
+- `.agents/` stores repository skills for Codex.
+- `.claude/` exposes repository skills to Claude Code.
+- `.github/` contains GitHub workflows and repository automation.
+- `development/` contains benchmarks, research harnesses, scripts, and lint rules.
+- `docs/` contains public and contributor guides, runnable examples, reports, and upstream specifications.
+- `openspec/` contains requirements and change artifacts.
+- `src/` contains the Python package and its Rust extension crate.
+- `tests/` contains the Python test suite and its fixtures.
+
+Place new files in the existing directory that fits their purpose. Add a top-level
+directory only when a tool requires that location or when related files have no
+suitable home.
+
 ## Prerequisites
 
 For the Toolbx or Distrobox image:
