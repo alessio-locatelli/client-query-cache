@@ -504,7 +504,7 @@ Changes to behavior described by Context7 rules SHALL update affected rules in t
 
 ### Requirement: Combined builds discover the published release
 
-Combined documentation builds SHALL discover the latest published stable GitHub Release and fetch its exact tag by default. PR validation and publication SHALL use the same discovery and assembly command without a maintained release baseline. An explicit locally available tag SHALL remain usable for reproduction without release discovery. Discovery or fetch failures SHALL abort visibly without selecting local tags or development content as substitutes.
+Combined documentation builds SHALL discover the latest published stable GitHub Release and fetch its exact tag by default. PR validation and publication SHALL use the same discovery and assembly command without a maintained release baseline. An explicit local tag in the current layout SHALL remain usable for reproduction without release discovery. Discovery or fetch failures SHALL abort visibly without selecting local tags or development content as substitutes.
 
 #### Scenario: A new stable release becomes available
 
@@ -513,8 +513,13 @@ Combined documentation builds SHALL discover the latest published stable GitHub 
 
 #### Scenario: A contributor reproduces a specific release
 
-- **WHEN** a contributor supplies an exact locally available release tag
+- **WHEN** a contributor supplies an exact locally available release tag whose documentation sources use the current repository layout
 - **THEN** assembly uses that tag without contacting GitHub to discover or fetch a release
+
+#### Scenario: A tag uses a different documentation layout
+
+- **WHEN** a contributor supplies a release tag that keeps its example sources outside the current layout
+- **THEN** assembly exits unsuccessfully before installing a new artifact
 
 #### Scenario: Release discovery or retrieval fails
 
