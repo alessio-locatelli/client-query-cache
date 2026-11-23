@@ -14,4 +14,6 @@ def compose_mongodb_image(compose_file: Path) -> str:
     return str(services["mongo"]["image"])
 
 
-MONGODB_IMAGE = compose_mongodb_image(REPOSITORY_ROOT / "docker-compose.yaml")
+MONGODB_IMAGE = compose_mongodb_image(
+    REPOSITORY_ROOT / "development/docker-compose.yaml"
+)

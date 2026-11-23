@@ -393,8 +393,14 @@ def test_failed_first_install_leaves_no_partial_artifact(
 def development_only_edition(exported_repo: Path) -> None:
     (exported_repo / "docs/user/index.md").write_text("# DevelopmentOnlyToken\n")
     (exported_repo / "docs/user/preview.md").write_text("# UnreleasedPageToken\n")
-    with (exported_repo / "zensical.toml").open("a") as configuration:
-        configuration.write('[project.extra.version]\nprovider = "mike"\n')
+    root_config = exported_repo / "zensical.toml"
+    configuration = tomllib.loads(root_config.read_text())
+    project = table(configuration["project"])
+    project["docs_dir"] = "user"
+    project["site_dir"] = ".cache/site"
+    project["extra"] = {"version": {"provider": "mike"}}
+    git(exported_repo, "mv", "zensical.toml", "docs/zensical.toml")
+    (exported_repo / "docs/zensical.toml").write_text(tomli_w.dumps(configuration))
     commit(exported_repo)
 
 

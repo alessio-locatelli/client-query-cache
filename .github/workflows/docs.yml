@@ -15,7 +15,7 @@ on: # zizmor: ignore[dangerous-triggers] Trusted main only; no triggering-run co
       - "docs/site/**"
       - "docs/examples/README.md"
       - "docs/examples/*.py"
-      - "zensical.toml"
+      - "docs/zensical.toml"
       - "development/scripts/build_versioned_docs.py"
       - "pyproject.toml"
       - "uv.lock"
@@ -67,11 +67,11 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: just docs-build-editions
 
-      - run: cp docs/site/google5a37145ea1915a18.html site/
+      - run: cp docs/site/google5a37145ea1915a18.html docs/.cache/site/
 
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
-          path: site/
+          path: docs/.cache/site/
 
   deploy:
     name: Deploy documentation

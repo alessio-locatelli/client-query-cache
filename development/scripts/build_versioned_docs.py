@@ -21,6 +21,8 @@ type Table = dict[Text, object]
 
 _EXAMPLES_DIR = "docs/examples"
 _EXAMPLE_CATALOGUE = f"{_EXAMPLES_DIR}/README.md"
+_SITE_CONFIG = "docs/zensical.toml"
+_CORPUS_CONFIG = "zensical.toml"
 
 
 def table(value: object) -> Table:
@@ -79,15 +81,19 @@ def extract_corpus(repo: Path, revision: Text, destination: Path) -> None:
             revision,
             "docs/user",
             _EXAMPLES_DIR,
-            "zensical.toml",
+            _SITE_CONFIG,
+            _CORPUS_CONFIG,
         )
         .decode()
         .splitlines()
         if name.startswith("docs/user/")
-        or name in {"zensical.toml", _EXAMPLE_CATALOGUE}
+        or name in {_SITE_CONFIG, _CORPUS_CONFIG, _EXAMPLE_CATALOGUE}
         or (name.rpartition("/")[0] == _EXAMPLES_DIR and name.endswith(".py"))
     )
-    if "zensical.toml" not in files or "docs/user/index.md" not in files:
+    if (
+        not ({_SITE_CONFIG, _CORPUS_CONFIG} & set(files))
+        or "docs/user/index.md" not in files
+    ):
         raise ValueError("Documentation source lacks the public guide layout")
     if _EXAMPLE_CATALOGUE not in files:
         message = f"Documentation source lacks {_EXAMPLE_CATALOGUE}"
@@ -100,8 +106,14 @@ def extract_corpus(repo: Path, revision: Text, destination: Path) -> None:
 
 
 def edition_config(corpus: Path, revision: Text, *, stable: bool) -> Table:
-    configuration = tomllib.loads((corpus / "zensical.toml").read_text())
+    source = corpus / _SITE_CONFIG
+    relocated = source.is_file()
+    configuration = tomllib.loads(
+        (source if relocated else corpus / _CORPUS_CONFIG).read_text()
+    )
     project = table(configuration["project"])
+    if relocated:
+        project["docs_dir"] = "docs/user"
     export_policy = table(table(project["plugins"])["llmstxt"])
     # strict: The default is inherited from the extracted config, otherwise false
     # (https://github.com/zensical/zensical/blob/v0.0.74/python/zensical/config.py#L551).
@@ -130,7 +142,7 @@ def edition_config(corpus: Path, revision: Text, *, stable: bool) -> Table:
                 )
             text = text.replace(f"]({repository})", f"]({repository}/tree/{revision})")
         page.write_text(text)
-    (corpus / "zensical.toml").write_text(tomli_w.dumps(configuration))
+    (corpus / _CORPUS_CONFIG).write_text(tomli_w.dumps(configuration))
     return export_policy
 
 
@@ -193,6 +205,7 @@ def root_redirects(development: Path, destination: Path) -> None:
 
 
 def replace_artifact(artifact: Path, output: Path) -> None:
+    output.parent.mkdir(parents=True, exist_ok=True)
     with TemporaryDirectory(prefix=".docs-artifact-", dir=output.parent) as temporary:
         staging = Path(temporary)
         replacement = staging / "new"
@@ -325,7 +338,7 @@ def main() -> None:
         f"Development: {sources['development']}",
         flush=True,
     )
-    assemble(repo, sources, repo / "site")
+    assemble(repo, sources, repo / "docs/.cache/site")
 
 
 if __name__ == "__main__":

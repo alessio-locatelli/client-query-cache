@@ -49,13 +49,6 @@ pytestmark = pytest.mark.unit
             id="release-linker",
         ),
         pytest.param(
-            ("tox.ini",), True, False, False, False, id="minimum-driver-config"
-        ),
-        pytest.param((".coveragerc",), True, False, False, False, id="coverage-config"),
-        pytest.param(
-            ("mypy.ini",), True, False, False, False, id="type-checker-config"
-        ),
-        pytest.param(
             ("src/client_query_cache/_shared_index.pyi",),
             True,
             False,
@@ -88,14 +81,20 @@ pytestmark = pytest.mark.unit
             id="pr-workflow",
         ),
         pytest.param(
-            ("README.md", "src/client_query_cache/core.py", "Containerfile"),
+            (
+                "README.md",
+                "src/client_query_cache/core.py",
+                "development/Containerfile",
+            ),
             True,
             True,
             True,
             False,
             id="mixed",
         ),
-        pytest.param(("Containerfile",), False, False, True, False, id="container"),
+        pytest.param(
+            ("development/Containerfile",), False, False, True, False, id="container"
+        ),
         pytest.param(
             (".python-version",), True, False, True, True, id="python-version"
         ),
@@ -172,7 +171,17 @@ pytestmark = pytest.mark.unit
             False,
             id="container-check",
         ),
-        pytest.param(("renovate.json5",), False, True, False, False, id="renovate"),
+        pytest.param(
+            (".github/renovate.json5",), False, True, False, False, id="renovate"
+        ),
+        pytest.param(
+            ("development/.prettierignore",),
+            False,
+            True,
+            False,
+            False,
+            id="prettier-ignore",
+        ),
         pytest.param(
             ("docs/user/reference/api.md",), False, True, False, True, id="guide"
         ),
@@ -192,11 +201,18 @@ pytestmark = pytest.mark.unit
             True,
             id="examples-readme",
         ),
-        pytest.param(("zensical.toml",), False, False, False, True, id="site-config"),
+        pytest.param(
+            ("docs/zensical.toml",), False, False, False, True, id="site-config"
+        ),
         pytest.param(("pyproject.toml",), True, False, False, True, id="dependencies"),
         pytest.param(("uv.lock",), True, False, False, True, id="lockfile"),
         pytest.param(
-            ("docker-compose.yaml",), True, True, False, False, id="compose-image"
+            ("development/docker-compose.yaml",),
+            True,
+            True,
+            False,
+            False,
+            id="compose-image",
         ),
         pytest.param(
             ("tests/mongodb-minimum/docker-compose.yaml",),

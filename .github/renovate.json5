@@ -49,7 +49,7 @@
     },
     {
       customType: "regex",
-      managerFilePatterns: ["/^Containerfile$/"],
+      managerFilePatterns: ["/^development\/Containerfile$/"],
       matchStrings: [
         "# renovate-taplo: datasource=github-release-attachments depName=tamasfe/taplo\\nARG TAPLO_TOOL_VERSION=(?<currentValue>[^\\s]+)\\n\\nADD --checksum=sha256:(?<currentDigest>[a-f0-9]{64}) https://github.com/tamasfe/taplo/releases/download/[^/]+/taplo-linux-x86_64.gz /tmp/taplo.gz",
       ],

@@ -66,6 +66,8 @@ env:
 # is implicit success(). We override it because diagnostics are needed on failed runs.
 # if-no-files-found for those uploads: The default is warn. We override it because
 # failures before test execution can legitimately produce no diagnostics.
+# include-hidden-files for pytest logs and memory reports: The default is false.
+# We override it because the selected diagnostic paths live under .cache.
 # retention-days for pytest-log-arm64, pytest-log, pytest-log-pymongo-min, pytest-log-mongodb-min,
 # memory-reports and pr-performance-guard-report (guard):
 # The default is inherited repository/organization retention. We override it because
@@ -140,9 +142,9 @@ jobs:
           path: |
             .lycheecache
             .ruff_cache
-          key: prek-results-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml', 'lychee.toml', 'pyproject.toml') }}-${{ github.sha }}
+          key: prek-results-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml', 'development/lychee.toml', 'pyproject.toml') }}-${{ github.sha }}
           restore-keys: |
-            prek-results-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml', 'lychee.toml', 'pyproject.toml') }}-
+            prek-results-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml', 'development/lychee.toml', 'pyproject.toml') }}-
 
       # SKIP: The default is no skipped hooks
       # (https://github.com/j178/prek/blob/v0.5.7/docs/running-hooks.md#skip-hooks-for-one-commit). We override it because slotscheck,
@@ -187,9 +189,9 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: node_modules/.cache/prettier
-          key: prettier-${{ runner.os }}-${{ hashFiles('.node-version', 'package-lock.json', '.prettierrc*', '.prettierignore') }}-${{ github.sha }}
+          key: prettier-${{ runner.os }}-${{ hashFiles('.node-version', 'package-lock.json', '.prettierrc*', 'development/.prettierignore', '.gitignore') }}-${{ github.sha }}
           restore-keys: |
-            prettier-${{ runner.os }}-${{ hashFiles('.node-version', 'package-lock.json', '.prettierrc*', '.prettierignore') }}-
+            prettier-${{ runner.os }}-${{ hashFiles('.node-version', 'package-lock.json', '.prettierrc*', 'development/.prettierignore', '.gitignore') }}-
 
       - if: needs.scope.outputs.format == 'true'
         run: npm run format:check
@@ -240,7 +242,7 @@ jobs:
       - if: needs.scope.outputs.rust == 'true'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: .rust-tools
+          path: .cache/rust-tools
           key: rust-tools-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('justfile') }}
           restore-keys: |
             rust-tools-${{ runner.os }}-${{ runner.arch }}-
@@ -312,8 +314,9 @@ jobs:
         with:
           name: pytest-log-arm64
           path: |
-            pytest.log
-            pytest-gw*.log
+            .cache/pytest/pytest.log
+            .cache/pytest/pytest-gw*.log
+          include-hidden-files: true
           if-no-files-found: ignore
           retention-days: 7
 
@@ -398,9 +401,9 @@ jobs:
           path: |
             .pytest_cache
             .hypothesis
-          key: pytest-hypothesis-${{ runner.os }}-py${{ matrix.python }}-${{ hashFiles('uv.lock', 'pyproject.toml', 'pytest.ini') }}-${{ github.sha }}
+          key: pytest-hypothesis-${{ runner.os }}-py${{ matrix.python }}-${{ hashFiles('uv.lock', 'pyproject.toml') }}-${{ github.sha }}
           restore-keys: |
-            pytest-hypothesis-${{ runner.os }}-py${{ matrix.python }}-${{ hashFiles('uv.lock', 'pyproject.toml', 'pytest.ini') }}-
+            pytest-hypothesis-${{ runner.os }}-py${{ matrix.python }}-${{ hashFiles('uv.lock', 'pyproject.toml') }}-
 
       - run: just tests_and_coverage
 
@@ -409,8 +412,9 @@ jobs:
         with:
           name: pytest-log-${{ matrix.python }}
           path: |
-            pytest.log
-            pytest-gw*.log
+            .cache/pytest/pytest.log
+            .cache/pytest/pytest-gw*.log
+          include-hidden-files: true
           if-no-files-found: ignore
           retention-days: 7
 
@@ -442,9 +446,10 @@ jobs:
         with:
           name: pytest-log-pymongo-min
           path: |
-            pytest-pymongo-min.log
-            pytest-pymongo-min-gw*.log
-            pytest-pymongo-releases-*.log
+            .cache/pytest/pytest-pymongo-min.log
+            .cache/pytest/pytest-pymongo-min-gw*.log
+            .cache/pytest/pytest-pymongo-releases-*.log
+          include-hidden-files: true
           if-no-files-found: ignore
           retention-days: 7
 
@@ -475,8 +480,9 @@ jobs:
         with:
           name: pytest-log-mongodb-min
           path: |
-            pytest-mongodb-min.log
-            pytest-mongodb-min-gw*.log
+            .cache/pytest/pytest-mongodb-min.log
+            .cache/pytest/pytest-mongodb-min-gw*.log
+          include-hidden-files: true
           if-no-files-found: ignore
           retention-days: 7
 
@@ -555,7 +561,8 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: memory-reports
-          path: memory-reports/
+          path: .cache/memory-reports/
+          include-hidden-files: true
           if-no-files-found: ignore
           retention-days: 7
 

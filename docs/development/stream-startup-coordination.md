@@ -50,7 +50,7 @@ checkout; each JSON result records the loaded coordinator source path.
 
 ```sh
 git worktree add --detach /tmp/cqc-stream-parent e5f724a
-mkdir -p benchmark-reports/stream-startup
+mkdir -p .cache/benchmark-reports/stream-startup
 for repetition in $(seq 1 21); do
     set -- parent candidate
     if [ $((repetition % 2)) -eq 0 ]; then
@@ -63,7 +63,7 @@ for repetition in $(seq 1 21); do
                 checkout=/tmp/cqc-stream-parent
             fi
             PYTHONPATH="$checkout/src:$PWD" uv run -- python -m development.benchmarks.stream_startup "$mode" \
-                > "benchmark-reports/stream-startup/$revision-$mode-$repetition.json"
+                > ".cache/benchmark-reports/stream-startup/$revision-$mode-$repetition.json"
         done
     done
 done

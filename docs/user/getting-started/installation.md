@@ -54,11 +54,11 @@ Test PyMongo upgrades, including patch releases, against your application's cach
 
 ## Local MongoDB
 
-The repository’s [`docker-compose.yaml`](https://github.com/alessio-locatelli/client-query-cache/blob/main/docker-compose.yaml) provides an example single-member replica set for local development. From a [repository checkout](https://github.com/alessio-locatelli/client-query-cache), run:
+The repository’s [`docker-compose.yaml`](https://github.com/alessio-locatelli/client-query-cache/blob/main/development/docker-compose.yaml) provides an example single-member replica set for local development. From a [repository checkout](https://github.com/alessio-locatelli/client-query-cache), run:
 
 ```console
-docker compose up -d mongo
-docker compose run --rm mongo_helper
+docker compose -f development/docker-compose.yaml --project-directory . up -d mongo
+docker compose -f development/docker-compose.yaml --project-directory . run --rm mongo_helper
 ```
 
 <!-- For --rm: The default is retaining the stopped container. We override it because initialization
@@ -69,7 +69,7 @@ The helper initializes the replica set if needed and waits until it is writable.
 Stop the local services with:
 
 ```console
-docker compose down
+docker compose -f development/docker-compose.yaml --project-directory . down
 ```
 
 See the [official Docker Compose documentation](https://docs.docker.com/compose/) for tool installation and usage.

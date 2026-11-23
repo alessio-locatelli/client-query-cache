@@ -32,7 +32,7 @@ In an equivalent environment, container-backed recipes need the container runtim
 ## Environment
 
 The image pins its base digest, Python, and tools installed outside DNF. DNF selects
-`bash`, `gcc`, `gh`, `jq`, `just`, `rustup`, `uv`, and the Node.js/npm packages from the repositories selected by the base image in `Containerfile`
+`bash`, `gcc`, `gh`, `jq`, `just`, `rustup`, `uv`, and the Node.js/npm packages from the repositories selected by the base image in `development/Containerfile`
 at build time. Renovate maintains `.node-version`; CI reads that file and the
 container selects the same Node.js major track. A Node.js update runs the
 container build and tool checks. These RPM versions are
@@ -53,7 +53,7 @@ Installing the project builds its bundled Rust extension in `src/shared-index`, 
 From the host, build the image and create a Toolbx container:
 
 ```console
-podman build --tag localhost/client-query-cache-dev:0.1.0 .
+podman build --file development/Containerfile --tag localhost/client-query-cache-dev:0.1.0 .
 podman container exists client-query-cache-dev || toolbox create --image localhost/client-query-cache-dev:0.1.0 client-query-cache-dev
 ```
 
@@ -99,7 +99,7 @@ as the full suite.
 
 Run `just test-pymongo-releases` to run the same tests against every other PyMongo release inside the declared range, apart from the minimum and the locked release. It looks up the releases on PyPI, so it needs network access, and it stops at the first release that fails.
 
-The test suite, benchmarks, and the local service use the MongoDB server pinned in `docker-compose.yaml`. Run `just test-mongodb-min` to run the MongoDB-backed library tests against the minimum supported server pinned in `tests/mongodb-minimum/docker-compose.yaml` instead.
+The test suite, benchmarks, and the local service use the MongoDB server pinned in `development/docker-compose.yaml`. Run `just test-mongodb-min` to run the MongoDB-backed library tests against the minimum supported server pinned in `tests/mongodb-minimum/docker-compose.yaml` instead.
 
 To discover focused recipes, run:
 
@@ -111,14 +111,14 @@ For a specific path, node ID, or other pytest argument, run `just pytest -- <arg
 include the leading `--`, mirroring `just podman -- <arguments>` below, since some pytest flags
 (such as `-q` or `-v`) share a letter with `just`'s own short flags. Run `just lint` and
 `just format` for repository quality checks, and run `just ci-lint` after changing GitHub Actions.
-Ruff comes from the locked `lint` dependency group: the Prek hooks run it through `uv run`, and editor integrations should use `.venv/bin/ruff`. `ruff.toml` rejects older Ruff releases, so upgrade a standalone Ruff installation or use the project's.
+Ruff comes from the locked `lint` dependency group: the Prek hooks run it through `uv run`, and editor integrations should use `.venv/bin/ruff`. The project Ruff configuration rejects older releases, so upgrade a standalone Ruff installation or use the project's.
 
 See [native Rust quality checks](docs/development/native-quality.md) for the native
 lint, dependency-policy, and concurrency-model gates.
 
 Run `just examples` to run every program in [`docs/examples/`](docs/examples/README.md) against a disposable replica set. The first run downloads each example's libraries.
 
-To run a single example or an experiment against a long-lived local replica set, follow the [local MongoDB setup](docs/user/getting-started/installation.md#local-mongodb), replacing `docker compose` with `just podman -- compose` inside the contributor container. Run examples only after the helper exits successfully: until then, the server can reject writes. The replica set listens on `localhost:27017`, which the examples use by default. Podman's `compose` command requires a [compose provider](https://docs.podman.io/en/latest/markdown/podman-compose.1.html) on the host.
+To run a single example or an experiment against a long-lived local replica set, follow the [local MongoDB setup](docs/user/getting-started/installation.md#local-mongodb), using `just podman -- compose -f development/docker-compose.yaml -p "$(basename "$PWD")"` as the command prefix inside the contributor container. Run examples only after the helper exits successfully: until then, the server can reject writes. The replica set listens on `localhost:27017`, which the examples use by default. Podman's `compose` command requires a [compose provider](https://docs.podman.io/en/latest/markdown/podman-compose.1.html) on the host.
 
 See the [CI validation cache inventory](docs/development/ci-validation-caches.md) for the tools run on GitHub Actions and their cache paths.
 
@@ -185,9 +185,9 @@ just docs-build
 
 These commands preview the working tree. The hosted site instead defaults to the latest published release, with a `Development (main)` selector.
 
-The preview prints its local URL and reloads when guides change. The build creates untracked output in `site/`, fails on missing local pages, headings, or snippets, and uses the locked `docs` dependency group. These commands need no MongoDB, Docker, or hosting credentials. The existing Lychee Prek hook checks authored links and assets. See [Zensical's documentation](https://zensical.org/docs/) for authoring and framework configuration.
+The preview prints its local URL and reloads when guides change. The build creates untracked output in `docs/.cache/site/`, fails on missing local pages, headings, or snippets, and uses the locked `docs` dependency group. These commands need no MongoDB, Docker, or hosting credentials. The existing Lychee Prek hook checks authored links and assets. See [Zensical's documentation](https://zensical.org/docs/) for authoring and framework configuration.
 
-After `just docs-build`, inspect `site/llms.txt` for the public section index and `site/llms-full.txt` for the combined rendered guidance. Follow the index's URLs to locate page Markdown: directory URLs export `reference/api.md` as `site/reference/api/index.md`, while Home exports as `site/index.md`. Snippets are expanded in these files and in the HTML page's **Copy as Markdown** action. All exports stay untracked alongside HTML in `site/`. See [Zensical's native `llmstxt` documentation](https://zensical.org/docs/compatibility/mkdocs/plugins/#llmstxt) for export settings.
+After `just docs-build`, inspect `docs/.cache/site/llms.txt` for the public section index and `docs/.cache/site/llms-full.txt` for the combined rendered guidance. Follow the index's URLs to locate page Markdown: directory URLs export `reference/api.md` as `docs/.cache/site/reference/api/index.md`, while Home exports as `docs/.cache/site/index.md`. Snippets are expanded in these files and in the HTML page's **Copy as Markdown** action. All exports stay untracked alongside HTML in `docs/.cache/site/`. See [Zensical's native `llmstxt` documentation](https://zensical.org/docs/compatibility/mkdocs/plugins/#llmstxt) for export settings.
 
 Lychee cannot confirm new hosted routes before publication. Its accepted limitation excludes remote checks for the public section prefixes and the two unpublished edition prefixes; local links still undergo link checking and strict site validation. Inspect README's direct hosted links and the example catalogue's hosted links in the local preview, then inspect the deployed revision after publication. See the [documentation validation limitations](docs/development/ci-validation-caches.md#documentation-validation-limitations).
 
@@ -195,12 +195,12 @@ Lychee cannot confirm new hosted routes before publication. Its accepted limitat
 
 ```console
 just docs-build-editions
-python -m http.server --directory site
+python -m http.server --directory docs/.cache/site
 ```
 
-The combined build uses exact local Git refs and writes one untracked artifact to `site/`. Open `/` to follow the stable default; the selector offers exactly `Latest release (X.Y.Z)` and `Development (main)`. Local serving uses the site root, so existing direct page links and edition switching also work. Ordinary preview commands remain useful for uncommitted prose; combined builds use committed snapshots. Rendering uses standard temporary storage, including `TMPDIR` overrides, without requiring write access to the checkout parent. Complete output is staged beside `site/` before replacement. Installation failure restores the previous artifact; if restoration also fails, the error identifies a recoverable `.docs-previous-*` sibling outside temporary-directory cleanup. Preserve that directory until you have recovered its contents.
+The combined build uses exact local Git refs and writes one untracked artifact to `docs/.cache/site/`. Open `/` to follow the stable default; the selector offers exactly `Latest release (X.Y.Z)` and `Development (main)`. Local serving uses the site root, so existing direct page links and edition switching also work. Ordinary preview commands remain useful for uncommitted prose; combined builds use committed snapshots. Rendering uses standard temporary storage, including `TMPDIR` overrides, without requiring write access to the checkout parent. Complete output is staged beside `docs/.cache/site/` before replacement. Installation failure restores the previous artifact; if restoration also fails, the error identifies a recoverable `.docs-previous-*` sibling outside temporary-directory cleanup. Preserve that directory until you have recovered its contents.
 
-After `just docs-build-editions`, root `site/llms.txt` is a byte-for-byte copy of stable guidance; its page links point into `/stable/`. Enabled combined output is copied to the root using the stable policy’s filename, normally `site/llms-full.txt`. Inspect `site/stable/llms.txt` and `site/dev/llms.txt`, each edition’s configured combined output, and their linked page Markdown to check the independent corpora. For example, API exports live at `site/stable/reference/api/index.md` and `site/dev/reference/api/index.md`. Each edition uses its own native export settings and offers **Copy as Markdown**. Root exports follow the stable policy, including its combined-output filename or disabled state.
+After `just docs-build-editions`, root `docs/.cache/site/llms.txt` is a byte-for-byte copy of stable guidance; its page links point into `/stable/`. Enabled combined output is copied to the root using the stable policy’s filename, normally `docs/.cache/site/llms-full.txt`. Inspect `docs/.cache/site/stable/llms.txt` and `docs/.cache/site/dev/llms.txt`, each edition’s configured combined output, and their linked page Markdown to check the independent corpora. For example, API exports live at `docs/.cache/site/stable/reference/api/index.md` and `docs/.cache/site/dev/reference/api/index.md`. Each edition uses its own native export settings and offers **Copy as Markdown**. Root exports follow the stable policy, including its combined-output filename or disabled state.
 
 The combined command discovers the latest published stable [GitHub Release](https://docs.github.com/en/rest/releases/releases#get-the-latest-release), fetches its exact tag from `origin`, and builds its documentation alongside the committed development snapshot. PR validation and publication use this same command. Discovery requires authenticated [GitHub CLI](https://cli.github.com/manual/gh_auth_login); CI supplies its automatic read-only token. Missing releases, inaccessible tags, or incompatible documentation sources fail visibly. Each build reports its exact stable and development commits; stable source links point to the release commit.
 
@@ -238,12 +238,11 @@ just pytest -- -n 0 tests/benchmark/real_server/test_cache_benefit.py
 For `-n 0`: The default is the configured automatic worker count. We override it because latency
 measurements must run without competing workers ([pytest-xdist distribution](https://github.com/pytest-dev/pytest-xdist/blob/v3.8.0/docs/distribution.rst)).
 
-Its logged evidence, including any Atlas bandwidth evidence described below, lands in `pytest.log`
-at the repository root; search that file for the test's name instead of scrolling the full suite's
-output.
+For a serial run, search `.cache/pytest/pytest.log` for the test's name to find its logged results,
+including any Atlas bandwidth metrics described below.
 
 Run it serially for isolated measurements. In an ordinary parallel full-suite run it competes
-with other test workers, and its evidence lands in that worker's `pytest-gw*.log` file.
+with other test workers, and its evidence lands in that worker's `.cache/pytest/pytest-gw*.log` file.
 
 If `.env` also sets `REAL_MONGODB_ATLAS_PROJECT_ID` to your MongoDB Atlas project's ID, and the
 [Atlas CLI](https://www.mongodb.com/docs/atlas/cli/current/) is installed and authenticated, the
@@ -275,14 +274,14 @@ The recipe takes the local direct read from the `read_heavy-small` report of a f
 To re-render from existing measurements, for example after a style change, pass a retained stream-cost report, a log that contains a real-server run, and a cached-hit report:
 
 ```console
-uv run -- python development/scripts/render_latency_chart.py --local-report <report-dir>/read_heavy-small.report.v1.json --real-server-log pytest.log --remote-deployment "Atlas M0" --cached-hit-report <report-dir>/cached-hit-latency.json
+uv run -- python development/scripts/render_latency_chart.py --local-report <report-dir>/read_heavy-small.report.v1.json --real-server-log .cache/pytest/pytest.log --remote-deployment "Atlas M0" --cached-hit-report <report-dir>/cached-hit-latency.json
 ```
 
 Change colors, labels and layout in `development/scripts/render_latency_chart.py` instead of editing the SVGs. Keep a single cached-read bar measured on a busy CPU; see the [latency chart composition decision](docs/development/decisions/latency-chart-composition.md) before changing what the chart measures. Both documents select the variant with `#gh-light-mode-only` and `#gh-dark-mode-only` image fragments, which follow GitHub's appearance setting and the documentation site's appearance toggle. Do not switch the README to `<picture>` despite GitHub's deprecation of the fragments: its `prefers-color-scheme` source follows the operating system's theme, so readers whose GitHub theme differs from it see the wrong variant ([community report](https://github.com/orgs/community/discussions/210983)). Keep the README's chart paths repository-relative; see the [README chart path decision](docs/development/decisions/repository-relative-readme-chart.md).
 
 ## Release verification
 
-`just verify-release` builds the source and wheel distributions, installs each into its own isolated environment, and imports the public synchronous and asyncio API from each installation — the same check the "Static checks, packaging, and isolated install" CI job runs on every pull request that changes Python files, `pytest.ini`, `pyproject.toml`, or `uv.lock`. It publishes nothing and needs no credentials.
+`just verify-release` builds the source and wheel distributions, installs each into its own isolated environment, and imports the public synchronous and asyncio API from each installation — the same check the "Static checks, packaging, and isolated install" CI job runs on every pull request that changes Python files, `pyproject.toml`, or `uv.lock`. It publishes nothing and needs no credentials.
 
 The wheel is built with profile-guided optimization, which needs rustup's `llvm-tools` component (`just setup-rust` installs it) and compiles the extension three times; see the [release build](docs/development/native-quality.md#release-build).
 

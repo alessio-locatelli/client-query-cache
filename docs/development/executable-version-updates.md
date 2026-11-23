@@ -12,16 +12,16 @@ using rebase for eligible bot PRs and approves them; required checks gate mergin
 | CI uv and just                                               | Renovate `github-actions`, `uses-with`           | Literal inputs in `.github/actions/setup-toolchain/action.yml`                                                                                                                                         |
 | CI and container Node.js                                     | Renovate `nodenv`                                | `.node-version`; CI reads it and the container derives its Node.js/npm major track                                                                                                                     |
 | Python                                                       | Renovate `pyenv`                                 | `.python-version`; default development and container selection; CI also retains older supported release lines                                                                                          |
-| MongoDB                                                      | Dependabot `docker-compose`                      | `docker-compose.yaml` image tag and digest; the local service, tests, benchmarks, and research harnesses read it                                                                                       |
+| MongoDB                                                      | Dependabot `docker-compose`                      | `development/docker-compose.yaml` image tag and digest; the local service, tests, benchmarks, and research harnesses read it                                                                           |
 | Minimum MongoDB                                              | Dependabot `docker-compose`, patch only          | `tests/mongodb-minimum/docker-compose.yaml` image tag and digest; `just test-mongodb-min` reads it                                                                                                     |
-| Development container base                                   | Dependabot `docker`                              | `Containerfile` `FROM` image tag and digest                                                                                                                                                            |
-| Prek                                                         | Renovate Dockerfile/GitHub Actions presets       | `test.yml` `PREK_VERSION` and Containerfile ARG; one group; cache derives from the CI selection                                                                                                        |
-| Zizmor                                                       | Renovate Dockerfile preset                       | Containerfile ARG                                                                                                                                                                                      |
-| Taplo                                                        | Renovate regex                                   | Containerfile ARG, download URL, and SHA256                                                                                                                                                            |
+| Development container base                                   | Dependabot `docker`                              | `development/Containerfile` `FROM` image tag and digest                                                                                                                                                |
+| Prek                                                         | Renovate Dockerfile/GitHub Actions presets       | `test.yml` `PREK_VERSION` and `development/Containerfile` ARG; one group; cache derives from the CI selection                                                                                          |
+| Zizmor                                                       | Renovate Dockerfile preset                       | `development/Containerfile` ARG                                                                                                                                                                        |
+| Taplo                                                        | Renovate regex                                   | `development/Containerfile` ARG, download URL, and SHA256                                                                                                                                              |
 | DNF tools                                                    | Fedora repositories                              | Unpinned RPMs from the selected container base; Node.js track comes from `.node-version`; [rationale](https://github.com/alessio-locatelli/client-query-cache/blob/main/CONTRIBUTING.md#environment)   |
 | Rust toolchain                                               | Dependabot `rust-toolchain`, weekly              | `rust-toolchain.toml`; development, the container default, CI, release builds, and source distributions use it through rustup ([policy](native-quality.md#rust-toolchain))                             |
 | Rust crates                                                  | Dependabot `cargo`                               | `src/shared-index/Cargo.toml` and `Cargo.lock`                                                                                                                                                         |
-| Native Cargo quality tools                                   | Renovate `custom.regex` with crates.io releases  | Version variables in `justfile`; `just setup-rust` installs them into `.rust-tools/`                                                                                                                   |
+| Native Cargo quality tools                                   | Renovate `custom.regex` with crates.io releases  | Version variables in `justfile`; `just setup-rust` installs them into `.cache/rust-tools/`                                                                                                             |
 | maturin build backend                                        | None; each build resolves the newest 1.x release | `pyproject.toml` build requirement                                                                                                                                                                     |
 
 In this repository, Renovate's Actions manager updates only `uses-with` inputs.
@@ -93,7 +93,7 @@ development declarations until publication.
 The existing Prek job runs the official configuration validator. To run it locally:
 
 ```console
-prek run renovate-config-validator --files renovate.json5
+prek run renovate-config-validator --files .github/renovate.json5
 ```
 
 Fresh Renovate hook installations can emit upstream dependency deprecation
@@ -218,7 +218,7 @@ access or credentials blocks activation, not repository delivery.
 ## Hosted discovery
 
 Keep the hosted required-file guard enabled and retain the single root
-`renovate.json5`. In the [Mend-hosted app](https://docs.renovatebot.com/mend-hosted/overview/)
+`.github/renovate.json5`. In the [Mend-hosted app](https://docs.renovatebot.com/mend-hosted/overview/)
 dashboard or logs, verify the repository name, processed revision, and discovered
 configuration. Confirm that the processed revision includes the root file and
 inspect the resolved managers and exclusions. If there is no PR, inspect the

@@ -180,7 +180,7 @@ def test_selection_accepts_only_a_unique_eligible_pr(
         ),
         pytest.param(
             _files(
-                "Containerfile",
+                "development/Containerfile",
                 "justfile",
                 ".node-version",
                 ".python-version",
@@ -193,7 +193,10 @@ def test_selection_accepts_only_a_unique_eligible_pr(
             id="tool-pins",
         ),
         pytest.param(
-            _files("docker-compose.yaml", "tests/mongodb-minimum/docker-compose.yaml"),
+            _files(
+                "development/docker-compose.yaml",
+                "tests/mongodb-minimum/docker-compose.yaml",
+            ),
             2,
             True,
             True,
@@ -232,7 +235,7 @@ def test_selection_accepts_only_a_unique_eligible_pr(
             id="tests",
         ),
         pytest.param(_files("README.md"), 1, False, True, id="docs"),
-        pytest.param(_files("renovate.json5"), 1, False, True, id="bot-policy"),
+        pytest.param(_files(".github/renovate.json5"), 1, False, True, id="bot-policy"),
         pytest.param(
             _files(".github/workflows/new.yml"), 1, False, True, id="new-workflow"
         ),

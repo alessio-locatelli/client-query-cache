@@ -15,11 +15,7 @@ def main() -> None:
         path.endswith(".py")
         or path
         in {
-            "pytest.ini",
-            "tox.ini",
-            "mypy.ini",
-            "docker-compose.yaml",
-            ".coveragerc",
+            "development/docker-compose.yaml",
             "pyproject.toml",
             "uv.lock",
             ".python-version",
@@ -44,7 +40,7 @@ def main() -> None:
         or (path.startswith("docs/examples/") and path.endswith(".py"))
         or path
         in {
-            "zensical.toml",
+            "docs/zensical.toml",
             "development/scripts/build_versioned_docs.py",
             ".github/workflows/test.yml",
             "pyproject.toml",
@@ -57,13 +53,13 @@ def main() -> None:
     )
     formatting = any(
         path.endswith((".json", ".json5", ".jsonc", ".md", ".yaml", ".yml"))
-        or path in {".node-version", ".prettierignore", ".prettierrc"}
+        or path in {".node-version", "development/.prettierignore", ".prettierrc"}
         for path in paths
     )
     container = any(
         path
         in {
-            "Containerfile",
+            "development/Containerfile",
             ".node-version",
             ".python-version",
             "rust-toolchain.toml",
