@@ -4,7 +4,7 @@
   "devDependencies": {
     "@fission-ai/openspec": "^1.15.0",
     "markdownlint-cli2": "^0.24.1",
-    "prettier": "3.9.10"
+    "prettier": "3.10.1"
   },
   "scripts": {
     "format": "prettier --ignore-path .gitignore --ignore-path development/.prettierignore --write --cache --log-level warn . && markdownlint-cli2 --config development/.markdownlint-cli2.jsonc --fix",
