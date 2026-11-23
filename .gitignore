@@ -136,6 +136,7 @@ cython_debug/
 !/.agents/skills/
 /.agents/skills/*
 !/.agents/skills/openspec-*
+!/.agents/skills/.openspec-target
 
 node_modules/
 .lycheecache
