@@ -89,7 +89,7 @@ repos:
       - id: vulture
 
   - repo: https://github.com/astral-sh/uv-pre-commit
-    rev: "0.13.6"
+    rev: "0.13.8"
     hooks:
       - id: uv-lock
         # The default is updating the lockfile (https://github.com/astral-sh/uv/blob/0.13.6/crates/uv-cli/src/lib.rs#L3814-L3821). We override it because validation must reject stale resolution without changing it.
