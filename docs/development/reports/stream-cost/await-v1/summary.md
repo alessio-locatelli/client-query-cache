@@ -33,8 +33,8 @@ The [compact configuration](config.v1.json) expands to the same schedules, compa
 From the repository root, with the [benchmark prerequisites](../../../../../CONTRIBUTING.md):
 
 ```console
-uv run -- python -m benchmarks.stream_cost.await_run --output benchmark-reports/await.report.v1.json
-uv run -- python -m benchmarks.stream_cost.await_run --output benchmark-reports/await.report.v1.json --validate-only
+uv run -- python -m development.benchmarks.stream_cost.await_run --output benchmark-reports/await.report.v1.json
+uv run -- python -m development.benchmarks.stream_cost.await_run --output benchmark-reports/await.report.v1.json --validate-only
 ```
 
 Use a new output path and allow roughly three hours. The second command validates the raw report and recomputes its decision. Reproduction preserves the protocol; measurements can differ on another run or host.
