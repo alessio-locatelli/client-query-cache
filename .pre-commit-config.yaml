@@ -111,9 +111,10 @@ repos:
     rev: v0.9.3
     hooks:
       - id: taplo-format
+        args: ["--config", "development/.taplo.toml"]
       - id: taplo-lint
-        # The default is inherited --default-schema-catalogs arguments (https://github.com/ComPWA/taplo-pre-commit/blob/v0.9.3/.pre-commit-hooks.yaml). We override it because Taplo cannot decode the remote catalog; syntax linting remains usable (https://github.com/tamasfe/taplo/issues/463).
-        args: []
+        # The default is inherited --default-schema-catalogs arguments (https://github.com/ComPWA/taplo-pre-commit/blob/v0.9.3/.pre-commit-hooks.yaml). We override it because validation uses the relocated project config and Taplo cannot decode the remote catalog; syntax linting remains usable (https://github.com/tamasfe/taplo/issues/463).
+        args: ["--config", "development/.taplo.toml"]
 
   - repo: local
     hooks:
@@ -121,17 +122,17 @@ repos:
       # it because these commands validate the whole crate or rule set rather than file operands.
       - id: ast-grep
         name: ast-grep
-        entry: ast-grep scan
+        entry: ast-grep scan --config development/ast-grep/sgconfig.yml
         language: python
         additional_dependencies: ["ast-grep-cli==0.51.0"]
         types: [python]
         require_serial: true
       - id: ast-grep-test
         name: ast-grep rule tests
-        entry: ast-grep test
+        entry: ast-grep test --config development/ast-grep/sgconfig.yml
         language: python
         additional_dependencies: ["ast-grep-cli==0.51.0"]
-        files: ^(sgconfig\.yml|development/ast-grep/(rules|rule-tests)/)
+        files: ^development/ast-grep/(sgconfig\.yml$|(rules|rule-tests)/)
         pass_filenames: false
       - id: rust-lint
         name: Rust quality checks
@@ -151,18 +152,20 @@ repos:
     rev: v1.5.0
     hooks:
       - id: detect-secrets
-        args: ["--baseline", ".secrets.baseline"]
+        args: ["--baseline", "development/.secrets.baseline"]
         # Regenerate the whitelist from the repository root with this command.
-        # vulture --make-whitelist src/client_query_cache tests development/benchmarks > .vulture_whitelist
+        # vulture --make-whitelist src/client_query_cache tests development/benchmarks > development/.vulture_whitelist
         # Vulture exits with status 3 when it reports candidates.
-        exclude: .vulture_whitelist
+        # Scan project files using the baseline rather than scanning the stored findings themselves.
+        exclude: ^development/\.(vulture_whitelist|secrets\.baseline)$
 
   - repo: https://github.com/lycheeverse/lychee.git
     rev: lychee-v0.24.2
     hooks:
       - id: lychee
+        args: ["--no-progress", "--config", "development/lychee.toml"]
         # Lockfiles list registry artifacts, this configuration lists exclusion patterns, and Renovate download patterns/templates are not fetchable links; Renovate's schema is validated separately. Lychee warns about passed inputs that its own configuration excludes, so skip them before they are passed.
-        exclude: ^(lychee\.toml|package-lock\.json|renovate\.json5|uv\.lock)$
+        exclude: ^(development/lychee\.toml|package-lock\.json|\.github/renovate\.json5|uv\.lock)$
 
   - repo: https://github.com/rhysd/actionlint
     rev: v1.7.12
@@ -173,3 +176,4 @@ repos:
     rev: v0.19.1
     hooks:
       - id: gitlint
+        args: ["--config", "development/.gitlint", "--staged", "--msg-filename"]

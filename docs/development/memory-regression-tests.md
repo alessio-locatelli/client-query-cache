@@ -36,8 +36,8 @@ required to reclaim all entries.
 [pytest-memray](https://pytest-memray.readthedocs.io/en/v1.11.0/usage.html) tracks peak live allocations
 in the test body, across all threads, with Python allocator tracing enabled. Fixtures and imports lie
 outside this boundary. The command disables stdio capture, raises both logging thresholds to CRITICAL,
-and sends file logging to `/dev/null` to avoid retaining debug history. Pytest's logging plugin stays
-enabled because `pytest.ini` contains strict logging configuration.
+and sends file logging to `/dev/null` to avoid retaining debug history. The logging plugin registers
+the logging options that pytest validates in strict mode.
 
 The cache core is native. It keeps each encoded value as a Python `bytes` object, which the traced
 Python allocator reports, and its bookkeeping uses system allocations that Memray also observes. The
@@ -49,8 +49,8 @@ complement the allocation limit.
 
 ## Command options
 
-The calibration command below uses these options. Defaults include the inherited
-`pytest.ini` values; the recipe explains its own options beside the command.
+The calibration command below uses these options. Project defaults are set in `[tool.pytest]` in
+`pyproject.toml`. The recipe explains its overrides beside the command.
 
 - `--trace-python-allocators`: The default is false. We override it because the
   allocation ceiling must include Python allocator activity, not only native allocations.
@@ -59,7 +59,7 @@ The calibration command below uses these options. Defaults include the inherited
 - `--log-level=CRITICAL` and `--log-file-level=CRITICAL`: The default is configured
   DEBUG for each. We override it because retained debug records would distort
   the allocation measurement.
-- `--log-file=/dev/null`: The default is configured pytest.log. We override it
+- `--log-file=/dev/null`: The default is configured `.cache/pytest/pytest.log`. We override it
   because measurement runs must not create persistent diagnostic log files.
 - `--timeout=120`: The default is configured 30s. We override it because profiled
   allocation workloads need a longer bounded runtime.
@@ -90,13 +90,13 @@ for case in identity-with-alias namespace; do
     for run in {1..10}; do
         uv run --locked --group memory -- pytest tests/memory -m memory -n 0 -k "$case" \
             --memray --trace-python-allocators \
-            --memray-bin-path="memory-reports/baseline/$case/$run" --capture=no \
+            --memray-bin-path=".cache/memory-reports/baseline/$case/$run" --capture=no \
             --log-level=CRITICAL --log-file=/dev/null --log-file-level=CRITICAL --timeout=120
     done
 done
 ```
 
-The plugin's `memory-reports/baseline/<case>/<run>/metadata/*.metadata` files record exact
+The plugin's `.cache/memory-reports/baseline/<case>/<run>/metadata/*.metadata` files record exact
 `peak_memory` bytes. The console reports rounded peaks and the largest allocating stacks. Binary
 captures use Memray's aggregated format; `memray stats` does not support that format. Use an official
 reporter such as `uv run --group memory -- memray flamegraph <trace.bin>` to inspect allocation stacks.
@@ -159,7 +159,7 @@ shared Python build supplied by `actions/setup-python` at the repository's selec
 Memray corrects allocator symbol addresses on the uv-managed standalone build and logs warnings;
 the shared build avoids those corrections without suppressing profiler diagnostics.
 
-On failure, the job keeps `memory-reports/` as a seven-day artifact, including binary allocation traces
+On failure, the job keeps `.cache/memory-reports/` as a seven-day artifact, including binary allocation traces
 and exact peak metadata. All payloads are synthetic. The original command failure stays visible in
 the job log, including startup failures that produce no trace. Locally, reports appear in the ignored
-`memory-reports/` directory.
+`.cache/memory-reports/` directory.

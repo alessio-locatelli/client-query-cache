@@ -9,16 +9,16 @@ image=localhost/client-query-cache-pin-check
 python_version="$(cat .python-version)"
 node_version="$(cat .node-version)"
 node_major="${node_version%%.*}"
-prek_version="$(awk -F= '/^ARG PREK_TOOL_VERSION=/ {print $2}' Containerfile)"
-taplo_version="$(awk -F= '/^ARG TAPLO_TOOL_VERSION=/ {print $2}' Containerfile)"
-zizmor_version="$(awk -F= '/^ARG ZIZMOR_TOOL_VERSION=/ {print $2}' Containerfile)"
+prek_version="$(awk -F= '/^ARG PREK_TOOL_VERSION=/ {print $2}' development/Containerfile)"
+taplo_version="$(awk -F= '/^ARG TAPLO_TOOL_VERSION=/ {print $2}' development/Containerfile)"
+zizmor_version="$(awk -F= '/^ARG ZIZMOR_TOOL_VERSION=/ {print $2}' development/Containerfile)"
 
 # Only declared build inputs enter the context, including through a host bridge.
 # Docker/Podman build --quiet: The default is normal progress output. We override it
 # because contributor checks should emphasize diagnostics.
-# --file Containerfile is required across engines: Docker defaults to Dockerfile, while
+# --file development/Containerfile is required across engines: Docker defaults to Dockerfile, while
 # Podman also recognizes Containerfile.
-tar -cf - Containerfile .python-version .node-version rust-toolchain.toml | "$@" build --quiet --tag "${image}" --file Containerfile -
+tar -cf - development/Containerfile .python-version .node-version rust-toolchain.toml | "$@" build --quiet --tag "${image}" --file development/Containerfile -
 # shellcheck disable=SC2016 # Expected versions are expanded inside the container.
 # Docker run: https://docs.docker.com/engine/containers/run/
 # --rm: The default is retaining stopped containers. We override it because completed

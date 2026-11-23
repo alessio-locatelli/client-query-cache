@@ -50,7 +50,7 @@ Preserve the named file for diagnosis; a 100% combined report does not resolve t
 
 ## Diagnostics
 
-The controller writes `pytest.log`; workers write `pytest-gw0.log`, `pytest-gw1.log`, and so on.
+The controller writes `.cache/pytest/pytest.log`; workers write `.cache/pytest/pytest-gw0.log`, `.cache/pytest/pytest-gw1.log`, and so on.
 A custom `--log-file=diagnostics/run.log` produces `diagnostics/run-gw0.log` for worker zero.
 Serial runs retain the selected path, and `/dev/null` disables file output in either mode.
 Choose separate destinations for simultaneous pytest invocations. The database-backed CI job

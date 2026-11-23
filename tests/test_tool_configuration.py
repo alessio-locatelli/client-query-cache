@@ -22,7 +22,7 @@ def tool_probe(tmp_path: Path, request: pytest.FixtureRequest) -> ToolProbe:
     source_path.write_text(source)
     project = Path(__file__).resolve().parents[1]
     arguments = (
-        ("--config-file", str(project / "mypy.ini"))
+        ("--config-file", str(project / "pyproject.toml"))
         if tool == "mypy"
         else (
             "--settings",

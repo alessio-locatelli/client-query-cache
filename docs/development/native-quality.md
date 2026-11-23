@@ -51,7 +51,7 @@ The [crate-replacement evaluation](./reports/rust-crate-replacements/summary.md)
 
 ## Commands
 
-Run `just setup-rust` to install the selected toolchain with the `rustfmt`, `clippy`, and `llvm-tools-preview` [components](https://rust-lang.github.io/rustup/concepts/components.html), build the pinned Cargo quality tools with that release into the ignored `.rust-tools/` directory, and provision the selected Python through uv. The command reuses existing rustup and Cargo installations and does not install OS packages. Missing prerequisites fail visibly.
+Run `just setup-rust` to install the selected toolchain with the `rustfmt`, `clippy`, and `llvm-tools-preview` [components](https://rust-lang.github.io/rustup/concepts/components.html), build the pinned Cargo quality tools with that release into the ignored `.cache/rust-tools/` directory, and provision the selected Python through uv. The command reuses existing rustup and Cargo installations and does not install OS packages. Missing prerequisites fail visibly.
 
 | Command              | Enforcement                                                                                                                                    |
 | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |

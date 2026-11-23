@@ -22,7 +22,7 @@ target/
 .env
 .venv
 
-# Zensical documentation
+# Legacy Zensical output may still exist in older checkouts
 /site
 
 # mypy

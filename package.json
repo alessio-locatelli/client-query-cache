@@ -7,7 +7,7 @@
     "prettier": "3.9.10"
   },
   "scripts": {
-    "format": "prettier --write --cache --log-level warn . && markdownlint-cli2 --fix",
-    "format:check": "prettier --check --cache . && markdownlint-cli2"
+    "format": "prettier --ignore-path .gitignore --ignore-path development/.prettierignore --write --cache --log-level warn . && markdownlint-cli2 --config development/.markdownlint-cli2.jsonc --fix",
+    "format:check": "prettier --ignore-path .gitignore --ignore-path development/.prettierignore --check --cache . && markdownlint-cli2 --config development/.markdownlint-cli2.jsonc"
   }
 }

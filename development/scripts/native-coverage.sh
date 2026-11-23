@@ -60,7 +60,7 @@ uv export --quiet --locked --only-group test --output-file "${measurement_dir}/r
 # We override it because /tmp and uv's cache can use different filesystems, which
 # would produce fallback warnings.
 uv pip install --quiet --python "${measurement_dir}/venv/bin/python" --link-mode copy --requirement "${measurement_dir}/requirements.txt" "${measurement_dir}"/wheels/*.whl
-# -n 0: The default is inherited from pytest.ini addopts, -n auto. We override it
+# -n 0: The default is inherited from the shared pytest configuration addopts, -n auto. We override it
 # because this bounded suite and its native background-thread profile counters must
 # stay in one process.
 # TMPDIR: The default is inherited from the caller, otherwise unset, so tempfile falls

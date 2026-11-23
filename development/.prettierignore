@@ -1,0 +1,14 @@
+/../docs/specifications/
+/../site/
+/../.cache/
+/../docs/.cache/
+/../.agents/skills/openspec*/
+
+/../.docs-artifact-*/
+/../.docs-previous-*/
+
+# Preserve Google's downloaded verification file unchanged.
+/../docs/site/google5a37145ea1915a18.html
+
+# Keep ast-grep-generated rule snapshots in the format that `ast-grep test --update-all` writes.
+/ast-grep/rule-tests/__snapshots__/

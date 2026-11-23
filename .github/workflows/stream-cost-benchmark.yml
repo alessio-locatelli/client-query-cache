@@ -48,7 +48,7 @@ jobs:
       # without adding dev.
       - run: uv sync --locked --no-default-groups --group benchmark
 
-      - run: uv run -- python -m development.benchmarks.stream_cost.run --output-dir benchmark-reports
+      - run: uv run -- python -m development.benchmarks.stream_cost.run --output-dir .cache/benchmark-reports
 
       # The default is implicit success(). We override it because partial reports must
       # remain available after failed measurements.
@@ -56,8 +56,10 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: stream-cost-reports
-          path: benchmark-reports/*.report.v1.json
+          path: .cache/benchmark-reports/*.report.v1.json
           # actions/upload-artifact inputs: https://github.com/actions/upload-artifact/blob/043fb46d1a93c77aae656e7c1c64a875d1fc6a0a/action.yml
+          # include-hidden-files: The default is false. Reports live under .cache.
+          include-hidden-files: true
           # retention-days: The default is inherited repository/organization retention.
           # We override it because intermediate release artifacts and diagnostics need
           # bounded storage lifetimes.

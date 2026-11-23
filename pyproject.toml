@@ -152,7 +152,7 @@ paths = [
   "src/client_query_cache",
   "tests",
   "development/benchmarks",
-  ".vulture_whitelist",
+  "development/.vulture_whitelist",
 ]
 
 [tool.ruff-extra-rules]
@@ -172,3 +172,276 @@ level = "aggressive"
 level = "aggressive"
 [tool.ruff-extra-rules.defined-far-from-use]
 level = "aggressive"
+
+[tool.ruff]
+# Defaults of the options in this file: https://github.com/astral-sh/ruff/blob/0.17.5/crates/ruff_workspace/src/options.rs
+# The default accepts any Ruff version. We override it because an outdated executable, such as a standalone installation, must fail instead of checking with older rules.
+required-version = ">=0.17.5"
+extend-exclude = ["docs/specifications"]
+# The default is false. We override it because explicitly passed hook filenames must still respect the submodule exclusion.
+force-exclude = true
+
+[tool.ruff.lint]
+# The default is false. We override it because quality checks include the selected preview rules.
+preview = true
+# The default is Ruff's default rule set (https://github.com/astral-sh/ruff/blob/0.17.5/crates/ruff_linter/src/settings/mod.rs#L357-L765). We override it because every applicable rule should run unless its accepted exception is listed below.
+select = ["ALL"]
+# For ignore/per-file-ignores, the default is no exclusions from the selected policy
+# (apart from Ruff's conflicting-rule resolution). Each group permits the stated repository idiom.
+ignore = [
+  # The default is enabled by ALL. We override it because detailed public guidance belongs in canonical guides rather than mandatory docstrings on every internal symbol.
+  "D",
+  # The default is enabled by ALL. We override it because Ruff's formatter owns trailing-comma layout.
+  "missing-trailing-comma",
+  # The default is enabled by ALL. We override it because tests and internal invariants use Python assertions.
+  "assert",
+  # The default is enabled by ALL. We override it because test expectations and protocol discriminator comparisons use exact literal values.
+  "magic-value-comparison",
+  # The default is enabled by ALL. We override it because protocol dispatch and scenario tests need explicit branches, exits, and parameter sets beyond generic size limits.
+  "too-many-branches",
+  "too-many-return-statements",
+  "complex-structure",
+  "too-many-statements",
+  "too-many-arguments",
+  # The default is enabled by ALL. We override it because contextual failure messages are written at their raise sites.
+  "raw-string-in-exception",
+  "raise-vanilla-args",
+  # The default is enabled by ALL. We override it because contributor CLIs and benchmark reports write to standard output.
+  "print",
+  # The default is enabled by ALL. We override it because the repository LICENSE supplies the shared copyright notice.
+  "missing-copyright-notice",
+  # Rules from the preview.
+  # The default is enabled by ALL. We override it because lifecycle adapters explicitly invoke native dunder methods.
+  "unnecessary-dunder-call",
+  # The default is enabled by ALL. We override it because benchmark orchestration retains named measurements and resources throughout a run.
+  "too-many-locals",
+  # The default is enabled by ALL. We override it because narrow documented suppressions protect verified tool limitations and safe subprocess calls.
+  "noqa-comments",
+  # The default is enabled by ALL. We override it because shared test setup and environment guards use autouse fixtures.
+  "pytest-fixture-autouse",
+  # The default is enabled by ALL. We override it because automation imports subprocess while call-specific safety checks remain enabled.
+  "suspicious-subprocess-import",
+  # The default is enabled by ALL. We override it because benchmark workload generation needs deterministic non-security randomness.
+  "suspicious-non-cryptographic-random-usage",
+  # The default is enabled by ALL. We override it because explicit exception handlers expose unreachable branches to coverage; contextlib.suppress is banned below.
+  "suppressible-exception",
+]
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+# The default is no banned APIs. We override it because coverage cannot identify an unused suppressed exception handler.
+"contextlib.suppress".msg = "Use try/except: coverage cannot show that a suppressed exception is never raised."
+
+[tool.ruff.lint.per-file-ignores]
+# The default is enabled by ALL. We override it because tests directly exercise private helpers, inspect contracts, and parametrize boolean scenarios.
+"tests/*" = [
+  "private-member-access",
+  "boolean-type-hint-positional-argument",
+  "import-private-name",
+  "shared-clock-mock",
+]
+# The default is enabled by ALL. We override it because benchmarks measure internal cache mechanisms alongside the public API.
+"development/benchmarks/*" = ["private-member-access", "import-private-name"]
+
+# The shared runtime coordinates cache/PyMongo internals across its transport,
+# owner and read adapters; those accesses implement the shared lifecycle contract.
+# The default is enabled by ALL. We override it for these collaborating internals.
+"src/client_query_cache/_shared/*" = [
+  "private-member-access",
+  "import-private-name",
+]
+"src/client_query_cache/*/shared.py" = ["private-member-access"]
+
+# Collection adapters preserve PyMongo's filter keyword.
+"src/client_query_cache/*/collection.py" = ["builtin-argument-shadowing"]
+# Research programs are standalone scripts rather than importable packages.
+"development/research/*" = ["implicit-namespace-package"]
+# The default is enabled by ALL. We override it because these experiments
+# observe stream routing through private modules.
+"development/research/invalidation_scope/*" = ["import-private-name"]
+# Cold child-process imports keep dependency initialization out of the memory baseline;
+# the same workload intentionally accepts both sync and async, raw and cached objects.
+"development/research/process_memory/measure.py" = [
+  "import-outside-top-level",
+  "any-type",
+]
+# The default is enabled by ALL. We override it because the profile-guided training workload
+# and its measurement harness drive the native extension's internal entry points.
+"development/scripts/pgo_training.py" = ["import-private-name"]
+"development/research/native_build_profile/*" = ["import-private-name"]
+
+[tool.ruff.lint.flake8-type-checking]
+# The default is ["typing"]. We override it because public dataclass annotations must resolve at runtime through typing.get_type_hints, so constrained aliases and their metadata stay runtime imports.
+exempt-modules = ["typing", "annotated_types", "client_query_cache._types"]
+
+[tool.mypy]
+# Defaults of the options below: https://github.com/python/mypy/blob/v2.4.1/docs/source/config_file.rst
+# The default is the running interpreter's version. We override it because checks must target the supported Python 3.14 baseline even on newer development interpreters.
+python_version = "3.14"
+# The default is false. We override it because editor navigation needs exact diagnostic columns.
+show_column_numbers = true
+# The default is false. We override it because unreachable branches can conceal dead exception handling.
+warn_unreachable = true
+# The default is false. We override it because local diagnostics should include source snippets and location markers.
+pretty = true
+# The default is false. We override it because the repository requires mypy's full strict checking policy.
+strict = true
+files = ["src/client_query_cache", "tests", "development/benchmarks"]
+
+exclude = "^docs/specifications/"
+
+[tool.coverage.run]
+plugins = ["covdefaults"]
+# The default is thread (https://coverage.readthedocs.io/en/7.16.1/config.html#run-concurrency).
+# We override it because spawned benchmark workers need multiprocessing measurement while thread
+# measurement is retained.
+concurrency = ["multiprocessing", "thread"]
+# The default is false (https://coverage.readthedocs.io/en/7.16.1/config.html#run-sigterm).
+# We override it because measurements from terminated workers must be retained.
+sigterm = true
+omit = [
+  "tests/e2e/*",
+  "tests/memory/*",
+  "development/scripts/*",
+  # Performance acceptance harnesses run without instrumentation.
+  "development/benchmarks/public_shared_cache.py",
+  "development/benchmarks/implementation.py",
+  "development/benchmarks/cached_hit_latency.py",
+  "development/research/process_memory/measure.py",
+  "development/research/invalidation_scope/*",
+  "development/research/native_build_profile/*",
+  "development/research/native_local_integration/*",
+  "tests/benchmark/real_server/test_cache_benefit.py",
+]
+
+[tool.coverage.report]
+exclude_also = ['\# pragma: lax no cover']
+
+[tool.pytest]
+markers = [
+  "unit: tests that do not use MongoDB or a container runtime",
+  "integration: tests that use a disposable MongoDB replica set",
+  "e2e: tests that exercise an installed wheel against disposable MongoDB",
+  "benchmark: tests that take performance measurements",
+  "memory: opt-in allocation regression tests",
+  "limit_memory: enforce a peak allocation ceiling with pytest-memray",
+]
+log_format = "'%(asctime)s, %(levelname)-8s [%(filename)s:%(module)s:%(funcName)s:%(lineno)d] %(message)s'"
+log_date_format = "%M:%S.%f"
+# The default is inherited from Python logging's effective logger level (normally WARNING) (https://github.com/pytest-dev/pytest/blob/9.2.0/src/_pytest/logging.py#L244-L255). We override it because test diagnostics must capture DEBUG events for failure investigation.
+log_level = "10"
+
+log_file = ".cache/pytest/pytest.log"
+# The default is inherited from the effective log_level setting, including CLI overrides. We override it because file diagnostics must retain DEBUG independently of console capture settings.
+log_file_level = "DEBUG"
+# The default is false (https://github.com/pytest-dev/pytest/blob/9.2.0/doc/en/reference/reference.rst#L2437-L2446). We override it because unknown options/markers, duplicate parameter IDs, and unexpected xfail passes must fail validation.
+strict = true
+# -n and --dist defaults: https://github.com/pytest-dev/pytest-xdist/blob/v3.8.0/docs/distribution.rst
+# -m: The default is no marker filter. We override it because allocation tests run in their dedicated opt-in lane.
+# -n: The default is no workers. We override it because correctness tests use the available CPU allocation.
+# --dist: The default is load. We override it because work stealing rebalances slow tests across workers, including tests in the same file.
+addopts = [
+  "--ignore=docs/specifications",
+  "-m",
+  "not memory",
+  "-n",
+  "auto",
+  "--dist=worksteal",
+]
+testpaths = ["tests"]
+
+# Option defaults: https://pytest-asyncio.readthedocs.io/en/v1.4.1/reference/configuration.html
+# The default is strict. We override it because asyncio tests and fixtures are discovered without per-test decorators.
+asyncio_mode = "auto"
+# The default is the async fixture's caching scope when unset. We override it because each async fixture must use a function-scoped event loop, independent of its caching scope.
+asyncio_default_fixture_loop_scope = "function"
+
+# The default is no timeout (https://pypi.org/project/pytest-timeout/2.4.0/). We override it because a stalled test must fail after 30 seconds instead of hanging a worker.
+timeout = "30"
+
+[tool.tox]
+env_list = ["py314", "integration", "e2e", "pymongo-min"]
+
+[tool.tox.env_run_base]
+# The default is uv-venv-runner from tox-uv (https://github.com/tox-dev/tox-uv/blob/1.37.3/src/tox_uv/plugin.py#L31). We override it because correctness lanes must synchronize the committed lockfile.
+runner = "uv-venv-lock-runner"
+# The default is editable for this lock runner (https://github.com/tox-dev/tox-uv/blob/1.37.3/src/tox_uv/_run_lock.py#L73-L78). We override it because tests must exercise an installed wheel rather than an editable source tree.
+package = "wheel"
+commands = [
+  # -m in this lane, integration, e2e and benchmark: The default is the configured marker expression, not
+  # memory. We override it because each lane must select its designated test tier.
+  [
+    "pytest",
+    "-m",
+    "unit and not memory",
+  ],
+]
+
+[tool.tox.env.integration]
+commands = [["pytest", "-m", "integration and not memory"]]
+
+[tool.tox.env.e2e]
+commands = [["pytest", "-m", "e2e and not memory"]]
+
+[tool.tox.env.benchmark]
+commands = [
+  # -n 0: The default is the configured automatic worker count. We override it because latency measurements
+  # must run without competing workers.
+  [
+    "pytest",
+    "-m",
+    "benchmark and not memory",
+    "-n",
+    "0",
+  ],
+]
+
+[tool.tox.env.pymongo-min]
+description = "Test collection reads, cursors, and sessions at the declared PyMongo minimum"
+# The default is the inherited testenv lock runner. We override it because minimum-version validation must resolve direct dependency floors independently of the lockfile.
+runner = "uv-venv-runner"
+# The default is unset, meaning uv's highest-version resolution (https://github.com/tox-dev/tox-uv/blob/1.37.3/src/tox_uv/_installer.py#L82-L88). We override it because this lane validates the published direct dependency lower bounds.
+uv_resolution = "lowest-direct"
+# The default retains satisfying installed versions
+# (https://github.com/astral-sh/uv/blob/0.13.4/crates/uv-cli/src/lib.rs#L7293-L7301).
+# We override it because the dev group can install a newer transitive PyMongo before
+# the wheel's floor is resolved.
+install_command = [
+  "{env:TOX_UV_PATH:uv}",
+  "pip",
+  "install",
+  "--upgrade",
+  "{opts}",
+  "{packages}",
+]
+dependency_groups = ["test"]
+# The default forwards platform/tool variables
+# (https://tox.wiki/en/4.67.5/reference/config.html#pass_env). We override it because
+# disposable MongoDB must use the caller's Docker-compatible runtime, including host
+# Podman.
+pass_env = ["DOCKER_*", "TESTCONTAINERS_*"]
+commands_pre = [
+  [
+    "python",
+    "-c",
+    "import sys; from importlib.metadata import requires, version; from packaging.requirements import Requirement; from packaging.version import Version; from pymongo import AsyncMongoClient; requirement = next(item for item in map(Requirement, requires('client-query-cache')) if item.name == 'pymongo'); minimum = next(item.version for item in requirement.specifier if item.operator == '>='); installed = version('pymongo'); print('Python:', sys.version, '\\nPyMongo:', installed, '\\nDeclared minimum:', minimum); sys.exit(0 if Version(installed) == Version(minimum) else 'Installed PyMongo must equal the declared minimum')",
+  ],
+]
+commands = [
+  # --log-file: The default is .cache/pytest/pytest.log. We override it because minimum-driver
+  # diagnostics must be distinct from locked-driver diagnostics.
+  # --log-file-level: The default is the configured DEBUG level. We override it because
+  # uploaded failure logs need bounded, actionable diagnostics.
+  [
+    "pytest",
+    "@tests/pymongo-compat.args",
+    "--log-file=.cache/pytest/pytest-pymongo-min.log",
+    "--log-file-level=WARNING",
+  ],
+]
+
+[tool.typos.default.extend-words]
+CPY = "CPY"
+# The default flags "nin" as a typo. We override it because MongoDB uses $nin.
+nin = "nin"
+[tool.typos.files]
+extend-exclude = ["docs/specifications"]

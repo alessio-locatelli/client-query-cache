@@ -20,7 +20,7 @@ dev_container := "client-query-cache-dev"
 # The default is inherited from the caller, otherwise unset (https://github.com/astral-sh/uv/blob/0.13.6/crates/uv-static/src/env_vars.rs#L388-L391). We override it because project recipes must reject a stale lockfile.
 export UV_LOCKED := "1"
 # Project-local Cargo tools take precedence over unrelated global installations.
-export PATH := justfile_directory() / ".rust-tools/bin" + ":" + env("PATH")
+export PATH := justfile_directory() / ".cache/rust-tools/bin" + ":" + env("PATH")
 # Cargo check/test and cargo-shear/cargo-deny metadata:
 # https://doc.rust-lang.org/1.100.0/cargo/commands/cargo-test.html#manifest-options
 # --locked in rust-lint, rust-tests, and rust-models: The default permits updating
@@ -101,9 +101,9 @@ setup-rust:
     # with a warning. We override it because the tools deliberately build with that release.
     # --locked: The default resolves dependencies anew. We override it because
     # tool builds must use each release's committed dependency lockfile.
-    cargo +"${rust_toolchain}" install --locked --root .rust-tools cargo-shear --version '={{ shear_version }}'
-    cargo +"${rust_toolchain}" install --locked --root .rust-tools cargo-deny --version '={{ deny_version }}'
-    cargo +"${rust_toolchain}" install --locked --root .rust-tools cargo-llvm-cov --version '={{ llvm_cov_version }}'
+    cargo +"${rust_toolchain}" install --locked --root .cache/rust-tools cargo-shear --version '={{ shear_version }}'
+    cargo +"${rust_toolchain}" install --locked --root .cache/rust-tools cargo-deny --version '={{ deny_version }}'
+    cargo +"${rust_toolchain}" install --locked --root .cache/rust-tools cargo-llvm-cov --version '={{ llvm_cov_version }}'
 
 rust-fmt-check:
     # rustfmt: https://github.com/rust-lang/rustfmt#checking-style-on-a-ci-server
@@ -179,7 +179,7 @@ docs-serve:
     # --only-group docs in docs-serve/docs-build/docs-build-editions: The default is the
     # project and default groups (dev) (https://github.com/astral-sh/uv/blob/0.13.6/crates/uv-cli/src/lib.rs#L6808-L6814). We override it because these
     # commands need only documentation tools.
-    uv run --only-group docs -- zensical serve
+    uv run --only-group docs -- zensical serve -f docs/zensical.toml
 
 docs-build:
     # Option defaults: https://github.com/zensical/zensical/blob/v0.0.74/python/zensical/main.py#L55-L68
@@ -187,7 +187,7 @@ docs-build:
     # rebuild without the prior cache.
     # --strict: The default is false. We override it because publication must fail on
     # warnings, including broken links.
-    uv run --only-group docs -- zensical build --clean --strict
+    uv run --only-group docs -- zensical build -f docs/zensical.toml --clean --strict
 
 docs-build-editions stable_tag="":
     #!/usr/bin/env bash
@@ -309,8 +309,8 @@ test-pymongo-min:
     # tox: https://tox.wiki/en/4.67.5/reference/cli.html
     # -r: The default reuses environments. We override it because each minimum-driver
     # run must resolve the current published dependency floor in a fresh environment.
-    # -e: The default is tox.ini envlist. We override it because this command runs
-    # only the minimum-driver lane.
+    # -e: The default is tox's configured environment list. We override it because this
+    # command runs only the minimum-driver lane.
     exec uv run -- tox run -r -e pymongo-min
 
 test-pymongo-releases:
@@ -334,7 +334,7 @@ test-pymongo-releases:
             printf '::group::pytest with PyMongo %s\n' "${version}"
         fi
         status=0
-        uv run --with "pymongo==${version}" -- pytest @tests/pymongo-compat.args --log-file="pytest-pymongo-releases-${version}.log" --log-file-level=WARNING || status=$?
+        uv run --with "pymongo==${version}" -- pytest @tests/pymongo-compat.args --log-file=".cache/pytest/pytest-pymongo-releases-${version}.log" --log-file-level=WARNING || status=$?
         if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
             printf '::endgroup::\n'
         fi
@@ -348,20 +348,21 @@ test-mongodb-min:
     set -euo pipefail
 
     # pytest: https://github.com/pytest-dev/pytest/blob/9.2.0/doc/en/reference/reference.rst
-    # -m: The default is pytest.ini not memory. We override it because this lane runs
+    # -m: The default is the configured marker expression, not memory. We override it because this lane runs
     # only tests that use MongoDB.
-    # --ignore: The default is pytest.ini specifications only. We override it because
+    # --ignore: The default is the configured exclusion of docs/specifications. We override it because
     # benchmark harnesses run only against the default server.
     # --minimum-mongodb: The default is the docker-compose.yaml server. We override it
     # because this lane tests the minimum supported server.
-    # --log-file: The default is pytest.log. We override it because minimum-server
+    # --log-file: The default is .cache/pytest/pytest.log. We override it because minimum-server
     # diagnostics must be distinct from default-server diagnostics.
-    # --log-file-level: The default is pytest.ini DEBUG. We override it because
+    # --log-file-level: The default is the configured DEBUG level. We override it because
     # uploaded failure logs need bounded, actionable diagnostics.
-    exec just pytest -- -m '(integration or e2e) and not memory' --ignore=tests/benchmark --minimum-mongodb --log-file=pytest-mongodb-min.log --log-file-level=WARNING
+    exec just pytest -- -m '(integration or e2e) and not memory' --ignore=tests/benchmark --minimum-mongodb --log-file=.cache/pytest/pytest-mongodb-min.log --log-file-level=WARNING
 
 build-dev-image:
-    podman build --tag {{ dev_image }} .
+    # Select the contributor definition explicitly so the checkout root stays the build context.
+    podman build --file development/Containerfile --tag {{ dev_image }} .
 
 create-toolbox:
     @if podman container exists {{ dev_container }}; then printf '%s already exists.\n' {{ dev_container }}; else toolbox create --image {{ dev_image }} {{ dev_container }}; fi
@@ -453,13 +454,13 @@ test-memory:
     # ceilings must include Python allocator activity.
     # --capture=no: The default is fd capture. We override it because retained captured
     # output would distort measurements.
-    # --log-level/--log-file-level=CRITICAL: The default is pytest.ini DEBUG. We
+    # --log-level/--log-file-level=CRITICAL: The default is the configured DEBUG level. We
     # override it because retained debug records would distort measurements.
-    # --log-file=/dev/null: The default is pytest.ini pytest.log. We override it because
+    # --log-file=/dev/null: The default is .cache/pytest/pytest.log. We override it because
     # measurement runs must not create persistent diagnostic logs.
-    # --timeout=120: The default is pytest.ini 30s. We override it because profiled
+    # --timeout=120: The default is the configured 30-second timeout. We override it because profiled
     # allocation workloads need a longer bounded runtime.
-    exec uv run --group memory -- pytest tests/memory -m memory -n 0 --memray --trace-python-allocators --memray-bin-path=memory-reports --capture=no --log-level=CRITICAL --log-file=/dev/null --log-file-level=CRITICAL --timeout=120
+    exec uv run --group memory -- pytest tests/memory -m memory -n 0 --memray --trace-python-allocators --memray-bin-path=.cache/memory-reports --capture=no --log-level=CRITICAL --log-file=/dev/null --log-file-level=CRITICAL --timeout=120
 
 test-integration:
     #!/usr/bin/env bash
@@ -467,13 +468,13 @@ test-integration:
 
     # pytest: https://github.com/pytest-dev/pytest/blob/9.2.0/doc/en/reference/reference.rst
     # --log-file-level=WARNING in test-integration/test-e2e/tests_and_coverage:
-    # The default is pytest.ini DEBUG. We override it because uploaded CI logs need
+    # The default is the configured DEBUG level. We override it because uploaded CI logs need
     # warnings/failures without verbose successful-operation traces.
     pytest_log_args=()
     if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
         pytest_log_args=(--log-file-level=WARNING)
     fi
-    # -m: The default is pytest.ini not memory. We override it because this lane runs
+    # -m: The default is the configured marker expression, not memory. We override it because this lane runs
     # integration tests.
     exec just pytest -- -m 'integration and not memory' "${pytest_log_args[@]}"
 
@@ -485,7 +486,7 @@ test-e2e:
     if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
         pytest_log_args=(--log-file-level=WARNING)
     fi
-    # -m: The default is pytest.ini not memory. We override it because this lane runs
+    # -m: The default is the configured marker expression, not memory. We override it because this lane runs
     # end-to-end tests.
     exec just pytest -- -m 'e2e and not memory' "${pytest_log_args[@]}"
 
@@ -506,7 +507,7 @@ latency-chart remote_deployment:
     just pytest -- -n 0 tests/benchmark/real_server/test_cache_benefit.py
     uv run -- python development/scripts/render_latency_chart.py \
         --local-report "${report_dir}/read_heavy-small.report.v1.json" \
-        --real-server-log "{{ justfile_directory() }}/pytest.log" \
+        --real-server-log "{{ justfile_directory() }}/.cache/pytest/pytest.log" \
         --remote-deployment "$1" \
         --cached-hit-report "${report_dir}/cached-hit-latency.json"
     printf 'Benchmark reports: %s\n' "${report_dir}"

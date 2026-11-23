@@ -12,7 +12,7 @@ Authorization policies and Celery task state can lag a write until invalidation 
 
 ## Prerequisites
 
-- A disposable MongoDB deployment meeting the [database requirements](https://alessio-locatelli.github.io/client-query-cache/getting-started/installation/#requirements). The repository's [`docker-compose.yaml`](https://github.com/alessio-locatelli/client-query-cache/blob/main/docker-compose.yaml) starts one on `localhost:27017`, which the examples use by default. To use another deployment, set `MONGODB_URI` to its connection string.
+- A disposable MongoDB deployment meeting the [database requirements](https://alessio-locatelli.github.io/client-query-cache/getting-started/installation/#requirements). The repository's [`docker-compose.yaml`](https://github.com/alessio-locatelli/client-query-cache/blob/main/development/docker-compose.yaml) starts one on `localhost:27017`, which the examples use by default. To use another deployment, set `MONGODB_URI` to its connection string.
 - A host meeting the [platform requirements](https://alessio-locatelli.github.io/client-query-cache/getting-started/installation/#requirements), including the additional requirements for shared caching.
 - [uv](https://docs.astral.sh/uv/). Each example declares its own dependencies, and uv installs them into a separate, cached environment the first time you run it.
 
