@@ -225,9 +225,10 @@ Follow the editing policy in the HTML comment at the top of the [changelog sourc
 `just tests_and_coverage` and `just pytest` include a benchmark that measures the cache's benefit
 against a real, externally hosted MongoDB deployment — for example, a free-tier
 [MongoDB Atlas](https://www.mongodb.com/cloud/atlas/register) cluster. It reads a connection string
-from `REAL_MONGODB_URI` in a `.env` file at the repository root (see `.env.example`), which `uv`
-loads automatically once that file exists. Without a configured `.env`, or in CI, the benchmark
-skips with an explicit reason and every other test still runs.
+from `REAL_MONGODB_URI` in an optional `.env` file at the repository root. Use the
+[example environment file](docs/.env.example) as a template. The test recipe passes the file to
+`uv` when it exists. Without a configured `.env`, or in CI, the benchmark skips with an explicit
+reason and every other test still runs.
 
 Run just this benchmark with:
 
