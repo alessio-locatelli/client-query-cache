@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import logging
 import threading
 from typing import TYPE_CHECKING, Any
@@ -25,6 +26,7 @@ from client_query_cache._core.stream_events import (
     route_change_event,
 )
 from client_query_cache._core.stream_health import (
+    WORKER_FAILURE_MESSAGE,
     RetryBackoff,
     StreamHealth,
     StreamHealthRegistry,
@@ -58,6 +60,7 @@ class DatabaseStreamSupervisor:
         "_backoff",
         "_cache",
         "_database",
+        "_failure_backoff",
         "_health",
         "_health_lock",
         "_lifecycle_lock",
@@ -85,6 +88,7 @@ class DatabaseStreamSupervisor:
         self._cache = cache
         self._metadata_cache = metadata_cache
         self._backoff = backoff if backoff is not None else RetryBackoff()
+        self._failure_backoff = copy.copy(self._backoff)
         self._max_await_time_ms = max_await_time_ms
         self._health = StreamHealth.STARTING
         self._health_lock = threading.Lock()
@@ -198,8 +202,10 @@ class DatabaseStreamSupervisor:
 
     def _set_health(self, health: StreamHealth) -> None:
         with self._lifecycle_lock:
-            if self._stop_event.is_set() and health is StreamHealth.HEALTHY:
+            if self._stop_event.is_set():
                 health = StreamHealth.CLOSED
+            if health is self._health:
+                return
             with self._health_lock:
                 self._cache.set_database_available(
                     self._database.name, available=health is StreamHealth.HEALTHY
@@ -207,6 +213,22 @@ class DatabaseStreamSupervisor:
                 self._health = health
 
     def _run(self) -> None:
+        recovering = False
+        try:
+            while not self._stop_event.is_set():
+                try:
+                    if recovering:
+                        recovering = False
+                        self._recover_after_worker_failure()
+                    self._process_events()
+                except Exception as error:  # noqa: BLE001 - Any worker failure must fail closed.
+                    self._record_worker_failure(error)
+                    recovering = True
+        finally:
+            self._set_health(StreamHealth.CLOSED)
+
+    def _process_events(self) -> None:
+        processed = False
         while not self._stop_event.is_set():
             assert self._stream is not None
             if self._cache.enable_telemetry:
@@ -228,8 +250,26 @@ class DatabaseStreamSupervisor:
             )
             if self._cache.enable_telemetry:
                 self._record_logical_event_bytes(event)
+            if not processed:
+                processed = True
+                self._failure_backoff.reset()
             if must_reopen:
                 self._reopen_after_invalidate()
+
+    def _record_worker_failure(self, error: Exception) -> None:
+        self._set_health(StreamHealth.RECONNECTING)
+        logger.error(
+            WORKER_FAILURE_MESSAGE,
+            self._database.name,
+            extra={"database": self._database.name},
+            exc_info=error,
+        )
+
+    def _recover_after_worker_failure(self) -> None:
+        self._stop_event.wait(self._failure_backoff.next_delay())
+        self._resume_token = None
+        self._clear_namespaces_for_database()
+        self._reopen_with_backoff(use_start_after=False)
 
     def _record_logical_event_bytes(self, event: Mapping[str, Any]) -> None:
         try:

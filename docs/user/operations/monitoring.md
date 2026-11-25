@@ -25,7 +25,7 @@ Measure hit rate alongside request latency, application and MongoDB CPU, and mem
 The remainder of this section describes telemetry-enabled synchronous and asyncio **process-local `CacheManager`** instances.
 
 - **Logging**: every component logs through the standard `logging` module under `client_query_cache.*` logger
-  names (for example, `client_query_cache.synchronous.streams` logs stream reconnects and shutdown warnings). Attach
+  names (for example, `client_query_cache.synchronous.streams` logs stream reconnects, worker errors and shutdown warnings). Attach
   handlers the same way you would for any other library; no separate configuration mechanism exists.
 - **Runtime cache statistics**: `cache_manager.snapshot()` returns an immutable snapshot with the manager's
   lifecycle state, resident bytes, configured budget and max entry size, entry count, and cumulative hits, misses,

@@ -16,6 +16,7 @@ from client_query_cache._core.stream_events import CHANGE_STREAM_HISTORY_LOST_CO
 from client_query_cache._shared.coordinator import SharedCacheOwner
 from client_query_cache._shared.wire import decode_key
 from client_query_cache._types import NonNegativeFloat, NonNegativeInt, PositiveFloat
+from client_query_cache.synchronous import streams as sync_streams
 from development.benchmarks.stream_cost.client import (
     BenchmarkClientTopologyConfig,
     WireCompressor,
@@ -203,6 +204,25 @@ def hold_history(owner: SharedCacheOwner) -> None:
     lose_history(owner, database)
 
 
+def fail_routing(owner: SharedCacheOwner) -> None:
+    supervisor_type = type(owner.streams._supervisors[owner.config.databases[0]])
+    recover = supervisor_type._recover_after_worker_failure
+    route = sync_streams.route_change_event  # type: ignore[attr-defined]
+    _HISTORY_READY.clear()
+
+    def held_recovery(instance: DatabaseStreamSupervisor) -> None:
+        _HISTORY_READY.wait()
+        supervisor_type._recover_after_worker_failure = recover  # type: ignore[method-assign]
+        recover(instance)
+
+    def failing(*_args: object, **_kwargs: object) -> bool:
+        sync_streams.route_change_event = route  # type: ignore[attr-defined]
+        raise RuntimeError("injected routing failure")
+
+    supervisor_type._recover_after_worker_failure = held_recovery  # type: ignore[method-assign,assignment]
+    sync_streams.route_change_event = failing  # type: ignore[attr-defined]
+
+
 def activation_pending(owner: SharedCacheOwner) -> bool:
     with owner._activation_lock:
         return any(state == "pending" for state, _since in owner._activation.values())
@@ -296,6 +316,7 @@ _CONTROL: dict[str, Callable[[SharedCacheOwner, FaultableProxy, Message], object
     ),
     "hold-history": lambda owner, _proxy, _request: hold_history(owner),
     "resume-history": lambda _owner, _proxy, _request: _HISTORY_READY.set(),
+    "fail-routing": lambda owner, _proxy, _request: fail_routing(owner),
     "race-admission": lambda owner, _proxy, request: race_next_admission(
         owner, cast("str", request["race"])
     ),
