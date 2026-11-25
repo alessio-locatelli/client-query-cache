@@ -13,6 +13,10 @@ bodies or OpenSpec. An empty Unreleased section is valid.
 
 ## Unreleased
 
+### Bug fixes
+
+- An unexpected error in a change-stream worker no longer leaves stale cache entries in service. The error is logged with the database name, cache reads for that database bypass while its cached data is cleared, and caching resumes once the stream reopens.
+
 ## [0.14.2] - 2026-11-22
 
 No significant changes.

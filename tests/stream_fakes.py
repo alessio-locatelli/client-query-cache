@@ -1,22 +1,76 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import random
 import threading
+from dataclasses import dataclass, field
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 
 from bson.codec_options import CodecOptions
 
+from client_query_cache._core.stream_events import route_change_event
+from client_query_cache._core.stream_health import RetryBackoff
 from client_query_cache._core.stream_options import MINIMUM_SERVER_VERSION
-from client_query_cache._types import BsonDict, NonNegativeInt
+from client_query_cache._types import BsonDict, NonNegativeFloat, NonNegativeInt
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
+    import pytest
     from pymongo.asynchronous.database import AsyncDatabase
     from pymongo.synchronous.database import Database
 
+    from client_query_cache._core.contracts import LocalCacheCore
+
 SUPPORTED_SERVER_VERSION: list[NonNegativeInt] = [*MINIMUM_SERVER_VERSION, 0]
+FAILING_MARKER = "fail"
+
+
+@dataclass(slots=True)
+class RecordingBackoff(RetryBackoff):
+    attempts: list[NonNegativeInt] = field(default_factory=list)
+
+    def next_delay(
+        self,
+        random_uniform: Callable[
+            [NonNegativeFloat, NonNegativeFloat], NonNegativeFloat
+        ] = random.uniform,
+    ) -> NonNegativeFloat:
+        self.attempts.append(self._attempt)
+        return super().next_delay(random_uniform)
+
+
+def inject_routing_failure(
+    monkeypatch: pytest.MonkeyPatch, streams_module: str
+) -> RuntimeError:
+    failure = RuntimeError("injected routing failure")
+
+    def fail_marked_events(
+        cache: LocalCacheCore,
+        database: str,
+        event: BsonDict,
+        **kwargs: Any,  # noqa: ANN401 - Forward the router's keyword options.
+    ) -> bool:
+        token = event["_id"]
+        assert isinstance(token, dict)
+        if token["tok"].startswith(FAILING_MARKER):
+            raise failure
+        return route_change_event(cache, database, event, **kwargs)
+
+    monkeypatch.setattr(f"{streams_module}.route_change_event", fail_marked_events)
+    return failure
+
+
+def worker_failures(
+    caplog: pytest.LogCaptureFixture, streams_module: str
+) -> list[BaseException | None]:
+    return [
+        None if record.exc_info is None else record.exc_info[1]
+        for record in caplog.records
+        if record.name == streams_module and record.levelno == logging.ERROR
+    ]
 
 
 def _make_server_info(

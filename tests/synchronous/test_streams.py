@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import logging
 import threading
 import time
 import uuid
@@ -35,10 +36,14 @@ from client_query_cache.synchronous.streams import (
     DatabaseStreamSupervisor,
 )
 from tests.stream_fakes import (
+    FAILING_MARKER,
     SUPPORTED_SERVER_VERSION,
+    RecordingBackoff,
     ScriptedDatabase,
     ScriptedStream,
     as_database,
+    inject_routing_failure,
+    worker_failures,
 )
 
 if TYPE_CHECKING:
@@ -427,6 +432,203 @@ def test_retries_with_backoff_after_a_transient_reopen_failure(
     supervisor.start()
     _wait_until(lambda: len(database.watch_calls) == watch_calls_after_recovery)
     _wait_until(lambda: supervisor.healthy)
+
+
+_STREAMS_MODULE = "client_query_cache.synchronous.streams"
+
+
+class _GatedStream(ScriptedStream):
+    __slots__ = ("release",)
+
+    def __init__(self, events: list[object]) -> None:
+        super().__init__(events)
+        self.release = threading.Event()
+
+    def next(self) -> BsonDict:
+        self.release.wait(timeout=2)
+        return super().next()
+
+
+class _GatedBackoff:
+    __slots__ = ("reached", "release")
+
+    def __init__(self) -> None:
+        self.reached = threading.Event()
+        self.release = threading.Event()
+
+    def next_delay(self) -> NonNegativeFloat:
+        self.reached.set()
+        self.release.wait(timeout=2)
+        return 0.0
+
+    def reset(self) -> None:
+        pass
+
+
+@pytest.fixture
+def routing_failure(monkeypatch: pytest.MonkeyPatch) -> RuntimeError:
+    return inject_routing_failure(monkeypatch, _STREAMS_MODULE)
+
+
+@pytest.mark.parametrize("enable_telemetry", [False, True], ids=["disabled", "enabled"])
+def test_a_worker_failure_fences_resident_entries_until_a_cleared_stream_reopens(
+    make_supervisor: Callable[..., DatabaseStreamSupervisor],
+    routing_failure: RuntimeError,
+    caplog: pytest.LogCaptureFixture,
+    *,
+    enable_telemetry: bool,
+) -> None:
+    caplog.set_level(logging.ERROR, logger=_STREAMS_MODULE)
+    failing = _GatedStream([_insert_event(f"{FAILING_MARKER}-1")])
+    database = ScriptedDatabase("db", [failing, ScriptedStream([])])
+    other = ScriptedDatabase("other", [ScriptedStream([])])
+    cache = CacheCore(CacheCoreConfig(enable_telemetry=enable_telemetry))
+    backoff = _GatedBackoff()
+    supervisor = make_supervisor(
+        as_database(database), cache, backoff=cast("RetryBackoff", backoff)
+    )
+    other_supervisor = make_supervisor(as_database(other), cache)
+    supervisor.start()
+    other_supervisor.start()
+    namespace = NamespaceId("db", "coll")
+    primed = cache.begin_identity_admission(namespace, "doc-1")
+    cache.admit_identity(primed, "full", {"v": "primed"})
+    assert cache.lookup_identity(namespace, "doc-1", "full").hit
+    during_outage = cache.begin_identity_admission(namespace, "doc-2")
+    after_recovery = cache.begin_identity_admission(namespace, "doc-3")
+
+    failing.release.set()
+    assert backoff.reached.wait(timeout=2)
+
+    assert supervisor.health_status() is StreamHealthStatus.RECONNECTING
+    assert cache.is_database_available("db") is False
+    if enable_telemetry:
+        assert cache.snapshot().entry_count == 1
+    assert cache.lookup_identity(namespace, "doc-1", "full").hit is False
+    assert cache.admit_identity(during_outage, "full", {"v": "stale"}) is (
+        AdmissionOutcome.DECLINED_UNAVAILABLE
+    )
+    assert other_supervisor.healthy
+    assert cache.is_database_available("other")
+    assert worker_failures(caplog, _STREAMS_MODULE) == [routing_failure]
+    [record] = caplog.records
+    assert record.__dict__["database"] == "db"
+    assert "'db'" in record.getMessage()
+
+    backoff.release.set()
+    _wait_until(lambda: supervisor.healthy)
+
+    assert failing.closed
+    assert "resume_after" not in database.watch_calls[1]
+    assert "start_after" not in database.watch_calls[1]
+    assert cache.lookup_identity(namespace, "doc-1", "full").hit is False
+    assert cache.admit_identity(after_recovery, "full", {"v": "stale"}) is (
+        AdmissionOutcome.DECLINED_UNAVAILABLE
+    )
+    assert _attempt_admission(cache, "db") is AdmissionOutcome.ADMITTED
+
+
+@pytest.mark.parametrize(
+    ("script", "fail_clear", "expected_attempts"),
+    [
+        pytest.param(
+            [
+                ScriptedStream([_insert_event(f"{FAILING_MARKER}-1")]),
+                TypeError("injected reopen failure"),
+                ScriptedStream([]),
+            ],
+            False,
+            [0, 1],
+            id="reopen-fails",
+        ),
+        pytest.param(
+            [
+                ScriptedStream([_insert_event(f"{FAILING_MARKER}-1")]),
+                ScriptedStream([]),
+            ],
+            True,
+            [0, 1],
+            id="clear-fails",
+        ),
+        pytest.param(
+            [
+                ScriptedStream([_insert_event(f"{FAILING_MARKER}-1")]),
+                ScriptedStream([_insert_event(f"{FAILING_MARKER}-2")]),
+                ScriptedStream([]),
+            ],
+            False,
+            [0, 1],
+            id="events-keep-failing",
+        ),
+        pytest.param(
+            [
+                ScriptedStream([_insert_event(f"{FAILING_MARKER}-1")]),
+                ScriptedStream([_insert_event(), _insert_event(f"{FAILING_MARKER}-2")]),
+                ScriptedStream([]),
+            ],
+            False,
+            [0, 0],
+            id="processed-event-resets",
+        ),
+    ],
+)
+@pytest.mark.usefixtures("routing_failure")
+def test_every_worker_recovery_attempt_backs_off(
+    make_supervisor: Callable[..., DatabaseStreamSupervisor],
+    monkeypatch: pytest.MonkeyPatch,
+    script: list[object],
+    fail_clear: bool,
+    expected_attempts: list[NonNegativeInt],
+) -> None:
+    clear = DatabaseStreamSupervisor._clear_namespaces_for_database
+    clears: list[DatabaseStreamSupervisor] = []
+
+    def clear_failing_on_first_recovery(instance: DatabaseStreamSupervisor) -> None:
+        clears.append(instance)
+        if fail_clear and len(clears) == 2:
+            raise TypeError("injected clear failure")
+        clear(instance)
+
+    monkeypatch.setattr(
+        DatabaseStreamSupervisor,
+        "_clear_namespaces_for_database",
+        clear_failing_on_first_recovery,
+    )
+    backoff = RecordingBackoff(base_seconds=0.001, max_seconds=1.0)
+    database = ScriptedDatabase("db", script)
+    supervisor = make_supervisor(as_database(database), CacheCore(), backoff=backoff)
+
+    supervisor.start()
+    _wait_until(lambda: len(database.watch_calls) == len(script) and supervisor.healthy)
+
+    assert backoff.attempts == expected_attempts
+    assert supervisor._thread is not None
+    assert supervisor._thread.is_alive()
+
+
+def test_stopping_during_worker_failure_recovery_stays_closed(
+    make_supervisor: Callable[..., DatabaseStreamSupervisor],
+    routing_failure: RuntimeError,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.ERROR, logger=_STREAMS_MODULE)
+    cache = CacheCore()
+    stream = ScriptedStream([_insert_event(f"{FAILING_MARKER}-1")])
+    database = ScriptedDatabase("db", [stream])
+    supervisor = make_supervisor(as_database(database), cache, backoff=_long_backoff())
+    supervisor.start()
+    _wait_until(lambda: supervisor.health_status() is StreamHealthStatus.RECONNECTING)
+
+    supervisor.stop()
+    supervisor.stop()
+
+    assert supervisor.health_status() is StreamHealthStatus.CLOSED
+    assert cache.is_database_available("db") is False
+    assert stream.closed
+    assert len(database.watch_calls) == 1
+    assert supervisor._thread is not None
+    assert not supervisor._thread.is_alive()
+    assert worker_failures(caplog, _STREAMS_MODULE) == [routing_failure]
 
 
 def test_a_stop_racing_a_successful_reopen_does_not_report_healthy(

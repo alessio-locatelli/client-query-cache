@@ -10,6 +10,7 @@ import signal
 import socket
 import struct
 import time
+from dataclasses import replace
 from typing import TYPE_CHECKING, cast
 
 import bson
@@ -17,6 +18,7 @@ import pytest
 from bson.codec_options import CodecOptions, TypeRegistry
 from pymongo import MongoClient
 
+from client_query_cache._core.codec import encode_value
 from client_query_cache._core.keys import NamespaceId
 from client_query_cache._shared.adapters import (
     METADATA_REFRESH,
@@ -369,6 +371,62 @@ def test_lost_stream_history_clears_entries_and_fences_captures(
 
     wait_for(lambda: owner.counters()["rejected_admissions"] >= 1)
     assert owner.observation()["cache"]["entry_count"] == 0
+
+
+_LEASE_OUTLIVING_TEST_SECONDS = 60.0
+
+
+def test_a_failed_stream_worker_fences_shared_reads_before_progress_expires(
+    client: MongoClient[BsonDict],
+    start_owner: Callable[..., Owner],
+    open_manager: Callable[..., SharedCacheManager[BsonDict]],
+    seeded_database: str,
+) -> None:
+    owner = start_owner(
+        shared_index=replace(_SHARED_INDEX, local_miss_admission=True),
+        progress_expiry_seconds=_LEASE_OUTLIVING_TEST_SECONDS,
+    )
+    manager = open_manager(client, owner, local=True)
+    ready(manager, seeded_database)
+    _prime(manager, owner, seeded_database, 1)
+    socket_capture = select_identity(manager.endpoint, manager, seeded_database, 2)
+    assert socket_capture is not None
+    assert socket_capture["r"] == "miss"
+    local_capture = _local_admission(manager, seeded_database, 3)
+
+    owner.request("fail-routing")
+    client[seeded_database][COLLECTION].update_one(
+        {"_id": 4}, {"$set": {"revision": 1}}
+    )
+    wait_for(lambda: owner.request("sample")["health"] == "reconnecting")
+
+    assert owner.observation()["cache"]["entry_count"] == 1
+    reply = select_identity(manager.endpoint, manager, seeded_database, 1)
+    assert reply is not None
+    assert reply["reason"] == SharedBypassReason.STREAM_UNAVAILABLE
+    assert _local_read(manager, seeded_database, 1) is None
+    owner.request("resume-history")
+    wait_for(lambda: owner.request("sample")["health"] == "healthy")
+    manager.endpoint.send(
+        {
+            "op": "admit",
+            "handle": socket_capture["handle"],
+            "value": bson.encode({"v": {}}),
+        }
+    )
+    manager.endpoint.send(local_capture)
+    wait_for(lambda: owner.counters()["rejected_admissions"] == 2)
+
+    assert owner.observation()["cache"]["entry_count"] == 0
+    assert _local_read(manager, seeded_database, 2) is None
+    assert _local_read(manager, seeded_database, 3) is None
+    collection = manager[seeded_database][COLLECTION]
+    wait_for(
+        lambda: (
+            collection.find_one({"_id": 1}) is not None
+            and _local_read(manager, seeded_database, 1) is not None
+        )
+    )
 
 
 def test_a_killed_worker_releases_its_captures(
@@ -926,6 +984,34 @@ def _local_read(
     manager: SharedCacheManager[BsonDict], database: str, key: int
 ) -> bytes | None:
     return local_read(manager, database, COLLECTION, key)
+
+
+def _local_admission(
+    manager: SharedCacheManager[BsonDict], database: str, key: int
+) -> Message:
+    namespace = NamespaceId(database, COLLECTION)
+    local = manager.local
+    assert local is not None
+    assignment = manager._slots.find(namespace)
+    metadata = manager._metadata.find(namespace)
+    assert assignment is not None
+    assert metadata is not None
+    database_slot, slot, incarnation = assignment
+    token = local.reader.capture(database_slot, slot, metadata.checked_epoch)
+    assert token is not None
+    return {
+        "op": "admit-local",
+        "ns": [database, COLLECTION],
+        "slot": [database_slot, slot],
+        "epoch": metadata.checked_epoch,
+        "incarnation": incarnation,
+        "identity": _local_key(key),
+        "shape": manager.keys.encode(
+            manager[database][COLLECTION]._find_one_default_shape
+        ),
+        "token": token,
+        "value": encode_value({"_id": key, "revision": "stale"}),
+    }
 
 
 def _until(predicate: Callable[[], bool], timeout: float = 10.0) -> float:

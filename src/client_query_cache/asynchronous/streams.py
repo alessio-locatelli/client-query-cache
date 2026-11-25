@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -25,6 +26,7 @@ from client_query_cache._core.stream_events import (
     route_change_event,
 )
 from client_query_cache._core.stream_health import (
+    WORKER_FAILURE_MESSAGE,
     RetryBackoff,
     StreamHealth,
     StreamHealthRegistry,
@@ -71,6 +73,7 @@ class DatabaseStreamSupervisor:
         "_cache",
         "_closed_stream",
         "_database",
+        "_failure_backoff",
         "_health",
         "_max_await_time_ms",
         "_metadata_cache",
@@ -97,6 +100,7 @@ class DatabaseStreamSupervisor:
         self._cache = cache
         self._metadata_cache = metadata_cache
         self._backoff = backoff if backoff is not None else RetryBackoff()
+        self._failure_backoff = copy.copy(self._backoff)
         self._max_await_time_ms = max_await_time_ms
         self._health = StreamHealth.STARTING
         self._stream: AsyncDatabaseChangeStream[Any] | None = None
@@ -144,8 +148,13 @@ class DatabaseStreamSupervisor:
             await self.stop()
             message = "stop() was called while start() was still connecting"
             raise StreamLifecycleError(message)
-        self._set_health(StreamHealth.HEALTHY)
         self._task = asyncio.ensure_future(self._run())
+        self._task.add_done_callback(self._worker_exited)
+        try:
+            await asyncio.sleep(0)
+        except asyncio.CancelledError:
+            await self.stop()
+            raise
 
     def request_stop(self) -> None:
         self._stop_event.set()
@@ -162,6 +171,12 @@ class DatabaseStreamSupervisor:
         await _join_cleanup(self._shutdown_task)
 
     async def _finish_stop(self) -> None:
+        try:
+            await self._cancel_worker()
+        finally:
+            await self._close_stream()
+
+    async def _cancel_worker(self) -> None:
         task = self._task
         if task is not None:
             task.cancel()
@@ -169,6 +184,8 @@ class DatabaseStreamSupervisor:
                 await task
             except asyncio.CancelledError:
                 pass
+
+    async def _close_stream(self) -> None:
         stream = self._stream
         if stream is not None:
             try:
@@ -183,8 +200,10 @@ class DatabaseStreamSupervisor:
         self._set_health(StreamHealth.CLOSED)
 
     def _set_health(self, health: StreamHealth) -> None:
-        if self._stop_event.is_set() and health is StreamHealth.HEALTHY:
+        if self._stop_event.is_set():
             health = StreamHealth.CLOSED
+        if health is self._health:
+            return
         self._cache.set_database_available(
             self._database.name, available=health is StreamHealth.HEALTHY
         )
@@ -218,6 +237,39 @@ class DatabaseStreamSupervisor:
         return True
 
     async def _run(self) -> None:
+        try:
+            self._set_health(StreamHealth.HEALTHY)
+            await self._supervise()
+        finally:
+            self._set_health(StreamHealth.CLOSED)
+
+    async def _supervise(self) -> None:
+        recovering = False
+        while not self._stop_event.is_set():
+            try:
+                if recovering:
+                    recovering = False
+                    await self._recover_after_worker_failure()
+                await self._process_events()
+            except Exception as error:  # noqa: BLE001 - Any worker failure must fail closed.
+                self._record_worker_failure(error)
+                recovering = True
+
+    def _worker_exited(self, task: asyncio.Task[None]) -> None:
+        self._set_health(StreamHealth.CLOSED)
+        if self._stop_event.is_set():
+            return
+        logger.warning(
+            "change stream worker for database %r exited without manager "
+            "shutdown; reads for this database bypass the cache until the "
+            "manager is recreated",
+            self._database.name,
+            extra={"database": self._database.name},
+            exc_info=None if task.cancelled() else task.exception(),
+        )
+
+    async def _process_events(self) -> None:
+        processed = False
         while not self._stop_event.is_set():
             assert self._stream is not None
             if self._cache.enable_telemetry:
@@ -239,8 +291,26 @@ class DatabaseStreamSupervisor:
             )
             if self._cache.enable_telemetry:
                 self._record_logical_event_bytes(event)
+            if not processed:
+                processed = True
+                self._failure_backoff.reset()
             if must_reopen:
                 await self._reopen_after_invalidate()
+
+    def _record_worker_failure(self, error: Exception) -> None:
+        self._set_health(StreamHealth.RECONNECTING)
+        logger.error(
+            WORKER_FAILURE_MESSAGE,
+            self._database.name,
+            extra={"database": self._database.name},
+            exc_info=error,
+        )
+
+    async def _recover_after_worker_failure(self) -> None:
+        await self._interruptible_sleep(self._failure_backoff.next_delay())
+        self._resume_token = None
+        self._clear_namespaces_for_database()
+        await self._reopen_with_backoff(use_start_after=False)
 
     def _record_logical_event_bytes(self, event: Mapping[str, Any]) -> None:
         try:

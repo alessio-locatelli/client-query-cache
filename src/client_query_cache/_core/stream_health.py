@@ -15,6 +15,10 @@ if TYPE_CHECKING:
 DEFAULT_BASE_DELAY_SECONDS = 0.1
 DEFAULT_MAX_DELAY_SECONDS = 30.0
 DEFAULT_MULTIPLIER = 2.0
+WORKER_FAILURE_MESSAGE = (
+    "change stream worker failed for database %r; reads for this database "
+    "bypass the cache while its cached data is cleared and the stream reopens"
+)
 
 
 class StreamHealth(enum.Enum):

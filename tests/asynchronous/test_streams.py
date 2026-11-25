@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
+import logging
 import threading
 import uuid
 from types import SimpleNamespace
@@ -33,7 +34,13 @@ from client_query_cache.asynchronous.streams import (
     ChangeStreamCoordinator,
     DatabaseStreamSupervisor,
 )
-from tests.stream_fakes import SUPPORTED_SERVER_VERSION
+from tests.stream_fakes import (
+    FAILING_MARKER,
+    SUPPORTED_SERVER_VERSION,
+    RecordingBackoff,
+    inject_routing_failure,
+    worker_failures,
+)
 from tests.stream_fakes import AsyncScriptedDatabase as ScriptedDatabase
 from tests.stream_fakes import AsyncScriptedStream as ScriptedStream
 from tests.stream_fakes import as_async_database as as_database
@@ -437,6 +444,289 @@ async def test_retries_with_backoff_after_a_transient_reopen_failure(
     await supervisor.start()
     await _wait_until(lambda: len(database.watch_calls) == watch_calls_after_recovery)
     await _wait_until(lambda: supervisor.healthy)
+
+
+_STREAMS_MODULE = "client_query_cache.asynchronous.streams"
+
+
+class _GatedStream(ScriptedStream):
+    __slots__ = ("release",)
+
+    def __init__(self, events: list[object]) -> None:
+        super().__init__(events)
+        self.release = asyncio.Event()
+
+    async def next(self) -> BsonDict:
+        await self.release.wait()
+        return await super().next()
+
+
+@pytest.fixture
+def routing_failure(monkeypatch: pytest.MonkeyPatch) -> RuntimeError:
+    return inject_routing_failure(monkeypatch, _STREAMS_MODULE)
+
+
+@pytest.mark.parametrize("enable_telemetry", [False, True], ids=["disabled", "enabled"])
+async def test_a_worker_failure_fences_resident_entries_until_a_cleared_stream_reopens(
+    make_supervisor: Callable[..., DatabaseStreamSupervisor],
+    routing_failure: RuntimeError,
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    enable_telemetry: bool,
+) -> None:
+    caplog.set_level(logging.ERROR, logger=_STREAMS_MODULE)
+    recovery_reached = asyncio.Event()
+    release_recovery = asyncio.Event()
+    sleep = DatabaseStreamSupervisor._interruptible_sleep
+
+    async def held_sleep(
+        instance: DatabaseStreamSupervisor, delay: NonNegativeFloat
+    ) -> bool:
+        recovery_reached.set()
+        await release_recovery.wait()
+        return await sleep(instance, delay)
+
+    monkeypatch.setattr(DatabaseStreamSupervisor, "_interruptible_sleep", held_sleep)
+    failing = _GatedStream([_insert_event(f"{FAILING_MARKER}-1")])
+    database = ScriptedDatabase("db", [failing, ScriptedStream([])])
+    other = ScriptedDatabase("other", [ScriptedStream([])])
+    cache = CacheCore(CacheCoreConfig(enable_telemetry=enable_telemetry))
+    supervisor = make_supervisor(as_database(database), cache, backoff=_FAST_BACKOFF)
+    other_supervisor = make_supervisor(as_database(other), cache)
+    await supervisor.start()
+    await other_supervisor.start()
+    namespace = NamespaceId("db", "coll")
+    primed = cache.begin_identity_admission(namespace, "doc-1")
+    cache.admit_identity(primed, "full", {"v": "primed"})
+    assert cache.lookup_identity(namespace, "doc-1", "full").hit
+    during_outage = cache.begin_identity_admission(namespace, "doc-2")
+    after_recovery = cache.begin_identity_admission(namespace, "doc-3")
+
+    failing.release.set()
+    async with asyncio.timeout(2):
+        await recovery_reached.wait()
+
+    assert supervisor.health_status() is StreamHealthStatus.RECONNECTING
+    assert cache.is_database_available("db") is False
+    if enable_telemetry:
+        assert cache.snapshot().entry_count == 1
+    assert cache.lookup_identity(namespace, "doc-1", "full").hit is False
+    assert cache.admit_identity(during_outage, "full", {"v": "stale"}) is (
+        AdmissionOutcome.DECLINED_UNAVAILABLE
+    )
+    assert other_supervisor.healthy
+    assert cache.is_database_available("other")
+    assert worker_failures(caplog, _STREAMS_MODULE) == [routing_failure]
+    [record] = caplog.records
+    assert record.__dict__["database"] == "db"
+    assert "'db'" in record.getMessage()
+
+    release_recovery.set()
+    await _wait_until(lambda: supervisor.healthy)
+
+    assert failing.closed
+    assert "resume_after" not in database.watch_calls[1]
+    assert "start_after" not in database.watch_calls[1]
+    assert cache.lookup_identity(namespace, "doc-1", "full").hit is False
+    assert cache.admit_identity(after_recovery, "full", {"v": "stale"}) is (
+        AdmissionOutcome.DECLINED_UNAVAILABLE
+    )
+    assert _attempt_admission(cache, "db") is AdmissionOutcome.ADMITTED
+
+
+@pytest.mark.parametrize(
+    ("script", "fail_clear", "expected_attempts"),
+    [
+        pytest.param(
+            [
+                ScriptedStream([_insert_event(f"{FAILING_MARKER}-1")]),
+                TypeError("injected reopen failure"),
+                ScriptedStream([]),
+            ],
+            False,
+            [0, 1],
+            id="reopen-fails",
+        ),
+        pytest.param(
+            [
+                ScriptedStream([_insert_event(f"{FAILING_MARKER}-1")]),
+                ScriptedStream([]),
+            ],
+            True,
+            [0, 1],
+            id="clear-fails",
+        ),
+        pytest.param(
+            [
+                ScriptedStream([_insert_event(f"{FAILING_MARKER}-1")]),
+                ScriptedStream([_insert_event(f"{FAILING_MARKER}-2")]),
+                ScriptedStream([]),
+            ],
+            False,
+            [0, 1],
+            id="events-keep-failing",
+        ),
+        pytest.param(
+            [
+                ScriptedStream([_insert_event(f"{FAILING_MARKER}-1")]),
+                ScriptedStream([_insert_event(), _insert_event(f"{FAILING_MARKER}-2")]),
+                ScriptedStream([]),
+            ],
+            False,
+            [0, 0],
+            id="processed-event-resets",
+        ),
+    ],
+)
+@pytest.mark.usefixtures("routing_failure")
+async def test_every_worker_recovery_attempt_backs_off(
+    make_supervisor: Callable[..., DatabaseStreamSupervisor],
+    monkeypatch: pytest.MonkeyPatch,
+    script: list[object],
+    fail_clear: bool,
+    expected_attempts: list[NonNegativeInt],
+) -> None:
+    clear = DatabaseStreamSupervisor._clear_namespaces_for_database
+    clears: list[DatabaseStreamSupervisor] = []
+
+    def clear_failing_on_first_recovery(instance: DatabaseStreamSupervisor) -> None:
+        clears.append(instance)
+        if fail_clear and len(clears) == 2:
+            raise TypeError("injected clear failure")
+        clear(instance)
+
+    monkeypatch.setattr(
+        DatabaseStreamSupervisor,
+        "_clear_namespaces_for_database",
+        clear_failing_on_first_recovery,
+    )
+    backoff = RecordingBackoff(base_seconds=0.001, max_seconds=1.0)
+    database = ScriptedDatabase("db", script)
+    supervisor = make_supervisor(as_database(database), CacheCore(), backoff=backoff)
+
+    await supervisor.start()
+    await _wait_until(
+        lambda: len(database.watch_calls) == len(script) and supervisor.healthy
+    )
+
+    assert backoff.attempts == expected_attempts
+    assert supervisor._task is not None
+    assert not supervisor._task.done()
+
+
+async def test_stopping_during_worker_failure_recovery_stays_closed(
+    make_supervisor: Callable[..., DatabaseStreamSupervisor],
+    routing_failure: RuntimeError,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.WARNING, logger=_STREAMS_MODULE)
+    cache = CacheCore()
+    stream = ScriptedStream([_insert_event(f"{FAILING_MARKER}-1")])
+    database = ScriptedDatabase("db", [stream])
+    supervisor = make_supervisor(as_database(database), cache, backoff=_long_backoff())
+    await supervisor.start()
+    await _wait_until(
+        lambda: supervisor.health_status() is StreamHealthStatus.RECONNECTING
+    )
+
+    await supervisor.stop()
+    await supervisor.stop()
+
+    assert supervisor.health_status() is StreamHealthStatus.CLOSED
+    assert cache.is_database_available("db") is False
+    assert stream.closed
+    assert len(database.watch_calls) == 1
+    assert supervisor._task is not None
+    assert supervisor._task.cancelled()
+    assert worker_failures(caplog, _STREAMS_MODULE) == [routing_failure]
+    assert len(caplog.records) == 1
+
+
+@pytest.mark.parametrize("started", [False, True], ids=["before-first-run", "running"])
+async def test_an_unrequested_worker_cancellation_withdraws_availability_on_exit(
+    make_supervisor: Callable[..., DatabaseStreamSupervisor],
+    caplog: pytest.LogCaptureFixture,
+    *,
+    started: bool,
+) -> None:
+    caplog.set_level(logging.WARNING, logger=_STREAMS_MODULE)
+    cache = _mock_cache()
+    stream = ScriptedStream([])
+    transitions: list[tuple[bool, bool]] = []
+
+    async def cancel_before_first_run(_index: NonNegativeInt) -> None:  # noqa: RUF029 - Satisfy the awaited callback interface.
+        if not started:
+            asyncio.get_running_loop().call_soon(lambda: worker().cancel())
+
+    supervisor = make_supervisor(
+        as_database(
+            ScriptedDatabase("db", [stream], before_watch=cancel_before_first_run)
+        ),
+        cache,
+    )
+
+    def worker() -> asyncio.Task[None]:
+        assert supervisor._task is not None
+        return supervisor._task
+
+    def record_transition(_database: str, *, available: bool) -> None:
+        transitions.append(
+            (available, supervisor._task is not None and supervisor._task.done())
+        )
+
+    cache.set_database_available.side_effect = record_transition
+    await supervisor.start()
+    if started:
+        assert supervisor.healthy
+        worker().cancel()
+    await _wait_until(lambda: supervisor.health_status() is StreamHealthStatus.CLOSED)
+    await supervisor.stop()
+
+    assert worker().cancelled()
+    if started:
+        withdrawal = transitions[transitions.index((True, False)) + 1]
+        assert withdrawal == (False, False)
+    else:
+        assert all(not available for available, _done in transitions)
+    assert stream.closed
+    [record] = caplog.records
+    assert record.levelno == logging.WARNING
+    assert record.exc_info is None
+    assert record.__dict__["database"] == "db"
+
+
+async def test_stop_closes_the_stream_of_a_failed_worker_task(
+    routing_failure: RuntimeError,
+) -> None:
+    cache = _mock_cache()
+    stream = ScriptedStream([_insert_event(f"{FAILING_MARKER}-1")])
+    supervisor = DatabaseStreamSupervisor(
+        as_database(ScriptedDatabase("db", [stream])), cache
+    )
+    transition_failure = RuntimeError("injected availability failure")
+    pending_failures = [transition_failure]
+    became_available = False
+
+    def fail_first_withdrawal(_database: str, *, available: bool) -> None:
+        nonlocal became_available
+        if available:
+            became_available = True
+        elif became_available and pending_failures:
+            raise pending_failures.pop()
+
+    cache.set_database_available.side_effect = fail_first_withdrawal
+    await supervisor.start()
+    await _wait_until(lambda: supervisor._task is not None and supervisor._task.done())
+
+    for _ in range(2):
+        with pytest.raises(RuntimeError) as failure:
+            await supervisor.stop()
+        assert failure.value is transition_failure
+
+    assert stream.closed
+    assert supervisor.health_status() is StreamHealthStatus.CLOSED
+    assert failure.value.__context__ is routing_failure
 
 
 async def test_a_stop_racing_a_successful_reopen_does_not_report_healthy(
@@ -966,6 +1256,32 @@ async def test_start_closes_and_fails_when_cancelled_while_connecting(
 
     assert supervisor.healthy is False
     assert len(database.watch_calls) == 0
+
+
+async def test_start_stops_its_worker_when_cancelled_after_launching_it(
+    make_supervisor: Callable[..., DatabaseStreamSupervisor],
+) -> None:
+    cache = CacheCore()
+    stream = ScriptedStream([])
+    starting: list[asyncio.Future[None]] = []
+
+    async def cancel_after_launch(_index: NonNegativeInt) -> None:  # noqa: RUF029 - Satisfy the awaited callback interface.
+        asyncio.get_running_loop().call_soon(starting[0].cancel)
+
+    supervisor = make_supervisor(
+        as_database(ScriptedDatabase("db", [stream], before_watch=cancel_after_launch)),
+        cache,
+    )
+    starting.append(asyncio.ensure_future(supervisor.start()))
+
+    with pytest.raises(asyncio.CancelledError):
+        await starting[0]
+
+    assert supervisor._task is not None
+    assert supervisor._task.done()
+    assert stream.closed
+    assert supervisor.health_status() is StreamHealthStatus.CLOSED
+    assert cache.is_database_available("db") is False
 
 
 async def test_a_fresh_start_clears_cache_state_left_over_from_before_it_existed(
