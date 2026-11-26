@@ -37,6 +37,7 @@ _FAST_WINDOWS = (
 
 
 @pytest.mark.timeout(300)
+@pytest.mark.usefixtures("unpaced_compression_writes")
 def test_run_compression_matrix_produces_a_valid_report_and_decision() -> None:
     report = run_compression_matrix(
         windows=_FAST_WINDOWS,
