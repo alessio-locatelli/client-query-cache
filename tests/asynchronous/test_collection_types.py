@@ -286,3 +286,70 @@ async def test_collection_type_is_rechecked_after_absence(
     after = cache.snapshot()
     assert after.hits - before.hits == (1 if replacement == "collection" else 0)
     assert after.entry_count == (1 if replacement == "collection" else 0)
+
+
+@pytest.mark.parametrize(
+    "creation",
+    ["explicit", "implicit", "rename"],
+    ids=["explicit", "implicit", "rename"],
+)
+@pytest.mark.parametrize("cache_manager", [True], indirect=True, ids=["telemetry"])
+async def test_timeseries_replacement_resumes_caching(
+    collection: CachedCollection[BsonDict],
+    measurement: BsonDict,
+    creation: Literal["explicit", "implicit", "rename"],
+    stream_barrier: StreamBarrier,
+) -> None:
+    cache = collection.database.manager.cache_core
+    query = {"_id": measurement["_id"]}
+    assert await collection.find_one(query) is None
+    assert any(
+        record.reason is BypassReason.TIME_SERIES_COLLECTION and record.count == 1
+        for record in cache.snapshot().bypass_reasons
+    )
+
+    await collection.raw.drop()
+    if creation == "rename":
+        source = collection.raw.database["replacement"]
+        await source.insert_one(measurement)
+        await source.rename(collection.name)
+    else:
+        if creation == "explicit":
+            await create_collection(collection, "collection")
+        await collection.raw.insert_one(measurement)
+    await stream_barrier.wait_async(collection.raw.database)
+
+    assert await collection.find_one(query) == measurement
+    assert cache.snapshot().hits == 0
+    assert await collection.find_one(query) == measurement
+    assert cache.snapshot().hits == 1
+
+
+@pytest.mark.parametrize("collection", ["collection"], indirect=True, ids=["ordinary"])
+@pytest.mark.parametrize("cache_manager", [True], indirect=True, ids=["telemetry"])
+async def test_replacing_cached_collection_with_timeseries_bypasses(
+    collection: CachedCollection[BsonDict],
+    measurement: BsonDict,
+    stream_barrier: StreamBarrier,
+) -> None:
+    cache = collection.database.manager.cache_core
+    original = {"_id": measurement["_id"]}
+    await collection.raw.insert_one(original)
+    assert await collection.find_one(original) == original
+    assert await collection.find_one(original) == original
+    assert cache.snapshot().hits == 1
+
+    await collection.raw.drop()
+    await create_collection(collection, "timeseries")
+    await collection.raw.insert_one(measurement)
+    await stream_barrier.wait_async(collection.raw.database)
+
+    assert await collection.find_one(original) == measurement
+    assert await collection.find_one(original) == measurement
+    after = cache.snapshot()
+    assert after.hits == 1
+    assert after.entry_count == 0
+    assert any(
+        record.reason is BypassReason.TIME_SERIES_COLLECTION and record.count == 2
+        for record in after.bypass_reasons
+    )

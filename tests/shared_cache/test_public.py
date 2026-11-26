@@ -54,7 +54,7 @@ from client_query_cache.asynchronous import (
 from client_query_cache.asynchronous import (
     SharedCacheManager as AsyncSharedCacheManager,
 )
-from tests.polling import wait_until, wait_until_value_async
+from tests.polling import wait_until, wait_until_async, wait_until_value_async
 from tests.shared_cache.conftest import reason_totals, wait_for
 
 if TYPE_CHECKING:
@@ -401,6 +401,72 @@ async def test_public_shared_reads_invalidate_and_reconnect(
         assert await _read(view, {"_id": 0}) == document
         assert time.monotonic() < deadline
         await asyncio.sleep(0.02)
+
+
+async def test_timeseries_replacement_resumes_caching(
+    manager: SharedCacheManager[BsonDict] | AsyncSharedCacheManager[BsonDict],
+    seeded_database: DatabaseName,
+    client: MongoClient[BsonDict],
+) -> None:
+    await _warm(manager, manager[seeded_database]["catalogue"])
+    database = client[seeded_database]
+    collection = database.create_collection(
+        "measurements", timeseries={"timeField": "timestamp"}
+    )
+    view = manager[seeded_database][collection.name]
+    query = {"_id": 0}
+    assert await _read(view, query) is None
+    assert (
+        reason_totals(manager.snapshot())[SharedBypassReason.TIME_SERIES_COLLECTION]
+        == 1
+    )
+
+    collection.drop()
+    database.create_collection(collection.name)
+    replacement: BsonDict = {"_id": 0, "value": 42}
+    collection.insert_one(replacement)
+    hits_before = manager.snapshot().hits
+
+    async def has_cache_hit() -> bool:
+        assert await _read(view, query) == replacement
+        return manager.snapshot().hits > hits_before
+
+    await wait_until_async(has_cache_hit)
+
+
+async def test_replacing_cached_collection_with_timeseries_bypasses(
+    manager: SharedCacheManager[BsonDict] | AsyncSharedCacheManager[BsonDict],
+    seeded_database: DatabaseName,
+    client: MongoClient[BsonDict],
+    faker: Faker,
+) -> None:
+    database = client[seeded_database]
+    view = manager[seeded_database]["catalogue"]
+    await _warm(manager, view)
+    assert (await _answered_owner_snapshot(manager)).index_entries.in_use > 0
+
+    database.drop_collection(view.name)
+    collection = database.create_collection(
+        view.name, timeseries={"timeField": "timestamp"}
+    )
+    replacement: BsonDict = {
+        "_id": 0,
+        "timestamp": faker.date_time().replace(microsecond=0),
+    }
+    collection.insert_one(replacement)
+    # Observe the owner's eviction of the warmed entry before probing the replacement.
+    await wait_until_value_async(
+        lambda: _owner_snapshot(manager),
+        lambda snapshot: snapshot is not None and snapshot.index_entries.in_use == 0,
+    )
+
+    before = manager.snapshot()
+    assert await _read(view, {"_id": 0}) == replacement
+    assert await _read(view, {"_id": 0}) == replacement
+    after = manager.snapshot()
+    assert after.hits == before.hits
+    assert after.bypasses == before.bypasses + 2
+    assert reason_totals(after)[SharedBypassReason.TIME_SERIES_COLLECTION] > 0
 
 
 @pytest.mark.parametrize(
