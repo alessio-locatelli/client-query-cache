@@ -108,6 +108,16 @@ Explicit find batching before execution and aggregate `batchSize` at invocation 
 
 A started hit consumes one isolated snapshot, even if a write, stream interruption, eviction, or manager closure follows. Hit metadata reports `cursor_id == 0`, `address is None`, and `session is None`; `alive` reflects unread documents. A find hit's `collection` is the wrapped PyMongo collection, and `retrieved` counts documents loaded into its buffer. Hits skip server query execution, so they cannot reproduce fresh server/network errors or server-side query effects. Use `.raw` whenever execution itself is required.
 
+The manager asynchronously invalidates affected results when it processes a write's
+change-stream event. A subsequent eligible read can fetch and cache a new result.
+See [read after write](../usage/consistency.md#read-after-write) for reads that must
+observe a preceding write.
+
+By default, each collection write invalidates all cached `find()`, `aggregate()`,
+`count_documents()`, `distinct()`, and `estimated_document_count()` results for
+that collection. Opt-in [selective invalidation](#selective-invalidation) can
+preserve eligible `find()` and `count_documents()` results.
+
 ## Single-document reads
 
 Both synchronous and asyncio views accept
@@ -128,6 +138,8 @@ Use `await` with the same arguments on an asyncio view. `sort` accepts a sequenc
 with directions `1` or `-1`; collation accepts a PyMongo `Collation` or a dictionary. Omitting collation uses
 the collection default. Sorting follows MongoDB's ordering guarantees, including its handling of ties.
 Different filters, projections, sorts, collations and decoding options retain their own results.
+Additional keyword options execute directly through PyMongo. Malformed arguments
+preserve the driver's errors.
 
 `find_one()` filters that pin `_id` to an exact value under simple collation, alone or with additional
 predicates, and qualifying unique-index `find_one()` reads can retain a cached result after writes to other
@@ -135,15 +147,9 @@ documents. For example, `cached_collection.find_one({"_id": order_id, "customer_
 keeps its cached result when another order changes. Partial, sparse and hashed indexes do not qualify for this optimization.
 Unique-index collation must have a confirmed match: inherited defaults and fully specified explicit matches
 qualify; an explicit collation with omitted defaults may use collection-wide invalidation instead.
-Other eligible single-document queries are refreshed after any write to the collection, including writes
-that could introduce a match for a cached missing result. Every `find()`, `aggregate()`,
-`count_documents()`, `distinct()` and `estimated_document_count()` result is also refreshed after any
-write to the collection.
 
-Cache invalidation is eventual. A cached read can return its previous value until the manager processes
-the relevant change-stream event. Use the PyMongo collection or a session-bound read when you need to
-immediately observe a preceding write. Additional keyword options execute directly through PyMongo;
-malformed arguments preserve the driver's errors.
+For all other eligible `find_one()` queries, any write to the collection
+invalidates the cached result, including a cached miss.
 
 ## Bypass conditions
 
@@ -157,7 +163,7 @@ it safely isn't possible:
 - An aggregation pipeline joins another collection, writes, reports live statistics, or is otherwise
   nondeterministic (for example a `$sample` stage or a `$rand` expression).
 - A `find_one`, `find`, `count_documents`, or `distinct` filter is nondeterministic.
-- A read depends on indexes or on the caller's roles: `$text` and geospatial proximity (`$near`, `$nearSphere`, `$geoNear`) queries, and filters, projections, or pipelines that reference `$$USER_ROLES`. Index creation and deletion refresh cached query results, but index visibility changes and changes to a user's roles do not.
+- A read depends on indexes or on the caller's roles: `$text` and geospatial proximity (`$near`, `$nearSphere`, `$geoNear`) queries, and filters, projections, or pipelines that reference `$$USER_ROLES`. Index creation and deletion invalidate affected cached query results once the manager processes the events. Index visibility and user role changes leave cached results in place.
 - A `find_one` or `find` projection uses `$meta`, or computes a changing value with `$rand`, `$function`, `$$NOW`, or `$$CLUSTER_TIME`.
 - [Time-series collections](https://www.mongodb.com/docs/manual/core/timeseries/timeseries-limitations/) always bypass caching.
   If an ordinary collection takes over the same name, eligible reads can be cached by the existing manager
