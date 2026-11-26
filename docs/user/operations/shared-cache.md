@@ -49,6 +49,8 @@ An asyncio worker uses `async with AsyncMongoClient(...) as client, SharedCacheM
 
 Close managers before clients, stop workers, then close the server. Pass only `cache_server.connection` to workers. Clients, managers and server handles must not be reused after fork. Never start a server in each FastAPI lifespan: that produces independent caches. If the application supervisor cannot own and distribute one connection, use process-local managers.
 
+To disable shared caching, follow [Rollback to plain PyMongo](../reference/api.md#rollback-to-plain-pymongo).
+
 ## Which reads share data?
 
 The [shared-read contract](../reference/shared-cache.md#worker-managers-and-reads) defines eligible queries, supported options, direct-read fallback and admission behavior. Use it to check whether your application's read mix can benefit from sharing.
