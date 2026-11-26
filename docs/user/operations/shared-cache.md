@@ -10,7 +10,11 @@ Check the [package, shared-host and MongoDB requirements](../getting-started/ins
 
 ## Startup and shutdown
 
-Run the [FastAPI and Granian application](../examples/fastapi-shared.md) for a complete multi-process integration. Its parent starts the server once and passes `cache_server.connection` through a picklable application loader. Each worker's lifespan creates its client and attaches its manager.
+### Who starts and stops the processes?
+
+The application parent creates one `SharedCacheServer`, then starts the workers and gives them the cache server's connection. A process supervisor is the program that starts the application and can restart it after a crash. In this setup, it manages the parent and workers as a group.
+
+Run the [FastAPI and Granian example](../examples/fastapi-shared.md) to see this setup. Each worker opens its own PyMongo client and attaches to the shared cache.
 
 The same ownership pattern works for background workers:
 
@@ -47,7 +51,7 @@ This small program demonstrates ownership, not a guaranteed hit: the document mu
 
 An asyncio worker uses `async with AsyncMongoClient(...) as client, SharedCacheManager(client, connection) as manager` with the manager from `client_query_cache.asynchronous`. Alternatively, call `await SharedCacheManager.attach(client, connection)` and later `await manager.close()`. Construct and use that manager in one event loop.
 
-Close managers before clients, stop workers, then close the server. Pass only `cache_server.connection` to workers. Clients, managers and server handles must not be reused after fork. Never start a server in each FastAPI lifespan: that produces independent caches. If the application supervisor cannot own and distribute one connection, use process-local managers.
+Close managers before clients, stop workers, then close the server. Pass only `cache_server.connection` to workers. Clients, managers and server handles must not be reused after fork. Never start a server in each FastAPI lifespan: that produces independent caches. If the application parent cannot pass the same connection to every worker, use process-local managers.
 
 To disable shared caching, follow [Rollback to plain PyMongo](../reference/api.md#rollback-to-plain-pymongo).
 
@@ -82,7 +86,17 @@ For read-after-write and authorization decisions, follow the [consistency guidan
 
 If the owner silently stalls, hits stop within three seconds of its last successful upstream stream poll. That is an outage safeguard, not a maximum write-to-invalidation delay. Detected transport disconnects disable the affected mapping immediately. During temporary owner outages, workers use their own clients for direct reads, with bounded attachment attempts and retry cooldowns. The database operation still depends on the client's timeouts and can fail.
 
-Use [`cache_server.restart()`](../reference/shared-cache.md#server-and-connection) for explicit cache-owner recovery. There is no automatic election or cross-host failover. Parent loss stops the owner. See the [API failure reference](../reference/shared-cache.md#diagnostics-and-failures) for errors that require application or operator action.
+### Recover a worker group
+
+On a supported Linux host, use a [process supervisor](#who-starts-and-stops-the-processes) to manage the application parent and its workers together. Shared caching has no automatic failover. Workers cannot take over as owner or switch to a cache on another host.
+
+During recovery, keep sending traffic to the affected group if direct MongoDB reads can meet your latency and throughput requirements. Otherwise, stop routing production traffic to the group and verify cache hits with representative reads before restoring traffic. [Enable telemetry on the server](monitoring.md) to inspect [worker hit counts and owner snapshots](monitoring.md#shared-manager-diagnostics). Healthy change streams show that cache hits are possible. Use worker hit counts to confirm that they occur.
+
+- **Owner exits while the parent is running.** Have the parent call [`cache_server.restart()`](../reference/shared-cache.md#server-and-connection) whether the workers are serving production traffic or waiting for recovery. The replacement starts with an empty cache at the same endpoint. Existing workers reconnect on later reads and fill it again. If the replacement owner fails to start, the restart closes the server. Check the [API failure reference](../reference/shared-cache.md#diagnostics-and-failures), resolve the cause, and replace the group as for parent loss.
+- **Parent exits.** The owner stops. Have the supervisor stop any surviving workers from that group and launch a new application parent. The new parent starts its own server and distributes its new [private connection](#security-and-monitoring) to its replacement workers.
+- **Roll out a replacement.** Start a new parent and worker group with their own cache. Check that the new group can handle traffic before routing requests to it. Stop sending new requests to the old group, let it finish the requests it already has, and follow the [shutdown order](#startup-and-shutdown). While both groups are running, budget for extra MongoDB reads as the new cache fills and for one change stream per active database in each owner. For example, 20 worker groups reading from the same database can open 20 streams for it, plus one for each overlapping replacement group that reads from it.
+
+Each group is independent. For workloads that require shared cache state across hosts, compare [caching approaches](../getting-started/should-you-use-this.md#choose-the-caching-layer).
 
 ## Security and monitoring
 
