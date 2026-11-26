@@ -206,6 +206,22 @@ class CalibrationSeries:
             for sample in all_rounds
         )
 
+    def validate_window(self, *, tolerance_seconds: NonNegativeFloat) -> None:
+        if self.has_election_change:
+            raise BenchmarkSetupError("primary election changed during window")
+        if self.has_host_clock_step(tolerance_seconds=tolerance_seconds):
+            message = (
+                f"host wall clock stepped beyond {tolerance_seconds:g} s "
+                "during calibration window"
+            )
+            raise BenchmarkSetupError(message)
+        if self.exceeds_drift_tolerance(tolerance_seconds):
+            message = (
+                f"clock offset drift exceeded the {tolerance_seconds:g} s tolerance "
+                "during calibration window"
+            )
+            raise BenchmarkSetupError(message)
+
 
 def validate_cadence(
     cadence_seconds: float, threshold_seconds: float, *, max_fraction: float = 0.1

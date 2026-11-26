@@ -5,11 +5,13 @@ import time
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
+from unittest.mock import Mock
 
 import psutil
 import pytest
 
 from client_query_cache._types import JsonDict
+from development.benchmarks.stream_cost.calibration import CalibrationSeries
 from development.benchmarks.stream_cost.errors import BenchmarkSetupError
 from development.benchmarks.stream_cost.shared_cache import window
 from development.benchmarks.stream_cost.shared_cache.protocol import (
@@ -163,19 +165,18 @@ def test_ready_checks_reject_unexpected_stream_ownership(
         window._verify_ready(group, cell, workload, ready, time.monotonic() + 1)
 
 
-class _ShiftedCalibration:
-    __slots__ = ()
-
-    # Implements the calibration API with a fixed changed-clock response.
-    def exceeds_drift_tolerance(self, _tolerance: float) -> bool:  # noqa: PLR6301
-        return True
-
-
 def test_active_windows_reject_clock_changes(registration: Registration) -> None:
     cell = next(cell for cell in smoke_cells(registration) if cell.workload == "active")
+    calibration = Mock(spec=CalibrationSeries)
+    message = "clock drift exceeded"
+    calibration.validate_window.side_effect = BenchmarkSetupError(message)
 
-    with pytest.raises(BenchmarkSetupError, match="clock or primary changed"):
-        window._check_clock(registration, cell, _ShiftedCalibration())  # type: ignore[arg-type]
+    with pytest.raises(BenchmarkSetupError, match=message):
+        window._check_clock(registration, cell, calibration)
+
+    calibration.validate_window.assert_called_once_with(
+        tolerance_seconds=registration.number("clock_tolerance_seconds")
+    )
 
 
 def test_failed_worker_commands_reject_the_window() -> None:

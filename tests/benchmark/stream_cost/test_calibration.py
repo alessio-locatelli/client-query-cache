@@ -10,6 +10,7 @@ from pymongo.errors import ConnectionFailure
 
 from client_query_cache._types import (
     BsonDict,
+    NonEmptyStr,
     NonNegativeFloat,
     NonNegativeInt,
     PositiveFloat,
@@ -378,6 +379,27 @@ def _point_with_readings(
 ) -> CalibrationPoint:
     sample = _sample_with_readings(wall_t0=wall_t0, monotonic_t0=monotonic_t0)
     return CalibrationPoint(selected=sample, rounds=(sample,))
+
+
+@pytest.mark.parametrize(
+    ("later", "message"),
+    [
+        (_point(election_id="new-primary"), "primary election changed"),
+        (
+            _point_with_readings(wall_t0=0.01, monotonic_t0=0.0),
+            r"host wall clock stepped beyond 0\.005 s",
+        ),
+        (_point(offset=10.01), r"clock offset drift exceeded the 0\.005 s"),
+    ],
+    ids=["election", "host-clock-step", "offset-drift"],
+)
+def test_validate_window_identifies_invalid_calibration(
+    later: CalibrationPoint, message: NonEmptyStr
+) -> None:
+    series = CalibrationSeries(points=(_point(), later))
+
+    with pytest.raises(BenchmarkSetupError, match=message):
+        series.validate_window(tolerance_seconds=0.005)
 
 
 @pytest.mark.parametrize(

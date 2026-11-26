@@ -505,13 +505,10 @@ def _drain_owner(
 def _check_clock(
     registration: Registration, cell: Cell, calibration: CalibrationSeries
 ) -> None:
-    tolerance = registration.number("clock_tolerance_seconds")
-    if cell.workload == "active" and (
-        calibration.exceeds_drift_tolerance(tolerance)
-        or calibration.has_host_clock_step(tolerance_seconds=tolerance)
-        or calibration.has_election_change
-    ):
-        raise BenchmarkSetupError("clock or primary changed during window")
+    if cell.workload == "active":
+        calibration.validate_window(
+            tolerance_seconds=registration.number("clock_tolerance_seconds")
+        )
 
 
 def _timed_write(collection: Collection[BsonDict], target: int) -> float:

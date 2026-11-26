@@ -43,6 +43,8 @@ _V5_CONFIG = Path(
 _CONCURRENT_CONFIG = Path(
     "docs/development/reports/concurrent-worker-workload/v1/config.json"
 )
+# Contended hello timing can shift offset estimates in the smoke tests.
+_SMOKE_CLOCK_TOLERANCE_SECONDS = 0.05
 _ORIGINAL_WORKLOAD = window._workload
 _ORIGINAL_SEED = seed_catalogue
 
@@ -62,6 +64,7 @@ def _smoke_config(source: Path, path: Path, **changes: object) -> Path:
     )
     raw["drain_seconds"] = 2
     raw["schedule_tolerance_seconds"] = 1.0
+    raw["clock_tolerance_seconds"] = _SMOKE_CLOCK_TOLERANCE_SECONDS
     raw["startup_seconds"] = 60
     raw.update(changes)
     path.write_text(json.dumps(raw), encoding="utf-8")
@@ -94,6 +97,7 @@ def concurrent(tmp_path: Path) -> Registration:
             "warmup_seconds": 0.5,
             "drain_seconds": 2,
             "schedule_tolerance_seconds": 1.0,
+            "clock_tolerance_seconds": _SMOKE_CLOCK_TOLERANCE_SECONDS,
             "startup_seconds": 60,
         }
     )
