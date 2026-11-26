@@ -20,6 +20,20 @@ Caching, invalidation, recovery and capacity limits work in both modes. Actionab
 
 Measure hit rate alongside request latency, application and MongoDB CPU, and memory. A healthy stream does not mean a writer's latest event has arrived; see [consistency](../usage/consistency.md).
 
+## Cache hit rate
+
+For a measurement interval, subtract the starting hit and miss counts from the ending counts for the same process-local manager or shared worker manager. If a manager is recreated or a worker restarts, measure each lifetime separately. When combining workers, sum their count differences before dividing. Using those differences, `hits / (hits + misses)` gives the fraction of recorded cache lookups that hit. Report the fraction only when the sum is nonzero.
+
+Some reads bypass the cache without a lookup. A read can also record a hit or miss and one or more bypass events. Adding bypass counts to the denominator can count a read more than once. Use application instrumentation for the total number of application reads.
+
+## MongoDB read savings
+
+Run the same workload with caching enabled and disabled. Keep the request rate, query mix, write traffic, and effective read preferences and concerns comparable. In particular, match the read settings on the direct PyMongo path to those used by cache misses for eligible reads. See [consistency](../usage/consistency.md).
+
+In each run, count MongoDB commands issued for application reads, including `find`, `aggregate`, `distinct`, `count`, and cursor `getMore` as applicable. Subtract the enabled count from the disabled count to measure the reduction in application-read commands for that workload. A single application read can issue multiple commands, for example when a cursor fetches more batches. Report change-stream traffic, including the aggregates that open streams and the streams' own `getMore` commands, and metadata traffic such as `listCollections` separately from application-read commands.
+
+The shared FastAPI self-check illustrates command counting for `find` alone. See [run and verify](../examples/fastapi-shared.md#run-and-verify).
+
 ## Observability
 
 The remainder of this section describes telemetry-enabled synchronous and asyncio **process-local `CacheManager`** instances.
