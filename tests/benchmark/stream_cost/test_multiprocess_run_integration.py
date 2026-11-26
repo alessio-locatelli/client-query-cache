@@ -291,8 +291,18 @@ def multiprocess_replica() -> Iterator[IsolatedReplicaSet]:
 
 @pytest.fixture
 def smoke_protocol() -> Protocol:
-    # Instrumentation tests tolerate coverage/xdist scheduling jitter.
-    return replace(Protocol.smoke(), schedule_tolerance_seconds=0.5)
+    protocol = Protocol.smoke()
+    # Contended hello round trips can shift the estimated offset. Use a fixed
+    # 50 ms tolerance for the instrumentation smoke tests.
+    # Calibration validity has deterministic tests at the registered 5 ms limit.
+    return replace(
+        protocol,
+        schedule_tolerance_seconds=0.5,
+        registration={
+            **protocol.registration,
+            "clock_tolerance_seconds": 0.05,
+        },
+    )
 
 
 @pytest.fixture
@@ -420,7 +430,7 @@ def failing_harness(
             "writer", "harness MongoDB operation failed", id="failed-writer-command"
         ),
         pytest.param("observer", "clock observer failed", id="failed-clock-observer"),
-        pytest.param("clock", "clock or primary changed", id="clock-drift"),
+        pytest.param("clock", "clock offset drift exceeded", id="clock-drift"),
         pytest.param(
             "schedule", "write schedule exceeded tolerance", id="write-lateness"
         ),

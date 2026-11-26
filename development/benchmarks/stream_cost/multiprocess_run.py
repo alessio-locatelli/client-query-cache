@@ -799,7 +799,8 @@ def run_cell(replica: IsolatedReplicaSet, cell: Cell, protocol: Protocol) -> Pay
                 for connection in connections
             )
             before = process_reading()  # pytriage: TR11 (metric boundary)
-            server_before = replica.container_cpu_usage_seconds()
+            # Read server CPU before the application window starts.
+            server_before = replica.container_cpu_usage_seconds()  # pytriage: TR11
             paths_before = tuple(  # pytriage: TR11 (byte boundary)
                 (proxy.bytes_sent, proxy.bytes_received)
                 for proxy in (writer_proxy, observer_proxy)
@@ -836,24 +837,17 @@ def run_cell(replica: IsolatedReplicaSet, cell: Cell, protocol: Protocol) -> Pay
             drain_deadline = time.monotonic() + protocol.drain_seconds
             for connection in connections:
                 receive(connection, drain_deadline, "application-end")
-            samples = tuple(  # pytriage: TR11 (drain boundary)
+            samples = tuple(
                 receive(connection, drain_deadline, "sample")
                 for connection in connections
             )
-            drained = process_reading()  # pytriage: TR11 (metric boundary)
+            drained = process_reading()
             # Sample at the drain boundary.
-            server_drained = replica.container_cpu_usage_seconds()  # pytriage: TR11
+            server_drained = replica.container_cpu_usage_seconds()
             calibration = CalibrationSeries(sampler.stop())
-            if (
-                calibration.exceeds_drift_tolerance(
-                    protocol.registration["clock_tolerance_seconds"]
-                )
-                or calibration.has_host_clock_step(
-                    tolerance_seconds=protocol.registration["clock_tolerance_seconds"]
-                )
-                or calibration.has_election_change
-            ):
-                raise BenchmarkSetupError("clock or primary changed during window")
+            calibration.validate_window(
+                tolerance_seconds=protocol.registration["clock_tolerance_seconds"]
+            )
             shutdown_deadline = time.monotonic() + protocol.shutdown_seconds
             for connection in connections:
                 connection.send("close")
