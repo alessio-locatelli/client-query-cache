@@ -36,7 +36,7 @@ from development.benchmarks.stream_cost.topology import (
 from development.benchmarks.stream_cost.workload import OperationCounts, WorkloadKind
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
+    from collections.abc import Iterator
 
     from pymongo import MongoClient
 
@@ -116,6 +116,7 @@ def _client_for_mode(
 
 
 @pytest.mark.timeout(120)
+@pytest.mark.usefixtures("unpaced_compression_writes")
 @pytest.mark.parametrize(
     "mode",
     [
@@ -179,11 +180,12 @@ def test_run_compression_mode_block_produces_finite_values(
                 assert result.invalidation_latencies_seconds == ()
 
 
-def _shrink_write_schedule_tolerance(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(runner_module, "_SCHEDULE_TOLERANCE_SECONDS", 1e-9)
-
-
-def _force_a_settle_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.usefixtures("unpaced_compression_writes")
+def test_run_compression_window_propagates_settle_failure(
+    compression_replica_set: IsolatedReplicaSet,
+    compression_proxy: DirectPathByteProxy,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     def _always_times_out(*_args: object, **_kwargs: object) -> None:
         message = "stream invalidations did not settle for a forced test failure"
         raise BenchmarkSetupError(message)
@@ -191,49 +193,17 @@ def _force_a_settle_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         runner_module, "wait_for_invalidations_to_settle", _always_times_out
     )
-
-
-@pytest.mark.parametrize(
-    ("apply_patch", "path", "match", "database_name"),
-    [
-        pytest.param(
-            _shrink_write_schedule_tolerance,
-            WirePath.NO_STREAM,
-            "deviates from its scheduled",
-            "compression_missed_tolerance",
-            id="missed_write_schedule_tolerance",
-        ),
-        pytest.param(
-            _force_a_settle_timeout,
-            WirePath.STREAM_WATCHING,
-            "did not settle",
-            "compression_missing_events",
-            id="missing_invalidation_events",
-        ),
-    ],
-)
-def test_run_compression_window_rejects_a_setup_failure(
-    compression_replica_set: IsolatedReplicaSet,
-    compression_proxy: DirectPathByteProxy,
-    monkeypatch: pytest.MonkeyPatch,
-    *,
-    apply_patch: Callable[[pytest.MonkeyPatch], None],
-    path: WirePath,
-    match: str,
-    database_name: str,
-) -> None:
-    apply_patch(monkeypatch)
     with (
         _client_for_mode(compression_proxy, WireCompressor.NONE) as client,
-        pytest.raises(BenchmarkSetupError, match=match),
+        pytest.raises(BenchmarkSetupError, match="did not settle"),
     ):
         run_compression_window(
             _ACTIVE_WINDOW,
             mode=WireCompressor.NONE,
-            path=path,
+            path=WirePath.STREAM_WATCHING,
             block_index=0,
             client=client,
             replica_set=compression_replica_set,
             proxy=compression_proxy,
-            database_name=database_name,
+            database_name="compression_settle_failure",
         )

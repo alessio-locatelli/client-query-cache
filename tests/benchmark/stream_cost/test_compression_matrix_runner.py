@@ -1,20 +1,29 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
 from dataclasses import dataclass
-from typing import Any, Self
+from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any, Self
 from unittest.mock import MagicMock
 
 import pytest
 
 from client_query_cache._core.stream_cost import InvalidationApplyReading
-from client_query_cache._types import BsonDict, NonNegativeFloat, NonNegativeInt
+from client_query_cache._types import (
+    BsonDict,
+    NonNegativeFloat,
+    NonNegativeInt,
+    PositiveFloat,
+)
 from development.benchmarks.stream_cost import (
     compression_matrix_runner as runner_module,
 )
+from development.benchmarks.stream_cost import consolidated_stream
 from development.benchmarks.stream_cost.compression_matrix import CompressionWindowSpec
 from development.benchmarks.stream_cost.compression_matrix_runner import (
     _invalidation_latencies,
     _issue_cache_reads,
+    _issue_scheduled_writes,
     _prime_cache_reads,
     _run_stream_watching_window,
     _seed_window_dataset,
@@ -23,6 +32,9 @@ from development.benchmarks.stream_cost.compression_matrix_runner import (
 from development.benchmarks.stream_cost.errors import BenchmarkSetupError
 from development.benchmarks.stream_cost.generators import SMALL_DOCUMENT_PROFILE
 from development.benchmarks.stream_cost.workload import OperationCounts, WorkloadKind
+
+if TYPE_CHECKING:
+    from contextlib import AbstractContextManager
 
 pytestmark = pytest.mark.unit
 
@@ -61,6 +73,40 @@ def test_write_schedule_has_one_offset_per_write_and_is_deterministic() -> None:
     assert len(first) == 4
     assert first == second
     assert list(first) == sorted(first)
+
+
+@pytest.mark.parametrize(
+    ("lateness_seconds", "expectation"),
+    [
+        pytest.param(1.999, nullcontext(), id="within_registered_tolerance"),
+        pytest.param(
+            2.001,
+            pytest.raises(
+                BenchmarkSetupError, match="deviates from its scheduled offset"
+            ),
+            id="beyond_registered_tolerance",
+        ),
+    ],
+)
+def test_issue_scheduled_writes_uses_registered_tolerance(
+    lateness_seconds: PositiveFloat,
+    expectation: AbstractContextManager[object],
+    *,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    window = _window(writes=1)
+    dataset = _seed_window_dataset(window)
+    (scheduled_offset,) = _write_schedule(window)
+    observed_offset = scheduled_offset + lateness_seconds
+    monkeypatch.setattr(runner_module, "time", SimpleNamespace(monotonic=lambda: 0.0))
+    monkeypatch.setattr(
+        consolidated_stream, "time", SimpleNamespace(monotonic=lambda: observed_offset)
+    )
+
+    collection = MagicMock()
+    with expectation:
+        _issue_scheduled_writes(collection, dataset, window, latencies=[])
+    collection.update_one.assert_called_once()
 
 
 def test_seed_window_dataset_is_deterministic_and_sized() -> None:
