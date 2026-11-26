@@ -267,7 +267,11 @@ Every wrapped object exposes the PyMongo object underneath:
 
 ## Rollback to plain PyMongo
 
-Because `CacheManager` wraps a client you already own rather than replacing it, removing the cache layer is a mechanical change: make each `cached_collection` read on the PyMongo collection instead, wrapping `find()` and `aggregate()` in `list(...)` where your code needs a list. Writes and administration already go through PyMongo and need no change. No data migration is needed either — the manager never alters stored documents, it only caches read results in your process's memory.
+Switch reads from the cached view to the original PyMongo collection. Keep [consuming cursors the same way](#cached-read-methods). With synchronous PyMongo, use ordinary iteration or `cursor.to_list()`. With asyncio, use `async for` or `await cursor.to_list()`. Continue to await `collection.aggregate(...)` in asyncio before consuming the returned cursor.
+
+Direct reads use the collection's read settings. Eligible cache misses read from the primary with `majority` read concern. See [Consistency](../usage/consistency.md) for the implications.
+
+Close unused managers before closing their clients. Use `manager.close()` for synchronous managers or `await manager.close()` for asyncio managers, or exit their context managers. No data migration is needed because caching does not change stored documents.
 
 ## Errors
 
