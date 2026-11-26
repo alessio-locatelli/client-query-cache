@@ -42,6 +42,16 @@ Hits skip server execution. They cannot reproduce fresh query errors, network er
 
 ## Freshness and authorization
 
-Use direct reads for authorization decisions that require current policy. Credential or role changes alone do not invalidate cached documents. See [shared security](../operations/shared-cache.md#security-and-monitoring) and [process-local security](../operations/deployment.md#security).
+When revocation must take effect immediately, check authorization before retrieving or returning cached content. Read policy directly through PyMongo with the read preference, read concern and session settings your application requires. Use direct reads for content that also requires current server-side access checks. See [shared security](../operations/shared-cache.md#security-and-monitoring) and [process-local security](../operations/deployment.md#security).
 
 The [py-abac example](../examples/py-abac.md) demonstrates eventual policy invalidation, not immediate re-authorization. The [maintainer decision](https://github.com/alessio-locatelli/client-query-cache/blob/main/docs/development/decisions/defer-causal-invalidation-barrier.md) records the constraints on adding a public invalidation barrier.
+
+### Rotate credentials or reduce read access
+
+Credential and role changes leave existing cached documents in place. Replace the affected cache deployments when rotating MongoDB credentials or reducing read visibility:
+
+1. Stop accepting affected cached reads. Drain or stop affected workers before serving under the new policy, and discard outstanding cached cursors. Copies already returned remain with their recipients.
+2. Close affected managers, then close their MongoDB clients. In a shared deployment, stop all workers attached to the affected server before the parent closes the server. Retire its `SharedCacheConnection` along with it.
+3. Create replacement MongoDB clients and managers with the intended credentials and read visibility before resuming traffic. For a shared cache, have the parent start a new `SharedCacheServer` with the intended credentials and database scope before creating the worker managers. Give its new connection only to trusted workers using the same MongoDB deployment and credentials with equivalent read visibility.
+
+`cache_server.restart()` starts with an empty cache and reuses the server's MongoDB configuration and existing attachment credentials. Use a new server for the cutover. The [permission recovery exercise](../operations/permission-recovery.md) shows how an existing manager resumes caching when it gains change-stream access.
