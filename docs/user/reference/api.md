@@ -159,10 +159,9 @@ it safely isn't possible:
 - A `find_one`, `find`, `count_documents`, or `distinct` filter is nondeterministic.
 - A read depends on indexes or on the caller's roles: `$text` and geospatial proximity (`$near`, `$nearSphere`, `$geoNear`) queries, and filters, projections, or pipelines that reference `$$USER_ROLES`. Index creation and deletion refresh cached query results, but index visibility changes and changes to a user's roles do not.
 - A `find_one` or `find` projection uses `$meta`, or computes a changing value with `$rand`, `$function`, `$$NOW`, or `$$CLUSTER_TIME`.
-- The collection is a time-series collection — MongoDB does not provide change streams for time-series collections,
-  so caching bypasses unconditionally for them. If a time-series collection is later replaced with an ordinary
-  collection, reads may keep bypassing until a new manager is created, since MongoDB supplies no notification that
-  refreshes a collection's type once it's been determined to be time-series.
+- [Time-series collections](https://www.mongodb.com/docs/manual/core/timeseries/timeseries-limitations/) always bypass caching.
+  If an ordinary collection takes over the same name, eligible reads can be cached by the existing manager
+  once it processes the ordinary collection's creation or rename event.
 - The target collection does not yet exist. Later reads recheck its type: a missing document in an existing
   ordinary collection can still be cached, and a namespace later created as an ordinary collection can be cached
   normally from then on.

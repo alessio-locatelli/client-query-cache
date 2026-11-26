@@ -41,6 +41,8 @@ Shared views cache the six [cached read methods](api.md#cached-read-methods): de
 
 The [query, option, session, read-profile and collection-type bypass rules](api.md#bypass-conditions) apply. Shared caching additionally requires portable keys, the standard document class and no custom codec registry. Explicit collation and the collection's default collation must be simple (binary). Unsupported calls execute through PyMongo. These restrictions preserve the shared key and metadata contracts; they do not change native query results or errors.
 
+After an ordinary collection replaces a time-series collection, a worker may briefly continue to bypass caching until it rechecks the collection type. Eligible reads can then warm the cache with the existing workers and owner.
+
 `find()` returns a native cursor subclass immediately without issuing a query; await `aggregate()` with asyncio before consuming its cursor. Misses use native batching. Only complete, successful consumption can admit a cursor result; close abandoned cursors. Results exceeding `max_entry_bytes` are delivered completely without admission. Hit cursors own isolated snapshots through invalidation, eviction and manager closure. Clone and rewind start another execution using the current cache state. Explicit batching options and modifiers bypass caching as described in the API reference.
 
 Use the raw collection for writes and administration. Eligible misses use primary, majority reads and may return before shared admission completes; receiving a value is not proof of admission. Broader results invalidate on collection writes and relevant schema changes. Shared consistency remains [eventual](../usage/consistency.md), including for authorization changes.
