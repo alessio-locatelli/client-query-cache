@@ -47,7 +47,7 @@ from client_query_cache._shared.attachment import (
     AttachmentConfigurationError,
     ControlAttachment,
 )
-from client_query_cache._types import BsonDict, NonEmptyStr, PositiveInt
+from client_query_cache._types import BsonDict, NonEmptyStr, NonNegativeInt, PositiveInt
 from client_query_cache.asynchronous import (
     SharedCachedCollection as AsyncSharedCachedCollection,
 )
@@ -374,6 +374,21 @@ async def _warm(
         await asyncio.sleep(0.02)
 
 
+async def _wait_for_reattachment(
+    manager: SharedCacheManager[BsonDict] | AsyncSharedCacheManager[BsonDict],
+    view: SyncView[BsonDict] | AsyncView[BsonDict],
+    query: BsonDict,
+    expected: BsonDict,
+    previous_incarnation: NonNegativeInt,
+) -> None:
+    async def reattached() -> bool:
+        assert await _read(view, query) == expected
+        assert manager.local is not None
+        return manager.local.incarnation != previous_incarnation
+
+    await wait_until_async(reattached, timeout_seconds=10)
+
+
 async def test_public_shared_reads_invalidate_and_reconnect(
     manager: SharedCacheManager[BsonDict] | AsyncSharedCacheManager[BsonDict],
     server: SharedCacheServer,
@@ -384,23 +399,19 @@ async def test_public_shared_reads_invalidate_and_reconnect(
     await _warm(manager, view)
     assert manager.local is not None
     incarnation = manager.local.incarnation
+    query: BsonDict = {"_id": 0}
+    before = await _read(view, query)
+    assert before is not None
+    document = {**before, "public_marker": True}
     client[seeded_database].catalogue.update_one(
-        {"_id": 0}, {"$set": {"public_marker": True}}
+        query, {"$set": {"public_marker": True}}
     )
-    deadline = time.monotonic() + 10
-    while True:
-        document = await _read(view, {"_id": 0})
-        assert document is not None
-        if "public_marker" in document:
-            break
-        assert time.monotonic() < deadline
-        await asyncio.sleep(0.02)
+    await wait_until_value_async(
+        partial(_read, view, query), lambda observed: observed == document
+    )
+
     server.restart()
-    deadline = time.monotonic() + 10
-    while manager.local.incarnation == incarnation:
-        assert await _read(view, {"_id": 0}) == document
-        assert time.monotonic() < deadline
-        await asyncio.sleep(0.02)
+    await _wait_for_reattachment(manager, view, query, document, incarnation)
 
 
 async def test_timeseries_replacement_resumes_caching(
@@ -1494,17 +1505,14 @@ async def test_shared_policy_survives_restart_without_diagnostic_requests(
     server_telemetry: bool,
 ) -> None:
     view = manager[seeded_database]["catalogue"]
-    expected = client[seeded_database].catalogue.find_one({"_id": 0})
+    query: BsonDict = {"_id": 0}
+    expected = client[seeded_database].catalogue.find_one(query)
     assert expected is not None
-    assert await _read(view, {"_id": 0}) == expected
+    assert await _read(view, query) == expected
     assert manager.enable_telemetry is server_telemetry
     assert manager.local is not None
     incarnation = manager.local.incarnation
     server.restart()
-    deadline = time.monotonic() + 10
-    while manager.local.incarnation == incarnation:
-        assert await _read(view, {"_id": 0}) == expected
-        assert time.monotonic() < deadline
-        await asyncio.sleep(0.02)
+    await _wait_for_reattachment(manager, view, query, expected, incarnation)
     assert manager.enable_telemetry is server_telemetry
     assert manager.endpoint.config.enable_telemetry is server_telemetry

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from asyncio import sleep
-from time import monotonic
 from typing import TYPE_CHECKING, Literal
 from unittest.mock import patch
 
@@ -11,11 +9,10 @@ from pymongo.asynchronous.cursor import AsyncCursor
 from pymongo.errors import OperationFailure
 
 from client_query_cache import BypassReason
-from client_query_cache._core.keys import NamespaceId
 from client_query_cache._types import BsonDict
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Callable
+    from collections.abc import AsyncIterator
 
     from faker import Faker
 
@@ -23,8 +20,6 @@ if TYPE_CHECKING:
     from client_query_cache.asynchronous.manager import CacheManager
     from tests.conftest import DatabaseName, MongoDbUri
     from tests.stream_helpers import StreamBarrier
-
-from tests.epoch_helpers import current_epoch
 
 pytestmark = pytest.mark.integration
 
@@ -80,13 +75,6 @@ async def create_collection(
         )
     else:
         await collection.database.raw.create_collection(collection.name)
-
-
-async def wait_until(predicate: Callable[[], bool]) -> None:
-    deadline = monotonic() + 10
-    while not predicate():
-        assert monotonic() < deadline, "Timed out waiting for change-stream delivery"
-        await sleep(0.01)
 
 
 @pytest.fixture
@@ -257,13 +245,11 @@ async def test_collection_type_is_rechecked_after_absence(
     stream_barrier: StreamBarrier,
 ) -> None:
     cache = collection.database.manager.cache_core
-    namespace = NamespaceId(collection.database.name, collection.name)
     if request.node.callspec.params["collection"] == "collection":
         await collection.raw.insert_one(measurement)
         assert await collection.find_one({"_id": measurement["_id"]}) == measurement
-        epoch = current_epoch(cache, namespace)
         await collection.database.raw.drop_collection(collection.name)
-        await wait_until(lambda: current_epoch(cache, namespace) > epoch)
+        await stream_barrier.wait_async(collection.raw.database)
     assert await collection.find_one({"_id": measurement["_id"]}) is None
     assert await collection.find_one({"_id": measurement["_id"]}) is None
     assert cache.snapshot().entry_count == 0
