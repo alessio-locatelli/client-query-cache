@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import socket
 from typing import TYPE_CHECKING, ClassVar, Self, cast
+from unittest.mock import Mock
 
 import pytest
 from docker.errors import DockerException
@@ -58,7 +59,7 @@ class _FakeMongoClient:
 
 
 class _FakeContainer:
-    __slots__ = ("start_error", "stop_error", "stopped")
+    __slots__ = ("start_error", "stop_error", "stopped", "wrapped")
 
     def __init__(
         self,
@@ -69,6 +70,7 @@ class _FakeContainer:
         self.start_error = start_error
         self.stop_error = stop_error
         self.stopped = False
+        self.wrapped = Mock()
 
     def with_command(self, _command: Sequence[str]) -> Self:
         return self
@@ -79,6 +81,9 @@ class _FakeContainer:
     def start(self) -> None:
         if self.start_error is not None:
             raise self.start_error
+
+    def get_wrapped_container(self) -> Mock:
+        return self.wrapped
 
     def stop(self) -> None:
         self.stopped = True
@@ -135,6 +140,8 @@ def test_container_cleanup_preserves_active_error_and_all_cleanup_errors() -> No
 
     assert first.stopped
     assert second.stopped
+    first.wrapped.stop.assert_not_called()
+    second.wrapped.stop.assert_not_called()
     assert len(active_error.__notes__) == 2
 
 
@@ -148,7 +155,20 @@ def test_container_cleanup_raises_first_error_and_notes_later_error() -> None:
 
     assert first.stopped
     assert second.stopped
+    first.wrapped.stop.assert_called_once_with(timeout=0)
+    second.wrapped.stop.assert_called_once_with(timeout=0)
     assert error.value.__notes__ == ["first cleanup failure"]
+
+
+def test_container_cleanup_removes_member_when_explicit_stop_fails() -> None:
+    member = _FakeContainer()
+    member.wrapped.stop.side_effect = DockerException("explicit stop failed")
+    containers = cast("tuple[DockerContainer, ...]", (member,))
+
+    with pytest.raises(DockerException, match="explicit stop failed"):
+        _stop_containers(containers, None)
+
+    assert member.stopped
 
 
 def test_container_start_failure_stops_started_members(

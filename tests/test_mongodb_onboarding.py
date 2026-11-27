@@ -63,10 +63,16 @@ def uninitialized_mongodb_uri(request: pytest.FixtureRequest) -> Iterator[MongoD
         .with_command(command)
         .with_exposed_ports(27017) as container
     ):
-        yield MongoDbUri(
+        uri = MongoDbUri(
             f"mongodb://{container.get_container_host_ip()}:"
             f"{container.get_exposed_port(27017)}/?directConnection=true"
         )
+        try:
+            yield uri
+        finally:
+            # Request zero grace for the disposable data, then let the context
+            # manager remove the container and volumes.
+            container.get_wrapped_container().stop(timeout=0)
 
 
 def _run_program(
