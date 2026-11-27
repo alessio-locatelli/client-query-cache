@@ -406,6 +406,11 @@ jobs:
             pytest-hypothesis-${{ runner.os }}-py${{ matrix.python }}-${{ hashFiles('uv.lock', 'pyproject.toml') }}-
 
       - run: just tests_and_coverage
+        env:
+          # The default is unset, so pytest uses the configured capped auto count.
+          # We override it because six workers consistently finish the coverage
+          # gate faster on these runners. See issue #540.
+          PYTEST_ADDOPTS: "-n 6"
 
       - if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
