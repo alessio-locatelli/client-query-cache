@@ -27,6 +27,14 @@ _ACCEPT_POLL_INTERVAL_SECONDS = 0.5
 _UPSTREAM_CONNECT_TIMEOUT_SECONDS = 2.0
 
 
+def _shutdown_socket(sock: socket.socket) -> None:
+    try:
+        sock.shutdown(socket.SHUT_RDWR)
+    except OSError:
+        pass
+    sock.close()
+
+
 @dataclass(frozen=True, slots=True)
 class DirectPathProxyConfig:
     client_topology: BenchmarkClientTopologyConfig
@@ -84,18 +92,15 @@ class DirectPathByteProxy:
     def __exit__(self, *_exc_info: object) -> None:
         self._stopping.set()
         if self._listener is not None:
-            self._listener.close()
+            # Wake the accept thread before closing its descriptor.
+            _shutdown_socket(self._listener)
         if self._accept_thread is not None:
             self._accept_thread.join(timeout=_JOIN_TIMEOUT_SECONDS)
         with self._lock:
             sockets = self._sockets.copy()
             connection_threads = self._connection_threads.copy()
         for sock in sockets:
-            try:
-                sock.shutdown(socket.SHUT_RDWR)
-            except OSError:
-                pass
-            sock.close()
+            _shutdown_socket(sock)
         for thread in connection_threads:
             thread.join(timeout=_JOIN_TIMEOUT_SECONDS)
 
