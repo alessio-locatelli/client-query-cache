@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 import re
 import socket
+from contextlib import ExitStack
 from dataclasses import dataclass
 from time import monotonic, sleep
 from typing import TYPE_CHECKING, Self, cast
@@ -160,7 +161,14 @@ def _stop_containers(
     first_cleanup_error: DockerException | None = None
     for container in reversed(containers):
         try:
-            container.stop()
+            with ExitStack() as cleanup:
+                cleanup.callback(container.stop)
+                if active_error is None:
+                    # Docker SDK stop defaults to the container's grace period
+                    # (https://docker-py.readthedocs.io/en/7.2.0/api.html#docker.api.container.ContainerApiMixin.stop).
+                    # These members are disposable. Podman can spend that period
+                    # waiting for each member during forced removal.
+                    container.get_wrapped_container().stop(timeout=0)
         except DockerException as cleanup_error:
             if active_error is not None:
                 message = (
