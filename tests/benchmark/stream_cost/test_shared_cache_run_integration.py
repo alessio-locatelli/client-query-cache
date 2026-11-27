@@ -11,7 +11,13 @@ import pytest
 from pymongo.errors import OperationFailure
 from pymongo.synchronous.collection import Collection
 
-from client_query_cache._types import BsonDict, JsonDict
+from client_query_cache._types import (
+    BsonDict,
+    JsonDict,
+    NonNegativeFloat,
+    NonNegativeInt,
+    PositiveInt,
+)
 from development.benchmarks.stream_cost.errors import BenchmarkSetupError
 from development.benchmarks.stream_cost.shared_cache import run, window
 from development.benchmarks.stream_cost.shared_cache.dataset import seed_catalogue
@@ -82,11 +88,6 @@ def registration(config: Path) -> Registration:
 
 
 @pytest.fixture
-def v5_config(tmp_path: Path) -> Path:
-    return _smoke_config(_V5_CONFIG, tmp_path / "v5.json")
-
-
-@pytest.fixture
 def concurrent(tmp_path: Path) -> Registration:
     raw = json.loads(_CONCURRENT_CONFIG.read_text(encoding="utf-8"))
     raw["status"] = "frozen"
@@ -129,47 +130,39 @@ def _no_children() -> bool:
     ]
 
 
-@pytest.mark.timeout(120)
-@pytest.mark.parametrize(
-    ("workload", "path"),
-    [
-        (workload, path)
-        for workload in ("hot", "active", "cold")
-        for path in ("direct", "independent", "shared", "shared-index")
-    ],
-)
-def test_smoke_windows_identify_every_owner(
-    replica: IsolatedReplicaSet,
-    registration: Registration,
-    v5_config: Path,
-    workload: str,
-    path: str,
+def _assert_smoke_window(
+    record: JsonDict, cell: Cell, registration: Registration
 ) -> None:
-    if path == "shared-index":
-        registration = Registration.load(v5_config)
-    cell = _cell(registration, workload, path)
-
-    record = window.run_window(replica, registration, cell)
-
+    path, workload = cell.path, cell.workload
     workers = cast("list[JsonDict]", record["workers_measured"])
-    assert record["healthy"] is True
+    assert (record["workload"], record["path"]) == (workload, path)
+    assert record["healthy"] is True, cell
     assert record["completed"] == record["offered"]
     assert len(workers) == cell.workers
-    assert record["harness_includes"] == window.HARNESS_INCLUDES
-    assert cast("int", record["server_memory_bytes"]) > 0
+    assert record["harness_includes"] == list(window.HARNESS_INCLUDES)
+    assert cast("NonNegativeInt", record["server_memory_bytes"]) > 0
     memory = cast("JsonDict", record["memory"])
-    assert cast("int", memory["samples"]) > 0
+    assert cast("NonNegativeInt", memory["samples"]) > 0
     streams = sum(
-        cast("int", ready["streams"])
+        cast("NonNegativeInt", ready["streams"])
         for ready in cast("list[JsonDict]", record["ready"])
     )
-    assert streams == (cell.workers if path == "independent" else 0)
+    worker_streams = int(path == "independent")
+    assert streams == cell.workers * worker_streams
+    assert [worker["streams"] for worker in workers] == [worker_streams] * cell.workers
     if path in {"shared", "shared-index"}:
         owner = cast("JsonDict", record["owner"])
-        assert cast("float", owner["cpu_seconds"]) >= 0
-        assert cast("float", memory["steady_owner_pss_bytes"]) > 0
+        assert cast("NonNegativeFloat", owner["cpu_seconds"]) >= 0
+        assert cast("NonNegativeFloat", memory["steady_owner_pss_bytes"]) > 0
         assert owner["health"] == "healthy"
-        assert cast("dict[str, int]", owner["commands"])["stream:opened"] == 0
+        assert (
+            cast("dict[str, NonNegativeInt]", owner["commands"])["stream:opened"] == 0
+        )
+        before = cast("JsonDict", owner["before"])
+        assert (
+            cast("dict[str, PositiveInt]", before["upstream_commands"])["stream:opened"]
+            == 1
+        )
     else:
         assert "owner" not in record
     if workload == "hot" and path == "shared-index":
@@ -181,7 +174,6 @@ def test_smoke_windows_identify_every_owner(
         assert cast("JsonDict", lag_owner)["invalidations"] == 200
     if workload == "cold" and path != "direct":
         assert validation_failure(record, registration) is None
-    assert _no_children()
 
 
 @pytest.mark.timeout(120)
@@ -416,32 +408,33 @@ def test_smoke_command_records_every_cell(
     monkeypatch.setattr(
         run, "IsolatedReplicaSet", lambda _limits: _shared_replica(replica)
     )
+
+    def measure(
+        replica: IsolatedReplicaSet, registration: Registration, cell: Cell
+    ) -> JsonDict:
+        record = window.run_window(replica, registration, cell)
+        assert _no_children(), cell
+        return record
+
+    monkeypatch.setattr(run, "run_window", measure)
     output = tmp_path / "smoke.json"
 
     run.main(["--smoke", "--config", str(config), "--output", str(output)])
 
     report = json.loads(output.read_text(encoding="utf-8"))
-    cells = cast("list[JsonDict]", report["cells"])
+    records = cast("list[JsonDict]", report["cells"])
+    registration = Registration.load(config)
     assert report["phase"] == "smoke"
-    assert len(cells) == 9
-    assert all(cell["healthy"] for cell in cells)
-    assert {cell["path"] for cell in cells} == {"direct", "independent", candidate}
-    for cell in cells:
-        workers = cast("list[JsonDict]", cell["workers_measured"])
-        assert [worker["streams"] for worker in workers] == [
-            1 if cell["path"] == "independent" else 0
-        ] * len(workers)
-        if cell["path"] == candidate:
-            owner = cast("JsonDict", cell["owner"])
-            before = cast("JsonDict", owner["before"])
-            assert (
-                cast("dict[str, int]", before["upstream_commands"])["stream:opened"]
-                == 1
-            )
-            assert cast("dict[str, int]", owner["commands"])["stream:opened"] == 0
-            assert owner["health"] == "healthy"
+    assert len(records) == 9
+    assert {(record["workload"], record["path"]) for record in records} == {
+        (workload, path)
+        for workload in ("hot", "active", "cold")
+        for path in ("direct", "independent", candidate)
+    }
+    for record, cell in zip(records, smoke_cells(registration), strict=True):
+        _assert_smoke_window(record, cell, registration)
     environment = cast("JsonDict", report["environment"])
-    assert environment["configuration_sha256"] == Registration.load(config).digest
+    assert environment["configuration_sha256"] == registration.digest
     native = cast("JsonDict", environment["native_extension"])
     assert cast("str", native["rustc"]).startswith("rustc version ")
 
