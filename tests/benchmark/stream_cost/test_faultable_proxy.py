@@ -35,15 +35,12 @@ def upstream_port() -> Iterator[NonNegativeInt]:
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     listener.bind(("127.0.0.1", 0))
     listener.listen()
-    served: list[bytes] = []
 
     def serve() -> None:
         connection, _ = listener.accept()
         with connection:
-            received = bytearray()
-            while chunk := connection.recv(65_536):
-                received.extend(chunk)
-            served.append(bytes(received))
+            while connection.recv(65_536):
+                pass
             connection.sendall(b"r" * _HALF_CLOSE_REPLY_BYTES)
 
     thread = threading.Thread(target=serve, daemon=True)
@@ -53,8 +50,7 @@ def upstream_port() -> Iterator[NonNegativeInt]:
     thread.join(timeout=_SOCKET_TIMEOUT_SECONDS)
 
 
-@pytest.fixture
-def proxy_config(upstream_port: NonNegativeInt) -> DirectPathProxyConfig:
+def _proxy_config(upstream_port: NonNegativeInt) -> DirectPathProxyConfig:
     topology = BenchmarkClientTopologyConfig(
         tls_enabled=False,
         compressor=WireCompressor.NONE,
@@ -62,6 +58,11 @@ def proxy_config(upstream_port: NonNegativeInt) -> DirectPathProxyConfig:
         shared_connections=False,
     )
     return DirectPathProxyConfig(topology, "127.0.0.1", upstream_port)
+
+
+@pytest.fixture
+def proxy_config(upstream_port: NonNegativeInt) -> DirectPathProxyConfig:
+    return _proxy_config(upstream_port)
 
 
 @pytest.fixture
@@ -116,11 +117,11 @@ class _PartialSocket:
 
 
 def test_an_interrupted_send_counts_the_bytes_already_written(
-    proxy_config: DirectPathProxyConfig, faker: Faker
+    faker: Faker,
 ) -> None:
     chunk = faker.binary(length=_HALF_CLOSE_REPLY_BYTES)
     accepted = _HALF_CLOSE_REPLY_BYTES // 4
-    proxy = FaultableProxy(proxy_config)
+    proxy = FaultableProxy(_proxy_config(1))
 
     with pytest.raises(ConnectionResetError):
         proxy._relay(

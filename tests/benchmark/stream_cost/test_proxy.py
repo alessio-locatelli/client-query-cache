@@ -202,20 +202,16 @@ def test_accept_loop_bounds_the_upstream_connect_timeout(
     proxy = DirectPathByteProxy(_proxy_config(upstream_port=1))
     proxy._listener = listener
     thread = threading.Thread(target=proxy._accept_loop, daemon=True)
+    proxy._accept_thread = thread
     thread.start()
     try:
-        with real_create_connection(("127.0.0.1", listener.getsockname()[1])):
-            deadline = time.monotonic() + 2
-            while not captured_kwargs and time.monotonic() < deadline:
-                time.sleep(
-                    0.01
-                )  # pragma: no cover (rare accept-thread scheduling race)
+        with real_create_connection(("127.0.0.1", listener.getsockname()[1])) as client:
+            assert client.recv(1) == b""
     finally:
-        proxy._stopping.set()
-        listener.close()
-        thread.join(timeout=5)
+        proxy.__exit__()
 
     assert captured_kwargs["timeout"] == pytest.approx(2.0)
+    assert not thread.is_alive()
 
 
 def test_accept_loop_continues_after_accept_timeout(
@@ -242,29 +238,14 @@ def test_accept_loop_returns_when_listener_is_closed() -> None:
     proxy._accept_loop()
 
 
-def test_accept_loop_closes_client_when_upstream_unreachable(
-    bound_socket: socket.socket,
-) -> None:
-    listener = bound_socket
-
-    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    probe.bind(("127.0.0.1", 0))
-    unreachable_port = probe.getsockname()[1]  # pytriage: TR5 (before close)
-    probe.close()
-
-    proxy = DirectPathByteProxy(_proxy_config(upstream_port=unreachable_port))
-    proxy._listener = listener
-    thread = threading.Thread(target=proxy._accept_loop, daemon=True)
-    thread.start()
-    try:
-        with socket.create_connection(
-            ("127.0.0.1", listener.getsockname()[1])
-        ) as client:
+def test_accept_loop_closes_client_when_upstream_unreachable() -> None:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.bind(("127.0.0.1", 0))
+        with (
+            DirectPathByteProxy(_proxy_config(probe.getsockname()[1])) as proxy,
+            socket.create_connection(("127.0.0.1", proxy.local_port)) as client,
+        ):
             assert client.recv(1) == b""
-    finally:
-        proxy._stopping.set()
-        listener.close()
-        thread.join(timeout=5)
 
     assert proxy._sockets == []
     assert proxy._connection_threads == []
