@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from client_query_cache._core.contracts import LocalCacheCore, NamespaceCaptureView
     from client_query_cache._core.keys import AliasKey
     from tests.cursor_fixtures import Binding, View
+    from tests.stream_helpers import StreamBarrier
 
 pytestmark = pytest.mark.integration
 
@@ -36,24 +37,25 @@ class UniqueRead(TypedDict):
 
 
 @pytest.fixture
-async def evicted_unique(cursors: Binding, faker: Faker) -> AsyncIterator[UniqueRead]:
+async def evicted_unique(
+    cursors: Binding, faker: Faker, stream_barrier: StreamBarrier
+) -> AsyncIterator[UniqueRead]:
     view = cursors["view"]
     target: BsonDict = {"_id": faker.uuid4(), "email": faker.email(), "v": 1}
     await resolved(view.raw.create_index("email", unique=True))
     await resolved(view.raw.insert_one(target))
+    # Drain setup events before admitting the alias the test will replace.
+    raw = view.raw
+    if isinstance(raw, Collection):
+        stream_barrier.wait(raw.database)
+    else:
+        await stream_barrier.wait_async(raw.database)
+
     core = view.database.manager.cache_core
     namespace = view._namespace()
     query = {"email": target["email"]}
     expected = {"email": target["email"], "v": 1}
-
-    async def warm() -> bool:
-        assert await resolved(view.find_one(query, {"_id": 0})) == expected
-        return (
-            core.resolve_alias(namespace, ("email",), (target["email"],), None)
-            is not None
-        )
-
-    await wait_until_async(warm)
+    assert await resolved(view.find_one(query, {"_id": 0})) == expected
     shape = find_one_read_shape(
         {"_id": 0}, None, None, codec_fingerprint(view.raw.codec_options)
     )
