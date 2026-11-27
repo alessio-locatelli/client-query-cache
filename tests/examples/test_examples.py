@@ -68,6 +68,7 @@ def served_catalogue(
             "UV_LOCKED": "0",
         },
         stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
         text=True,
     )
     yield process, free_port
@@ -123,8 +124,22 @@ def test_catalogue_serves_from_independent_workers(
 ) -> None:
     process, port = served_catalogue
     assert process.stdout is not None
-    startup = "".join(process.stdout.readline() for _ in range(SERVED_WORKERS))
-    while _refused(port):
+    startup: list[str] = []
+    started: set[str] = set()
+    while len(started) < SERVED_WORKERS:
+        line = process.stdout.readline()
+        assert line, (
+            f"Catalogue output ended before both workers started.\n{''.join(startup)}"
+        )
+        startup.append(line)
+        started.update(STARTED.findall(line))
+    while True:
+        assert process.poll() is None, (
+            f"Catalogue exited before listening (exit {process.returncode}).\n"
+            f"{''.join(startup)}{process.stdout.read()}"
+        )
+        if not _refused(port):
+            break
         time.sleep(0.05)  # pragma: lax no cover (workers listen after lifespan startup)
 
     with pytest.raises(urllib.error.HTTPError) as rejected:
@@ -132,8 +147,6 @@ def test_catalogue_serves_from_independent_workers(
     process.send_signal(signal.SIGINT)
     remaining, _ = process.communicate(timeout=60)
 
-    started = set(STARTED.findall(startup))
-    assert len(started) == SERVED_WORKERS
     assert rejected.value.code == 401
     assert process.returncode == 0
     assert set(CLOSED.findall(remaining)) == started
