@@ -1,4 +1,4 @@
 [toolchain]
-channel = "1.100.0"
+channel = "1.100.1"
 # The default is the installing rustup's profile setting, normally default (https://rust-lang.github.io/rustup/overrides.html#the-toolchain-file). We override it because source builds need only the compiler, standard library, and Cargo.
 profile = "minimal"
