@@ -3,7 +3,7 @@
 # dependencies = ["client-query-cache", "fastapi>=0.143.0", "granian==2.8.4"]
 #
 # [tool.uv.sources]
-# client-query-cache = { path = "../..", editable = true }
+# client-query-cache = { path = "../.." }
 # ///
 
 import argparse

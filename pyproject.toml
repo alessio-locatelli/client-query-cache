@@ -116,12 +116,18 @@ environments = ["sys_platform == 'linux'"]
 # (https://github.com/astral-sh/uv/blob/0.13.6/crates/uv-settings/src/settings.rs#L1125-L1136). We override it because a missing Rust
 # toolchain must fail synchronization instead of installing system software.
 extra-build-variables = { client-query-cache = { MATURIN_NO_INSTALL_RUST = "1" } }
-# The default keys omit Rust sources and the toolchain
+# The default keys omit package sources and the toolchain
 # (https://github.com/astral-sh/uv/blob/0.13.6/crates/uv-settings/src/settings.rs#L102-L144). We override them because
-# native edits and compiler updates must rebuild editable installations.
+# native edits and compiler updates must rebuild editable installations, and the
+# examples' local wheels must include Python and typing changes.
 cache-keys = [
   { file = "pyproject.toml" },
+  { file = "README.md" },
+  { file = "LICENSE" },
   { file = "rust-toolchain.toml" },
+  { file = "src/client_query_cache/**/*.py" },
+  { file = "src/client_query_cache/**/*.pyi" },
+  { file = "src/client_query_cache/py.typed" },
   { file = "src/shared-index/Cargo.toml" },
   { file = "src/shared-index/Cargo.lock" },
   { file = "src/shared-index/src/**/*.rs" },

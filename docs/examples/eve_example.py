@@ -3,7 +3,7 @@
 # dependencies = ["client-query-cache", "Eve>=2.3.1"]
 #
 # [tool.uv.sources]
-# client-query-cache = { path = "../..", editable = true }
+# client-query-cache = { path = "../.." }
 # ///
 
 import os

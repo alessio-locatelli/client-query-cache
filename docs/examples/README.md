@@ -14,7 +14,7 @@ Authorization policies and Celery task state can lag a write until invalidation 
 
 - A disposable MongoDB deployment meeting the [database requirements](https://alessio-locatelli.github.io/client-query-cache/getting-started/installation/#requirements). The repository's [`docker-compose.yaml`](https://github.com/alessio-locatelli/client-query-cache/blob/main/development/docker-compose.yaml) starts one on `localhost:27017`, which the examples use by default. To use another deployment, set `MONGODB_URI` to its connection string.
 - A host meeting the [platform requirements](https://alessio-locatelli.github.io/client-query-cache/getting-started/installation/#requirements), including the additional requirements for shared caching.
-- [uv](https://docs.astral.sh/uv/). Each example declares its own dependencies, and uv installs them into a separate, cached environment the first time you run it.
+- [uv](https://docs.astral.sh/uv/). Each example declares its own dependencies. uv builds the library from the checkout and installs it with those dependencies in a separate, cached environment. A cold run requires the [Rust toolchain selected by the repository](../development/native-quality.md#rust-toolchain).
 
 Self-checks reset their dedicated database, for example `client_query_cache_example_requests_cache`. Use a disposable deployment without valuable data under the `client_query_cache_example_` prefix. Web `--serve` modes leave existing data intact. Keep connection credentials in your normal secret configuration and do not print the URI.
 

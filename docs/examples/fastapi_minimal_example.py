@@ -3,7 +3,7 @@
 # dependencies = ["client-query-cache", "fastapi>=0.143.0", "httpx2>=2.13.1"]
 #
 # [tool.uv.sources]
-# client-query-cache = { path = "../..", editable = true }
+# client-query-cache = { path = "../.." }
 # ///
 
 # --8<-- [start:imports]
