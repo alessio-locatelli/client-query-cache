@@ -57,7 +57,6 @@ class SelectiveReads(TypedDict):
     view: View
     commands: ReadCommands
     policy: SelectiveInvalidation
-    sibling: View
 
 
 class Recovery(TypedDict):
@@ -263,6 +262,27 @@ async def paused_cursor_start(
             pass
 
 
+async def _warm_find(view: View) -> None:
+    async def warm() -> bool:
+        before = view.database.manager.snapshot().hits
+        await materialize(view.find({"_id": "warm"}))
+        return view.database.manager.snapshot().hits > before
+
+    await wait_until_async(warm)
+
+
+async def _seed_ordinary_sibling(view: View) -> View:
+    sibling = view.database.manager[view.database.name]["ordinary"]
+    await resolved(sibling.raw.insert_one({"_id": "ordinary"}))
+    await _warm_find(sibling)
+    return sibling
+
+
+@pytest.fixture
+async def sibling(selective_reads: SelectiveReads) -> View:
+    return await _seed_ordinary_sibling(selective_reads["view"])
+
+
 @pytest.fixture(
     params=[
         (api, insert, updates)
@@ -332,18 +352,12 @@ async def selective_reads(
             )
         )
 
-        sibling = view.database.manager[cached_database_name]["ordinary"]
-        await resolved(sibling.raw.insert_one({"_id": "ordinary"}))
-
-        async def warm(target: View) -> bool:
-            before = target.database.manager.snapshot().hits
-            await materialize(target.find({"_id": "warm"}))
-            return target.database.manager.snapshot().hits > before
-
-        await wait_until_async(partial(warm, sibling))
-        await wait_until_async(partial(warm, view))
+        if mixed:
+            # Open the projected stream through an ordinary collection first.
+            await _seed_ordinary_sibling(view)
+        await _warm_find(view)
         commands.commands.clear()
-        yield {"view": view, "commands": commands, "policy": policy, "sibling": sibling}
+        yield {"view": view, "commands": commands, "policy": policy}
         await resolved(view.raw.database.client.drop_database(cached_database_name))
 
 
@@ -972,9 +986,9 @@ async def test_public_feed_and_count_examples_work_without_telemetry(
 
 async def test_ordinary_sibling_keeps_independent_namespace_guards(
     selective_reads: SelectiveReads,
+    sibling: View,
     stream_barrier: StreamBarrier,
 ) -> None:
-    sibling = selective_reads["sibling"]
     posts = selective_reads["view"]
     await resolved(sibling.count_documents({}))
     await resolved(posts.raw.insert_one({"_id": 4, "author_id": 99}))
