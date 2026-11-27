@@ -71,7 +71,7 @@ jobs:
       # The default name is artifact. Separate native builds, keeping a single sdist
       # from x86-64 so the merged release set has no duplicate source archive.
       # retention-days defaults to repository policy; bound inspection artifacts.
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist-${{ matrix.runner }}
           path: ${{ matrix.runner == 'ubuntu-24.04' && 'dist/' || 'dist/*.whl' }}

@@ -310,7 +310,7 @@ jobs:
       - run: uv run -- pytest -q tests/core tests/synchronous tests/asynchronous tests/shared_cache tests/e2e
 
       - if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: pytest-log-arm64
           path: |
@@ -413,7 +413,7 @@ jobs:
           PYTEST_ADDOPTS: "-n 6"
 
       - if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: pytest-log-${{ matrix.python }}
           path: |
@@ -447,7 +447,7 @@ jobs:
       - run: just test-pymongo-releases
 
       - if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: pytest-log-pymongo-min
           path: |
@@ -481,7 +481,7 @@ jobs:
       - run: just test-mongodb-min
 
       - if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: pytest-log-mongodb-min
           path: |
@@ -563,7 +563,7 @@ jobs:
       - run: just test-memory
 
       - if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: memory-reports
           path: .cache/memory-reports/
@@ -620,7 +620,7 @@ jobs:
       # The default is implicit success(). We override it because partial reports must
       # remain available after failed measurements.
       - if: always() && steps.scope.outputs.requires_guard == 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: pr-performance-guard-report
           path: guard-reports/guard.report.json
